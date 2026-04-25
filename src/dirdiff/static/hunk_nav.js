@@ -1,4 +1,8 @@
 (function (globalScope) {
+    const DEFAULT_SCROLL_MARGIN = 120;
+    const DEFAULT_ACTIVE_TOLERANCE = 24;
+    const DEFAULT_SETTLE_DELAY_MS = 140;
+
     function uniqueSortedPositions(positions, tolerance = 6) {
         const sorted = positions
             .filter((value) => Number.isFinite(value))
@@ -15,22 +19,8 @@
         return unique;
     }
 
-    function findNearestIndex(positions, viewportCenter) {
-        if (!positions.length) {
-            return null;
-        }
-
-        let nearestIndex = 0;
-        let nearestDistance = Math.abs(positions[0] - viewportCenter);
-        for (let i = 1; i < positions.length; i += 1) {
-            const distance = Math.abs(positions[i] - viewportCenter);
-            if (distance < nearestDistance) {
-                nearestDistance = distance;
-                nearestIndex = i;
-            }
-        }
-
-        return nearestIndex;
+    function positionsSignature(positions) {
+        return positions.join("|");
     }
 
     function stepHunkIndex(currentIndex, direction, length) {
@@ -48,8 +38,6 @@
             return null;
         }
 
-        // Navigate from the current scroll anchor so tall viewports do not skip
-        // nearby hunks that happen to sit above the viewport center.
         if (direction === "next") {
             for (let index = 0; index < positions.length; index += 1) {
                 if (positions[index] > currentPosition + tolerance) {
@@ -67,11 +55,327 @@
         return positions.length - 1;
     }
 
+    function targetScrollTopForPosition(
+        position,
+        maxScrollTop,
+        scrollMargin = DEFAULT_SCROLL_MARGIN,
+    ) {
+        return Math.min(Math.max(position - scrollMargin, 0), Math.max(maxScrollTop, 0));
+    }
+
+    function normalizeSnapshot(
+        snapshot,
+        {
+            scrollMargin = DEFAULT_SCROLL_MARGIN,
+            dedupeTolerance = 6,
+        } = {},
+    ) {
+        const positions = uniqueSortedPositions(snapshot.positions || [], dedupeTolerance);
+        const scrollY = Number(snapshot.scrollY || 0);
+        const maxScrollTop = Math.max(Number(snapshot.maxScrollTop || 0), 0);
+
+        return {
+            positions,
+            signature: positionsSignature(positions),
+            scrollY,
+            currentPosition: scrollY + scrollMargin,
+            maxScrollTop,
+        };
+    }
+
+    function createInitialState() {
+        return {
+            activeIndex: null,
+            signature: "",
+            autoScrollInProgress: false,
+            currentTargetIndex: null,
+            currentTargetTop: 0,
+            pendingDirections: [],
+        };
+    }
+
+    function cloneState(state) {
+        return {
+            activeIndex: state.activeIndex,
+            signature: state.signature,
+            autoScrollInProgress: !!state.autoScrollInProgress,
+            currentTargetIndex: state.currentTargetIndex,
+            currentTargetTop: state.currentTargetTop || 0,
+            pendingDirections: [...(state.pendingDirections || [])],
+        };
+    }
+
+    function isActiveIndexUsable(
+        state,
+        snapshot,
+        {
+            scrollMargin = DEFAULT_SCROLL_MARGIN,
+            activeTolerance = DEFAULT_ACTIVE_TOLERANCE,
+        } = {},
+    ) {
+        if (!Number.isInteger(state.activeIndex)) {
+            return false;
+        }
+        if (state.activeIndex < 0 || state.activeIndex >= snapshot.positions.length) {
+            return false;
+        }
+        if (state.signature !== snapshot.signature) {
+            return false;
+        }
+        if (state.autoScrollInProgress) {
+            return true;
+        }
+
+        const activePosition = snapshot.positions[state.activeIndex];
+        const activeScrollTop = targetScrollTopForPosition(
+            activePosition,
+            snapshot.maxScrollTop,
+            scrollMargin,
+        );
+
+        return (
+            Math.abs(activePosition - snapshot.currentPosition) <= activeTolerance
+            || Math.abs(activeScrollTop - snapshot.scrollY) <= activeTolerance
+        );
+    }
+
+    function resolveTargetIndex(
+        state,
+        snapshot,
+        {
+            scrollMargin = DEFAULT_SCROLL_MARGIN,
+            activeTolerance = DEFAULT_ACTIVE_TOLERANCE,
+        } = {},
+    ) {
+        if (!snapshot.positions.length || !state.pendingDirections.length) {
+            return null;
+        }
+
+        let targetIndex = isActiveIndexUsable(
+            state,
+            snapshot,
+            { scrollMargin, activeTolerance },
+        )
+            ? state.activeIndex
+            : null;
+
+        for (const direction of state.pendingDirections) {
+            targetIndex = targetIndex === null
+                ? pickRelativeIndex(
+                    snapshot.positions,
+                    snapshot.currentPosition,
+                    direction,
+                    activeTolerance,
+                )
+                : stepHunkIndex(targetIndex, direction, snapshot.positions.length);
+        }
+
+        return targetIndex;
+    }
+
+    function reduceState(
+        state,
+        event,
+        {
+            scrollMargin = DEFAULT_SCROLL_MARGIN,
+            activeTolerance = DEFAULT_ACTIVE_TOLERANCE,
+        } = {},
+    ) {
+        const current = cloneState(state);
+
+        if (event.type === "RESET") {
+            return {
+                state: createInitialState(),
+                effect: null,
+            };
+        }
+
+        if (event.type === "SCROLL") {
+            if (!current.autoScrollInProgress) {
+                return { state: current, effect: null };
+            }
+
+            const snapshot = normalizeSnapshot(
+                event.snapshot,
+                { scrollMargin },
+            );
+            current.signature = snapshot.signature;
+            return { state: current, effect: null };
+        }
+
+        if (event.type === "SETTLED") {
+            const snapshot = normalizeSnapshot(
+                event.snapshot,
+                { scrollMargin },
+            );
+
+            current.signature = snapshot.signature;
+            current.autoScrollInProgress = false;
+
+            if (
+                !Number.isInteger(current.activeIndex)
+                || current.activeIndex < 0
+                || current.activeIndex >= snapshot.positions.length
+            ) {
+                current.activeIndex = null;
+                current.currentTargetIndex = null;
+                current.currentTargetTop = 0;
+            }
+
+            return { state: current, effect: null };
+        }
+
+        if (event.type !== "REQUEST_NAVIGATION") {
+            throw new Error(`Unsupported hunk navigation event: ${event.type}`);
+        }
+
+        const snapshot = normalizeSnapshot(
+            event.snapshot,
+            { scrollMargin },
+        );
+        current.signature = snapshot.signature;
+        current.pendingDirections.push(event.direction);
+
+        const targetIndex = resolveTargetIndex(
+            current,
+            snapshot,
+            { scrollMargin, activeTolerance },
+        );
+
+        if (targetIndex === null) {
+            current.pendingDirections = [];
+            return { state: current, effect: null };
+        }
+
+        current.pendingDirections = [];
+        current.activeIndex = targetIndex;
+        current.currentTargetIndex = targetIndex;
+        current.currentTargetTop = targetScrollTopForPosition(
+            snapshot.positions[targetIndex],
+            snapshot.maxScrollTop,
+            scrollMargin,
+        );
+        current.autoScrollInProgress = true;
+
+        return {
+            state: current,
+            effect: {
+                type: "scrollTo",
+                top: current.currentTargetTop,
+                behavior: event.behavior || "smooth",
+                targetIndex,
+            },
+        };
+    }
+
+    function createHunkNavigationController(
+        adapter,
+        {
+            scrollMargin = DEFAULT_SCROLL_MARGIN,
+            activeTolerance = DEFAULT_ACTIVE_TOLERANCE,
+            settleDelayMs = DEFAULT_SETTLE_DELAY_MS,
+            scrollBehavior = "smooth",
+            onStateChange = () => {},
+        } = {},
+    ) {
+        let state = createInitialState();
+        let settleTimerId = 0;
+
+        function readSnapshot() {
+            return adapter.readSnapshot();
+        }
+
+        function clearSettleTimer() {
+            if (!settleTimerId) {
+                return;
+            }
+            adapter.clearTimeout(settleTimerId);
+            settleTimerId = 0;
+        }
+
+        function scheduleSettle() {
+            clearSettleTimer();
+            settleTimerId = adapter.setTimeout(() => {
+                settleTimerId = 0;
+                const result = reduceState(
+                    state,
+                    { type: "SETTLED", snapshot: readSnapshot() },
+                    { scrollMargin, activeTolerance },
+                );
+                state = result.state;
+                onStateChange(cloneState(state));
+            }, settleDelayMs);
+        }
+
+        function applyResult(result) {
+            state = result.state;
+            onStateChange(cloneState(state));
+            if (!result.effect) {
+                return false;
+            }
+
+            adapter.scrollTo(result.effect.top, result.effect.behavior || scrollBehavior);
+            scheduleSettle();
+            return true;
+        }
+
+        return {
+            reset() {
+                clearSettleTimer();
+                state = reduceState(
+                    state,
+                    { type: "RESET" },
+                    { scrollMargin, activeTolerance },
+                ).state;
+                onStateChange(cloneState(state));
+            },
+            request(direction) {
+                const result = reduceState(
+                    state,
+                    {
+                        type: "REQUEST_NAVIGATION",
+                        direction,
+                        snapshot: readSnapshot(),
+                        behavior: scrollBehavior,
+                    },
+                    { scrollMargin, activeTolerance },
+                );
+                return applyResult(result);
+            },
+            handleScroll() {
+                if (!state.autoScrollInProgress) {
+                    return;
+                }
+
+                state = reduceState(
+                    state,
+                    { type: "SCROLL", snapshot: readSnapshot() },
+                    { scrollMargin, activeTolerance },
+                ).state;
+                onStateChange(cloneState(state));
+                scheduleSettle();
+            },
+            getState() {
+                return cloneState(state);
+            },
+        };
+    }
+
     const api = {
-        findNearestIndex,
-        uniqueSortedPositions,
-        stepHunkIndex,
+        DEFAULT_ACTIVE_TOLERANCE,
+        DEFAULT_SCROLL_MARGIN,
+        DEFAULT_SETTLE_DELAY_MS,
+        createHunkNavigationController,
+        createInitialState,
+        isActiveIndexUsable,
+        normalizeSnapshot,
         pickRelativeIndex,
+        positionsSignature,
+        reduceState,
+        resolveTargetIndex,
+        stepHunkIndex,
+        targetScrollTopForPosition,
+        uniqueSortedPositions,
     };
 
     globalScope.fileDiffNav = api;

@@ -23,14 +23,6 @@ const MODE_TO_SIDES = {
     staged: ["head", "index"],
     "against-head": ["head", "worktree"],
 };
-const hunkNavState = {
-    activeIndex: null,
-    signature: "",
-    autoScrollInProgress: false,
-    settleTimerId: 0,
-};
-const HUNK_SCROLL_MARGIN = 120;
-const HUNK_NAV_SETTLE_DELAY_MS = 140;
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
 
@@ -261,7 +253,7 @@ function renderSyntaxText(contentEl, text, syntaxSpans) {
     }
 }
 
-function makeDiffRow(row, side, markHunkAnchor = false) {
+function makeDiffRow(row, side, markHunkAnchor = false, hunkIndex = null) {
     const rowEl = document.createElement("div");
     rowEl.className = `diff-row ${row.status}`;
     rowEl.classList.add(`side-${side}`);
@@ -277,6 +269,10 @@ function makeDiffRow(row, side, markHunkAnchor = false) {
         && (row.status === "insert" || row.status === "delete" || row.status === "replace")
     ) {
         rowEl.classList.add("hunk-anchor");
+    }
+    if (Number.isInteger(hunkIndex)) {
+        rowEl.dataset.hunkIndex = String(hunkIndex);
+        rowEl.classList.add("hunk-anchor-row");
     }
 
     const noEl = document.createElement("div");
@@ -319,7 +315,7 @@ function isChangedRowStatus(status) {
     return status === "insert" || status === "delete" || status === "replace";
 }
 
-function renderSideBySide(rows, leftLabel, rightLabel) {
+function renderSideBySide(rows, leftLabel, rightLabel, startHunkIndex = 0) {
     const wrapper = document.createElement("div");
     wrapper.className = "diff-grid";
 
@@ -336,15 +332,17 @@ function renderSideBySide(rows, leftLabel, rightLabel) {
     rightLines.className = "diff-lines";
 
     const scheduleRowSync = makeScheduledRowSync(leftLines, rightLines);
+    let nextHunkIndex = startHunkIndex;
 
     rows.forEach((row, index) => {
         const previous = index > 0 ? rows[index - 1] : null;
         const markHunkAnchor =
             isChangedRowStatus(row.status)
             && !isChangedRowStatus(previous?.status ?? "equal");
+        const anchorIndex = markHunkAnchor ? nextHunkIndex++ : null;
 
-        leftLines.append(makeDiffRow(row, "left", markHunkAnchor));
-        rightLines.append(makeDiffRow(row, "right"));
+        leftLines.append(makeDiffRow(row, "left", markHunkAnchor, anchorIndex));
+        rightLines.append(makeDiffRow(row, "right", false, anchorIndex));
     });
 
     queueMicrotask(scheduleRowSync);
@@ -352,7 +350,10 @@ function renderSideBySide(rows, leftLabel, rightLabel) {
     leftPane.append(leftLines);
     rightPane.append(rightLines);
     wrapper.append(leftPane, rightPane);
-    return wrapper;
+    return {
+        wrapper,
+        nextHunkIndex,
+    };
 }
 
 function badge(text, className) {
@@ -362,7 +363,7 @@ function badge(text, className) {
     return node;
 }
 
-function makeFileCard(payload) {
+function makeFileCard(payload, startHunkIndex = 0) {
     const card = document.createElement("article");
     card.className = "file-card";
 
@@ -401,9 +402,18 @@ function makeFileCard(payload) {
     header.className = "file-card-header";
     header.append(titleWrap, badges);
     card.append(header);
-    card.append(renderSideBySide(payload.rows, payload.left_label, payload.right_label));
+    const { wrapper, nextHunkIndex } = renderSideBySide(
+        payload.rows,
+        payload.left_label,
+        payload.right_label,
+        startHunkIndex,
+    );
+    card.append(wrapper);
 
-    return card;
+    return {
+        card,
+        nextHunkIndex,
+    };
 }
 
 function makeErrorCard(entry) {
@@ -434,69 +444,20 @@ function renderResult(payload) {
             return;
         }
 
+        let nextHunkIndex = 0;
         payload.files.forEach((entry) => {
-            resultPanel.append(entry.error ? makeErrorCard(entry) : makeFileCard(entry));
+            if (entry.error) {
+                resultPanel.append(makeErrorCard(entry));
+                return;
+            }
+            const result = makeFileCard(entry, nextHunkIndex);
+            nextHunkIndex = result.nextHunkIndex;
+            resultPanel.append(result.card);
         });
         return;
     }
 
-    resultPanel.append(makeFileCard(payload));
-}
-
-function resetHunkNavState() {
-    hunkNavState.activeIndex = null;
-    hunkNavState.signature = "";
-    hunkNavState.autoScrollInProgress = false;
-    if (hunkNavState.settleTimerId) {
-        clearTimeout(hunkNavState.settleTimerId);
-        hunkNavState.settleTimerId = 0;
-    }
-}
-
-function positionsSignature(positions) {
-    return positions.join("|");
-}
-
-function targetScrollTopForPosition(position) {
-    const maxScrollTop = Math.max(
-        document.documentElement.scrollHeight - window.innerHeight,
-        0,
-    );
-    return Math.min(Math.max(position - HUNK_SCROLL_MARGIN, 0), maxScrollTop);
-}
-
-function scheduleHunkNavSettle() {
-    if (hunkNavState.settleTimerId) {
-        clearTimeout(hunkNavState.settleTimerId);
-    }
-    hunkNavState.settleTimerId = window.setTimeout(() => {
-        hunkNavState.autoScrollInProgress = false;
-        hunkNavState.settleTimerId = 0;
-    }, HUNK_NAV_SETTLE_DELAY_MS);
-}
-
-function shouldUseActiveHunkIndex(positions, currentPosition) {
-    if (!Number.isInteger(hunkNavState.activeIndex)) {
-        return false;
-    }
-    if (hunkNavState.activeIndex < 0 || hunkNavState.activeIndex >= positions.length) {
-        return false;
-    }
-    if (hunkNavState.signature !== positionsSignature(positions)) {
-        return false;
-    }
-
-    if (hunkNavState.autoScrollInProgress) {
-        return true;
-    }
-
-    const activePosition = positions[hunkNavState.activeIndex];
-    const activeScrollTop = targetScrollTopForPosition(activePosition);
-
-    return (
-        Math.abs(activePosition - currentPosition) <= 24
-        || Math.abs(activeScrollTop - window.scrollY) <= 24
-    );
+    resultPanel.append(makeFileCard(payload).card);
 }
 
 function isVisibleHunkAnchor(row) {
@@ -508,40 +469,43 @@ function getVisibleHunkRows() {
         .filter(isVisibleHunkAnchor);
 }
 
-function navigateHunk(direction) {
-    const rows = getVisibleHunkRows();
-    if (!rows.length) return false;
+function readHunkNavSnapshot() {
+    const positions = getVisibleHunkRows()
+        .map((row) => row.getBoundingClientRect().top + window.scrollY);
 
-    const positions = window.fileDiffNav.uniqueSortedPositions(
-        rows.map((row) => row.getBoundingClientRect().top + window.scrollY),
-    );
-    if (!positions.length) return false;
-
-    const currentPosition = window.scrollY + HUNK_SCROLL_MARGIN;
-    const targetIndex = shouldUseActiveHunkIndex(positions, currentPosition)
-        ? window.fileDiffNav.stepHunkIndex(
-            hunkNavState.activeIndex,
-            direction,
-            positions.length,
-        )
-        : window.fileDiffNav.pickRelativeIndex(
-            positions,
-            currentPosition,
-            direction,
-        );
-    if (targetIndex === null) return false;
-
-    hunkNavState.activeIndex = targetIndex;
-    hunkNavState.signature = positionsSignature(positions);
-    hunkNavState.autoScrollInProgress = true;
-    scheduleHunkNavSettle();
-
-    window.scrollTo({
-        top: targetScrollTopForPosition(positions[targetIndex]),
-        behavior: "smooth",
-    });
-    return true;
+    return {
+        positions,
+        scrollY: window.scrollY,
+        maxScrollTop: Math.max(
+            document.documentElement.scrollHeight - window.innerHeight,
+            0,
+        ),
+    };
 }
+
+function updateSelectedHunk(state) {
+    const activeIndex = Number.isInteger(state?.activeIndex) ? state.activeIndex : null;
+
+    for (const row of document.querySelectorAll(".diff-row.hunk-anchor-row")) {
+        const isActive = activeIndex !== null && Number(row.dataset.hunkIndex) === activeIndex;
+        row.classList.toggle("active-hunk", isActive);
+        row.setAttribute("aria-current", isActive ? "true" : "false");
+    }
+}
+
+const hunkNavController = window.fileDiffNav.createHunkNavigationController({
+    readSnapshot: readHunkNavSnapshot,
+    scrollTo(top, behavior) {
+        window.scrollTo({
+            top,
+            behavior,
+        });
+    },
+    setTimeout: window.setTimeout.bind(window),
+    clearTimeout: window.clearTimeout.bind(window),
+}, {
+    onStateChange: updateSelectedHunk,
+});
 
 async function loadDiff() {
     const params = new URLSearchParams();
@@ -568,7 +532,7 @@ async function loadDiff() {
 
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
-    resetHunkNavState();
+    hunkNavController.reset();
     const loadToken = ++activeLoadToken;
 
     try {
@@ -686,22 +650,20 @@ function syncModeUI() {
     customRefsGroup.hidden = !customMode;
 }
 
-prevHunkBtn.addEventListener("click", () => navigateHunk("prev"));
-nextHunkBtn.addEventListener("click", () => navigateHunk("next"));
+prevHunkBtn.addEventListener("click", () => hunkNavController.request("prev"));
+nextHunkBtn.addEventListener("click", () => hunkNavController.request("next"));
 
 window.addEventListener("keydown", (event) => {
     if (event.key === "n" && !event.shiftKey) {
-        navigateHunk("next");
+        hunkNavController.request("next");
     } else if (event.key === "N") {
-        navigateHunk("prev");
+        hunkNavController.request("prev");
     }
 });
 window.addEventListener(
     "scroll",
     () => {
-        if (hunkNavState.autoScrollInProgress) {
-            scheduleHunkNavSettle();
-        }
+        hunkNavController.handleScroll();
     },
     { passive: true },
 );
