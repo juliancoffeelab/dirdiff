@@ -77,7 +77,17 @@ function summaryItem(label, value) {
     return wrapper;
 }
 
-function renderSummary(summary) {
+function renderSummary(summary, mode) {
+    if (mode === "repo") {
+        summaryGrid.replaceChildren(
+            summaryItem("Changed files", summary.changed_files),
+            summaryItem("Changed lines", summary.changed_lines),
+            summaryItem("Skipped files", summary.skipped_files || 0),
+            summaryItem("Removed lines", summary.removed_lines),
+        );
+        return;
+    }
+
     summaryGrid.replaceChildren(
         summaryItem("Changed lines", summary.changed_lines),
         summaryItem("Modified", summary.modified_lines),
@@ -264,9 +274,7 @@ function badge(text, className) {
     return node;
 }
 
-function renderResult(payload) {
-    resultPanel.replaceChildren();
-
+function makeFileCard(payload) {
     const card = document.createElement("article");
     card.className = "file-card";
 
@@ -278,7 +286,11 @@ function renderResult(payload) {
     subtitle.className = "file-subtitle";
     subtitle.textContent =
         payload.mode === "git"
-            ? "Git-backed file diff"
+            ? payload.change_type === "rename"
+                ? "Git-backed rename"
+                : payload.change_type === "copy"
+                ? "Git-backed copy"
+                : "Git-backed file diff"
             : "Direct file-to-file diff";
 
     const titleWrap = document.createElement("div");
@@ -286,10 +298,16 @@ function renderResult(payload) {
 
     const badges = document.createElement("div");
     badges.className = "badge-row";
-    badges.append(
+    const badgeNodes = [
         badge(payload.summary.left_exists ? "left exists" : "left missing", "badge-neutral"),
         badge(payload.summary.right_exists ? "right exists" : "right missing", "badge-neutral"),
-    );
+    ];
+    if (payload.change_type === "rename") {
+        badgeNodes.push(badge("renamed", "badge-neutral"));
+    } else if (payload.change_type === "copy") {
+        badgeNodes.push(badge("copied", "badge-neutral"));
+    }
+    badges.append(...badgeNodes);
 
     const header = document.createElement("div");
     header.className = "file-card-header";
@@ -297,7 +315,75 @@ function renderResult(payload) {
     card.append(header);
     card.append(renderSideBySide(payload.rows, payload.left_label, payload.right_label));
 
-    resultPanel.append(card);
+    return card;
+}
+
+function makeRepoIntro(payload) {
+    const card = document.createElement("article");
+    card.className = "file-card";
+
+    const title = document.createElement("h2");
+    title.className = "file-title";
+    title.textContent = payload.display_name;
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "file-subtitle";
+    subtitle.textContent = "Whole-repo Git diff";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.append(title, subtitle);
+
+    const badges = document.createElement("div");
+    badges.className = "badge-row";
+    badges.append(
+        badge(`${payload.summary.changed_files} changed file(s)`, "badge-neutral"),
+        badge(`${payload.summary.skipped_files || 0} skipped`, "badge-neutral"),
+    );
+
+    const header = document.createElement("div");
+    header.className = "file-card-header";
+    header.append(titleWrap, badges);
+    card.append(header);
+    return card;
+}
+
+function makeErrorCard(entry) {
+    const card = document.createElement("article");
+    card.className = "file-card";
+
+    const title = document.createElement("h2");
+    title.className = "file-title";
+    title.textContent = entry.display_name;
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "file-subtitle";
+    subtitle.textContent = entry.error || "Unable to render diff.";
+
+    card.append(title, subtitle);
+    return card;
+}
+
+function renderResult(payload) {
+    resultPanel.replaceChildren();
+
+    if (payload.mode === "repo") {
+        resultPanel.append(makeRepoIntro(payload));
+
+        if (!payload.files.length) {
+            const box = document.createElement("div");
+            box.className = "error-state";
+            box.textContent = "No changed files for the selected sides.";
+            resultPanel.append(box);
+            return;
+        }
+
+        payload.files.forEach((entry) => {
+            resultPanel.append(entry.error ? makeErrorCard(entry) : makeFileCard(entry));
+        });
+        return;
+    }
+
+    resultPanel.append(makeFileCard(payload));
 }
 
 function resetHunkNavState() {
@@ -400,7 +486,7 @@ async function loadDiff() {
             throw new Error(payload.error || "Failed to load diff.");
         }
 
-        renderSummary(payload.summary);
+        renderSummary(payload.summary, payload.mode);
         renderResult(payload);
         setStatus(`${payload.left_label} vs ${payload.right_label}`);
     } catch (error) {
@@ -478,7 +564,7 @@ rightFileInput.value = search.get("right_file") || defaults.right_file || "";
 setSideControlValue(leftSelect, leftRefInput, search.get("left") || defaults.left || "index");
 setSideControlValue(rightSelect, rightRefInput, search.get("right") || defaults.right || "worktree");
 
-if (pathInput.value || leftFileInput.value || rightFileInput.value) {
+if (pathInput.value || leftFileInput.value || rightFileInput.value || defaults.repo_available) {
     loadDiff();
 } else {
     setStatus("Fill a repo path or direct file paths, then load a diff.");

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Diff Viewer</title>
+    <title>dirdiff</title>
     <link rel="icon" href="data:,">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -12,7 +12,7 @@
         <header class="page-header">
             <div>
                 <p class="eyebrow">Standalone Tool</p>
-                <h1>File Diff Viewer</h1>
+                <h1>dirdiff</h1>
                 <p class="subtitle">
                     Compare generic UTF-8 text files across Git sides or directly by path.
                 </p>
@@ -27,7 +27,7 @@
                 <label class="wide-field">
                     Repo path
                     <input id="pathInput" name="path" type="text" spellcheck="false" placeholder="src/app.py">
-                    <span class="field-hint">If this is filled, Git-backed mode is used.</span>
+                    <span class="field-hint">Leave this empty to diff the whole repo.</span>
                 </label>
                 <label>
                     Left side

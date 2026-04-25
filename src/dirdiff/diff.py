@@ -27,6 +27,14 @@ class TextVersion:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class RepoDiffPath:
+    left_path: str | None
+    right_path: str | None
+    display_name: str
+    change_type: str
+
+
 class TextDiffError(ValueError):
     """Raised when a diff request cannot be fulfilled safely."""
 
@@ -520,6 +528,15 @@ def _display_name_for_direct_paths(
     return f"{left_name} vs {right_name}"
 
 
+def _display_name_for_repo_paths(
+    left_path: str | None,
+    right_path: str | None,
+) -> str:
+    if left_path and right_path:
+        return left_path if left_path == right_path else f"{left_path} -> {right_path}"
+    return left_path or right_path or "(unknown)"
+
+
 def build_loaded_diff(
     *,
     display_name: str,
@@ -555,6 +572,28 @@ def build_loaded_diff(
             "right_exists": right_exists,
         },
         "rows": rows,
+    }
+
+
+def _empty_repo_diff(
+    *,
+    left_label: str,
+    right_label: str,
+) -> dict[str, Any]:
+    return {
+        "display_name": "Repository diff",
+        "mode": "repo",
+        "left_label": left_label,
+        "right_label": right_label,
+        "summary": {
+            "changed_files": 0,
+            "changed_lines": 0,
+            "modified_lines": 0,
+            "added_lines": 0,
+            "removed_lines": 0,
+            "skipped_files": 0,
+        },
+        "files": [],
     }
 
 
@@ -659,6 +698,132 @@ class TextDiffService:
 
         raise TextDiffError("No files found in the current Git repo.")
 
+    def _git_tree_spec(self, side: SideName) -> str:
+        if side == "head":
+            return "HEAD"
+        return side
+
+    def _untracked_repo_paths(self) -> list[str]:
+        output = self._run_git(["ls-files", "--others", "--exclude-standard"])
+        return [
+            line.strip()
+            for line in output.stdout.decode("utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def _parse_name_status_output(self, output: bytes) -> list[RepoDiffPath]:
+        tokens = output.split(b"\0")
+        if tokens and not tokens[-1]:
+            tokens = tokens[:-1]
+
+        entries: list[RepoDiffPath] = []
+        index = 0
+        while index < len(tokens):
+            status_token = tokens[index].decode("utf-8")
+            index += 1
+            if not status_token:
+                continue
+
+            change_kind = status_token[0]
+            if change_kind in {"R", "C"}:
+                if index + 1 >= len(tokens):
+                    break
+                left_path = tokens[index].decode("utf-8")
+                right_path = tokens[index + 1].decode("utf-8")
+                index += 2
+                entries.append(
+                    RepoDiffPath(
+                        left_path=left_path,
+                        right_path=right_path,
+                        display_name=_display_name_for_repo_paths(left_path, right_path),
+                        change_type="rename" if change_kind == "R" else "copy",
+                    )
+                )
+                continue
+
+            if index >= len(tokens):
+                break
+            path = tokens[index].decode("utf-8")
+            index += 1
+
+            left_path = path if change_kind != "A" else None
+            right_path = path if change_kind != "D" else None
+            entries.append(
+                RepoDiffPath(
+                    left_path=left_path,
+                    right_path=right_path,
+                    display_name=_display_name_for_repo_paths(left_path, right_path),
+                    change_type={
+                        "A": "add",
+                        "D": "delete",
+                    }.get(change_kind, "modify"),
+                )
+            )
+
+        return entries
+
+    def list_repo_diff_paths(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+    ) -> list[RepoDiffPath]:
+        if self.repo_root is None:
+            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+        if left == right:
+            return []
+
+        diff_args: list[str]
+        if "worktree" in {left, right}:
+            other = right if left == "worktree" else left
+            diff_args = (
+                ["diff", "--name-status", "-z", "-M"]
+                if other == "index"
+                else ["diff", "--name-status", "-z", "-M", self._git_tree_spec(other)]
+            )
+            include_untracked = True
+        elif "index" in {left, right}:
+            other = right if left == "index" else left
+            diff_args = (
+                ["diff", "--cached", "--name-status", "-z", "-M"]
+                if other == "head"
+                else ["diff", "--cached", "--name-status", "-z", "-M", self._git_tree_spec(other)]
+            )
+            include_untracked = False
+        else:
+            diff_args = [
+                "diff",
+                "--name-status",
+                "-z",
+                "-M",
+                self._git_tree_spec(left),
+                self._git_tree_spec(right),
+            ]
+            include_untracked = False
+
+        diff_output = self._run_git(diff_args)
+        entries = self._parse_name_status_output(diff_output.stdout)
+        if include_untracked:
+            seen_paths = {
+                path
+                for entry in entries
+                for path in (entry.left_path, entry.right_path)
+                if path is not None
+            }
+            for path in self._untracked_repo_paths():
+                if path in seen_paths:
+                    continue
+                entries.append(
+                    RepoDiffPath(
+                        left_path=None,
+                        right_path=path,
+                        display_name=path,
+                        change_type="add",
+                    )
+                )
+
+        return sorted(entries, key=lambda entry: (entry.display_name, entry.change_type))
+
     def normalize_repo_path(self, raw_path: str) -> str:
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
@@ -739,11 +904,41 @@ class TextDiffService:
         left: str,
         right: str,
     ) -> dict[str, Any]:
-        normalized_path = self.normalize_repo_path(path)
-        normalized_left = self.normalize_side(left)
-        normalized_right = self.normalize_side(right)
-        left_version = self.load_git_version(normalized_path, normalized_left)
-        right_version = self.load_git_version(normalized_path, normalized_right)
+        return self.build_git_diff_paths(
+            left_path=path,
+            right_path=path,
+            left=left,
+            right=right,
+        )
+
+    def build_git_diff_paths(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None = None,
+        change_type: str = "modify",
+    ) -> dict[str, Any]:
+        normalized_left = (
+            self.normalize_repo_path(left_path) if left_path is not None else None
+        )
+        normalized_right = (
+            self.normalize_repo_path(right_path) if right_path is not None else None
+        )
+        normalized_left_side = self.normalize_side(left)
+        normalized_right_side = self.normalize_side(right)
+        left_version = (
+            self.load_git_version(normalized_left, normalized_left_side)
+            if normalized_left is not None
+            else TextVersion(label=normalized_left_side, exists=False, text=None)
+        )
+        right_version = (
+            self.load_git_version(normalized_right, normalized_right_side)
+            if normalized_right is not None
+            else TextVersion(label=normalized_right_side, exists=False, text=None)
+        )
 
         if left_version.error:
             raise TextDiffError(left_version.error)
@@ -752,16 +947,92 @@ class TextDiffService:
         if not left_version.exists and not right_version.exists:
             raise TextDiffError("The selected file is missing on both sides.")
 
-        return build_loaded_diff(
-            display_name=normalized_path,
+        payload = build_loaded_diff(
+            display_name=display_name
+            or _display_name_for_repo_paths(normalized_left, normalized_right),
             mode="git",
-            left_label=normalized_left,
-            right_label=normalized_right,
+            left_label=normalized_left_side,
+            right_label=normalized_right_side,
             left_exists=left_version.exists,
             right_exists=right_version.exists,
             left_text=left_version.text,
             right_text=right_version.text,
         )
+        payload["change_type"] = change_type
+        payload["left_path"] = normalized_left
+        payload["right_path"] = normalized_right
+        return payload
+
+    def build_repo_diff(
+        self,
+        *,
+        left: str,
+        right: str,
+    ) -> dict[str, Any]:
+        normalized_left = self.normalize_side(left)
+        normalized_right = self.normalize_side(right)
+        paths = self.list_repo_diff_paths(left=normalized_left, right=normalized_right)
+        if not paths:
+            return _empty_repo_diff(
+                left_label=normalized_left,
+                right_label=normalized_right,
+            )
+
+        files: list[dict[str, Any]] = []
+        summary = {
+            "changed_files": 0,
+            "changed_lines": 0,
+            "modified_lines": 0,
+            "added_lines": 0,
+            "removed_lines": 0,
+            "skipped_files": 0,
+        }
+
+        for entry in paths:
+            try:
+                file_diff = self.build_git_diff_paths(
+                    left_path=entry.left_path,
+                    right_path=entry.right_path,
+                    left=normalized_left,
+                    right=normalized_right,
+                    display_name=entry.display_name,
+                    change_type=entry.change_type,
+                )
+            except TextDiffError as exc:
+                files.append(
+                    {
+                        "display_name": entry.display_name,
+                        "mode": "git",
+                        "left_label": normalized_left,
+                        "right_label": normalized_right,
+                        "change_type": entry.change_type,
+                        "error": str(exc),
+                    }
+                )
+                summary["skipped_files"] += 1
+                continue
+
+            if (
+                file_diff["summary"]["changed_lines"] <= 0
+                and file_diff.get("change_type") not in {"rename", "copy"}
+            ):
+                continue
+
+            files.append(file_diff)
+            summary["changed_files"] += 1
+            summary["changed_lines"] += file_diff["summary"]["changed_lines"]
+            summary["modified_lines"] += file_diff["summary"]["modified_lines"]
+            summary["added_lines"] += file_diff["summary"]["added_lines"]
+            summary["removed_lines"] += file_diff["summary"]["removed_lines"]
+
+        return {
+            "display_name": "Repository diff",
+            "mode": "repo",
+            "left_label": normalized_left,
+            "right_label": normalized_right,
+            "summary": summary,
+            "files": files,
+        }
 
     def build_file_diff(
         self,
@@ -808,4 +1079,8 @@ class TextDiffService:
     ) -> dict[str, Any]:
         if path and path.strip():
             return self.build_git_diff(path=path, left=left, right=right)
+        if left_file or right_file:
+            return self.build_file_diff(left_file=left_file, right_file=right_file)
+        if self.repo_root is not None:
+            return self.build_repo_diff(left=left, right=right)
         return self.build_file_diff(left_file=left_file, right_file=right_file)

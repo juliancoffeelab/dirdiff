@@ -1,4 +1,4 @@
-# file-diff-viewer
+# dirdiff
 
 Standalone browser-based diff viewer for generic text files.
 
@@ -17,8 +17,8 @@ What changed for portability:
 ## Install
 
 ```bash
-cd ~/Workspace/lab/file-diff-viewer
-uv tool install -e .
+cd ~/Workspace/lab/dirdiff
+uv sync
 ```
 
 ## Run
@@ -26,17 +26,36 @@ uv tool install -e .
 Git-backed diff for a repo file:
 
 ```bash
-file-diff-viewer --path src/app.py --left head --right worktree
+uv run dirdiff --path src/dirdiff/cli.py --left head --right worktree
+```
+
+Whole-repo diff for the current Git repo:
+
+```bash
+uv run dirdiff
 ```
 
 Direct file-to-file diff:
 
 ```bash
-file-diff-viewer --left-file old.txt --right-file new.txt
+uv run dirdiff --left-file old.txt --right-file new.txt
 ```
 
-You can also run it without installing:
+If you want a globally available CLI:
 
 ```bash
-uv run file-diff-viewer --path src/app.py
+uv tool install -e .
+```
+
+## Development Workflow
+
+This project uses:
+
+- `uv` for project environments, locking, and running commands
+- `hatchling` as the build backend
+
+## Test
+
+```bash
+uv run pytest
 ```
