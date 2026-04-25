@@ -16,6 +16,10 @@ SideName = str
 BUILTIN_SIDES = frozenset({"head", "index", "worktree"})
 
 INLINE_TOKEN_PATTERN = re.compile(r"\w+|\s+|[^\w\s]+", flags=re.UNICODE)
+INLINE_IDENTIFIER_PART_PATTERN = re.compile(
+    r"[A-Z]+(?=[A-Z][a-z]|[0-9]|_|$)|[A-Z]?[a-z]+|[0-9]+|_+|[^A-Za-z0-9_]+",
+    flags=re.UNICODE,
+)
 ALIGNMENT_WORD_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
 ALIGNMENT_NOISE_WORDS = frozenset({"none", "true", "false", "null"})
 MIN_SIMILAR_LINE_RATIO = 0.45
@@ -82,6 +86,79 @@ def _append_char_level_diff(
             if right_piece:
                 right_tokens.append(
                     {"text": right_piece, "changed": True, "is_ws": is_ws}
+                )
+
+
+def _identifier_diff_parts(text: str) -> list[str]:
+    parts = INLINE_IDENTIFIER_PART_PATTERN.findall(text)
+    return parts or [text]
+
+
+def _append_identifier_level_diff(
+    left_text: str,
+    right_text: str,
+    left_tokens: list[dict[str, Any]],
+    right_tokens: list[dict[str, Any]],
+) -> None:
+    left_parts = _identifier_diff_parts(left_text)
+    right_parts = _identifier_diff_parts(right_text)
+    if left_parts == [left_text] and right_parts == [right_text]:
+        _append_char_level_diff(
+            left_text,
+            right_text,
+            left_tokens,
+            right_tokens,
+        )
+        return
+
+    matcher = SequenceMatcher(a=left_parts, b=right_parts, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for li, ri in zip(range(i1, i2), range(j1, j2)):
+                text = left_parts[li]
+                left_tokens.append(
+                    {"text": text, "changed": False, "is_ws": False}
+                )
+                right_tokens.append(
+                    {"text": right_parts[ri], "changed": False, "is_ws": False}
+                )
+        elif tag == "delete":
+            for li in range(i1, i2):
+                left_tokens.append(
+                    {"text": left_parts[li], "changed": True, "is_ws": False}
+                )
+        elif tag == "insert":
+            for ri in range(j1, j2):
+                right_tokens.append(
+                    {
+                        "text": right_parts[ri],
+                        "changed": True,
+                        "is_ws": False,
+                    }
+                )
+        else:
+            left_count = i2 - i1
+            right_count = j2 - j1
+            if left_count == 1 and right_count == 1:
+                _append_char_level_diff(
+                    left_parts[i1],
+                    right_parts[j1],
+                    left_tokens,
+                    right_tokens,
+                )
+                continue
+
+            for li in range(i1, i2):
+                left_tokens.append(
+                    {"text": left_parts[li], "changed": True, "is_ws": False}
+                )
+            for ri in range(j1, j2):
+                right_tokens.append(
+                    {
+                        "text": right_parts[ri],
+                        "changed": True,
+                        "is_ws": False,
+                    }
                 )
 
 
@@ -321,7 +398,7 @@ def _inline_diff(
                         left_token = left_slice[ii1]
                         right_token = right_slice[jj1]
                         if not left_token["is_ws"] and not right_token["is_ws"]:
-                            _append_char_level_diff(
+                            _append_identifier_level_diff(
                                 left_token["text"],
                                 right_token["text"],
                                 left_tokens,
