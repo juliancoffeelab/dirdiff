@@ -1,11 +1,13 @@
 const form = document.getElementById("controlsForm");
+const directFilesForm = document.getElementById("directFilesForm");
+const modeSelect = document.getElementById("modeSelect");
 const pathInput = document.getElementById("pathInput");
-const leftSelect = document.getElementById("leftSelect");
+const customRefsGroup = document.getElementById("customRefsGroup");
 const leftRefInput = document.getElementById("leftRefInput");
-const rightSelect = document.getElementById("rightSelect");
 const rightRefInput = document.getElementById("rightRefInput");
 const leftFileInput = document.getElementById("leftFileInput");
 const rightFileInput = document.getElementById("rightFileInput");
+const directFilesPanel = document.getElementById("directFilesPanel");
 const statusText = document.getElementById("statusText");
 const summaryGrid = document.getElementById("summaryGrid");
 const resultPanel = document.getElementById("resultPanel");
@@ -16,11 +18,18 @@ const rowSyncApi = window.fileDiffRowSync || {};
 const registeredRowSyncs = window.__fileDiffRowSyncHandlers
     || (window.__fileDiffRowSyncHandlers = new Set());
 const BUILTIN_SIDES = new Set(["head", "index", "worktree"]);
+const MODE_TO_SIDES = {
+    files: ["index", "worktree"],
+    staged: ["head", "index"],
+    "against-head": ["head", "worktree"],
+};
 const hunkNavState = {
     activeIndex: null,
     signature: "",
     lastNavAt: 0,
 };
+let pendingLoadTimer = 0;
+let activeLoadToken = 0;
 
 if (!window.__fileDiffRowSyncListenerBound) {
     window.addEventListener("resize", () => {
@@ -77,22 +86,67 @@ function summaryItem(label, value) {
     return wrapper;
 }
 
+function summaryDelta(symbol, value, kind, tooltip) {
+    const node = document.createElement("span");
+    node.className = `summary-delta summary-delta-${kind}`;
+    node.title = tooltip;
+    node.setAttribute("aria-label", tooltip);
+    node.innerHTML = `<span class="summary-delta-symbol">${escapeHtml(symbol)}</span>${escapeHtml(String(value))}`;
+    return node;
+}
+
+function summaryCluster(label, items, tooltip) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "summary-cluster";
+    wrapper.title = tooltip;
+
+    const heading = document.createElement("span");
+    heading.className = "summary-cluster-label";
+    heading.textContent = label;
+
+    const values = document.createElement("div");
+    values.className = "summary-cluster-values";
+    values.append(...items);
+
+    wrapper.append(heading, values);
+    return wrapper;
+}
+
 function renderSummary(summary, mode) {
     if (mode === "repo") {
         summaryGrid.replaceChildren(
-            summaryItem("Changed files", summary.changed_files),
-            summaryItem("Changed lines", summary.changed_lines),
-            summaryItem("Skipped files", summary.skipped_files || 0),
-            summaryItem("Removed lines", summary.removed_lines),
+            summaryCluster(
+                "Files",
+                [
+                    summaryDelta("+", summary.added_files || 0, "added", "Files added"),
+                    summaryDelta("~", summary.updated_files || 0, "updated", "Files updated"),
+                    summaryDelta("-", summary.removed_files || 0, "removed", "Files removed"),
+                ],
+                "Repository file totals",
+            ),
+            summaryCluster(
+                "Lines",
+                [
+                    summaryDelta("+", summary.added_lines, "added", "Lines added"),
+                    summaryDelta("~", summary.modified_lines, "updated", "Lines updated"),
+                    summaryDelta("-", summary.removed_lines, "removed", "Lines removed"),
+                ],
+                "Repository line totals",
+            ),
         );
         return;
     }
 
     summaryGrid.replaceChildren(
-        summaryItem("Changed lines", summary.changed_lines),
-        summaryItem("Modified", summary.modified_lines),
-        summaryItem("Added", summary.added_lines),
-        summaryItem("Removed", summary.removed_lines),
+        summaryCluster(
+            "Lines",
+            [
+                summaryDelta("+", summary.added_lines, "added", "Lines added"),
+                summaryDelta("~", summary.modified_lines, "updated", "Lines updated"),
+                summaryDelta("-", summary.removed_lines, "removed", "Lines removed"),
+            ],
+            "Line totals for this diff",
+        ),
     );
 }
 
@@ -349,35 +403,6 @@ function makeFileCard(payload) {
     return card;
 }
 
-function makeRepoIntro(payload) {
-    const card = document.createElement("article");
-    card.className = "file-card";
-
-    const title = document.createElement("h2");
-    title.className = "file-title";
-    title.textContent = payload.display_name;
-
-    const subtitle = document.createElement("p");
-    subtitle.className = "file-subtitle";
-    subtitle.textContent = "Whole-repo Git diff";
-
-    const titleWrap = document.createElement("div");
-    titleWrap.append(title, subtitle);
-
-    const badges = document.createElement("div");
-    badges.className = "badge-row";
-    badges.append(
-        badge(`${payload.summary.changed_files} changed file(s)`, "badge-neutral"),
-        badge(`${payload.summary.skipped_files || 0} skipped`, "badge-neutral"),
-    );
-
-    const header = document.createElement("div");
-    header.className = "file-card-header";
-    header.append(titleWrap, badges);
-    card.append(header);
-    return card;
-}
-
 function makeErrorCard(entry) {
     const card = document.createElement("article");
     card.className = "file-card";
@@ -398,8 +423,6 @@ function renderResult(payload) {
     resultPanel.replaceChildren();
 
     if (payload.mode === "repo") {
-        resultPanel.append(makeRepoIntro(payload));
-
         if (!payload.files.length) {
             const box = document.createElement("div");
             box.className = "error-state";
@@ -491,36 +514,49 @@ function navigateHunk(direction) {
 
 async function loadDiff() {
     const params = new URLSearchParams();
-    const pathValue = pathInput.value.trim();
+    const state = getControlState();
+    if (!state.valid) {
+        summaryGrid.replaceChildren();
+        resultPanel.replaceChildren();
+        setStatus(state.message, false);
+        return;
+    }
 
-    if (pathValue) {
-        params.set("path", pathValue);
-        params.set("left", getSelectedSideValue(leftSelect, leftRefInput));
-        params.set("right", getSelectedSideValue(rightSelect, rightRefInput));
-    } else {
-        const leftFileValue = leftFileInput.value.trim();
-        const rightFileValue = rightFileInput.value.trim();
-        if (leftFileValue) params.set("left_file", leftFileValue);
-        if (rightFileValue) params.set("right_file", rightFileValue);
-        params.set("left", getSelectedSideValue(leftSelect, leftRefInput));
-        params.set("right", getSelectedSideValue(rightSelect, rightRefInput));
+    params.set("mode", state.mode);
+    params.set("left", state.left);
+    params.set("right", state.right);
+    if (state.path) {
+        params.set("path", state.path);
+    }
+    if (state.leftFile) {
+        params.set("left_file", state.leftFile);
+    }
+    if (state.rightFile) {
+        params.set("right_file", state.rightFile);
     }
 
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
     resetHunkNavState();
+    const loadToken = ++activeLoadToken;
 
     try {
         const response = await fetch(`/api/diff?${params.toString()}`);
         const payload = await response.json();
+        if (loadToken !== activeLoadToken) {
+            return;
+        }
         if (!response.ok) {
             throw new Error(payload.error || "Failed to load diff.");
         }
 
         renderSummary(payload.summary, payload.mode);
         renderResult(payload);
-        setStatus(`${payload.left_label} vs ${payload.right_label}`);
+        setStatus(buildStatusMessage(state, payload));
     } catch (error) {
+        if (loadToken !== activeLoadToken) {
+            return;
+        }
         summaryGrid.replaceChildren();
         resultPanel.replaceChildren();
 
@@ -532,48 +568,92 @@ async function loadDiff() {
     }
 }
 
-function setSideControlValue(select, refInput, value) {
-    const normalized = String(value || "").trim();
-    if (BUILTIN_SIDES.has(normalized)) {
-        select.value = normalized;
-        refInput.value = "";
-        refInput.hidden = true;
-        return;
+function scheduleLoadDiff(delayMs = 180) {
+    if (pendingLoadTimer) {
+        clearTimeout(pendingLoadTimer);
     }
-
-    select.value = "__ref__";
-    refInput.hidden = false;
-    refInput.value = normalized;
+    pendingLoadTimer = window.setTimeout(() => {
+        pendingLoadTimer = 0;
+        loadDiff();
+    }, delayMs);
 }
 
-function getSelectedSideValue(select, refInput) {
-    if (select.value !== "__ref__") {
-        return select.value;
+function getControlState() {
+    const mode = modeSelect.value;
+    const path = pathInput.value.trim();
+    const leftFile = leftFileInput.value.trim();
+    const rightFile = rightFileInput.value.trim();
+
+    if (leftFile || rightFile) {
+        return {
+            valid: true,
+            mode: "direct-files",
+            path,
+            left: "index",
+            right: "worktree",
+            leftFile,
+            rightFile,
+        };
     }
-    return refInput.value.trim();
+
+    if (mode === "refs") {
+        const left = leftRefInput.value.trim();
+        const right = rightRefInput.value.trim();
+        if (!left || !right) {
+            return {
+                valid: false,
+                message: "Enter both refs to compare them.",
+            };
+        }
+        return {
+            valid: true,
+            mode,
+            path,
+            left,
+            right,
+            leftFile: "",
+            rightFile: "",
+        };
+    }
+
+    const [left, right] = MODE_TO_SIDES[mode] || MODE_TO_SIDES.files;
+    return {
+        valid: true,
+        mode,
+        path,
+        left,
+        right,
+        leftFile: "",
+        rightFile: "",
+    };
 }
 
-function syncSideRefVisibility(select, refInput) {
-    const isCustomRef = select.value === "__ref__";
-    refInput.hidden = !isCustomRef;
-    if (isCustomRef) {
-        refInput.focus();
-        refInput.select();
+function buildStatusMessage(state, payload) {
+    if (state.mode === "direct-files") {
+        return payload.display_name;
     }
+    if (state.mode === "files") {
+        return state.path
+            ? `Unstaged changes for ${state.path}`
+            : "Unstaged changes in working tree";
+    }
+    if (state.mode === "staged") {
+        return state.path
+            ? `Staged changes for ${state.path}`
+            : "Staged changes ready to commit";
+    }
+    if (state.mode === "against-head") {
+        return state.path
+            ? `Working tree vs HEAD for ${state.path}`
+            : "Working tree vs HEAD";
+    }
+    return `${payload.left_label} vs ${payload.right_label}`;
 }
 
-form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    loadDiff();
-});
-
-leftSelect.addEventListener("change", () => {
-    syncSideRefVisibility(leftSelect, leftRefInput);
-});
-
-rightSelect.addEventListener("change", () => {
-    syncSideRefVisibility(rightSelect, rightRefInput);
-});
+function syncModeUI() {
+    const customMode = modeSelect.value === "refs";
+    customRefsGroup.hidden = !customMode;
+}
 
 prevHunkBtn.addEventListener("click", () => navigateHunk("prev"));
 nextHunkBtn.addEventListener("click", () => navigateHunk("next"));
@@ -592,11 +672,69 @@ const defaults = window.FILE_DIFF_DEFAULTS || {};
 pathInput.value = search.get("path") || defaults.path || "";
 leftFileInput.value = search.get("left_file") || defaults.left_file || "";
 rightFileInput.value = search.get("right_file") || defaults.right_file || "";
-setSideControlValue(leftSelect, leftRefInput, search.get("left") || defaults.left || "index");
-setSideControlValue(rightSelect, rightRefInput, search.get("right") || defaults.right || "worktree");
+const initialLeft = search.get("left") || defaults.left || "index";
+const initialRight = search.get("right") || defaults.right || "worktree";
+const initialMode = search.get("mode")
+    || inferMode(initialLeft, initialRight)
+    || "files";
+modeSelect.value = initialMode;
+if (initialMode === "refs") {
+    leftRefInput.value = initialLeft;
+    rightRefInput.value = initialRight;
+}
+if (leftFileInput.value || rightFileInput.value) {
+    directFilesPanel.open = true;
+}
+syncModeUI();
 
-if (pathInput.value || leftFileInput.value || rightFileInput.value || defaults.repo_available) {
+form.addEventListener("submit", (event) => {
+    event.preventDefault();
+});
+directFilesForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+});
+
+modeSelect.addEventListener("change", () => {
+    syncModeUI();
+    scheduleLoadDiff(0);
+});
+pathInput.addEventListener("input", () => scheduleLoadDiff());
+leftRefInput.addEventListener("input", () => scheduleLoadDiff());
+rightRefInput.addEventListener("input", () => scheduleLoadDiff());
+leftFileInput.addEventListener("input", () => {
+    if (leftFileInput.value.trim() || rightFileInput.value.trim()) {
+        directFilesPanel.open = true;
+    }
+    scheduleLoadDiff();
+});
+rightFileInput.addEventListener("input", () => {
+    if (leftFileInput.value.trim() || rightFileInput.value.trim()) {
+        directFilesPanel.open = true;
+    }
+    scheduleLoadDiff();
+});
+
+if (defaults.repo_available || pathInput.value || leftFileInput.value || rightFileInput.value) {
     loadDiff();
 } else {
-    setStatus("Fill a repo path or direct file paths, then load a diff.");
+    setStatus("Open this inside a Git repo, or use direct file diff.");
+}
+
+function inferMode(left, right) {
+    if (!left || !right) {
+        return null;
+    }
+    if (left === "index" && right === "worktree") {
+        return "files";
+    }
+    if (left === "head" && right === "index") {
+        return "staged";
+    }
+    if (left === "head" && right === "worktree") {
+        return "against-head";
+    }
+    if (BUILTIN_SIDES.has(left) && BUILTIN_SIDES.has(right)) {
+        return null;
+    }
+    return "refs";
 }

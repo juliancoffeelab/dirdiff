@@ -8,6 +8,7 @@
 ## Running Things
 
 - Run the app with `uv run dirdiff ...`.
+- For local verification or browser automation, prefer `uv run dirdiff --headless`.
 - `uv run dirdiff` with no path should open a whole-repo Git diff when inside a repo.
 - Run tests with `uv run pytest`.
 

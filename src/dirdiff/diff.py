@@ -605,6 +605,9 @@ def _empty_repo_diff(
         "right_label": right_label,
         "summary": {
             "changed_files": 0,
+            "added_files": 0,
+            "removed_files": 0,
+            "updated_files": 0,
             "changed_lines": 0,
             "modified_lines": 0,
             "added_lines": 0,
@@ -1001,6 +1004,9 @@ class TextDiffService:
         files: list[dict[str, Any]] = []
         summary = {
             "changed_files": 0,
+            "added_files": 0,
+            "removed_files": 0,
+            "updated_files": 0,
             "changed_lines": 0,
             "modified_lines": 0,
             "added_lines": 0,
@@ -1040,6 +1046,12 @@ class TextDiffService:
 
             files.append(file_diff)
             summary["changed_files"] += 1
+            if entry.change_type == "add":
+                summary["added_files"] += 1
+            elif entry.change_type == "delete":
+                summary["removed_files"] += 1
+            else:
+                summary["updated_files"] += 1
             summary["changed_lines"] += file_diff["summary"]["changed_lines"]
             summary["modified_lines"] += file_diff["summary"]["modified_lines"]
             summary["added_lines"] += file_diff["summary"]["added_lines"]

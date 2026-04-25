@@ -35,6 +35,12 @@ Whole-repo diff for the current Git repo:
 uv run dirdiff
 ```
 
+Headless local server for tests or Playwright checks:
+
+```bash
+uv run dirdiff --headless
+```
+
 Direct file-to-file diff:
 
 ```bash

@@ -24,59 +24,61 @@
 
         <section class="controls">
             <form id="controlsForm">
-                <label class="wide-field">
-                    Repo path
+                <label class="field-mode">
+                    View
+                    <select id="modeSelect" name="mode">
+                        <option value="files">Diff files</option>
+                        <option value="staged">Diff staged</option>
+                        <option value="against-head">Diff against HEAD</option>
+                        <option value="refs">Compare refs</option>
+                    </select>
+                    <span class="field-hint">HEAD means the commit you currently have checked out.</span>
+                </label>
+                <label class="field-path">
+                    Only this path
                     <input id="pathInput" name="path" type="text" spellcheck="false" placeholder="src/app.py">
                     <span class="field-hint">Leave this empty to diff the whole repo.</span>
                 </label>
-                <label>
-                    Left side
-                    <select id="leftSelect" name="left">
-                        <option value="head">head</option>
-                        <option value="index">index</option>
-                        <option value="worktree">worktree</option>
-                        <option value="__ref__">custom ref</option>
-                    </select>
-                    <input
-                        id="leftRefInput"
-                        name="leftRef"
-                        type="text"
-                        value=""
-                        placeholder="main / origin/main / HEAD~1"
-                        spellcheck="false"
-                        hidden
-                    >
-                </label>
-                <label>
-                    Right side
-                    <select id="rightSelect" name="right">
-                        <option value="head">head</option>
-                        <option value="index">index</option>
-                        <option value="worktree">worktree</option>
-                        <option value="__ref__">custom ref</option>
-                    </select>
-                    <input
-                        id="rightRefInput"
-                        name="rightRef"
-                        type="text"
-                        value=""
-                        placeholder="main / origin/main / HEAD~1"
-                        spellcheck="false"
-                        hidden
-                    >
-                </label>
-                <label class="wide-field">
-                    Left file
-                    <input id="leftFileInput" name="left_file" type="text" spellcheck="false" placeholder="/tmp/old.txt">
-                </label>
-                <label class="wide-field">
-                    Right file
-                    <input id="rightFileInput" name="right_file" type="text" spellcheck="false" placeholder="/tmp/new.txt">
-                    <span class="field-hint">Leave Repo path empty to diff these directly.</span>
-                </label>
-                <button type="submit">Load diff</button>
+                <div class="custom-refs" id="customRefsGroup" hidden>
+                    <label class="field-left-ref">
+                        Left ref
+                        <input
+                            id="leftRefInput"
+                            name="leftRef"
+                            type="text"
+                            value=""
+                            placeholder="main / origin/main / HEAD~1"
+                            spellcheck="false"
+                        >
+                    </label>
+                    <label class="field-right-ref">
+                        Right ref
+                        <input
+                            id="rightRefInput"
+                            name="rightRef"
+                            type="text"
+                            value=""
+                            placeholder="feature / origin/feature / abc1234"
+                            spellcheck="false"
+                        >
+                    </label>
+                </div>
             </form>
             <p class="status" id="statusText">Loading diff…</p>
+            <details class="direct-files-panel" id="directFilesPanel">
+                <summary>Direct file diff</summary>
+                <form class="direct-files-form" id="directFilesForm">
+                    <label class="field-left-file">
+                        Left file
+                        <input id="leftFileInput" name="left_file" type="text" spellcheck="false" placeholder="/tmp/old.txt">
+                    </label>
+                    <label class="field-right-file">
+                        Right file
+                        <input id="rightFileInput" name="right_file" type="text" spellcheck="false" placeholder="/tmp/new.txt">
+                        <span class="field-hint">When either file is filled, direct file diff overrides the repo view above.</span>
+                    </label>
+                </form>
+            </details>
         </section>
 
         <section class="result-panel" id="resultPanel"></section>

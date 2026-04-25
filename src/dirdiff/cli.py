@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not automatically open the browser on startup.",
     )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Start the local server without opening a browser tab.",
+    )
     return parser.parse_args()
 
 
@@ -68,7 +73,7 @@ def main() -> None:
 
     server = DiffViewerServer(("127.0.0.1", args.port), service, defaults)
     url = _build_url(args.port, defaults)
-    if not args.no_open_browser:
+    if not (args.no_open_browser or args.headless):
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
 
     try:
