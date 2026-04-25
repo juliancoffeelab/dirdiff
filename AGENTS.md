@@ -16,6 +16,10 @@
 - Prefer `pytest` for new tests.
 - Use `tmp_path` and other pytest fixtures instead of `tempfile` + `unittest` boilerplate when possible.
 - Do not rely on `PYTHONPATH=src` hacks. Commands should run through `uv run`.
+- Sensible default checks for code changes:
+  `uv run pytest`
+  `uv build`
+- If you change browser rendering, diff row DOM, syntax highlighting, or folding behavior, also run a Playwright smoke test against a local `uv run dirdiff` session.
 
 ## Dependency Changes
 

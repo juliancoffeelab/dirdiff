@@ -174,6 +174,36 @@ function decorateTokenDiff(contentEl, tokens) {
     }
 }
 
+function renderSyntaxText(contentEl, text, syntaxSpans) {
+    if (!syntaxSpans || !syntaxSpans.length) {
+        contentEl.textContent = text || " ";
+        return;
+    }
+
+    let cursor = 0;
+    for (const span of syntaxSpans) {
+        const start = Math.max(0, Number(span.start || 0));
+        const end = Math.min(text.length, Number(span.end || 0));
+        if (start > cursor) {
+            contentEl.append(document.createTextNode(text.slice(cursor, start)));
+        }
+        if (end > start) {
+            const node = document.createElement("span");
+            node.className = ["ts-token", ...(span.classes || [])].join(" ");
+            node.textContent = text.slice(start, end);
+            contentEl.append(node);
+        }
+        cursor = Math.max(cursor, end);
+    }
+
+    if (cursor < text.length) {
+        contentEl.append(document.createTextNode(text.slice(cursor)));
+    }
+    if (!contentEl.childNodes.length) {
+        contentEl.textContent = text || " ";
+    }
+}
+
 function makeDiffRow(row, side, markHunkAnchor = false) {
     const rowEl = document.createElement("div");
     rowEl.className = `diff-row ${row.status}`;
@@ -203,6 +233,7 @@ function makeDiffRow(row, side, markHunkAnchor = false) {
 
     const tokens = side === "left" ? row.left_tokens : row.right_tokens;
     const text = side === "left" ? row.left_text : row.right_text;
+    const syntaxSpans = side === "left" ? row.left_syntax : row.right_syntax;
     const hasNonWhitespaceTokenChanges = Boolean(
         tokens?.some((tok) => tok.changed && !tok.is_ws),
     );
@@ -212,7 +243,7 @@ function makeDiffRow(row, side, markHunkAnchor = false) {
         && !hasNonWhitespaceTokenChanges,
     );
 
-    contentEl.textContent = text || " ";
+    renderSyntaxText(contentEl, text || " ", syntaxSpans);
     if (tokens && tokens.length > 0) {
         if (hasWhitespaceOnlyChanges) {
             rowEl.classList.add("whitespace-only-change");

@@ -7,6 +7,19 @@
     --text: #edf1ff;
     --muted: #98a6d8;
     --accent: #7dd3fc;
+    --syntax-keyword: #c792ea;
+    --syntax-string: #ecc48d;
+    --syntax-number: #f78c6c;
+    --syntax-comment: #7383bf;
+    --syntax-function: #82aaff;
+    --syntax-type: #a5e075;
+    --syntax-variable: #f6f7fb;
+    --syntax-property: #7fdbca;
+    --syntax-operator: #89ddff;
+    --syntax-punctuation: #b2c1ff;
+    --syntax-constant: #ffcb6b;
+    --syntax-tag: #f07178;
+    --syntax-attribute: #c3e88d;
     --added: rgba(74, 222, 128, 0.18);
     --removed: rgba(248, 113, 113, 0.18);
     --changed: rgba(251, 191, 36, 0.18);
@@ -324,6 +337,83 @@ button {
 
 .line-code-content {
     display: inline;
+}
+
+.ts-token {
+    color: inherit;
+    background: transparent;
+}
+
+.ts-keyword,
+.ts-conditional,
+.ts-repeat,
+.ts-keyword-operator {
+    color: var(--syntax-keyword);
+}
+
+.ts-string,
+.ts-string-special,
+.ts-embedded {
+    color: var(--syntax-string);
+}
+
+.ts-number,
+.ts-float,
+.ts-boolean {
+    color: var(--syntax-number);
+}
+
+.ts-comment {
+    color: var(--syntax-comment);
+}
+
+.ts-function,
+.ts-constructor,
+.ts-method {
+    color: var(--syntax-function);
+}
+
+.ts-type,
+.ts-type-builtin,
+.ts-module,
+.ts-namespace,
+.ts-label {
+    color: var(--syntax-type);
+}
+
+.ts-variable,
+.ts-parameter,
+.ts-field,
+.ts-local {
+    color: var(--syntax-variable);
+}
+
+.ts-property {
+    color: var(--syntax-property);
+}
+
+.ts-operator {
+    color: var(--syntax-operator);
+}
+
+.ts-punctuation,
+.ts-delimiter,
+.ts-bracket {
+    color: var(--syntax-punctuation);
+}
+
+.ts-constant,
+.ts-constant-builtin,
+.ts-enum {
+    color: var(--syntax-constant);
+}
+
+.ts-tag {
+    color: var(--syntax-tag);
+}
+
+.ts-attribute {
+    color: var(--syntax-attribute);
 }
 
 .token-changed {

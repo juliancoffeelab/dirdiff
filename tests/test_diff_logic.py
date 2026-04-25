@@ -22,6 +22,35 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
     assert diff["rows"][0]["left_tokens"]
 
 
+def test_tree_sitter_highlights_multiline_python_strings() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.py",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text='value = """hello\nworld"""\n',
+        right_text='value = """hello\nworld"""\n',
+        left_path_hint="demo.py",
+        right_path_hint="demo.py",
+    )
+
+    first_line_classes = {
+        css_class
+        for span in diff["rows"][0]["left_syntax"]
+        for css_class in span["classes"]
+    }
+    second_line_classes = {
+        css_class
+        for span in diff["rows"][1]["left_syntax"]
+        for css_class in span["classes"]
+    }
+
+    assert "ts-string" in first_line_classes
+    assert "ts-string" in second_line_classes
+
+
 def test_builds_direct_file_diff(tmp_path: Path) -> None:
     left_file = tmp_path / "left.txt"
     right_file = tmp_path / "right.txt"

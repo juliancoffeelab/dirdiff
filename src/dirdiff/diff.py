@@ -8,6 +8,8 @@ from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
+from dirdiff.syntax import highlight_lines_for_path
+
 
 BuiltinSideName = Literal["head", "index", "worktree"]
 SideName = str
@@ -547,8 +549,24 @@ def build_loaded_diff(
     right_exists: bool,
     left_text: str | None,
     right_text: str | None,
+    left_path_hint: str | None = None,
+    right_path_hint: str | None = None,
 ) -> dict[str, Any]:
     rows = _line_rows(left_text or "", right_text or "")
+    left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
+    right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
+
+    for row in rows:
+        left_no = row.get("left_no")
+        if isinstance(left_no, int) and left_syntax_lines and left_no - 1 < len(left_syntax_lines):
+            if left_syntax_lines[left_no - 1]:
+                row["left_syntax"] = left_syntax_lines[left_no - 1]
+
+        right_no = row.get("right_no")
+        if isinstance(right_no, int) and right_syntax_lines and right_no - 1 < len(right_syntax_lines):
+            if right_syntax_lines[right_no - 1]:
+                row["right_syntax"] = right_syntax_lines[right_no - 1]
+
     modified_lines = sum(
         1
         for row in rows
@@ -957,6 +975,8 @@ class TextDiffService:
             right_exists=right_version.exists,
             left_text=left_version.text,
             right_text=right_version.text,
+            left_path_hint=normalized_left,
+            right_path_hint=normalized_right,
         )
         payload["change_type"] = change_type
         payload["left_path"] = normalized_left
@@ -1066,6 +1086,8 @@ class TextDiffService:
             right_exists=right_version.exists,
             left_text=left_version.text,
             right_text=right_version.text,
+            left_path_hint=left_path.name if left_path is not None else None,
+            right_path_hint=right_path.name if right_path is not None else None,
         )
 
     def build_diff(
