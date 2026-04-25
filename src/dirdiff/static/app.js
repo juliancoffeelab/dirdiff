@@ -26,8 +26,11 @@ const MODE_TO_SIDES = {
 const hunkNavState = {
     activeIndex: null,
     signature: "",
-    lastNavAt: 0,
+    autoScrollInProgress: false,
+    settleTimerId: 0,
 };
+const HUNK_SCROLL_MARGIN = 120;
+const HUNK_NAV_SETTLE_DELAY_MS = 140;
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
 
@@ -443,14 +446,28 @@ function renderResult(payload) {
 function resetHunkNavState() {
     hunkNavState.activeIndex = null;
     hunkNavState.signature = "";
-    hunkNavState.lastNavAt = 0;
+    hunkNavState.autoScrollInProgress = false;
+    if (hunkNavState.settleTimerId) {
+        clearTimeout(hunkNavState.settleTimerId);
+        hunkNavState.settleTimerId = 0;
+    }
 }
 
 function positionsSignature(positions) {
     return positions.join("|");
 }
 
-function shouldUseActiveHunkIndex(positions, viewportCenter) {
+function scheduleHunkNavSettle() {
+    if (hunkNavState.settleTimerId) {
+        clearTimeout(hunkNavState.settleTimerId);
+    }
+    hunkNavState.settleTimerId = window.setTimeout(() => {
+        hunkNavState.autoScrollInProgress = false;
+        hunkNavState.settleTimerId = 0;
+    }, HUNK_NAV_SETTLE_DELAY_MS);
+}
+
+function shouldUseActiveHunkIndex(positions, currentPosition) {
     if (!Number.isInteger(hunkNavState.activeIndex)) {
         return false;
     }
@@ -461,12 +478,12 @@ function shouldUseActiveHunkIndex(positions, viewportCenter) {
         return false;
     }
 
-    if (Date.now() - hunkNavState.lastNavAt < 900) {
+    if (hunkNavState.autoScrollInProgress) {
         return true;
     }
 
     const activePosition = positions[hunkNavState.activeIndex];
-    return Math.abs(activePosition - viewportCenter) <= 24;
+    return Math.abs(activePosition - currentPosition) <= 24;
 }
 
 function isVisibleHunkAnchor(row) {
@@ -487,26 +504,27 @@ function navigateHunk(direction) {
     );
     if (!positions.length) return false;
 
-    const viewportCenter = window.scrollY + window.innerHeight / 2;
-    const targetIndex = shouldUseActiveHunkIndex(positions, viewportCenter)
+    const currentPosition = window.scrollY + HUNK_SCROLL_MARGIN;
+    const targetIndex = shouldUseActiveHunkIndex(positions, currentPosition)
         ? window.fileDiffNav.stepHunkIndex(
             hunkNavState.activeIndex,
             direction,
             positions.length,
         )
-        : window.fileDiffNav.pickTargetIndex(
+        : window.fileDiffNav.pickRelativeIndex(
             positions,
-            viewportCenter,
+            currentPosition,
             direction,
         );
     if (targetIndex === null) return false;
 
     hunkNavState.activeIndex = targetIndex;
     hunkNavState.signature = positionsSignature(positions);
-    hunkNavState.lastNavAt = Date.now();
+    hunkNavState.autoScrollInProgress = true;
+    scheduleHunkNavSettle();
 
     window.scrollTo({
-        top: Math.max(positions[targetIndex] - 120, 0),
+        top: Math.max(positions[targetIndex] - HUNK_SCROLL_MARGIN, 0),
         behavior: "smooth",
     });
     return true;
@@ -665,6 +683,15 @@ window.addEventListener("keydown", (event) => {
         navigateHunk("prev");
     }
 });
+window.addEventListener(
+    "scroll",
+    () => {
+        if (hunkNavState.autoScrollInProgress) {
+            scheduleHunkNavSettle();
+        }
+    },
+    { passive: true },
+);
 
 const search = new URLSearchParams(window.location.search);
 const defaults = window.FILE_DIFF_DEFAULTS || {};

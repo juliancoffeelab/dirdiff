@@ -43,29 +43,35 @@
             : (currentIndex - 1 + length) % length;
     }
 
-    function pickTargetIndex(positions, viewportCenter, direction) {
+    function pickRelativeIndex(positions, currentPosition, direction, tolerance = 24) {
         if (!positions.length) {
             return null;
         }
 
-        const firstPosition = positions[0];
-        const lastPosition = positions[positions.length - 1];
-        if (viewportCenter < firstPosition) {
-            return direction === "next" ? 0 : positions.length - 1;
-        }
-        if (viewportCenter > lastPosition) {
-            return direction === "next" ? 0 : positions.length - 1;
+        // Navigate from the current scroll anchor so tall viewports do not skip
+        // nearby hunks that happen to sit above the viewport center.
+        if (direction === "next") {
+            for (let index = 0; index < positions.length; index += 1) {
+                if (positions[index] > currentPosition + tolerance) {
+                    return index;
+                }
+            }
+            return 0;
         }
 
-        const nearestIndex = findNearestIndex(positions, viewportCenter);
-        return stepHunkIndex(nearestIndex, direction, positions.length);
+        for (let index = positions.length - 1; index >= 0; index -= 1) {
+            if (positions[index] < currentPosition - tolerance) {
+                return index;
+            }
+        }
+        return positions.length - 1;
     }
 
     const api = {
         findNearestIndex,
         uniqueSortedPositions,
         stepHunkIndex,
-        pickTargetIndex,
+        pickRelativeIndex,
     };
 
     globalScope.fileDiffNav = api;
