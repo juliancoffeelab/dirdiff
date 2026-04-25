@@ -21,6 +21,7 @@
   `uv run pytest`
   `uv build`
 - If you change browser rendering, diff row DOM, syntax highlighting, or folding behavior, also run a Playwright smoke test against a local `uv run dirdiff` session.
+- For browser-only regressions, add an automated repro first, then implement the fix against that repro. Prefer Playwright when the bug depends on real scrolling, layout, or DOM timing.
 
 ## Dependency Changes
 

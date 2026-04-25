@@ -457,6 +457,14 @@ function positionsSignature(positions) {
     return positions.join("|");
 }
 
+function targetScrollTopForPosition(position) {
+    const maxScrollTop = Math.max(
+        document.documentElement.scrollHeight - window.innerHeight,
+        0,
+    );
+    return Math.min(Math.max(position - HUNK_SCROLL_MARGIN, 0), maxScrollTop);
+}
+
 function scheduleHunkNavSettle() {
     if (hunkNavState.settleTimerId) {
         clearTimeout(hunkNavState.settleTimerId);
@@ -483,7 +491,12 @@ function shouldUseActiveHunkIndex(positions, currentPosition) {
     }
 
     const activePosition = positions[hunkNavState.activeIndex];
-    return Math.abs(activePosition - currentPosition) <= 24;
+    const activeScrollTop = targetScrollTopForPosition(activePosition);
+
+    return (
+        Math.abs(activePosition - currentPosition) <= 24
+        || Math.abs(activeScrollTop - window.scrollY) <= 24
+    );
 }
 
 function isVisibleHunkAnchor(row) {
@@ -524,7 +537,7 @@ function navigateHunk(direction) {
     scheduleHunkNavSettle();
 
     window.scrollTo({
-        top: Math.max(positions[targetIndex] - HUNK_SCROLL_MARGIN, 0),
+        top: targetScrollTopForPosition(positions[targetIndex]),
         behavior: "smooth",
     });
     return true;

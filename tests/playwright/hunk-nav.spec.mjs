@@ -55,9 +55,26 @@ async function getActiveHunkIndex(page) {
   }, HUNK_SCROLL_MARGIN);
 }
 
-test("next hunk queues correctly while smooth scrolling is still in flight", async ({ page, baseURL }) => {
+async function openFixtureDiff(page, baseURL) {
   const { fixtureDir, leftPath, rightPath } = await writeFixtureFiles();
 
+  const query = new URLSearchParams({
+    left_file: leftPath,
+    right_file: rightPath
+  });
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(`${baseURL}/?${query.toString()}`);
+  await expect(page.locator(".diff-row.hunk-anchor")).toHaveCount(3);
+
+  return fixtureDir;
+}
+
+async function expectActiveHunk(page, index) {
+  await expect.poll(() => getActiveHunkIndex(page)).toBe(index);
+}
+
+test("next hunk queues correctly while smooth scrolling is still in flight", async ({ page, baseURL }) => {
   await page.addInitScript(() => {
     const nativeScrollTo = window.scrollTo.bind(window);
     let animationFrame = 0;
@@ -92,22 +109,37 @@ test("next hunk queues correctly while smooth scrolling is still in flight", asy
     };
   });
 
+  const fixtureDir = await openFixtureDiff(page, baseURL);
+
   try {
-    const query = new URLSearchParams({
-      left_file: leftPath,
-      right_file: rightPath
-    });
-
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto(`${baseURL}/?${query.toString()}`);
-    await expect(page.locator(".diff-row.hunk-anchor")).toHaveCount(3);
-
     await page.getByRole("button", { name: /next hunk/i }).click();
     await page.waitForTimeout(1_000);
     await page.getByRole("button", { name: /next hunk/i }).click();
     await page.waitForTimeout(2_000);
 
-    await expect.poll(() => getActiveHunkIndex(page)).toBe(1);
+    await expectActiveHunk(page, 1);
+  } finally {
+    await fs.rm(fixtureDir, { recursive: true, force: true });
+  }
+});
+
+test("next hunk wraps after the final hunk settles at the bottom of the page", async ({ page, baseURL }) => {
+  const fixtureDir = await openFixtureDiff(page, baseURL);
+
+  try {
+    await page.getByRole("button", { name: /next hunk/i }).click();
+    await expectActiveHunk(page, 0);
+
+    await page.getByRole("button", { name: /next hunk/i }).click();
+    await expectActiveHunk(page, 1);
+
+    await page.getByRole("button", { name: /next hunk/i }).click();
+    await expectActiveHunk(page, 2);
+
+    await page.waitForTimeout(400);
+    await page.getByRole("button", { name: /next hunk/i }).click();
+
+    await expectActiveHunk(page, 0);
   } finally {
     await fs.rm(fixtureDir, { recursive: true, force: true });
   }
