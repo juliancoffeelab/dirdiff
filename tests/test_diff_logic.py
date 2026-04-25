@@ -22,6 +22,45 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
     assert diff["rows"][0]["left_tokens"]
 
 
+def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.js",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text="function findNearestIndex(positions, viewportCenter) {}\n",
+        right_text="function positionsSignature(positions) {}\n",
+        left_path_hint="demo.js",
+        right_path_hint="demo.js",
+    )
+
+    left_name_tokens = []
+    for token in diff["rows"][0]["left_tokens"]:
+        if token["text"] == "(":
+            break
+        if token["text"] != "function" and not token["is_ws"]:
+            left_name_tokens.append((token["text"], token["changed"]))
+
+    right_name_tokens = []
+    for token in diff["rows"][0]["right_tokens"]:
+        if token["text"] == "(":
+            break
+        if token["text"] != "function" and not token["is_ws"]:
+            right_name_tokens.append((token["text"], token["changed"]))
+
+    assert left_name_tokens == [
+        ("find", True),
+        ("Nearest", True),
+        ("Index", True),
+    ]
+    assert right_name_tokens == [
+        ("positions", True),
+        ("Signature", True),
+    ]
+
+
 def test_tree_sitter_highlights_multiline_python_strings() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
