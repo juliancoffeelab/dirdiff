@@ -650,10 +650,27 @@ function syncModeUI() {
     customRefsGroup.hidden = !customMode;
 }
 
+function shouldIgnoreHunkNavKeyEvent(event) {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+        return true;
+    }
+
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+
+    return target.isContentEditable
+        || target.closest("input, textarea, select, [contenteditable='true']");
+}
+
 prevHunkBtn.addEventListener("click", () => hunkNavController.request("prev"));
 nextHunkBtn.addEventListener("click", () => hunkNavController.request("next"));
 
 window.addEventListener("keydown", (event) => {
+    if (shouldIgnoreHunkNavKeyEvent(event)) {
+        return;
+    }
     if (event.key === "n" && !event.shiftKey) {
         hunkNavController.request("next");
     } else if (event.key === "N") {

@@ -143,12 +143,55 @@ export async function expectSelectedHunkRows(page, index) {
   await expect(page.locator(`.diff-row.active-hunk[data-hunk-index="${index}"]`)).toHaveCount(2);
 }
 
+export async function getSelectedHunkIndex(page) {
+  return page.evaluate(() => {
+    const row = document.querySelector(".diff-row.active-hunk");
+    return row ? Number(row.dataset.hunkIndex) : null;
+  });
+}
+
+export async function expectSelectedHunkIndex(page, index) {
+  await expect.poll(() => getSelectedHunkIndex(page)).toBe(index);
+  await expectSelectedHunkRows(page, index);
+}
+
 export async function getScrollToCalls(page) {
   return page.evaluate(() => window.__hunkNavScrollCalls || []);
 }
 
 export async function getScrollY(page) {
   return page.evaluate(() => window.scrollY);
+}
+
+export async function waitForScrollSettled(page, {
+  intervalMs = 80,
+  stableSamples = 4,
+  attempts = 80,
+} = {}) {
+  let last = await getScrollY(page);
+  let stable = 0;
+
+  for (let index = 0; index < attempts; index += 1) {
+    await page.waitForTimeout(intervalMs);
+    const current = await getScrollY(page);
+    if (Math.abs(current - last) < 1) {
+      stable += 1;
+      if (stable >= stableSamples) {
+        return;
+      }
+    } else {
+      stable = 0;
+      last = current;
+    }
+  }
+
+  throw new Error("Timed out waiting for scroll to settle");
+}
+
+export async function scrollToY(page, top) {
+  await page.evaluate((nextTop) => {
+    window.scrollTo({ top: nextTop, behavior: "auto" });
+  }, top);
 }
 
 export async function sampleScrollPositions(page, {

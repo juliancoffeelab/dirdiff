@@ -22,6 +22,7 @@
   `uv build`
 - If you change browser rendering, diff row DOM, syntax highlighting, or folding behavior, also run a Playwright smoke test against a local `uv run dirdiff` session.
 - For browser-only regressions, add an automated repro first, then implement the fix against that repro. Prefer Playwright when the bug depends on real scrolling, layout, or DOM timing.
+- Keep `docs/tests/` in sync with the suite. When tests are added, removed, or substantially changed, update the relevant markdown under `docs/tests/playwright`, `docs/tests/js`, and `docs/tests/pytest` so it explains what the tests cover, how they exercise it, and why that coverage exists.
 
 ## Dependency Changes
 
