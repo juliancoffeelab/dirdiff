@@ -40,6 +40,14 @@ let pendingLoadTimer = 0;
 let activeLoadToken = 0;
 let activeDiffStream = null;
 
+function setForceParam(params, force) {
+    if (force) {
+        params.set("force", "1");
+    } else {
+        params.delete("force");
+    }
+}
+
 if (!window.__fileDiffRowSyncListenerBound) {
     window.addEventListener("resize", () => {
         for (const syncRows of registeredRowSyncs) {
@@ -791,6 +799,10 @@ const hunkNavController = window.fileDiffNav.createHunkNavigationController({
 });
 
 async function loadDiff() {
+    return loadDiffWithOptions({});
+}
+
+async function loadDiffWithOptions(options = {}) {
     const params = new URLSearchParams();
     const state = getControlState();
     if (!state.valid) {
@@ -813,6 +825,7 @@ async function loadDiff() {
     if (state.branch) {
         params.set("branch", state.branch);
     }
+    setForceParam(params, !!options.force);
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
     hunkNavController.reset();
@@ -821,6 +834,17 @@ async function loadDiff() {
 
     try {
         if (shouldStreamDiff(state)) {
+            const checkParams = new URLSearchParams(params);
+            checkParams.set("check", "1");
+            const checkResponse = await fetch(`/api/diff?${checkParams.toString()}`);
+            const checkPayload = await checkResponse.json();
+            if (loadToken !== activeLoadToken) {
+                return;
+            }
+            if (!checkResponse.ok) {
+                renderLoadError(state, checkPayload.error || "Failed to load diff.", params, checkPayload);
+                return;
+            }
             streamDiff(params, state, loadToken);
             return;
         }
@@ -830,7 +854,8 @@ async function loadDiff() {
             return;
         }
         if (!response.ok) {
-            throw new Error(payload.error || "Failed to load diff.");
+            renderLoadError(state, payload.error || "Failed to load diff.", params, payload);
+            return;
         }
 
         renderSummary(payload.summary, payload.mode);
@@ -841,18 +866,32 @@ async function loadDiff() {
         if (loadToken !== activeLoadToken) {
             return;
         }
-        summaryGrid.replaceChildren();
-        resultPanel.replaceChildren();
-        resetHunkCaches();
-        syncSelectedHunk(null);
-
-        const box = document.createElement("div");
-        box.className = "error-state";
-        box.textContent = error.message;
-        resultPanel.append(box);
-        setStatus(error.message, true);
-        closeActiveDiffStream();
+        renderLoadError(state, error.message, params);
     }
+}
+
+function renderLoadError(state, message, params, payload = null) {
+    summaryGrid.replaceChildren();
+    resultPanel.replaceChildren();
+    resetHunkCaches();
+    syncSelectedHunk(null);
+
+    const box = document.createElement("div");
+    box.className = "error-state";
+    box.textContent = message;
+    if (payload?.can_force) {
+        box.append(" ");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Show anyway";
+        button.addEventListener("click", () => {
+            loadDiffWithOptions({ force: true });
+        });
+        box.append(button);
+    }
+    resultPanel.append(box);
+    setStatus(payload?.can_force ? "Large diff blocked" : message, true);
+    closeActiveDiffStream();
 }
 
 function streamDiff(params, state, loadToken) {

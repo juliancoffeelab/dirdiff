@@ -16,6 +16,7 @@ STATIC_CONTENT_TYPES = {
     ".js": "application/javascript; charset=utf-8",
     ".html": "text/html; charset=utf-8",
 }
+LARGE_DIFF_FILE_LIMIT = 10
 
 
 class DiffViewerServer(ThreadingHTTPServer):
@@ -85,6 +86,15 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
     def _serve_diff(self, query_string: str) -> None:
         query, mode, base_branch, branch = self._parse_diff_request(query_string)
         try:
+            self._enforce_large_diff_limit(
+                query=query,
+                mode=mode,
+                base_branch=base_branch,
+                branch=branch,
+            )
+            if _is_truthy(query, "check"):
+                self._send_json({"ok": True})
+                return
             payload = self.server.service.build_diff(
                 left=_first(query, "left", self.server.defaults["left"]),
                 right=_first(query, "right", self.server.defaults["right"]),
@@ -92,7 +102,13 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
                 branch=branch,
             )
         except TextDiffError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            self._send_json(
+                {
+                    "error": str(exc),
+                    "can_force": True,
+                },
+                status=HTTPStatus.BAD_REQUEST,
+            )
             return
 
         self._send_json(payload)
@@ -102,6 +118,12 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
         left = _first(query, "left", self.server.defaults["left"])
         right = _first(query, "right", self.server.defaults["right"])
         try:
+            self._enforce_large_diff_limit(
+                query=query,
+                mode=mode,
+                base_branch=base_branch,
+                branch=branch,
+            )
             initial_payload, progress_iter, label_overrides = self._build_stream_payload(
                 mode=mode,
                 left=left,
@@ -110,7 +132,13 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
                 branch=branch,
             )
         except TextDiffError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            self._send_json(
+                {
+                    "error": str(exc),
+                    "can_force": True,
+                },
+                status=HTTPStatus.BAD_REQUEST,
+            )
             return
 
         self.send_response(HTTPStatus.OK)
@@ -227,6 +255,66 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _enforce_large_diff_limit(
+        self,
+        *,
+        query: dict[str, list[str]],
+        mode: str | None,
+        base_branch: str | None,
+        branch: str | None,
+    ) -> None:
+        if _is_truthy(query, "force"):
+            return
+
+        changed_files = self._count_changed_files(
+            query=query,
+            mode=mode,
+            base_branch=base_branch,
+            branch=branch,
+        )
+        if changed_files <= LARGE_DIFF_FILE_LIMIT:
+            return
+
+        raise TextDiffError(
+            f"This diff has {changed_files} changed files. Showing everything may freeze the page."
+        )
+
+    def _count_changed_files(
+        self,
+        *,
+        query: dict[str, list[str]],
+        mode: str | None,
+        base_branch: str | None,
+        branch: str | None,
+    ) -> int:
+        if mode == "refs":
+            return 0
+
+        if mode == "branch-review" and branch and branch.strip():
+            resolved_base_branch = (
+                base_branch or self.server.service.default_base_branch()
+            )
+            merge_base, normalized_branch = self.server.service.resolve_branch_diff_sides(
+                base_branch=resolved_base_branch,
+                branch=branch,
+            )
+            return len(
+                self.server.service.list_repo_diff_paths(
+                    left=merge_base,
+                    right=normalized_branch,
+                )
+            )
+
+        left = self.server.service.normalize_side(
+            _first(query, "left", self.server.defaults["left"])
+            or self.server.defaults["left"]
+        )
+        right = self.server.service.normalize_side(
+            _first(query, "right", self.server.defaults["right"])
+            or self.server.defaults["right"]
+        )
+        return len(self.server.service.list_repo_diff_paths(left=left, right=right))
+
     def _parse_diff_request(
         self,
         query_string: str,
@@ -265,3 +353,8 @@ def _first(values: dict[str, list[str]], key: str, default: str | None = None) -
         return default
     value = bucket[0].strip()
     return value or default
+
+
+def _is_truthy(values: dict[str, list[str]], key: str) -> bool:
+    value = _first(values, key, "")
+    return value in {"1", "true", "yes", "on"}
