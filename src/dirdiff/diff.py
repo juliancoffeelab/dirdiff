@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 from dirdiff.fold import fold_hints_for_path
 from dirdiff.syntax import highlight_lines_for_path
@@ -40,6 +40,12 @@ class RepoDiffPath:
     right_path: str | None
     display_name: str
     change_type: str
+
+
+@dataclass(frozen=True)
+class RepoDiffProgress:
+    entry: dict[str, Any]
+    summary: dict[str, int]
 
 
 class TextDiffError(ValueError):
@@ -704,17 +710,23 @@ def _empty_repo_diff(
         "left_label": left_label,
         "right_label": right_label,
         "summary": {
-            "changed_files": 0,
-            "added_files": 0,
-            "removed_files": 0,
-            "updated_files": 0,
-            "changed_lines": 0,
-            "modified_lines": 0,
-            "added_lines": 0,
-            "removed_lines": 0,
-            "skipped_files": 0,
+            **_empty_repo_summary(),
         },
         "files": [],
+    }
+
+
+def _empty_repo_summary() -> dict[str, int]:
+    return {
+        "changed_files": 0,
+        "added_files": 0,
+        "removed_files": 0,
+        "updated_files": 0,
+        "changed_lines": 0,
+        "modified_lines": 0,
+        "added_lines": 0,
+        "removed_lines": 0,
+        "skipped_files": 0,
     }
 
 
@@ -1155,19 +1167,44 @@ class TextDiffService:
             )
 
         files: list[dict[str, Any]] = []
-        summary = {
-            "changed_files": 0,
-            "added_files": 0,
-            "removed_files": 0,
-            "updated_files": 0,
-            "changed_lines": 0,
-            "modified_lines": 0,
-            "added_lines": 0,
-            "removed_lines": 0,
-            "skipped_files": 0,
+        summary = _empty_repo_summary()
+
+        for progress in self.iter_repo_diff_progress(
+            left=normalized_left,
+            right=normalized_right,
+            paths=paths,
+        ):
+            files.append(progress.entry)
+            summary = progress.summary
+
+        return {
+            "display_name": "Repository diff",
+            "mode": "repo",
+            "left_label": normalized_left,
+            "right_label": normalized_right,
+            "summary": summary,
+            "files": files,
         }
 
-        for entry in paths:
+    def iter_repo_diff_progress(
+        self,
+        *,
+        left: str,
+        right: str,
+        paths: list[RepoDiffPath] | None = None,
+    ) -> Iterator[RepoDiffProgress]:
+        normalized_left = self.normalize_side(left)
+        normalized_right = self.normalize_side(right)
+        entries = (
+            paths
+            if paths is not None
+            else self.list_repo_diff_paths(
+                left=normalized_left,
+                right=normalized_right,
+            )
+        )
+        summary = _empty_repo_summary()
+        for entry in entries:
             try:
                 file_diff = self.build_git_diff_paths(
                     left_path=entry.left_path,
@@ -1178,17 +1215,18 @@ class TextDiffService:
                     change_type=entry.change_type,
                 )
             except TextDiffError as exc:
-                files.append(
-                    {
+                summary["skipped_files"] += 1
+                yield RepoDiffProgress(
+                    entry={
                         "display_name": entry.display_name,
                         "mode": "git",
                         "left_label": normalized_left,
                         "right_label": normalized_right,
                         "change_type": entry.change_type,
                         "error": str(exc),
-                    }
+                    },
+                    summary=dict(summary),
                 )
-                summary["skipped_files"] += 1
                 continue
 
             if (
@@ -1197,7 +1235,6 @@ class TextDiffService:
             ):
                 continue
 
-            files.append(file_diff)
             summary["changed_files"] += 1
             if entry.change_type == "add":
                 summary["added_files"] += 1
@@ -1209,15 +1246,7 @@ class TextDiffService:
             summary["modified_lines"] += file_diff["summary"]["modified_lines"]
             summary["added_lines"] += file_diff["summary"]["added_lines"]
             summary["removed_lines"] += file_diff["summary"]["removed_lines"]
-
-        return {
-            "display_name": "Repository diff",
-            "mode": "repo",
-            "left_label": normalized_left,
-            "right_label": normalized_right,
-            "summary": summary,
-            "files": files,
-        }
+            yield RepoDiffProgress(entry=file_diff, summary=dict(summary))
 
     def build_branch_diff(
         self,

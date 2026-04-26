@@ -38,6 +38,7 @@ const REF_SECTION_LABELS = {
 };
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
+let activeDiffStream = null;
 
 if (!window.__fileDiffRowSyncListenerBound) {
     window.addEventListener("resize", () => {
@@ -678,6 +679,48 @@ function renderResult(payload) {
     resultPanel.append(makeFileCard(payload).card);
 }
 
+function closeActiveDiffStream() {
+    if (!activeDiffStream) {
+        return;
+    }
+    activeDiffStream.close();
+    activeDiffStream = null;
+}
+
+function shouldStreamDiff(state) {
+    return state.mode !== "refs" && typeof EventSource !== "undefined";
+}
+
+function beginRepoStream(initialPayload) {
+    resetHunkCaches();
+    resultPanel.replaceChildren();
+    renderSummary(initialPayload.summary, initialPayload.mode);
+    syncSelectedHunk(null);
+
+    return {
+        payload: {
+            ...initialPayload,
+            files: [],
+        },
+        nextHunkIndex: 0,
+    };
+}
+
+function appendRepoStreamEntry(streamState, entry, summary) {
+    streamState.payload.summary = summary;
+    streamState.payload.files.push(entry);
+    renderSummary(summary, streamState.payload.mode);
+
+    if (entry.error) {
+        resultPanel.append(makeErrorCard(entry));
+        return;
+    }
+
+    const result = makeFileCard(entry, streamState.nextHunkIndex);
+    streamState.nextHunkIndex = result.nextHunkIndex;
+    resultPanel.append(result.card);
+}
+
 function isVisibleHunkAnchor(row) {
     return !!row && row.offsetParent !== null && row.getClientRects().length > 0;
 }
@@ -773,9 +816,14 @@ async function loadDiff() {
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
     hunkNavController.reset();
+    closeActiveDiffStream();
     const loadToken = ++activeLoadToken;
 
     try {
+        if (shouldStreamDiff(state)) {
+            streamDiff(params, state, loadToken);
+            return;
+        }
         const response = await fetch(`/api/diff?${params.toString()}`);
         const payload = await response.json();
         if (loadToken !== activeLoadToken) {
@@ -803,7 +851,83 @@ async function loadDiff() {
         box.textContent = error.message;
         resultPanel.append(box);
         setStatus(error.message, true);
+        closeActiveDiffStream();
     }
+}
+
+function streamDiff(params, state, loadToken) {
+    const stream = new EventSource(`/api/diff-stream?${params.toString()}`);
+    activeDiffStream = stream;
+    let streamState = null;
+    let finished = false;
+
+    const fail = (message) => {
+        if (loadToken !== activeLoadToken) {
+            return;
+        }
+        finished = true;
+        closeActiveDiffStream();
+        summaryGrid.replaceChildren();
+        resultPanel.replaceChildren();
+        resetHunkCaches();
+        syncSelectedHunk(null);
+
+        const box = document.createElement("div");
+        box.className = "error-state";
+        box.textContent = message;
+        resultPanel.append(box);
+        setStatus(message, true);
+    };
+
+    stream.addEventListener("init", (event) => {
+        if (loadToken !== activeLoadToken) {
+            closeActiveDiffStream();
+            return;
+        }
+        const payload = JSON.parse(event.data);
+        streamState = beginRepoStream(payload);
+        setStatus(`${buildStatusMessage(state, payload)} · streaming…`);
+    });
+
+    stream.addEventListener("file", (event) => {
+        if (loadToken !== activeLoadToken || !streamState) {
+            return;
+        }
+        const payload = JSON.parse(event.data);
+        appendRepoStreamEntry(streamState, payload.entry, payload.summary);
+        const loadedFiles = streamState.payload.files.length;
+        const skippedFiles = payload.summary.skipped_files || 0;
+        setStatus(
+            `${buildStatusMessage(state, streamState.payload)} · loaded ${loadedFiles} file${loadedFiles !== 1 ? "s" : ""}${skippedFiles ? `, skipped ${skippedFiles}` : ""}`,
+        );
+    });
+
+    stream.addEventListener("done", () => {
+        if (loadToken !== activeLoadToken || !streamState) {
+            return;
+        }
+        finished = true;
+        closeActiveDiffStream();
+        if (!streamState.payload.files.length) {
+            const box = document.createElement("div");
+            box.className = "error-state";
+            box.textContent = "No changed files for the selected sides.";
+            resultPanel.replaceChildren(box);
+        }
+        setStatus(buildStatusMessage(state, streamState.payload));
+    });
+
+    stream.addEventListener("error", (event) => {
+        if (finished) {
+            return;
+        }
+        try {
+            const payload = event.data ? JSON.parse(event.data) : null;
+            fail(payload?.error || "Failed to stream diff.");
+        } catch {
+            fail("Failed to stream diff.");
+        }
+    });
 }
 
 function scheduleLoadDiff(delayMs = 180) {

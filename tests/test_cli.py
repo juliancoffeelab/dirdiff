@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import socket
 import subprocess
+import threading
 from pathlib import Path
+from urllib.request import urlopen
 
 from dirdiff.cli import build_defaults, create_server
 from dirdiff.diff import TextDiffService
@@ -129,3 +131,64 @@ def test_build_defaults_keeps_review_branch_selected_even_on_master(
     assert defaults["base_branch"] == "master"
     assert defaults["branch"] == "feature"
     assert defaults["ref_choices"]["locals"] == ["feature", "master"]
+
+
+def test_diff_stream_endpoint_emits_progress_events(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    tracked_file.write_text("one changed\n", encoding="utf-8")
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    defaults = build_defaults(
+        service,
+        argparse.Namespace(
+            left="index",
+            right="worktree",
+            base_branch=None,
+            branch=None,
+            repo_root=None,
+            port=5052,
+            no_open_browser=False,
+            headless=False,
+        ),
+    )
+    server = create_server(0, service, defaults)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        port = server.server_address[1]
+        with urlopen(f"http://127.0.0.1:{port}/api/diff-stream?mode=files&left=index&right=worktree") as response:
+            lines = []
+            while len(lines) < 6:
+                raw_line = response.readline()
+                assert raw_line
+                line = raw_line.decode("utf-8").strip()
+                if line:
+                    lines.append(line)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert lines[0] == "event: init"
+    assert lines[1].startswith("data: ")
+    assert lines[2] == "event: file"
+    assert '"display_name": "alpha.txt"' in lines[3]
+    assert lines[4] == "event: done"
+    assert lines[5].startswith("data: ")

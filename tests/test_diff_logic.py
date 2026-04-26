@@ -709,3 +709,38 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     assert diff["summary"]["changed_files"] == 1
     assert diff["summary"]["added_lines"] == 1
     assert diff["summary"]["removed_lines"] == 0
+
+
+def test_iter_repo_diff_progress_updates_summary_incrementally(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "alpha.txt").write_text("one\n", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("two\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+
+    (tmp_path / "alpha.txt").write_text("one changed\n", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("two changed\n", encoding="utf-8")
+
+    service = TextDiffService.discover(cwd=tmp_path)
+
+    progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
+
+    assert len(progress) == 2
+    assert progress[0].summary["changed_files"] == 1
+    assert progress[1].summary["changed_files"] == 2
+    assert progress[0].entry["display_name"] in {"alpha.txt", "beta.txt"}
+    assert progress[1].summary["changed_lines"] >= progress[0].summary["changed_lines"]
