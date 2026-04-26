@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import errno
+import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -11,6 +13,7 @@ from dirdiff.server import DiffViewerServer
 
 
 DEFAULT_PORT = 5052
+PORT_FALLBACK_ATTEMPTS = 20
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,14 +68,39 @@ def build_defaults(service: TextDiffService, args: argparse.Namespace) -> dict[s
     }
 
 
+def create_server(
+    requested_port: int,
+    service: TextDiffService,
+    defaults: dict[str, str],
+) -> DiffViewerServer:
+    last_error: OSError | None = None
+
+    for port in range(requested_port, requested_port + PORT_FALLBACK_ATTEMPTS):
+        try:
+            return DiffViewerServer(("127.0.0.1", port), service, defaults)
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise
+            last_error = exc
+
+    assert last_error is not None
+    raise last_error
+
+
 def main() -> None:
     args = parse_args()
     repo_root = Path(args.repo_root).expanduser() if args.repo_root else None
     service = TextDiffService.discover(repo_root=repo_root)
     defaults = build_defaults(service, args)
 
-    server = DiffViewerServer(("127.0.0.1", args.port), service, defaults)
-    url = _build_url(args.port, defaults)
+    server = create_server(args.port, service, defaults)
+    actual_port = server.server_address[1]
+    url = _build_url(actual_port, defaults)
+    if actual_port != args.port:
+        print(
+            f"Port {args.port} is in use; using {actual_port} instead.",
+            file=sys.stderr,
+        )
     if not (args.no_open_browser or args.headless):
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
 

@@ -1,8 +1,11 @@
-# Playwright Hunk Navigation Tests
+# Playwright Browser Tests
 
 Source:
 
-- [`tests/playwright/hunk-nav.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/hunk-nav.spec.mjs)
+- [`tests/playwright/direct-nav.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/direct-nav.spec.mjs)
+- [`tests/playwright/folds.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/folds.spec.mjs)
+- [`tests/playwright/repo-mode.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/repo-mode.spec.mjs)
+- [`tests/playwright/smooth-scroll.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/smooth-scroll.spec.mjs)
 - [`tests/playwright/hunk-nav.helpers.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/hunk-nav.helpers.mjs)
 
 ## Why This Layer Exists
