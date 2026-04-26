@@ -1,224 +1,247 @@
 # Playwright Browser Tests
 
-Source:
+This document explains every Playwright testcase in the hunk-navigation browser suite, with emphasis on the internals each case is actually exercising. The point of this layer is not "does the navigation model work in theory?" The point is "does the rendered page behave correctly once scrolling, DOM state, layout, focus, and repo-mode rendering all get involved?"
 
-- [`tests/playwright/direct-nav.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/direct-nav.spec.mjs)
-- [`tests/playwright/folds.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/folds.spec.mjs)
-- [`tests/playwright/repo-mode.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/repo-mode.spec.mjs)
-- [`tests/playwright/smooth-scroll.spec.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/smooth-scroll.spec.mjs)
-- [`tests/playwright/hunk-nav.helpers.mjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/playwright/hunk-nav.helpers.mjs)
+## Shared Helpers And Invariants
 
-## Why This Layer Exists
+Most tests rely on a small set of helper contracts from [`tests/playwright/hunk-nav.helpers.mjs`](../../../tests/playwright/hunk-nav.helpers.mjs).
 
-These tests cover behaviors that only show up in a real browser:
+`openDirectFixtureDiff()` creates a temporary pair of files and opens the app with `left_file` and `right_file` query parameters. Unless a test overrides it, the fixture is a 420-line direct diff with three changed lines at 120, 240, and 360. That means many tests implicitly depend on there being three hunk anchors in a tall enough page to require real scrolling.
 
-- smooth scrolling and settle timing
-- DOM selection state
-- fold-bar rendering and expand/collapse interactions
-- viewport clamping near the bottom of the page
-- keyboard wiring
-- multi-file repo rendering
-- reload and resize interactions
+`expectActiveHunk()` does not read the app's internal controller state. It computes the active hunk geometrically by finding the visible `.diff-row.hunk-anchor` whose absolute position is closest to `window.scrollY + HUNK_SCROLL_MARGIN`, where `HUNK_SCROLL_MARGIN` is `120`. That matters because many tests are really checking where the page landed, not just which row has a CSS class.
 
-If a regression depends on actual scroll movement, layout, or browser event timing, this is the layer that should catch it.
+`expectSelectedHunkIndex()` and `expectSelectedHunkRows()` assert the DOM-side selection markers: exactly two `.diff-row.active-hunk` rows, one in each pane, both with `aria-current="true"` and the expected `data-hunk-index`. When a test uses these helpers, it is verifying rendered row selection rather than only scroll position.
 
-## How These Tests Work
+`installSlowSmoothScroll()` patches `window.scrollTo` before page load. Smooth scroll calls are recorded in `window.__hunkNavScrollCalls`, then replayed through a deterministic `requestAnimationFrame` animation. This gives the suite a controllable in-flight scrolling model, which is how the queueing tests make repeated input timing reproducible instead of flaky.
 
-- Direct-file tests build temporary left/right text fixtures and open the app with `left_file` and `right_file` query params.
-- Repo-mode tests create temporary git repositories, modify tracked files, and start `uv run dirdiff --headless` against that repo.
-- Slow-scroll tests replace `window.scrollTo` with an animated test double so repeated input can be observed while scrolling is still in flight.
-- Helper assertions check both geometric location and explicit DOM selection through `.active-hunk` and `data-hunk-index`.
+Repo-mode tests use `createTempRepoFixture()` and `startTempRepoServer()`. The fixture creates a temporary Git repo, commits tracked files, rewrites selected lines in the worktree, then starts `uv run dirdiff --headless --repo-root <repo>` on a free port. Those tests are therefore exercising the real repo-backed app path, not a mocked JSON payload.
 
-## Covered Tests
+## `direct-nav.spec.mjs`
 
-### Basic direct-file navigation
+Source: [`tests/playwright/direct-nav.spec.mjs`](../../../tests/playwright/direct-nav.spec.mjs)
 
-`next hunk moves to the first hunk in direct-file mode`
+### `next hunk moves to the first hunk in direct-file mode`
 
-- What it tests: first `Next` from the top selects the first hunk.
-- How it tests it: opens a three-hunk direct diff and clicks `Next` once.
-- Why it exists: protects the most basic entry path into hunk navigation.
+This is the smallest direct-file navigation assertion. It opens the default three-hunk fixture, confirms that the rendered page exposes exactly three `.diff-row.hunk-anchor` elements, clicks the `Next Hunk` button once, and then uses `expectActiveHunk(page, 0)`.
 
-`previous hunk moves backward from the middle hunk`
+The important internal detail is that `expectActiveHunk()` is geometry-based. This test is therefore checking that the first button press actually scrolls the viewport to the first anchor region, not merely that some internal "current index" changed.
 
-- What it tests: `Prev` moves backward from a non-edge hunk.
-- How it tests it: navigates to the middle hunk, then clicks `Prev`.
-- Why it exists: guards ordinary backward navigation without wrap behavior.
+### `selected hunk is highlighted subtly on both panes`
 
-### Selection rendering
+This test exists because landing on the right vertical position is not enough; the page also needs to mark the corresponding left and right rows as selected. After one `Next` click, it asserts:
 
-`selected hunk is highlighted subtly on both panes`
+- exactly two `.diff-row.active-hunk` rows
+- exactly two `.diff-row.active-hunk[aria-current="true"]` rows
+- exactly two rows with `.diff-row[data-hunk-index="0"].active-hunk`
 
-- What it tests: the selected hunk marks exactly two rows, one per pane.
-- How it tests it: navigates to the first hunk and asserts `.active-hunk`, `aria-current`, and `data-hunk-index`.
-- Why it exists: catches broken selection wiring between navigation state and rendered rows.
+Those assertions make the test sensitive to DOM wiring bugs where navigation works but only one pane highlights, the wrong rows highlight, or the accessibility marker falls out of sync with the visual state.
 
-`top-level unchanged classes show method folds instead of a whole-class fold`
+### `previous hunk moves backward from the middle hunk`
 
-- What it tests: unchanged classes render method-level folds without a whole-class fold bar.
-- How it tests it: opens a Python direct-file diff with an unchanged class and a later changed line, then inspects the fold-bar text.
-- Why it exists: protects the DRAISS-style class special-case in the real browser.
+This test first advances twice so the viewport settles on the middle hunk, then clicks `Prev` once and expects the first hunk to become active.
 
-`changed classes only fold unchanged methods`
+The useful part here is that it avoids wrap behavior and does not start from the top of the page. It checks the ordinary backward path where the controller has already been exercised once and must resolve the previous anchor relative to a non-edge position.
 
-- What it tests: changed classes keep changed methods expanded while still folding unchanged methods.
-- How it tests it: opens a Python direct-file diff with one changed method and asserts only the unchanged method gets fold bars.
-- Why it exists: protects the selective class-member folding rule end to end.
+### `next hunk wraps after the final hunk settles at the bottom of the page`
 
-`fold bars and signature rows toggle collapsed regions without breaking hunk navigation`
+This test walks forward three times to reach the last hunk, waits `400ms`, then presses `Next` again and expects hunk `0`.
 
-- What it tests: clicking fold signature rows and fold bars expands/collapses hidden rows while hunk navigation still works afterward.
-- How it tests it: expands and re-collapses a folded Python function, asserts hidden lines appear, then navigates to the remaining changed hunk.
-- Why it exists: catches browser-only regressions at the boundary between fold UI and hunk navigation.
+The delay is part of the test logic, not noise. It intentionally lets the browser settle near the bottom before checking wrap behavior, which is where off-by-one logic and bottom-clamp behavior tend to interfere with the next-target calculation.
 
-`fold toggle icons do not shift top-level code horizontally`
+### `previous hunk wraps after the first hunk settles at the top of the page`
 
-- What it tests: the fold toggle indicator does not push code text to the right on folded signature rows.
-- How it tests it: opens a folded Python function diff and compares the rendered x-position of the folded signature text against a normal top-level code row in the same pane.
-- Why it exists: protects the regression where the inline fold arrow behaved like an extra tab and visibly shifted code indentation.
+This is the symmetric top-of-page version of the previous test. It moves to hunk `0`, waits `400ms`, then uses `Prev` and expects the final hunk.
 
-`markdown folds only unchanged heading sections`
+The point is not just wrap symmetry as an abstract rule. It is checking that the "which anchor is currently active?" calculation behaves correctly when the viewport is parked near the top boundary, where geometry can differ from the middle-of-document case.
 
-- What it tests: Markdown renders fold bars only for unchanged heading sections and not for changed sibling sections.
-- How it tests it: opens a direct Markdown diff, checks that the unchanged `# Intro` section gets fold bars on both panes, and confirms the changed `# Tail` section stays expanded.
-- Why it exists: protects the Markdown-specific heading-section fold policy in the real browser.
+### `keyboard shortcuts navigate next and previous hunks`
 
-`adding a later markdown section keeps earlier unchanged sections folded`
+This test focuses the `#nextHunkBtn` button first, then sends `n`, `n`, and `Shift+N` through `page.keyboard`. After each keystroke it waits for scrolling to settle and then checks the selected hunk index.
 
-- What it tests: inserting a new Markdown section does not suppress fold bars for older unchanged sibling sections.
-- How it tests it: opens a direct Markdown diff where the right side inserts `# Added` between unchanged `# One` and `# Two` sections, then checks that both older sections still render fold bars on both panes.
-- Why it exists: protects the browser-facing regression where adding a new same-level section could leave only the later unchanged section folded.
+The focus step matters because it ensures page-level keyboard handling is active without relying on arbitrary click state. The use of `expectSelectedHunkIndex()` means this test is specifically verifying that keyboard shortcuts drive the same row-selection contract as button clicks.
 
-`collapsed folds keep later visible markdown headings aligned across panes`
+### `keyboard hunk shortcuts are ignored while an input is focused`
 
-- What it tests: collapsed fold bars do not knock later visible Markdown headings out of vertical alignment between panes.
-- How it tests it: opens the same inserted-section Markdown diff and compares the rendered top positions of the visible `# Tail` heading rows.
-- Why it exists: protects the layout regression where folded regions could shift later code around instead of preserving paired row alignment.
+This test focuses `#pathInput`, presses `n` and `Shift+N`, then focuses `#leftFileInput` and presses `n` again. It asserts that `window.scrollY` stays at `0` and that the inputs receive the literal text.
 
-### Wrap behavior
+Internally, this protects against global shortcut handlers that fail to bail out when an input element owns focus. It is a browser-only concern because the bug is not "navigation math is wrong"; the bug is "the event target and focus rules were ignored."
 
-`next hunk wraps after the final hunk settles at the bottom of the page`
+### `navigation is a no-op when there are no hunks`
 
-- What it tests: `Next` wraps from the last hunk back to the first after scrolling has settled.
-- How it tests it: walks to the last direct-file hunk, waits, then presses `Next`.
-- Why it exists: protects the bottom-wrap bug class.
+This case turns on the slow-scroll shim and opens an identical left/right fixture so no `.diff-row.hunk-anchor` elements exist at all. It then clicks both buttons and sends both keyboard shortcuts.
 
-`previous hunk wraps after the first hunk settles at the top of the page`
+The assertions go beyond "no exception thrown." The test checks that the active hunk index stays `-1`, `window.scrollY` stays `0`, and `getScrollToCalls()` returns an empty list. That means the app is not even attempting a scroll request when the diff contains no navigable hunks.
 
-- What it tests: `Prev` wraps from the first hunk to the last after settling.
-- How it tests it: moves to the first hunk, waits, then presses `Prev`.
-- Why it exists: keeps top-wrap behavior symmetric with bottom-wrap behavior.
+### `manual scroll starting points navigate relative to the visible anchor position`
 
-### In-flight and burst navigation
+This is one of the more internal direct-nav tests. It creates a larger fixture with `900` total lines and changed lines at `150`, `350`, `550`, and `750`, then computes a midpoint window between neighboring hunk anchors inside the browser.
 
-`next hunk queues correctly while smooth scrolling is still in flight`
+The page-side `findNavigationWindow()` helper collects each anchor's absolute Y position, computes a midpoint between consecutive anchors, subtracts `HUNK_SCROLL_MARGIN`, and chooses a scrollTop that stays within document bounds. The test scrolls to that computed location, clicks the page to avoid focused-input interference, and verifies that `n` lands on the later hunk while `Shift+N` lands on the earlier one.
 
-- What it tests: repeated `Next` during active smooth scroll advances sequentially.
-- How it tests it: injects slow scrolling, presses `Next`, waits mid-flight, presses `Next` again, and checks the final hunk.
-- Why it exists: protects the “hit next while still scrolling” regression.
+This is not a generic "manual scrolling works" check. It is specifically asserting that the next-target calculation is derived from the current viewport anchor window, not from stale controller state left behind by previous navigation.
 
-`previous hunk queues correctly while smooth scrolling is still in flight`
+## `folds.spec.mjs`
 
-- What it tests: repeated `Prev` during active smooth scroll advances sequentially backward.
-- How it tests it: injects slow scrolling, moves to the middle hunk, then issues repeated `Prev` while motion is ongoing.
-- Why it exists: keeps backward in-flight behavior as strong as forward behavior.
+Source: [`tests/playwright/folds.spec.mjs`](../../../tests/playwright/folds.spec.mjs)
 
-`rapid next bursts land on the sequential wrapped target`
+### `top-level unchanged classes show method folds instead of a whole-class fold`
 
-- What it tests: fast bursts of `Next` preserve ordering and wrap correctly.
-- How it tests it: issues five quick `Next` presses under slow scrolling and checks the final landing hunk.
-- Why it exists: catches burst-input sequencing bugs.
+The fixture is a tiny Python class with two unchanged methods and a changed trailing assignment outside the class. The rendered page should produce four fold bars total: two panes times two unchanged methods.
 
-`rapid prev bursts land on the sequential wrapped target`
+The test explicitly checks for fold bars containing `def a(self):` and `def b(self):`, and for zero fold bars containing `class Example:`. That distinction matters because the test is not merely checking that "something folded." It is asserting the class-specific folding policy that unchanged methods remain individually foldable without collapsing the entire class block into one opaque region.
 
-- What it tests: fast bursts of `Prev` preserve ordering and wrap correctly.
-- How it tests it: issues five quick `Prev` presses under slow scrolling and checks the final landing hunk.
-- Why it exists: covers the backward burst path.
+### `changed classes only fold unchanged methods`
 
-`alternating rapid bursts preserve move ordering`
+This fixture is nearly identical, except method `b` changes on the right side. The expected fold bars drop from four to two, and only `def a(self):` should remain foldable.
 
-- What it tests: alternating `Prev` and `Next` requests do not scramble queue order.
-- How it tests it: issues a short alternating burst under slow scrolling.
-- Why it exists: catches hidden assumptions that only work for repeated moves in one direction.
+Internally, this checks that the fold rendering respects change boundaries inside a structural container. A whole-class or over-broad fold algorithm would still find a class shape and hide too much. This test ensures the browser representation reflects the finer-grained fold hints.
 
-`rapid repeated input during smooth scrolling does not snap back to the wrong target`
+### `fold bars and signature rows toggle collapsed regions without breaking hunk navigation`
 
-- What it tests: burst input does not cause snap-back or a wrong final target after motion completes.
-- How it tests it: issues three quick `Next` presses under slow scrolling, samples intermediate scroll positions, then checks the final hunk.
-- Why it exists: protects the final-landing behavior after a noisy input sequence.
+This test uses a small Python function plus a changed trailing assignment. It starts by asserting two fold bars, then clicks the first `.diff-row.fold-toggle-row` to expand the folded body, checks that the fold bars disappear, and confirms that a previously hidden `return value` line becomes visible in both panes.
 
-### Keyboard behavior
+It then clicks the same toggle row again to re-collapse the block, rechecks the fold bars, and finally presses `Next` to ensure hunk navigation still works.
 
-`keyboard shortcuts navigate next and previous hunks`
+The internal concern here is UI state interaction: fold toggling mutates DOM visibility and row layout, so the test makes sure those changes do not corrupt later hunk navigation or leave the fold UI in an inconsistent state.
 
-- What it tests: `n` moves forward and `Shift+N` moves backward.
-- How it tests it: drives page-level key presses and asserts active hunk changes.
-- Why it exists: protects keyboard-to-controller wiring.
+### `fold toggle icons do not shift top-level code horizontally`
 
-`keyboard hunk shortcuts are ignored while an input is focused`
+This uses the same function fixture but asks a layout question instead of a visibility question. `expectCodeTextAligned()` compares the X positions of:
 
-- What it tests: hunk shortcuts do not steal typing from form fields.
-- How it tests it: focuses `#pathInput` and `#leftFileInput`, sends key presses through the inputs, then asserts no selected hunk appears and the fields receive the text.
-- Why it exists: catches shortcut handlers that interfere with normal typing.
+- `.diff-pane:nth-of-type(1) .diff-row.fold-toggle-row .line-code-content`
+- `.diff-pane:nth-of-type(1) .diff-row.replace .line-code-content`
 
-### No-hunk behavior
+The helper polls bounding boxes until the X difference is within `1px`. That makes the test a guard against a specific layout regression: the fold toggle icon must not behave like extra indentation and shove the code text to the right.
 
-`navigation is a no-op when there are no hunks`
+### `markdown folds only unchanged heading sections`
 
-- What it tests: buttons and keyboard do nothing when there are no hunk anchors.
-- How it tests it: opens an identical direct-file diff and checks that no scroll or selection state changes occur.
-- Why it exists: prevents empty-state actions from causing bogus selection or scrolling.
+This fixture switches to Markdown by naming the left file `left.md`. It builds two sections, `# Intro` and `# Tail`, and only changes the body under `# Tail`.
 
-### Manual scroll and viewport behavior
+The test expects exactly two fold bars, both containing `# Intro`, and zero containing `# Tail`. That is narrower than "Markdown folds work." It is checking the current Markdown policy that only unchanged heading sections get collapsed affordances, while changed sections stay expanded.
 
-`manual scroll starting points navigate relative to the visible anchor position`
+### `adding a later markdown section keeps earlier unchanged sections folded`
 
-- What it tests: navigation decisions are relative to the current viewport anchor, not just prior controller state.
-- How it tests it: scrolls to a position between hunks and checks that `Next` and `Prev` choose the expected neighboring hunks.
-- Why it exists: catches off-by-one errors after manual user scrolling.
+This fixture inserts a new `# Added` section on the right side between unchanged `# One` and `# Two`, with a changed `# Tail` afterward.
 
-`smooth scrolling progresses over time and finishes at the correct target`
+The test expects four fold bars total and specifically verifies that `# One` and `# Two` still each produce a left/right fold bar while `# Added` produces none.
 
-- What it tests: smooth scrolling produces observable intermediate motion and lands close to the requested target.
-- How it tests it: injects slow scrolling, samples `scrollY` across time, then checks the final hunk and approximate target position.
-- Why it exists: protects the real browser motion contract without overfitting to exact animation curves.
+The internal regression shape is important here: insertion of a new same-level heading can disturb the section-partitioning logic so that only later siblings continue to fold. This case makes sure earlier unchanged sections survive that re-partitioning.
 
-`resizing during smooth scroll preserves the selected target and later navigation`
+### `collapsed folds keep later visible markdown headings aligned across panes`
 
-- What it tests: viewport resize during an in-flight scroll does not lose the active target or break subsequent navigation.
-- How it tests it: starts smooth scroll, resizes the viewport mid-flight, waits for settle, then navigates again.
-- Why it exists: catches interactions between geometry changes and the nav controller.
+This is another Markdown insertion scenario, but the assertion is geometric rather than count-based. After confirming that `# Intro` is folded, it calls `expectMatchingRowTops(page, "# Tail")`.
 
-### Single-hunk and bottom-clamp edge cases
+That helper finds the first row containing `# Tail` in each pane and polls the absolute Y difference until it is within `1px`. The test therefore protects against a subtle but user-visible failure mode: the fold decisions can be logically correct while later visible headings drift vertically out of alignment.
 
-`single-hunk diffs stay pinned to the only hunk across wraps and rapid input`
+## `smooth-scroll.spec.mjs`
 
-- What it tests: a one-hunk diff always resolves to that same hunk, even under wraps and burst input.
-- How it tests it: opens a one-hunk direct diff and issues repeated `Next` and `Prev` bursts.
-- Why it exists: protects the smallest non-empty edge case.
+Source: [`tests/playwright/smooth-scroll.spec.mjs`](../../../tests/playwright/smooth-scroll.spec.mjs)
 
-`later single-file tail hunks stay distinct even when bottom clamping stops scroll movement`
+### `next hunk queues correctly while smooth scrolling is still in flight`
 
-- What it tests: later bottom-clamped hunks can still advance selection even when scroll movement becomes very small near the end.
-- How it tests it: creates a tall direct diff, finds a consecutive clamped tail pair from live DOM geometry, navigates into them, and asserts selection advances while `scrollY` changes only slightly.
-- Why it exists: catches “last hunks collapse together” failures near document bottom.
+This test installs the slow-scroll shim, opens the default direct fixture, presses `Next`, waits `1000ms` while the synthetic smooth scroll is still ongoing, presses `Next` again, waits `2000ms`, then expects hunk `1`.
 
-### Repo-mode behavior
+The key internal detail is that the second click happens before the first synthetic scroll completes. The test therefore verifies queueing behavior under in-flight motion rather than simple repeated navigation after settle.
 
-`repo mode navigates across file-card boundaries`
+### `previous hunk queues correctly while smooth scrolling is still in flight`
 
-- What it tests: `Next` keeps working when the next hunk lives in another file card.
-- How it tests it: creates a two-file repo diff with one hunk per file and navigates across the file boundary.
-- Why it exists: protects global hunk ordering in repo mode.
+This is the backward-direction counterpart. It first moves to hunk `1`, then presses `Prev`, waits mid-flight, presses `Prev` again, and finally expects wrap-around to hunk `2`.
 
-`repo mode keeps later global hunks selected in the final file`
+This protects the reverse queueing path, which often differs in implementation from forward navigation once wrap logic gets involved.
 
-- What it tests: later global hunks in the last file still produce a real selected row pair.
-- How it tests it: creates a repo diff with six hunks across two files, walks into the later hunks in the final file, and asserts `.active-hunk` uses the right global `data-hunk-index`.
-- Why it exists: catches the “global nav index vs per-file DOM index” bug that made tail hunks appear to disappear.
+### `rapid next bursts land on the sequential wrapped target`
 
-`reloading the diff during in-flight scroll resets selection cleanly before the next navigation`
+With slow scrolling active, this test clicks `Next` five times in immediate succession, waits `2200ms`, and expects hunk `1`.
 
-- What it tests: changing the diff while auto-scroll is in progress resets the old selection and allows clean navigation in the new result set.
-- How it tests it: starts a repo-mode navigation, changes the path filter mid-scroll, waits for the single-file result, then navigates again.
-- Why it exists: protects against stale selection and stale timer state across reloads.
+Given a three-hunk fixture, five forward moves from the initial position should wrap and land on the second visible target in sequence. The test is specifically about preserving move ordering under burst input, not about how fast the animation itself runs.
+
+### `rapid prev bursts land on the sequential wrapped target`
+
+This mirrors the previous test with five immediate `Prev` clicks and also expects hunk `1`.
+
+That shared target is not accidental. It proves that backward wrap math and burst queueing produce the same deterministic result as repeated logical predecessor steps, rather than collapsing bursts or skipping across the ring incorrectly.
+
+### `alternating rapid bursts preserve move ordering`
+
+This is the ugly input pattern: `Prev`, `Next`, `Prev`, `Next`, `Next`, all before settle. After `2200ms`, the selected hunk should be `1`.
+
+The purpose is to catch queue implementations that only behave under repeated input in one direction. Alternating bursts force the app to preserve exact request order instead of coalescing by direction.
+
+### `smooth scrolling progresses over time and finishes at the correct target`
+
+This test installs a `1600ms` scroll shim, clicks `Next`, samples `window.scrollY` seven times at `180ms` intervals, and inspects the recorded `window.__hunkNavScrollCalls`.
+
+It asserts:
+
+- exactly one recorded scroll call
+- `behavior === "smooth"`
+- more than three distinct rounded scroll positions
+- increasing motion over time
+- an early sample still below the final target
+
+After settle, it expects active hunk `0` and checks that final `scrollY` is within `120px` of the recorded target top.
+
+This is the closest thing the suite has to a motion-contract test. It does not overfit to an exact easing curve, but it does require observable intermediate movement and a final landing near the requested target.
+
+### `rapid repeated input during smooth scrolling does not snap back to the wrong target`
+
+This also uses the `1600ms` shim, but it clicks `Next` three times immediately, samples scroll positions six times at `160ms` intervals, and checks that motion continues forward before finally expecting hunk `2`.
+
+The bug class here is snap-back: a later queued target appears selected briefly, then the page resolves to an earlier destination when an older animation callback wins. This test ensures the final target remains the last logical request.
+
+### `single-hunk diffs stay pinned to the only hunk across wraps and rapid input`
+
+The fixture here has `260` lines and exactly one changed line at `180`, so only one hunk anchor exists. With slow scrolling enabled, the test clicks `Next`, then `Prev` three times, then `Next` four times, checking after each burst that both the active and selected indexes remain `0`.
+
+This guards the smallest non-empty navigation case. Wrap logic, burst queueing, and selection updates should all collapse to the same single target instead of producing null selections or phantom indexes.
+
+### `later single-file tail hunks stay distinct even when bottom clamping stops scroll movement`
+
+This fixture is deliberately shaped to create several late hunks near the bottom: `120`, `540`, `590`, and `615` in a `620`-line file. The test sets a tall viewport, waits for settle, then runs page-side code that computes each hunk's target scroll position after applying the standard top margin and browser max-scroll clamp.
+
+It scans from the tail for a consecutive pair whose clamped targets round to the same value. That means the browser can barely move, or cannot move at all, between the two later hunks. The test then navigates to the first of that pair, records `scrollY`, navigates once more, and asserts that the selected index advanced while the two final `scrollY` values differ by less than `120`.
+
+This is a very specific browser pathology test: distinct logical hunks must remain distinct even when viewport clamping removes most of the physical scroll delta between them.
+
+### `resizing during smooth scroll preserves the selected target and later navigation`
+
+This test uses a `520`-line fixture with four hunks, starts a slow scroll, waits `350ms`, resizes the viewport to `1280x540`, waits for settle, then confirms the selected target stayed on hunk `0`. After that it clicks `Next` again and expects hunk `1`.
+
+The point is to catch stale geometry assumptions. A resize during in-flight scrolling can invalidate target positions, active-anchor calculations, and settle logic. The test makes sure the app recovers cleanly and remains navigable afterward.
+
+## `repo-mode.spec.mjs`
+
+Source: [`tests/playwright/repo-mode.spec.mjs`](../../../tests/playwright/repo-mode.spec.mjs)
+
+### `repo mode navigates across file-card boundaries`
+
+This uses the default repo fixture, which creates two tracked files:
+
+- `alpha.txt` with one changed line at `80`
+- `beta.txt` with one changed line at `180`
+
+After committing the clean versions and modifying the worktree, the test launches the real app in repo mode, confirms two `.file-card` containers and two hunk anchors, then presses `Next` twice and expects hunk `0` then hunk `1`.
+
+Internally, this proves that global navigation is not scoped to the current rendered file card. The second `Next` must cross a DOM boundary and still land on the next repo-wide hunk.
+
+### `repo mode keeps later global hunks selected in the final file`
+
+This fixture scales the repo scenario up to six total hunks across two files. `alpha.txt` has changed lines at `40`, `120`, and `200`; `beta.txt` has changed lines at `300`, `360`, and `405`.
+
+The test advances four times to reach the later hunks in the second file, then checks both `expectActiveHunk()` and `expectSelectedHunkRows()` for indexes `3`, `4`, and `5`.
+
+The important internal distinction is between global navigation indexes and per-file DOM layout. A broken implementation can advance the global index correctly while failing to render the expected `.active-hunk` rows in the final file card. This test explicitly checks both pieces.
+
+### `reloading the diff during in-flight scroll resets selection cleanly before the next navigation`
+
+This test combines repo mode with the slow-scroll shim. The repo fixture has two files with two hunks each, the page starts a navigation, then after `250ms` the test fills `#pathInput` with `beta.txt` while scrolling is still active.
+
+That input change causes the page to reload into a single-file repo result. The test confirms:
+
+- only one `.file-card` remains
+- the heading `beta.txt` is present
+- no `.diff-row.active-hunk` rows survive from the old result set
+
+Only after that cleanup check does it click `Next` again and expect selected hunk `0`.
+
+This is the stale-state guard for repo reloads. It ensures old timers, old row selections, and old target indexes do not leak into a freshly loaded diff result.

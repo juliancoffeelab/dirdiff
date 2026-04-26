@@ -625,9 +625,9 @@ def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
     )
 
     assert diff["mode"] == "repo"
-    assert diff["summary"]["changed_files"] == 2
-    assert diff["summary"]["changed_lines"] == 2
-    assert [entry["display_name"] for entry in diff["files"]] == ["alpha.txt", "beta.txt"]
+    assert diff["summary"]["changed_files"] == 1
+    assert diff["summary"]["changed_lines"] == 1
+    assert [entry["display_name"] for entry in diff["files"]] == ["alpha.txt"]
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
@@ -676,3 +676,61 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     assert diff["files"][0]["change_type"] == "rename"
     assert diff["files"][0]["left_path"] == "alpha.txt"
     assert diff["files"][0]["right_path"] == "renamed.txt"
+
+
+def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=tmp_path, check=True, capture_output=True)
+    tracked_file.write_text("one\nfeature change\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "feature change"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    subprocess.run(["git", "checkout", "master"], cwd=tmp_path, check=True, capture_output=True)
+    tracked_file.write_text("one\nmaster-only change\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "master change"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    diff = service.build_diff(
+        path=None,
+        left="index",
+        right="worktree",
+        base_branch="master",
+        branch="feature",
+    )
+
+    assert diff["mode"] == "repo"
+    assert diff["left_label"] == "master...feature"
+    assert diff["right_label"] == "feature"
+    assert [entry["display_name"] for entry in diff["files"]] == ["alpha.txt"]
+    assert diff["summary"]["changed_files"] == 1
+    assert diff["summary"]["added_lines"] == 1
+    assert diff["summary"]["removed_lines"] == 0
