@@ -626,17 +626,6 @@ def _decode_text(data: bytes, *, label: str) -> str:
         ) from exc
 
 
-def _display_name_for_direct_paths(
-    left_path: Path | None,
-    right_path: Path | None,
-) -> str:
-    if left_path and right_path and left_path.name == right_path.name:
-        return left_path.name
-    left_name = left_path.name if left_path else "(missing)"
-    right_name = right_path.name if right_path else "(missing)"
-    return f"{left_name} vs {right_name}"
-
-
 def _display_name_for_repo_paths(
     left_path: str | None,
     right_path: str | None,
@@ -774,6 +763,22 @@ class TextDiffService:
             capture_output=True,
         )
 
+    def _run_git_text(
+        self,
+        args: list[str],
+        *,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if self.repo_root is None:
+            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.repo_root,
+            check=check,
+            capture_output=True,
+            text=True,
+        )
+
     def normalize_side(self, raw_side: str) -> SideName:
         side = raw_side.strip()
         if not side:
@@ -830,18 +835,115 @@ class TextDiffService:
 
         raise TextDiffError("No files found in the current Git repo.")
 
+    def current_branch_name(self) -> str:
+        if self.repo_root is None:
+            return ""
+        result = self._run_git_text(["branch", "--show-current"], check=False)
+        return result.stdout.strip()
+
+    def list_branch_names(self) -> list[str]:
+        if self.repo_root is None:
+            return []
+        result = self._run_git_text(
+            ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        return sorted(
+            {
+                line.strip()
+                for line in result.stdout.splitlines()
+                if line.strip()
+            }
+        )
+
+    def list_remote_ref_names(self) -> list[str]:
+        if self.repo_root is None:
+            return []
+        result = self._run_git_text(
+            ["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        return sorted(
+            {
+                line.strip()
+                for line in result.stdout.splitlines()
+                if line.strip() and not line.strip().endswith("/HEAD")
+            }
+        )
+
+    def list_ref_choices(self) -> dict[str, list[str]]:
+        return {
+            "builtins": ["head", "index", "worktree"],
+            "locals": self.list_branch_names(),
+            "remotes": self.list_remote_ref_names(),
+        }
+
+    def default_base_branch(self) -> str:
+        branch_names = self.list_branch_names()
+        if "master" in branch_names:
+            return "master"
+        if "main" in branch_names:
+            return "main"
+
+        if self.repo_root is not None:
+            result = self._run_git_text(
+                ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+                check=False,
+            )
+            remote_head = result.stdout.strip()
+            if remote_head.startswith("origin/"):
+                candidate = remote_head.removeprefix("origin/")
+                if candidate:
+                    return candidate
+
+        current = self.current_branch_name()
+        if current:
+            return current
+        return branch_names[0] if branch_names else ""
+
+    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
+        branch_names = self.list_branch_names()
+        if not branch_names:
+            return ""
+
+        normalized_base = (base_branch or self.default_base_branch()).strip()
+        current = self.current_branch_name()
+
+        if current and current != normalized_base:
+            return current
+
+        for branch_name in branch_names:
+            if branch_name != normalized_base:
+                return branch_name
+
+        return current or branch_names[0]
+
+    def resolve_branch_diff_sides(
+        self,
+        *,
+        base_branch: str,
+        branch: str,
+    ) -> tuple[str, str]:
+        normalized_base = self.normalize_side(base_branch)
+        normalized_branch = self.normalize_side(branch)
+        merge_base = self._run_git_text(
+            ["merge-base", normalized_base, normalized_branch],
+            check=False,
+        )
+        if merge_base.returncode != 0 or not merge_base.stdout.strip():
+            raise TextDiffError(
+                f"Could not find a merge base between {normalized_base} and {normalized_branch}."
+            )
+        return merge_base.stdout.strip(), normalized_branch
+
     def _git_tree_spec(self, side: SideName) -> str:
         if side == "head":
             return "HEAD"
         return side
-
-    def _untracked_repo_paths(self) -> list[str]:
-        output = self._run_git(["ls-files", "--others", "--exclude-standard"])
-        return [
-            line.strip()
-            for line in output.stdout.decode("utf-8").splitlines()
-            if line.strip()
-        ]
 
     def _parse_name_status_output(self, output: bytes) -> list[RepoDiffPath]:
         tokens = output.split(b"\0")
@@ -913,7 +1015,6 @@ class TextDiffService:
                 if other == "index"
                 else ["diff", "--name-status", "-z", "-M", self._git_tree_spec(other)]
             )
-            include_untracked = True
         elif "index" in {left, right}:
             other = right if left == "index" else left
             diff_args = (
@@ -921,7 +1022,6 @@ class TextDiffService:
                 if other == "head"
                 else ["diff", "--cached", "--name-status", "-z", "-M", self._git_tree_spec(other)]
             )
-            include_untracked = False
         else:
             diff_args = [
                 "diff",
@@ -931,29 +1031,9 @@ class TextDiffService:
                 self._git_tree_spec(left),
                 self._git_tree_spec(right),
             ]
-            include_untracked = False
 
         diff_output = self._run_git(diff_args)
         entries = self._parse_name_status_output(diff_output.stdout)
-        if include_untracked:
-            seen_paths = {
-                path
-                for entry in entries
-                for path in (entry.left_path, entry.right_path)
-                if path is not None
-            }
-            for path in self._untracked_repo_paths():
-                if path in seen_paths:
-                    continue
-                entries.append(
-                    RepoDiffPath(
-                        left_path=None,
-                        right_path=path,
-                        display_name=path,
-                        change_type="add",
-                    )
-                )
-
         return sorted(entries, key=lambda entry: (entry.display_name, entry.change_type))
 
     def normalize_repo_path(self, raw_path: str) -> str:
@@ -972,17 +1052,6 @@ class TextDiffService:
         if normalized.startswith("../") or normalized == "..":
             raise TextDiffError("Repo path must stay inside the repo.")
         return normalized
-
-    def normalize_filesystem_path(self, raw_path: str | None) -> Path | None:
-        if raw_path is None:
-            return None
-        stripped = raw_path.strip()
-        if not stripped:
-            return None
-        candidate = Path(stripped).expanduser()
-        if not candidate.is_absolute():
-            candidate = (self.cwd / candidate).resolve()
-        return candidate
 
     def load_git_version(self, path: str, side: SideName) -> TextVersion:
         if self.repo_root is None:
@@ -1014,33 +1083,6 @@ class TextDiffService:
             label=side,
             exists=True,
             text=_decode_text(result.stdout, label=f"{side}:{path}"),
-        )
-
-    def load_file_version(self, file_path: Path | None, *, label: str) -> TextVersion:
-        if file_path is None:
-            return TextVersion(label=label, exists=False, text=None)
-        if not file_path.exists():
-            return TextVersion(label=label, exists=False, text=None)
-        if file_path.is_dir():
-            raise TextDiffError(f"{file_path} is a directory, not a file.")
-        return TextVersion(
-            label=label,
-            exists=True,
-            text=_decode_text(file_path.read_bytes(), label=label),
-        )
-
-    def build_git_diff(
-        self,
-        *,
-        path: str,
-        left: str,
-        right: str,
-    ) -> dict[str, Any]:
-        return self.build_git_diff_paths(
-            left_path=path,
-            right_path=path,
-            left=left,
-            right=right,
         )
 
     def build_git_diff_paths(
@@ -1177,55 +1219,41 @@ class TextDiffService:
             "files": files,
         }
 
-    def build_file_diff(
+    def build_branch_diff(
         self,
         *,
-        left_file: str | None,
-        right_file: str | None,
+        base_branch: str,
+        branch: str,
     ) -> dict[str, Any]:
-        left_path = self.normalize_filesystem_path(left_file)
-        right_path = self.normalize_filesystem_path(right_file)
-        if left_path is None and right_path is None:
-            raise TextDiffError("Provide a repo path or at least one file path.")
-
-        left_label = str(left_path) if left_path is not None else "(missing)"
-        right_label = str(right_path) if right_path is not None else "(missing)"
-        left_version = self.load_file_version(left_path, label=left_label)
-        right_version = self.load_file_version(right_path, label=right_label)
-
-        if left_version.error:
-            raise TextDiffError(left_version.error)
-        if right_version.error:
-            raise TextDiffError(right_version.error)
-        if not left_version.exists and not right_version.exists:
-            raise TextDiffError("Neither file exists.")
-
-        return build_loaded_diff(
-            display_name=_display_name_for_direct_paths(left_path, right_path),
-            mode="files",
-            left_label=left_label,
-            right_label=right_label,
-            left_exists=left_version.exists,
-            right_exists=right_version.exists,
-            left_text=left_version.text,
-            right_text=right_version.text,
-            left_path_hint=left_path.name if left_path is not None else None,
-            right_path_hint=right_path.name if right_path is not None else None,
+        merge_base, normalized_branch = self.resolve_branch_diff_sides(
+            base_branch=base_branch,
+            branch=branch,
         )
+        left_label = f"{base_branch.strip()}...{normalized_branch}"
+
+        payload = self.build_repo_diff(left=merge_base, right=normalized_branch)
+        payload["left_label"] = left_label
+        payload["right_label"] = normalized_branch
+        for entry in payload.get("files", []):
+            if "left_label" in entry:
+                entry["left_label"] = left_label
+            if "right_label" in entry:
+                entry["right_label"] = normalized_branch
+        return payload
 
     def build_diff(
         self,
         *,
-        path: str | None,
         left: str,
         right: str,
-        left_file: str | None = None,
-        right_file: str | None = None,
+        base_branch: str | None = None,
+        branch: str | None = None,
     ) -> dict[str, Any]:
-        if path and path.strip():
-            return self.build_git_diff(path=path, left=left, right=right)
-        if left_file or right_file:
-            return self.build_file_diff(left_file=left_file, right_file=right_file)
+        if branch and branch.strip():
+            return self.build_branch_diff(
+                base_branch=base_branch or self.default_base_branch(),
+                branch=branch,
+            )
         if self.repo_root is not None:
             return self.build_repo_diff(left=left, right=right)
-        return self.build_file_diff(left_file=left_file, right_file=right_file)
+        raise TextDiffError("Git-backed diff mode requires a Git repo.")

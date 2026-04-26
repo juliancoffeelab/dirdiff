@@ -13,54 +13,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "../..");
 
-export async function writeFixtureFiles({
-  totalLines = 420,
-  changedLines = [120, 240, 360],
-  identical = false,
-  leftName = "left.txt",
-  rightName = "right.txt",
-  leftContent = null,
-  rightContent = null,
-} = {}) {
-  const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "dirdiff-hunk-nav-"));
-  const leftPath = path.join(fixtureDir, leftName);
-  const rightPath = path.join(fixtureDir, rightName);
-
-  if (typeof leftContent === "string" || typeof rightContent === "string") {
-    await fs.writeFile(leftPath, leftContent ?? "", "utf8");
-    await fs.writeFile(rightPath, rightContent ?? "", "utf8");
-    return {
-      fixtureDir,
-      leftPath,
-      rightPath
-    };
-  }
-
-  const leftLines = [];
-  const rightLines = [];
-
-  for (let lineNo = 1; lineNo <= totalLines; lineNo += 1) {
-    const text = `line ${String(lineNo).padStart(4, "0")}`;
-    leftLines.push(text);
-    rightLines.push(text);
-  }
-
-  if (!identical) {
-    changedLines.forEach((lineNo, index) => {
-      rightLines[lineNo - 1] = `line ${String(lineNo).padStart(4, "0")} changed ${index + 1}`;
-    });
-  }
-
-  await fs.writeFile(leftPath, `${leftLines.join("\n")}\n`, "utf8");
-  await fs.writeFile(rightPath, `${rightLines.join("\n")}\n`, "utf8");
-
-  return {
-    fixtureDir,
-    leftPath,
-    rightPath
-  };
-}
-
 export async function installSlowSmoothScroll(page, { durationMs = 1600 } = {}) {
   await page.addInitScript(({ durationMs: animationDurationMs }) => {
     window.__hunkNavScrollCalls = [];
@@ -104,39 +56,6 @@ export async function installSlowSmoothScroll(page, { durationMs = 1600 } = {}) 
       nativeScrollTo(optionsOrX, maybeY);
     };
   }, { durationMs });
-}
-
-export async function openDirectFixtureDiff(page, baseURL, options = {}) {
-  const { fixtureDir, leftPath, rightPath } = await writeFixtureFiles(options);
-
-  const query = new URLSearchParams({
-    left_file: leftPath,
-    right_file: rightPath
-  });
-
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto(`${baseURL}/?${query.toString()}`);
-
-  return {
-    fixtureDir,
-    async cleanup() {
-      await fs.rm(fixtureDir, { recursive: true, force: true });
-    }
-  };
-}
-
-export async function openDirectTextDiff(page, baseURL, {
-  leftContent,
-  rightContent,
-  leftName = "left.py",
-  rightName = "right.py",
-} = {}) {
-  return openDirectFixtureDiff(page, baseURL, {
-    leftContent,
-    rightContent,
-    leftName,
-    rightName,
-  });
 }
 
 export async function getActiveHunkIndex(page) {

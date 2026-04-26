@@ -566,28 +566,6 @@ def test_markdown_non_heading_content_does_not_fold() -> None:
     assert diff.get("fold_hints", []) == []
 
 
-def test_builds_direct_file_diff(tmp_path: Path) -> None:
-    left_file = tmp_path / "left.txt"
-    right_file = tmp_path / "right.txt"
-    left_file.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
-    right_file.write_text("alpha\nbeta changed\ngamma\n", encoding="utf-8")
-
-    service = TextDiffService(repo_root=None, cwd=tmp_path)
-    diff = service.build_diff(
-        path=None,
-        left="index",
-        right="worktree",
-        left_file="left.txt",
-        right_file="right.txt",
-    )
-
-    assert diff["display_name"] == "left.txt vs right.txt"
-    assert diff["summary"]["changed_lines"] == 1
-    assert diff["summary"]["modified_lines"] == 1
-    assert diff["summary"]["added_lines"] == 0
-    assert diff["summary"]["removed_lines"] == 0
-
-
 def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -619,7 +597,6 @@ def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
 
     service = TextDiffService.discover(cwd=tmp_path)
     diff = service.build_diff(
-        path=None,
         left="index",
         right="worktree",
     )
@@ -664,7 +641,6 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
 
     service = TextDiffService.discover(cwd=tmp_path)
     diff = service.build_diff(
-        path=None,
         left="head",
         right="worktree",
     )
@@ -720,7 +696,6 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
 
     service = TextDiffService.discover(cwd=tmp_path)
     diff = service.build_diff(
-        path=None,
         left="index",
         right="worktree",
         base_branch="master",

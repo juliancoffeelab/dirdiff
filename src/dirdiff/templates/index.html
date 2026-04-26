@@ -14,7 +14,7 @@
                 <p class="eyebrow">Standalone Tool</p>
                 <h1>dirdiff</h1>
                 <p class="subtitle">
-                    Compare generic UTF-8 text files across Git sides or directly by path.
+                    Review Git changes side by side across branches, refs, and working tree states.
                 </p>
             </div>
             <div class="summary-card">
@@ -26,19 +26,48 @@
             <form id="controlsForm">
                 <label class="field-mode">
                     View
+                    <div class="mode-button-row" id="modeButtonRow" role="tablist" aria-label="Diff views">
+                        <button type="button" class="mode-button" data-mode="files">Diff files</button>
+                        <button type="button" class="mode-button" data-mode="staged">Diff staged</button>
+                        <button type="button" class="mode-button" data-mode="against-head">Diff against HEAD</button>
+                        <button type="button" class="mode-button" data-mode="branch-review">Branch review</button>
+                        <button type="button" class="mode-button" data-mode="refs">Compare refs</button>
+                    </div>
                     <select id="modeSelect" name="mode">
+                        <option value="branch-review">Branch review</option>
                         <option value="files">Diff files</option>
                         <option value="staged">Diff staged</option>
                         <option value="against-head">Diff against HEAD</option>
                         <option value="refs">Compare refs</option>
                     </select>
-                    <span class="field-hint">HEAD means the commit you currently have checked out.</span>
+                    <span class="field-hint" id="modeHint">Branch review shows changes on one branch since it split from your base branch.</span>
                 </label>
-                <label class="field-path">
-                    Only this path
-                    <input id="pathInput" name="path" type="text" spellcheck="false" placeholder="src/app.py">
-                    <span class="field-hint">Leave this empty to diff the whole repo.</span>
-                </label>
+                <div class="branch-review-fields" id="branchReviewGroup" hidden>
+                    <label class="field-base-branch">
+                        Base branch
+                        <input
+                            id="baseBranchInput"
+                            name="baseBranch"
+                            type="text"
+                            value=""
+                            placeholder="master"
+                            spellcheck="false"
+                            autocomplete="off"
+                        >
+                    </label>
+                    <label class="field-branch">
+                        Branch to review
+                        <input
+                            id="branchInput"
+                            name="branch"
+                            type="text"
+                            value=""
+                            placeholder="feature/my-change"
+                            spellcheck="false"
+                            autocomplete="off"
+                        >
+                    </label>
+                </div>
                 <div class="custom-refs" id="customRefsGroup" hidden>
                     <label class="field-left-ref">
                         Left ref
@@ -49,6 +78,7 @@
                             value=""
                             placeholder="main / origin/main / HEAD~1"
                             spellcheck="false"
+                            autocomplete="off"
                         >
                     </label>
                     <label class="field-right-ref">
@@ -60,25 +90,12 @@
                             value=""
                             placeholder="feature / origin/feature / abc1234"
                             spellcheck="false"
+                            autocomplete="off"
                         >
                     </label>
                 </div>
             </form>
             <p class="status" id="statusText">Loading diff…</p>
-            <details class="direct-files-panel" id="directFilesPanel">
-                <summary>Direct file diff</summary>
-                <form class="direct-files-form" id="directFilesForm">
-                    <label class="field-left-file">
-                        Left file
-                        <input id="leftFileInput" name="left_file" type="text" spellcheck="false" placeholder="/tmp/old.txt">
-                    </label>
-                    <label class="field-right-file">
-                        Right file
-                        <input id="rightFileInput" name="right_file" type="text" spellcheck="false" placeholder="/tmp/new.txt">
-                        <span class="field-hint">When either file is filled, direct file diff overrides the repo view above.</span>
-                    </label>
-                </form>
-            </details>
         </section>
 
         <section class="result-panel" id="resultPanel"></section>

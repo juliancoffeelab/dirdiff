@@ -1,13 +1,13 @@
 const form = document.getElementById("controlsForm");
-const directFilesForm = document.getElementById("directFilesForm");
 const modeSelect = document.getElementById("modeSelect");
-const pathInput = document.getElementById("pathInput");
+const modeButtonRow = document.getElementById("modeButtonRow");
+const modeHint = document.getElementById("modeHint");
+const branchReviewGroup = document.getElementById("branchReviewGroup");
+const baseBranchInput = document.getElementById("baseBranchInput");
+const branchInput = document.getElementById("branchInput");
 const customRefsGroup = document.getElementById("customRefsGroup");
 const leftRefInput = document.getElementById("leftRefInput");
 const rightRefInput = document.getElementById("rightRefInput");
-const leftFileInput = document.getElementById("leftFileInput");
-const rightFileInput = document.getElementById("rightFileInput");
-const directFilesPanel = document.getElementById("directFilesPanel");
 const statusText = document.getElementById("statusText");
 const summaryGrid = document.getElementById("summaryGrid");
 const resultPanel = document.getElementById("resultPanel");
@@ -23,6 +23,18 @@ const MODE_TO_SIDES = {
     files: ["index", "worktree"],
     staged: ["head", "index"],
     "against-head": ["head", "worktree"],
+};
+const MODE_HINTS = {
+    files: "Show unstaged changes between the index and your working tree.",
+    staged: "Show what is staged and ready to commit.",
+    "against-head": "Show everything in your working tree compared with HEAD.",
+    "branch-review": "Show changes on one branch since it split from your base branch.",
+    refs: "Compare two exact refs directly without using a merge base.",
+};
+const REF_SECTION_LABELS = {
+    builtins: "Built-in",
+    locals: "Local branches",
+    remotes: "Remote refs",
 };
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
@@ -194,6 +206,96 @@ function wrapChangedRange(root, start, end, className, title = "") {
         currentNode.parentNode.replaceChild(wrapper, currentNode);
         wrapper.append(currentNode);
     }
+}
+
+function filterRefChoices(refChoices, query, sections) {
+    const needle = query.trim().toLowerCase();
+    const filtered = [];
+    for (const section of sections) {
+        const values = (refChoices[section] || []).filter((value) => {
+            if (!needle) {
+                return true;
+            }
+            return value.toLowerCase().includes(needle);
+        });
+        if (values.length) {
+            filtered.push([section, values]);
+        }
+    }
+    return filtered;
+}
+
+function attachAutocomplete(input, refChoices, sections) {
+    const host = input.closest("label");
+    if (!host) {
+        return;
+    }
+    host.classList.add("autocomplete-host");
+
+    const panel = document.createElement("div");
+    panel.className = "autocomplete-panel";
+    panel.hidden = true;
+    host.append(panel);
+
+    let blurTimer = 0;
+
+    const closePanel = () => {
+        panel.hidden = true;
+        panel.replaceChildren();
+    };
+
+    const openPanel = () => {
+        const groups = filterRefChoices(refChoices, input.value, sections);
+        panel.replaceChildren();
+        if (!groups.length) {
+            closePanel();
+            return;
+        }
+
+        for (const [section, values] of groups) {
+            const sectionNode = document.createElement("div");
+            sectionNode.className = "autocomplete-section";
+
+            const labelNode = document.createElement("div");
+            labelNode.className = "autocomplete-section-label";
+            labelNode.textContent = REF_SECTION_LABELS[section] || section;
+            sectionNode.append(labelNode);
+
+            for (const value of values) {
+                const option = document.createElement("button");
+                option.type = "button";
+                option.className = "autocomplete-option";
+                option.textContent = value;
+                option.addEventListener("mousedown", (event) => {
+                    event.preventDefault();
+                    input.value = value;
+                    closePanel();
+                    input.dispatchEvent(new Event("input", { bubbles: true }));
+                    input.focus();
+                });
+                sectionNode.append(option);
+            }
+            panel.append(sectionNode);
+        }
+
+        panel.hidden = false;
+    };
+
+    input.addEventListener("focus", openPanel);
+    input.addEventListener("input", openPanel);
+    input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closePanel();
+        }
+    });
+    input.addEventListener("blur", () => {
+        blurTimer = window.setTimeout(closePanel, 120);
+    });
+    panel.addEventListener("mousedown", () => {
+        if (blurTimer) {
+            clearTimeout(blurTimer);
+        }
+    });
 }
 
 function decorateTokenDiff(contentEl, tokens) {
@@ -494,7 +596,7 @@ function makeFileCard(payload, startHunkIndex = 0) {
                 : payload.change_type === "copy"
                 ? "Git-backed copy"
                 : "Git-backed file diff"
-            : "Direct file-to-file diff";
+            : "Git-backed file diff";
 
     const titleWrap = document.createElement("div");
     titleWrap.append(title, subtitle);
@@ -656,18 +758,18 @@ async function loadDiff() {
     }
 
     params.set("mode", state.mode);
-    params.set("left", state.left);
-    params.set("right", state.right);
-    if (state.path) {
-        params.set("path", state.path);
+    if (state.left) {
+        params.set("left", state.left);
     }
-    if (state.leftFile) {
-        params.set("left_file", state.leftFile);
+    if (state.right) {
+        params.set("right", state.right);
     }
-    if (state.rightFile) {
-        params.set("right_file", state.rightFile);
+    if (state.baseBranch) {
+        params.set("base_branch", state.baseBranch);
     }
-
+    if (state.branch) {
+        params.set("branch", state.branch);
+    }
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
     hunkNavController.reset();
@@ -716,21 +818,6 @@ function scheduleLoadDiff(delayMs = 180) {
 
 function getControlState() {
     const mode = modeSelect.value;
-    const path = pathInput.value.trim();
-    const leftFile = leftFileInput.value.trim();
-    const rightFile = rightFileInput.value.trim();
-
-    if (leftFile || rightFile) {
-        return {
-            valid: true,
-            mode: "direct-files",
-            path,
-            left: "index",
-            right: "worktree",
-            leftFile,
-            rightFile,
-        };
-    }
 
     if (mode === "refs") {
         const left = leftRefInput.value.trim();
@@ -744,11 +831,27 @@ function getControlState() {
         return {
             valid: true,
             mode,
-            path,
             left,
             right,
-            leftFile: "",
-            rightFile: "",
+        };
+    }
+
+    if (mode === "branch-review") {
+        const baseBranch = baseBranchInput.value.trim();
+        const branch = branchInput.value.trim();
+        if (!branch) {
+            return {
+                valid: false,
+                message: "Pick a branch to compare against the base branch.",
+            };
+        }
+        return {
+            valid: true,
+            mode,
+            left: "",
+            right: "",
+            baseBranch,
+            branch,
         };
     }
 
@@ -756,39 +859,41 @@ function getControlState() {
     return {
         valid: true,
         mode,
-        path,
         left,
         right,
-        leftFile: "",
-        rightFile: "",
+        baseBranch: "",
+        branch: "",
     };
 }
 
 function buildStatusMessage(state, payload) {
-    if (state.mode === "direct-files") {
-        return payload.display_name;
-    }
     if (state.mode === "files") {
-        return state.path
-            ? `Unstaged changes for ${state.path}`
-            : "Unstaged changes in working tree";
+        return "Unstaged changes in working tree";
     }
     if (state.mode === "staged") {
-        return state.path
-            ? `Staged changes for ${state.path}`
-            : "Staged changes ready to commit";
+        return "Staged changes ready to commit";
     }
     if (state.mode === "against-head") {
-        return state.path
-            ? `Working tree vs HEAD for ${state.path}`
-            : "Working tree vs HEAD";
+        return "Working tree vs HEAD";
+    }
+    if (state.mode === "branch-review") {
+        const baseBranch = state.baseBranch || "master";
+        return `${state.branch} vs ${baseBranch}`;
     }
     return `${payload.left_label} vs ${payload.right_label}`;
 }
 
 function syncModeUI() {
-    const customMode = modeSelect.value === "refs";
-    customRefsGroup.hidden = !customMode;
+    const mode = modeSelect.value;
+    customRefsGroup.hidden = mode !== "refs";
+    branchReviewGroup.hidden = mode !== "branch-review";
+    modeHint.textContent = MODE_HINTS[mode] || "";
+
+    for (const button of modeButtonRow.querySelectorAll(".mode-button")) {
+        const isActive = button.dataset.mode === mode;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+    }
 }
 
 function shouldIgnoreHunkNavKeyEvent(event) {
@@ -828,59 +933,66 @@ window.addEventListener(
 
 const search = new URLSearchParams(window.location.search);
 const defaults = window.FILE_DIFF_DEFAULTS || {};
+const refChoices = defaults.ref_choices || {
+    builtins: [],
+    locals: [],
+    remotes: [],
+};
 
-pathInput.value = search.get("path") || defaults.path || "";
-leftFileInput.value = search.get("left_file") || defaults.left_file || "";
-rightFileInput.value = search.get("right_file") || defaults.right_file || "";
+baseBranchInput.value = search.get("base_branch") || defaults.base_branch || "";
+branchInput.value = search.get("branch") || defaults.branch || "";
 const initialLeft = search.get("left") || defaults.left || "index";
 const initialRight = search.get("right") || defaults.right || "worktree";
 const initialMode = search.get("mode")
-    || inferMode(initialLeft, initialRight)
-    || "files";
+    || defaults.mode
+    || inferMode(initialLeft, initialRight, branchInput.value, baseBranchInput.value)
+    || "branch-review";
 modeSelect.value = initialMode;
 if (initialMode === "refs") {
     leftRefInput.value = initialLeft;
     rightRefInput.value = initialRight;
 }
-if (leftFileInput.value || rightFileInput.value) {
-    directFilesPanel.open = true;
-}
 syncModeUI();
+attachAutocomplete(baseBranchInput, refChoices, ["locals", "remotes"]);
+attachAutocomplete(branchInput, refChoices, ["locals", "remotes"]);
+attachAutocomplete(leftRefInput, refChoices, ["builtins", "locals", "remotes"]);
+attachAutocomplete(rightRefInput, refChoices, ["builtins", "locals", "remotes"]);
 
 form.addEventListener("submit", (event) => {
     event.preventDefault();
 });
-directFilesForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-});
+
+for (const button of modeButtonRow.querySelectorAll(".mode-button")) {
+    button.addEventListener("click", () => {
+        const nextMode = button.dataset.mode;
+        if (!nextMode || modeSelect.value === nextMode) {
+            return;
+        }
+        modeSelect.value = nextMode;
+        syncModeUI();
+        scheduleLoadDiff(0);
+    });
+}
 
 modeSelect.addEventListener("change", () => {
     syncModeUI();
     scheduleLoadDiff(0);
 });
-pathInput.addEventListener("input", () => scheduleLoadDiff());
+baseBranchInput.addEventListener("input", () => scheduleLoadDiff());
+branchInput.addEventListener("input", () => scheduleLoadDiff());
 leftRefInput.addEventListener("input", () => scheduleLoadDiff());
 rightRefInput.addEventListener("input", () => scheduleLoadDiff());
-leftFileInput.addEventListener("input", () => {
-    if (leftFileInput.value.trim() || rightFileInput.value.trim()) {
-        directFilesPanel.open = true;
-    }
-    scheduleLoadDiff();
-});
-rightFileInput.addEventListener("input", () => {
-    if (leftFileInput.value.trim() || rightFileInput.value.trim()) {
-        directFilesPanel.open = true;
-    }
-    scheduleLoadDiff();
-});
 
-if (defaults.repo_available || pathInput.value || leftFileInput.value || rightFileInput.value) {
+if (defaults.repo_available) {
     loadDiff();
 } else {
-    setStatus("Open this inside a Git repo, or use direct file diff.");
+    setStatus("Open this inside a Git repo.");
 }
 
 function inferMode(left, right) {
+    if (branchInput.value || baseBranchInput.value) {
+        return "branch-review";
+    }
     if (!left || !right) {
         return null;
     }

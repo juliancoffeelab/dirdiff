@@ -81,13 +81,23 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_diff(self, query_string: str) -> None:
         query = parse_qs(query_string)
+        mode = _first(query, "mode", self.server.defaults.get("mode"))
+        base_branch = (
+            _first(query, "base_branch", self.server.defaults.get("base_branch"))
+            if mode == "branch-review"
+            else None
+        )
+        branch = (
+            _first(query, "branch", self.server.defaults.get("branch"))
+            if mode == "branch-review"
+            else None
+        )
         try:
             payload = self.server.service.build_diff(
-                path=_first(query, "path"),
                 left=_first(query, "left", self.server.defaults["left"]),
                 right=_first(query, "right", self.server.defaults["right"]),
-                left_file=_first(query, "left_file"),
-                right_file=_first(query, "right_file"),
+                base_branch=base_branch,
+                branch=branch,
             )
         except TextDiffError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)

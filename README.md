@@ -26,28 +26,22 @@ uv sync
 
 ## Run
 
-Git-backed diff for a repo file:
-
-```bash
-uv run dirdiff --path src/dirdiff/cli.py --left head --right worktree
-```
-
 Whole-repo diff for the current Git repo:
 
 ```bash
 uv run dirdiff
 ```
 
+Branch review against `master` or your detected default branch:
+
+```bash
+uv run dirdiff --branch feature/my-change --base-branch master
+```
+
 Headless local server for tests or Playwright checks:
 
 ```bash
 uv run dirdiff --headless
-```
-
-Direct file-to-file diff:
-
-```bash
-uv run dirdiff --left-file old.txt --right-file new.txt
 ```
 
 If you want a globally available CLI:

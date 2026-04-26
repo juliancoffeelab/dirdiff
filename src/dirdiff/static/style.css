@@ -179,7 +179,8 @@ h1 {
     gap: 14px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
-        "path mode"
+        "mode mode"
+        "branch branch"
         "refs refs";
     align-items: end;
 }
@@ -188,8 +189,83 @@ h1 {
     grid-area: mode;
 }
 
-.field-path {
-    grid-area: path;
+.mode-button-row {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.mode-button {
+    min-height: 42px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    background: rgba(16, 23, 46, 0.92);
+    color: var(--muted);
+    font-weight: 650;
+}
+
+.mode-button.is-active {
+    background: linear-gradient(135deg, #38bdf8, #818cf8);
+    color: #08101f;
+}
+
+.field-mode select {
+    display: none;
+}
+
+.autocomplete-host {
+    position: relative;
+}
+
+.autocomplete-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(9, 14, 30, 0.96);
+    box-shadow: var(--shadow);
+}
+
+.autocomplete-section {
+    display: grid;
+    gap: 4px;
+}
+
+.autocomplete-section-label {
+    padding: 2px 6px;
+    color: var(--accent);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.autocomplete-option {
+    min-height: 34px;
+    justify-content: flex-start;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: rgba(18, 25, 51, 0.92);
+    color: var(--text);
+    font-weight: 600;
+}
+
+.autocomplete-option:hover,
+.autocomplete-option:focus-visible {
+    background: rgba(56, 189, 248, 0.18);
+}
+
+.branch-review-fields {
+    grid-area: branch;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .custom-refs {
@@ -205,42 +281,6 @@ h1 {
 
 .field-right-ref {
     grid-column: 2;
-}
-
-.direct-files-panel {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.direct-files-panel summary {
-    cursor: pointer;
-    color: var(--text);
-    font-weight: 600;
-    list-style: none;
-}
-
-.direct-files-panel summary::-webkit-details-marker {
-    display: none;
-}
-
-.direct-files-panel summary::after {
-    content: "Show";
-    margin-left: 10px;
-    color: var(--accent);
-    font-size: 0.82rem;
-    font-weight: 600;
-}
-
-.direct-files-panel[open] summary::after {
-    content: "Hide";
-}
-
-.direct-files-form {
-    display: grid;
-    gap: 14px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 14px;
 }
 
 label {
@@ -675,14 +715,18 @@ button {
         grid-template-columns: 1fr;
         grid-template-areas:
             "mode"
-            "path"
+            "branch"
             "refs";
         align-items: end;
     }
 
-    .custom-refs,
-    .direct-files-form {
+    .branch-review-fields,
+    .custom-refs {
         grid-template-columns: 1fr;
+    }
+
+    .mode-button-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .field-left-ref,
@@ -724,8 +768,12 @@ button {
         grid-template-columns: 1fr;
         grid-template-areas:
             "mode"
-            "path"
+            "branch"
             "refs";
+    }
+
+    .mode-button-row {
+        grid-template-columns: 1fr;
     }
 
     .hunk-nav {
