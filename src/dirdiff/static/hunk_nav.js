@@ -1,7 +1,7 @@
 (function (globalScope) {
     const DEFAULT_SCROLL_MARGIN = 120;
     const DEFAULT_ACTIVE_TOLERANCE = 24;
-    const DEFAULT_SETTLE_DELAY_MS = 140;
+    const DEFAULT_SETTLE_DELAY_MS = 260;
 
     function uniqueSortedPositions(positions, tolerance = 6) {
         const sorted = positions
@@ -173,6 +173,12 @@
         return targetIndex;
     }
 
+    function sameActiveIndex(left, right) {
+        const leftIndex = Number.isInteger(left?.activeIndex) ? left.activeIndex : null;
+        const rightIndex = Number.isInteger(right?.activeIndex) ? right.activeIndex : null;
+        return leftIndex === rightIndex;
+    }
+
     function reduceState(
         state,
         event,
@@ -276,13 +282,23 @@
             settleDelayMs = DEFAULT_SETTLE_DELAY_MS,
             scrollBehavior = "smooth",
             onStateChange = () => {},
+            onActiveIndexChange = () => {},
         } = {},
     ) {
         let state = createInitialState();
         let settleTimerId = 0;
+        let lastSnapshot = null;
+
+        function normalizeAndRemember(snapshot) {
+            lastSnapshot = normalizeSnapshot(
+                snapshot,
+                { scrollMargin },
+            );
+            return lastSnapshot;
+        }
 
         function readSnapshot() {
-            return adapter.readSnapshot();
+            return normalizeAndRemember(adapter.readSnapshot());
         }
 
         function clearSettleTimer() {
@@ -297,18 +313,34 @@
             clearSettleTimer();
             settleTimerId = adapter.setTimeout(() => {
                 settleTimerId = 0;
+                const previousState = cloneState(state);
                 const result = reduceState(
                     state,
                     { type: "SETTLED", snapshot: readSnapshot() },
                     { scrollMargin, activeTolerance },
                 );
                 state = result.state;
+                if (!sameActiveIndex(previousState, state)) {
+                    onActiveIndexChange(
+                        Number.isInteger(state.activeIndex) ? state.activeIndex : null,
+                        previousState,
+                        cloneState(state),
+                    );
+                }
                 onStateChange(cloneState(state));
             }, settleDelayMs);
         }
 
         function applyResult(result) {
+            const previousState = cloneState(state);
             state = result.state;
+            if (!sameActiveIndex(previousState, state)) {
+                onActiveIndexChange(
+                    Number.isInteger(state.activeIndex) ? state.activeIndex : null,
+                    previousState,
+                    cloneState(state),
+                );
+            }
             onStateChange(cloneState(state));
             if (!result.effect) {
                 return false;
@@ -322,11 +354,19 @@
         return {
             reset() {
                 clearSettleTimer();
+                const previousState = cloneState(state);
                 state = reduceState(
                     state,
                     { type: "RESET" },
                     { scrollMargin, activeTolerance },
                 ).state;
+                if (!sameActiveIndex(previousState, state)) {
+                    onActiveIndexChange(
+                        Number.isInteger(state.activeIndex) ? state.activeIndex : null,
+                        previousState,
+                        cloneState(state),
+                    );
+                }
                 onStateChange(cloneState(state));
             },
             request(direction) {
@@ -346,13 +386,6 @@
                 if (!state.autoScrollInProgress) {
                     return;
                 }
-
-                state = reduceState(
-                    state,
-                    { type: "SCROLL", snapshot: readSnapshot() },
-                    { scrollMargin, activeTolerance },
-                ).state;
-                onStateChange(cloneState(state));
                 scheduleSettle();
             },
             getState() {

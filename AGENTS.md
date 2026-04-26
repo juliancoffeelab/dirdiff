@@ -28,6 +28,7 @@
   `uv run pytest`
   `uv build`
 - Do not fix a bug until you have added an automated regression test that fails on the current buggy behavior. The test should demonstrate the bug first, then the code change should make it pass.
+- This rule applies to bug fixes and regressions. It does not automatically apply to pure refactors, cleanups, or performance work unless they are explicitly addressing a concrete buggy behavior.
 - If you change browser rendering, diff row DOM, syntax highlighting, or folding behavior, also run a Playwright smoke test against a local `uv run dirdiff` session.
 - For browser-only regressions, add an automated repro first, then implement the fix against that repro. Prefer Playwright when the bug depends on real scrolling, layout, or DOM timing.
 - Keep `docs/tests/` in sync with the suite. When tests are added, removed, or substantially changed, update the relevant markdown under `docs/tests/playwright`, `docs/tests/js`, and `docs/tests/pytest` so it explains what the tests cover, how they exercise it, and why that coverage exists.

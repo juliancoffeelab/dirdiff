@@ -38,6 +38,12 @@ This layer protects the data that the frontend eventually renders.
 - How it tests it: builds a JavaScript diff between `findNearestIndex(...)` and `positionsSignature(...)` and asserts that the diff payload splits those names into stable identifier segments instead of arbitrary character fragments.
 - Why it exists: protects the identifier-aware tokenization fallback that keeps intraline highlights readable for renamed symbols.
 
+`test_inline_diff_keeps_identifier_parts_whole_in_method_renames`
+
+- What it tests: identifier-aware inline diff keeps known identifier parts whole instead of tearing them into character noise during method renames.
+- How it tests it: builds a JavaScript diff between `expectActiveHunk(...)` and `expectSelectedHunkIndex(...)` and asserts that the payload keeps `Active`, `Selected`, `Hunk`, and `Index` as whole identifier parts.
+- Why it exists: protects the backend regression where camel-case splitting still fell back to char-level fragments inside a single renamed part, producing unreadable intraline highlights.
+
 `test_tree_sitter_highlights_multiline_python_strings`
 
 - What it tests: multiline Python strings keep string token classes across lines.

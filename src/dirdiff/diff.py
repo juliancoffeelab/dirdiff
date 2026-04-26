@@ -141,11 +141,19 @@ def _append_identifier_level_diff(
             left_count = i2 - i1
             right_count = j2 - j1
             if left_count == 1 and right_count == 1:
-                _append_char_level_diff(
-                    left_parts[i1],
-                    right_parts[j1],
-                    left_tokens,
-                    right_tokens,
+                left_tokens.append(
+                    {
+                        "text": left_parts[i1],
+                        "changed": True,
+                        "is_ws": False,
+                    }
+                )
+                right_tokens.append(
+                    {
+                        "text": right_parts[j1],
+                        "changed": True,
+                        "is_ws": False,
+                    }
                 )
                 continue
 
@@ -399,12 +407,33 @@ def _inline_diff(
                         left_token = left_slice[ii1]
                         right_token = right_slice[jj1]
                         if not left_token["is_ws"] and not right_token["is_ws"]:
-                            _append_identifier_level_diff(
-                                left_token["text"],
-                                right_token["text"],
-                                left_tokens,
-                                right_tokens,
-                            )
+                            left_parts = _identifier_diff_parts(left_token["text"])
+                            right_parts = _identifier_diff_parts(right_token["text"])
+                            if (
+                                left_parts != [left_token["text"]]
+                                or right_parts != [right_token["text"]]
+                            ):
+                                _append_identifier_level_diff(
+                                    left_token["text"],
+                                    right_token["text"],
+                                    left_tokens,
+                                    right_tokens,
+                                )
+                            else:
+                                left_tokens.append(
+                                    {
+                                        "text": left_token["text"],
+                                        "changed": True,
+                                        "is_ws": False,
+                                    }
+                                )
+                                right_tokens.append(
+                                    {
+                                        "text": right_token["text"],
+                                        "changed": True,
+                                        "is_ws": False,
+                                    }
+                                )
                             continue
 
                     for lrel in range(ii1, ii2):

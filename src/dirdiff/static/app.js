@@ -274,6 +274,12 @@ function makeDiffRow(row, side, markHunkAnchor = false, hunkIndex = null) {
     if (Number.isInteger(hunkIndex)) {
         rowEl.dataset.hunkIndex = String(hunkIndex);
         rowEl.classList.add("hunk-anchor-row");
+        const rows = hunkRowsByIndex.get(hunkIndex) || [];
+        rows.push(rowEl);
+        hunkRowsByIndex.set(hunkIndex, rows);
+    }
+    if (markHunkAnchor) {
+        hunkAnchorRows.push(rowEl);
     }
 
     const noEl = document.createElement("div");
@@ -542,6 +548,7 @@ function makeErrorCard(entry) {
 }
 
 function renderResult(payload) {
+    resetHunkCaches();
     resultPanel.replaceChildren();
 
     if (payload.mode === "repo") {
@@ -573,9 +580,18 @@ function isVisibleHunkAnchor(row) {
     return !!row && row.offsetParent !== null && row.getClientRects().length > 0;
 }
 
+let hunkAnchorRows = [];
+const hunkRowsByIndex = new Map();
+let selectedHunkIndex = null;
+
+function resetHunkCaches() {
+    hunkAnchorRows = [];
+    hunkRowsByIndex.clear();
+    selectedHunkIndex = null;
+}
+
 function getVisibleHunkRows() {
-    return Array.from(document.querySelectorAll(".diff-row.hunk-anchor"))
-        .filter(isVisibleHunkAnchor);
+    return hunkAnchorRows.filter(isVisibleHunkAnchor);
 }
 
 function readHunkNavSnapshot() {
@@ -592,14 +608,27 @@ function readHunkNavSnapshot() {
     };
 }
 
-function updateSelectedHunk(state) {
-    const activeIndex = Number.isInteger(state?.activeIndex) ? state.activeIndex : null;
-
-    for (const row of document.querySelectorAll(".diff-row.hunk-anchor-row")) {
-        const isActive = activeIndex !== null && Number(row.dataset.hunkIndex) === activeIndex;
+function setRowsSelected(rows, isActive) {
+    for (const row of rows || []) {
         row.classList.toggle("active-hunk", isActive);
         row.setAttribute("aria-current", isActive ? "true" : "false");
     }
+}
+
+function syncSelectedHunk(index) {
+    const nextIndex = Number.isInteger(index) ? index : null;
+    if (selectedHunkIndex === nextIndex) {
+        return;
+    }
+
+    if (selectedHunkIndex !== null) {
+        setRowsSelected(hunkRowsByIndex.get(selectedHunkIndex), false);
+    }
+    if (nextIndex !== null) {
+        setRowsSelected(hunkRowsByIndex.get(nextIndex), true);
+    }
+
+    selectedHunkIndex = nextIndex;
 }
 
 const hunkNavController = window.fileDiffNav.createHunkNavigationController({
@@ -613,7 +642,7 @@ const hunkNavController = window.fileDiffNav.createHunkNavigationController({
     setTimeout: window.setTimeout.bind(window),
     clearTimeout: window.clearTimeout.bind(window),
 }, {
-    onStateChange: updateSelectedHunk,
+    onActiveIndexChange: syncSelectedHunk,
 });
 
 async function loadDiff() {
@@ -656,6 +685,7 @@ async function loadDiff() {
 
         renderSummary(payload.summary, payload.mode);
         renderResult(payload);
+        syncSelectedHunk(null);
         setStatus(buildStatusMessage(state, payload));
     } catch (error) {
         if (loadToken !== activeLoadToken) {
@@ -663,6 +693,8 @@ async function loadDiff() {
         }
         summaryGrid.replaceChildren();
         resultPanel.replaceChildren();
+        resetHunkCaches();
+        syncSelectedHunk(null);
 
         const box = document.createElement("div");
         box.className = "error-state";

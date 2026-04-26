@@ -431,13 +431,16 @@ test("keyboard shortcuts navigate next and previous hunks", async ({ page, baseU
 
   try {
     await pressKeyBurst(page, "n");
-    await expectActiveHunk(page, 0);
+    await waitForScrollSettled(page);
+    await expectSelectedHunkIndex(page, 0);
 
     await pressKeyBurst(page, "n");
-    await expectActiveHunk(page, 1);
+    await waitForScrollSettled(page);
+    await expectSelectedHunkIndex(page, 1);
 
     await pressKeyBurst(page, "Shift+N");
-    await expectActiveHunk(page, 0);
+    await waitForScrollSettled(page);
+    await expectSelectedHunkIndex(page, 0);
   } finally {
     await fixture.cleanup();
   }
@@ -504,6 +507,7 @@ test("manual scroll starting points navigate relative to the visible anchor posi
     await waitForScrollSettled(page);
 
     await clickHunkButton(page, "next");
+    await waitForScrollSettled(page);
     await expectActiveHunk(page, 2);
     await expectSelectedHunkIndex(page, 2);
 
@@ -511,6 +515,7 @@ test("manual scroll starting points navigate relative to the visible anchor posi
     await waitForScrollSettled(page);
 
     await clickHunkButton(page, "prev");
+    await waitForScrollSettled(page);
     await expectActiveHunk(page, 1);
     await expectSelectedHunkIndex(page, 1);
   } finally {
@@ -630,10 +635,12 @@ test("later single-file tail hunks stay distinct even when bottom clamping stops
 
     await clickHunkButton(page, "next", { count: clampedPair.first + 1 });
     await expectSelectedHunkIndex(page, clampedPair.first);
+    await waitForScrollSettled(page);
     const firstTailScrollY = await getScrollY(page);
 
     await clickHunkButton(page, "next");
     await expectSelectedHunkIndex(page, clampedPair.second);
+    await waitForScrollSettled(page);
     const secondTailScrollY = await getScrollY(page);
 
     expect(Math.abs(firstTailScrollY - secondTailScrollY)).toBeLessThan(120);

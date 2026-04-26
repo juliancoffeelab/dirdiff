@@ -61,6 +61,44 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
     ]
 
 
+def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.js",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text="await expectActiveHunk(page, 0);\n",
+        right_text="await expectSelectedHunkIndex(page, 0);\n",
+        left_path_hint="demo.js",
+        right_path_hint="demo.js",
+    )
+
+    left_tokens = [
+        (token["text"], token["changed"])
+        for token in diff["rows"][0]["left_tokens"]
+        if token["text"] not in {"await", " ", "(", "page", ",", "0", ");"}
+    ]
+    right_tokens = [
+        (token["text"], token["changed"])
+        for token in diff["rows"][0]["right_tokens"]
+        if token["text"] not in {"await", " ", "(", "page", ",", "0", ");"}
+    ]
+
+    assert left_tokens == [
+        ("expect", False),
+        ("Active", True),
+        ("Hunk", False),
+    ]
+    assert right_tokens == [
+        ("expect", False),
+        ("Selected", True),
+        ("Hunk", False),
+        ("Index", True),
+    ]
+
+
 def test_tree_sitter_highlights_multiline_python_strings() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
