@@ -12,7 +12,10 @@ What changed for portability:
 - It can compare a repo-relative path across Git sides like `head`, `index`,
   `worktree`, or a custom ref.
 - It can also compare any two filesystem paths directly, even outside Git.
-- It renders the whole file; there are no folds.
+- It auto-collapses unchanged structural regions like functions, methods, and
+  multiline containers using tree-sitter fold hints.
+- Markdown diffs fold only unchanged section bodies under headings; the heading
+  line stays visible and non-heading Markdown stays expanded.
 
 ## Install
 

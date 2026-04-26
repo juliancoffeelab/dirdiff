@@ -11,6 +11,7 @@ These tests cover behaviors that only show up in a real browser:
 
 - smooth scrolling and settle timing
 - DOM selection state
+- fold-bar rendering and expand/collapse interactions
 - viewport clamping near the bottom of the page
 - keyboard wiring
 - multi-file repo rendering
@@ -48,6 +49,48 @@ If a regression depends on actual scroll movement, layout, or browser event timi
 - What it tests: the selected hunk marks exactly two rows, one per pane.
 - How it tests it: navigates to the first hunk and asserts `.active-hunk`, `aria-current`, and `data-hunk-index`.
 - Why it exists: catches broken selection wiring between navigation state and rendered rows.
+
+`top-level unchanged classes show method folds instead of a whole-class fold`
+
+- What it tests: unchanged classes render method-level folds without a whole-class fold bar.
+- How it tests it: opens a Python direct-file diff with an unchanged class and a later changed line, then inspects the fold-bar text.
+- Why it exists: protects the DRAISS-style class special-case in the real browser.
+
+`changed classes only fold unchanged methods`
+
+- What it tests: changed classes keep changed methods expanded while still folding unchanged methods.
+- How it tests it: opens a Python direct-file diff with one changed method and asserts only the unchanged method gets fold bars.
+- Why it exists: protects the selective class-member folding rule end to end.
+
+`fold bars and signature rows toggle collapsed regions without breaking hunk navigation`
+
+- What it tests: clicking fold signature rows and fold bars expands/collapses hidden rows while hunk navigation still works afterward.
+- How it tests it: expands and re-collapses a folded Python function, asserts hidden lines appear, then navigates to the remaining changed hunk.
+- Why it exists: catches browser-only regressions at the boundary between fold UI and hunk navigation.
+
+`fold toggle icons do not shift top-level code horizontally`
+
+- What it tests: the fold toggle indicator does not push code text to the right on folded signature rows.
+- How it tests it: opens a folded Python function diff and compares the rendered x-position of the folded signature text against a normal top-level code row in the same pane.
+- Why it exists: protects the regression where the inline fold arrow behaved like an extra tab and visibly shifted code indentation.
+
+`markdown folds only unchanged heading sections`
+
+- What it tests: Markdown renders fold bars only for unchanged heading sections and not for changed sibling sections.
+- How it tests it: opens a direct Markdown diff, checks that the unchanged `# Intro` section gets fold bars on both panes, and confirms the changed `# Tail` section stays expanded.
+- Why it exists: protects the Markdown-specific heading-section fold policy in the real browser.
+
+`adding a later markdown section keeps earlier unchanged sections folded`
+
+- What it tests: inserting a new Markdown section does not suppress fold bars for older unchanged sibling sections.
+- How it tests it: opens a direct Markdown diff where the right side inserts `# Added` between unchanged `# One` and `# Two` sections, then checks that both older sections still render fold bars on both panes.
+- Why it exists: protects the browser-facing regression where adding a new same-level section could leave only the later unchanged section folded.
+
+`collapsed folds keep later visible markdown headings aligned across panes`
+
+- What it tests: collapsed fold bars do not knock later visible Markdown headings out of vertical alignment between panes.
+- How it tests it: opens the same inserted-section Markdown diff and compares the rendered top positions of the visible `# Tail` heading rows.
+- Why it exists: protects the layout regression where folded regions could shift later code around instead of preserving paired row alignment.
 
 ### Wrap behavior
 

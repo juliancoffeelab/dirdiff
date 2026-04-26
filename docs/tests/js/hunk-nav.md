@@ -4,11 +4,15 @@ Source:
 
 - [`tests/js/hunk_nav.test.cjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/js/hunk_nav.test.cjs)
 - [`tests/js/hunk_nav_controller.test.cjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/js/hunk_nav_controller.test.cjs)
+- [`tests/js/folds.test.cjs`](/Users/illiadenysenko/Workspace/lab/dirdiff/tests/js/folds.test.cjs)
 - Code under test: [`src/dirdiff/static/hunk_nav.js`](/Users/illiadenysenko/Workspace/lab/dirdiff/src/dirdiff/static/hunk_nav.js)
+- Additional code under test: [`src/dirdiff/static/folds.js`](/Users/illiadenysenko/Workspace/lab/dirdiff/src/dirdiff/static/folds.js), [`src/dirdiff/static/row_sync.js`](/Users/illiadenysenko/Workspace/lab/dirdiff/src/dirdiff/static/row_sync.js)
 
 ## Why This Layer Exists
 
 These tests are the cheap, deterministic guardrail for hunk navigation logic.
+They also cover the pure fold-row preprocessing used before the browser renderer
+builds collapsible fold bars.
 
 They do not try to prove browser rendering or actual scrolling behavior.
 Instead, they validate the controller math and state transitions directly:
@@ -122,3 +126,29 @@ This layer is fast enough to run as part of normal `pytest` through the Python w
 - What it tests: reset wipes navigation state clean.
 - How it tests it: dispatches `RESET` against a dirty state object.
 - Why it exists: protects diff reloads and mode changes.
+
+## `tests/js/folds.test.cjs`
+
+`normalizeFoldHints drops invalid ranges and sorts by row order`
+
+- What it tests: raw fold hints are normalized into valid, ordered row ranges.
+- How it tests it: passes invalid and out-of-order hints into `normalizeFoldHints()`.
+- Why it exists: keeps the browser fold renderer from processing malformed payloads.
+
+`addFoldRows inserts synthetic fold rows with folded payload slices`
+
+- What it tests: fold hints become synthetic `status: "fold"` rows that retain the hidden row payload.
+- How it tests it: feeds a simple function diff into `addFoldRows()` and inspects the returned fold row.
+- Why it exists: protects the DOM rendering seam between backend fold hints and UI toggles.
+
+`addFoldRows suppresses nested hints when an outer fold already consumed the rows`
+
+- What it tests: nested fold hints do not render duplicate or overlapping fold bars.
+- How it tests it: supplies overlapping outer and inner hints and asserts only the outer fold survives.
+- Why it exists: protects the outermost-first fold rendering rule.
+
+`row sync still collects fold bars as direct diff rows`
+
+- What it tests: fold bars remain compatible with the existing row-sync collector.
+- How it tests it: passes a synthetic container with ordinary rows and a fold bar into `collectDirectDiffRows()`.
+- Why it exists: protects equal-height syncing once folds are present in the DOM.

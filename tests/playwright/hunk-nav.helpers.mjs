@@ -16,11 +16,25 @@ const projectRoot = path.resolve(__dirname, "../..");
 export async function writeFixtureFiles({
   totalLines = 420,
   changedLines = [120, 240, 360],
-  identical = false
+  identical = false,
+  leftName = "left.txt",
+  rightName = "right.txt",
+  leftContent = null,
+  rightContent = null,
 } = {}) {
   const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "dirdiff-hunk-nav-"));
-  const leftPath = path.join(fixtureDir, "left.txt");
-  const rightPath = path.join(fixtureDir, "right.txt");
+  const leftPath = path.join(fixtureDir, leftName);
+  const rightPath = path.join(fixtureDir, rightName);
+
+  if (typeof leftContent === "string" || typeof rightContent === "string") {
+    await fs.writeFile(leftPath, leftContent ?? "", "utf8");
+    await fs.writeFile(rightPath, rightContent ?? "", "utf8");
+    return {
+      fixtureDir,
+      leftPath,
+      rightPath
+    };
+  }
 
   const leftLines = [];
   const rightLines = [];
@@ -111,6 +125,20 @@ export async function openDirectFixtureDiff(page, baseURL, options = {}) {
   };
 }
 
+export async function openDirectTextDiff(page, baseURL, {
+  leftContent,
+  rightContent,
+  leftName = "left.py",
+  rightName = "right.py",
+} = {}) {
+  return openDirectFixtureDiff(page, baseURL, {
+    leftContent,
+    rightContent,
+    leftName,
+    rightName,
+  });
+}
+
 export async function getActiveHunkIndex(page) {
   return page.evaluate((scrollMargin) => {
     const anchors = [...document.querySelectorAll(".diff-row.hunk-anchor")]
@@ -153,6 +181,48 @@ export async function getSelectedHunkIndex(page) {
 export async function expectSelectedHunkIndex(page, index) {
   await expect.poll(() => getSelectedHunkIndex(page)).toBe(index);
   await expectSelectedHunkRows(page, index);
+}
+
+export async function expectMatchingRowTops(page, text, {
+  tolerancePx = 1
+} = {}) {
+  const leftRow = page.locator(".diff-pane").nth(0).locator(".diff-row").filter({ hasText: text }).first();
+  const rightRow = page.locator(".diff-pane").nth(1).locator(".diff-row").filter({ hasText: text }).first();
+
+  await expect(leftRow).toHaveCount(1);
+  await expect(rightRow).toHaveCount(1);
+
+  await expect.poll(async () => {
+    const [leftBox, rightBox] = await Promise.all([
+      leftRow.boundingBox(),
+      rightRow.boundingBox()
+    ]);
+    if (!leftBox || !rightBox) {
+      return null;
+    }
+    return Math.abs(leftBox.y - rightBox.y);
+  }).toBeLessThanOrEqual(tolerancePx);
+}
+
+export async function expectCodeTextAligned(page, leftSelector, rightSelector, {
+  tolerancePx = 1
+} = {}) {
+  const left = page.locator(leftSelector);
+  const right = page.locator(rightSelector);
+
+  await expect(left).toHaveCount(1);
+  await expect(right).toHaveCount(1);
+
+  await expect.poll(async () => {
+    const [leftBox, rightBox] = await Promise.all([
+      left.boundingBox(),
+      right.boundingBox()
+    ]);
+    if (!leftBox || !rightBox) {
+      return null;
+    }
+    return Math.abs(leftBox.x - rightBox.x);
+  }).toBeLessThanOrEqual(tolerancePx);
 }
 
 export async function getScrollToCalls(page) {

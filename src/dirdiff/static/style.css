@@ -457,13 +457,65 @@ button {
     box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
+.fold-bar {
+    cursor: pointer;
+    background: rgba(125, 211, 252, 0.05);
+    border-top: 1px dashed rgba(125, 211, 252, 0.2);
+    border-bottom: 1px dashed rgba(125, 211, 252, 0.2);
+}
+
+.fold-bar:hover {
+    background: rgba(125, 211, 252, 0.12);
+}
+
+.fold-label {
+    padding: 5px 10px;
+    font-size: 0.8rem;
+    color: rgba(125, 211, 252, 0.94);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.inline-fold-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    color: rgba(125, 211, 252, 0.94);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+}
+
+.fold-toggle-row {
+    cursor: pointer;
+}
+
+.fold-toggle-row:hover .line-code {
+    background: rgba(125, 211, 252, 0.06);
+}
+
+.fold-toggle-row.fold-expanded .line-code {
+    background: rgba(125, 211, 252, 0.05);
+}
+
 .line-no {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
     padding: 6px 10px;
     border-right: 1px solid rgba(255, 255, 255, 0.05);
     color: var(--muted);
-    text-align: right;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.78rem;
+}
+
+.line-no-value {
+    display: inline-block;
+    min-width: 0;
+    text-align: right;
 }
 
 .line-code {

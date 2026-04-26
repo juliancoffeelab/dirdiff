@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
+from dirdiff.fold import fold_hints_for_path
 from dirdiff.syntax import highlight_lines_for_path
 
 
@@ -632,6 +633,7 @@ def build_loaded_diff(
     rows = _line_rows(left_text or "", right_text or "")
     left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
     right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
+    fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
 
     for row in rows:
         left_no = row.get("left_no")
@@ -653,7 +655,7 @@ def build_loaded_diff(
     added_lines = sum(1 for row in rows if row["status"] == "insert")
     removed_lines = sum(1 for row in rows if row["status"] == "delete")
 
-    return {
+    payload = {
         "display_name": display_name,
         "mode": mode,
         "left_label": left_label,
@@ -668,6 +670,9 @@ def build_loaded_diff(
         },
         "rows": rows,
     }
+    if fold_hints:
+        payload["fold_hints"] = fold_hints
+    return payload
 
 
 def _empty_repo_diff(

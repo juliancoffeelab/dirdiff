@@ -15,6 +15,7 @@ const prevHunkBtn = document.getElementById("prevHunkBtn");
 const nextHunkBtn = document.getElementById("nextHunkBtn");
 
 const rowSyncApi = window.fileDiffRowSync || {};
+const foldApi = window.fileDiffFolds || {};
 const registeredRowSyncs = window.__fileDiffRowSyncHandlers
     || (window.__fileDiffRowSyncHandlers = new Set());
 const BUILTIN_SIDES = new Set(["head", "index", "worktree"]);
@@ -277,7 +278,10 @@ function makeDiffRow(row, side, markHunkAnchor = false, hunkIndex = null) {
 
     const noEl = document.createElement("div");
     noEl.className = "line-no";
-    noEl.textContent = (side === "left" ? row.left_no : row.right_no) ?? "";
+    const noValue = document.createElement("span");
+    noValue.className = "line-no-value";
+    noValue.textContent = (side === "left" ? row.left_no : row.right_no) ?? "";
+    noEl.append(noValue);
 
     const codeEl = document.createElement("code");
     codeEl.className = "line-code";
@@ -315,7 +319,36 @@ function isChangedRowStatus(status) {
     return status === "insert" || status === "delete" || status === "replace";
 }
 
-function renderSideBySide(rows, leftLabel, rightLabel, startHunkIndex = 0) {
+function makeFoldBar(count, label = "") {
+    const bar = document.createElement("div");
+    bar.className = "diff-row fold-bar";
+    let text = `... ${count} line${count !== 1 ? "s" : ""}`;
+    if (label) {
+        text = `... ${count} line${count !== 1 ? "s" : ""} in ${label}`;
+    }
+    bar.innerHTML = `<div class="line-no">..</div><div class="fold-label">${escapeHtml(text)}</div>`;
+    return bar;
+}
+
+function makeInlineFoldToggle(onClick) {
+    const icon = document.createElement("span");
+    icon.className = "inline-fold-toggle";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "▸";
+    icon.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+    });
+    return icon;
+}
+
+function setInlineFoldState(signatureRow, expanded) {
+    signatureRow.classList.toggle("fold-expanded", expanded);
+}
+
+function renderSideBySide(rows, leftLabel, rightLabel, startHunkIndex = 0, foldHints = []) {
+    const processedRows = foldApi.addFoldRows ? foldApi.addFoldRows(rows, foldHints) : rows;
     const wrapper = document.createElement("div");
     wrapper.className = "diff-grid";
 
@@ -334,8 +367,83 @@ function renderSideBySide(rows, leftLabel, rightLabel, startHunkIndex = 0) {
     const scheduleRowSync = makeScheduledRowSync(leftLines, rightLines);
     let nextHunkIndex = startHunkIndex;
 
-    rows.forEach((row, index) => {
-        const previous = index > 0 ? rows[index - 1] : null;
+    processedRows.forEach((row, index) => {
+        if (row.status === "fold") {
+            const leftBar = makeFoldBar(row.count, row.label);
+            const rightBar = makeFoldBar(row.count, row.label);
+            const leftExpandedRows = [];
+            const rightExpandedRows = [];
+            const leftSignatureRow = leftLines.lastElementChild;
+            const rightSignatureRow = rightLines.lastElementChild;
+            const leftBarAnchor = document.createComment("fold-bar-anchor");
+            const rightBarAnchor = document.createComment("fold-bar-anchor");
+            let expanded = false;
+
+            leftLines.append(leftBar);
+            leftLines.append(leftBarAnchor);
+            rightLines.append(rightBar);
+            rightLines.append(rightBarAnchor);
+
+            if (!leftSignatureRow || !rightSignatureRow) {
+                return;
+            }
+
+            const leftNo = leftSignatureRow.querySelector(".line-no");
+            const rightNo = rightSignatureRow.querySelector(".line-no");
+            if (!leftNo || !rightNo) {
+                return;
+            }
+
+            const leftToggleIcon = makeInlineFoldToggle(toggleFold);
+            const rightToggleIcon = makeInlineFoldToggle(toggleFold);
+
+            leftNo.prepend(leftToggleIcon);
+            rightNo.prepend(rightToggleIcon);
+
+            leftSignatureRow.classList.add("fold-toggle-row");
+            rightSignatureRow.classList.add("fold-toggle-row");
+            leftSignatureRow.title = "Toggle fold";
+            rightSignatureRow.title = "Toggle fold";
+
+            setInlineFoldState(leftSignatureRow, false);
+            setInlineFoldState(rightSignatureRow, false);
+
+            function toggleFold() {
+                expanded = !expanded;
+                if (expanded) {
+                    row.foldedRows.forEach((foldedRow) => {
+                        const leftNode = makeDiffRow(foldedRow, "left");
+                        const rightNode = makeDiffRow(foldedRow, "right");
+                        leftExpandedRows.push(leftNode);
+                        rightExpandedRows.push(rightNode);
+                        leftLines.insertBefore(leftNode, leftBarAnchor);
+                        rightLines.insertBefore(rightNode, rightBarAnchor);
+                    });
+                    leftBar.remove();
+                    rightBar.remove();
+                    setInlineFoldState(leftSignatureRow, true);
+                    setInlineFoldState(rightSignatureRow, true);
+                    queueMicrotask(scheduleRowSync);
+                    return;
+                }
+
+                leftExpandedRows.splice(0).forEach((node) => node.remove());
+                rightExpandedRows.splice(0).forEach((node) => node.remove());
+                leftLines.insertBefore(leftBar, leftBarAnchor);
+                rightLines.insertBefore(rightBar, rightBarAnchor);
+                setInlineFoldState(leftSignatureRow, false);
+                setInlineFoldState(rightSignatureRow, false);
+                scheduleRowSync();
+            }
+
+            leftBar.addEventListener("click", toggleFold);
+            rightBar.addEventListener("click", toggleFold);
+            leftSignatureRow.addEventListener("click", toggleFold);
+            rightSignatureRow.addEventListener("click", toggleFold);
+            return;
+        }
+
+        const previous = index > 0 ? processedRows[index - 1] : null;
         const markHunkAnchor =
             isChangedRowStatus(row.status)
             && !isChangedRowStatus(previous?.status ?? "equal");
@@ -407,6 +515,7 @@ function makeFileCard(payload, startHunkIndex = 0) {
         payload.left_label,
         payload.right_label,
         startHunkIndex,
+        payload.fold_hints || [],
     );
     card.append(wrapper);
 
