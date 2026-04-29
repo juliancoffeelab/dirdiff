@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
@@ -24,6 +27,12 @@ INLINE_IDENTIFIER_PART_PATTERN = re.compile(
 ALIGNMENT_WORD_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
 ALIGNMENT_NOISE_WORDS = frozenset({"none", "true", "false", "null"})
 MIN_SIMILAR_LINE_RATIO = 0.45
+ENABLE_PERF_LOGS = os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
+PLAIN_RENDER_ROW_THRESHOLD = 2000
+PLAIN_RENDER_CHAR_THRESHOLD = 200_000
+PLAIN_RENDER_CONTEXT_ROWS = 3
+PLAIN_RENDER_MIN_FOLD_ROWS = 24
+PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
 
 
 @dataclass(frozen=True)
@@ -50,6 +59,112 @@ class RepoDiffProgress:
 
 class TextDiffError(ValueError):
     """Raised when a diff request cannot be fulfilled safely."""
+
+
+def _perf_log(message: str) -> None:
+    if not ENABLE_PERF_LOGS:
+        return
+    print(f"[dirdiff-perf] {message}", file=sys.stderr, flush=True)
+
+
+def _payload_size_bytes(payload: dict[str, Any]) -> int:
+    return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+
+
+def _is_lazy_repo_diff_path(
+    left_path: str | None,
+    right_path: str | None,
+) -> bool:
+    path = right_path or left_path or ""
+    return path.endswith(".ipynb")
+
+
+def _should_use_plain_rendering(
+    rows: list[dict[str, Any]],
+    left_text: str | None,
+    right_text: str | None,
+) -> bool:
+    row_count = len(rows)
+    char_count = len(left_text or "") + len(right_text or "")
+    return (
+        row_count >= PLAIN_RENDER_ROW_THRESHOLD
+        or char_count >= PLAIN_RENDER_CHAR_THRESHOLD
+    )
+
+
+def _strip_rich_row_markup(rows: list[dict[str, Any]]) -> None:
+    for row in rows:
+        row.pop("left_tokens", None)
+        row.pop("right_tokens", None)
+        row.pop("left_syntax", None)
+        row.pop("right_syntax", None)
+
+
+def _collapse_equal_rows_for_large_diff(
+    rows: list[dict[str, Any]],
+    *,
+    context_rows: int = PLAIN_RENDER_CONTEXT_ROWS,
+    min_fold_rows: int = PLAIN_RENDER_MIN_FOLD_ROWS,
+) -> list[dict[str, Any]]:
+    collapsed: list[dict[str, Any]] = []
+    index = 0
+
+    while index < len(rows):
+        if rows[index].get("status") != "equal":
+            collapsed.append(rows[index])
+            index += 1
+            continue
+
+        run_start = index
+        while index < len(rows) and rows[index].get("status") == "equal":
+            index += 1
+        run_end = index
+        run_rows = rows[run_start:run_end]
+
+        if len(run_rows) < min_fold_rows:
+            collapsed.extend(run_rows)
+            continue
+
+        leading = run_rows[:context_rows]
+        trailing = run_rows[-context_rows:] if context_rows else []
+        middle = run_rows[context_rows:len(run_rows) - len(trailing)]
+
+        collapsed.extend(leading)
+        if middle:
+            collapsed.append(
+                {
+                    "status": "fold",
+                    "count": len(middle),
+                    "foldedRows": middle,
+                    "label": "unchanged context",
+                }
+            )
+        collapsed.extend(trailing)
+
+    return collapsed
+
+
+def _truncate_large_render_rows(
+    rows: list[dict[str, Any]],
+    *,
+    max_visible_rows: int = PLAIN_RENDER_MAX_VISIBLE_ROWS,
+) -> tuple[list[dict[str, Any]], int]:
+    if len(rows) <= max_visible_rows:
+        return rows, 0
+
+    head_count = max_visible_rows // 2
+    tail_count = max_visible_rows - head_count
+    omitted_count = len(rows) - max_visible_rows
+    truncated_rows = [
+        *rows[:head_count],
+        {
+            "status": "elided",
+            "count": omitted_count,
+            "label": "rows omitted for performance",
+        },
+        *rows[-tail_count:],
+    ]
+    return truncated_rows, omitted_count
 
 
 def _append_char_level_diff(
@@ -655,20 +770,26 @@ def build_loaded_diff(
     right_path_hint: str | None = None,
 ) -> dict[str, Any]:
     rows = _line_rows(left_text or "", right_text or "")
-    left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
-    right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
-    fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
+    plain_render = _should_use_plain_rendering(rows, left_text, right_text)
+    fold_hints: list[dict[str, object]] = []
 
-    for row in rows:
-        left_no = row.get("left_no")
-        if isinstance(left_no, int) and left_syntax_lines and left_no - 1 < len(left_syntax_lines):
-            if left_syntax_lines[left_no - 1]:
-                row["left_syntax"] = left_syntax_lines[left_no - 1]
+    if plain_render:
+        _strip_rich_row_markup(rows)
+    else:
+        left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
+        right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
+        fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
 
-        right_no = row.get("right_no")
-        if isinstance(right_no, int) and right_syntax_lines and right_no - 1 < len(right_syntax_lines):
-            if right_syntax_lines[right_no - 1]:
-                row["right_syntax"] = right_syntax_lines[right_no - 1]
+        for row in rows:
+            left_no = row.get("left_no")
+            if isinstance(left_no, int) and left_syntax_lines and left_no - 1 < len(left_syntax_lines):
+                if left_syntax_lines[left_no - 1]:
+                    row["left_syntax"] = left_syntax_lines[left_no - 1]
+
+            right_no = row.get("right_no")
+            if isinstance(right_no, int) and right_syntax_lines and right_no - 1 < len(right_syntax_lines):
+                if right_syntax_lines[right_no - 1]:
+                    row["right_syntax"] = right_syntax_lines[right_no - 1]
 
     modified_lines = sum(
         1
@@ -678,6 +799,15 @@ def build_loaded_diff(
     )
     added_lines = sum(1 for row in rows if row["status"] == "insert")
     removed_lines = sum(1 for row in rows if row["status"] == "delete")
+
+    payload_rows = (
+        _collapse_equal_rows_for_large_diff(rows)
+        if plain_render
+        else rows
+    )
+    truncated_rows = 0
+    if plain_render:
+        payload_rows, truncated_rows = _truncate_large_render_rows(payload_rows)
 
     payload = {
         "display_name": display_name,
@@ -692,8 +822,12 @@ def build_loaded_diff(
             "left_exists": left_exists,
             "right_exists": right_exists,
         },
-        "rows": rows,
+        "rows": payload_rows,
     }
+    if plain_render:
+        payload["render_mode"] = "plain"
+    if truncated_rows:
+        payload["truncated_rows"] = truncated_rows
     if fold_hints:
         payload["fold_hints"] = fold_hints
     return payload
@@ -1107,6 +1241,7 @@ class TextDiffService:
         display_name: str | None = None,
         change_type: str = "modify",
     ) -> dict[str, Any]:
+        started_at = time.perf_counter()
         normalized_left = (
             self.normalize_repo_path(left_path) if left_path is not None else None
         )
@@ -1149,7 +1284,54 @@ class TextDiffService:
         payload["change_type"] = change_type
         payload["left_path"] = normalized_left
         payload["right_path"] = normalized_right
+        left_text = left_version.text or ""
+        right_text = right_version.text or ""
+        row_count = len(payload["rows"])
+        syntax_span_count = sum(
+            len(row.get("left_syntax", ())) + len(row.get("right_syntax", ()))
+            for row in payload["rows"]
+        )
+        token_count = sum(
+            len(row.get("left_tokens", ())) + len(row.get("right_tokens", ()))
+            for row in payload["rows"]
+        )
+        payload_bytes = _payload_size_bytes(payload)
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        _perf_log(
+            "file"
+            f" name={payload['display_name']!r}"
+            f" change={change_type}"
+            f" rows={row_count}"
+            f" left_chars={len(left_text)}"
+            f" right_chars={len(right_text)}"
+            f" syntax_spans={syntax_span_count}"
+            f" diff_tokens={token_count}"
+            f" payload_bytes={payload_bytes}"
+            f" elapsed_ms={elapsed_ms:.1f}"
+        )
         return payload
+
+    def build_lazy_repo_entry(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left_label: str,
+        right_label: str,
+        display_name: str,
+        change_type: str,
+    ) -> dict[str, Any]:
+        return {
+            "display_name": display_name,
+            "mode": "git",
+            "left_label": left_label,
+            "right_label": right_label,
+            "change_type": change_type,
+            "left_path": left_path,
+            "right_path": right_path,
+            "lazy_load": True,
+            "lazy_reason": "notebook",
+        }
 
     def build_repo_diff(
         self,
@@ -1157,9 +1339,16 @@ class TextDiffService:
         left: str,
         right: str,
     ) -> dict[str, Any]:
+        started_at = time.perf_counter()
         normalized_left = self.normalize_side(left)
         normalized_right = self.normalize_side(right)
         paths = self.list_repo_diff_paths(left=normalized_left, right=normalized_right)
+        _perf_log(
+            "repo-start"
+            f" left={normalized_left!r}"
+            f" right={normalized_right!r}"
+            f" changed_paths={len(paths)}"
+        )
         if not paths:
             return _empty_repo_diff(
                 left_label=normalized_left,
@@ -1177,7 +1366,7 @@ class TextDiffService:
             files.append(progress.entry)
             summary = progress.summary
 
-        return {
+        payload = {
             "display_name": "Repository diff",
             "mode": "repo",
             "left_label": normalized_left,
@@ -1185,6 +1374,18 @@ class TextDiffService:
             "summary": summary,
             "files": files,
         }
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        _perf_log(
+            "repo-done"
+            f" left={normalized_left!r}"
+            f" right={normalized_right!r}"
+            f" files={len(files)}"
+            f" changed_files={summary['changed_files']}"
+            f" skipped_files={summary['skipped_files']}"
+            f" payload_bytes={_payload_size_bytes(payload)}"
+            f" elapsed_ms={elapsed_ms:.1f}"
+        )
+        return payload
 
     def iter_repo_diff_progress(
         self,
@@ -1205,6 +1406,37 @@ class TextDiffService:
         )
         summary = _empty_repo_summary()
         for entry in entries:
+            _perf_log(
+                "repo-file-start"
+                f" name={entry.display_name!r}"
+                f" change={entry.change_type}"
+            )
+            if _is_lazy_repo_diff_path(entry.left_path, entry.right_path):
+                summary["changed_files"] += 1
+                if entry.change_type == "add":
+                    summary["added_files"] += 1
+                elif entry.change_type == "delete":
+                    summary["removed_files"] += 1
+                else:
+                    summary["updated_files"] += 1
+                _perf_log(
+                    "repo-file-lazy"
+                    f" name={entry.display_name!r}"
+                    f" change={entry.change_type}"
+                )
+                yield RepoDiffProgress(
+                    entry=self.build_lazy_repo_entry(
+                        left_path=entry.left_path,
+                        right_path=entry.right_path,
+                        left_label=normalized_left,
+                        right_label=normalized_right,
+                        display_name=entry.display_name,
+                        change_type=entry.change_type,
+                    ),
+                    summary=dict(summary),
+                )
+                continue
+
             try:
                 file_diff = self.build_git_diff_paths(
                     left_path=entry.left_path,
@@ -1216,6 +1448,12 @@ class TextDiffService:
                 )
             except TextDiffError as exc:
                 summary["skipped_files"] += 1
+                _perf_log(
+                    "repo-file-skip"
+                    f" name={entry.display_name!r}"
+                    f" change={entry.change_type}"
+                    f" reason={str(exc)!r}"
+                )
                 yield RepoDiffProgress(
                     entry={
                         "display_name": entry.display_name,
@@ -1246,6 +1484,13 @@ class TextDiffService:
             summary["modified_lines"] += file_diff["summary"]["modified_lines"]
             summary["added_lines"] += file_diff["summary"]["added_lines"]
             summary["removed_lines"] += file_diff["summary"]["removed_lines"]
+            _perf_log(
+                "repo-file-done"
+                f" name={entry.display_name!r}"
+                f" change={entry.change_type}"
+                f" changed_files={summary['changed_files']}"
+                f" changed_lines={summary['changed_lines']}"
+            )
             yield RepoDiffProgress(entry=file_diff, summary=dict(summary))
 
     def build_branch_diff(

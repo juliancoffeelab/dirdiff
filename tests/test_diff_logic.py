@@ -1,7 +1,11 @@
 from pathlib import Path
 import subprocess
 
-from dirdiff.diff import TextDiffService, build_loaded_diff
+from dirdiff.diff import (
+    PLAIN_RENDER_CHAR_THRESHOLD,
+    TextDiffService,
+    build_loaded_diff,
+)
 
 
 def test_counts_whitespace_only_changes_as_modified() -> None:
@@ -744,3 +748,65 @@ def test_iter_repo_diff_progress_updates_summary_incrementally(
     assert progress[1].summary["changed_files"] == 2
     assert progress[0].entry["display_name"] in {"alpha.txt", "beta.txt"}
     assert progress[1].summary["changed_lines"] >= progress[0].summary["changed_lines"]
+
+
+def test_large_diff_falls_back_to_plain_render_mode() -> None:
+    repeated_line = "value = 1234567890\n"
+    left_text = repeated_line * ((PLAIN_RENDER_CHAR_THRESHOLD // len(repeated_line)) + 10)
+    right_text = left_text.replace("1234567890", "1234567891", 1)
+
+    diff = build_loaded_diff(
+        display_name="large.py",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=left_text,
+        right_text=right_text,
+        left_path_hint="large.py",
+        right_path_hint="large.py",
+    )
+
+    assert diff["render_mode"] == "plain"
+    assert "fold_hints" not in diff
+    assert "left_syntax" not in diff["rows"][0]
+    assert "right_syntax" not in diff["rows"][0]
+    assert any(row["status"] == "fold" for row in diff["rows"])
+    changed_rows = [
+        row
+        for row in diff["rows"]
+        if row.get("status") != "fold"
+        and row.get("left_text") != row.get("right_text")
+    ]
+    assert changed_rows
+    assert "left_tokens" not in changed_rows[0]
+    assert "right_tokens" not in changed_rows[0]
+
+
+def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    notebook = tmp_path / "demo.ipynb"
+    notebook.write_text('{"cells": []}\n', encoding="utf-8")
+    subprocess.run(["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    notebook.write_text('{"cells": [{"cell_type": "code"}]}\n', encoding="utf-8")
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    diff = service.build_diff(left="index", right="worktree")
+
+    assert diff["files"][0]["lazy_load"] is True
+    assert diff["files"][0]["lazy_reason"] == "notebook"
+    assert diff["files"][0]["display_name"] == "demo.ipynb"

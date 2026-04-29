@@ -42,6 +42,9 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/diff":
             self._serve_diff(parsed.query)
             return
+        if parsed.path == "/api/file-diff":
+            self._serve_file_diff(parsed.query)
+            return
         if parsed.path == "/api/diff-stream":
             self._serve_diff_stream(parsed.query)
             return
@@ -169,6 +172,50 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
             return
 
         self._write_sse("done", {"summary": initial_payload["summary"]})
+
+    def _serve_file_diff(self, query_string: str) -> None:
+        query, mode, base_branch, branch = self._parse_diff_request(query_string)
+        left_path = _first(query, "left_path")
+        right_path = _first(query, "right_path")
+        display_name = _first(query, "display_name")
+        change_type = _first(query, "change_type", "modify") or "modify"
+
+        try:
+            if mode == "branch-review" and branch and branch.strip():
+                resolved_base_branch = (
+                    base_branch or self.server.service.default_base_branch()
+                )
+                merge_base, normalized_branch = self.server.service.resolve_branch_diff_sides(
+                    base_branch=resolved_base_branch,
+                    branch=branch,
+                )
+                left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
+                payload = self.server.service.build_git_diff_paths(
+                    left_path=left_path,
+                    right_path=right_path,
+                    left=merge_base,
+                    right=normalized_branch,
+                    display_name=display_name,
+                    change_type=change_type,
+                )
+                payload["left_label"] = left_label
+                payload["right_label"] = normalized_branch
+            else:
+                left = _first(query, "left", self.server.defaults["left"])
+                right = _first(query, "right", self.server.defaults["right"])
+                payload = self.server.service.build_git_diff_paths(
+                    left_path=left_path,
+                    right_path=right_path,
+                    left=left or self.server.defaults["left"],
+                    right=right or self.server.defaults["right"],
+                    display_name=display_name,
+                    change_type=change_type,
+                )
+        except TextDiffError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        self._send_json(payload)
 
     def _build_stream_payload(
         self,

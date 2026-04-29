@@ -39,6 +39,7 @@ const REF_SECTION_LABELS = {
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
 let activeDiffStream = null;
+let currentPayload = null;
 
 function setForceParam(params, force) {
     if (force) {
@@ -485,6 +486,14 @@ function renderSideBySide(rows, leftLabel, rightLabel, startHunkIndex = 0, foldH
     let nextHunkIndex = startHunkIndex;
 
     processedRows.forEach((row, index) => {
+        if (row.status === "elided") {
+            const leftBar = makeFoldBar(row.count, row.label);
+            const rightBar = makeFoldBar(row.count, row.label);
+            leftLines.append(leftBar);
+            rightLines.append(rightBar);
+            return;
+        }
+
         if (row.status === "fold") {
             const leftBar = makeFoldBar(row.count, row.label);
             const rightBar = makeFoldBar(row.count, row.label);
@@ -589,6 +598,13 @@ function badge(text, className) {
 }
 
 function makeFileCard(payload, startHunkIndex = 0) {
+    if (payload.lazy_load) {
+        return {
+            card: makeLazyFileCard(payload),
+            nextHunkIndex: startHunkIndex,
+        };
+    }
+
     const card = document.createElement("article");
     card.className = "file-card";
 
@@ -621,6 +637,12 @@ function makeFileCard(payload, startHunkIndex = 0) {
     } else if (payload.change_type === "copy") {
         badgeNodes.push(badge("copied", "badge-neutral"));
     }
+    if (payload.render_mode === "plain") {
+        badgeNodes.push(badge("plain render", "badge-neutral"));
+    }
+    if (payload.truncated_rows) {
+        badgeNodes.push(badge(`truncated ${payload.truncated_rows}`, "badge-neutral"));
+    }
     badges.append(...badgeNodes);
 
     const header = document.createElement("div");
@@ -642,6 +664,38 @@ function makeFileCard(payload, startHunkIndex = 0) {
     };
 }
 
+function makeLazyFileCard(payload) {
+    const card = document.createElement("article");
+    card.className = "file-card";
+
+    const title = document.createElement("h2");
+    title.className = "file-title";
+    title.textContent = payload.display_name;
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "file-subtitle";
+    subtitle.textContent = "Notebook diff skipped by default. Load it explicitly if you want to inspect it here.";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Load diff";
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        button.textContent = "Loading…";
+        try {
+            const loaded = await fetchFileDiff(payload);
+            replaceLazyEntry(payload, loaded);
+        } catch (error) {
+            button.disabled = false;
+            button.textContent = "Load diff";
+            subtitle.textContent = error.message;
+        }
+    });
+
+    card.append(title, subtitle, button);
+    return card;
+}
+
 function makeErrorCard(entry) {
     const card = document.createElement("article");
     card.className = "file-card";
@@ -659,6 +713,7 @@ function makeErrorCard(entry) {
 }
 
 function renderResult(payload) {
+    currentPayload = payload;
     resetHunkCaches();
     resultPanel.replaceChildren();
 
@@ -695,6 +750,50 @@ function closeActiveDiffStream() {
     activeDiffStream = null;
 }
 
+async function fetchFileDiff(entry) {
+    const params = new URLSearchParams();
+    const state = getControlState();
+    params.set("mode", state.mode);
+    if (state.left) {
+        params.set("left", state.left);
+    }
+    if (state.right) {
+        params.set("right", state.right);
+    }
+    if (state.baseBranch) {
+        params.set("base_branch", state.baseBranch);
+    }
+    if (state.branch) {
+        params.set("branch", state.branch);
+    }
+    if (entry.left_path) {
+        params.set("left_path", entry.left_path);
+    }
+    if (entry.right_path) {
+        params.set("right_path", entry.right_path);
+    }
+    params.set("display_name", entry.display_name);
+    params.set("change_type", entry.change_type || "modify");
+
+    const response = await fetch(`/api/file-diff?${params.toString()}`);
+    const payload = await response.json();
+    if (!response.ok) {
+        throw new Error(payload.error || "Failed to load file diff.");
+    }
+    return payload;
+}
+
+function replaceLazyEntry(previousEntry, nextEntry) {
+    if (!currentPayload || currentPayload.mode !== "repo") {
+        return;
+    }
+    currentPayload.files = currentPayload.files.map((entry) => (
+        entry === previousEntry ? nextEntry : entry
+    ));
+    renderSummary(currentPayload.summary, currentPayload.mode);
+    renderResult(currentPayload);
+}
+
 function shouldStreamDiff(state) {
     return state.mode !== "refs" && typeof EventSource !== "undefined";
 }
@@ -705,11 +804,13 @@ function beginRepoStream(initialPayload) {
     renderSummary(initialPayload.summary, initialPayload.mode);
     syncSelectedHunk(null);
 
-    return {
-        payload: {
+    const payload = {
             ...initialPayload,
             files: [],
-        },
+    };
+    currentPayload = payload;
+    return {
+        payload,
         nextHunkIndex: 0,
     };
 }
@@ -717,6 +818,7 @@ function beginRepoStream(initialPayload) {
 function appendRepoStreamEntry(streamState, entry, summary) {
     streamState.payload.summary = summary;
     streamState.payload.files.push(entry);
+    currentPayload = streamState.payload;
     renderSummary(summary, streamState.payload.mode);
 
     if (entry.error) {
