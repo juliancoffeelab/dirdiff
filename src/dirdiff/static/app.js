@@ -36,10 +36,18 @@ const REF_SECTION_LABELS = {
     locals: "Local branches",
     remotes: "Remote refs",
 };
+const ROW_RENDER_BATCH_SIZE = 120;
+const EAGER_ROW_DECORATION_LIMIT = 140;
+const DECORATION_PREFETCH_MARGIN_PX = 600;
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
 let activeDiffStream = null;
+let activeRenderPass = 0;
 let currentPayload = null;
+let deferredRowDecorationObserver = null;
+const deferredRowDecorations = new WeakMap();
+const pendingRowDecorationTargets = new Set();
+let rowDecorationFlushScheduled = false;
 
 function setForceParam(params, force) {
     if (force) {
@@ -366,7 +374,127 @@ function renderSyntaxText(contentEl, text, syntaxSpans) {
     }
 }
 
-function makeDiffRow(row, side, markHunkAnchor = false, hunkIndex = null) {
+function yieldToBrowser() {
+    return new Promise((resolve) => {
+        requestAnimationFrame(() => resolve());
+    });
+}
+
+function ensureDeferredRowDecorationObserver() {
+    if (deferredRowDecorationObserver || typeof IntersectionObserver === "undefined") {
+        return deferredRowDecorationObserver;
+    }
+    deferredRowDecorationObserver = new IntersectionObserver(
+        (entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) {
+                    continue;
+                }
+                const renderDeferred = deferredRowDecorations.get(entry.target);
+                if (!renderDeferred) {
+                    continue;
+                }
+                deferredRowDecorationObserver.unobserve(entry.target);
+                pendingRowDecorationTargets.add(entry.target);
+                schedulePendingRowDecorationFlush();
+            }
+        },
+        {
+            rootMargin: `${DECORATION_PREFETCH_MARGIN_PX}px 0px`,
+        },
+    );
+    return deferredRowDecorationObserver;
+}
+
+function applyRowDecoration(codeEl, text, syntaxSpans, tokens) {
+    codeEl.replaceChildren();
+    renderSyntaxText(codeEl, text || " ", syntaxSpans);
+    if (tokens && tokens.length > 0) {
+        decorateTokenDiff(codeEl, tokens);
+    }
+}
+
+function renderRowPlainText(codeEl, text) {
+    codeEl.textContent = text || " ";
+}
+
+function queueDeferredRowDecoration(codeEl, text, syntaxSpans, tokens) {
+    renderRowPlainText(codeEl, text);
+    if ((!syntaxSpans || !syntaxSpans.length) && (!tokens || !tokens.length)) {
+        return;
+    }
+
+    const renderDeferred = () => {
+        applyRowDecoration(codeEl, text, syntaxSpans, tokens);
+    };
+
+    deferredRowDecorations.set(codeEl, renderDeferred);
+    const observer = ensureDeferredRowDecorationObserver();
+    if (observer) {
+        observer.observe(codeEl);
+        return;
+    }
+
+    window.setTimeout(() => {
+        if (deferredRowDecorations.get(codeEl) !== renderDeferred) {
+            return;
+        }
+        deferredRowDecorations.delete(codeEl);
+        renderDeferred();
+    }, 0);
+}
+
+function flushPendingRowDecorations(deadline = null) {
+    rowDecorationFlushScheduled = false;
+    let processed = 0;
+    const budgeted = deadline && typeof deadline.timeRemaining === "function";
+
+    while (pendingRowDecorationTargets.size) {
+        const nextTarget = pendingRowDecorationTargets.values().next().value;
+        pendingRowDecorationTargets.delete(nextTarget);
+        const renderDeferred = deferredRowDecorations.get(nextTarget);
+        if (!renderDeferred) {
+            continue;
+        }
+        deferredRowDecorations.delete(nextTarget);
+        renderDeferred();
+        processed += 1;
+
+        if (budgeted) {
+            if (deadline.timeRemaining() < 4 && processed >= 1) {
+                break;
+            }
+        } else if (processed >= 4) {
+            break;
+        }
+    }
+
+    if (pendingRowDecorationTargets.size) {
+        schedulePendingRowDecorationFlush();
+    }
+}
+
+function schedulePendingRowDecorationFlush() {
+    if (rowDecorationFlushScheduled) {
+        return;
+    }
+    rowDecorationFlushScheduled = true;
+    if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(flushPendingRowDecorations, { timeout: 120 });
+        return;
+    }
+    requestAnimationFrame(() => {
+        flushPendingRowDecorations();
+    });
+}
+
+function makeDiffRow(
+    row,
+    side,
+    markHunkAnchor = false,
+    hunkIndex = null,
+    { deferDecoration = false } = {},
+) {
     const rowEl = document.createElement("div");
     rowEl.className = `diff-row ${row.status}`;
     rowEl.classList.add(`side-${side}`);
@@ -413,14 +541,16 @@ function makeDiffRow(row, side, markHunkAnchor = false, hunkIndex = null) {
         && !hasNonWhitespaceTokenChanges,
     );
 
-    renderSyntaxText(codeEl, text || " ", syntaxSpans);
-    if (tokens && tokens.length > 0) {
-        if (hasWhitespaceOnlyChanges) {
-            rowEl.classList.add("whitespace-only-change");
-            rowEl.title = "Leading whitespace changed";
-            noEl.title = "Leading whitespace changed";
-        }
-        decorateTokenDiff(codeEl, tokens);
+    if (hasWhitespaceOnlyChanges) {
+        rowEl.classList.add("whitespace-only-change");
+        rowEl.title = "Leading whitespace changed";
+        noEl.title = "Leading whitespace changed";
+    }
+
+    if (deferDecoration) {
+        queueDeferredRowDecoration(codeEl, text || " ", syntaxSpans, tokens);
+    } else {
+        applyRowDecoration(codeEl, text || " ", syntaxSpans, tokens);
     }
 
     rowEl.append(noEl, codeEl);
@@ -459,7 +589,196 @@ function setInlineFoldState(signatureRow, expanded) {
     signatureRow.classList.toggle("fold-expanded", expanded);
 }
 
-function renderSideBySide(rows, leftLabel, rightLabel, startHunkIndex = 0, foldHints = []) {
+function countHunkAnchors(rows) {
+    let total = 0;
+    rows.forEach((row, index) => {
+        if (row.status === "fold" || row.status === "elided") {
+            return;
+        }
+        const previous = index > 0 ? rows[index - 1] : null;
+        if (
+            isChangedRowStatus(row.status)
+            && !isChangedRowStatus(previous?.status ?? "equal")
+        ) {
+            total += 1;
+        }
+    });
+    return total;
+}
+
+async function appendRenderedRowsInBatches(
+    processedRows,
+    leftLines,
+    rightLines,
+    scheduleRowSync,
+    startHunkIndex,
+    renderPassId,
+) {
+    let nextHunkIndex = startHunkIndex;
+    let renderIndex = 0;
+    let cursor = 0;
+    let lastLeftRow = leftLines.lastElementChild;
+    let lastRightRow = rightLines.lastElementChild;
+
+    while (cursor < processedRows.length) {
+        if (renderPassId !== activeRenderPass) {
+            return;
+        }
+
+        const leftFragment = document.createDocumentFragment();
+        const rightFragment = document.createDocumentFragment();
+        const batchEnd = Math.min(cursor + ROW_RENDER_BATCH_SIZE, processedRows.length);
+
+        for (; cursor < batchEnd; cursor += 1) {
+            const row = processedRows[cursor];
+
+            if (row.status === "elided") {
+                const leftBar = makeFoldBar(row.count, row.label);
+                const rightBar = makeFoldBar(row.count, row.label);
+                leftFragment.append(leftBar);
+                rightFragment.append(rightBar);
+                lastLeftRow = leftBar;
+                lastRightRow = rightBar;
+                continue;
+            }
+
+            if (row.status === "fold") {
+                const leftBar = makeFoldBar(row.count, row.label);
+                const rightBar = makeFoldBar(row.count, row.label);
+                const leftExpandedRows = [];
+                const rightExpandedRows = [];
+                const leftSignatureRow = lastLeftRow;
+                const rightSignatureRow = lastRightRow;
+                const leftBarAnchor = document.createComment("fold-bar-anchor");
+                const rightBarAnchor = document.createComment("fold-bar-anchor");
+                let expanded = false;
+
+                leftFragment.append(leftBar);
+                leftFragment.append(leftBarAnchor);
+                rightFragment.append(rightBar);
+                rightFragment.append(rightBarAnchor);
+                lastLeftRow = leftBar;
+                lastRightRow = rightBar;
+
+                if (!leftSignatureRow || !rightSignatureRow) {
+                    continue;
+                }
+
+                const leftNo = leftSignatureRow.querySelector(".line-no");
+                const rightNo = rightSignatureRow.querySelector(".line-no");
+                if (!leftNo || !rightNo) {
+                    continue;
+                }
+
+                const leftToggleIcon = makeInlineFoldToggle(toggleFold);
+                const rightToggleIcon = makeInlineFoldToggle(toggleFold);
+
+                leftNo.prepend(leftToggleIcon);
+                rightNo.prepend(rightToggleIcon);
+
+                leftSignatureRow.classList.add("fold-toggle-row");
+                rightSignatureRow.classList.add("fold-toggle-row");
+                leftSignatureRow.title = "Toggle fold";
+                rightSignatureRow.title = "Toggle fold";
+
+                setInlineFoldState(leftSignatureRow, false);
+                setInlineFoldState(rightSignatureRow, false);
+
+                function toggleFold() {
+                    expanded = !expanded;
+                    if (expanded) {
+                        row.foldedRows.forEach((foldedRow) => {
+                            const leftNode = makeDiffRow(
+                                foldedRow,
+                                "left",
+                                false,
+                                null,
+                                { deferDecoration: false },
+                            );
+                            const rightNode = makeDiffRow(
+                                foldedRow,
+                                "right",
+                                false,
+                                null,
+                                { deferDecoration: false },
+                            );
+                            leftExpandedRows.push(leftNode);
+                            rightExpandedRows.push(rightNode);
+                            leftLines.insertBefore(leftNode, leftBarAnchor);
+                            rightLines.insertBefore(rightNode, rightBarAnchor);
+                        });
+                        leftBar.remove();
+                        rightBar.remove();
+                        setInlineFoldState(leftSignatureRow, true);
+                        setInlineFoldState(rightSignatureRow, true);
+                        queueMicrotask(scheduleRowSync);
+                        return;
+                    }
+
+                    leftExpandedRows.splice(0).forEach((node) => node.remove());
+                    rightExpandedRows.splice(0).forEach((node) => node.remove());
+                    leftLines.insertBefore(leftBar, leftBarAnchor);
+                    rightLines.insertBefore(rightBar, rightBarAnchor);
+                    setInlineFoldState(leftSignatureRow, false);
+                    setInlineFoldState(rightSignatureRow, false);
+                    scheduleRowSync();
+                }
+
+                leftBar.addEventListener("click", toggleFold);
+                rightBar.addEventListener("click", toggleFold);
+                leftSignatureRow.addEventListener("click", toggleFold);
+                rightSignatureRow.addEventListener("click", toggleFold);
+                continue;
+            }
+
+            const previous = cursor > 0 ? processedRows[cursor - 1] : null;
+            const markHunkAnchor =
+                isChangedRowStatus(row.status)
+                && !isChangedRowStatus(previous?.status ?? "equal");
+            const anchorIndex = markHunkAnchor ? nextHunkIndex++ : null;
+            const deferDecoration =
+                row.status === "equal" && renderIndex >= EAGER_ROW_DECORATION_LIMIT;
+            const leftNode = makeDiffRow(
+                row,
+                "left",
+                markHunkAnchor,
+                anchorIndex,
+                { deferDecoration },
+            );
+            const rightNode = makeDiffRow(
+                row,
+                "right",
+                false,
+                anchorIndex,
+                { deferDecoration },
+            );
+
+            leftFragment.append(leftNode);
+            rightFragment.append(rightNode);
+            lastLeftRow = leftNode;
+            lastRightRow = rightNode;
+            renderIndex += 1;
+        }
+
+        leftLines.append(leftFragment);
+        rightLines.append(rightFragment);
+
+        if (cursor < processedRows.length) {
+            await yieldToBrowser();
+        }
+    }
+
+    queueMicrotask(scheduleRowSync);
+}
+
+function renderSideBySide(
+    rows,
+    leftLabel,
+    rightLabel,
+    startHunkIndex = 0,
+    foldHints = [],
+    renderPassId = activeRenderPass,
+) {
     const processedRows = foldApi.addFoldRows ? foldApi.addFoldRows(rows, foldHints) : rows;
     const wrapper = document.createElement("div");
     wrapper.className = "diff-grid";
@@ -477,107 +796,19 @@ function renderSideBySide(rows, leftLabel, rightLabel, startHunkIndex = 0, foldH
     rightLines.className = "diff-lines";
 
     const scheduleRowSync = makeScheduledRowSync(leftLines, rightLines);
-    let nextHunkIndex = startHunkIndex;
-
-    processedRows.forEach((row, index) => {
-        if (row.status === "elided") {
-            const leftBar = makeFoldBar(row.count, row.label);
-            const rightBar = makeFoldBar(row.count, row.label);
-            leftLines.append(leftBar);
-            rightLines.append(rightBar);
-            return;
-        }
-
-        if (row.status === "fold") {
-            const leftBar = makeFoldBar(row.count, row.label);
-            const rightBar = makeFoldBar(row.count, row.label);
-            const leftExpandedRows = [];
-            const rightExpandedRows = [];
-            const leftSignatureRow = leftLines.lastElementChild;
-            const rightSignatureRow = rightLines.lastElementChild;
-            const leftBarAnchor = document.createComment("fold-bar-anchor");
-            const rightBarAnchor = document.createComment("fold-bar-anchor");
-            let expanded = false;
-
-            leftLines.append(leftBar);
-            leftLines.append(leftBarAnchor);
-            rightLines.append(rightBar);
-            rightLines.append(rightBarAnchor);
-
-            if (!leftSignatureRow || !rightSignatureRow) {
-                return;
-            }
-
-            const leftNo = leftSignatureRow.querySelector(".line-no");
-            const rightNo = rightSignatureRow.querySelector(".line-no");
-            if (!leftNo || !rightNo) {
-                return;
-            }
-
-            const leftToggleIcon = makeInlineFoldToggle(toggleFold);
-            const rightToggleIcon = makeInlineFoldToggle(toggleFold);
-
-            leftNo.prepend(leftToggleIcon);
-            rightNo.prepend(rightToggleIcon);
-
-            leftSignatureRow.classList.add("fold-toggle-row");
-            rightSignatureRow.classList.add("fold-toggle-row");
-            leftSignatureRow.title = "Toggle fold";
-            rightSignatureRow.title = "Toggle fold";
-
-            setInlineFoldState(leftSignatureRow, false);
-            setInlineFoldState(rightSignatureRow, false);
-
-            function toggleFold() {
-                expanded = !expanded;
-                if (expanded) {
-                    row.foldedRows.forEach((foldedRow) => {
-                        const leftNode = makeDiffRow(foldedRow, "left");
-                        const rightNode = makeDiffRow(foldedRow, "right");
-                        leftExpandedRows.push(leftNode);
-                        rightExpandedRows.push(rightNode);
-                        leftLines.insertBefore(leftNode, leftBarAnchor);
-                        rightLines.insertBefore(rightNode, rightBarAnchor);
-                    });
-                    leftBar.remove();
-                    rightBar.remove();
-                    setInlineFoldState(leftSignatureRow, true);
-                    setInlineFoldState(rightSignatureRow, true);
-                    queueMicrotask(scheduleRowSync);
-                    return;
-                }
-
-                leftExpandedRows.splice(0).forEach((node) => node.remove());
-                rightExpandedRows.splice(0).forEach((node) => node.remove());
-                leftLines.insertBefore(leftBar, leftBarAnchor);
-                rightLines.insertBefore(rightBar, rightBarAnchor);
-                setInlineFoldState(leftSignatureRow, false);
-                setInlineFoldState(rightSignatureRow, false);
-                scheduleRowSync();
-            }
-
-            leftBar.addEventListener("click", toggleFold);
-            rightBar.addEventListener("click", toggleFold);
-            leftSignatureRow.addEventListener("click", toggleFold);
-            rightSignatureRow.addEventListener("click", toggleFold);
-            return;
-        }
-
-        const previous = index > 0 ? processedRows[index - 1] : null;
-        const markHunkAnchor =
-            isChangedRowStatus(row.status)
-            && !isChangedRowStatus(previous?.status ?? "equal");
-        const anchorIndex = markHunkAnchor ? nextHunkIndex++ : null;
-
-        leftLines.append(makeDiffRow(row, "left", markHunkAnchor, anchorIndex));
-        rightLines.append(makeDiffRow(row, "right", false, anchorIndex));
-    });
-
-    queueMicrotask(scheduleRowSync);
+    const nextHunkIndex = startHunkIndex + countHunkAnchors(processedRows);
 
     leftPane.append(leftLines);
     rightPane.append(rightLines);
     wrapper.append(leftPane, rightPane);
+    void appendRenderedRowsInBatches(
+        processedRows,
+        leftLines,
+        rightLines,
+        scheduleRowSync,
+        startHunkIndex,
+        renderPassId,
+    );
     return {
         wrapper,
         nextHunkIndex,
@@ -591,7 +822,7 @@ function badge(text, className) {
     return node;
 }
 
-function makeFileCard(payload, startHunkIndex = 0) {
+function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPass) {
     if (payload.lazy_load) {
         return {
             card: makeLazyFileCard(payload),
@@ -649,6 +880,7 @@ function makeFileCard(payload, startHunkIndex = 0) {
         payload.right_label,
         startHunkIndex,
         payload.fold_hints || [],
+        renderPassId,
     );
     card.append(wrapper);
 
@@ -710,6 +942,7 @@ function renderResult(payload) {
     currentPayload = payload;
     resetHunkCaches();
     resultPanel.replaceChildren();
+    const renderPassId = ++activeRenderPass;
 
     if (payload.mode === "repo") {
         if (!payload.files.length) {
@@ -726,14 +959,14 @@ function renderResult(payload) {
                 resultPanel.append(makeErrorCard(entry));
                 return;
             }
-            const result = makeFileCard(entry, nextHunkIndex);
+            const result = makeFileCard(entry, nextHunkIndex, renderPassId);
             nextHunkIndex = result.nextHunkIndex;
             resultPanel.append(result.card);
         });
         return;
     }
 
-    resultPanel.append(makeFileCard(payload).card);
+    resultPanel.append(makeFileCard(payload, 0, renderPassId).card);
 }
 
 function closeActiveDiffStream() {
@@ -793,6 +1026,7 @@ function shouldStreamDiff(state) {
 }
 
 function beginRepoStream(initialPayload) {
+    const renderPassId = ++activeRenderPass;
     resetHunkCaches();
     resultPanel.replaceChildren();
     renderSummary(initialPayload.summary, initialPayload.mode);
@@ -806,6 +1040,7 @@ function beginRepoStream(initialPayload) {
     return {
         payload,
         nextHunkIndex: 0,
+        renderPassId,
     };
 }
 
@@ -820,7 +1055,7 @@ function appendRepoStreamEntry(streamState, entry, summary) {
         return;
     }
 
-    const result = makeFileCard(entry, streamState.nextHunkIndex);
+    const result = makeFileCard(entry, streamState.nextHunkIndex, streamState.renderPassId);
     streamState.nextHunkIndex = result.nextHunkIndex;
     resultPanel.append(result.card);
 }
