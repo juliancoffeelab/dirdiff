@@ -396,15 +396,10 @@ function makeDiffRow(row, side, markHunkAnchor = false, hunkIndex = null) {
 
     const noEl = document.createElement("div");
     noEl.className = "line-no";
-    const noValue = document.createElement("span");
-    noValue.className = "line-no-value";
-    noValue.textContent = (side === "left" ? row.left_no : row.right_no) ?? "";
-    noEl.append(noValue);
+    noEl.textContent = (side === "left" ? row.left_no : row.right_no) ?? "";
 
     const codeEl = document.createElement("code");
     codeEl.className = "line-code";
-    const contentEl = document.createElement("span");
-    contentEl.className = "line-code-content";
 
     const tokens = side === "left" ? row.left_tokens : row.right_tokens;
     const text = side === "left" ? row.left_text : row.right_text;
@@ -418,17 +413,16 @@ function makeDiffRow(row, side, markHunkAnchor = false, hunkIndex = null) {
         && !hasNonWhitespaceTokenChanges,
     );
 
-    renderSyntaxText(contentEl, text || " ", syntaxSpans);
+    renderSyntaxText(codeEl, text || " ", syntaxSpans);
     if (tokens && tokens.length > 0) {
         if (hasWhitespaceOnlyChanges) {
             rowEl.classList.add("whitespace-only-change");
             rowEl.title = "Leading whitespace changed";
             noEl.title = "Leading whitespace changed";
         }
-        decorateTokenDiff(contentEl, tokens);
+        decorateTokenDiff(codeEl, tokens);
     }
 
-    codeEl.append(contentEl);
     rowEl.append(noEl, codeEl);
     return rowEl;
 }
