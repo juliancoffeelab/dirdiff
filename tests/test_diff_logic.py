@@ -350,6 +350,85 @@ def test_javascript_classes_fold_unchanged_methods_only() -> None:
     ]
 
 
+def test_css_unchanged_top_level_rule_folds_declarations() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.css",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=(
+            ".card {\n"
+            "  color: red;\n"
+            "  background: blue;\n"
+            "}\n\n"
+            ":root {\n"
+            "  color: black;\n"
+            "}\n"
+        ),
+        right_text=(
+            ".card {\n"
+            "  color: red;\n"
+            "  background: blue;\n"
+            "}\n\n"
+            ":root {\n"
+            "  color: white;\n"
+            "}\n"
+        ),
+        left_path_hint="demo.css",
+        right_path_hint="demo.css",
+    )
+
+    assert diff["fold_hints"] == [
+        {
+            "start_row": 1,
+            "end_row": 4,
+            "label": ".card {",
+        }
+    ]
+
+
+def test_changed_css_media_rule_still_folds_unchanged_nested_rule() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.css",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=(
+            "@media screen {\n"
+            "  .card {\n"
+            "    color: red;\n"
+            "    background: blue;\n"
+            "  }\n"
+            "}\n"
+        ),
+        right_text=(
+            "@media screen {\n"
+            "  .card {\n"
+            "    color: red;\n"
+            "    background: blue;\n"
+            "  }\n"
+            "  .badge {\n"
+            "    color: white;\n"
+            "  }\n"
+            "}\n"
+        ),
+        left_path_hint="demo.css",
+        right_path_hint="demo.css",
+    )
+
+    assert diff["fold_hints"] == [
+        {
+            "start_row": 2,
+            "end_row": 5,
+            "label": ".card {",
+        }
+    ]
+
+
 def test_rust_impl_blocks_fold_unchanged_methods_only() -> None:
     diff = build_loaded_diff(
         display_name="demo.rs",

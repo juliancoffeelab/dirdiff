@@ -116,6 +116,17 @@ FOLD_LANGUAGE_SPECS: tuple[FoldLanguageSpec, ...] = (
         ),
     ),
     FoldLanguageSpec(
+        module_name="tree_sitter_css",
+        query_path="queries/folds/css.scm",
+        suffixes=(".css",),
+        rules=(
+            FoldRule("container", "next_line", 2),
+            FoldRule("container", "next_line", 2),
+            FoldRule("container", "next_line", 2),
+            FoldRule("container", "next_line", 2),
+        ),
+    ),
+    FoldLanguageSpec(
         module_name="tree_sitter_json",
         query_path="queries/folds/json.scm",
         suffixes=(".json",),
