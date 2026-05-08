@@ -13,6 +13,7 @@ const summaryGrid = document.getElementById("summaryGrid");
 const resultPanel = document.getElementById("resultPanel");
 const prevHunkBtn = document.getElementById("prevHunkBtn");
 const nextHunkBtn = document.getElementById("nextHunkBtn");
+const DEBUG_SCROLL_ENABLED = new URLSearchParams(window.location.search).get("debug_scroll") === "1";
 
 const rowSyncApi = window.fileDiffRowSync || {};
 const foldApi = window.fileDiffFolds || {};
@@ -36,6 +37,24 @@ const REF_SECTION_LABELS = {
     locals: "Local branches",
     remotes: "Remote refs",
 };
+const hunkNavState = {
+    activeIndex: null,
+    signature: "",
+    lastNavAt: 0,
+};
+const hunkHoldState = {
+    button: null,
+    direction: null,
+    startAt: 0,
+    rafId: 0,
+    emittedRepeats: 0,
+};
+const suppressedHunkClick = {
+    button: null,
+    until: 0,
+};
+const HUNK_HOLD_DELAY_MS = 320;
+const HUNK_HOLD_SUPPRESS_CLICK_MS = 420;
 const ROW_RENDER_BATCH_SIZE = 120;
 const EAGER_ROW_DECORATION_LIMIT = 140;
 const DECORATION_PREFETCH_MARGIN_PX = 600;
@@ -44,10 +63,107 @@ let activeLoadToken = 0;
 let activeDiffStream = null;
 let activeRenderPass = 0;
 let currentPayload = null;
+let debugScrollLog = [];
+let debugScrollPanel = null;
+let debugScrollBody = null;
+let lastScrollAt = 0;
 let deferredRowDecorationObserver = null;
 const deferredRowDecorations = new WeakMap();
 const pendingRowDecorationTargets = new Set();
 let rowDecorationFlushScheduled = false;
+
+function copyDebugText(text) {
+    if (navigator.clipboard?.writeText) {
+        return navigator.clipboard.writeText(text);
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+    return Promise.resolve();
+}
+
+function formatDebugScrollLogEntry(entry) {
+    return `${entry.t}ms [${entry.tag}] ${entry.message}`;
+}
+
+function updateDebugScrollPanel() {
+    if (!debugScrollBody) {
+        return;
+    }
+    debugScrollBody.textContent = debugScrollLog
+        .map(formatDebugScrollLogEntry)
+        .join("\n");
+}
+
+function appendDebugScrollLog(tag, message) {
+    if (!DEBUG_SCROLL_ENABLED) {
+        return;
+    }
+    const entry = {
+        t: Math.round(performance.now()),
+        tag,
+        message,
+    };
+    debugScrollLog.push(entry);
+    if (debugScrollLog.length > 250) {
+        debugScrollLog = debugScrollLog.slice(-250);
+    }
+    console.log(`[scroll-debug][${tag}] ${message}`);
+    updateDebugScrollPanel();
+}
+
+function mountDebugScrollPanel() {
+    if (!DEBUG_SCROLL_ENABLED || debugScrollPanel) {
+        return;
+    }
+    debugScrollPanel = document.createElement("aside");
+    debugScrollPanel.className = "scroll-debug-panel";
+
+    const header = document.createElement("div");
+    header.className = "scroll-debug-header";
+
+    const title = document.createElement("strong");
+    title.textContent = "Scroll debug";
+
+    const actions = document.createElement("div");
+    actions.className = "scroll-debug-actions";
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "scroll-debug-copy";
+    copyButton.textContent = "Copy debug log";
+    copyButton.addEventListener("click", async () => {
+        const text = debugScrollLog.map(formatDebugScrollLogEntry).join("\n");
+        await copyDebugText(text);
+        appendDebugScrollLog("debug", "Copied debug log");
+    });
+
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "scroll-debug-clear";
+    clearButton.textContent = "Clear";
+    clearButton.addEventListener("click", () => {
+        debugScrollLog = [];
+        updateDebugScrollPanel();
+        appendDebugScrollLog("debug", "Cleared log");
+    });
+
+    actions.append(copyButton, clearButton);
+    header.append(title, actions);
+
+    debugScrollBody = document.createElement("pre");
+    debugScrollBody.className = "scroll-debug-log";
+
+    debugScrollPanel.append(header, debugScrollBody);
+    document.body.append(debugScrollPanel);
+    appendDebugScrollLog("debug", `Mounted panel at ${window.location.search || "?"}`);
+}
 
 function setForceParam(params, force) {
     if (force) {
@@ -80,9 +196,19 @@ function makeScheduledRowSync(leftLines, rightLines) {
     const runSync = () => {
         frameId = 0;
         if (!document.body.contains(leftLines) || !document.body.contains(rightLines)) {
+            appendDebugScrollLog("rowSync", "Skipped run for detached diff panes");
             unregister();
             return;
         }
+        const msSinceScroll = performance.now() - lastScrollAt;
+        if (msSinceScroll < 140) {
+            appendDebugScrollLog("rowSync", `Deferred sync during active scroll (${Math.round(msSinceScroll)}ms)`);
+            frameId = requestAnimationFrame(runSync);
+            return;
+        }
+        const leftRows = rowSyncApi.collectDirectDiffRows?.(leftLines).length ?? 0;
+        const rightRows = rowSyncApi.collectDirectDiffRows?.(rightLines).length ?? 0;
+        appendDebugScrollLog("rowSync", `Running sync for ${leftRows}/${rightRows} rows at scrollY=${Math.round(window.scrollY)}`);
         rowSyncApi.syncDiffRowHeights?.(leftLines, rightLines);
     };
 
@@ -92,6 +218,7 @@ function makeScheduledRowSync(leftLines, rightLines) {
         if (frameId) {
             cancelAnimationFrame(frameId);
         }
+        appendDebugScrollLog("rowSync", `Scheduled sync at scrollY=${Math.round(window.scrollY)}`);
         frameId = requestAnimationFrame(runSync);
     };
 }
@@ -179,6 +306,29 @@ function renderSummary(summary, mode) {
 function setStatus(message, isError = false) {
     statusText.textContent = message;
     statusText.className = isError ? "status error-text" : "status";
+}
+
+function setHunkHoldVisual(button, progress, isRepeating) {
+    if (!button) return;
+    button.style.setProperty("--hold-progress", String(progress));
+    button.classList.toggle("is-hold-tracking", progress > 0);
+    button.classList.toggle("is-hold-repeating", isRepeating);
+}
+
+function clearHunkHoldVisual(button) {
+    if (!button) return;
+    button.style.removeProperty("--hold-progress");
+    button.classList.remove("is-hold-tracking", "is-hold-repeating");
+}
+
+function markHunkClickSuppressed(button) {
+    if (!button) return;
+    button.dataset.suppressHoldClick = "true";
+}
+
+function clearSuppressedHunkClick(button) {
+    if (!button) return;
+    delete button.dataset.suppressHoldClick;
 }
 
 function wrapChangedRange(root, start, end, className, title = "") {
@@ -801,7 +951,7 @@ function renderSideBySide(
     leftPane.append(leftLines);
     rightPane.append(rightLines);
     wrapper.append(leftPane, rightPane);
-    void appendRenderedRowsInBatches(
+    const renderPromise = appendRenderedRowsInBatches(
         processedRows,
         leftLines,
         rightLines,
@@ -812,6 +962,7 @@ function renderSideBySide(
     return {
         wrapper,
         nextHunkIndex,
+        renderPromise,
     };
 }
 
@@ -827,6 +978,7 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
         return {
             card: makeLazyFileCard(payload),
             nextHunkIndex: startHunkIndex,
+            renderPromise: Promise.resolve(),
         };
     }
 
@@ -874,7 +1026,7 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
     header.className = "file-card-header";
     header.append(titleWrap, badges);
     card.append(header);
-    const { wrapper, nextHunkIndex } = renderSideBySide(
+    const { wrapper, nextHunkIndex, renderPromise } = renderSideBySide(
         payload.rows,
         payload.left_label,
         payload.right_label,
@@ -887,6 +1039,7 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
     return {
         card,
         nextHunkIndex,
+        renderPromise,
     };
 }
 
@@ -1072,24 +1225,22 @@ function resetHunkCaches() {
     hunkAnchorRows = [];
     hunkRowsByIndex.clear();
     selectedHunkIndex = null;
+    hunkNavState.activeIndex = null;
+    hunkNavState.signature = "";
+    hunkNavState.lastNavAt = 0;
 }
 
 function getVisibleHunkRows() {
-    return hunkAnchorRows.filter(isVisibleHunkAnchor);
+    let rows = hunkAnchorRows.filter(isVisibleHunkAnchor);
+    if (!rows.length) {
+        rows = Array.from(document.querySelectorAll(".hunk-anchor"))
+            .filter(isVisibleHunkAnchor);
+    }
+    return rows;
 }
 
-function readHunkNavSnapshot() {
-    const positions = getVisibleHunkRows()
-        .map((row) => row.getBoundingClientRect().top + window.scrollY);
-
-    return {
-        positions,
-        scrollY: window.scrollY,
-        maxScrollTop: Math.max(
-            document.documentElement.scrollHeight - window.innerHeight,
-            0,
-        ),
-    };
+function positionsSignature(positions) {
+    return positions.join("|");
 }
 
 function setRowsSelected(rows, isActive) {
@@ -1115,19 +1266,236 @@ function syncSelectedHunk(index) {
     selectedHunkIndex = nextIndex;
 }
 
-const hunkNavController = window.fileDiffNav.createHunkNavigationController({
-    readSnapshot: readHunkNavSnapshot,
-    scrollTo(top, behavior) {
-        window.scrollTo({
-            top,
-            behavior,
+function shouldUseActiveHunkIndex(positions, viewportCenter) {
+    if (!Number.isInteger(hunkNavState.activeIndex)) {
+        return false;
+    }
+    if (hunkNavState.activeIndex < 0 || hunkNavState.activeIndex >= positions.length) {
+        return false;
+    }
+    if (hunkNavState.signature !== positionsSignature(positions)) {
+        return false;
+    }
+    if (Date.now() - hunkNavState.lastNavAt < 900) {
+        return true;
+    }
+    const activePosition = positions[hunkNavState.activeIndex];
+    return Math.abs(activePosition - viewportCenter) <= 24;
+}
+
+function stepHunkIndexWithoutWrap(currentIndex, direction, length) {
+    if (!Number.isInteger(currentIndex) || length <= 0) {
+        return null;
+    }
+    if (direction === "next") {
+        return currentIndex + 1 < length ? currentIndex + 1 : null;
+    }
+    return currentIndex - 1 >= 0 ? currentIndex - 1 : null;
+}
+
+function pickTargetIndexWithoutWrap(positions, viewportCenter, direction) {
+    if (!positions.length) {
+        return null;
+    }
+
+    const firstPosition = positions[0];
+    const lastPosition = positions[positions.length - 1];
+    if (viewportCenter < firstPosition) {
+        return direction === "next" ? 0 : null;
+    }
+    if (viewportCenter > lastPosition) {
+        return direction === "prev" ? positions.length - 1 : null;
+    }
+
+    const nearestIndex = window.fileDiffNav.findNearestIndex(
+        positions,
+        viewportCenter,
+    );
+    return stepHunkIndexWithoutWrap(nearestIndex, direction, positions.length);
+}
+
+function navigateHunk(direction, { wrap = true } = {}) {
+    const rows = getVisibleHunkRows();
+    if (!rows.length) {
+        return false;
+    }
+
+    const positions = window.fileDiffNav.uniqueSortedPositions(
+        rows.map((row) => row.getBoundingClientRect().top + window.scrollY),
+    );
+    if (!positions.length) {
+        return false;
+    }
+
+    const viewportCenter = window.scrollY + window.innerHeight / 2;
+    const targetIndex = shouldUseActiveHunkIndex(positions, viewportCenter)
+        ? (
+            wrap
+                ? window.fileDiffNav.stepHunkIndex(
+                    hunkNavState.activeIndex,
+                    direction,
+                    positions.length,
+                )
+                : stepHunkIndexWithoutWrap(
+                    hunkNavState.activeIndex,
+                    direction,
+                    positions.length,
+                )
+        )
+        : (
+            wrap
+                ? window.fileDiffNav.pickTargetIndex(
+                    positions,
+                    viewportCenter,
+                    direction,
+                )
+                : pickTargetIndexWithoutWrap(
+                    positions,
+                    viewportCenter,
+                    direction,
+                )
+        );
+    if (targetIndex === null) {
+        return false;
+    }
+
+    const targetPosition = positions[targetIndex];
+    hunkNavState.activeIndex = targetIndex;
+    hunkNavState.signature = positionsSignature(positions);
+    hunkNavState.lastNavAt = Date.now();
+    syncSelectedHunk(targetIndex);
+
+    const targetScrollTop = Math.max(
+        Math.round(targetPosition - window.innerHeight / 2),
+        0,
+    );
+    appendDebugScrollLog("hunkNav", `active=${targetIndex} target=${targetScrollTop}`);
+    appendDebugScrollLog("scrollTo", `window.scrollTo top=${targetScrollTop} behavior=smooth from=${Math.round(window.scrollY)}`);
+    window.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+    return true;
+}
+
+function stopHunkHold(button = hunkHoldState.button, { suppressClick = false } = {}) {
+    if (hunkHoldState.rafId) {
+        cancelAnimationFrame(hunkHoldState.rafId);
+    }
+    hunkHoldState.rafId = 0;
+
+    if (button && suppressClick) {
+        suppressedHunkClick.button = button;
+        suppressedHunkClick.until = Date.now() + HUNK_HOLD_SUPPRESS_CLICK_MS;
+    }
+
+    clearHunkHoldVisual(hunkHoldState.button);
+    hunkHoldState.button = null;
+    hunkHoldState.direction = null;
+    hunkHoldState.startAt = 0;
+    hunkHoldState.emittedRepeats = 0;
+}
+
+function suppressNextHunkClick(button) {
+    if (!button) return;
+    markHunkClickSuppressed(button);
+    suppressedHunkClick.button = button;
+    suppressedHunkClick.until = Date.now() + HUNK_HOLD_SUPPRESS_CLICK_MS;
+}
+
+function tickHunkHold(now) {
+    if (!hunkHoldState.button || !hunkHoldState.direction) {
+        return;
+    }
+
+    const elapsed = now - hunkHoldState.startAt;
+    const armingProgress = Math.max(
+        0,
+        Math.min(elapsed / HUNK_HOLD_DELAY_MS, 1),
+    );
+    const repeatElapsedMs = Math.max(0, elapsed - HUNK_HOLD_DELAY_MS);
+    const repeatElapsedSeconds = repeatElapsedMs / 1000;
+    const targetRepeats = Math.max(
+        0,
+        Math.floor(
+            1.3 * repeatElapsedSeconds
+                + 1.8 * repeatElapsedSeconds * repeatElapsedSeconds,
+        ),
+    );
+
+    while (hunkHoldState.emittedRepeats < targetRepeats) {
+        const moved = navigateHunk(hunkHoldState.direction, { wrap: false });
+        if (!moved) {
+            suppressNextHunkClick(hunkHoldState.button);
+            stopHunkHold(hunkHoldState.button, {
+                suppressClick: false,
+            });
+            return;
+        }
+        hunkHoldState.emittedRepeats += 1;
+    }
+
+    setHunkHoldVisual(
+        hunkHoldState.button,
+        armingProgress,
+        hunkHoldState.emittedRepeats > 0,
+    );
+    hunkHoldState.rafId = requestAnimationFrame(tickHunkHold);
+}
+
+function startHunkHold(button, direction) {
+    if (hunkHoldState.button === button && hunkHoldState.direction === direction) {
+        return;
+    }
+
+    stopHunkHold();
+    hunkHoldState.button = button;
+    hunkHoldState.direction = direction;
+    hunkHoldState.startAt = performance.now();
+    setHunkHoldVisual(button, 0, false);
+    hunkHoldState.rafId = requestAnimationFrame(tickHunkHold);
+}
+
+function bindHunkButton(button, direction) {
+    const stopHold = () => {
+        stopHunkHold(button, {
+            suppressClick: hunkHoldState.emittedRepeats > 0,
         });
-    },
-    setTimeout: window.setTimeout.bind(window),
-    clearTimeout: window.clearTimeout.bind(window),
-}, {
-    onActiveIndexChange: syncSelectedHunk,
-});
+    };
+
+    button.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        startHunkHold(button, direction);
+    });
+    button.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        startHunkHold(button, direction);
+    });
+
+    button.addEventListener("pointerup", stopHold);
+    button.addEventListener("mouseup", stopHold);
+    button.addEventListener("pointerleave", stopHold);
+    button.addEventListener("mouseleave", stopHold);
+    button.addEventListener("pointercancel", stopHold);
+
+    button.addEventListener("click", (event) => {
+        if (
+            button.dataset.suppressHoldClick === "true"
+            || (
+                suppressedHunkClick.button === button
+                && suppressedHunkClick.until > Date.now()
+            )
+        ) {
+            clearSuppressedHunkClick(button);
+            suppressedHunkClick.button = null;
+            suppressedHunkClick.until = 0;
+            event.preventDefault();
+            return;
+        }
+
+        clearSuppressedHunkClick(button);
+        suppressedHunkClick.button = null;
+        suppressedHunkClick.until = 0;
+        navigateHunk(direction);
+    });
+}
 
 async function loadDiff() {
     return loadDiffWithOptions({});
@@ -1159,7 +1527,7 @@ async function loadDiffWithOptions(options = {}) {
     setForceParam(params, !!options.force);
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
-    hunkNavController.reset();
+    resetHunkCaches();
     closeActiveDiffStream();
     const loadToken = ++activeLoadToken;
 
@@ -1404,23 +1772,28 @@ function shouldIgnoreHunkNavKeyEvent(event) {
         || target.closest("input, textarea, select, [contenteditable='true']");
 }
 
-prevHunkBtn.addEventListener("click", () => hunkNavController.request("prev"));
-nextHunkBtn.addEventListener("click", () => hunkNavController.request("next"));
+window.addEventListener("blur", () => {
+    stopHunkHold();
+});
+
+bindHunkButton(prevHunkBtn, "prev");
+bindHunkButton(nextHunkBtn, "next");
 
 window.addEventListener("keydown", (event) => {
     if (shouldIgnoreHunkNavKeyEvent(event)) {
         return;
     }
     if (event.key === "n" && !event.shiftKey) {
-        hunkNavController.request("next");
+        navigateHunk("next");
     } else if (event.key === "N") {
-        hunkNavController.request("prev");
+        navigateHunk("prev");
     }
 });
 window.addEventListener(
     "scroll",
     () => {
-        hunkNavController.handleScroll();
+        lastScrollAt = performance.now();
+        appendDebugScrollLog("scroll", `window.scrollY=${Math.round(window.scrollY)}`);
     },
     { passive: true },
 );
@@ -1447,6 +1820,7 @@ if (initialMode === "refs") {
     rightRefInput.value = initialRight;
 }
 syncModeUI();
+mountDebugScrollPanel();
 attachAutocomplete(baseBranchInput, refChoices, ["locals", "remotes"]);
 attachAutocomplete(branchInput, refChoices, ["locals", "remotes"]);
 attachAutocomplete(leftRefInput, refChoices, ["builtins", "locals", "remotes"]);

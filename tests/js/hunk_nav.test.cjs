@@ -3,40 +3,42 @@ const assert = require("node:assert/strict");
 
 const nav = require("../../src/dirdiff/static/hunk_nav.js");
 
-test("normalizeSnapshot sorts, dedupes, and computes currentPosition", () => {
-    const snapshot = nav.normalizeSnapshot({
-        positions: [320, 120, 124, 540],
-        scrollY: 80,
-        maxScrollTop: 900,
-    });
+test("uniqueSortedPositions sorts and dedupes near-identical positions", () => {
+    const positions = nav.uniqueSortedPositions([320, 120, 124, 540, NaN, 541], 6);
 
-    assert.deepEqual(snapshot.positions, [120, 320, 540]);
-    assert.equal(snapshot.signature, "120|320|540");
-    assert.equal(snapshot.currentPosition, 200);
-    assert.equal(snapshot.maxScrollTop, 900);
+    assert.deepEqual(positions, [120, 320, 540]);
 });
 
-test("targetScrollTopForPosition clamps to the top and bottom of the document", () => {
-    assert.equal(nav.targetScrollTopForPosition(90, 800), 0);
-    assert.equal(nav.targetScrollTopForPosition(640, 800), 520);
-    assert.equal(nav.targetScrollTopForPosition(1200, 800), 800);
-});
-
-test("next navigation targets the first hunk below the current scroll anchor", () => {
+test("findNearestIndex picks the closest position to viewport center", () => {
     const positions = [120, 320, 540];
 
-    assert.equal(nav.pickRelativeIndex(positions, 0, "next"), 0);
-    assert.equal(nav.pickRelativeIndex(positions, 260, "next"), 1);
+    assert.equal(nav.findNearestIndex(positions, 100), 0);
+    assert.equal(nav.findNearestIndex(positions, 430), 1);
 });
 
-test("previous navigation targets the closest earlier hunk and wraps", () => {
+test("pickTargetIndex steps relative to the nearest visible hunk", () => {
     const positions = [120, 320, 540];
 
-    assert.equal(nav.pickRelativeIndex(positions, 320, "prev"), 0);
-    assert.equal(nav.pickRelativeIndex(positions, 0, "prev"), 2);
+    assert.equal(nav.pickTargetIndex(positions, 0, "next"), 0);
+    assert.equal(nav.pickTargetIndex(positions, 260, "next"), 2);
+    assert.equal(nav.pickTargetIndex(positions, 260, "prev"), 0);
+});
+
+test("pickTargetIndex wraps when viewport center is beyond the last hunk", () => {
+    const positions = [120, 320, 540];
+
+    assert.equal(nav.pickTargetIndex(positions, 800, "next"), 0);
+    assert.equal(nav.pickTargetIndex(positions, 800, "prev"), 2);
 });
 
 test("stepHunkIndex wraps in both directions", () => {
     assert.equal(nav.stepHunkIndex(0, "prev", 3), 2);
     assert.equal(nav.stepHunkIndex(2, "next", 3), 0);
+});
+
+test("pickTargetPosition returns the selected hunk position", () => {
+    const positions = [120, 320, 540];
+
+    assert.equal(nav.pickTargetPosition(positions, 260, "next"), 540);
+    assert.equal(nav.pickTargetPosition(positions, 260, "prev"), 120);
 });
