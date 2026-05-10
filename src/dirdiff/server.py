@@ -45,6 +45,9 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/file-diff":
             self._serve_file_diff(parsed.query)
             return
+        if parsed.path == "/api/notebook-section":
+            self._serve_notebook_section(parsed.query)
+            return
         if parsed.path == "/api/diff-stream":
             self._serve_diff_stream(parsed.query)
             return
@@ -210,6 +213,49 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
                     right=right or self.server.defaults["right"],
                     display_name=display_name,
                     change_type=change_type,
+                )
+        except TextDiffError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        self._send_json(payload)
+
+    def _serve_notebook_section(self, query_string: str) -> None:
+        query, mode, base_branch, branch = self._parse_diff_request(query_string)
+        section = _first(query, "section")
+        cell_key = _first(query, "cell_key")
+        left_path = _first(query, "left_path")
+        right_path = _first(query, "right_path")
+
+        try:
+            if mode == "branch-review" and branch and branch.strip():
+                resolved_base_branch = (
+                    base_branch or self.server.service.default_base_branch()
+                )
+                merge_base, normalized_branch = self.server.service.resolve_branch_diff_sides(
+                    base_branch=resolved_base_branch,
+                    branch=branch,
+                )
+                payload = self.server.service.build_notebook_section_diff(
+                    left_path=left_path,
+                    right_path=right_path,
+                    left=merge_base,
+                    right=normalized_branch,
+                    section=section or "",
+                    cell_key=cell_key,
+                )
+                payload["left_label"] = f"{resolved_base_branch.strip()}...{normalized_branch}"
+                payload["right_label"] = normalized_branch
+            else:
+                left = _first(query, "left", self.server.defaults["left"])
+                right = _first(query, "right", self.server.defaults["right"])
+                payload = self.server.service.build_notebook_section_diff(
+                    left_path=left_path,
+                    right_path=right_path,
+                    left=left or self.server.defaults["left"],
+                    right=right or self.server.defaults["right"],
+                    section=section or "",
+                    cell_key=cell_key,
                 )
         except TextDiffError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)

@@ -71,14 +71,6 @@ def _payload_size_bytes(payload: dict[str, Any]) -> int:
     return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
 
-def _is_lazy_repo_diff_path(
-    left_path: str | None,
-    right_path: str | None,
-) -> bool:
-    path = right_path or left_path or ""
-    return path.endswith(".ipynb")
-
-
 def _should_use_plain_rendering(
     rows: list[dict[str, Any]],
     left_text: str | None,
@@ -98,6 +90,35 @@ def _strip_rich_row_markup(rows: list[dict[str, Any]]) -> None:
         row.pop("right_tokens", None)
         row.pop("left_syntax", None)
         row.pop("right_syntax", None)
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+
+
+def _looks_like_notebook_path(path: str | None) -> bool:
+    return bool(path and path.endswith(".ipynb"))
+
+
+def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:
+    if text is None:
+        return None
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    cells = loaded.get("cells")
+    if not isinstance(cells, list):
+        return None
+    metadata = loaded.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    return {
+        "cells": [cell for cell in cells if isinstance(cell, dict)],
+        "metadata": metadata,
+    }
 
 
 def _collapse_equal_rows_for_large_diff(
@@ -165,6 +186,594 @@ def _truncate_large_render_rows(
         *rows[-tail_count:],
     ]
     return truncated_rows, omitted_count
+
+
+def _count_changed_rows_and_hunks(
+    left_text: str,
+    right_text: str,
+) -> dict[str, int]:
+    left_lines = left_text.splitlines()
+    right_lines = right_text.splitlines()
+
+    left_keys = [line.lstrip() for line in left_lines]
+    right_keys = [line.lstrip() for line in right_lines]
+    matcher = SequenceMatcher(a=left_keys, b=right_keys, autojunk=False)
+
+    modified_lines = 0
+    added_lines = 0
+    removed_lines = 0
+    hunk_count = 0
+    in_changed_run = False
+
+    def mark_changed(changed: bool) -> None:
+        nonlocal hunk_count, in_changed_run
+        if changed and not in_changed_run:
+            hunk_count += 1
+        in_changed_run = changed
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        left_block = left_lines[i1:i2]
+        right_block = right_lines[j1:j2]
+
+        if tag == "equal":
+            for left_line, right_line in zip(left_block, right_block):
+                changed = left_line != right_line
+                if changed:
+                    modified_lines += 1
+                mark_changed(False)
+            continue
+
+        if tag == "delete":
+            removed_lines += len(left_block)
+            for _ in left_block:
+                mark_changed(True)
+            continue
+
+        if tag == "insert":
+            added_lines += len(right_block)
+            for _ in right_block:
+                mark_changed(True)
+            continue
+
+        similar_pairs = _align_similar_lines(left_block, right_block)
+        left_cursor = 0
+        right_cursor = 0
+
+        for left_index, right_index in similar_pairs:
+            removed_slice = left_block[left_cursor:left_index]
+            added_slice = right_block[right_cursor:right_index]
+
+            if removed_slice:
+                removed_lines += len(removed_slice)
+                for _ in removed_slice:
+                    mark_changed(True)
+            if added_slice:
+                added_lines += len(added_slice)
+                for _ in added_slice:
+                    mark_changed(True)
+
+            left_line = left_block[left_index]
+            right_line = right_block[right_index]
+            if left_line.lstrip() != right_line.lstrip():
+                modified_lines += 1
+                mark_changed(True)
+            else:
+                mark_changed(False)
+
+            left_cursor = left_index + 1
+            right_cursor = right_index + 1
+
+        removed_tail = left_block[left_cursor:]
+        added_tail = right_block[right_cursor:]
+        if removed_tail:
+            removed_lines += len(removed_tail)
+            for _ in removed_tail:
+                mark_changed(True)
+        if added_tail:
+            added_lines += len(added_tail)
+            for _ in added_tail:
+                mark_changed(True)
+
+    return {
+        "changed_lines": modified_lines + added_lines + removed_lines,
+        "modified_lines": modified_lines,
+        "added_lines": added_lines,
+        "removed_lines": removed_lines,
+        "hunk_count": hunk_count,
+    }
+
+
+def _notebook_source_path(cell_type: str) -> str | None:
+    if cell_type == "code":
+        return "cell.py"
+    if cell_type == "markdown":
+        return "cell.md"
+    if cell_type == "raw":
+        return "cell.txt"
+    return None
+
+
+def _cell_source(cell: dict[str, Any] | None) -> str:
+    if cell is None:
+        return ""
+    source = cell.get("source", "")
+    if isinstance(source, list):
+        return "".join(str(part) for part in source)
+    return str(source)
+
+
+def _cell_metadata(cell: dict[str, Any] | None) -> dict[str, Any]:
+    if cell is None:
+        return {}
+    metadata = cell.get("metadata", {})
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _cell_outputs(cell: dict[str, Any] | None) -> list[Any]:
+    if cell is None or cell.get("cell_type") != "code":
+        return []
+    outputs = cell.get("outputs", [])
+    return outputs if isinstance(outputs, list) else []
+
+
+def _cell_type_name(
+    left_cell: dict[str, Any] | None,
+    right_cell: dict[str, Any] | None,
+) -> str:
+    if right_cell is not None:
+        return str(right_cell.get("cell_type", "unknown"))
+    if left_cell is not None:
+        return str(left_cell.get("cell_type", "unknown"))
+    return "unknown"
+
+
+def _usable_ids(cells: list[dict[str, Any]]) -> list[str] | None:
+    ids = [str(cell.get("id", "")).strip() for cell in cells]
+    if not ids or any(not cell_id for cell_id in ids):
+        return None
+    if len(ids) != len(set(ids)):
+        return None
+    return ids
+
+
+def _cell_identity(
+    *,
+    left_cell: dict[str, Any] | None,
+    right_cell: dict[str, Any] | None,
+    left_index: int | None,
+    right_index: int | None,
+) -> dict[str, Any]:
+    left_source = _cell_source(left_cell)
+    right_source = _cell_source(right_cell)
+    left_id = str(left_cell.get("id")) if left_cell is not None else None
+    right_id = str(right_cell.get("id")) if right_cell is not None else None
+    cell_id = right_id or left_id
+
+    cell_key = str(cell_id) if cell_id else None
+    if cell_key is None and right_index is not None:
+        cell_key = f"right-{right_index}"
+    if cell_key is None and left_index is not None:
+        cell_key = f"left-{left_index}"
+    if cell_key is None:
+        cell_key = "cell-unknown"
+
+    return {
+        "cell_type": _cell_type_name(left_cell, right_cell),
+        "cell_id": cell_id,
+        "cell_key": cell_key,
+        "left_id": left_id,
+        "right_id": right_id,
+        "left_source": left_source,
+        "right_source": right_source,
+    }
+
+
+def _pair_notebook_cells(
+    left_cells: list[dict[str, Any]],
+    right_cells: list[dict[str, Any]],
+) -> list[tuple[str, int | None, int | None]]:
+    left_ids = _usable_ids(left_cells)
+    right_ids = _usable_ids(right_cells)
+
+    if left_ids is not None and right_ids is not None:
+        pairs: list[tuple[str, int | None, int | None]] = []
+        matcher = SequenceMatcher(a=left_ids, b=right_ids, autojunk=False)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                for offset in range(i2 - i1):
+                    pairs.append(("paired", i1 + offset, j1 + offset))
+            elif tag == "replace":
+                for left_index in range(i1, i2):
+                    pairs.append(("left_only", left_index, None))
+                for right_index in range(j1, j2):
+                    pairs.append(("right_only", None, right_index))
+            elif tag == "delete":
+                for left_index in range(i1, i2):
+                    pairs.append(("left_only", left_index, None))
+            elif tag == "insert":
+                for right_index in range(j1, j2):
+                    pairs.append(("right_only", None, right_index))
+        return pairs
+
+    left_sources = [_cell_source(cell) for cell in left_cells]
+    right_sources = [_cell_source(cell) for cell in right_cells]
+    pairs = []
+    matcher = SequenceMatcher(a=left_sources, b=right_sources, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset in range(i2 - i1):
+                pairs.append(("paired", i1 + offset, j1 + offset))
+        elif tag == "replace":
+            for left_index in range(i1, i2):
+                pairs.append(("left_only", left_index, None))
+            for right_index in range(j1, j2):
+                pairs.append(("right_only", None, right_index))
+        elif tag == "delete":
+            for left_index in range(i1, i2):
+                pairs.append(("left_only", left_index, None))
+        elif tag == "insert":
+            for right_index in range(j1, j2):
+                pairs.append(("right_only", None, right_index))
+    return pairs
+
+
+def _find_notebook_cell_pair(
+    left_cells: list[dict[str, Any]],
+    right_cells: list[dict[str, Any]],
+    *,
+    cell_key: str,
+) -> tuple[str, int | None, int | None, dict[str, Any] | None, dict[str, Any] | None]:
+    for pair_kind, left_index, right_index in _pair_notebook_cells(
+        left_cells,
+        right_cells,
+    ):
+        left_cell = left_cells[left_index] if left_index is not None else None
+        right_cell = right_cells[right_index] if right_index is not None else None
+        identity = _cell_identity(
+            left_cell=left_cell,
+            right_cell=right_cell,
+            left_index=left_index,
+            right_index=right_index,
+        )
+        if str(identity["cell_key"]) == cell_key:
+            return pair_kind, left_index, right_index, left_cell, right_cell
+    raise TextDiffError(f"Unknown notebook cell: {cell_key}")
+
+
+def _build_rows_payload(
+    *,
+    left_text: str,
+    right_text: str,
+    left_path_hint: str | None = None,
+    right_path_hint: str | None = None,
+) -> dict[str, Any]:
+    rows = _line_rows(left_text, right_text)
+    plain_render = _should_use_plain_rendering(rows, left_text, right_text)
+    fold_hints: list[dict[str, object]] = []
+
+    if plain_render:
+        _strip_rich_row_markup(rows)
+    else:
+        left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
+        right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
+        fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
+
+        for row in rows:
+            left_no = row.get("left_no")
+            if (
+                isinstance(left_no, int)
+                and left_syntax_lines
+                and left_no - 1 < len(left_syntax_lines)
+                and left_syntax_lines[left_no - 1]
+            ):
+                row["left_syntax"] = left_syntax_lines[left_no - 1]
+
+            right_no = row.get("right_no")
+            if (
+                isinstance(right_no, int)
+                and right_syntax_lines
+                and right_no - 1 < len(right_syntax_lines)
+                and right_syntax_lines[right_no - 1]
+            ):
+                row["right_syntax"] = right_syntax_lines[right_no - 1]
+
+    modified_lines = sum(
+        1
+        for row in rows
+        if row["status"] == "replace"
+        or (row["status"] == "equal" and _row_has_any_change(row))
+    )
+    added_lines = sum(1 for row in rows if row["status"] == "insert")
+    removed_lines = sum(1 for row in rows if row["status"] == "delete")
+
+    payload_rows = (
+        _collapse_equal_rows_for_large_diff(rows)
+        if plain_render
+        else rows
+    )
+    truncated_rows = 0
+    if plain_render:
+        payload_rows, truncated_rows = _truncate_large_render_rows(payload_rows)
+
+    payload = {
+        "rows": payload_rows,
+        "changed_lines": modified_lines + added_lines + removed_lines,
+        "modified_lines": modified_lines,
+        "added_lines": added_lines,
+        "removed_lines": removed_lines,
+    }
+    if plain_render:
+        payload["render_mode"] = "plain"
+    if truncated_rows:
+        payload["truncated_rows"] = truncated_rows
+    if fold_hints:
+        payload["fold_hints"] = fold_hints
+    return payload
+
+
+def _build_notebook_cell_diff(
+    *,
+    left_cell: dict[str, Any] | None,
+    right_cell: dict[str, Any] | None,
+    left_index: int | None,
+    right_index: int | None,
+    pair_kind: str,
+    include_metadata_rows: bool = False,
+    include_outputs_rows: bool = False,
+) -> dict[str, Any] | None:
+    identity = _cell_identity(
+        left_cell=left_cell,
+        right_cell=right_cell,
+        left_index=left_index,
+        right_index=right_index,
+    )
+    cell_type = str(identity["cell_type"])
+    left_source = str(identity["left_source"])
+    right_source = str(identity["right_source"])
+    left_metadata = _cell_metadata(left_cell)
+    right_metadata = _cell_metadata(right_cell)
+    left_outputs = _cell_outputs(left_cell)
+    right_outputs = _cell_outputs(right_cell)
+
+    source_changed = (
+        pair_kind != "paired"
+        or left_source != right_source
+        or (left_cell or {}).get("cell_type") != (right_cell or {}).get("cell_type")
+    )
+    metadata_changed = left_metadata != right_metadata
+    outputs_changed = left_outputs != right_outputs
+
+    if not any((source_changed, metadata_changed, outputs_changed)):
+        return None
+
+    source_payload = _build_rows_payload(
+        left_text=left_source,
+        right_text=right_source,
+        left_path_hint=_notebook_source_path(cell_type),
+        right_path_hint=_notebook_source_path(cell_type),
+    )
+    metadata_stats = (
+        _count_changed_rows_and_hunks(
+            _canonical_json(left_metadata),
+            _canonical_json(right_metadata),
+        )
+        if metadata_changed
+        else None
+    )
+    outputs_stats = (
+        _count_changed_rows_and_hunks(
+            _canonical_json(left_outputs),
+            _canonical_json(right_outputs),
+        )
+        if outputs_changed
+        else None
+    )
+    metadata_payload = (
+        _build_rows_payload(
+            left_text=_canonical_json(left_metadata),
+            right_text=_canonical_json(right_metadata),
+            left_path_hint="cell-metadata.json",
+            right_path_hint="cell-metadata.json",
+        )
+        if metadata_changed and include_metadata_rows
+        else None
+    )
+    outputs_payload = (
+        _build_rows_payload(
+            left_text=_canonical_json(left_outputs),
+            right_text=_canonical_json(right_outputs),
+            left_path_hint="cell-outputs.json",
+            right_path_hint="cell-outputs.json",
+        )
+        if outputs_changed and include_outputs_rows
+        else None
+    )
+
+    payload = {
+        "kind": (
+            "removed"
+            if pair_kind == "left_only"
+            else "added"
+            if pair_kind == "right_only"
+            else "modified"
+        ),
+        "cell_type": cell_type,
+        "cell_id": identity["cell_id"],
+        "cell_key": identity["cell_key"],
+        "left_index": left_index,
+        "right_index": right_index,
+        "left_id": identity["left_id"],
+        "right_id": identity["right_id"],
+        "source_changed": source_changed,
+        "metadata_changed": metadata_changed,
+        "outputs_changed": outputs_changed,
+        "source_rows": source_payload["rows"],
+        "source_changed_lines": source_payload["changed_lines"],
+        "source_modified_lines": source_payload["modified_lines"],
+        "source_added_lines": source_payload["added_lines"],
+        "source_removed_lines": source_payload["removed_lines"],
+        "source_fold_hints": source_payload.get("fold_hints", []),
+        "metadata_rows": metadata_payload["rows"] if metadata_payload else [],
+        "outputs_rows": outputs_payload["rows"] if outputs_payload else [],
+        "metadata_changed_lines": (
+            metadata_stats["changed_lines"] if metadata_stats else 0
+        ),
+        "metadata_modified_lines": (
+            metadata_stats["modified_lines"] if metadata_stats else 0
+        ),
+        "metadata_added_lines": (
+            metadata_stats["added_lines"] if metadata_stats else 0
+        ),
+        "metadata_removed_lines": (
+            metadata_stats["removed_lines"] if metadata_stats else 0
+        ),
+        "metadata_hunk_count": (
+            metadata_stats["hunk_count"] if metadata_stats else 0
+        ),
+        "metadata_lazy": metadata_changed and not include_metadata_rows,
+        "outputs_changed_lines": (
+            outputs_stats["changed_lines"] if outputs_stats else 0
+        ),
+        "outputs_modified_lines": (
+            outputs_stats["modified_lines"] if outputs_stats else 0
+        ),
+        "outputs_added_lines": (
+            outputs_stats["added_lines"] if outputs_stats else 0
+        ),
+        "outputs_removed_lines": (
+            outputs_stats["removed_lines"] if outputs_stats else 0
+        ),
+        "outputs_hunk_count": (
+            outputs_stats["hunk_count"] if outputs_stats else 0
+        ),
+        "outputs_lazy": outputs_changed and not include_outputs_rows,
+    }
+    if "render_mode" in source_payload:
+        payload["source_render_mode"] = source_payload["render_mode"]
+    if "truncated_rows" in source_payload:
+        payload["source_truncated_rows"] = source_payload["truncated_rows"]
+    if metadata_payload and "render_mode" in metadata_payload:
+        payload["metadata_render_mode"] = metadata_payload["render_mode"]
+    if metadata_payload and "truncated_rows" in metadata_payload:
+        payload["metadata_truncated_rows"] = metadata_payload["truncated_rows"]
+    if outputs_payload and "render_mode" in outputs_payload:
+        payload["outputs_render_mode"] = outputs_payload["render_mode"]
+    if outputs_payload and "truncated_rows" in outputs_payload:
+        payload["outputs_truncated_rows"] = outputs_payload["truncated_rows"]
+    return payload
+
+
+def _build_notebook_diff_payload(
+    *,
+    display_name: str,
+    mode: str,
+    left_label: str,
+    right_label: str,
+    left_exists: bool,
+    right_exists: bool,
+    left_text: str | None,
+    right_text: str | None,
+) -> dict[str, Any] | None:
+    left_notebook = _normalize_notebook_document(left_text) if left_exists else None
+    right_notebook = _normalize_notebook_document(right_text) if right_exists else None
+
+    if left_exists and left_notebook is None:
+        return None
+    if right_exists and right_notebook is None:
+        return None
+
+    left_cells = list(left_notebook["cells"]) if left_notebook is not None else []
+    right_cells = list(right_notebook["cells"]) if right_notebook is not None else []
+
+    notebook_metadata_stats = None
+    left_metadata = left_notebook["metadata"] if left_notebook is not None else {}
+    right_metadata = right_notebook["metadata"] if right_notebook is not None else {}
+    if left_metadata != right_metadata:
+        notebook_metadata_stats = _count_changed_rows_and_hunks(
+            _canonical_json(left_metadata),
+            _canonical_json(right_metadata),
+        )
+
+    cells: list[dict[str, Any]] = []
+    changed_lines = 0
+    modified_lines = 0
+    added_lines = 0
+    removed_lines = 0
+
+    if notebook_metadata_stats is not None:
+        changed_lines += notebook_metadata_stats["changed_lines"]
+        modified_lines += notebook_metadata_stats["modified_lines"]
+        added_lines += notebook_metadata_stats["added_lines"]
+        removed_lines += notebook_metadata_stats["removed_lines"]
+
+    for pair_kind, left_index, right_index in _pair_notebook_cells(left_cells, right_cells):
+        left_cell = left_cells[left_index] if left_index is not None else None
+        right_cell = right_cells[right_index] if right_index is not None else None
+        cell_diff = _build_notebook_cell_diff(
+            left_cell=left_cell,
+            right_cell=right_cell,
+            left_index=left_index,
+            right_index=right_index,
+            pair_kind=pair_kind,
+        )
+        if cell_diff is None:
+            continue
+        cells.append(cell_diff)
+        changed_lines += (
+            cell_diff["source_changed_lines"]
+            + cell_diff["metadata_changed_lines"]
+            + cell_diff["outputs_changed_lines"]
+        )
+        modified_lines += (
+            cell_diff["source_modified_lines"]
+            + cell_diff["metadata_modified_lines"]
+            + cell_diff["outputs_modified_lines"]
+        )
+        added_lines += (
+            cell_diff["source_added_lines"]
+            + cell_diff["metadata_added_lines"]
+            + cell_diff["outputs_added_lines"]
+        )
+        removed_lines += (
+            cell_diff["source_removed_lines"]
+            + cell_diff["metadata_removed_lines"]
+            + cell_diff["outputs_removed_lines"]
+        )
+
+    payload = {
+        "display_name": display_name,
+        "mode": mode,
+        "render_kind": "notebook",
+        "left_label": left_label,
+        "right_label": right_label,
+        "summary": {
+            "changed_lines": changed_lines,
+            "modified_lines": modified_lines,
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
+            "left_exists": left_exists,
+            "right_exists": right_exists,
+            "changed_cells": len(cells),
+            "added_cells": sum(1 for cell in cells if cell["kind"] == "added"),
+            "removed_cells": sum(1 for cell in cells if cell["kind"] == "removed"),
+            "modified_cells": sum(1 for cell in cells if cell["kind"] == "modified"),
+            "notebook_metadata_changed": notebook_metadata_stats is not None,
+        },
+        "notebook_metadata_rows": [],
+        "notebook_metadata_changed_lines": (
+            notebook_metadata_stats["changed_lines"]
+            if notebook_metadata_stats is not None
+            else 0
+        ),
+        "notebook_metadata_hunk_count": (
+            notebook_metadata_stats["hunk_count"]
+            if notebook_metadata_stats is not None
+            else 0
+        ),
+        "notebook_metadata_lazy": notebook_metadata_stats is not None,
+        "cells": cells,
+    }
+    return payload
 
 
 def _append_char_level_diff(
@@ -769,67 +1378,47 @@ def build_loaded_diff(
     left_path_hint: str | None = None,
     right_path_hint: str | None = None,
 ) -> dict[str, Any]:
-    rows = _line_rows(left_text or "", right_text or "")
-    plain_render = _should_use_plain_rendering(rows, left_text, right_text)
-    fold_hints: list[dict[str, object]] = []
+    if _looks_like_notebook_path(right_path_hint) or _looks_like_notebook_path(left_path_hint):
+        notebook_payload = _build_notebook_diff_payload(
+            display_name=display_name,
+            mode=mode,
+            left_label=left_label,
+            right_label=right_label,
+            left_exists=left_exists,
+            right_exists=right_exists,
+            left_text=left_text,
+            right_text=right_text,
+        )
+        if notebook_payload is not None:
+            return notebook_payload
 
-    if plain_render:
-        _strip_rich_row_markup(rows)
-    else:
-        left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
-        right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
-        fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
-
-        for row in rows:
-            left_no = row.get("left_no")
-            if isinstance(left_no, int) and left_syntax_lines and left_no - 1 < len(left_syntax_lines):
-                if left_syntax_lines[left_no - 1]:
-                    row["left_syntax"] = left_syntax_lines[left_no - 1]
-
-            right_no = row.get("right_no")
-            if isinstance(right_no, int) and right_syntax_lines and right_no - 1 < len(right_syntax_lines):
-                if right_syntax_lines[right_no - 1]:
-                    row["right_syntax"] = right_syntax_lines[right_no - 1]
-
-    modified_lines = sum(
-        1
-        for row in rows
-        if row["status"] == "replace"
-        or (row["status"] == "equal" and _row_has_any_change(row))
+    rows_payload = _build_rows_payload(
+        left_text=left_text or "",
+        right_text=right_text or "",
+        left_path_hint=left_path_hint,
+        right_path_hint=right_path_hint,
     )
-    added_lines = sum(1 for row in rows if row["status"] == "insert")
-    removed_lines = sum(1 for row in rows if row["status"] == "delete")
-
-    payload_rows = (
-        _collapse_equal_rows_for_large_diff(rows)
-        if plain_render
-        else rows
-    )
-    truncated_rows = 0
-    if plain_render:
-        payload_rows, truncated_rows = _truncate_large_render_rows(payload_rows)
-
     payload = {
         "display_name": display_name,
         "mode": mode,
         "left_label": left_label,
         "right_label": right_label,
         "summary": {
-            "changed_lines": modified_lines + added_lines + removed_lines,
-            "modified_lines": modified_lines,
-            "added_lines": added_lines,
-            "removed_lines": removed_lines,
+            "changed_lines": rows_payload["changed_lines"],
+            "modified_lines": rows_payload["modified_lines"],
+            "added_lines": rows_payload["added_lines"],
+            "removed_lines": rows_payload["removed_lines"],
             "left_exists": left_exists,
             "right_exists": right_exists,
         },
-        "rows": payload_rows,
+        "rows": rows_payload["rows"],
     }
-    if plain_render:
-        payload["render_mode"] = "plain"
-    if truncated_rows:
-        payload["truncated_rows"] = truncated_rows
-    if fold_hints:
-        payload["fold_hints"] = fold_hints
+    if "render_mode" in rows_payload:
+        payload["render_mode"] = rows_payload["render_mode"]
+    if "truncated_rows" in rows_payload:
+        payload["truncated_rows"] = rows_payload["truncated_rows"]
+    if "fold_hints" in rows_payload:
+        payload["fold_hints"] = rows_payload["fold_hints"]
     return payload
 
 
@@ -1286,14 +1875,29 @@ class TextDiffService:
         payload["right_path"] = normalized_right
         left_text = left_version.text or ""
         right_text = right_version.text or ""
-        row_count = len(payload["rows"])
+        row_groups: list[list[dict[str, Any]]] = []
+        if payload.get("render_kind") == "notebook":
+            if payload.get("notebook_metadata_rows"):
+                row_groups.append(payload["notebook_metadata_rows"])
+            for cell in payload.get("cells", []):
+                row_groups.append(cell.get("source_rows", []))
+                if cell.get("metadata_rows"):
+                    row_groups.append(cell["metadata_rows"])
+                if cell.get("outputs_rows"):
+                    row_groups.append(cell["outputs_rows"])
+        else:
+            row_groups.append(payload["rows"])
+
+        row_count = sum(len(rows) for rows in row_groups)
         syntax_span_count = sum(
             len(row.get("left_syntax", ())) + len(row.get("right_syntax", ()))
-            for row in payload["rows"]
+            for rows in row_groups
+            for row in rows
         )
         token_count = sum(
             len(row.get("left_tokens", ())) + len(row.get("right_tokens", ()))
-            for row in payload["rows"]
+            for rows in row_groups
+            for row in rows
         )
         payload_bytes = _payload_size_bytes(payload)
         elapsed_ms = (time.perf_counter() - started_at) * 1000
@@ -1311,26 +1915,160 @@ class TextDiffService:
         )
         return payload
 
-    def build_lazy_repo_entry(
+    def _load_git_notebook_context(
         self,
         *,
         left_path: str | None,
         right_path: str | None,
-        left_label: str,
-        right_label: str,
-        display_name: str,
-        change_type: str,
+        left: str,
+        right: str,
     ) -> dict[str, Any]:
+        normalized_left = (
+            self.normalize_repo_path(left_path) if left_path is not None else None
+        )
+        normalized_right = (
+            self.normalize_repo_path(right_path) if right_path is not None else None
+        )
+        normalized_left_side = self.normalize_side(left)
+        normalized_right_side = self.normalize_side(right)
+        left_version = (
+            self.load_git_version(normalized_left, normalized_left_side)
+            if normalized_left is not None
+            else TextVersion(label=normalized_left_side, exists=False, text=None)
+        )
+        right_version = (
+            self.load_git_version(normalized_right, normalized_right_side)
+            if normalized_right is not None
+            else TextVersion(label=normalized_right_side, exists=False, text=None)
+        )
+
+        if left_version.error:
+            raise TextDiffError(left_version.error)
+        if right_version.error:
+            raise TextDiffError(right_version.error)
+        if not left_version.exists and not right_version.exists:
+            raise TextDiffError("The selected file is missing on both sides.")
+
+        left_notebook = (
+            _normalize_notebook_document(left_version.text)
+            if left_version.exists
+            else None
+        )
+        right_notebook = (
+            _normalize_notebook_document(right_version.text)
+            if right_version.exists
+            else None
+        )
+        if left_version.exists and left_notebook is None:
+            raise TextDiffError(
+                f"Could not parse notebook on {normalized_left_side}."
+            )
+        if right_version.exists and right_notebook is None:
+            raise TextDiffError(
+                f"Could not parse notebook on {normalized_right_side}."
+            )
+
         return {
-            "display_name": display_name,
-            "mode": "git",
+            "left_path": normalized_left,
+            "right_path": normalized_right,
+            "left_label": normalized_left_side,
+            "right_label": normalized_right_side,
+            "left_notebook": left_notebook,
+            "right_notebook": right_notebook,
+        }
+
+    def build_notebook_section_diff(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        section: str,
+        cell_key: str | None = None,
+    ) -> dict[str, Any]:
+        context = self._load_git_notebook_context(
+            left_path=left_path,
+            right_path=right_path,
+            left=left,
+            right=right,
+        )
+        left_notebook = context["left_notebook"]
+        right_notebook = context["right_notebook"]
+        left_label = context["left_label"]
+        right_label = context["right_label"]
+
+        if section == "notebook-metadata":
+            left_metadata = (
+                left_notebook["metadata"] if left_notebook is not None else {}
+            )
+            right_metadata = (
+                right_notebook["metadata"] if right_notebook is not None else {}
+            )
+            if left_metadata == right_metadata:
+                raise TextDiffError("Notebook metadata is unchanged.")
+            payload = _build_rows_payload(
+                left_text=_canonical_json(left_metadata),
+                right_text=_canonical_json(right_metadata),
+                left_path_hint="notebook-metadata.json",
+                right_path_hint="notebook-metadata.json",
+            )
+            return {
+                "section": section,
+                "left_label": left_label,
+                "right_label": right_label,
+                "rows": payload["rows"],
+                "render_mode": payload.get("render_mode"),
+                "truncated_rows": payload.get("truncated_rows", 0),
+                "fold_hints": payload.get("fold_hints", []),
+            }
+
+        if not cell_key:
+            raise TextDiffError("Notebook cell key is required.")
+
+        left_cells = list(left_notebook["cells"]) if left_notebook is not None else []
+        right_cells = (
+            list(right_notebook["cells"]) if right_notebook is not None else []
+        )
+        _, left_index, right_index, left_cell, right_cell = _find_notebook_cell_pair(
+            left_cells,
+            right_cells,
+            cell_key=cell_key,
+        )
+
+        if section == "cell-metadata":
+            left_value = _cell_metadata(left_cell)
+            right_value = _cell_metadata(right_cell)
+            left_hint = "cell-metadata.json"
+            right_hint = "cell-metadata.json"
+        elif section == "cell-outputs":
+            left_value = _cell_outputs(left_cell)
+            right_value = _cell_outputs(right_cell)
+            left_hint = "cell-outputs.json"
+            right_hint = "cell-outputs.json"
+        else:
+            raise TextDiffError(f"Unknown notebook section: {section}")
+
+        if left_value == right_value:
+            raise TextDiffError("Notebook section is unchanged.")
+
+        payload = _build_rows_payload(
+            left_text=_canonical_json(left_value),
+            right_text=_canonical_json(right_value),
+            left_path_hint=left_hint,
+            right_path_hint=right_hint,
+        )
+        return {
+            "section": section,
+            "cell_key": cell_key,
+            "left_index": left_index,
+            "right_index": right_index,
             "left_label": left_label,
             "right_label": right_label,
-            "change_type": change_type,
-            "left_path": left_path,
-            "right_path": right_path,
-            "lazy_load": True,
-            "lazy_reason": "notebook",
+            "rows": payload["rows"],
+            "render_mode": payload.get("render_mode"),
+            "truncated_rows": payload.get("truncated_rows", 0),
+            "fold_hints": payload.get("fold_hints", []),
         }
 
     def build_repo_diff(
@@ -1411,32 +2149,6 @@ class TextDiffService:
                 f" name={entry.display_name!r}"
                 f" change={entry.change_type}"
             )
-            if _is_lazy_repo_diff_path(entry.left_path, entry.right_path):
-                summary["changed_files"] += 1
-                if entry.change_type == "add":
-                    summary["added_files"] += 1
-                elif entry.change_type == "delete":
-                    summary["removed_files"] += 1
-                else:
-                    summary["updated_files"] += 1
-                _perf_log(
-                    "repo-file-lazy"
-                    f" name={entry.display_name!r}"
-                    f" change={entry.change_type}"
-                )
-                yield RepoDiffProgress(
-                    entry=self.build_lazy_repo_entry(
-                        left_path=entry.left_path,
-                        right_path=entry.right_path,
-                        left_label=normalized_left,
-                        right_label=normalized_right,
-                        display_name=entry.display_name,
-                        change_type=entry.change_type,
-                    ),
-                    summary=dict(summary),
-                )
-                continue
-
             try:
                 file_diff = self.build_git_diff_paths(
                     left_path=entry.left_path,

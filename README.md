@@ -1,14 +1,19 @@
 # dirdiff
 
-Standalone browser-based diff viewer for generic text files.
+Standalone browser-based diff viewer for real-world files.
 
 It keeps the strongest part of the notebook diff tool from `DRAISS`:
 a line-oriented, side-by-side view with inline token highlighting and hunk
 navigation.
 
-What changed for portability:
+What it supports:
 
-- It works on plain text files, not notebook cells.
+- It renders `.ipynb` files as notebook-aware diffs with cell source,
+  metadata, and outputs.
+- It renders supported text formats with syntax-aware line diffs and structural
+  folding.
+- It falls back to whole-file text diffs for anything it does not understand
+  structurally.
 - It can compare a repo-relative path across Git sides like `head`, `index`,
   `worktree`, or a custom ref.
 - It can also compare any two filesystem paths directly, even outside Git.

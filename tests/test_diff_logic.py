@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 
 from dirdiff.diff import (
@@ -878,14 +879,318 @@ def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
         capture_output=True,
     )
     notebook = tmp_path / "demo.ipynb"
-    notebook.write_text('{"cells": []}\n', encoding="utf-8")
+    notebook.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "markdown",
+                        "id": "intro",
+                        "metadata": {},
+                        "source": ["# Title\n"],
+                    }
+                ],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
     subprocess.run(["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
-    notebook.write_text('{"cells": [{"cell_type": "code"}]}\n', encoding="utf-8")
+    notebook.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "markdown",
+                        "id": "intro",
+                        "metadata": {},
+                        "source": ["# Title\n\nUpdated body\n"],
+                    }
+                ],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     service = TextDiffService.discover(cwd=tmp_path)
     diff = service.build_diff(left="index", right="worktree")
 
-    assert diff["files"][0]["lazy_load"] is True
-    assert diff["files"][0]["lazy_reason"] == "notebook"
+    assert diff["files"][0]["render_kind"] == "notebook"
     assert diff["files"][0]["display_name"] == "demo.ipynb"
+    assert diff["files"][0]["summary"]["changed_cells"] == 1
+    assert diff["files"][0]["cells"][0]["cell_type"] == "markdown"
+    assert any(
+        row["right_text"] == "Updated body"
+        for row in diff["files"][0]["cells"][0]["source_rows"]
+    )
+
+
+def test_build_loaded_diff_renders_notebook_cells_when_ipynb_is_valid() -> None:
+    left_text = json.dumps(
+        {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "code-1",
+                    "metadata": {},
+                    "source": ["value = 1\n", "print(value)\n"],
+                    "outputs": [],
+                }
+            ],
+            "metadata": {"kernelspec": {"name": "python3"}},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+    )
+    right_text = json.dumps(
+        {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "code-1",
+                    "metadata": {"collapsed": True},
+                    "source": ["value = 2\n", "print(value)\n"],
+                    "outputs": [{"output_type": "stream", "name": "stdout", "text": "2\n"}],
+                }
+            ],
+            "metadata": {"kernelspec": {"name": "python3"}},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+    )
+
+    diff = build_loaded_diff(
+        display_name="demo.ipynb",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=left_text,
+        right_text=right_text,
+        left_path_hint="demo.ipynb",
+        right_path_hint="demo.ipynb",
+    )
+
+    assert diff["render_kind"] == "notebook"
+    assert diff["summary"]["changed_cells"] == 1
+    assert diff["cells"][0]["metadata_changed"] is True
+    assert diff["cells"][0]["outputs_changed"] is True
+    assert any(
+        row["left_text"] == "value = 1"
+        and row["right_text"] == "value = 2"
+        for row in diff["cells"][0]["source_rows"]
+    )
+
+
+def test_build_loaded_diff_keeps_notebook_metadata_and_outputs_lazy() -> None:
+    left_text = json.dumps(
+        {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "code-1",
+                    "metadata": {},
+                    "source": ["value = 1\n", "print(value)\n"],
+                    "outputs": [],
+                }
+            ],
+            "metadata": {"kernelspec": {"name": "python3"}},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+    )
+    right_text = json.dumps(
+        {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "code-1",
+                    "metadata": {"collapsed": True},
+                    "source": ["value = 1\n", "print(value)\n"],
+                    "outputs": [
+                        {
+                            "output_type": "stream",
+                            "name": "stdout",
+                            "text": "1\n",
+                        }
+                    ],
+                }
+            ],
+            "metadata": {
+                "kernelspec": {"name": "python3"},
+                "language_info": {"name": "python"},
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+    )
+
+    diff = build_loaded_diff(
+        display_name="demo.ipynb",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=left_text,
+        right_text=right_text,
+        left_path_hint="demo.ipynb",
+        right_path_hint="demo.ipynb",
+    )
+
+    assert diff["render_kind"] == "notebook"
+    assert diff["summary"]["notebook_metadata_changed"] is True
+    assert diff["notebook_metadata_rows"] == []
+    assert diff["notebook_metadata_lazy"] is True
+    assert diff["notebook_metadata_hunk_count"] >= 1
+
+    cell = diff["cells"][0]
+    assert cell["metadata_changed"] is True
+    assert cell["outputs_changed"] is True
+    assert cell["metadata_rows"] == []
+    assert cell["outputs_rows"] == []
+    assert cell["metadata_lazy"] is True
+    assert cell["outputs_lazy"] is True
+    assert cell["metadata_hunk_count"] >= 1
+    assert cell["outputs_hunk_count"] >= 1
+
+
+def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    notebook = tmp_path / "demo.ipynb"
+    notebook.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "id": "code-1",
+                        "metadata": {},
+                        "source": ["value = 1\n", "print(value)\n"],
+                        "outputs": [],
+                    }
+                ],
+                "metadata": {"kernelspec": {"name": "python3"}},
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+
+    notebook.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "id": "code-1",
+                        "metadata": {"collapsed": True},
+                        "source": ["value = 1\n", "print(value)\n"],
+                        "outputs": [
+                            {
+                                "output_type": "stream",
+                                "name": "stdout",
+                                "text": "1\n",
+                            }
+                        ],
+                    }
+                ],
+                "metadata": {
+                    "kernelspec": {"name": "python3"},
+                    "language_info": {"name": "python"},
+                },
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    diff = service.build_diff(left="index", right="worktree")
+    notebook_diff = diff["files"][0]
+    cell_key = notebook_diff["cells"][0]["cell_key"]
+
+    assert notebook_diff["notebook_metadata_rows"] == []
+    assert notebook_diff["cells"][0]["metadata_rows"] == []
+    assert notebook_diff["cells"][0]["outputs_rows"] == []
+
+    notebook_metadata = service.build_notebook_section_diff(
+        left_path="demo.ipynb",
+        right_path="demo.ipynb",
+        left="index",
+        right="worktree",
+        section="notebook-metadata",
+    )
+    cell_metadata = service.build_notebook_section_diff(
+        left_path="demo.ipynb",
+        right_path="demo.ipynb",
+        left="index",
+        right="worktree",
+        section="cell-metadata",
+        cell_key=cell_key,
+    )
+    cell_outputs = service.build_notebook_section_diff(
+        left_path="demo.ipynb",
+        right_path="demo.ipynb",
+        left="index",
+        right="worktree",
+        section="cell-outputs",
+        cell_key=cell_key,
+    )
+
+    assert any(
+        "language_info" in (row.get("right_text") or "")
+        for row in notebook_metadata["rows"]
+    )
+    assert any(
+        '"collapsed": true' in (row.get("right_text") or "")
+        for row in cell_metadata["rows"]
+    )
+    assert any(
+        '"output_type": "stream"' in (row.get("right_text") or "")
+        for row in cell_outputs["rows"]
+    )
+
+
+def test_build_loaded_diff_falls_back_to_text_for_invalid_notebook_json() -> None:
+    diff = build_loaded_diff(
+        display_name="broken.ipynb",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text='{"cells": [}\n',
+        right_text='{"cells": []}\n',
+        left_path_hint="broken.ipynb",
+        right_path_hint="broken.ipynb",
+    )
+
+    assert diff.get("render_kind") != "notebook"
+    assert "rows" in diff

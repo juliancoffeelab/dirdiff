@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dirdiff"
 version = "0.1.0"
-description = "Standalone whole-file diff viewer for generic text files"
+description = "Standalone browser diff viewer for real-world files"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

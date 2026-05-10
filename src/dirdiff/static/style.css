@@ -426,6 +426,86 @@ button {
     color: var(--accent);
 }
 
+.badge-added {
+    background: rgba(74, 222, 128, 0.18);
+    color: #8ef0b0;
+}
+
+.badge-removed {
+    background: rgba(248, 113, 113, 0.18);
+    color: #ff9c9c;
+}
+
+.badge-modified {
+    background: rgba(251, 191, 36, 0.18);
+    color: #f5d574;
+}
+
+.notebook-cells {
+    display: grid;
+    gap: 16px;
+}
+
+.notebook-cell-card {
+    background: rgba(8, 16, 31, 0.82);
+}
+
+.notebook-section {
+    display: grid;
+    gap: 10px;
+}
+
+.notebook-section + .notebook-section,
+.notebook-details,
+.notebook-cells {
+    margin-top: 16px;
+}
+
+.notebook-section-heading {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+}
+
+.notebook-details {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(8, 16, 31, 0.72);
+    overflow: hidden;
+}
+
+.notebook-details summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+    list-style: none;
+}
+
+.notebook-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.notebook-details summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 8px;
+    color: var(--accent);
+    transition: transform 0.16s ease;
+}
+
+.notebook-details[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.notebook-details > .notebook-section {
+    padding: 0 14px 14px;
+}
+
 .diff-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

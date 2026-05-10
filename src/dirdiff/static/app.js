@@ -290,7 +290,7 @@ function renderSummary(summary, mode) {
         return;
     }
 
-    summaryGrid.replaceChildren(
+    const clusters = [
         summaryCluster(
             "Lines",
             [
@@ -300,7 +300,21 @@ function renderSummary(summary, mode) {
             ],
             "Line totals for this diff",
         ),
-    );
+    ];
+    if (Number.isInteger(summary.changed_cells)) {
+        clusters.push(
+            summaryCluster(
+                "Cells",
+                [
+                    summaryDelta("+", summary.added_cells || 0, "added", "Cells added"),
+                    summaryDelta("~", summary.modified_cells || 0, "updated", "Cells modified"),
+                    summaryDelta("-", summary.removed_cells || 0, "removed", "Cells removed"),
+                ],
+                "Notebook cell totals",
+            ),
+        );
+    }
+    summaryGrid.replaceChildren(...clusters);
 }
 
 function setStatus(message, isError = false) {
@@ -973,13 +987,386 @@ function badge(text, className) {
     return node;
 }
 
+function notebookSectionSummary(label, payload) {
+    const parts = [label];
+    if (payload.render_mode === "plain") {
+        parts.push("plain render");
+    }
+    if (payload.truncated_rows) {
+        parts.push(`truncated ${payload.truncated_rows}`);
+    }
+    return parts.join(" · ");
+}
+
+function makeNotebookDetails(summaryText, renderContent) {
+    const details = document.createElement("details");
+    details.className = "notebook-details";
+    const summary = document.createElement("summary");
+    summary.textContent = summaryText;
+    const host = document.createElement("div");
+    let rendered = false;
+
+    const ensureRendered = async () => {
+        if (rendered) {
+            return;
+        }
+        rendered = true;
+        const loading = document.createElement("div");
+        loading.className = "notebook-details-message";
+        loading.textContent = "Loading…";
+        host.replaceChildren(loading);
+        try {
+            const content = await renderContent();
+            host.replaceChildren(content);
+        } catch (error) {
+            const message = document.createElement("div");
+            message.className = "error-state";
+            message.textContent = error?.message || "Failed to load notebook section.";
+            host.replaceChildren(message);
+        }
+    };
+
+    details.addEventListener("toggle", () => {
+        if (details.open) {
+            void ensureRendered();
+        }
+    });
+    details.append(summary, host);
+    return { details, ensureRendered };
+}
+
+function getNextHunkIndexForRows(rows, startHunkIndex, foldHints = []) {
+    const processedRows = foldApi.addFoldRows ? foldApi.addFoldRows(rows, foldHints) : rows;
+    return startHunkIndex + countHunkAnchors(processedRows);
+}
+
+function getNextHunkIndexForSection(hunkCount, startHunkIndex) {
+    return startHunkIndex + Math.max(Number(hunkCount) || 0, 0);
+}
+
+async function fetchNotebookSection(filePayload, { section, cellKey = null }) {
+    const params = new URLSearchParams();
+    const state = getControlState();
+    params.set("mode", state.mode);
+    if (state.left) {
+        params.set("left", state.left);
+    }
+    if (state.right) {
+        params.set("right", state.right);
+    }
+    if (state.baseBranch) {
+        params.set("base_branch", state.baseBranch);
+    }
+    if (state.branch) {
+        params.set("branch", state.branch);
+    }
+    if (filePayload.left_path) {
+        params.set("left_path", filePayload.left_path);
+    }
+    if (filePayload.right_path) {
+        params.set("right_path", filePayload.right_path);
+    }
+    params.set("section", section);
+    if (cellKey) {
+        params.set("cell_key", cellKey);
+    }
+
+    const response = await fetch(`/api/notebook-section?${params.toString()}`);
+    const payload = await response.json();
+    if (!response.ok) {
+        throw new Error(payload.error || "Failed to load notebook section.");
+    }
+    return payload;
+}
+
+function makeNotebookSection(
+    rows,
+    leftLabel,
+    rightLabel,
+    startHunkIndex,
+    renderPassId,
+    {
+        heading = null,
+        foldHints = [],
+        renderMode = null,
+        truncatedRows = 0,
+    } = {},
+) {
+    const host = document.createElement("section");
+    host.className = "notebook-section";
+    if (heading) {
+        const headingNode = document.createElement("p");
+        headingNode.className = "notebook-section-heading";
+        headingNode.textContent = heading;
+        host.append(headingNode);
+    }
+
+    const { wrapper, nextHunkIndex, renderPromise } = renderSideBySide(
+        rows,
+        leftLabel,
+        rightLabel,
+        startHunkIndex,
+        foldHints,
+        renderPassId,
+    );
+    host.append(wrapper);
+
+    const payload = {};
+    if (renderMode) {
+        payload.render_mode = renderMode;
+    }
+    if (truncatedRows) {
+        payload.truncated_rows = truncatedRows;
+    }
+
+    return {
+        host,
+        payload,
+        nextHunkIndex,
+        renderPromise,
+    };
+}
+
+function makeNotebookCellCard(
+    filePayload,
+    cell,
+    startHunkIndex = 0,
+    renderPassId = activeRenderPass,
+) {
+    const card = document.createElement("article");
+    card.className = "file-card notebook-cell-card";
+
+    const title = document.createElement("h3");
+    title.className = "file-title";
+    title.textContent = `${cell.kind.toUpperCase()} ${cell.cell_type} cell`;
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "file-subtitle";
+    subtitle.textContent = `Cell ID: ${cell.cell_id ?? "missing"} · left #${cell.left_index ?? "—"} · right #${cell.right_index ?? "—"}`;
+
+    const titleWrap = document.createElement("div");
+    titleWrap.append(title, subtitle);
+
+    const badges = document.createElement("div");
+    badges.className = "badge-row";
+    const kindBadgeClass =
+        cell.kind === "added"
+            ? "badge-added"
+            : cell.kind === "removed"
+            ? "badge-removed"
+            : "badge-modified";
+    badges.append(badge(cell.kind, kindBadgeClass));
+    if (cell.metadata_changed) {
+        badges.append(badge("metadata changed", "badge-neutral"));
+    }
+    if (cell.outputs_changed) {
+        badges.append(badge("outputs changed", "badge-neutral"));
+    }
+    if (!cell.source_changed) {
+        badges.append(badge("source unchanged", "badge-neutral"));
+    }
+
+    const header = document.createElement("div");
+    header.className = "file-card-header";
+    header.append(titleWrap, badges);
+    card.append(header);
+
+    const renderPromises = [];
+    const sourceSection = makeNotebookSection(
+        cell.source_rows,
+        "Left source",
+        "Right source",
+        startHunkIndex,
+        renderPassId,
+        {
+            heading: "Cell source",
+            foldHints: cell.source_fold_hints || [],
+            renderMode: cell.source_render_mode || null,
+            truncatedRows: cell.source_truncated_rows || 0,
+        },
+    );
+    card.append(sourceSection.host);
+    renderPromises.push(sourceSection.renderPromise);
+    let nextHunkIndex = sourceSection.nextHunkIndex;
+
+    if (cell.metadata_changed) {
+        const metadataStartHunkIndex = nextHunkIndex;
+        nextHunkIndex = getNextHunkIndexForSection(
+            cell.metadata_hunk_count,
+            metadataStartHunkIndex,
+        );
+        const metadataDetails = makeNotebookDetails(
+            notebookSectionSummary("Cell metadata diff", {
+                render_mode: cell.metadata_render_mode || null,
+                truncated_rows: cell.metadata_truncated_rows || 0,
+            }),
+            async () => {
+                if (!cell.metadata_section) {
+                    cell.metadata_section = await fetchNotebookSection(filePayload, {
+                        section: "cell-metadata",
+                        cellKey: cell.cell_key,
+                    });
+                }
+                const metadataSection = makeNotebookSection(
+                    cell.metadata_section.rows,
+                    "Left metadata",
+                    "Right metadata",
+                    metadataStartHunkIndex,
+                    renderPassId,
+                    {
+                        renderMode: cell.metadata_section.render_mode || null,
+                        truncatedRows: cell.metadata_section.truncated_rows || 0,
+                    },
+                );
+                return metadataSection.host;
+            },
+        );
+        card.append(metadataDetails.details);
+    }
+
+    if (cell.outputs_changed) {
+        const outputsStartHunkIndex = nextHunkIndex;
+        nextHunkIndex = getNextHunkIndexForSection(
+            cell.outputs_hunk_count,
+            outputsStartHunkIndex,
+        );
+        const outputsDetails = makeNotebookDetails(
+            notebookSectionSummary("Cell outputs diff", {
+                render_mode: cell.outputs_render_mode || null,
+                truncated_rows: cell.outputs_truncated_rows || 0,
+            }),
+            async () => {
+                if (!cell.outputs_section) {
+                    cell.outputs_section = await fetchNotebookSection(filePayload, {
+                        section: "cell-outputs",
+                        cellKey: cell.cell_key,
+                    });
+                }
+                const outputsSection = makeNotebookSection(
+                    cell.outputs_section.rows,
+                    "Left outputs",
+                    "Right outputs",
+                    outputsStartHunkIndex,
+                    renderPassId,
+                    {
+                        renderMode: cell.outputs_section.render_mode || null,
+                        truncatedRows: cell.outputs_section.truncated_rows || 0,
+                    },
+                );
+                return outputsSection.host;
+            },
+        );
+        card.append(outputsDetails.details);
+    }
+
+    return {
+        card,
+        nextHunkIndex,
+        renderPromise: Promise.all(renderPromises),
+    };
+}
+
+function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPass) {
+    const card = document.createElement("article");
+    card.className = "file-card notebook-file-card";
+
+    const title = document.createElement("h2");
+    title.className = "file-title";
+    title.textContent = payload.display_name;
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "file-subtitle";
+    subtitle.textContent =
+        payload.mode === "git" ? "Notebook-aware Git-backed file diff" : "Notebook-aware file diff";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.append(title, subtitle);
+
+    const badges = document.createElement("div");
+    badges.className = "badge-row";
+    badges.append(
+        badge(payload.summary.left_exists ? "left exists" : "left missing", "badge-neutral"),
+        badge(payload.summary.right_exists ? "right exists" : "right missing", "badge-neutral"),
+        badge(`${payload.summary.changed_cells || 0} changed cell${payload.summary.changed_cells === 1 ? "" : "s"}`, "badge-neutral"),
+    );
+    if (payload.summary.notebook_metadata_changed) {
+        badges.append(badge("notebook metadata changed", "badge-neutral"));
+    }
+
+    const header = document.createElement("div");
+    header.className = "file-card-header";
+    header.append(titleWrap, badges);
+    card.append(header);
+
+    const renderPromises = [];
+    let nextHunkIndex = startHunkIndex;
+
+    if (payload.summary.notebook_metadata_changed) {
+        const notebookMetadataStartHunkIndex = nextHunkIndex;
+        nextHunkIndex = getNextHunkIndexForSection(
+            payload.notebook_metadata_hunk_count,
+            notebookMetadataStartHunkIndex,
+        );
+        const metadataDetails = makeNotebookDetails(
+            notebookSectionSummary("Notebook metadata diff", {
+                render_mode: payload.notebook_metadata_render_mode || null,
+                truncated_rows: payload.notebook_metadata_truncated_rows || 0,
+            }),
+            async () => {
+                if (!payload.notebook_metadata_section) {
+                    payload.notebook_metadata_section = await fetchNotebookSection(
+                        payload,
+                        { section: "notebook-metadata" },
+                    );
+                }
+                const metadataSection = makeNotebookSection(
+                    payload.notebook_metadata_section.rows,
+                    "Left notebook metadata",
+                    "Right notebook metadata",
+                    notebookMetadataStartHunkIndex,
+                    renderPassId,
+                    {
+                        renderMode: payload.notebook_metadata_section.render_mode || null,
+                        truncatedRows: payload.notebook_metadata_section.truncated_rows || 0,
+                    },
+                );
+                return metadataSection.host;
+            },
+        );
+        card.append(metadataDetails.details);
+    }
+
+    const cellsHost = document.createElement("div");
+    cellsHost.className = "notebook-cells";
+    for (const cell of payload.cells || []) {
+        const cellResult = makeNotebookCellCard(
+            payload,
+            cell,
+            nextHunkIndex,
+            renderPassId,
+        );
+        nextHunkIndex = cellResult.nextHunkIndex;
+        renderPromises.push(cellResult.renderPromise);
+        cellsHost.append(cellResult.card);
+    }
+    if (!cellsHost.childElementCount) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = "No changed cells detected for the selected notebook sides.";
+        cellsHost.append(empty);
+    }
+    card.append(cellsHost);
+
+    return {
+        card,
+        nextHunkIndex,
+        renderPromise: Promise.all(renderPromises),
+    };
+}
+
 function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPass) {
-    if (payload.lazy_load) {
-        return {
-            card: makeLazyFileCard(payload),
-            nextHunkIndex: startHunkIndex,
-            renderPromise: Promise.resolve(),
-        };
+    if (payload.render_kind === "notebook") {
+        return makeNotebookFileCard(payload, startHunkIndex, renderPassId);
     }
 
     const card = document.createElement("article");
@@ -1041,38 +1428,6 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
         nextHunkIndex,
         renderPromise,
     };
-}
-
-function makeLazyFileCard(payload) {
-    const card = document.createElement("article");
-    card.className = "file-card";
-
-    const title = document.createElement("h2");
-    title.className = "file-title";
-    title.textContent = payload.display_name;
-
-    const subtitle = document.createElement("p");
-    subtitle.className = "file-subtitle";
-    subtitle.textContent = "Notebook diff skipped by default. Load it explicitly if you want to inspect it here.";
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "Load diff";
-    button.addEventListener("click", async () => {
-        button.disabled = true;
-        button.textContent = "Loading…";
-        try {
-            const loaded = await fetchFileDiff(payload);
-            replaceLazyEntry(payload, loaded);
-        } catch (error) {
-            button.disabled = false;
-            button.textContent = "Load diff";
-            subtitle.textContent = error.message;
-        }
-    });
-
-    card.append(title, subtitle, button);
-    return card;
 }
 
 function makeErrorCard(entry) {
