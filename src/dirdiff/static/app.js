@@ -38,8 +38,7 @@ const REF_SECTION_LABELS = {
     remotes: "Remote refs",
 };
 const hunkNavState = {
-    activeIndex: null,
-    signature: "",
+    activeHunkIndex: null,
     lastNavAt: 0,
 };
 const hunkHoldState = {
@@ -1580,8 +1579,7 @@ function resetHunkCaches() {
     hunkAnchorRows = [];
     hunkRowsByIndex.clear();
     selectedHunkIndex = null;
-    hunkNavState.activeIndex = null;
-    hunkNavState.signature = "";
+    hunkNavState.activeHunkIndex = null;
     hunkNavState.lastNavAt = 0;
 }
 
@@ -1594,8 +1592,64 @@ function getVisibleHunkRows() {
     return rows;
 }
 
-function positionsSignature(positions) {
-    return positions.join("|");
+function getHunkIndex(row) {
+    if (!row) {
+        return null;
+    }
+    const value = Number(row.dataset.hunkIndex);
+    return Number.isInteger(value) ? value : null;
+}
+
+function getViewportCenterY() {
+    return window.innerHeight / 2;
+}
+
+function getRowViewportCenter(row) {
+    const rect = row.getBoundingClientRect();
+    return rect.top + rect.height / 2;
+}
+
+function findNearestHunkRow(rows, viewportCenter) {
+    if (!rows.length) {
+        return null;
+    }
+
+    let nearestRow = rows[0];
+    let nearestDistance = Math.abs(getRowViewportCenter(rows[0]) - viewportCenter);
+    for (let index = 1; index < rows.length; index += 1) {
+        const distance = Math.abs(getRowViewportCenter(rows[index]) - viewportCenter);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestRow = rows[index];
+        }
+    }
+    return nearestRow;
+}
+
+function findRowIndex(rows, targetRow) {
+    if (!targetRow) {
+        return -1;
+    }
+    return rows.findIndex((row) => row === targetRow);
+}
+
+function stepVisibleHunkRow(rows, currentRow, direction, { wrap = true } = {}) {
+    const currentIndex = findRowIndex(rows, currentRow);
+    if (currentIndex < 0 || !rows.length) {
+        return null;
+    }
+
+    if (direction === "next") {
+        if (currentIndex + 1 < rows.length) {
+            return rows[currentIndex + 1];
+        }
+        return wrap ? rows[0] : null;
+    }
+
+    if (currentIndex - 1 >= 0) {
+        return rows[currentIndex - 1];
+    }
+    return wrap ? rows[rows.length - 1] : null;
 }
 
 function setRowsSelected(rows, isActive) {
@@ -1621,52 +1675,48 @@ function syncSelectedHunk(index) {
     selectedHunkIndex = nextIndex;
 }
 
-function shouldUseActiveHunkIndex(positions, viewportCenter) {
-    if (!Number.isInteger(hunkNavState.activeIndex)) {
-        return false;
+function getActiveHunkRowForNavigation(viewportCenter) {
+    if (!Number.isInteger(hunkNavState.activeHunkIndex)) {
+        return null;
     }
-    if (hunkNavState.activeIndex < 0 || hunkNavState.activeIndex >= positions.length) {
-        return false;
-    }
-    if (hunkNavState.signature !== positionsSignature(positions)) {
-        return false;
+    const activeRows = hunkRowsByIndex.get(hunkNavState.activeHunkIndex) || [];
+    const activeRow = activeRows.find((row) => isVisibleHunkAnchor(row));
+    if (!activeRow) {
+        return null;
     }
     if (Date.now() - hunkNavState.lastNavAt < 900) {
-        return true;
+        return activeRow;
     }
-    const activePosition = positions[hunkNavState.activeIndex];
-    return Math.abs(activePosition - viewportCenter) <= 24;
+    return Math.abs(getRowViewportCenter(activeRow) - viewportCenter) <= 24
+        ? activeRow
+        : null;
 }
 
-function stepHunkIndexWithoutWrap(currentIndex, direction, length) {
-    if (!Number.isInteger(currentIndex) || length <= 0) {
-        return null;
-    }
-    if (direction === "next") {
-        return currentIndex + 1 < length ? currentIndex + 1 : null;
-    }
-    return currentIndex - 1 >= 0 ? currentIndex - 1 : null;
-}
-
-function pickTargetIndexWithoutWrap(positions, viewportCenter, direction) {
-    if (!positions.length) {
+function pickTargetHunkRow(rows, viewportCenter, direction, { wrap = true } = {}) {
+    if (!rows.length) {
         return null;
     }
 
-    const firstPosition = positions[0];
-    const lastPosition = positions[positions.length - 1];
-    if (viewportCenter < firstPosition) {
-        return direction === "next" ? 0 : null;
+    const firstCenter = getRowViewportCenter(rows[0]);
+    const lastCenter = getRowViewportCenter(rows[rows.length - 1]);
+    if (viewportCenter < firstCenter) {
+        if (direction === "next") {
+            return rows[0];
+        }
+        return wrap ? rows[rows.length - 1] : null;
     }
-    if (viewportCenter > lastPosition) {
-        return direction === "prev" ? positions.length - 1 : null;
+    if (viewportCenter > lastCenter) {
+        if (direction === "prev") {
+            return rows[rows.length - 1];
+        }
+        return wrap ? rows[0] : null;
     }
 
-    const nearestIndex = window.fileDiffNav.findNearestIndex(
-        positions,
+    const nearestRow = findNearestHunkRow(
+        rows,
         viewportCenter,
     );
-    return stepHunkIndexWithoutWrap(nearestIndex, direction, positions.length);
+    return stepVisibleHunkRow(rows, nearestRow, direction, { wrap });
 }
 
 function navigateHunk(direction, { wrap = true } = {}) {
@@ -1675,58 +1725,34 @@ function navigateHunk(direction, { wrap = true } = {}) {
         return false;
     }
 
-    const positions = window.fileDiffNav.uniqueSortedPositions(
-        rows.map((row) => row.getBoundingClientRect().top + window.scrollY),
-    );
-    if (!positions.length) {
+    const viewportCenter = getViewportCenterY();
+    const activeRow = getActiveHunkRowForNavigation(viewportCenter);
+    const targetRow = activeRow
+        ? stepVisibleHunkRow(rows, activeRow, direction, { wrap })
+        : pickTargetHunkRow(rows, viewportCenter, direction, { wrap });
+    if (!targetRow) {
         return false;
     }
 
-    const viewportCenter = window.scrollY + window.innerHeight / 2;
-    const targetIndex = shouldUseActiveHunkIndex(positions, viewportCenter)
-        ? (
-            wrap
-                ? window.fileDiffNav.stepHunkIndex(
-                    hunkNavState.activeIndex,
-                    direction,
-                    positions.length,
-                )
-                : stepHunkIndexWithoutWrap(
-                    hunkNavState.activeIndex,
-                    direction,
-                    positions.length,
-                )
-        )
-        : (
-            wrap
-                ? window.fileDiffNav.pickTargetIndex(
-                    positions,
-                    viewportCenter,
-                    direction,
-                )
-                : pickTargetIndexWithoutWrap(
-                    positions,
-                    viewportCenter,
-                    direction,
-                )
-        );
-    if (targetIndex === null) {
+    const targetHunkIndex = getHunkIndex(targetRow);
+    if (!Number.isInteger(targetHunkIndex)) {
         return false;
     }
 
-    const targetPosition = positions[targetIndex];
-    hunkNavState.activeIndex = targetIndex;
-    hunkNavState.signature = positionsSignature(positions);
+    hunkNavState.activeHunkIndex = targetHunkIndex;
     hunkNavState.lastNavAt = Date.now();
-    syncSelectedHunk(targetIndex);
+    syncSelectedHunk(targetHunkIndex);
 
-    const targetScrollTop = Math.max(
-        Math.round(targetPosition - window.innerHeight / 2),
-        0,
+    const rowCenter = Math.round(getRowViewportCenter(targetRow));
+    appendDebugScrollLog(
+        "hunkNav",
+        `hunk=${targetHunkIndex} direction=${direction} rowCenter=${rowCenter}`,
     );
-    appendDebugScrollLog("hunkNav", `active=${targetIndex} target=${targetScrollTop}`);
-    appendDebugScrollLog("scrollTo", `window.scrollTo top=${targetScrollTop} behavior=smooth from=${Math.round(window.scrollY)}`);
-    window.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+    appendDebugScrollLog(
+        "scrollTo",
+        `row.scrollIntoView hunk=${targetHunkIndex} block=center behavior=smooth`,
+    );
+    targetRow.scrollIntoView({ block: "center", behavior: "smooth" });
     return true;
 }
 
