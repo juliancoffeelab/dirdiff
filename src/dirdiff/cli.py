@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import errno
+import logging
+import os
 import sys
 import threading
 import webbrowser
@@ -15,6 +17,13 @@ from typing import Any
 
 DEFAULT_PORT = 5052
 PORT_FALLBACK_ATTEMPTS = 20
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO if os.environ.get("DIRDIFF_DEBUG_PERF") == "1" else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,6 +120,7 @@ def create_server(
 
 
 def main() -> None:
+    configure_logging()
     args = parse_args()
     repo_root = Path(args.repo_root).expanduser() if args.repo_root else None
     service = TextDiffService.discover(repo_root=repo_root)

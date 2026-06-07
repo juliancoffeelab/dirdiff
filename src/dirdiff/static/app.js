@@ -1979,11 +1979,20 @@ function streamDiff(params, state, loadToken) {
     activeDiffStream = stream;
     let streamState = null;
     let finished = false;
+    const requestDetails = {
+        mode: state.mode,
+        query: params.toString(),
+    };
 
-    const fail = (message) => {
+    const fail = (message, error = null) => {
         if (loadToken !== activeLoadToken) {
             return;
         }
+        console.error("[dirdiff] Diff stream failed", {
+            ...requestDetails,
+            message,
+            error,
+        });
         finished = true;
         closeActiveDiffStream();
         summaryGrid.replaceChildren();
@@ -2036,16 +2045,30 @@ function streamDiff(params, state, loadToken) {
         setStatus(buildStatusMessage(state, streamState.payload));
     });
 
-    stream.addEventListener("error", (event) => {
+    stream.addEventListener("stream-error", (event) => {
         if (finished) {
             return;
         }
         try {
             const payload = event.data ? JSON.parse(event.data) : null;
-            fail(payload?.error || "Failed to stream diff.");
-        } catch {
-            fail("Failed to stream diff.");
+            fail(payload?.error || "Failed to stream diff.", payload);
+        } catch (error) {
+            fail("Failed to stream diff.", {
+                cause: error,
+                rawEvent: event,
+            });
         }
+    });
+
+    stream.addEventListener("error", (event) => {
+        if (finished) {
+            return;
+        }
+        fail("Failed to stream diff.", {
+            type: "transport",
+            readyState: stream.readyState,
+            rawEvent: event,
+        });
     });
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -17,6 +18,7 @@ STATIC_CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
 }
 LARGE_DIFF_FILE_LIMIT = 10
+LOGGER = logging.getLogger(__name__)
 
 
 class DiffViewerServer(ThreadingHTTPServer):
@@ -116,6 +118,13 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.BAD_REQUEST,
             )
             return
+        except Exception as exc:
+            LOGGER.exception("Diff request crashed: %s", exc)
+            self._send_json(
+                {"error": "Internal server error."},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
 
         self._send_json(payload)
 
@@ -146,6 +155,13 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.BAD_REQUEST,
             )
             return
+        except Exception as exc:
+            LOGGER.exception("Diff stream request crashed before streaming: %s", exc)
+            self._send_json(
+                {"error": "Internal server error."},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
 
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -171,7 +187,11 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
                 ):
                     return
         except TextDiffError as exc:
-            self._write_sse("error", {"error": str(exc)})
+            self._write_sse("stream-error", {"error": str(exc)})
+            return
+        except Exception as exc:
+            LOGGER.exception("Diff stream request crashed while streaming: %s", exc)
+            self._write_sse("stream-error", {"error": "Internal server error."})
             return
 
         self._write_sse("done", {"summary": initial_payload["summary"]})
@@ -217,6 +237,13 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
         except TextDiffError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
+        except Exception as exc:
+            LOGGER.exception("File diff request crashed: %s", exc)
+            self._send_json(
+                {"error": "Internal server error."},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
 
         self._send_json(payload)
 
@@ -259,6 +286,13 @@ class DiffRequestHandler(BaseHTTPRequestHandler):
                 )
         except TextDiffError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            LOGGER.exception("Notebook section diff request crashed: %s", exc)
+            self._send_json(
+                {"error": "Internal server error."},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
             return
 
         self._send_json(payload)

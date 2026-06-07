@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -33,6 +33,7 @@ PLAIN_RENDER_CHAR_THRESHOLD = 200_000
 PLAIN_RENDER_CONTEXT_ROWS = 3
 PLAIN_RENDER_MIN_FOLD_ROWS = 24
 PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,7 +65,7 @@ class TextDiffError(ValueError):
 def _perf_log(message: str) -> None:
     if not ENABLE_PERF_LOGS:
         return
-    print(f"[dirdiff-perf] {message}", file=sys.stderr, flush=True)
+    LOGGER.info("[dirdiff-perf] %s", message)
 
 
 def _payload_size_bytes(payload: dict[str, Any]) -> int:
