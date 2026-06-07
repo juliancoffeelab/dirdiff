@@ -43,6 +43,18 @@
                     <span class="field-hint" id="modeHint">Branch review shows changes on one branch since it split from your base branch.</span>
                 </label>
                 <div class="branch-review-fields" id="branchReviewGroup" hidden>
+                    <label class="field-base-remote">
+                        Base remote
+                        <input
+                            id="baseRemoteInput"
+                            name="baseRemote"
+                            type="text"
+                            value=""
+                            placeholder="origin"
+                            spellcheck="false"
+                            autocomplete="off"
+                        >
+                    </label>
                     <label class="field-base-branch">
                         Base branch
                         <input
@@ -50,7 +62,19 @@
                             name="baseBranch"
                             type="text"
                             value=""
-                            placeholder="master"
+                            placeholder="main"
+                            spellcheck="false"
+                            autocomplete="off"
+                        >
+                    </label>
+                    <label class="field-branch-remote">
+                        Branch remote
+                        <input
+                            id="branchRemoteInput"
+                            name="branchRemote"
+                            type="text"
+                            value=""
+                            placeholder="origin"
                             spellcheck="false"
                             autocomplete="off"
                         >

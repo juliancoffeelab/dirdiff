@@ -1616,6 +1616,13 @@ class TextDiffService:
             "builtins": ["head", "index", "worktree"],
             "locals": self.list_branch_names(),
             "remotes": self.list_remote_ref_names(),
+            "remote_names": sorted(
+                {
+                    ref.split("/", 1)[0]
+                    for ref in self.list_remote_ref_names()
+                    if "/" in ref
+                }
+            ),
         }
 
     def default_base_branch(self) -> str:

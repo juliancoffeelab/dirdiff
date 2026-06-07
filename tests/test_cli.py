@@ -88,6 +88,7 @@ def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
     assert defaults["ref_choices"]["locals"] == ["feature", "master"]
     assert defaults["ref_choices"]["builtins"] == ["head", "index", "worktree"]
     assert defaults["ref_choices"]["remotes"] == []
+    assert defaults["ref_choices"]["remote_names"] == []
 
 
 def test_build_defaults_keeps_review_branch_selected_even_on_master(

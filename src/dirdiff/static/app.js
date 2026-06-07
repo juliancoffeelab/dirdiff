@@ -3,7 +3,9 @@ const modeSelect = document.getElementById("modeSelect");
 const modeButtonRow = document.getElementById("modeButtonRow");
 const modeHint = document.getElementById("modeHint");
 const branchReviewGroup = document.getElementById("branchReviewGroup");
+const baseRemoteInput = document.getElementById("baseRemoteInput");
 const baseBranchInput = document.getElementById("baseBranchInput");
+const branchRemoteInput = document.getElementById("branchRemoteInput");
 const branchInput = document.getElementById("branchInput");
 const customRefsGroup = document.getElementById("customRefsGroup");
 const leftRefInput = document.getElementById("leftRefInput");
@@ -36,6 +38,7 @@ const REF_SECTION_LABELS = {
     builtins: "Built-in",
     locals: "Local branches",
     remotes: "Remote refs",
+    remote_names: "Remotes",
 };
 const hunkNavState = {
     activeHunkIndex: null,
@@ -451,7 +454,7 @@ function attachAutocomplete(input, refChoices, sections) {
                     event.preventDefault();
                     input.value = value;
                     closePanel();
-                    input.dispatchEvent(new Event("input", { bubbles: true }));
+                    input.dispatchEvent(new Event("change", { bubbles: true }));
                     input.focus();
                 });
                 sectionNode.append(option);
@@ -2082,6 +2085,54 @@ function scheduleLoadDiff(delayMs = 180) {
     }, delayMs);
 }
 
+function bindCommittedLoadInput(input) {
+    input.addEventListener("change", () => scheduleLoadDiff(0));
+    input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") {
+            return;
+        }
+        event.preventDefault();
+        scheduleLoadDiff(0);
+    });
+}
+
+function splitRemoteQualifiedRef(ref, remoteNames) {
+    const normalizedRef = (ref || "").trim();
+    for (const remoteName of [...remoteNames].sort((left, right) => right.length - left.length)) {
+        const prefix = `${remoteName}/`;
+        if (normalizedRef.startsWith(prefix)) {
+            return {
+                remote: remoteName,
+                value: normalizedRef.slice(prefix.length),
+            };
+        }
+    }
+    return {
+        remote: "",
+        value: normalizedRef,
+    };
+}
+
+function qualifyRemoteRef(remote, ref, remoteNames) {
+    const normalizedRemote = (remote || "").trim();
+    const normalizedRef = (ref || "").trim();
+    if (!normalizedRemote || !normalizedRef) {
+        return normalizedRef;
+    }
+    if (
+        normalizedRef.startsWith("refs/")
+        || BUILTIN_SIDES.has(normalizedRef)
+        || /^[0-9a-f]{7,40}$/i.test(normalizedRef)
+        || normalizedRef.includes(":")
+        || normalizedRef.includes("^")
+        || normalizedRef.includes("~")
+        || remoteNames.some((name) => normalizedRef === name || normalizedRef.startsWith(`${name}/`))
+    ) {
+        return normalizedRef;
+    }
+    return `${normalizedRemote}/${normalizedRef}`;
+}
+
 function getControlState() {
     const mode = modeSelect.value;
 
@@ -2103,9 +2154,13 @@ function getControlState() {
     }
 
     if (mode === "branch-review") {
-        const baseBranch = baseBranchInput.value.trim();
-        const branch = branchInput.value.trim();
-        if (!branch) {
+        const baseRemote = baseRemoteInput.value.trim();
+        const branchRemote = branchRemoteInput.value.trim();
+        const baseBranchValue = baseBranchInput.value.trim();
+        const branchValue = branchInput.value.trim();
+        const baseBranch = qualifyRemoteRef(baseRemote, baseBranchValue, remoteNames);
+        const branch = qualifyRemoteRef(branchRemote, branchValue, remoteNames);
+        if (!branchValue) {
             return {
                 valid: false,
                 message: "Pick a branch to compare against the base branch.",
@@ -2118,6 +2173,8 @@ function getControlState() {
             right: "",
             baseBranch,
             branch,
+            baseBranchLabel: baseBranchValue,
+            branchLabel: branchValue,
         };
     }
 
@@ -2143,8 +2200,9 @@ function buildStatusMessage(state, payload) {
         return "Working tree vs HEAD";
     }
     if (state.mode === "branch-review") {
-        const baseBranch = state.baseBranch || "master";
-        return `${state.branch} vs ${baseBranch}`;
+        const baseBranch = state.baseBranchLabel || state.baseBranch || "master";
+        const branch = state.branchLabel || state.branch;
+        return `${branch} vs ${baseBranch}`;
     }
     return `${payload.left_label} vs ${payload.right_label}`;
 }
@@ -2208,10 +2266,17 @@ const refChoices = defaults.ref_choices || {
     builtins: [],
     locals: [],
     remotes: [],
+    remote_names: [],
 };
-
-baseBranchInput.value = search.get("base_branch") || defaults.base_branch || "";
-branchInput.value = search.get("branch") || defaults.branch || "";
+const remoteNames = refChoices.remote_names || [];
+const initialBaseBranchRef = search.get("base_branch") || defaults.base_branch || "";
+const initialBranchRef = search.get("branch") || defaults.branch || "";
+const initialBaseBranchParts = splitRemoteQualifiedRef(initialBaseBranchRef, remoteNames);
+const initialBranchParts = splitRemoteQualifiedRef(initialBranchRef, remoteNames);
+baseRemoteInput.value = initialBaseBranchParts.remote;
+baseBranchInput.value = initialBaseBranchParts.value;
+branchRemoteInput.value = initialBranchParts.remote;
+branchInput.value = initialBranchParts.value;
 const initialLeft = search.get("left") || defaults.left || "index";
 const initialRight = search.get("right") || defaults.right || "worktree";
 const initialMode = search.get("mode")
@@ -2225,8 +2290,10 @@ if (initialMode === "refs") {
 }
 syncModeUI();
 mountDebugScrollPanel();
-attachAutocomplete(baseBranchInput, refChoices, ["locals", "remotes"]);
-attachAutocomplete(branchInput, refChoices, ["locals", "remotes"]);
+attachAutocomplete(baseBranchInput, refChoices, ["locals"]);
+attachAutocomplete(branchInput, refChoices, ["locals"]);
+attachAutocomplete(baseRemoteInput, refChoices, ["remote_names"]);
+attachAutocomplete(branchRemoteInput, refChoices, ["remote_names"]);
 attachAutocomplete(leftRefInput, refChoices, ["builtins", "locals", "remotes"]);
 attachAutocomplete(rightRefInput, refChoices, ["builtins", "locals", "remotes"]);
 
@@ -2250,10 +2317,12 @@ modeSelect.addEventListener("change", () => {
     syncModeUI();
     scheduleLoadDiff(0);
 });
-baseBranchInput.addEventListener("input", () => scheduleLoadDiff());
-branchInput.addEventListener("input", () => scheduleLoadDiff());
-leftRefInput.addEventListener("input", () => scheduleLoadDiff());
-rightRefInput.addEventListener("input", () => scheduleLoadDiff());
+bindCommittedLoadInput(baseRemoteInput);
+bindCommittedLoadInput(baseBranchInput);
+bindCommittedLoadInput(branchRemoteInput);
+bindCommittedLoadInput(branchInput);
+bindCommittedLoadInput(leftRefInput);
+bindCommittedLoadInput(rightRefInput);
 
 if (defaults.repo_available) {
     loadDiff();
