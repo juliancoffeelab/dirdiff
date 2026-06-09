@@ -1,5 +1,5 @@
 const form = document.getElementById("controlsForm");
-const modeSelect = document.getElementById("modeSelect");
+const modeInput = document.getElementById("modeInput");
 const modeButtonRow = document.getElementById("modeButtonRow");
 const modeHint = document.getElementById("modeHint");
 const branchReviewGroup = document.getElementById("branchReviewGroup");
@@ -2097,8 +2097,12 @@ function qualifyRemoteRef(remote, ref, remoteNames) {
     return `${normalizedRemote}/${normalizedRef}`;
 }
 
+function getSelectedMode() {
+    return modeInput.value || "files";
+}
+
 function getControlState() {
-    const mode = modeSelect.value;
+    const mode = getSelectedMode();
 
     if (mode === "refs") {
         const left = leftRefInput.value.trim();
@@ -2196,7 +2200,7 @@ function buildStatusMessage(state, payload) {
 }
 
 function syncModeUI() {
-    const mode = modeSelect.value;
+    const mode = getSelectedMode();
     customRefsGroup.hidden = mode !== "refs";
     branchReviewGroup.hidden = mode !== "branch-review";
     modeHint.textContent = MODE_HINTS[mode] || "";
@@ -2270,7 +2274,7 @@ const initialMode = search.get("mode")
     || defaults.mode
     || inferMode(initialLeft, initialRight, branchInput.value, baseBranchInput.value)
     || "branch-review";
-modeSelect.value = initialMode;
+modeInput.value = initialMode;
 if (initialMode === "refs") {
     leftRefInput.value = initialLeft;
     rightRefInput.value = initialRight;
@@ -2303,19 +2307,14 @@ form.addEventListener("submit", (event) => {
 for (const button of modeButtonRow.querySelectorAll(".mode-button")) {
     button.addEventListener("click", () => {
         const nextMode = button.dataset.mode;
-        if (!nextMode || modeSelect.value === nextMode) {
+        if (!nextMode || getSelectedMode() === nextMode) {
             return;
         }
-        modeSelect.value = nextMode;
+        modeInput.value = nextMode;
         syncModeUI();
         scheduleLoadDiff(0);
     });
 }
-
-modeSelect.addEventListener("change", () => {
-    syncModeUI();
-    scheduleLoadDiff(0);
-});
 bindCommittedLoadInput(baseRemoteInput);
 bindCommittedLoadInput(baseBranchInput);
 bindCommittedLoadInput(branchRemoteInput);

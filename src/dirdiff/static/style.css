@@ -202,10 +202,6 @@ h1 {
     color: #08101f;
 }
 
-.field-mode select {
-    display: none;
-}
-
 .autocomplete-host {
     position: relative;
 }

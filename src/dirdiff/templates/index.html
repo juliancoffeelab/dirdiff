@@ -30,16 +30,10 @@
                         <button type="button" class="mode-button" data-mode="files">Diff files</button>
                         <button type="button" class="mode-button" data-mode="staged">Diff staged</button>
                         <button type="button" class="mode-button" data-mode="against-head">Diff against HEAD</button>
-                        <button type="button" class="mode-button" data-mode="branch-review">Branch review</button>
                         <button type="button" class="mode-button" data-mode="refs">Compare refs</button>
+                        <button type="button" class="mode-button" data-mode="branch-review">Branch review</button>
                     </div>
-                    <select id="modeSelect" name="mode">
-                        <option value="branch-review">Branch review</option>
-                        <option value="files">Diff files</option>
-                        <option value="staged">Diff staged</option>
-                        <option value="against-head">Diff against HEAD</option>
-                        <option value="refs">Compare refs</option>
-                    </select>
+                    <input id="modeInput" name="mode" type="hidden" value="files">
                     <span class="field-hint" id="modeHint">Branch review shows changes on one branch since it split from your base branch.</span>
                 </label>
                 <div class="branch-review-fields" id="branchReviewGroup" hidden>
