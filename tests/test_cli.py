@@ -292,3 +292,35 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
     assert next(param for param in diff_params if param["name"] == "mode")["schema"]["default"] == "files"
     assert next(param for param in diff_params if param["name"] == "left")["schema"]["default"] == "index"
     assert next(param for param in diff_params if param["name"] == "right")["schema"]["default"] == "worktree"
+
+
+def test_save_log_endpoint_writes_to_launch_directory(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    defaults = build_defaults(service)
+    client = TestClient(create_app(service, defaults))
+
+    response = client.post("/api/save-log", json={"text": "hello log\n"})
+    payload = response.json()
+    saved_path = Path(payload["path"])
+
+    assert response.status_code == 200
+    assert saved_path.parent == tmp_path.resolve()
+    assert saved_path.read_text(encoding="utf-8") == "hello log\n"

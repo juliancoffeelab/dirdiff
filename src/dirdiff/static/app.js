@@ -15,9 +15,17 @@ const summaryGrid = document.getElementById("summaryGrid");
 const resultPanel = document.getElementById("resultPanel");
 const prevHunkBtn = document.getElementById("prevHunkBtn");
 const nextHunkBtn = document.getElementById("nextHunkBtn");
-const DEBUG_SCROLL_ENABLED = new URLSearchParams(window.location.search).get("debug_scroll") === "1";
+const debugMenu = document.getElementById("debugMenu");
+const debugMenuToggle = document.getElementById("debugMenuToggle");
+const debugMenuPanel = document.getElementById("debugMenuPanel");
+const debugScrollToggle = document.getElementById("debugScrollToggle");
+const hunkScrollModeSelect = document.getElementById("hunkScrollModeSelect");
+const debugFpsValue = document.getElementById("debugFpsValue");
+const debugNodeCountValue = document.getElementById("debugNodeCountValue");
+const debugSpanCountValue = document.getElementById("debugSpanCountValue");
 
 const foldApi = window.fileDiffFolds || {};
+const debugQuery = new URLSearchParams(window.location.search);
 const BUILTIN_SIDES = new Set(["head", "index", "worktree"]);
 const MODE_TO_SIDES = {
     files: ["index", "worktree"],
@@ -58,6 +66,7 @@ const HUNK_HOLD_SUPPRESS_CLICK_MS = 420;
 const ROW_RENDER_BATCH_SIZE = 120;
 const EAGER_ROW_DECORATION_LIMIT = 140;
 const DECORATION_PREFETCH_MARGIN_PX = 600;
+const DEBUG_SETTINGS_KEY = "dirdiff.debug.settings";
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
 let activeDiffStream = null;
@@ -70,6 +79,35 @@ let deferredRowDecorationObserver = null;
 const deferredRowDecorations = new WeakMap();
 const pendingRowDecorationTargets = new Set();
 let rowDecorationFlushScheduled = false;
+let fpsSampleLastAt = performance.now();
+let fpsSampleFrames = 0;
+let fpsDisplayLastAt = fpsSampleLastAt;
+let fpsCurrentValue = 0;
+
+function loadStoredDebugSettings() {
+    try {
+        const payload = window.localStorage.getItem(DEBUG_SETTINGS_KEY);
+        if (!payload) {
+            return {};
+        }
+        const parsed = JSON.parse(payload);
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+const initialDebugSettings = loadStoredDebugSettings();
+const debugState = {
+    scrollDebug: debugQuery.get("debug_scroll") === "1" || !!initialDebugSettings.scrollDebug,
+    hunkScrollMode: (
+        initialDebugSettings.hunkScrollMode === "auto"
+        || initialDebugSettings.hunkScrollMode === "smooth"
+        || initialDebugSettings.hunkScrollMode === "browser"
+    )
+        ? initialDebugSettings.hunkScrollMode
+        : "browser",
+};
 
 function usesChromiumScrollBehavior() {
     const brands = navigator.userAgentData?.brands || [];
@@ -81,7 +119,19 @@ function usesChromiumScrollBehavior() {
     return /\b(?:Chrome|Chromium|Edg|OPR)\//.test(userAgent) && !/\bFirefox\//.test(userAgent);
 }
 
-const HUNK_SCROLL_BEHAVIOR = usesChromiumScrollBehavior() ? "auto" : "smooth";
+function persistDebugSettings() {
+    window.localStorage.setItem(DEBUG_SETTINGS_KEY, JSON.stringify({
+        scrollDebug: debugState.scrollDebug,
+        hunkScrollMode: debugState.hunkScrollMode,
+    }));
+}
+
+function getHunkScrollBehavior() {
+    if (debugState.hunkScrollMode === "auto" || debugState.hunkScrollMode === "smooth") {
+        return debugState.hunkScrollMode;
+    }
+    return usesChromiumScrollBehavior() ? "auto" : "smooth";
+}
 
 function copyDebugText(text) {
     if (navigator.clipboard?.writeText) {
@@ -99,8 +149,54 @@ function copyDebugText(text) {
     return Promise.resolve();
 }
 
+async function saveDebugLog(text) {
+    const response = await fetch("/api/save-log", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+        throw new Error(payload.error || "Failed to save debug log.");
+    }
+    return payload.path;
+}
+
 function formatDebugScrollLogEntry(entry) {
     return `${entry.t}ms [${entry.tag}] ${entry.message}`;
+}
+
+function formatMetricCount(value) {
+    return Number(value || 0).toLocaleString();
+}
+
+function updateDebugMetrics() {
+    if (debugFpsValue) {
+        debugFpsValue.textContent = fpsCurrentValue ? String(Math.round(fpsCurrentValue)) : "--";
+    }
+    if (debugNodeCountValue) {
+        debugNodeCountValue.textContent = formatMetricCount(document.querySelectorAll("*").length);
+    }
+    if (debugSpanCountValue) {
+        debugSpanCountValue.textContent = formatMetricCount(document.querySelectorAll("span").length);
+    }
+}
+
+function tickDebugFps(now) {
+    fpsSampleFrames += 1;
+    const elapsed = now - fpsSampleLastAt;
+    if (elapsed >= 400) {
+        fpsCurrentValue = (fpsSampleFrames * 1000) / elapsed;
+        fpsSampleLastAt = now;
+        fpsSampleFrames = 0;
+    }
+    if (now - fpsDisplayLastAt >= 900) {
+        updateDebugMetrics();
+        fpsDisplayLastAt = now;
+    }
+    requestAnimationFrame(tickDebugFps);
 }
 
 function updateDebugScrollPanel() {
@@ -113,7 +209,7 @@ function updateDebugScrollPanel() {
 }
 
 function appendDebugScrollLog(tag, message) {
-    if (!DEBUG_SCROLL_ENABLED) {
+    if (!debugState.scrollDebug) {
         return;
     }
     const entry = {
@@ -130,7 +226,7 @@ function appendDebugScrollLog(tag, message) {
 }
 
 function mountDebugScrollPanel() {
-    if (!DEBUG_SCROLL_ENABLED || debugScrollPanel) {
+    if (!debugState.scrollDebug || debugScrollPanel) {
         return;
     }
     debugScrollPanel = document.createElement("aside");
@@ -155,6 +251,20 @@ function mountDebugScrollPanel() {
         appendDebugScrollLog("debug", "Copied debug log");
     });
 
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "scroll-debug-download";
+    saveButton.textContent = "Save file";
+    saveButton.addEventListener("click", async () => {
+        const text = debugScrollLog.map(formatDebugScrollLogEntry).join("\n");
+        try {
+            const path = await saveDebugLog(text);
+            appendDebugScrollLog("debug", `Saved debug log to ${path}`);
+        } catch (error) {
+            appendDebugScrollLog("debug", error.message || "Failed to save debug log");
+        }
+    });
+
     const clearButton = document.createElement("button");
     clearButton.type = "button";
     clearButton.className = "scroll-debug-clear";
@@ -165,7 +275,7 @@ function mountDebugScrollPanel() {
         appendDebugScrollLog("debug", "Cleared log");
     });
 
-    actions.append(copyButton, clearButton);
+    actions.append(copyButton, saveButton, clearButton);
     header.append(title, actions);
 
     debugScrollBody = document.createElement("pre");
@@ -174,6 +284,133 @@ function mountDebugScrollPanel() {
     debugScrollPanel.append(header, debugScrollBody);
     document.body.append(debugScrollPanel);
     appendDebugScrollLog("debug", `Mounted panel at ${window.location.search || "?"}`);
+}
+
+function unmountDebugScrollPanel() {
+    if (!debugScrollPanel) {
+        return;
+    }
+    debugScrollPanel.remove();
+    debugScrollPanel = null;
+    debugScrollBody = null;
+}
+
+function syncDebugScrollPanelVisibility() {
+    if (debugState.scrollDebug) {
+        mountDebugScrollPanel();
+        return;
+    }
+    unmountDebugScrollPanel();
+}
+
+function setDebugScrollEnabled(enabled) {
+    debugState.scrollDebug = !!enabled;
+    persistDebugSettings();
+    syncDebugScrollPanelVisibility();
+    if (debugState.scrollDebug) {
+        appendDebugScrollLog("debug", "Enabled scroll debug");
+    }
+}
+
+function setHunkScrollMode(mode) {
+    if (!["browser", "smooth", "auto"].includes(mode)) {
+        return;
+    }
+    debugState.hunkScrollMode = mode;
+    persistDebugSettings();
+    if (debugState.scrollDebug) {
+        appendDebugScrollLog("debug", `Hunk scroll mode set to ${mode}`);
+    }
+}
+
+function syncDebugMenuControls() {
+    if (debugScrollToggle) {
+        debugScrollToggle.checked = debugState.scrollDebug;
+    }
+    if (hunkScrollModeSelect) {
+        hunkScrollModeSelect.value = debugState.hunkScrollMode;
+    }
+}
+
+function positionDebugMenuPanel() {
+    if (!debugMenuToggle || !debugMenuPanel || debugMenuPanel.hidden) {
+        return;
+    }
+
+    const margin = 16;
+    const rect = debugMenuToggle.getBoundingClientRect();
+    const panelWidth = debugMenuPanel.offsetWidth || 240;
+    const panelHeight = debugMenuPanel.offsetHeight || 220;
+    const left = Math.min(
+        Math.max(rect.left, margin),
+        Math.max(margin, window.innerWidth - panelWidth - margin),
+    );
+    const top = Math.min(
+        Math.max(rect.bottom + 10, margin),
+        Math.max(margin, window.innerHeight - panelHeight - margin),
+    );
+    debugMenuPanel.style.setProperty("--debug-menu-left", `${Math.round(left)}px`);
+    debugMenuPanel.style.setProperty("--debug-menu-top", `${Math.round(top)}px`);
+}
+
+function setDebugMenuOpen(open) {
+    if (!debugMenuToggle || !debugMenuPanel) {
+        return;
+    }
+    debugMenuToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    debugMenuPanel.hidden = !open;
+    if (open) {
+        requestAnimationFrame(positionDebugMenuPanel);
+    }
+}
+
+function setupDebugMenu() {
+    if (!debugMenu || !debugMenuToggle || !debugMenuPanel) {
+        return;
+    }
+
+    syncDebugMenuControls();
+    syncDebugScrollPanelVisibility();
+
+    debugMenuToggle.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const nextOpen = debugMenuPanel.hidden;
+        setDebugMenuOpen(nextOpen);
+    });
+
+    debugScrollToggle?.addEventListener("change", () => {
+        setDebugScrollEnabled(debugScrollToggle.checked);
+    });
+
+    hunkScrollModeSelect?.addEventListener("change", () => {
+        setHunkScrollMode(hunkScrollModeSelect.value);
+    });
+
+    debugMenuPanel.addEventListener("click", (event) => {
+        event.stopPropagation();
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!debugMenu.contains(event.target)) {
+            setDebugMenuOpen(false);
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            setDebugMenuOpen(false);
+        }
+    });
+
+    window.addEventListener("resize", () => {
+        if (!debugMenuPanel.hidden) {
+            positionDebugMenuPanel();
+        }
+    });
+
+    updateDebugMetrics();
+    window.setInterval(updateDebugMetrics, 1000);
+    requestAnimationFrame(tickDebugFps);
 }
 
 function escapeHtml(value) {
@@ -1935,9 +2172,9 @@ function navigateHunk(direction, { wrap = true } = {}) {
     );
     appendDebugScrollLog(
         "scrollTo",
-        `row.scrollIntoView hunk=${targetHunkIndex} block=center behavior=${HUNK_SCROLL_BEHAVIOR}`,
+        `row.scrollIntoView hunk=${targetHunkIndex} block=center behavior=${getHunkScrollBehavior()}`,
     );
-    targetRow.scrollIntoView({ block: "center", behavior: HUNK_SCROLL_BEHAVIOR });
+    targetRow.scrollIntoView({ block: "center", behavior: getHunkScrollBehavior() });
     return true;
 }
 
@@ -2476,7 +2713,7 @@ if (initialMode === "refs") {
     rightRefInput.value = initialRight;
 }
 syncModeUI();
-mountDebugScrollPanel();
+setupDebugMenu();
 attachAutocomplete(baseBranchInput, (query) => {
     const values = filterValues(
         listRemoteBranchChoices(refChoices, baseRemoteInput.value),

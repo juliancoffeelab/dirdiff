@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterator, Mapping
 from http import HTTPStatus
 from importlib.resources import files
@@ -24,6 +25,14 @@ RowStatus = Literal["equal", "replace", "insert", "delete", "fold"]
 
 class ErrorResponse(BaseModel):
     error: str
+
+
+class SaveLogRequest(BaseModel):
+    text: str
+
+
+class SaveLogResponse(BaseModel):
+    path: str
 
 
 class SyntaxSpanResponse(BaseModel):
@@ -210,6 +219,7 @@ def selected_branches(
 
 def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
     app = FastAPI()
+    asset_version = str(time.time_ns())
     app.mount(
         "/static",
         StaticFiles(packages=[("dirdiff", "static")]),
@@ -223,7 +233,29 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
             "__DEFAULTS_JSON__",
             json.dumps(defaults),
         )
+        html = html.replace("__ASSET_VERSION__", asset_version)
         return HTMLResponse(html)
+
+    @app.post(
+        "/api/save-log",
+        response_model=SaveLogResponse,
+        responses={
+            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+        },
+        summary="Save a debug log to the launch directory",
+    )
+    def save_log(payload: SaveLogRequest) -> SaveLogResponse | JSONResponse:
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        destination = service.cwd / f"dirdiff-scroll-debug-{timestamp}.log"
+        try:
+            destination.write_text(payload.text, encoding="utf-8")
+        except OSError as exc:
+            LOGGER.exception("Failed to save debug log: %s", exc)
+            return JSONResponse(
+                {"error": f"Failed to save debug log: {exc}"},
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+        return SaveLogResponse(path=str(destination))
 
     @app.get(
         "/api/diff",

@@ -5,13 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>dirdiff</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=__ASSET_VERSION__">
 </head>
 <body>
     <main class="page-shell">
         <header class="page-header">
             <div>
-                <p class="eyebrow">Standalone Tool</p>
+                <div class="eyebrow-row">
+                    <p class="eyebrow">Standalone Tool</p>
+                    <div class="debug-menu" id="debugMenu">
+                        <button
+                            type="button"
+                            class="debug-menu-toggle"
+                            id="debugMenuToggle"
+                            aria-haspopup="dialog"
+                            aria-expanded="false"
+                            aria-controls="debugMenuPanel"
+                            title="Debug settings"
+                        >
+                            Dev
+                        </button>
+                        <div class="debug-menu-panel" id="debugMenuPanel" hidden>
+                            <div class="debug-menu-header">
+                                <strong>Developer Controls</strong>
+                            </div>
+                            <label class="debug-menu-field debug-menu-checkbox">
+                                <input type="checkbox" id="debugScrollToggle">
+                                <span>Scroll debug log</span>
+                            </label>
+                            <label class="debug-menu-field">
+                                <span>Hunk scroll</span>
+                                <select id="hunkScrollModeSelect">
+                                    <option value="browser">Browser default</option>
+                                    <option value="smooth">Smooth</option>
+                                    <option value="auto">Instant</option>
+                                </select>
+                            </label>
+                            <div class="debug-menu-metrics">
+                                <div class="debug-metric">
+                                    <span class="debug-metric-label">FPS</span>
+                                    <strong class="debug-metric-value" id="debugFpsValue">--</strong>
+                                </div>
+                                <div class="debug-metric">
+                                    <span class="debug-metric-label">Nodes</span>
+                                    <strong class="debug-metric-value" id="debugNodeCountValue">--</strong>
+                                </div>
+                                <div class="debug-metric">
+                                    <span class="debug-metric-label">Spans</span>
+                                    <strong class="debug-metric-value" id="debugSpanCountValue">--</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <h1>dirdiff</h1>
                 <p class="subtitle">
                     Review Git changes side by side across branches, refs, and working tree states.
@@ -127,7 +173,7 @@
     <script>
         window.FILE_DIFF_DEFAULTS = __DEFAULTS_JSON__;
     </script>
-    <script src="/static/folds.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/folds.js?v=__ASSET_VERSION__"></script>
+    <script src="/static/app.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>
