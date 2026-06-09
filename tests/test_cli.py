@@ -1,48 +1,31 @@
 from __future__ import annotations
 
 import argparse
+import json
 import socket
 import subprocess
-import threading
 from pathlib import Path
-from urllib.error import HTTPError
-from urllib.request import urlopen
 
-from dirdiff.cli import build_defaults, create_server
+from fastapi.testclient import TestClient
+
+from dirdiff.cli import build_defaults, choose_port
 from dirdiff.diff import TextDiffService
+from dirdiff.server import create_app
 
 
-def test_create_server_uses_next_port_when_requested_port_is_busy() -> None:
+def test_choose_port_uses_next_port_when_requested_port_is_busy() -> None:
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     occupied.bind(("127.0.0.1", 0))
     occupied.listen()
     requested_port = occupied.getsockname()[1]
 
-    service = TextDiffService(repo_root=None)
-    defaults = {
-        "mode": "files",
-        "left": "index",
-        "right": "worktree",
-        "base_branch": "",
-        "branch": "",
-        "ref_choices": {
-            "builtins": [],
-            "locals": [],
-            "remotes": [],
-        },
-        "repo_available": False,
-    }
-
     try:
-        server = create_server(requested_port, service, defaults)
+        actual_port = choose_port(requested_port)
     finally:
         occupied.close()
 
-    try:
-        assert server.server_address[1] > requested_port
-    finally:
-        server.server_close()
+    assert actual_port > requested_port
 
 
 def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
@@ -74,7 +57,7 @@ def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
             left="index",
             right="worktree",
             base_branch=None,
-            branch=None,
+            review_branch=None,
             repo_root=None,
             port=5052,
             no_open_browser=False,
@@ -84,7 +67,7 @@ def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
 
     assert defaults["mode"] == "files"
     assert defaults["base_branch"] == "master"
-    assert defaults["branch"] == "feature"
+    assert defaults["review_branch"] == "feature"
     assert defaults["ref_choices"]["locals"] == ["feature", "master"]
     assert defaults["ref_choices"]["builtins"] == ["head", "index", "worktree"]
     assert defaults["ref_choices"]["remotes"] == []
@@ -121,7 +104,7 @@ def test_build_defaults_keeps_review_branch_selected_even_on_master(
             left="index",
             right="worktree",
             base_branch=None,
-            branch=None,
+            review_branch=None,
             repo_root=None,
             port=5052,
             no_open_browser=False,
@@ -131,7 +114,7 @@ def test_build_defaults_keeps_review_branch_selected_even_on_master(
 
     assert defaults["mode"] == "files"
     assert defaults["base_branch"] == "master"
-    assert defaults["branch"] == "feature"
+    assert defaults["review_branch"] == "feature"
     assert defaults["ref_choices"]["locals"] == ["feature", "master"]
 
 
@@ -176,7 +159,7 @@ def test_build_defaults_prefers_remote_qualified_branch_review_refs(
             left="index",
             right="worktree",
             base_branch=None,
-            branch=None,
+            review_branch=None,
             repo_root=None,
             port=5052,
             no_open_browser=False,
@@ -185,7 +168,7 @@ def test_build_defaults_prefers_remote_qualified_branch_review_refs(
     )
 
     assert defaults["base_branch"] == "origin/master"
-    assert defaults["branch"] == "origin/feature"
+    assert defaults["review_branch"] == "origin/feature"
 
 
 def test_diff_stream_endpoint_emits_progress_events(tmp_path: Path) -> None:
@@ -215,31 +198,19 @@ def test_diff_stream_endpoint_emits_progress_events(tmp_path: Path) -> None:
             left="index",
             right="worktree",
             base_branch=None,
-            branch=None,
+            review_branch=None,
             repo_root=None,
             port=5052,
             no_open_browser=False,
             headless=False,
         ),
     )
-    server = create_server(0, service, defaults)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    try:
-        port = server.server_address[1]
-        with urlopen(f"http://127.0.0.1:{port}/api/diff-stream?mode=files&left=index&right=worktree") as response:
-            lines = []
-            while len(lines) < 6:
-                raw_line = response.readline()
-                assert raw_line
-                line = raw_line.decode("utf-8").strip()
-                if line:
-                    lines.append(line)
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
-        server.server_close()
+    client = TestClient(create_app(service, defaults))
+    response = client.get(
+        "/api/diff-stream",
+        params={"mode": "files", "left": "index", "right": "worktree"},
+    )
+    lines = [line for line in response.text.splitlines() if line]
 
     assert lines[0] == "event: init"
     assert lines[1].startswith("data: ")
@@ -277,34 +248,33 @@ def test_diff_check_blocks_large_repo_load_without_force(tmp_path: Path) -> None
             left="index",
             right="worktree",
             base_branch=None,
-            branch=None,
+            review_branch=None,
             repo_root=None,
             port=5052,
             no_open_browser=False,
             headless=False,
         ),
     )
-    server = create_server(0, service, defaults)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    client = TestClient(create_app(service, defaults))
+    response = client.get(
+        "/api/diff",
+        params={"mode": "files", "left": "index", "right": "worktree", "check": "1"},
+    )
+    payload = response.json()
+    assert response.status_code == 400
 
-    try:
-        port = server.server_address[1]
-        try:
-            urlopen(f"http://127.0.0.1:{port}/api/diff?mode=files&left=index&right=worktree&check=1")
-        except HTTPError as exc:
-            payload = exc.read().decode("utf-8")
-            assert exc.code == 400
-        else:
-            raise AssertionError("expected large diff check to be rejected")
+    forced_response = client.get(
+        "/api/diff",
+        params={
+            "mode": "files",
+            "left": "index",
+            "right": "worktree",
+            "force": "1",
+            "check": "1",
+        },
+    )
+    forced_payload = forced_response.json()
 
-        with urlopen(f"http://127.0.0.1:{port}/api/diff?mode=files&left=index&right=worktree&force=1&check=1") as response:
-            forced_payload = response.read().decode("utf-8")
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
-        server.server_close()
-
-    assert '"can_force": true' in payload
-    assert "11 changed files" in payload
-    assert '"ok": true' in forced_payload
+    assert payload["can_force"] is True
+    assert "11 changed files" in payload["error"]
+    assert forced_payload == {"ok": True}

@@ -1023,8 +1023,8 @@ async function fetchNotebookSection(filePayload, { section, cellKey = null }) {
     if (state.baseBranch) {
         params.set("base_branch", state.baseBranch);
     }
-    if (state.branch) {
-        params.set("branch", state.branch);
+    if (state.reviewBranch) {
+        params.set("review_branch", state.reviewBranch);
     }
     if (filePayload.left_path) {
         params.set("left_path", filePayload.left_path);
@@ -1464,8 +1464,8 @@ async function fetchFileDiff(entry) {
     if (state.baseBranch) {
         params.set("base_branch", state.baseBranch);
     }
-    if (state.branch) {
-        params.set("branch", state.branch);
+    if (state.reviewBranch) {
+        params.set("review_branch", state.reviewBranch);
     }
     if (entry.left_path) {
         params.set("left_path", entry.left_path);
@@ -1869,8 +1869,8 @@ async function loadDiffWithOptions(options = {}) {
     if (state.baseBranch) {
         params.set("base_branch", state.baseBranch);
     }
-    if (state.branch) {
-        params.set("branch", state.branch);
+    if (state.reviewBranch) {
+        params.set("review_branch", state.reviewBranch);
     }
     setForceParam(params, !!options.force);
     history.replaceState({}, "", `/?${params.toString()}`);
@@ -2157,16 +2157,16 @@ function getControlState() {
             };
         }
         const baseBranch = qualifyRemoteRef(baseRemote, baseBranchValue, remoteNames);
-        const branch = qualifyRemoteRef(branchRemote, branchValue, remoteNames);
+        const reviewBranch = qualifyRemoteRef(branchRemote, branchValue, remoteNames);
         return {
             valid: true,
             mode,
             left: "",
             right: "",
             baseBranch,
-            branch,
+            reviewBranch,
             baseBranchLabel: baseBranchValue,
-            branchLabel: branchValue,
+            reviewBranchLabel: branchValue,
         };
     }
 
@@ -2177,7 +2177,7 @@ function getControlState() {
         left,
         right,
         baseBranch: "",
-        branch: "",
+        reviewBranch: "",
     };
 }
 
@@ -2193,8 +2193,8 @@ function buildStatusMessage(state, payload) {
     }
     if (state.mode === "branch-review") {
         const baseBranch = state.baseBranchLabel || state.baseBranch || "master";
-        const branch = state.branchLabel || state.branch;
-        return `${branch} vs ${baseBranch}`;
+        const reviewBranch = state.reviewBranchLabel || state.reviewBranch;
+        return `${reviewBranch} vs ${baseBranch}`;
     }
     return `${payload.left_label} vs ${payload.right_label}`;
 }
@@ -2261,7 +2261,7 @@ const refChoices = defaults.ref_choices || {
 };
 const remoteNames = refChoices.remote_names || [];
 const initialBaseBranchRef = search.get("base_branch") || defaults.base_branch || "";
-const initialBranchRef = search.get("branch") || defaults.branch || "";
+const initialBranchRef = search.get("review_branch") || defaults.review_branch || "";
 const initialBaseBranchParts = splitRemoteQualifiedRef(initialBaseBranchRef, remoteNames);
 const initialBranchParts = splitRemoteQualifiedRef(initialBranchRef, remoteNames);
 baseRemoteInput.value = initialBaseBranchParts.remote;
