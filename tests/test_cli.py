@@ -135,6 +135,59 @@ def test_build_defaults_keeps_review_branch_selected_even_on_master(
     assert defaults["ref_choices"]["locals"] == ["feature", "master"]
 
 
+def test_build_defaults_prefers_remote_qualified_branch_review_refs(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/master", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/feature", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    defaults = build_defaults(
+        service,
+        argparse.Namespace(
+            left="index",
+            right="worktree",
+            base_branch=None,
+            branch=None,
+            repo_root=None,
+            port=5052,
+            no_open_browser=False,
+            headless=False,
+        ),
+    )
+
+    assert defaults["base_branch"] == "origin/master"
+    assert defaults["branch"] == "origin/feature"
+
+
 def test_diff_stream_endpoint_emits_progress_events(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(

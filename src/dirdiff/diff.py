@@ -1611,19 +1611,42 @@ class TextDiffService:
             }
         )
 
+    def list_remote_names(self) -> list[str]:
+        return sorted(
+            {
+                ref.split("/", 1)[0]
+                for ref in self.list_remote_ref_names()
+                if "/" in ref
+            }
+        )
+
     def list_ref_choices(self) -> dict[str, list[str]]:
         return {
             "builtins": ["head", "index", "worktree"],
             "locals": self.list_branch_names(),
             "remotes": self.list_remote_ref_names(),
-            "remote_names": sorted(
-                {
-                    ref.split("/", 1)[0]
-                    for ref in self.list_remote_ref_names()
-                    if "/" in ref
-                }
-            ),
+            "remote_names": self.list_remote_names(),
         }
+
+    def default_remote_name(self) -> str:
+        remote_names = self.list_remote_names()
+        if "origin" in remote_names:
+            return "origin"
+        return remote_names[0] if remote_names else ""
+
+    def branch_upstream_name(self, branch_name: str) -> str:
+        normalized_branch = branch_name.strip()
+        if not normalized_branch or self.repo_root is None:
+            return ""
+        result = self._run_git_text(
+            [
+                "for-each-ref",
+                "--format=%(upstream:short)",
+                f"refs/heads/{normalized_branch}",
+            ],
+            check=False,
+        )
+        return result.stdout.strip()
 
     def default_base_branch(self) -> str:
         branch_names = self.list_branch_names()

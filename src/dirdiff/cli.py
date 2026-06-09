@@ -83,6 +83,23 @@ def _build_url(port: int, defaults: dict[str, Any]) -> str:
 def build_defaults(service: TextDiffService, args: argparse.Namespace) -> dict[str, Any]:
     default_base_branch = service.default_base_branch()
     review_branch = service.preferred_review_branch(base_branch=default_base_branch)
+    default_remote = service.default_remote_name()
+    default_base_ref = (
+        service.branch_upstream_name(default_base_branch)
+        or (
+            f"{default_remote}/{default_base_branch}"
+            if default_remote and default_base_branch
+            else default_base_branch
+        )
+    )
+    review_branch_ref = (
+        service.branch_upstream_name(review_branch)
+        or (
+            f"{default_remote}/{review_branch}"
+            if default_remote and review_branch
+            else review_branch
+        )
+    )
     initial_mode = "files"
     if args.branch:
         initial_mode = "branch-review"
@@ -93,8 +110,8 @@ def build_defaults(service: TextDiffService, args: argparse.Namespace) -> dict[s
         "mode": initial_mode,
         "left": args.left,
         "right": args.right,
-        "base_branch": args.base_branch or default_base_branch,
-        "branch": args.branch or review_branch,
+        "base_branch": args.base_branch or default_base_ref,
+        "branch": args.branch or review_branch_ref,
         "ref_choices": service.list_ref_choices(),
         "repo_available": bool(service.repo_root),
     }

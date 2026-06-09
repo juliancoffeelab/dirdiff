@@ -36,6 +36,7 @@ const REF_SECTION_LABELS = {
     locals: "Local branches",
     remotes: "Remote refs",
     remote_names: "Remotes",
+    remote_branches: "Remote branches",
 };
 const hunkNavState = {
     activeHunkIndex: null,
@@ -355,7 +356,31 @@ function filterRefChoices(refChoices, query, sections) {
     return filtered;
 }
 
-function attachAutocomplete(input, refChoices, sections) {
+function listRemoteBranchChoices(refChoices, remoteName) {
+    const normalizedRemote = remoteName.trim();
+    if (!normalizedRemote) {
+        return [];
+    }
+    const prefix = `${normalizedRemote}/`;
+    return [...new Set(
+        (refChoices.remotes || [])
+            .filter((value) => value.startsWith(prefix))
+            .map((value) => value.slice(prefix.length))
+            .filter(Boolean),
+    )].sort();
+}
+
+function filterValues(values, query) {
+    const needle = query.trim().toLowerCase();
+    return values.filter((value) => {
+        if (!needle) {
+            return true;
+        }
+        return value.toLowerCase().includes(needle);
+    });
+}
+
+function attachAutocomplete(input, refChoicesOrResolver, sections) {
     const host = input.closest("label");
     if (!host) {
         return;
@@ -375,7 +400,9 @@ function attachAutocomplete(input, refChoices, sections) {
     };
 
     const openPanel = () => {
-        const groups = filterRefChoices(refChoices, input.value, sections);
+        const groups = typeof refChoicesOrResolver === "function"
+            ? refChoicesOrResolver(input.value)
+            : filterRefChoices(refChoicesOrResolver, input.value, sections);
         panel.replaceChildren();
         if (!groups.length) {
             closePanel();
@@ -2095,14 +2122,38 @@ function getControlState() {
         const branchRemote = branchRemoteInput.value.trim();
         const baseBranchValue = baseBranchInput.value.trim();
         const branchValue = branchInput.value.trim();
-        const baseBranch = qualifyRemoteRef(baseRemote, baseBranchValue, remoteNames);
-        const branch = qualifyRemoteRef(branchRemote, branchValue, remoteNames);
+        if (!remoteNames.length) {
+            return {
+                valid: false,
+                message: "Branch review needs at least one remote.",
+            };
+        }
+        if (!baseRemote) {
+            return {
+                valid: false,
+                message: "Pick a base remote.",
+            };
+        }
+        if (!baseBranchValue) {
+            return {
+                valid: false,
+                message: "Pick a base branch.",
+            };
+        }
+        if (!branchRemote) {
+            return {
+                valid: false,
+                message: "Pick a branch remote.",
+            };
+        }
         if (!branchValue) {
             return {
                 valid: false,
                 message: "Pick a branch to compare against the base branch.",
             };
         }
+        const baseBranch = qualifyRemoteRef(baseRemote, baseBranchValue, remoteNames);
+        const branch = qualifyRemoteRef(branchRemote, branchValue, remoteNames);
         return {
             valid: true,
             mode,
@@ -2226,8 +2277,20 @@ if (initialMode === "refs") {
 }
 syncModeUI();
 mountDebugScrollPanel();
-attachAutocomplete(baseBranchInput, refChoices, ["locals"]);
-attachAutocomplete(branchInput, refChoices, ["locals"]);
+attachAutocomplete(baseBranchInput, (query) => {
+    const values = filterValues(
+        listRemoteBranchChoices(refChoices, baseRemoteInput.value),
+        query,
+    );
+    return values.length ? [["remote_branches", values]] : [];
+});
+attachAutocomplete(branchInput, (query) => {
+    const values = filterValues(
+        listRemoteBranchChoices(refChoices, branchRemoteInput.value),
+        query,
+    );
+    return values.length ? [["remote_branches", values]] : [];
+});
 attachAutocomplete(baseRemoteInput, refChoices, ["remote_names"]);
 attachAutocomplete(branchRemoteInput, refChoices, ["remote_names"]);
 attachAutocomplete(leftRefInput, refChoices, ["builtins", "locals", "remotes"]);
