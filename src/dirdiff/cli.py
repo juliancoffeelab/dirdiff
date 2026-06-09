@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import errno
+import json
 import logging
 import os
 import socket
 import sys
 import threading
 import webbrowser
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -19,6 +21,16 @@ import uvicorn
 
 DEFAULT_PORT = 5052
 PORT_FALLBACK_ATTEMPTS = 20
+RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    left: str = "index"
+    right: str = "worktree"
+    base_branch: str | None = None
+    review_branch: str | None = None
+    repo_root: str | None = None
 
 
 def configure_logging() -> None:
@@ -84,9 +96,16 @@ def _build_url(port: int, defaults: dict[str, Any]) -> str:
     return f"http://127.0.0.1:{port}/?{urlencode(query, quote_via=quote)}"
 
 
-def build_defaults(service: TextDiffService, args: argparse.Namespace) -> dict[str, Any]:
+def build_defaults(
+    service: TextDiffService,
+    *,
+    left: str = "index",
+    right: str = "worktree",
+    base_branch: str | None = None,
+    review_branch: str | None = None,
+) -> dict[str, Any]:
     default_base_branch = service.default_base_branch()
-    review_branch = service.preferred_review_branch(base_branch=default_base_branch)
+    preferred_review_branch = service.preferred_review_branch(base_branch=default_base_branch)
     default_remote = service.default_remote_name()
     default_base_ref = (
         service.branch_upstream_name(default_base_branch)
@@ -97,28 +116,63 @@ def build_defaults(service: TextDiffService, args: argparse.Namespace) -> dict[s
         )
     )
     review_branch_ref = (
-        service.branch_upstream_name(review_branch)
+        service.branch_upstream_name(preferred_review_branch)
         or (
-            f"{default_remote}/{review_branch}"
-            if default_remote and review_branch
-            else review_branch
+            f"{default_remote}/{preferred_review_branch}"
+            if default_remote and preferred_review_branch
+            else preferred_review_branch
         )
     )
     initial_mode = "files"
-    if args.review_branch:
+    if review_branch:
         initial_mode = "branch-review"
-    elif args.left != "index" or args.right != "worktree":
+    elif left != "index" or right != "worktree":
         initial_mode = "refs"
 
     return {
         "mode": initial_mode,
-        "left": args.left,
-        "right": args.right,
-        "base_branch": args.base_branch or default_base_ref,
-        "review_branch": args.review_branch or review_branch_ref,
+        "left": left,
+        "right": right,
+        "base_branch": base_branch or default_base_ref,
+        "review_branch": review_branch or review_branch_ref,
         "ref_choices": service.list_ref_choices(),
         "repo_available": bool(service.repo_root),
     }
+
+
+def runtime_config_from_args(args: argparse.Namespace) -> RuntimeConfig:
+    return RuntimeConfig(
+        left=args.left,
+        right=args.right,
+        base_branch=args.base_branch,
+        review_branch=args.review_branch,
+        repo_root=args.repo_root,
+    )
+
+
+def store_runtime_config(config: RuntimeConfig) -> None:
+    os.environ[RUNTIME_CONFIG_ENV] = json.dumps(asdict(config))
+
+
+def load_runtime_config() -> RuntimeConfig:
+    payload = os.environ.get(RUNTIME_CONFIG_ENV)
+    if not payload:
+        return RuntimeConfig()
+    return RuntimeConfig(**json.loads(payload))
+
+
+def create_app_from_runtime_config() -> Any:
+    config = load_runtime_config()
+    repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
+    service = TextDiffService.discover(repo_root=repo_root)
+    defaults = build_defaults(
+        service,
+        left=config.left,
+        right=config.right,
+        base_branch=config.base_branch,
+        review_branch=config.review_branch,
+    )
+    return create_app(service, defaults)
 
 
 def choose_port(requested_port: int) -> int:
@@ -142,9 +196,16 @@ def choose_port(requested_port: int) -> int:
 def main() -> None:
     configure_logging()
     args = parse_args()
-    repo_root = Path(args.repo_root).expanduser() if args.repo_root else None
+    config = runtime_config_from_args(args)
+    repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
     service = TextDiffService.discover(repo_root=repo_root)
-    defaults = build_defaults(service, args)
+    defaults = build_defaults(
+        service,
+        left=config.left,
+        right=config.right,
+        base_branch=config.base_branch,
+        review_branch=config.review_branch,
+    )
 
     actual_port = choose_port(args.port)
     url = _build_url(actual_port, defaults)
@@ -156,10 +217,16 @@ def main() -> None:
     if not (args.no_open_browser or args.headless):
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
 
+    store_runtime_config(config)
+
     uvicorn.run(
-        create_app(service, defaults),
+        "dirdiff.cli:create_app_from_runtime_config",
         host="127.0.0.1",
         port=actual_port,
+        factory=True,
+        reload=True,
+        reload_dirs=[str(Path(__file__).resolve().parent)],
+        reload_includes=["*.py", "*.html", "*.js", "*.css"],
         log_config=None,
         access_log=False,
     )

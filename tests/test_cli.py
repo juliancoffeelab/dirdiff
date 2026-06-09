@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-import argparse
-import json
 import socket
 import subprocess
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from dirdiff.cli import build_defaults, choose_port
+from dirdiff.cli import (
+    RUNTIME_CONFIG_ENV,
+    RuntimeConfig,
+    build_defaults,
+    choose_port,
+    create_app_from_runtime_config,
+    load_runtime_config,
+    store_runtime_config,
+)
 from dirdiff.diff import TextDiffService
 from dirdiff.server import create_app
 
@@ -26,6 +32,21 @@ def test_choose_port_uses_next_port_when_requested_port_is_busy() -> None:
         occupied.close()
 
     assert actual_port > requested_port
+
+
+def test_runtime_config_round_trips_through_environment(monkeypatch) -> None:
+    monkeypatch.delenv(RUNTIME_CONFIG_ENV, raising=False)
+    config = RuntimeConfig(
+        left="HEAD~1",
+        right="HEAD",
+        base_branch="origin/main",
+        review_branch="origin/feature",
+        repo_root="/tmp/repo",
+    )
+
+    store_runtime_config(config)
+
+    assert load_runtime_config() == config
 
 
 def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
@@ -51,19 +72,7 @@ def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
     subprocess.run(["git", "checkout", "-b", "feature"], cwd=tmp_path, check=True, capture_output=True)
 
     service = TextDiffService.discover(cwd=tmp_path)
-    defaults = build_defaults(
-        service,
-        argparse.Namespace(
-            left="index",
-            right="worktree",
-            base_branch=None,
-            review_branch=None,
-            repo_root=None,
-            port=5052,
-            no_open_browser=False,
-            headless=False,
-        ),
-    )
+    defaults = build_defaults(service)
 
     assert defaults["mode"] == "files"
     assert defaults["base_branch"] == "master"
@@ -72,6 +81,40 @@ def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
     assert defaults["ref_choices"]["builtins"] == ["head", "index", "worktree"]
     assert defaults["ref_choices"]["remotes"] == []
     assert defaults["ref_choices"]["remote_names"] == []
+
+
+def test_create_app_from_runtime_config_uses_stored_repo_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    store_runtime_config(
+        RuntimeConfig(
+            repo_root=str(tmp_path),
+        )
+    )
+
+    client = TestClient(create_app_from_runtime_config())
+    response = client.get("/api/diff")
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "repo"
 
 
 def test_build_defaults_keeps_review_branch_selected_even_on_master(
@@ -98,19 +141,7 @@ def test_build_defaults_keeps_review_branch_selected_even_on_master(
     subprocess.run(["git", "checkout", "master"], cwd=tmp_path, check=True, capture_output=True)
 
     service = TextDiffService.discover(cwd=tmp_path)
-    defaults = build_defaults(
-        service,
-        argparse.Namespace(
-            left="index",
-            right="worktree",
-            base_branch=None,
-            review_branch=None,
-            repo_root=None,
-            port=5052,
-            no_open_browser=False,
-            headless=False,
-        ),
-    )
+    defaults = build_defaults(service)
 
     assert defaults["mode"] == "files"
     assert defaults["base_branch"] == "master"
@@ -153,19 +184,7 @@ def test_build_defaults_prefers_remote_qualified_branch_review_refs(
     )
 
     service = TextDiffService.discover(cwd=tmp_path)
-    defaults = build_defaults(
-        service,
-        argparse.Namespace(
-            left="index",
-            right="worktree",
-            base_branch=None,
-            review_branch=None,
-            repo_root=None,
-            port=5052,
-            no_open_browser=False,
-            headless=False,
-        ),
-    )
+    defaults = build_defaults(service)
 
     assert defaults["base_branch"] == "origin/master"
     assert defaults["review_branch"] == "origin/feature"
@@ -192,19 +211,7 @@ def test_diff_stream_endpoint_emits_progress_events(tmp_path: Path) -> None:
     tracked_file.write_text("one changed\n", encoding="utf-8")
 
     service = TextDiffService.discover(cwd=tmp_path)
-    defaults = build_defaults(
-        service,
-        argparse.Namespace(
-            left="index",
-            right="worktree",
-            base_branch=None,
-            review_branch=None,
-            repo_root=None,
-            port=5052,
-            no_open_browser=False,
-            headless=False,
-        ),
-    )
+    defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
     response = client.get(
         "/api/diff-stream",
@@ -240,19 +247,7 @@ def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
 
     service = TextDiffService.discover(cwd=tmp_path)
-    defaults = build_defaults(
-        service,
-        argparse.Namespace(
-            left="index",
-            right="worktree",
-            base_branch=None,
-            review_branch=None,
-            repo_root=None,
-            port=5052,
-            no_open_browser=False,
-            headless=False,
-        ),
-    )
+    defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
 
     response = client.get("/docs")
@@ -281,19 +276,7 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
 
     service = TextDiffService.discover(cwd=tmp_path)
-    defaults = build_defaults(
-        service,
-        argparse.Namespace(
-            left="index",
-            right="worktree",
-            base_branch=None,
-            review_branch=None,
-            repo_root=None,
-            port=5052,
-            no_open_browser=False,
-            headless=False,
-        ),
-    )
+    defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
 
     response = client.get("/openapi.json")
