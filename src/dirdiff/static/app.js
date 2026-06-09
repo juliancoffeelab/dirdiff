@@ -71,6 +71,18 @@ const deferredRowDecorations = new WeakMap();
 const pendingRowDecorationTargets = new Set();
 let rowDecorationFlushScheduled = false;
 
+function usesChromiumScrollBehavior() {
+    const brands = navigator.userAgentData?.brands || [];
+    if (brands.some(({ brand }) => /\b(?:Chromium|Google Chrome|Microsoft Edge|Opera)\b/i.test(brand))) {
+        return true;
+    }
+
+    const userAgent = navigator.userAgent || "";
+    return /\b(?:Chrome|Chromium|Edg|OPR)\//.test(userAgent) && !/\bFirefox\//.test(userAgent);
+}
+
+const HUNK_SCROLL_BEHAVIOR = usesChromiumScrollBehavior() ? "auto" : "smooth";
+
 function copyDebugText(text) {
     if (navigator.clipboard?.writeText) {
         return navigator.clipboard.writeText(text);
@@ -1923,9 +1935,9 @@ function navigateHunk(direction, { wrap = true } = {}) {
     );
     appendDebugScrollLog(
         "scrollTo",
-        `row.scrollIntoView hunk=${targetHunkIndex} block=center behavior=smooth`,
+        `row.scrollIntoView hunk=${targetHunkIndex} block=center behavior=${HUNK_SCROLL_BEHAVIOR}`,
     );
-    targetRow.scrollIntoView({ block: "center", behavior: "smooth" });
+    targetRow.scrollIntoView({ block: "center", behavior: HUNK_SCROLL_BEHAVIOR });
     return true;
 }
 
