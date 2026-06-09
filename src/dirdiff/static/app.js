@@ -1240,6 +1240,7 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
         payload.mode === "git" ? "Notebook-aware Git-backed file diff" : "Notebook-aware file diff";
 
     const titleWrap = document.createElement("div");
+    titleWrap.className = "file-card-heading";
     titleWrap.append(title, subtitle);
 
     const badges = document.createElement("div");
@@ -1255,11 +1256,17 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
 
     const headerActions = document.createElement("div");
     headerActions.className = "file-card-header-actions";
-    headerActions.append(makeFileCollapseToggle(card, body), badges);
+    headerActions.append(badges);
 
     const header = document.createElement("div");
     header.className = "file-card-header";
     header.append(titleWrap, headerActions);
+    header.prepend(
+        makeCollapsibleHeader(card, header, body, {
+            expandedLabel: `Collapse file ${payload.display_name}`,
+            collapsedLabel: `Expand file ${payload.display_name}`,
+        }),
+    );
     card.append(header);
 
     const renderPromises = [];
@@ -1355,6 +1362,7 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
             : "Git-backed file diff";
 
     const titleWrap = document.createElement("div");
+    titleWrap.className = "file-card-heading";
     titleWrap.append(title, subtitle);
 
     const badges = document.createElement("div");
@@ -1378,11 +1386,17 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
 
     const headerActions = document.createElement("div");
     headerActions.className = "file-card-header-actions";
-    headerActions.append(makeFileCollapseToggle(card, body), badges);
+    headerActions.append(badges);
 
     const header = document.createElement("div");
     header.className = "file-card-header";
     header.append(titleWrap, headerActions);
+    header.prepend(
+        makeCollapsibleHeader(card, header, body, {
+            expandedLabel: `Collapse file ${payload.display_name}`,
+            collapsedLabel: `Expand file ${payload.display_name}`,
+        }),
+    );
     card.append(header);
     const { wrapper, nextHunkIndex, renderPromise } = renderSideBySide(
         payload.rows,
@@ -1433,15 +1447,17 @@ function renderResult(payload) {
             return;
         }
 
+        const repoView = makeRepoGroupView();
+        resultPanel.append(repoView.controls, repoView.groupsHost);
         let nextHunkIndex = 0;
         payload.files.forEach((entry) => {
             if (entry.error) {
-                resultPanel.append(makeErrorCard(entry));
+                repoView.appendEntry(entry, makeErrorCard(entry));
                 return;
             }
             const result = makeFileCard(entry, nextHunkIndex, renderPassId);
             nextHunkIndex = result.nextHunkIndex;
-            resultPanel.append(result.card);
+            repoView.appendEntry(entry, result.card);
         });
         return;
     }
@@ -1511,6 +1527,8 @@ function beginRepoStream(initialPayload) {
     resultPanel.replaceChildren();
     renderSummary(initialPayload.summary, initialPayload.mode);
     syncSelectedHunk(null);
+    const repoView = makeRepoGroupView();
+    resultPanel.append(repoView.controls, repoView.groupsHost);
 
     const payload = {
             ...initialPayload,
@@ -1521,6 +1539,7 @@ function beginRepoStream(initialPayload) {
         payload,
         nextHunkIndex: 0,
         renderPassId,
+        repoView,
     };
 }
 
@@ -1531,13 +1550,13 @@ function appendRepoStreamEntry(streamState, entry, summary) {
     renderSummary(summary, streamState.payload.mode);
 
     if (entry.error) {
-        resultPanel.append(makeErrorCard(entry));
+        streamState.repoView.appendEntry(entry, makeErrorCard(entry));
         return;
     }
 
     const result = makeFileCard(entry, streamState.nextHunkIndex, streamState.renderPassId);
     streamState.nextHunkIndex = result.nextHunkIndex;
-    resultPanel.append(result.card);
+    streamState.repoView.appendEntry(entry, result.card);
 }
 
 function isVisibleHunkAnchor(row) {
@@ -1655,40 +1674,178 @@ function clearActiveHunkSelection() {
     syncSelectedHunk(null);
 }
 
-function makeFileCollapseToggle(card, body) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "file-collapse-toggle";
-
-    const icon = document.createElement("span");
-    icon.className = "file-collapse-toggle-icon";
-    icon.setAttribute("aria-hidden", "true");
-
-    const text = document.createElement("span");
-    text.className = "file-collapse-toggle-text";
+function makeCollapsibleHeader(
+    container,
+    header,
+    body,
+    {
+        indicatorClassName = "file-collapse-indicator",
+        expandedLabel = "Collapse section",
+        collapsedLabel = "Expand section",
+    } = {},
+) {
+    const indicator = document.createElement("span");
+    indicator.className = indicatorClassName;
+    indicator.setAttribute("aria-hidden", "true");
 
     const bodyId = `file-card-body-${++nextFileCardBodyId}`;
     body.id = bodyId;
-    button.setAttribute("aria-controls", bodyId);
+    header.classList.add("collapsible-header");
+    header.tabIndex = 0;
+    header.setAttribute("role", "button");
+    header.setAttribute("aria-controls", bodyId);
 
     function setExpanded(expanded) {
         body.hidden = !expanded;
-        card.classList.toggle("is-collapsed", !expanded);
-        button.setAttribute("aria-expanded", expanded ? "true" : "false");
-        icon.textContent = expanded ? "▾" : "▸";
-        text.textContent = expanded ? "Fold file" : "Show file";
+        container.classList.toggle("is-collapsed", !expanded);
+        header.setAttribute("aria-expanded", expanded ? "true" : "false");
+        header.setAttribute("aria-label", expanded ? expandedLabel : collapsedLabel);
+        indicator.textContent = expanded ? "▾" : "▸";
     }
 
-    button.append(icon, text);
+    header.setExpanded = setExpanded;
     setExpanded(true);
-    button.addEventListener("click", () => {
+
+    function toggleExpanded() {
         const nextExpanded = body.hidden;
         if (!nextExpanded) {
             clearActiveHunkSelection();
         }
         setExpanded(nextExpanded);
+    }
+
+    header.addEventListener("click", toggleExpanded);
+    header.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+            return;
+        }
+        event.preventDefault();
+        toggleExpanded();
     });
-    return button;
+    return indicator;
+}
+
+function setExpandablesExpanded(expandables, expanded) {
+    if (!expanded) {
+        clearActiveHunkSelection();
+    }
+    expandables.forEach((expandable) => {
+        if (typeof expandable.setExpanded === "function") {
+            expandable.setExpanded(expanded);
+        }
+    });
+}
+
+function entryDirectoryPath(entry) {
+    const pathCandidate = String(entry.right_path || entry.left_path || entry.display_name || "").trim();
+    const normalizedPath = pathCandidate.includes(" -> ")
+        ? pathCandidate.split(" -> ").at(-1).trim()
+        : pathCandidate;
+    const lastSlash = normalizedPath.lastIndexOf("/");
+    return lastSlash >= 0 ? normalizedPath.slice(0, lastSlash) : "";
+}
+
+function entryDirectoryLabel(entry) {
+    return entryDirectoryPath(entry) || "root files";
+}
+
+function makeDirectoryGroup(label) {
+    const section = document.createElement("section");
+    section.className = "directory-group";
+    const body = document.createElement("div");
+    body.className = "directory-group-body";
+
+    const title = document.createElement("h2");
+    title.className = "directory-group-title";
+    title.textContent = label;
+
+    const countBadge = badge("0 files", "badge-neutral");
+    let itemCount = 0;
+
+    const headerActions = document.createElement("div");
+    headerActions.className = "directory-group-actions";
+    headerActions.append(countBadge);
+
+    const header = document.createElement("div");
+    header.className = "directory-group-header";
+
+    const heading = document.createElement("div");
+    heading.className = "directory-group-heading";
+    heading.append(
+        makeCollapsibleHeader(section, header, body, {
+            indicatorClassName: "directory-collapse-indicator",
+            expandedLabel: `Collapse directory ${label}`,
+            collapsedLabel: `Expand directory ${label}`,
+        }),
+        title,
+    );
+
+    header.append(heading, headerActions);
+
+    section.append(header, body);
+    return {
+        section,
+        body,
+        append(node) {
+            itemCount += 1;
+            countBadge.textContent = `${itemCount} file${itemCount === 1 ? "" : "s"}`;
+            body.append(node);
+        },
+    };
+}
+
+function makeRepoGroupView() {
+    const controls = document.createElement("div");
+    controls.className = "repo-fold-controls";
+
+    const foldAllButton = document.createElement("button");
+    foldAllButton.type = "button";
+    foldAllButton.className = "file-collapse-toggle repo-collapse-toggle";
+    foldAllButton.textContent = "Fold all";
+
+    const showAllButton = document.createElement("button");
+    showAllButton.type = "button";
+    showAllButton.className = "file-collapse-toggle repo-collapse-toggle";
+    showAllButton.textContent = "Show all";
+
+    const groupsHost = document.createElement("div");
+    groupsHost.className = "directory-groups";
+    const directoryGroups = new Map();
+
+    function allExpandables() {
+        return [
+            ...groupsHost.querySelectorAll(".directory-group-header"),
+            ...groupsHost.querySelectorAll(".file-card-header"),
+        ];
+    }
+
+    foldAllButton.addEventListener("click", () => {
+        setExpandablesExpanded(allExpandables(), false);
+    });
+    showAllButton.addEventListener("click", () => {
+        setExpandablesExpanded(allExpandables(), true);
+    });
+
+    controls.append(foldAllButton, showAllButton);
+
+    function ensureGroup(entry) {
+        const label = entryDirectoryLabel(entry);
+        let group = directoryGroups.get(label);
+        if (!group) {
+            group = makeDirectoryGroup(label);
+            directoryGroups.set(label, group);
+            groupsHost.append(group.section);
+        }
+        return group;
+    }
+
+    return {
+        controls,
+        groupsHost,
+        appendEntry(entry, node) {
+            ensureGroup(entry).append(node);
+        },
+    };
 }
 
 function getActiveHunkRowForNavigation(viewportCenter) {

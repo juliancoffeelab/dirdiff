@@ -387,15 +387,112 @@ button {
     gap: 16px;
     align-items: start;
     margin-bottom: 14px;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+
+.collapsible-header {
+    cursor: pointer;
+}
+
+.collapsible-header:focus-visible {
+    outline: 2px solid rgba(125, 211, 252, 0.8);
+    outline-offset: 4px;
 }
 
 .file-card.is-collapsed .file-card-header {
     margin-bottom: 0;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+}
+
+.file-card.is-collapsed .file-card-heading {
+    min-width: 0;
+}
+
+.file-card.is-collapsed .file-subtitle,
+.file-card.is-collapsed .file-card-header-actions {
+    display: none;
 }
 
 .file-card-body {
     display: grid;
     gap: 0;
+}
+
+.repo-fold-controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+}
+
+.directory-groups {
+    display: grid;
+    gap: 16px;
+}
+
+.directory-group {
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(8, 16, 31, 0.6);
+    box-shadow: 0 12px 28px rgba(4, 10, 30, 0.18);
+    padding: 16px;
+}
+
+.directory-group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+
+.directory-group.is-collapsed .directory-group-header {
+    margin-bottom: 0;
+}
+
+.directory-group-title {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+}
+
+.directory-group-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.directory-group-body {
+    display: grid;
+    gap: 16px;
+    margin-top: 14px;
+}
+
+.directory-group-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 .file-card-header-actions {
@@ -404,6 +501,34 @@ button {
     align-items: center;
     justify-content: flex-end;
     gap: 10px;
+}
+
+.file-card-heading {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.file-collapse-indicator,
+.directory-collapse-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    min-width: 26px;
+    height: 26px;
+    margin-top: 2px;
+    border-radius: 999px;
+    background: rgba(125, 211, 252, 0.1);
+    color: var(--accent);
+    font-size: 0.92rem;
+    line-height: 1;
+}
+
+.file-card-header:hover .file-collapse-indicator,
+.file-card-header:focus-visible .file-collapse-indicator,
+.directory-group-header:hover .directory-collapse-indicator,
+.directory-group-header:focus-visible .directory-collapse-indicator {
+    background: rgba(125, 211, 252, 0.18);
 }
 
 .file-title {
