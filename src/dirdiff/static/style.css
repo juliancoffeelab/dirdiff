@@ -389,6 +389,23 @@ button {
     margin-bottom: 14px;
 }
 
+.file-card.is-collapsed .file-card-header {
+    margin-bottom: 0;
+}
+
+.file-card-body {
+    display: grid;
+    gap: 0;
+}
+
+.file-card-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
 .file-title {
     margin: 0;
     font-size: 1.1rem;
@@ -404,6 +421,7 @@ button {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    justify-content: flex-end;
 }
 
 .badge {
@@ -435,6 +453,32 @@ button {
 .badge-modified {
     background: rgba(251, 191, 36, 0.18);
     color: #f5d574;
+}
+
+.file-collapse-toggle {
+    min-height: 34px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(12, 19, 39, 0.92);
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.file-collapse-toggle:hover,
+.file-collapse-toggle:focus-visible {
+    background: rgba(56, 189, 248, 0.14);
+    color: var(--text);
+}
+
+.file-collapse-toggle-icon {
+    color: var(--accent);
+    font-size: 0.92rem;
+    line-height: 1;
 }
 
 .notebook-cells {

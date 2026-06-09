@@ -1227,6 +1227,8 @@ function makeNotebookCellCard(
 function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPass) {
     const card = document.createElement("article");
     card.className = "file-card notebook-file-card";
+    const body = document.createElement("div");
+    body.className = "file-card-body";
 
     const title = document.createElement("h2");
     title.className = "file-title";
@@ -1251,9 +1253,13 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
         badges.append(badge("notebook metadata changed", "badge-neutral"));
     }
 
+    const headerActions = document.createElement("div");
+    headerActions.className = "file-card-header-actions";
+    headerActions.append(makeFileCollapseToggle(card, body), badges);
+
     const header = document.createElement("div");
     header.className = "file-card-header";
-    header.append(titleWrap, badges);
+    header.append(titleWrap, headerActions);
     card.append(header);
 
     const renderPromises = [];
@@ -1291,7 +1297,7 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
                 return metadataSection.host;
             },
         );
-        card.append(metadataDetails.details);
+        body.append(metadataDetails.details);
     }
 
     const cellsHost = document.createElement("div");
@@ -1313,7 +1319,8 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
         empty.textContent = "No changed cells detected for the selected notebook sides.";
         cellsHost.append(empty);
     }
-    card.append(cellsHost);
+    body.append(cellsHost);
+    card.append(body);
 
     return {
         card,
@@ -1329,6 +1336,8 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
 
     const card = document.createElement("article");
     card.className = "file-card";
+    const body = document.createElement("div");
+    body.className = "file-card-body";
 
     const title = document.createElement("h2");
     title.className = "file-title";
@@ -1367,9 +1376,13 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
     }
     badges.append(...badgeNodes);
 
+    const headerActions = document.createElement("div");
+    headerActions.className = "file-card-header-actions";
+    headerActions.append(makeFileCollapseToggle(card, body), badges);
+
     const header = document.createElement("div");
     header.className = "file-card-header";
-    header.append(titleWrap, badges);
+    header.append(titleWrap, headerActions);
     card.append(header);
     const { wrapper, nextHunkIndex, renderPromise } = renderSideBySide(
         payload.rows,
@@ -1379,7 +1392,8 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
         payload.fold_hints || [],
         renderPassId,
     );
-    card.append(wrapper);
+    body.append(wrapper);
+    card.append(body);
 
     return {
         card,
@@ -1533,6 +1547,7 @@ function isVisibleHunkAnchor(row) {
 let hunkAnchorRows = [];
 const hunkRowsByIndex = new Map();
 let selectedHunkIndex = null;
+let nextFileCardBodyId = 0;
 
 function resetHunkCaches() {
     hunkAnchorRows = [];
@@ -1632,6 +1647,48 @@ function syncSelectedHunk(index) {
     }
 
     selectedHunkIndex = nextIndex;
+}
+
+function clearActiveHunkSelection() {
+    hunkNavState.activeHunkIndex = null;
+    hunkNavState.lastNavAt = 0;
+    syncSelectedHunk(null);
+}
+
+function makeFileCollapseToggle(card, body) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "file-collapse-toggle";
+
+    const icon = document.createElement("span");
+    icon.className = "file-collapse-toggle-icon";
+    icon.setAttribute("aria-hidden", "true");
+
+    const text = document.createElement("span");
+    text.className = "file-collapse-toggle-text";
+
+    const bodyId = `file-card-body-${++nextFileCardBodyId}`;
+    body.id = bodyId;
+    button.setAttribute("aria-controls", bodyId);
+
+    function setExpanded(expanded) {
+        body.hidden = !expanded;
+        card.classList.toggle("is-collapsed", !expanded);
+        button.setAttribute("aria-expanded", expanded ? "true" : "false");
+        icon.textContent = expanded ? "▾" : "▸";
+        text.textContent = expanded ? "Fold file" : "Show file";
+    }
+
+    button.append(icon, text);
+    setExpanded(true);
+    button.addEventListener("click", () => {
+        const nextExpanded = body.hidden;
+        if (!nextExpanded) {
+            clearActiveHunkSelection();
+        }
+        setExpanded(nextExpanded);
+    });
+    return button;
 }
 
 function getActiveHunkRowForNavigation(viewportCenter) {
