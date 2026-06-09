@@ -13,6 +13,7 @@ const rightRefInput = document.getElementById("rightRefInput");
 const statusText = document.getElementById("statusText");
 const summaryGrid = document.getElementById("summaryGrid");
 const resultPanel = document.getElementById("resultPanel");
+const topHunkBtn = document.getElementById("topHunkBtn");
 const prevHunkBtn = document.getElementById("prevHunkBtn");
 const nextHunkBtn = document.getElementById("nextHunkBtn");
 const debugMenu = document.getElementById("debugMenu");
@@ -2659,10 +2660,18 @@ function shouldIgnoreHunkNavKeyEvent(event) {
         || target.closest("input, textarea, select, [contenteditable='true']");
 }
 
+function scrollToTop() {
+    window.scrollTo({
+        top: 0,
+        behavior: getHunkScrollBehavior(),
+    });
+}
+
 window.addEventListener("blur", () => {
     stopHunkHold();
 });
 
+topHunkBtn.addEventListener("click", scrollToTop);
 bindHunkButton(prevHunkBtn, "prev");
 bindHunkButton(nextHunkBtn, "next");
 
@@ -2670,7 +2679,10 @@ window.addEventListener("keydown", (event) => {
     if (shouldIgnoreHunkNavKeyEvent(event)) {
         return;
     }
-    if (event.key === "n" && !event.shiftKey) {
+    if (event.key === "Home") {
+        event.preventDefault();
+        scrollToTop();
+    } else if (event.key === "n" && !event.shiftKey) {
         navigateHunk("next");
     } else if (event.key === "N") {
         navigateHunk("prev");
