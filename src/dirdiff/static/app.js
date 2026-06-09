@@ -399,12 +399,6 @@ function setupDebugMenu() {
         event.stopPropagation();
     });
 
-    document.addEventListener("click", (event) => {
-        if (!debugMenu.contains(event.target)) {
-            setDebugMenuOpen(false);
-        }
-    });
-
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
             setDebugMenuOpen(false);
