@@ -220,7 +220,7 @@ def test_diff_stream_endpoint_emits_progress_events(tmp_path: Path) -> None:
     assert lines[5].startswith("data: ")
 
 
-def test_diff_check_blocks_large_repo_load_without_force(tmp_path: Path) -> None:
+def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -234,12 +234,10 @@ def test_diff_check_blocks_large_repo_load_without_force(tmp_path: Path) -> None
         check=True,
         capture_output=True,
     )
-    for index in range(11):
-        (tmp_path / f"file-{index}.txt").write_text(f"{index}\n", encoding="utf-8")
-    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
-    for index in range(11):
-        (tmp_path / f"file-{index}.txt").write_text(f"{index}\nchanged\n", encoding="utf-8")
 
     service = TextDiffService.discover(cwd=tmp_path)
     defaults = build_defaults(
@@ -256,25 +254,58 @@ def test_diff_check_blocks_large_repo_load_without_force(tmp_path: Path) -> None
         ),
     )
     client = TestClient(create_app(service, defaults))
-    response = client.get(
-        "/api/diff",
-        params={"mode": "files", "left": "index", "right": "worktree", "check": "1"},
-    )
-    payload = response.json()
-    assert response.status_code == 400
 
-    forced_response = client.get(
-        "/api/diff",
-        params={
-            "mode": "files",
-            "left": "index",
-            "right": "worktree",
-            "force": "1",
-            "check": "1",
-        },
-    )
-    forced_payload = forced_response.json()
+    response = client.get("/docs")
 
-    assert payload["can_force"] is True
-    assert "11 changed files" in payload["error"]
-    assert forced_payload == {"ok": True}
+    assert response.status_code == 200
+    assert "Swagger UI" in response.text
+
+
+def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    defaults = build_defaults(
+        service,
+        argparse.Namespace(
+            left="index",
+            right="worktree",
+            base_branch=None,
+            review_branch=None,
+            repo_root=None,
+            port=5052,
+            no_open_browser=False,
+            headless=False,
+        ),
+    )
+    client = TestClient(create_app(service, defaults))
+
+    response = client.get("/openapi.json")
+    spec = response.json()
+
+    assert response.status_code == 200
+    assert "/api/diff" in spec["paths"]
+    assert "/api/file-diff" in spec["paths"]
+    assert "RepoDiffResponse" in spec["components"]["schemas"]
+    assert "TextFileDiffResponse" in spec["components"]["schemas"]
+    assert "NotebookSectionDiffResponse" in spec["components"]["schemas"]
+    diff_params = spec["paths"]["/api/diff"]["get"]["parameters"]
+    assert next(param for param in diff_params if param["name"] == "mode")["schema"]["default"] == "files"
+    assert next(param for param in diff_params if param["name"] == "left")["schema"]["default"] == "index"
+    assert next(param for param in diff_params if param["name"] == "right")["schema"]["default"] == "worktree"

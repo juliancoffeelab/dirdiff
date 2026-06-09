@@ -164,14 +164,6 @@ function mountDebugScrollPanel() {
     appendDebugScrollLog("debug", `Mounted panel at ${window.location.search || "?"}`);
 }
 
-function setForceParam(params, force) {
-    if (force) {
-        params.set("force", "1");
-    } else {
-        params.delete("force");
-    }
-}
-
 function escapeHtml(value) {
     const node = document.createElement("div");
     node.textContent = value;
@@ -1849,7 +1841,7 @@ async function loadDiff() {
     return loadDiffWithOptions({});
 }
 
-async function loadDiffWithOptions(options = {}) {
+async function loadDiffWithOptions() {
     const params = new URLSearchParams();
     const state = getControlState();
     if (!state.valid) {
@@ -1872,7 +1864,6 @@ async function loadDiffWithOptions(options = {}) {
     if (state.reviewBranch) {
         params.set("review_branch", state.reviewBranch);
     }
-    setForceParam(params, !!options.force);
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
     resetHunkCaches();
@@ -1881,17 +1872,6 @@ async function loadDiffWithOptions(options = {}) {
 
     try {
         if (shouldStreamDiff(state)) {
-            const checkParams = new URLSearchParams(params);
-            checkParams.set("check", "1");
-            const checkResponse = await fetch(`/api/diff?${checkParams.toString()}`);
-            const checkPayload = await checkResponse.json();
-            if (loadToken !== activeLoadToken) {
-                return;
-            }
-            if (!checkResponse.ok) {
-                renderLoadError(state, checkPayload.error || "Failed to load diff.", params, checkPayload);
-                return;
-            }
             streamDiff(params, state, loadToken);
             return;
         }
@@ -1901,7 +1881,7 @@ async function loadDiffWithOptions(options = {}) {
             return;
         }
         if (!response.ok) {
-            renderLoadError(state, payload.error || "Failed to load diff.", params, payload);
+            renderLoadError(state, payload.error || "Failed to load diff.");
             return;
         }
 
@@ -1913,11 +1893,11 @@ async function loadDiffWithOptions(options = {}) {
         if (loadToken !== activeLoadToken) {
             return;
         }
-        renderLoadError(state, error.message, params);
+        renderLoadError(state, error.message);
     }
 }
 
-function renderLoadError(state, message, params, payload = null) {
+function renderLoadError(state, message) {
     summaryGrid.replaceChildren();
     resultPanel.replaceChildren();
     resetHunkCaches();
@@ -1926,18 +1906,8 @@ function renderLoadError(state, message, params, payload = null) {
     const box = document.createElement("div");
     box.className = "error-state";
     box.textContent = message;
-    if (payload?.can_force) {
-        box.append(" ");
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = "Show anyway";
-        button.addEventListener("click", () => {
-            loadDiffWithOptions({ force: true });
-        });
-        box.append(button);
-    }
     resultPanel.append(box);
-    setStatus(payload?.can_force ? "Large diff blocked" : message, true);
+    setStatus(message, true);
     closeActiveDiffStream();
 }
 
