@@ -17,10 +17,7 @@ const prevHunkBtn = document.getElementById("prevHunkBtn");
 const nextHunkBtn = document.getElementById("nextHunkBtn");
 const DEBUG_SCROLL_ENABLED = new URLSearchParams(window.location.search).get("debug_scroll") === "1";
 
-const rowSyncApi = window.fileDiffRowSync || {};
 const foldApi = window.fileDiffFolds || {};
-const registeredRowSyncs = window.__fileDiffRowSyncHandlers
-    || (window.__fileDiffRowSyncHandlers = new Set());
 const BUILTIN_SIDES = new Set(["head", "index", "worktree"]);
 const MODE_TO_SIDES = {
     files: ["index", "worktree"],
@@ -68,7 +65,6 @@ let currentPayload = null;
 let debugScrollLog = [];
 let debugScrollPanel = null;
 let debugScrollBody = null;
-let lastScrollAt = 0;
 let deferredRowDecorationObserver = null;
 const deferredRowDecorations = new WeakMap();
 const pendingRowDecorationTargets = new Set();
@@ -173,56 +169,6 @@ function setForceParam(params, force) {
     } else {
         params.delete("force");
     }
-}
-
-if (!window.__fileDiffRowSyncListenerBound) {
-    window.addEventListener("resize", () => {
-        for (const syncRows of registeredRowSyncs) {
-            syncRows();
-        }
-    });
-    window.__fileDiffRowSyncListenerBound = true;
-}
-
-function registerRowSync(syncRows) {
-    registeredRowSyncs.add(syncRows);
-    return () => {
-        registeredRowSyncs.delete(syncRows);
-    };
-}
-
-function makeScheduledRowSync(leftLines, rightLines) {
-    let frameId = 0;
-    let unregister = () => {};
-
-    const runSync = () => {
-        frameId = 0;
-        if (!document.body.contains(leftLines) || !document.body.contains(rightLines)) {
-            appendDebugScrollLog("rowSync", "Skipped run for detached diff panes");
-            unregister();
-            return;
-        }
-        const msSinceScroll = performance.now() - lastScrollAt;
-        if (msSinceScroll < 140) {
-            appendDebugScrollLog("rowSync", `Deferred sync during active scroll (${Math.round(msSinceScroll)}ms)`);
-            frameId = requestAnimationFrame(runSync);
-            return;
-        }
-        const leftRows = rowSyncApi.collectDirectDiffRows?.(leftLines).length ?? 0;
-        const rightRows = rowSyncApi.collectDirectDiffRows?.(rightLines).length ?? 0;
-        appendDebugScrollLog("rowSync", `Running sync for ${leftRows}/${rightRows} rows at scrollY=${Math.round(window.scrollY)}`);
-        rowSyncApi.syncDiffRowHeights?.(leftLines, rightLines);
-    };
-
-    unregister = registerRowSync(runSync);
-
-    return () => {
-        if (frameId) {
-            cancelAnimationFrame(frameId);
-        }
-        appendDebugScrollLog("rowSync", `Scheduled sync at scrollY=${Math.round(window.scrollY)}`);
-        frameId = requestAnimationFrame(runSync);
-    };
 }
 
 function escapeHtml(value) {
@@ -654,38 +600,21 @@ function schedulePendingRowDecorationFlush() {
     });
 }
 
-function makeDiffRow(
+function makeDiffSide(
     row,
     side,
-    markHunkAnchor = false,
-    hunkIndex = null,
+    sideLabel,
     { deferDecoration = false } = {},
 ) {
-    const rowEl = document.createElement("div");
-    rowEl.className = `diff-row ${row.status}`;
-    rowEl.classList.add(`side-${side}`);
+    const sideEl = document.createElement("div");
+    sideEl.className = `diff-side side-${side}`;
+    sideEl.dataset.sideLabel = sideLabel;
 
     if (
         (row.status === "insert" && side === "left")
         || (row.status === "delete" && side === "right")
     ) {
-        rowEl.classList.add("empty-side");
-    }
-    if (
-        markHunkAnchor
-        && (row.status === "insert" || row.status === "delete" || row.status === "replace")
-    ) {
-        rowEl.classList.add("hunk-anchor");
-    }
-    if (Number.isInteger(hunkIndex)) {
-        rowEl.dataset.hunkIndex = String(hunkIndex);
-        rowEl.classList.add("hunk-anchor-row");
-        const rows = hunkRowsByIndex.get(hunkIndex) || [];
-        rows.push(rowEl);
-        hunkRowsByIndex.set(hunkIndex, rows);
-    }
-    if (markHunkAnchor) {
-        hunkAnchorRows.push(rowEl);
+        sideEl.classList.add("empty-side");
     }
 
     const noEl = document.createElement("div");
@@ -698,20 +627,6 @@ function makeDiffRow(
     const tokens = side === "left" ? row.left_tokens : row.right_tokens;
     const text = side === "left" ? row.left_text : row.right_text;
     const syntaxSpans = side === "left" ? row.left_syntax : row.right_syntax;
-    const hasNonWhitespaceTokenChanges = Boolean(
-        tokens?.some((tok) => tok.changed && !tok.is_ws),
-    );
-    const hasWhitespaceOnlyChanges = Boolean(
-        tokens?.length
-        && tokens.some((tok) => tok.changed)
-        && !hasNonWhitespaceTokenChanges,
-    );
-
-    if (hasWhitespaceOnlyChanges) {
-        rowEl.classList.add("whitespace-only-change");
-        rowEl.title = "Leading whitespace changed";
-        noEl.title = "Leading whitespace changed";
-    }
 
     if (deferDecoration) {
         queueDeferredRowDecoration(codeEl, text || " ", syntaxSpans, tokens);
@@ -719,7 +634,69 @@ function makeDiffRow(
         applyRowDecoration(codeEl, text || " ", syntaxSpans, tokens);
     }
 
-    rowEl.append(noEl, codeEl);
+    sideEl.append(noEl, codeEl);
+    return sideEl;
+}
+
+function makeDiffRow(
+    row,
+    leftLabel,
+    rightLabel,
+    markHunkAnchor = false,
+    hunkIndex = null,
+    { deferDecoration = false } = {},
+) {
+    const rowEl = document.createElement("div");
+    rowEl.className = `diff-row ${row.status}`;
+
+    if (
+        markHunkAnchor
+        && (row.status === "insert" || row.status === "delete" || row.status === "replace")
+    ) {
+        rowEl.classList.add("hunk-anchor");
+        hunkAnchorRows.push(rowEl);
+    }
+    if (Number.isInteger(hunkIndex)) {
+        rowEl.dataset.hunkIndex = String(hunkIndex);
+        rowEl.classList.add("hunk-anchor-row");
+        hunkRowsByIndex.set(hunkIndex, [rowEl]);
+    }
+
+    const changedTokens = [
+        ...(row.left_tokens || []),
+        ...(row.right_tokens || []),
+    ];
+    const hasNonWhitespaceTokenChanges = changedTokens.some(
+        (tok) => tok.changed && !tok.is_ws,
+    );
+    const hasWhitespaceOnlyChanges = changedTokens.length
+        && changedTokens.some((tok) => tok.changed)
+        && !hasNonWhitespaceTokenChanges;
+
+    if (hasWhitespaceOnlyChanges) {
+        rowEl.classList.add("whitespace-only-change");
+        rowEl.title = "Leading whitespace changed";
+    }
+
+    const leftSide = makeDiffSide(
+        row,
+        "left",
+        leftLabel,
+        { deferDecoration },
+    );
+    const rightSide = makeDiffSide(
+        row,
+        "right",
+        rightLabel,
+        { deferDecoration },
+    );
+
+    if (hasWhitespaceOnlyChanges) {
+        leftSide.querySelector(".line-no")?.setAttribute("title", "Leading whitespace changed");
+        rightSide.querySelector(".line-no")?.setAttribute("title", "Leading whitespace changed");
+    }
+
+    rowEl.append(leftSide, rightSide);
     return rowEl;
 }
 
@@ -727,14 +704,25 @@ function isChangedRowStatus(status) {
     return status === "insert" || status === "delete" || status === "replace";
 }
 
-function makeFoldBar(count, label = "") {
+function makeFoldBarSide(count, label = "", sideLabel) {
     const bar = document.createElement("div");
-    bar.className = "diff-row fold-bar";
+    bar.className = "diff-side fold-side";
+    bar.dataset.sideLabel = sideLabel;
     let text = `... ${count} line${count !== 1 ? "s" : ""}`;
     if (label) {
         text = `... ${count} line${count !== 1 ? "s" : ""} in ${label}`;
     }
     bar.innerHTML = `<div class="line-no">..</div><div class="fold-label">${escapeHtml(text)}</div>`;
+    return bar;
+}
+
+function makeFoldBar(count, leftLabel, rightLabel, label = "") {
+    const bar = document.createElement("div");
+    bar.className = "diff-row fold-bar";
+    bar.append(
+        makeFoldBarSide(count, label, leftLabel),
+        makeFoldBarSide(count, label, rightLabel),
+    );
     return bar;
 }
 
@@ -774,64 +762,52 @@ function countHunkAnchors(rows) {
 
 async function appendRenderedRowsInBatches(
     processedRows,
-    leftLines,
-    rightLines,
-    scheduleRowSync,
+    rowsHost,
+    leftLabel,
+    rightLabel,
     startHunkIndex,
     renderPassId,
 ) {
     let nextHunkIndex = startHunkIndex;
     let renderIndex = 0;
     let cursor = 0;
-    let lastLeftRow = leftLines.lastElementChild;
-    let lastRightRow = rightLines.lastElementChild;
+    let lastRow = rowsHost.lastElementChild;
 
     while (cursor < processedRows.length) {
         if (renderPassId !== activeRenderPass) {
             return;
         }
 
-        const leftFragment = document.createDocumentFragment();
-        const rightFragment = document.createDocumentFragment();
+        const rowsFragment = document.createDocumentFragment();
         const batchEnd = Math.min(cursor + ROW_RENDER_BATCH_SIZE, processedRows.length);
 
         for (; cursor < batchEnd; cursor += 1) {
             const row = processedRows[cursor];
 
             if (row.status === "elided") {
-                const leftBar = makeFoldBar(row.count, row.label);
-                const rightBar = makeFoldBar(row.count, row.label);
-                leftFragment.append(leftBar);
-                rightFragment.append(rightBar);
-                lastLeftRow = leftBar;
-                lastRightRow = rightBar;
+                const foldBar = makeFoldBar(row.count, leftLabel, rightLabel, row.label);
+                rowsFragment.append(foldBar);
+                lastRow = foldBar;
                 continue;
             }
 
             if (row.status === "fold") {
-                const leftBar = makeFoldBar(row.count, row.label);
-                const rightBar = makeFoldBar(row.count, row.label);
-                const leftExpandedRows = [];
-                const rightExpandedRows = [];
-                const leftSignatureRow = lastLeftRow;
-                const rightSignatureRow = lastRightRow;
-                const leftBarAnchor = document.createComment("fold-bar-anchor");
-                const rightBarAnchor = document.createComment("fold-bar-anchor");
+                const foldBar = makeFoldBar(row.count, leftLabel, rightLabel, row.label);
+                const expandedRows = [];
+                const signatureRow = lastRow;
+                const barAnchor = document.createComment("fold-bar-anchor");
                 let expanded = false;
 
-                leftFragment.append(leftBar);
-                leftFragment.append(leftBarAnchor);
-                rightFragment.append(rightBar);
-                rightFragment.append(rightBarAnchor);
-                lastLeftRow = leftBar;
-                lastRightRow = rightBar;
+                rowsFragment.append(foldBar);
+                rowsFragment.append(barAnchor);
+                lastRow = foldBar;
 
-                if (!leftSignatureRow || !rightSignatureRow) {
+                if (!signatureRow) {
                     continue;
                 }
 
-                const leftNo = leftSignatureRow.querySelector(".line-no");
-                const rightNo = rightSignatureRow.querySelector(".line-no");
+                const leftNo = signatureRow.querySelector(".diff-side.side-left .line-no");
+                const rightNo = signatureRow.querySelector(".diff-side.side-right .line-no");
                 if (!leftNo || !rightNo) {
                     continue;
                 }
@@ -842,58 +818,38 @@ async function appendRenderedRowsInBatches(
                 leftNo.prepend(leftToggleIcon);
                 rightNo.prepend(rightToggleIcon);
 
-                leftSignatureRow.classList.add("fold-toggle-row");
-                rightSignatureRow.classList.add("fold-toggle-row");
-                leftSignatureRow.title = "Toggle fold";
-                rightSignatureRow.title = "Toggle fold";
+                signatureRow.classList.add("fold-toggle-row");
+                signatureRow.title = "Toggle fold";
 
-                setInlineFoldState(leftSignatureRow, false);
-                setInlineFoldState(rightSignatureRow, false);
+                setInlineFoldState(signatureRow, false);
 
                 function toggleFold() {
                     expanded = !expanded;
                     if (expanded) {
                         row.foldedRows.forEach((foldedRow) => {
-                            const leftNode = makeDiffRow(
+                            const rowNode = makeDiffRow(
                                 foldedRow,
-                                "left",
+                                leftLabel,
+                                rightLabel,
                                 false,
                                 null,
                                 { deferDecoration: false },
                             );
-                            const rightNode = makeDiffRow(
-                                foldedRow,
-                                "right",
-                                false,
-                                null,
-                                { deferDecoration: false },
-                            );
-                            leftExpandedRows.push(leftNode);
-                            rightExpandedRows.push(rightNode);
-                            leftLines.insertBefore(leftNode, leftBarAnchor);
-                            rightLines.insertBefore(rightNode, rightBarAnchor);
+                            expandedRows.push(rowNode);
+                            rowsHost.insertBefore(rowNode, barAnchor);
                         });
-                        leftBar.remove();
-                        rightBar.remove();
-                        setInlineFoldState(leftSignatureRow, true);
-                        setInlineFoldState(rightSignatureRow, true);
-                        queueMicrotask(scheduleRowSync);
+                        foldBar.remove();
+                        setInlineFoldState(signatureRow, true);
                         return;
                     }
 
-                    leftExpandedRows.splice(0).forEach((node) => node.remove());
-                    rightExpandedRows.splice(0).forEach((node) => node.remove());
-                    leftLines.insertBefore(leftBar, leftBarAnchor);
-                    rightLines.insertBefore(rightBar, rightBarAnchor);
-                    setInlineFoldState(leftSignatureRow, false);
-                    setInlineFoldState(rightSignatureRow, false);
-                    scheduleRowSync();
+                    expandedRows.splice(0).forEach((node) => node.remove());
+                    rowsHost.insertBefore(foldBar, barAnchor);
+                    setInlineFoldState(signatureRow, false);
                 }
 
-                leftBar.addEventListener("click", toggleFold);
-                rightBar.addEventListener("click", toggleFold);
-                leftSignatureRow.addEventListener("click", toggleFold);
-                rightSignatureRow.addEventListener("click", toggleFold);
+                foldBar.addEventListener("click", toggleFold);
+                signatureRow.addEventListener("click", toggleFold);
                 continue;
             }
 
@@ -904,37 +860,25 @@ async function appendRenderedRowsInBatches(
             const anchorIndex = markHunkAnchor ? nextHunkIndex++ : null;
             const deferDecoration =
                 row.status === "equal" && renderIndex >= EAGER_ROW_DECORATION_LIMIT;
-            const leftNode = makeDiffRow(
+            const rowNode = makeDiffRow(
                 row,
-                "left",
+                leftLabel,
+                rightLabel,
                 markHunkAnchor,
                 anchorIndex,
                 { deferDecoration },
             );
-            const rightNode = makeDiffRow(
-                row,
-                "right",
-                false,
-                anchorIndex,
-                { deferDecoration },
-            );
-
-            leftFragment.append(leftNode);
-            rightFragment.append(rightNode);
-            lastLeftRow = leftNode;
-            lastRightRow = rightNode;
+            rowsFragment.append(rowNode);
+            lastRow = rowNode;
             renderIndex += 1;
         }
 
-        leftLines.append(leftFragment);
-        rightLines.append(rightFragment);
+        rowsHost.append(rowsFragment);
 
         if (cursor < processedRows.length) {
             await yieldToBrowser();
         }
     }
-
-    queueMicrotask(scheduleRowSync);
 }
 
 function renderSideBySide(
@@ -949,29 +893,22 @@ function renderSideBySide(
     const wrapper = document.createElement("div");
     wrapper.className = "diff-grid";
 
-    const leftPane = document.createElement("section");
-    leftPane.className = "diff-pane";
-    leftPane.innerHTML = `<div class="diff-pane-header">${escapeHtml(leftLabel)}</div>`;
-    const leftLines = document.createElement("div");
-    leftLines.className = "diff-lines";
-
-    const rightPane = document.createElement("section");
-    rightPane.className = "diff-pane";
-    rightPane.innerHTML = `<div class="diff-pane-header">${escapeHtml(rightLabel)}</div>`;
-    const rightLines = document.createElement("div");
-    rightLines.className = "diff-lines";
-
-    const scheduleRowSync = makeScheduledRowSync(leftLines, rightLines);
+    const header = document.createElement("div");
+    header.className = "diff-header-row";
+    header.innerHTML = `
+        <div class="diff-pane-header diff-side-header">${escapeHtml(leftLabel)}</div>
+        <div class="diff-pane-header diff-side-header">${escapeHtml(rightLabel)}</div>
+    `;
+    const rowsHost = document.createElement("div");
+    rowsHost.className = "diff-lines";
     const nextHunkIndex = startHunkIndex + countHunkAnchors(processedRows);
 
-    leftPane.append(leftLines);
-    rightPane.append(rightLines);
-    wrapper.append(leftPane, rightPane);
+    wrapper.append(header, rowsHost);
     const renderPromise = appendRenderedRowsInBatches(
         processedRows,
-        leftLines,
-        rightLines,
-        scheduleRowSync,
+        rowsHost,
+        leftLabel,
+        rightLabel,
         startHunkIndex,
         renderPassId,
     );
@@ -2254,7 +2191,6 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener(
     "scroll",
     () => {
-        lastScrollAt = performance.now();
         appendDebugScrollLog("scroll", `window.scrollY=${Math.round(window.scrollY)}`);
     },
     { passive: true },

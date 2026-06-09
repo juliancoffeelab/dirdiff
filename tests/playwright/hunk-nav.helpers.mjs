@@ -85,9 +85,9 @@ export async function expectActiveHunk(page, index) {
 }
 
 export async function expectSelectedHunkRows(page, index) {
-  await expect(page.locator(".diff-row.active-hunk")).toHaveCount(2);
-  await expect(page.locator('.diff-row.active-hunk[aria-current="true"]')).toHaveCount(2);
-  await expect(page.locator(`.diff-row.active-hunk[data-hunk-index="${index}"]`)).toHaveCount(2);
+  await expect(page.locator(".diff-row.active-hunk")).toHaveCount(1);
+  await expect(page.locator('.diff-row.active-hunk[aria-current="true"]')).toHaveCount(1);
+  await expect(page.locator(`.diff-row.active-hunk[data-hunk-index="${index}"]`)).toHaveCount(1);
 }
 
 export async function getSelectedHunkIndex(page) {
@@ -105,9 +105,11 @@ export async function expectSelectedHunkIndex(page, index) {
 export async function expectMatchingRowTops(page, text, {
   tolerancePx = 1
 } = {}) {
-  const leftRow = page.locator(".diff-pane").nth(0).locator(".diff-row").filter({ hasText: text }).first();
-  const rightRow = page.locator(".diff-pane").nth(1).locator(".diff-row").filter({ hasText: text }).first();
+  const row = page.locator(".diff-row").filter({ hasText: text }).first();
+  const leftRow = row.locator(".diff-side.side-left");
+  const rightRow = row.locator(".diff-side.side-right");
 
+  await expect(row).toHaveCount(1);
   await expect(leftRow).toHaveCount(1);
   await expect(rightRow).toHaveCount(1);
 

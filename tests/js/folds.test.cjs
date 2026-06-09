@@ -2,7 +2,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const folds = require("../../src/dirdiff/static/folds.js");
-const rowSync = require("../../src/dirdiff/static/row_sync.js");
 
 test("normalizeFoldHints drops invalid ranges and sorts by row order", () => {
     const normalized = folds.normalizeFoldHints([
@@ -59,27 +58,4 @@ test("addFoldRows suppresses nested hints when an outer fold already consumed th
         foldedRows: rows.slice(1, 6),
         label: "outer",
     });
-});
-
-test("row sync still collects fold bars as direct diff rows", () => {
-    const regular = {
-        classList: {
-            contains(name) {
-                return name === "diff-row";
-            },
-        },
-    };
-    const foldBar = {
-        classList: {
-            contains(name) {
-                return name === "diff-row";
-            },
-        },
-    };
-
-    const rows = rowSync.collectDirectDiffRows({
-        children: [regular, foldBar, { classList: { contains() { return false; } } }],
-    });
-
-    assert.deepEqual(rows, [regular, foldBar]);
 });
