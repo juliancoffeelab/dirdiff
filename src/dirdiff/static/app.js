@@ -67,6 +67,14 @@ const HUNK_HOLD_SUPPRESS_CLICK_MS = 420;
 const ROW_RENDER_BATCH_SIZE = 120;
 const EAGER_ROW_DECORATION_LIMIT = 140;
 const DECORATION_PREFETCH_MARGIN_PX = 600;
+const SUPPRESSED_SYNTAX_CLASS_PREFIXES = [
+    "ts-punctuation",
+    "ts-operator",
+    "ts-variable",
+    "ts-parameter",
+    "ts-field",
+    "ts-local",
+];
 const DEBUG_SETTINGS_KEY = "dirdiff.debug.settings";
 let pendingLoadTimer = 0;
 let activeLoadToken = 0;
@@ -725,6 +733,17 @@ function decorateTokenDiff(contentEl, tokens) {
     }
 }
 
+function shouldRenderSyntaxWrapper(classes) {
+    if (!classes || !classes.length) {
+        return false;
+    }
+    return !classes.every((className) =>
+        SUPPRESSED_SYNTAX_CLASS_PREFIXES.some(
+            (prefix) => className === prefix || className.startsWith(`${prefix}-`),
+        ),
+    );
+}
+
 function renderSyntaxText(contentEl, text, syntaxSpans) {
     if (!syntaxSpans || !syntaxSpans.length) {
         contentEl.textContent = text || " ";
@@ -739,10 +758,16 @@ function renderSyntaxText(contentEl, text, syntaxSpans) {
             contentEl.append(document.createTextNode(text.slice(cursor, start)));
         }
         if (end > start) {
-            const node = document.createElement("span");
-            node.className = ["ts-token", ...(span.classes || [])].join(" ");
-            node.textContent = text.slice(start, end);
-            contentEl.append(node);
+            const slice = text.slice(start, end);
+            const classes = span.classes || [];
+            if (shouldRenderSyntaxWrapper(classes)) {
+                const node = document.createElement("span");
+                node.className = ["ts-token", ...classes].join(" ");
+                node.textContent = slice;
+                contentEl.append(node);
+            } else {
+                contentEl.append(document.createTextNode(slice));
+            }
         }
         cursor = Math.max(cursor, end);
     }
