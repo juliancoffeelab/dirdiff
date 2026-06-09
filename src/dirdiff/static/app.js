@@ -1651,6 +1651,9 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
     if (payload.truncated_rows) {
         badgeNodes.push(badge(`truncated ${payload.truncated_rows}`, "badge-neutral"));
     }
+    if (payload.lazy_reason === "generated") {
+        badgeNodes.push(badge("generated", "badge-neutral"));
+    }
     badges.append(...badgeNodes);
 
     const headerActions = document.createElement("div");
@@ -1660,22 +1663,99 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
     const header = document.createElement("div");
     header.className = "file-card-header";
     header.append(titleWrap, headerActions);
+    let hydrated = !payload.lazy;
+    let hydratePromise = null;
+
+    async function hydrateIfNeeded() {
+        if (hydrated) {
+            return;
+        }
+        if (!hydratePromise) {
+            hydratePromise = (async () => {
+                const loading = document.createElement("div");
+                loading.className = "empty-state";
+                loading.textContent = "Loading generated file diff…";
+                body.replaceChildren(loading);
+                try {
+                    const nextPayload = await fetchFileDiff(payload);
+                    payload.lazy = false;
+                    payload.lazy_reason = null;
+                    payload.rows = nextPayload.rows || [];
+                    payload.fold_hints = nextPayload.fold_hints || [];
+                    payload.render_mode = nextPayload.render_mode || null;
+                    payload.truncated_rows = nextPayload.truncated_rows || 0;
+                    payload.summary = nextPayload.summary || payload.summary;
+                    const nextStartHunkIndex = hunkRowsByIndex.size
+                        ? Math.max(...hunkRowsByIndex.keys()) + 1
+                        : 0;
+                    const { wrapper } = renderSideBySide(
+                        payload.rows,
+                        nextPayload.left_label,
+                        nextPayload.right_label,
+                        nextStartHunkIndex,
+                        payload.fold_hints,
+                        renderPassId,
+                    );
+                    header.setCollapsedBodyVisible?.(false);
+                    body.replaceChildren(wrapper);
+                    hydrated = true;
+                } catch (error) {
+                    const failure = document.createElement("div");
+                    failure.className = "error-state";
+                    failure.textContent = error instanceof Error
+                        ? error.message
+                        : "Failed to load generated file diff.";
+                    body.replaceChildren(failure);
+                }
+            })();
+        }
+        await hydratePromise;
+    }
+
     header.prepend(
         makeCollapsibleHeader(card, header, body, {
             expandedLabel: `Collapse file ${payload.display_name}`,
             collapsedLabel: `Expand file ${payload.display_name}`,
+            beforeExpand: hydrateIfNeeded,
+            startCollapsed: !!payload.lazy,
+            showCollapsedBody: !!payload.lazy,
         }),
     );
+    let lazyLoadButton = null;
+    if (payload.lazy_reason === "generated") {
+        card.classList.add("file-card-lazy-generated");
+        lazyLoadButton = document.createElement("button");
+        lazyLoadButton.type = "button";
+        lazyLoadButton.className = "file-lazy-load-toggle";
+        lazyLoadButton.innerHTML = [
+            '<span class="file-lazy-load-toggle-title">Load generated diff</span>',
+            `<span class="file-lazy-load-toggle-meta">${payload.display_name} is folded by default. Click to fetch and open it.</span>`,
+        ].join("");
+        lazyLoadButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            void header.click();
+        });
+    }
     card.append(header);
-    const { wrapper, nextHunkIndex, renderPromise } = renderSideBySide(
-        payload.rows,
-        payload.left_label,
-        payload.right_label,
-        startHunkIndex,
-        payload.fold_hints || [],
-        renderPassId,
-    );
-    body.append(wrapper);
+    let nextHunkIndex = startHunkIndex;
+    let renderPromise = Promise.resolve();
+    if (payload.lazy) {
+        if (lazyLoadButton) {
+            body.append(lazyLoadButton);
+        }
+    } else {
+        const renderResult = renderSideBySide(
+            payload.rows,
+            payload.left_label,
+            payload.right_label,
+            startHunkIndex,
+            payload.fold_hints || [],
+            renderPassId,
+        );
+        nextHunkIndex = renderResult.nextHunkIndex;
+        renderPromise = renderResult.renderPromise;
+        body.append(renderResult.wrapper);
+    }
     card.append(body);
 
     return {
@@ -1951,6 +2031,9 @@ function makeCollapsibleHeader(
         indicatorClassName = "file-collapse-indicator",
         expandedLabel = "Collapse section",
         collapsedLabel = "Expand section",
+        beforeExpand = null,
+        startCollapsed = false,
+        showCollapsedBody = false,
     } = {},
 ) {
     const indicator = document.createElement("span");
@@ -1963,9 +2046,11 @@ function makeCollapsibleHeader(
     header.tabIndex = 0;
     header.setAttribute("role", "button");
     header.setAttribute("aria-controls", bodyId);
+    let toggling = false;
+    let collapsedBodyVisible = showCollapsedBody;
 
     function setExpanded(expanded) {
-        body.hidden = !expanded;
+        body.hidden = !expanded && !collapsedBodyVisible;
         container.classList.toggle("is-collapsed", !expanded);
         header.setAttribute("aria-expanded", expanded ? "true" : "false");
         header.setAttribute("aria-label", expanded ? expandedLabel : collapsedLabel);
@@ -1973,23 +2058,44 @@ function makeCollapsibleHeader(
     }
 
     header.setExpanded = setExpanded;
-    setExpanded(true);
+    header.setCollapsedBodyVisible = (visible) => {
+        collapsedBodyVisible = !!visible;
+        if (container.classList.contains("is-collapsed")) {
+            body.hidden = !collapsedBodyVisible;
+        }
+    };
+    setExpanded(!startCollapsed);
 
-    function toggleExpanded() {
-        const nextExpanded = body.hidden;
+    async function toggleExpanded() {
+        if (toggling) {
+            return;
+        }
+        const nextExpanded = container.classList.contains("is-collapsed");
         if (!nextExpanded) {
             clearActiveHunkSelection();
+            setExpanded(false);
+            return;
         }
-        setExpanded(nextExpanded);
+        toggling = true;
+        try {
+            if (beforeExpand) {
+                await beforeExpand();
+            }
+            setExpanded(true);
+        } finally {
+            toggling = false;
+        }
     }
 
-    header.addEventListener("click", toggleExpanded);
+    header.addEventListener("click", () => {
+        void toggleExpanded();
+    });
     header.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") {
             return;
         }
         event.preventDefault();
-        toggleExpanded();
+        void toggleExpanded();
     });
     return indicator;
 }

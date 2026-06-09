@@ -33,6 +33,21 @@ PLAIN_RENDER_CHAR_THRESHOLD = 200_000
 PLAIN_RENDER_CONTEXT_ROWS = 3
 PLAIN_RENDER_MIN_FOLD_ROWS = 24
 PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
+GENERATED_FILES = frozenset(
+    {
+        "cargo.lock",
+        "composer.lock",
+        "flake.lock",
+        "go.sum",
+        "package-lock.json",
+        "pdm.lock",
+        "pipfile.lock",
+        "pnpm-lock.yaml",
+        "poetry.lock",
+        "uv.lock",
+        "yarn.lock",
+    }
+)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -99,6 +114,25 @@ def _canonical_json(value: Any) -> str:
 
 def _looks_like_notebook_path(path: str | None) -> bool:
     return bool(path and path.endswith(".ipynb"))
+
+
+def _looks_generated_path(path: str | None) -> bool:
+    if not path:
+        return False
+    return PurePosixPath(path).name.casefold() in GENERATED_FILES
+
+
+def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
+    return _looks_generated_path(entry.right_path) or _looks_generated_path(entry.left_path)
+
+
+def _to_lazy_repo_file_entry(payload: dict[str, Any]) -> dict[str, Any]:
+    lazy_payload = dict(payload)
+    lazy_payload["rows"] = []
+    lazy_payload["fold_hints"] = []
+    lazy_payload["lazy"] = True
+    lazy_payload["lazy_reason"] = "generated"
+    return lazy_payload
 
 
 def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:
@@ -2234,7 +2268,12 @@ class TextDiffService:
                 f" changed_files={summary['changed_files']}"
                 f" changed_lines={summary['changed_lines']}"
             )
-            yield RepoDiffProgress(entry=file_diff, summary=dict(summary))
+            yielded_entry = (
+                _to_lazy_repo_file_entry(file_diff)
+                if _should_lazy_load_repo_entry(entry)
+                else file_diff
+            )
+            yield RepoDiffProgress(entry=yielded_entry, summary=dict(summary))
 
     def build_branch_diff(
         self,

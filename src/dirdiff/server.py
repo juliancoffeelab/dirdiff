@@ -116,6 +116,8 @@ class TextFileDiffResponse(BaseModel):
     change_type: ChangeType | None = None
     left_path: str | None = None
     right_path: str | None = None
+    lazy: bool = False
+    lazy_reason: str | None = None
     render_mode: Literal["plain"] | None = None
     truncated_rows: int | None = None
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
@@ -436,7 +438,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
 
         try:
             if (
-                selected_mode == "branch-review"
+                mode == "branch-review"
                 and selected_review_branch
                 and selected_review_branch.strip()
             ):

@@ -830,6 +830,39 @@ def test_iter_repo_diff_progress_updates_summary_incrementally(
     assert progress[1].summary["changed_lines"] >= progress[0].summary["changed_lines"]
 
 
+def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    lockfile = tmp_path / "Cargo.lock"
+    lockfile.write_text("version = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    lockfile.write_text("version = 2\n", encoding="utf-8")
+
+    service = TextDiffService.discover(cwd=tmp_path)
+
+    progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
+
+    assert len(progress) == 1
+    entry = progress[0].entry
+    assert entry["display_name"] == "Cargo.lock"
+    assert entry["lazy"] is True
+    assert entry["lazy_reason"] == "generated"
+    assert entry["rows"] == []
+    assert entry["summary"]["changed_lines"] == 1
+
+
 def test_large_diff_falls_back_to_plain_render_mode() -> None:
     repeated_line = "value = 1234567890\n"
     left_text = repeated_line * ((PLAIN_RENDER_CHAR_THRESHOLD // len(repeated_line)) + 10)

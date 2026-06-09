@@ -552,6 +552,55 @@ button {
     display: none;
 }
 
+.file-card.is-collapsed.file-card-lazy-generated .file-card-header-actions {
+    display: none;
+}
+
+.file-card-lazy-generated .file-lazy-load-toggle {
+    display: none;
+}
+
+.file-card.is-collapsed.file-card-lazy-generated .file-lazy-load-toggle {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    margin-top: 12px;
+    padding: 12px 16px;
+    border: 1px solid rgba(251, 191, 36, 0.5);
+    border-radius: 16px;
+    background: linear-gradient(
+        135deg,
+        rgba(251, 191, 36, 0.92),
+        rgba(245, 158, 11, 0.96)
+    );
+    color: #201202;
+    box-shadow:
+        0 0 0 1px rgba(255, 248, 220, 0.2),
+        0 18px 30px rgba(245, 158, 11, 0.22);
+    text-align: left;
+}
+
+.file-card.is-collapsed.file-card-lazy-generated .file-lazy-load-toggle:hover,
+.file-card.is-collapsed.file-card-lazy-generated .file-lazy-load-toggle:focus-visible {
+    transform: translateY(-1px);
+    box-shadow:
+        0 0 0 1px rgba(255, 248, 220, 0.28),
+        0 22px 34px rgba(245, 158, 11, 0.28);
+}
+
+.file-lazy-load-toggle-title {
+    font-size: 0.96rem;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.file-lazy-load-toggle-meta {
+    font-size: 0.76rem;
+    line-height: 1.2;
+    color: rgba(32, 18, 2, 0.82);
+}
+
 .file-card-body {
     display: grid;
     gap: 0;

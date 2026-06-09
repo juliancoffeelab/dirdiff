@@ -324,3 +324,52 @@ def test_save_log_endpoint_writes_to_launch_directory(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert saved_path.parent == tmp_path.resolve()
     assert saved_path.read_text(encoding="utf-8") == "hello log\n"
+
+
+def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    lockfile = tmp_path / "Cargo.lock"
+    lockfile.write_text("version = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    lockfile.write_text("version = 2\n", encoding="utf-8")
+
+    service = TextDiffService.discover(cwd=tmp_path)
+    defaults = build_defaults(service)
+    client = TestClient(create_app(service, defaults))
+
+    repo_response = client.get("/api/diff")
+    repo_entry = repo_response.json()["files"][0]
+    assert repo_entry["lazy"] is True
+    assert repo_entry["rows"] == []
+
+    response = client.get(
+        "/api/file-diff",
+        params={
+            "mode": "files",
+            "left": "index",
+            "right": "worktree",
+            "left_path": "Cargo.lock",
+            "right_path": "Cargo.lock",
+            "display_name": "Cargo.lock",
+            "change_type": "modify",
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["display_name"] == "Cargo.lock"
+    assert payload.get("lazy") is False
+    assert payload["rows"]
