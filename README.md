@@ -3,8 +3,7 @@
 Standalone browser-based diff viewer for real-world files.
 
 It keeps the strongest part of the notebook diff tool from `DRAISS`:
-a line-oriented, side-by-side view with inline token highlighting and hunk
-navigation.
+a line-oriented, side-by-side view with inline token highlighting.
 
 What it supports:
 

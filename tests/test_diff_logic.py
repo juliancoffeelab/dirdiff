@@ -75,8 +75,8 @@ def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
         right_label="right",
         left_exists=True,
         right_exists=True,
-        left_text="await expectActiveHunk(page, 0);\n",
-        right_text="await expectSelectedHunkIndex(page, 0);\n",
+        left_text="await expectVisibleRow(page, 0);\n",
+        right_text="await expectSelectedRowIndex(page, 0);\n",
         left_path_hint="demo.js",
         right_path_hint="demo.js",
     )
@@ -94,13 +94,13 @@ def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
 
     assert left_tokens == [
         ("expect", False),
-        ("Active", True),
-        ("Hunk", False),
+        ("Visible", True),
+        ("Row", False),
     ]
     assert right_tokens == [
         ("expect", False),
         ("Selected", True),
-        ("Hunk", False),
+        ("Row", False),
         ("Index", True),
     ]
 

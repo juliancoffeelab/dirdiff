@@ -973,29 +973,6 @@ button {
     box-shadow: inset 3px 0 0 rgba(251, 191, 36, 0.45);
 }
 
-.diff-row.active-hunk {
-    box-shadow:
-        inset 3px 0 0 rgba(125, 211, 252, 0.6),
-        inset 0 0 0 1px rgba(125, 211, 252, 0.08);
-}
-
-.diff-row.active-hunk::before {
-    content: "";
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 3px;
-    background: rgba(125, 211, 252, 0.7);
-}
-
-.diff-row.active-hunk .line-no {
-    color: rgba(248, 250, 255, 0.98);
-    background:
-        linear-gradient(90deg, rgba(125, 211, 252, 0.34), rgba(125, 211, 252, 0.18));
-    font-weight: 700;
-    text-shadow: 0 0 12px rgba(125, 211, 252, 0.18);
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06);
-}
-
 .fold-bar {
     cursor: pointer;
     border-top: 1px dashed rgba(125, 211, 252, 0.2);
@@ -1159,138 +1136,6 @@ button {
     padding: 0;
 }
 
-.hunk-nav {
-    display: flex;
-    gap: 8px;
-    position: fixed;
-    right: 22px;
-    bottom: 22px;
-    z-index: 30;
-    padding: 8px;
-    border-radius: 14px;
-    background: rgba(8, 16, 34, 0.78);
-    border: 1px solid rgba(125, 211, 252, 0.25);
-    backdrop-filter: blur(4px);
-}
-
-.hunk-nav button {
-    position: relative;
-    overflow: hidden;
-    min-height: 34px;
-    padding: 0 14px;
-    font-size: 0.85rem;
-    background: rgba(56, 189, 248, 0.15);
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    color: var(--accent);
-    font-weight: 600;
-    transition:
-        transform 120ms ease,
-        box-shadow 150ms ease,
-        border-color 150ms ease,
-        background 150ms ease;
-}
-
-.hunk-nav button::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 4px;
-    background: linear-gradient(
-        90deg,
-        rgba(125, 211, 252, 0.9),
-        rgba(167, 139, 250, 0.98)
-    );
-    transform-origin: left center;
-    transform: scaleX(var(--hold-progress, 0));
-    opacity: 0;
-    transition:
-        opacity 120ms ease,
-        transform 80ms linear;
-    pointer-events: none;
-}
-
-.hunk-nav button::after {
-    content: "";
-    position: absolute;
-    inset: 1px;
-    border-radius: 11px;
-    background:
-        linear-gradient(
-            90deg,
-            rgba(125, 211, 252, 0.08),
-            rgba(125, 211, 252, 0.26)
-        );
-    opacity: 0;
-    transition:
-        opacity 120ms ease,
-        background 160ms ease;
-    pointer-events: none;
-    z-index: -1;
-}
-
-.hunk-nav button.is-hold-tracking {
-    transform: translateY(-2px) scale(1.08);
-    background: linear-gradient(
-        135deg,
-        rgba(245, 158, 11, 0.96),
-        rgba(239, 68, 68, 0.96)
-    );
-    color: #fff7ed;
-    box-shadow:
-        0 0 0 2px rgba(255, 244, 214, 0.45),
-        0 14px 30px rgba(239, 68, 68, 0.28);
-    border-color: rgba(255, 251, 235, 0.72);
-}
-
-.hunk-nav button.is-hold-tracking::before,
-.hunk-nav button.is-hold-tracking::after {
-    opacity: 1;
-}
-
-.hunk-nav button.is-hold-repeating {
-    transform: translateY(-2px) scale(1.1);
-    background: linear-gradient(
-        135deg,
-        rgba(239, 68, 68, 0.98),
-        rgba(217, 70, 239, 0.98)
-    );
-    box-shadow:
-        0 0 0 2px rgba(255, 247, 237, 0.58),
-        0 0 0 8px rgba(239, 68, 68, 0.18),
-        0 16px 34px rgba(217, 70, 239, 0.34);
-    animation: hunk-button-repeat-pulse 520ms ease-in-out infinite;
-}
-
-.hunk-nav button.is-hold-repeating::before {
-    opacity: 1;
-    height: 6px;
-    box-shadow:
-        0 0 18px rgba(255, 251, 235, 0.92),
-        0 0 26px rgba(239, 68, 68, 0.8);
-}
-
-.hunk-nav button.is-hold-repeating::after {
-    opacity: 1;
-    background:
-        linear-gradient(
-            90deg,
-            rgba(255, 247, 237, 0.2),
-            rgba(253, 186, 116, 0.38)
-        );
-}
-
-@keyframes hunk-button-repeat-pulse {
-    0%,
-    100% {
-        transform: translateY(-2px) scale(1.08);
-    }
-    50% {
-        transform: translateY(-3px) scale(1.12);
-    }
-}
-
 .error-state {
     padding: 18px;
     border-radius: 16px;
@@ -1404,14 +1249,4 @@ button {
         text-transform: uppercase;
     }
 
-    .hunk-nav {
-        right: 12px;
-        bottom: 12px;
-        padding: 6px;
-    }
-
-    .hunk-nav button {
-        min-height: 32px;
-        padding: 0 10px;
-    }
 }

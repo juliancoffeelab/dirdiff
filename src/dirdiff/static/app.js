@@ -13,14 +13,10 @@ const rightRefInput = document.getElementById("rightRefInput");
 const statusText = document.getElementById("statusText");
 const summaryGrid = document.getElementById("summaryGrid");
 const resultPanel = document.getElementById("resultPanel");
-const topHunkBtn = document.getElementById("topHunkBtn");
-const prevHunkBtn = document.getElementById("prevHunkBtn");
-const nextHunkBtn = document.getElementById("nextHunkBtn");
 const debugMenu = document.getElementById("debugMenu");
 const debugMenuToggle = document.getElementById("debugMenuToggle");
 const debugMenuPanel = document.getElementById("debugMenuPanel");
 const debugScrollToggle = document.getElementById("debugScrollToggle");
-const hunkScrollModeSelect = document.getElementById("hunkScrollModeSelect");
 const debugFpsValue = document.getElementById("debugFpsValue");
 const debugNodeCountValue = document.getElementById("debugNodeCountValue");
 const debugSpanCountValue = document.getElementById("debugSpanCountValue");
@@ -47,26 +43,6 @@ const REF_SECTION_LABELS = {
     remote_names: "Remotes",
     remote_branches: "Remote branches",
 };
-const hunkNavState = {
-    activeHunkIndex: null,
-    lastNavAt: 0,
-};
-const hunkHoldState = {
-    button: null,
-    direction: null,
-    startAt: 0,
-    rafId: 0,
-    emittedRepeats: 0,
-};
-const suppressedHunkClick = {
-    button: null,
-    until: 0,
-};
-const HUNK_HOLD_DELAY_MS = 320;
-const HUNK_HOLD_SUPPRESS_CLICK_MS = 420;
-const ROW_RENDER_BATCH_SIZE = 120;
-const EAGER_ROW_DECORATION_LIMIT = 140;
-const DECORATION_PREFETCH_MARGIN_PX = 600;
 const SUPPRESSED_SYNTAX_CLASS_PREFIXES = [
     "ts-punctuation",
     "ts-operator",
@@ -84,10 +60,6 @@ let currentPayload = null;
 let debugScrollLog = [];
 let debugScrollPanel = null;
 let debugScrollBody = null;
-let deferredRowDecorationObserver = null;
-const deferredRowDecorations = new WeakMap();
-const pendingRowDecorationTargets = new Set();
-let rowDecorationFlushScheduled = false;
 let fpsSampleLastAt = performance.now();
 let fpsSampleFrames = 0;
 let fpsDisplayLastAt = fpsSampleLastAt;
@@ -109,37 +81,12 @@ function loadStoredDebugSettings() {
 const initialDebugSettings = loadStoredDebugSettings();
 const debugState = {
     scrollDebug: debugQuery.get("debug_scroll") === "1" || !!initialDebugSettings.scrollDebug,
-    hunkScrollMode: (
-        initialDebugSettings.hunkScrollMode === "auto"
-        || initialDebugSettings.hunkScrollMode === "smooth"
-        || initialDebugSettings.hunkScrollMode === "browser"
-    )
-        ? initialDebugSettings.hunkScrollMode
-        : "browser",
 };
-
-function usesChromiumScrollBehavior() {
-    const brands = navigator.userAgentData?.brands || [];
-    if (brands.some(({ brand }) => /\b(?:Chromium|Google Chrome|Microsoft Edge|Opera)\b/i.test(brand))) {
-        return true;
-    }
-
-    const userAgent = navigator.userAgent || "";
-    return /\b(?:Chrome|Chromium|Edg|OPR)\//.test(userAgent) && !/\bFirefox\//.test(userAgent);
-}
 
 function persistDebugSettings() {
     window.localStorage.setItem(DEBUG_SETTINGS_KEY, JSON.stringify({
         scrollDebug: debugState.scrollDebug,
-        hunkScrollMode: debugState.hunkScrollMode,
     }));
-}
-
-function getHunkScrollBehavior() {
-    if (debugState.hunkScrollMode === "auto" || debugState.hunkScrollMode === "smooth") {
-        return debugState.hunkScrollMode;
-    }
-    return usesChromiumScrollBehavior() ? "auto" : "smooth";
 }
 
 function copyDebugText(text) {
@@ -321,23 +268,9 @@ function setDebugScrollEnabled(enabled) {
     }
 }
 
-function setHunkScrollMode(mode) {
-    if (!["browser", "smooth", "auto"].includes(mode)) {
-        return;
-    }
-    debugState.hunkScrollMode = mode;
-    persistDebugSettings();
-    if (debugState.scrollDebug) {
-        appendDebugScrollLog("debug", `Hunk scroll mode set to ${mode}`);
-    }
-}
-
 function syncDebugMenuControls() {
     if (debugScrollToggle) {
         debugScrollToggle.checked = debugState.scrollDebug;
-    }
-    if (hunkScrollModeSelect) {
-        hunkScrollModeSelect.value = debugState.hunkScrollMode;
     }
 }
 
@@ -389,10 +322,6 @@ function setupDebugMenu() {
 
     debugScrollToggle?.addEventListener("change", () => {
         setDebugScrollEnabled(debugScrollToggle.checked);
-    });
-
-    hunkScrollModeSelect?.addEventListener("change", () => {
-        setHunkScrollMode(hunkScrollModeSelect.value);
     });
 
     debugMenuPanel.addEventListener("click", (event) => {
@@ -513,29 +442,6 @@ function renderSummary(summary, mode) {
 function setStatus(message, isError = false) {
     statusText.textContent = message;
     statusText.className = isError ? "status error-text" : "status";
-}
-
-function setHunkHoldVisual(button, progress, isRepeating) {
-    if (!button) return;
-    button.style.setProperty("--hold-progress", String(progress));
-    button.classList.toggle("is-hold-tracking", progress > 0);
-    button.classList.toggle("is-hold-repeating", isRepeating);
-}
-
-function clearHunkHoldVisual(button) {
-    if (!button) return;
-    button.style.removeProperty("--hold-progress");
-    button.classList.remove("is-hold-tracking", "is-hold-repeating");
-}
-
-function markHunkClickSuppressed(button) {
-    if (!button) return;
-    button.dataset.suppressHoldClick = "true";
-}
-
-function clearSuppressedHunkClick(button) {
-    if (!button) return;
-    delete button.dataset.suppressHoldClick;
 }
 
 function wrapChangedRange(root, start, end, className, title = "") {
@@ -774,38 +680,6 @@ function renderSyntaxText(contentEl, text, syntaxSpans) {
     }
 }
 
-function yieldToBrowser() {
-    return new Promise((resolve) => {
-        requestAnimationFrame(() => resolve());
-    });
-}
-
-function ensureDeferredRowDecorationObserver() {
-    if (deferredRowDecorationObserver || typeof IntersectionObserver === "undefined") {
-        return deferredRowDecorationObserver;
-    }
-    deferredRowDecorationObserver = new IntersectionObserver(
-        (entries) => {
-            for (const entry of entries) {
-                if (!entry.isIntersecting) {
-                    continue;
-                }
-                const renderDeferred = deferredRowDecorations.get(entry.target);
-                if (!renderDeferred) {
-                    continue;
-                }
-                deferredRowDecorationObserver.unobserve(entry.target);
-                pendingRowDecorationTargets.add(entry.target);
-                schedulePendingRowDecorationFlush();
-            }
-        },
-        {
-            rootMargin: `${DECORATION_PREFETCH_MARGIN_PX}px 0px`,
-        },
-    );
-    return deferredRowDecorationObserver;
-}
-
 function applyRowDecoration(codeEl, text, syntaxSpans, tokens) {
     codeEl.replaceChildren();
     renderSyntaxText(codeEl, text || " ", syntaxSpans);
@@ -814,85 +688,10 @@ function applyRowDecoration(codeEl, text, syntaxSpans, tokens) {
     }
 }
 
-function renderRowPlainText(codeEl, text) {
-    codeEl.textContent = text || " ";
-}
-
-function queueDeferredRowDecoration(codeEl, text, syntaxSpans, tokens) {
-    renderRowPlainText(codeEl, text);
-    if ((!syntaxSpans || !syntaxSpans.length) && (!tokens || !tokens.length)) {
-        return;
-    }
-
-    const renderDeferred = () => {
-        applyRowDecoration(codeEl, text, syntaxSpans, tokens);
-    };
-
-    deferredRowDecorations.set(codeEl, renderDeferred);
-    const observer = ensureDeferredRowDecorationObserver();
-    if (observer) {
-        observer.observe(codeEl);
-        return;
-    }
-
-    window.setTimeout(() => {
-        if (deferredRowDecorations.get(codeEl) !== renderDeferred) {
-            return;
-        }
-        deferredRowDecorations.delete(codeEl);
-        renderDeferred();
-    }, 0);
-}
-
-function flushPendingRowDecorations(deadline = null) {
-    rowDecorationFlushScheduled = false;
-    let processed = 0;
-    const budgeted = deadline && typeof deadline.timeRemaining === "function";
-
-    while (pendingRowDecorationTargets.size) {
-        const nextTarget = pendingRowDecorationTargets.values().next().value;
-        pendingRowDecorationTargets.delete(nextTarget);
-        const renderDeferred = deferredRowDecorations.get(nextTarget);
-        if (!renderDeferred) {
-            continue;
-        }
-        deferredRowDecorations.delete(nextTarget);
-        renderDeferred();
-        processed += 1;
-
-        if (budgeted) {
-            if (deadline.timeRemaining() < 4 && processed >= 1) {
-                break;
-            }
-        } else if (processed >= 4) {
-            break;
-        }
-    }
-
-    if (pendingRowDecorationTargets.size) {
-        schedulePendingRowDecorationFlush();
-    }
-}
-
-function schedulePendingRowDecorationFlush() {
-    if (rowDecorationFlushScheduled) {
-        return;
-    }
-    rowDecorationFlushScheduled = true;
-    if (typeof window.requestIdleCallback === "function") {
-        window.requestIdleCallback(flushPendingRowDecorations, { timeout: 120 });
-        return;
-    }
-    requestAnimationFrame(() => {
-        flushPendingRowDecorations();
-    });
-}
-
 function makeDiffSide(
     row,
     side,
     sideLabel,
-    { deferDecoration = false } = {},
 ) {
     const sideEl = document.createElement("div");
     sideEl.className = `diff-side side-${side}`;
@@ -916,11 +715,7 @@ function makeDiffSide(
     const text = side === "left" ? row.left_text : row.right_text;
     const syntaxSpans = side === "left" ? row.left_syntax : row.right_syntax;
 
-    if (deferDecoration) {
-        queueDeferredRowDecoration(codeEl, text || " ", syntaxSpans, tokens);
-    } else {
-        applyRowDecoration(codeEl, text || " ", syntaxSpans, tokens);
-    }
+    applyRowDecoration(codeEl, text || " ", syntaxSpans, tokens);
 
     sideEl.append(noEl, codeEl);
     return sideEl;
@@ -930,25 +725,9 @@ function makeDiffRow(
     row,
     leftLabel,
     rightLabel,
-    markHunkAnchor = false,
-    hunkIndex = null,
-    { deferDecoration = false } = {},
 ) {
     const rowEl = document.createElement("div");
     rowEl.className = `diff-row ${row.status}`;
-
-    if (
-        markHunkAnchor
-        && (row.status === "insert" || row.status === "delete" || row.status === "replace")
-    ) {
-        rowEl.classList.add("hunk-anchor");
-        hunkAnchorRows.push(rowEl);
-    }
-    if (Number.isInteger(hunkIndex)) {
-        rowEl.dataset.hunkIndex = String(hunkIndex);
-        rowEl.classList.add("hunk-anchor-row");
-        hunkRowsByIndex.set(hunkIndex, [rowEl]);
-    }
 
     const changedTokens = [
         ...(row.left_tokens || []),
@@ -970,13 +749,11 @@ function makeDiffRow(
         row,
         "left",
         leftLabel,
-        { deferDecoration },
     );
     const rightSide = makeDiffSide(
         row,
         "right",
         rightLabel,
-        { deferDecoration },
     );
 
     if (hasWhitespaceOnlyChanges) {
@@ -986,10 +763,6 @@ function makeDiffRow(
 
     rowEl.append(leftSide, rightSide);
     return rowEl;
-}
-
-function isChangedRowStatus(status) {
-    return status === "insert" || status === "delete" || status === "replace";
 }
 
 function makeFoldBarSide(count, label = "", sideLabel) {
@@ -1031,149 +804,103 @@ function setInlineFoldState(signatureRow, expanded) {
     signatureRow.classList.toggle("fold-expanded", expanded);
 }
 
-function countHunkAnchors(rows) {
-    let total = 0;
-    rows.forEach((row, index) => {
-        if (row.status === "fold" || row.status === "elided") {
-            return;
-        }
-        const previous = index > 0 ? rows[index - 1] : null;
-        if (
-            isChangedRowStatus(row.status)
-            && !isChangedRowStatus(previous?.status ?? "equal")
-        ) {
-            total += 1;
-        }
-    });
-    return total;
-}
-
-async function appendRenderedRowsInBatches(
+function appendRenderedRows(
     processedRows,
     rowsHost,
     leftLabel,
     rightLabel,
-    startHunkIndex,
     renderPassId,
 ) {
-    let nextHunkIndex = startHunkIndex;
-    let renderIndex = 0;
-    let cursor = 0;
     let lastRow = rowsHost.lastElementChild;
+    const rowsFragment = document.createDocumentFragment();
 
-    while (cursor < processedRows.length) {
+    for (const row of processedRows) {
         if (renderPassId !== activeRenderPass) {
             return;
         }
 
-        const rowsFragment = document.createDocumentFragment();
-        const batchEnd = Math.min(cursor + ROW_RENDER_BATCH_SIZE, processedRows.length);
+        if (row.status === "elided") {
+            const foldBar = makeFoldBar(row.count, leftLabel, rightLabel, row.label);
+            rowsFragment.append(foldBar);
+            lastRow = foldBar;
+            continue;
+        }
 
-        for (; cursor < batchEnd; cursor += 1) {
-            const row = processedRows[cursor];
+        if (row.status === "fold") {
+            const foldBar = makeFoldBar(row.count, leftLabel, rightLabel, row.label);
+            const expandedRows = [];
+            const signatureRow = lastRow;
+            const barAnchor = document.createComment("fold-bar-anchor");
+            let expanded = false;
 
-            if (row.status === "elided") {
-                const foldBar = makeFoldBar(row.count, leftLabel, rightLabel, row.label);
-                rowsFragment.append(foldBar);
-                lastRow = foldBar;
+            rowsFragment.append(foldBar);
+            rowsFragment.append(barAnchor);
+            lastRow = foldBar;
+
+            if (!signatureRow) {
                 continue;
             }
 
-            if (row.status === "fold") {
-                const foldBar = makeFoldBar(row.count, leftLabel, rightLabel, row.label);
-                const expandedRows = [];
-                const signatureRow = lastRow;
-                const barAnchor = document.createComment("fold-bar-anchor");
-                let expanded = false;
+            const leftNo = signatureRow.querySelector(".diff-side.side-left .line-no");
+            const rightNo = signatureRow.querySelector(".diff-side.side-right .line-no");
+            if (!leftNo || !rightNo) {
+                continue;
+            }
 
-                rowsFragment.append(foldBar);
-                rowsFragment.append(barAnchor);
-                lastRow = foldBar;
+            const leftToggleIcon = makeInlineFoldToggle(toggleFold);
+            const rightToggleIcon = makeInlineFoldToggle(toggleFold);
 
-                if (!signatureRow) {
-                    continue;
+            leftNo.prepend(leftToggleIcon);
+            rightNo.prepend(rightToggleIcon);
+
+            signatureRow.classList.add("fold-toggle-row");
+            signatureRow.title = "Toggle fold";
+
+            setInlineFoldState(signatureRow, false);
+
+            function toggleFold() {
+                expanded = !expanded;
+                if (expanded) {
+                    row.foldedRows.forEach((foldedRow) => {
+                        const rowNode = makeDiffRow(
+                            foldedRow,
+                            leftLabel,
+                            rightLabel,
+                        );
+                        expandedRows.push(rowNode);
+                        rowsHost.insertBefore(rowNode, barAnchor);
+                    });
+                    foldBar.remove();
+                    setInlineFoldState(signatureRow, true);
+                    return;
                 }
 
-                const leftNo = signatureRow.querySelector(".diff-side.side-left .line-no");
-                const rightNo = signatureRow.querySelector(".diff-side.side-right .line-no");
-                if (!leftNo || !rightNo) {
-                    continue;
-                }
-
-                const leftToggleIcon = makeInlineFoldToggle(toggleFold);
-                const rightToggleIcon = makeInlineFoldToggle(toggleFold);
-
-                leftNo.prepend(leftToggleIcon);
-                rightNo.prepend(rightToggleIcon);
-
-                signatureRow.classList.add("fold-toggle-row");
-                signatureRow.title = "Toggle fold";
-
+                expandedRows.splice(0).forEach((node) => node.remove());
+                rowsHost.insertBefore(foldBar, barAnchor);
                 setInlineFoldState(signatureRow, false);
-
-                function toggleFold() {
-                    expanded = !expanded;
-                    if (expanded) {
-                        row.foldedRows.forEach((foldedRow) => {
-                            const rowNode = makeDiffRow(
-                                foldedRow,
-                                leftLabel,
-                                rightLabel,
-                                false,
-                                null,
-                                { deferDecoration: false },
-                            );
-                            expandedRows.push(rowNode);
-                            rowsHost.insertBefore(rowNode, barAnchor);
-                        });
-                        foldBar.remove();
-                        setInlineFoldState(signatureRow, true);
-                        return;
-                    }
-
-                    expandedRows.splice(0).forEach((node) => node.remove());
-                    rowsHost.insertBefore(foldBar, barAnchor);
-                    setInlineFoldState(signatureRow, false);
-                }
-
-                foldBar.addEventListener("click", toggleFold);
-                signatureRow.addEventListener("click", toggleFold);
-                continue;
             }
 
-            const previous = cursor > 0 ? processedRows[cursor - 1] : null;
-            const markHunkAnchor =
-                isChangedRowStatus(row.status)
-                && !isChangedRowStatus(previous?.status ?? "equal");
-            const anchorIndex = markHunkAnchor ? nextHunkIndex++ : null;
-            const deferDecoration =
-                row.status === "equal" && renderIndex >= EAGER_ROW_DECORATION_LIMIT;
-            const rowNode = makeDiffRow(
-                row,
-                leftLabel,
-                rightLabel,
-                markHunkAnchor,
-                anchorIndex,
-                { deferDecoration },
-            );
-            rowsFragment.append(rowNode);
-            lastRow = rowNode;
-            renderIndex += 1;
+            foldBar.addEventListener("click", toggleFold);
+            signatureRow.addEventListener("click", toggleFold);
+            continue;
         }
 
-        rowsHost.append(rowsFragment);
-
-        if (cursor < processedRows.length) {
-            await yieldToBrowser();
-        }
+        const rowNode = makeDiffRow(
+            row,
+            leftLabel,
+            rightLabel,
+        );
+        rowsFragment.append(rowNode);
+        lastRow = rowNode;
     }
+
+    rowsHost.append(rowsFragment);
 }
 
 function renderSideBySide(
     rows,
     leftLabel,
     rightLabel,
-    startHunkIndex = 0,
     foldHints = [],
     renderPassId = activeRenderPass,
 ) {
@@ -1189,21 +916,17 @@ function renderSideBySide(
     `;
     const rowsHost = document.createElement("div");
     rowsHost.className = "diff-lines";
-    const nextHunkIndex = startHunkIndex + countHunkAnchors(processedRows);
 
     wrapper.append(header, rowsHost);
-    const renderPromise = appendRenderedRowsInBatches(
+    appendRenderedRows(
         processedRows,
         rowsHost,
         leftLabel,
         rightLabel,
-        startHunkIndex,
         renderPassId,
     );
     return {
         wrapper,
-        nextHunkIndex,
-        renderPromise,
     };
 }
 
@@ -1262,15 +985,6 @@ function makeNotebookDetails(summaryText, renderContent) {
     return { details, ensureRendered };
 }
 
-function getNextHunkIndexForRows(rows, startHunkIndex, foldHints = []) {
-    const processedRows = foldApi.addFoldRows ? foldApi.addFoldRows(rows, foldHints) : rows;
-    return startHunkIndex + countHunkAnchors(processedRows);
-}
-
-function getNextHunkIndexForSection(hunkCount, startHunkIndex) {
-    return startHunkIndex + Math.max(Number(hunkCount) || 0, 0);
-}
-
 async function fetchNotebookSection(filePayload, { section, cellKey = null }) {
     const params = new URLSearchParams();
     const state = getControlState();
@@ -1310,7 +1024,6 @@ function makeNotebookSection(
     rows,
     leftLabel,
     rightLabel,
-    startHunkIndex,
     renderPassId,
     {
         heading = null,
@@ -1328,11 +1041,10 @@ function makeNotebookSection(
         host.append(headingNode);
     }
 
-    const { wrapper, nextHunkIndex, renderPromise } = renderSideBySide(
+    const { wrapper } = renderSideBySide(
         rows,
         leftLabel,
         rightLabel,
-        startHunkIndex,
         foldHints,
         renderPassId,
     );
@@ -1349,15 +1061,12 @@ function makeNotebookSection(
     return {
         host,
         payload,
-        nextHunkIndex,
-        renderPromise,
     };
 }
 
 function makeNotebookCellCard(
     filePayload,
     cell,
-    startHunkIndex = 0,
     renderPassId = activeRenderPass,
 ) {
     const card = document.createElement("article");
@@ -1398,12 +1107,10 @@ function makeNotebookCellCard(
     header.append(titleWrap, badges);
     card.append(header);
 
-    const renderPromises = [];
     const sourceSection = makeNotebookSection(
         cell.source_rows,
         "Left source",
         "Right source",
-        startHunkIndex,
         renderPassId,
         {
             heading: "Cell source",
@@ -1413,15 +1120,8 @@ function makeNotebookCellCard(
         },
     );
     card.append(sourceSection.host);
-    renderPromises.push(sourceSection.renderPromise);
-    let nextHunkIndex = sourceSection.nextHunkIndex;
 
     if (cell.metadata_changed) {
-        const metadataStartHunkIndex = nextHunkIndex;
-        nextHunkIndex = getNextHunkIndexForSection(
-            cell.metadata_hunk_count,
-            metadataStartHunkIndex,
-        );
         const metadataDetails = makeNotebookDetails(
             notebookSectionSummary("Cell metadata diff", {
                 render_mode: cell.metadata_render_mode || null,
@@ -1438,7 +1138,6 @@ function makeNotebookCellCard(
                     cell.metadata_section.rows,
                     "Left metadata",
                     "Right metadata",
-                    metadataStartHunkIndex,
                     renderPassId,
                     {
                         renderMode: cell.metadata_section.render_mode || null,
@@ -1452,11 +1151,6 @@ function makeNotebookCellCard(
     }
 
     if (cell.outputs_changed) {
-        const outputsStartHunkIndex = nextHunkIndex;
-        nextHunkIndex = getNextHunkIndexForSection(
-            cell.outputs_hunk_count,
-            outputsStartHunkIndex,
-        );
         const outputsDetails = makeNotebookDetails(
             notebookSectionSummary("Cell outputs diff", {
                 render_mode: cell.outputs_render_mode || null,
@@ -1473,7 +1167,6 @@ function makeNotebookCellCard(
                     cell.outputs_section.rows,
                     "Left outputs",
                     "Right outputs",
-                    outputsStartHunkIndex,
                     renderPassId,
                     {
                         renderMode: cell.outputs_section.render_mode || null,
@@ -1488,12 +1181,10 @@ function makeNotebookCellCard(
 
     return {
         card,
-        nextHunkIndex,
-        renderPromise: Promise.all(renderPromises),
     };
 }
 
-function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPass) {
+function makeNotebookFileCard(payload, renderPassId = activeRenderPass) {
     const card = document.createElement("article");
     card.className = "file-card notebook-file-card";
     const body = document.createElement("div");
@@ -1538,15 +1229,7 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
     );
     card.append(header);
 
-    const renderPromises = [];
-    let nextHunkIndex = startHunkIndex;
-
     if (payload.summary.notebook_metadata_changed) {
-        const notebookMetadataStartHunkIndex = nextHunkIndex;
-        nextHunkIndex = getNextHunkIndexForSection(
-            payload.notebook_metadata_hunk_count,
-            notebookMetadataStartHunkIndex,
-        );
         const metadataDetails = makeNotebookDetails(
             notebookSectionSummary("Notebook metadata diff", {
                 render_mode: payload.notebook_metadata_render_mode || null,
@@ -1563,7 +1246,6 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
                     payload.notebook_metadata_section.rows,
                     "Left notebook metadata",
                     "Right notebook metadata",
-                    notebookMetadataStartHunkIndex,
                     renderPassId,
                     {
                         renderMode: payload.notebook_metadata_section.render_mode || null,
@@ -1582,11 +1264,8 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
         const cellResult = makeNotebookCellCard(
             payload,
             cell,
-            nextHunkIndex,
             renderPassId,
         );
-        nextHunkIndex = cellResult.nextHunkIndex;
-        renderPromises.push(cellResult.renderPromise);
         cellsHost.append(cellResult.card);
     }
     if (!cellsHost.childElementCount) {
@@ -1600,8 +1279,6 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
 
     return {
         card,
-        nextHunkIndex,
-        renderPromise: Promise.all(renderPromises),
     };
 }
 
@@ -1613,9 +1290,9 @@ function entryDisplayName(entry) {
     return pathCandidate || "(unknown)";
 }
 
-function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPass) {
+function makeFileCard(payload, renderPassId = activeRenderPass) {
     if (payload.render_kind === "notebook") {
-        return makeNotebookFileCard(payload, startHunkIndex, renderPassId);
+        return makeNotebookFileCard(payload, renderPassId);
     }
 
     const card = document.createElement("article");
@@ -1691,20 +1368,15 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
                 try {
                     const nextPayload = await fetchFileDiff(payload);
                     payload.lazy = false;
-                    payload.lazy_reason = null;
                     payload.rows = nextPayload.rows || [];
                     payload.fold_hints = nextPayload.fold_hints || [];
                     payload.render_mode = nextPayload.render_mode || null;
                     payload.truncated_rows = nextPayload.truncated_rows || 0;
                     payload.summary = nextPayload.summary || payload.summary;
-                    const nextStartHunkIndex = hunkRowsByIndex.size
-                        ? Math.max(...hunkRowsByIndex.keys()) + 1
-                        : 0;
                     const { wrapper } = renderSideBySide(
                         payload.rows,
                         nextPayload.left_label,
                         nextPayload.right_label,
-                        nextStartHunkIndex,
                         payload.fold_hints,
                         renderPassId,
                     );
@@ -1749,8 +1421,6 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
         });
     }
     card.append(header);
-    let nextHunkIndex = startHunkIndex;
-    let renderPromise = Promise.resolve();
     if (payload.lazy) {
         if (lazyLoadButton) {
             body.append(lazyLoadButton);
@@ -1760,20 +1430,15 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
             payload.rows,
             payload.left_label,
             payload.right_label,
-            startHunkIndex,
             payload.fold_hints || [],
             renderPassId,
         );
-        nextHunkIndex = renderResult.nextHunkIndex;
-        renderPromise = renderResult.renderPromise;
         body.append(renderResult.wrapper);
     }
     card.append(body);
 
     return {
         card,
-        nextHunkIndex,
-        renderPromise,
     };
 }
 
@@ -1795,7 +1460,6 @@ function makeErrorCard(entry) {
 
 function renderResult(payload) {
     currentPayload = payload;
-    resetHunkCaches();
     resultPanel.replaceChildren();
     const renderPassId = ++activeRenderPass;
 
@@ -1810,20 +1474,17 @@ function renderResult(payload) {
 
         const repoView = makeRepoGroupView();
         resultPanel.append(repoView.controls, repoView.groupsHost);
-        let nextHunkIndex = 0;
         payload.files.forEach((entry) => {
             if (entry.error) {
                 repoView.appendEntry(entry, makeErrorCard(entry));
                 return;
             }
-            const result = makeFileCard(entry, nextHunkIndex, renderPassId);
-            nextHunkIndex = result.nextHunkIndex;
-            repoView.appendEntry(entry, result.card);
+            repoView.appendEntry(entry, makeFileCard(entry, renderPassId).card);
         });
         return;
     }
 
-    resultPanel.append(makeFileCard(payload, 0, renderPassId).card);
+    resultPanel.append(makeFileCard(payload, renderPassId).card);
 }
 
 function closeActiveDiffStream() {
@@ -1886,10 +1547,8 @@ function shouldStreamDiff(state) {
 
 function beginRepoStream(initialPayload) {
     const renderPassId = ++activeRenderPass;
-    resetHunkCaches();
     resultPanel.replaceChildren();
     renderSummary(initialPayload.summary, initialPayload.mode);
-    syncSelectedHunk(null);
     const repoView = makeRepoGroupView();
     resultPanel.append(repoView.controls, repoView.groupsHost);
 
@@ -1900,7 +1559,6 @@ function beginRepoStream(initialPayload) {
     currentPayload = payload;
     return {
         payload,
-        nextHunkIndex: 0,
         renderPassId,
         repoView,
     };
@@ -1917,125 +1575,10 @@ function appendRepoStreamEntry(streamState, entry, summary) {
         return;
     }
 
-    const result = makeFileCard(entry, streamState.nextHunkIndex, streamState.renderPassId);
-    streamState.nextHunkIndex = result.nextHunkIndex;
-    streamState.repoView.appendEntry(entry, result.card);
+    streamState.repoView.appendEntry(entry, makeFileCard(entry, streamState.renderPassId).card);
 }
 
-function isVisibleHunkAnchor(row) {
-    return !!row && row.offsetParent !== null && row.getClientRects().length > 0;
-}
-
-let hunkAnchorRows = [];
-const hunkRowsByIndex = new Map();
-let selectedHunkIndex = null;
 let nextFileCardBodyId = 0;
-
-function resetHunkCaches() {
-    hunkAnchorRows = [];
-    hunkRowsByIndex.clear();
-    selectedHunkIndex = null;
-    hunkNavState.activeHunkIndex = null;
-    hunkNavState.lastNavAt = 0;
-}
-
-function getVisibleHunkRows() {
-    let rows = hunkAnchorRows.filter(isVisibleHunkAnchor);
-    if (!rows.length) {
-        rows = Array.from(document.querySelectorAll(".hunk-anchor"))
-            .filter(isVisibleHunkAnchor);
-    }
-    return rows;
-}
-
-function getHunkIndex(row) {
-    if (!row) {
-        return null;
-    }
-    const value = Number(row.dataset.hunkIndex);
-    return Number.isInteger(value) ? value : null;
-}
-
-function getViewportCenterY() {
-    return window.innerHeight / 2;
-}
-
-function getRowViewportCenter(row) {
-    const rect = row.getBoundingClientRect();
-    return rect.top + rect.height / 2;
-}
-
-function findNearestHunkRow(rows, viewportCenter) {
-    if (!rows.length) {
-        return null;
-    }
-
-    let nearestRow = rows[0];
-    let nearestDistance = Math.abs(getRowViewportCenter(rows[0]) - viewportCenter);
-    for (let index = 1; index < rows.length; index += 1) {
-        const distance = Math.abs(getRowViewportCenter(rows[index]) - viewportCenter);
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearestRow = rows[index];
-        }
-    }
-    return nearestRow;
-}
-
-function findRowIndex(rows, targetRow) {
-    if (!targetRow) {
-        return -1;
-    }
-    return rows.findIndex((row) => row === targetRow);
-}
-
-function stepVisibleHunkRow(rows, currentRow, direction, { wrap = true } = {}) {
-    const currentIndex = findRowIndex(rows, currentRow);
-    if (currentIndex < 0 || !rows.length) {
-        return null;
-    }
-
-    if (direction === "next") {
-        if (currentIndex + 1 < rows.length) {
-            return rows[currentIndex + 1];
-        }
-        return wrap ? rows[0] : null;
-    }
-
-    if (currentIndex - 1 >= 0) {
-        return rows[currentIndex - 1];
-    }
-    return wrap ? rows[rows.length - 1] : null;
-}
-
-function setRowsSelected(rows, isActive) {
-    for (const row of rows || []) {
-        row.classList.toggle("active-hunk", isActive);
-        row.setAttribute("aria-current", isActive ? "true" : "false");
-    }
-}
-
-function syncSelectedHunk(index) {
-    const nextIndex = Number.isInteger(index) ? index : null;
-    if (selectedHunkIndex === nextIndex) {
-        return;
-    }
-
-    if (selectedHunkIndex !== null) {
-        setRowsSelected(hunkRowsByIndex.get(selectedHunkIndex), false);
-    }
-    if (nextIndex !== null) {
-        setRowsSelected(hunkRowsByIndex.get(nextIndex), true);
-    }
-
-    selectedHunkIndex = nextIndex;
-}
-
-function clearActiveHunkSelection() {
-    hunkNavState.activeHunkIndex = null;
-    hunkNavState.lastNavAt = 0;
-    syncSelectedHunk(null);
-}
 
 function makeCollapsibleHeader(
     container,
@@ -2086,7 +1629,6 @@ function makeCollapsibleHeader(
         }
         const nextExpanded = container.classList.contains("is-collapsed");
         if (!nextExpanded) {
-            clearActiveHunkSelection();
             setExpanded(false);
             return;
         }
@@ -2115,9 +1657,6 @@ function makeCollapsibleHeader(
 }
 
 function setExpandablesExpanded(expandables, expanded) {
-    if (!expanded) {
-        clearActiveHunkSelection();
-    }
     expandables.forEach((expandable) => {
         if (typeof expandable.setExpanded === "function") {
             expandable.setExpanded(expanded);
@@ -2237,209 +1776,6 @@ function makeRepoGroupView() {
     };
 }
 
-function getActiveHunkRowForNavigation(viewportCenter) {
-    if (!Number.isInteger(hunkNavState.activeHunkIndex)) {
-        return null;
-    }
-    const activeRows = hunkRowsByIndex.get(hunkNavState.activeHunkIndex) || [];
-    const activeRow = activeRows.find((row) => isVisibleHunkAnchor(row));
-    if (!activeRow) {
-        return null;
-    }
-    if (Date.now() - hunkNavState.lastNavAt < 900) {
-        return activeRow;
-    }
-    return Math.abs(getRowViewportCenter(activeRow) - viewportCenter) <= 24
-        ? activeRow
-        : null;
-}
-
-function pickTargetHunkRow(rows, viewportCenter, direction, { wrap = true } = {}) {
-    if (!rows.length) {
-        return null;
-    }
-
-    const firstCenter = getRowViewportCenter(rows[0]);
-    const lastCenter = getRowViewportCenter(rows[rows.length - 1]);
-    if (viewportCenter < firstCenter) {
-        if (direction === "next") {
-            return rows[0];
-        }
-        return wrap ? rows[rows.length - 1] : null;
-    }
-    if (viewportCenter > lastCenter) {
-        if (direction === "prev") {
-            return rows[rows.length - 1];
-        }
-        return wrap ? rows[0] : null;
-    }
-
-    const nearestRow = findNearestHunkRow(
-        rows,
-        viewportCenter,
-    );
-    return stepVisibleHunkRow(rows, nearestRow, direction, { wrap });
-}
-
-function navigateHunk(direction, { wrap = true } = {}) {
-    const rows = getVisibleHunkRows();
-    if (!rows.length) {
-        return false;
-    }
-
-    const viewportCenter = getViewportCenterY();
-    const activeRow = getActiveHunkRowForNavigation(viewportCenter);
-    const targetRow = activeRow
-        ? stepVisibleHunkRow(rows, activeRow, direction, { wrap })
-        : pickTargetHunkRow(rows, viewportCenter, direction, { wrap });
-    if (!targetRow) {
-        return false;
-    }
-
-    const targetHunkIndex = getHunkIndex(targetRow);
-    if (!Number.isInteger(targetHunkIndex)) {
-        return false;
-    }
-
-    hunkNavState.activeHunkIndex = targetHunkIndex;
-    hunkNavState.lastNavAt = Date.now();
-    syncSelectedHunk(targetHunkIndex);
-
-    const rowCenter = Math.round(getRowViewportCenter(targetRow));
-    appendDebugScrollLog(
-        "hunkNav",
-        `hunk=${targetHunkIndex} direction=${direction} rowCenter=${rowCenter}`,
-    );
-    appendDebugScrollLog(
-        "scrollTo",
-        `row.scrollIntoView hunk=${targetHunkIndex} block=center behavior=${getHunkScrollBehavior()}`,
-    );
-    targetRow.scrollIntoView({ block: "center", behavior: getHunkScrollBehavior() });
-    return true;
-}
-
-function stopHunkHold(button = hunkHoldState.button, { suppressClick = false } = {}) {
-    if (hunkHoldState.rafId) {
-        cancelAnimationFrame(hunkHoldState.rafId);
-    }
-    hunkHoldState.rafId = 0;
-
-    if (button && suppressClick) {
-        suppressedHunkClick.button = button;
-        suppressedHunkClick.until = Date.now() + HUNK_HOLD_SUPPRESS_CLICK_MS;
-    }
-
-    clearHunkHoldVisual(hunkHoldState.button);
-    hunkHoldState.button = null;
-    hunkHoldState.direction = null;
-    hunkHoldState.startAt = 0;
-    hunkHoldState.emittedRepeats = 0;
-}
-
-function suppressNextHunkClick(button) {
-    if (!button) return;
-    markHunkClickSuppressed(button);
-    suppressedHunkClick.button = button;
-    suppressedHunkClick.until = Date.now() + HUNK_HOLD_SUPPRESS_CLICK_MS;
-}
-
-function tickHunkHold(now) {
-    if (!hunkHoldState.button || !hunkHoldState.direction) {
-        return;
-    }
-
-    const elapsed = now - hunkHoldState.startAt;
-    const armingProgress = Math.max(
-        0,
-        Math.min(elapsed / HUNK_HOLD_DELAY_MS, 1),
-    );
-    const repeatElapsedMs = Math.max(0, elapsed - HUNK_HOLD_DELAY_MS);
-    const repeatElapsedSeconds = repeatElapsedMs / 1000;
-    const targetRepeats = Math.max(
-        0,
-        Math.floor(
-            1.3 * repeatElapsedSeconds
-                + 1.8 * repeatElapsedSeconds * repeatElapsedSeconds,
-        ),
-    );
-
-    while (hunkHoldState.emittedRepeats < targetRepeats) {
-        const moved = navigateHunk(hunkHoldState.direction, { wrap: false });
-        if (!moved) {
-            suppressNextHunkClick(hunkHoldState.button);
-            stopHunkHold(hunkHoldState.button, {
-                suppressClick: false,
-            });
-            return;
-        }
-        hunkHoldState.emittedRepeats += 1;
-    }
-
-    setHunkHoldVisual(
-        hunkHoldState.button,
-        armingProgress,
-        hunkHoldState.emittedRepeats > 0,
-    );
-    hunkHoldState.rafId = requestAnimationFrame(tickHunkHold);
-}
-
-function startHunkHold(button, direction) {
-    if (hunkHoldState.button === button && hunkHoldState.direction === direction) {
-        return;
-    }
-
-    stopHunkHold();
-    hunkHoldState.button = button;
-    hunkHoldState.direction = direction;
-    hunkHoldState.startAt = performance.now();
-    setHunkHoldVisual(button, 0, false);
-    hunkHoldState.rafId = requestAnimationFrame(tickHunkHold);
-}
-
-function bindHunkButton(button, direction) {
-    const stopHold = () => {
-        stopHunkHold(button, {
-            suppressClick: hunkHoldState.emittedRepeats > 0,
-        });
-    };
-
-    button.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0) return;
-        startHunkHold(button, direction);
-    });
-    button.addEventListener("mousedown", (event) => {
-        if (event.button !== 0) return;
-        startHunkHold(button, direction);
-    });
-
-    button.addEventListener("pointerup", stopHold);
-    button.addEventListener("mouseup", stopHold);
-    button.addEventListener("pointerleave", stopHold);
-    button.addEventListener("mouseleave", stopHold);
-    button.addEventListener("pointercancel", stopHold);
-
-    button.addEventListener("click", (event) => {
-        if (
-            button.dataset.suppressHoldClick === "true"
-            || (
-                suppressedHunkClick.button === button
-                && suppressedHunkClick.until > Date.now()
-            )
-        ) {
-            clearSuppressedHunkClick(button);
-            suppressedHunkClick.button = null;
-            suppressedHunkClick.until = 0;
-            event.preventDefault();
-            return;
-        }
-
-        clearSuppressedHunkClick(button);
-        suppressedHunkClick.button = null;
-        suppressedHunkClick.until = 0;
-        navigateHunk(direction);
-    });
-}
-
 async function loadDiff() {
     return loadDiffWithOptions({});
 }
@@ -2469,7 +1805,6 @@ async function loadDiffWithOptions() {
     }
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
-    resetHunkCaches();
     closeActiveDiffStream();
     const loadToken = ++activeLoadToken;
 
@@ -2490,7 +1825,6 @@ async function loadDiffWithOptions() {
 
         renderSummary(payload.summary, payload.mode);
         renderResult(payload);
-        syncSelectedHunk(null);
         setStatus(buildStatusMessage(state, payload));
     } catch (error) {
         if (loadToken !== activeLoadToken) {
@@ -2503,8 +1837,6 @@ async function loadDiffWithOptions() {
 function renderLoadError(state, message) {
     summaryGrid.replaceChildren();
     resultPanel.replaceChildren();
-    resetHunkCaches();
-    syncSelectedHunk(null);
 
     const box = document.createElement("div");
     box.className = "error-state";
@@ -2537,8 +1869,6 @@ function streamDiff(params, state, loadToken) {
         closeActiveDiffStream();
         summaryGrid.replaceChildren();
         resultPanel.replaceChildren();
-        resetHunkCaches();
-        syncSelectedHunk(null);
 
         const box = document.createElement("div");
         box.className = "error-state";
@@ -2784,49 +2114,6 @@ function syncModeUI() {
         button.setAttribute("aria-selected", isActive ? "true" : "false");
     }
 }
-
-function shouldIgnoreHunkNavKeyEvent(event) {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
-        return true;
-    }
-
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-        return false;
-    }
-
-    return target.isContentEditable
-        || target.closest("input, textarea, select, [contenteditable='true']");
-}
-
-function scrollToTop() {
-    window.scrollTo({
-        top: 0,
-        behavior: getHunkScrollBehavior(),
-    });
-}
-
-window.addEventListener("blur", () => {
-    stopHunkHold();
-});
-
-topHunkBtn.addEventListener("click", scrollToTop);
-bindHunkButton(prevHunkBtn, "prev");
-bindHunkButton(nextHunkBtn, "next");
-
-window.addEventListener("keydown", (event) => {
-    if (shouldIgnoreHunkNavKeyEvent(event)) {
-        return;
-    }
-    if (event.key === "Home") {
-        event.preventDefault();
-        scrollToTop();
-    } else if (event.key === "n" && !event.shiftKey) {
-        navigateHunk("next");
-    } else if (event.key === "N") {
-        navigateHunk("prev");
-    }
-});
 window.addEventListener(
     "scroll",
     () => {

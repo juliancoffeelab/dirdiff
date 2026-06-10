@@ -8,8 +8,4 @@ Use it for browser scenarios where the surrounding explanation matters:
 - the scenario depends on real DOM, scrolling, layout, or timing
 - future edits would benefit from understanding why the case exists
 
-Current docs:
-
-- [Playwright hunk navigation](./playwright/hunk-nav.md)
-
 Unit-test and helper-test coverage is intentionally not documented here.

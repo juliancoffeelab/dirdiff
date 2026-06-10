@@ -33,14 +33,6 @@
                                 <input type="checkbox" id="debugScrollToggle">
                                 <span>Scroll debug log</span>
                             </label>
-                            <label class="debug-menu-field">
-                                <span>Hunk scroll</span>
-                                <select id="hunkScrollModeSelect">
-                                    <option value="browser">Browser default</option>
-                                    <option value="smooth">Smooth</option>
-                                    <option value="auto">Instant</option>
-                                </select>
-                            </label>
                             <div class="debug-menu-metrics">
                                 <div class="debug-metric">
                                     <span class="debug-metric-label">FPS</span>
@@ -163,12 +155,6 @@
         </section>
 
         <section class="result-panel" id="resultPanel"></section>
-
-        <div class="hunk-nav">
-            <button type="button" id="topHunkBtn" title="Scroll to top (Home)">&#8593; To the top</button>
-            <button type="button" id="prevHunkBtn" title="Previous hunk (Shift+N)">&#8593; Prev hunk</button>
-            <button type="button" id="nextHunkBtn" title="Next hunk (N)">&#8595; Next hunk</button>
-        </div>
     </main>
 
     <script>
