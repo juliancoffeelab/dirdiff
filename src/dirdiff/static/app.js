@@ -1605,6 +1605,14 @@ function makeNotebookFileCard(payload, startHunkIndex = 0, renderPassId = active
     };
 }
 
+function entryDisplayName(entry) {
+    const pathCandidate = String(entry.right_path || entry.left_path || entry.display_name || "").trim();
+    if (pathCandidate.includes(" -> ")) {
+        return pathCandidate;
+    }
+    return pathCandidate || "(unknown)";
+}
+
 function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPass) {
     if (payload.render_kind === "notebook") {
         return makeNotebookFileCard(payload, startHunkIndex, renderPassId);
@@ -1617,7 +1625,8 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
 
     const title = document.createElement("h2");
     title.className = "file-title";
-    title.textContent = payload.display_name;
+    const displayName = entryDisplayName(payload);
+    title.textContent = displayName;
 
     const subtitle = document.createElement("p");
     subtitle.className = "file-subtitle";
@@ -1636,10 +1645,13 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
 
     const badges = document.createElement("div");
     badges.className = "badge-row";
-    const badgeNodes = [
-        badge(payload.summary.left_exists ? "left exists" : "left missing", "badge-neutral"),
-        badge(payload.summary.right_exists ? "right exists" : "right missing", "badge-neutral"),
-    ];
+    const badgeNodes = [];
+    if (payload.summary) {
+        badgeNodes.push(
+            badge(payload.summary.left_exists ? "left exists" : "left missing", "badge-neutral"),
+            badge(payload.summary.right_exists ? "right exists" : "right missing", "badge-neutral"),
+        );
+    }
     if (payload.change_type === "rename") {
         badgeNodes.push(badge("renamed", "badge-neutral"));
     } else if (payload.change_type === "copy") {
@@ -1651,7 +1663,7 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
     if (payload.truncated_rows) {
         badgeNodes.push(badge(`truncated ${payload.truncated_rows}`, "badge-neutral"));
     }
-    if (payload.lazy_reason === "generated") {
+    if (payload.lazy) {
         badgeNodes.push(badge("generated", "badge-neutral"));
     }
     badges.append(...badgeNodes);
@@ -1714,22 +1726,22 @@ function makeFileCard(payload, startHunkIndex = 0, renderPassId = activeRenderPa
 
     header.prepend(
         makeCollapsibleHeader(card, header, body, {
-            expandedLabel: `Collapse file ${payload.display_name}`,
-            collapsedLabel: `Expand file ${payload.display_name}`,
+            expandedLabel: `Collapse file ${displayName}`,
+            collapsedLabel: `Expand file ${displayName}`,
             beforeExpand: hydrateIfNeeded,
             startCollapsed: !!payload.lazy,
             showCollapsedBody: !!payload.lazy,
         }),
     );
     let lazyLoadButton = null;
-    if (payload.lazy_reason === "generated") {
+    if (payload.lazy) {
         card.classList.add("file-card-lazy-generated");
         lazyLoadButton = document.createElement("button");
         lazyLoadButton.type = "button";
         lazyLoadButton.className = "file-lazy-load-toggle";
         lazyLoadButton.innerHTML = [
             '<span class="file-lazy-load-toggle-title">Load generated diff</span>',
-            `<span class="file-lazy-load-toggle-meta">${payload.display_name} is folded by default. Click to fetch and open it.</span>`,
+            `<span class="file-lazy-load-toggle-meta">${displayName} is folded by default. Click to fetch and open it.</span>`,
         ].join("");
         lazyLoadButton.addEventListener("click", (event) => {
             event.stopPropagation();
@@ -1844,7 +1856,9 @@ async function fetchFileDiff(entry) {
     if (entry.right_path) {
         params.set("right_path", entry.right_path);
     }
-    params.set("display_name", entry.display_name);
+    if (entry.display_name) {
+        params.set("display_name", entry.display_name);
+    }
     params.set("change_type", entry.change_type || "modify");
 
     const response = await fetch(`/api/file-diff?${params.toString()}`);

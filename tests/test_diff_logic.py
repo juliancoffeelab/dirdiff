@@ -857,11 +857,13 @@ def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
 
     assert len(progress) == 1
     entry = progress[0].entry
-    assert entry["display_name"] == "Cargo.lock"
-    assert entry["lazy"] is True
-    assert entry["lazy_reason"] == "generated"
-    assert entry["rows"] == []
-    assert entry["summary"]["changed_lines"] == 1
+    assert entry == {
+        "lazy": True,
+        "left_path": "Cargo.lock",
+        "right_path": "Cargo.lock",
+        "change_type": "modify",
+    }
+    assert progress[0].summary["changed_files"] == 1
 
 
 def test_large_tree_sitter_diff_keeps_rich_render_mode() -> None:

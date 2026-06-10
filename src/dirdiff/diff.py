@@ -111,13 +111,13 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
     return _looks_generated_path(entry.right_path) or _looks_generated_path(entry.left_path)
 
 
-def _to_lazy_repo_file_entry(payload: dict[str, Any]) -> dict[str, Any]:
-    lazy_payload = dict(payload)
-    lazy_payload["rows"] = []
-    lazy_payload["fold_hints"] = []
-    lazy_payload["lazy"] = True
-    lazy_payload["lazy_reason"] = "generated"
-    return lazy_payload
+def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    return {
+        "lazy": True,
+        "left_path": entry.left_path,
+        "right_path": entry.right_path,
+        "change_type": entry.change_type,
+    }
 
 
 def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:
@@ -2199,6 +2199,19 @@ class TextDiffService:
                 f" name={entry.display_name!r}"
                 f" change={entry.change_type}"
             )
+            if _should_lazy_load_repo_entry(entry):
+                summary["changed_files"] += 1
+                if entry.change_type == "add":
+                    summary["added_files"] += 1
+                elif entry.change_type == "delete":
+                    summary["removed_files"] += 1
+                else:
+                    summary["updated_files"] += 1
+                yield RepoDiffProgress(
+                    entry=_to_lazy_repo_file_entry(entry),
+                    summary=dict(summary),
+                )
+                continue
             try:
                 file_diff = self.build_git_diff_paths(
                     left_path=entry.left_path,
@@ -2253,12 +2266,7 @@ class TextDiffService:
                 f" changed_files={summary['changed_files']}"
                 f" changed_lines={summary['changed_lines']}"
             )
-            yielded_entry = (
-                _to_lazy_repo_file_entry(file_diff)
-                if _should_lazy_load_repo_entry(entry)
-                else file_diff
-            )
-            yield RepoDiffProgress(entry=yielded_entry, summary=dict(summary))
+            yield RepoDiffProgress(entry=file_diff, summary=dict(summary))
 
     def build_branch_diff(
         self,

@@ -106,6 +106,13 @@ class RepoFileErrorEntryResponse(BaseModel):
     error: str
 
 
+class LazyRepoFileEntryResponse(BaseModel):
+    lazy: Literal[True]
+    left_path: str | None = None
+    right_path: str | None = None
+    change_type: ChangeType = "modify"
+
+
 class TextFileDiffResponse(BaseModel):
     display_name: str
     mode: Literal["git"]
@@ -186,10 +193,14 @@ class RepoDiffResponse(BaseModel):
     left_label: str
     right_label: str
     summary: RepoSummaryResponse
-    files: list[TextFileDiffResponse | NotebookFileDiffResponse | RepoFileErrorEntryResponse] = Field(
+    files: list[
+        TextFileDiffResponse
+        | NotebookFileDiffResponse
+        | RepoFileErrorEntryResponse
+        | LazyRepoFileEntryResponse
+    ] = Field(
         default_factory=list
     )
-
 
 class NotebookSectionDiffResponse(BaseModel):
     section: str
