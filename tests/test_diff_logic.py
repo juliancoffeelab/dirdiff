@@ -866,6 +866,41 @@ def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
     assert progress[0].summary["changed_files"] == 1
 
 
+def test_iter_repo_diff_progress_marks_deleted_files_lazy(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    deleted_file = tmp_path / "alpha.txt"
+    deleted_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    deleted_file.unlink()
+
+    service = TextDiffService.discover(cwd=tmp_path)
+
+    progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
+
+    assert len(progress) == 1
+    entry = progress[0].entry
+    assert entry == {
+        "lazy": True,
+        "left_path": "alpha.txt",
+        "right_path": None,
+        "change_type": "delete",
+    }
+    assert progress[0].summary["changed_files"] == 1
+
+
 def test_large_tree_sitter_diff_keeps_rich_render_mode() -> None:
     repeated_line = "value = 1234567890\n"
     left_text = repeated_line * 12050

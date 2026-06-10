@@ -77,40 +77,12 @@ class TextDiffSummaryResponse(BaseModel):
     right_exists: bool
 
 
-class RepoSummaryResponse(BaseModel):
-    changed_files: int
-    added_files: int
-    removed_files: int
-    updated_files: int
-    changed_lines: int
-    modified_lines: int
-    added_lines: int
-    removed_lines: int
-    skipped_files: int
-
-
 class NotebookDiffSummaryResponse(TextDiffSummaryResponse):
     changed_cells: int
     added_cells: int
     removed_cells: int
     modified_cells: int
     notebook_metadata_changed: bool
-
-
-class RepoFileErrorEntryResponse(BaseModel):
-    display_name: str
-    mode: Literal["git"]
-    left_label: str
-    right_label: str
-    change_type: ChangeType
-    error: str
-
-
-class LazyRepoFileEntryResponse(BaseModel):
-    lazy: Literal[True]
-    left_path: str | None = None
-    right_path: str | None = None
-    change_type: ChangeType = "modify"
 
 
 class TextFileDiffResponse(BaseModel):
@@ -187,21 +159,6 @@ class NotebookFileDiffResponse(BaseModel):
     right_path: str | None = None
 
 
-class RepoDiffResponse(BaseModel):
-    display_name: str
-    mode: Literal["repo"]
-    left_label: str
-    right_label: str
-    summary: RepoSummaryResponse
-    files: list[
-        TextFileDiffResponse
-        | NotebookFileDiffResponse
-        | RepoFileErrorEntryResponse
-        | LazyRepoFileEntryResponse
-    ] = Field(
-        default_factory=list
-    )
-
 class NotebookSectionDiffResponse(BaseModel):
     section: str
     cell_key: str | None = None
@@ -271,57 +228,6 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
         return SaveLogResponse(path=str(destination))
 
     @app.get(
-        "/api/diff",
-        response_model=RepoDiffResponse,
-        responses={
-            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
-            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
-        },
-        summary="Load a repository diff",
-    )
-    def serve_diff(
-        mode: ModeParam = Query(
-            default=defaults["mode"],
-            description="UI diff mode. `branch-review` compares a review branch against its merge base.",
-        ),
-        left: str = Query(default=defaults["left"], description="Left ref or diff side."),
-        right: str = Query(default=defaults["right"], description="Right ref or diff side."),
-        base_branch: str | None = Query(
-            default=defaults.get("base_branch"),
-            description="Base branch for branch-review mode.",
-        ),
-        review_branch: str | None = Query(
-            default=defaults.get("review_branch"),
-            description="Branch being reviewed in branch-review mode.",
-        ),
-    ) -> RepoDiffResponse | JSONResponse:
-        selected_base_branch, selected_review_branch = selected_branches(
-            mode=mode,
-            base_branch=base_branch,
-            review_branch=review_branch,
-        )
-        try:
-            payload = service.build_diff(
-                left=left,
-                right=right,
-                base_branch=selected_base_branch,
-                branch=selected_review_branch,
-            )
-        except TextDiffError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
-                status_code=HTTPStatus.BAD_REQUEST,
-            )
-        except Exception as exc:
-            LOGGER.exception("Diff request crashed: %s", exc)
-            return JSONResponse(
-                {"error": "Internal server error."},
-                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
-
-        return RepoDiffResponse.model_validate(payload)
-
-    @app.get(
         "/api/diff-stream",
         response_model=None,
         responses={
@@ -338,7 +244,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
                 }
             },
         },
-        summary="Stream a repository diff with SSE progress events",
+        summary="Stream a diff with SSE progress events",
     )
     def serve_diff_stream(
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),

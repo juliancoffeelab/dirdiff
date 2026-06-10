@@ -108,7 +108,11 @@ def _looks_generated_path(path: str | None) -> bool:
 
 
 def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
-    return _looks_generated_path(entry.right_path) or _looks_generated_path(entry.left_path)
+    return (
+        entry.change_type == "delete"
+        or _looks_generated_path(entry.right_path)
+        or _looks_generated_path(entry.left_path)
+    )
 
 
 def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:

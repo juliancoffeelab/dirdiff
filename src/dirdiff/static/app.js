@@ -1290,6 +1290,23 @@ function entryDisplayName(entry) {
     return pathCandidate || "(unknown)";
 }
 
+function isGeneratedLazyEntry(entry) {
+    const path = String(entry.right_path || entry.left_path || "").trim().toLowerCase();
+    return [
+        "cargo.lock",
+        "composer.lock",
+        "flake.lock",
+        "go.sum",
+        "package-lock.json",
+        "pdm.lock",
+        "pipfile.lock",
+        "pnpm-lock.yaml",
+        "poetry.lock",
+        "uv.lock",
+        "yarn.lock",
+    ].some((name) => path.endsWith(`/${name}`) || path === name);
+}
+
 function makeFileCard(payload, renderPassId = activeRenderPass) {
     if (payload.render_kind === "notebook") {
         return makeNotebookFileCard(payload, renderPassId);
@@ -1341,7 +1358,12 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
         badgeNodes.push(badge(`truncated ${payload.truncated_rows}`, "badge-neutral"));
     }
     if (payload.lazy) {
-        badgeNodes.push(badge("generated", "badge-neutral"));
+        badgeNodes.push(
+            badge(
+                isGeneratedLazyEntry(payload) ? "generated" : "loads on expand",
+                "badge-neutral",
+            ),
+        );
     }
     badges.append(...badgeNodes);
 
@@ -1363,7 +1385,7 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
             hydratePromise = (async () => {
                 const loading = document.createElement("div");
                 loading.className = "empty-state";
-                loading.textContent = "Loading generated file diff…";
+                loading.textContent = "Loading file diff…";
                 body.replaceChildren(loading);
                 try {
                     const nextPayload = await fetchFileDiff(payload);
@@ -1388,7 +1410,7 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
                     failure.className = "error-state";
                     failure.textContent = error instanceof Error
                         ? error.message
-                        : "Failed to load generated file diff.";
+                        : "Failed to load file diff.";
                     body.replaceChildren(failure);
                 }
             })();
@@ -1411,8 +1433,14 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
         lazyLoadButton = document.createElement("button");
         lazyLoadButton.type = "button";
         lazyLoadButton.className = "file-lazy-load-toggle";
+        const isGenerated = isGeneratedLazyEntry(payload);
+        const lazyTitle = payload.change_type === "delete"
+            ? "Load deleted file diff"
+            : isGenerated
+                ? "Load generated diff"
+                : "Load diff";
         lazyLoadButton.innerHTML = [
-            '<span class="file-lazy-load-toggle-title">Load generated diff</span>',
+            `<span class="file-lazy-load-toggle-title">${lazyTitle}</span>`,
             `<span class="file-lazy-load-toggle-meta">${displayName} is folded by default. Click to fetch and open it.</span>`,
         ].join("");
         lazyLoadButton.addEventListener("click", (event) => {
@@ -1539,10 +1567,6 @@ function replaceLazyEntry(previousEntry, nextEntry) {
     ));
     renderSummary(currentPayload.summary, currentPayload.mode);
     renderResult(currentPayload);
-}
-
-function shouldStreamDiff(state) {
-    return state.mode !== "refs" && typeof EventSource !== "undefined";
 }
 
 function beginRepoStream(initialPayload) {
@@ -1809,23 +1833,10 @@ async function loadDiffWithOptions() {
     const loadToken = ++activeLoadToken;
 
     try {
-        if (shouldStreamDiff(state)) {
-            streamDiff(params, state, loadToken);
-            return;
+        if (typeof EventSource === "undefined") {
+            throw new Error("This browser does not support streamed diffs.");
         }
-        const response = await fetch(`/api/diff?${params.toString()}`);
-        const payload = await response.json();
-        if (loadToken !== activeLoadToken) {
-            return;
-        }
-        if (!response.ok) {
-            renderLoadError(state, payload.error || "Failed to load diff.");
-            return;
-        }
-
-        renderSummary(payload.summary, payload.mode);
-        renderResult(payload);
-        setStatus(buildStatusMessage(state, payload));
+        streamDiff(params, state, loadToken);
     } catch (error) {
         if (loadToken !== activeLoadToken) {
             return;
