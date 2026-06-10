@@ -57,6 +57,7 @@ let activeLoadToken = 0;
 let activeDiffStream = null;
 let activeRenderPass = 0;
 let currentPayload = null;
+let hunkNavigator = null;
 let debugScrollLog = [];
 let debugScrollPanel = null;
 let debugScrollBody = null;
@@ -444,6 +445,73 @@ function setStatus(message, isError = false) {
     statusText.className = isError ? "status error-text" : "status";
 }
 
+class HunkNavigator {
+    constructor(root, log = () => {}) {
+        this.root = root;
+        this.log = log;
+        this.currentIndex = 0;
+
+        const anchors = [...this.root.querySelectorAll(".hunk-anchor")];
+        if (!anchors.length) {
+            throw new Error("HunkNavigator requires at least one hunk anchor.");
+        }
+
+        anchors[0].classList.add("active-hunk");
+        anchors[0].setAttribute("aria-current", "true");
+        this.log(`action=init current=0 anchorCount=${anchors.length} scrollY=${Math.round(window.scrollY)}`);
+    }
+
+    scrollNext() {
+        this.#scrollToHunk(1, "next");
+    }
+
+    scrollPrev() {
+        this.#scrollToHunk(-1, "prev");
+    }
+
+    #scrollToHunk(direction, action) {
+        const anchors = [...this.root.querySelectorAll(".hunk-anchor")];
+        if (!anchors.length) {
+            throw new Error("HunkNavigator lost all hunk anchors.");
+        }
+
+        if (this.currentIndex >= anchors.length) {
+            this.currentIndex = anchors.length - 1;
+        }
+
+        this.currentIndex =
+            (this.currentIndex + direction + anchors.length) % anchors.length;
+
+        this.root.querySelectorAll(".active-hunk").forEach((node) => {
+            node.classList.remove("active-hunk", "active-hunk-flash");
+            node.removeAttribute("aria-current");
+        });
+
+        const row = anchors[this.currentIndex];
+        row.classList.add("active-hunk");
+        row.setAttribute("aria-current", "true");
+        row.scrollIntoView({ block: "center", behavior: "instant" });
+        row.classList.add("active-hunk-flash");
+        window.setTimeout(() => {
+            row.classList.remove("active-hunk-flash");
+        }, 450);
+
+        this.log(
+            `action=${action} current=${this.currentIndex} anchorCount=${anchors.length} scrollY=${Math.round(window.scrollY)}`,
+        );
+    }
+}
+
+function installHunkNavigatorIfPossible() {
+    if (hunkNavigator || !resultPanel.querySelector(".hunk-anchor")) {
+        return;
+    }
+    hunkNavigator = new HunkNavigator(
+        resultPanel,
+        (message) => appendDebugScrollLog("hunkNav", message),
+    );
+}
+
 function wrapChangedRange(root, start, end, className, title = "") {
     if (start >= end) return;
 
@@ -725,9 +793,13 @@ function makeDiffRow(
     row,
     leftLabel,
     rightLabel,
+    markHunkAnchor = false,
 ) {
     const rowEl = document.createElement("div");
     rowEl.className = `diff-row ${row.status}`;
+    if (markHunkAnchor) {
+        rowEl.classList.add("hunk-anchor");
+    }
 
     const changedTokens = [
         ...(row.left_tokens || []),
@@ -763,6 +835,10 @@ function makeDiffRow(
 
     rowEl.append(leftSide, rightSide);
     return rowEl;
+}
+
+function isChangedRowStatus(status) {
+    return status === "insert" || status === "delete" || status === "replace";
 }
 
 function makeFoldBarSide(count, label = "", sideLabel) {
@@ -812,6 +888,11 @@ function appendRenderedRows(
     renderPassId,
 ) {
     let lastRow = rowsHost.lastElementChild;
+    let previousRowStatus = lastRow?.classList.contains("insert")
+        || lastRow?.classList.contains("delete")
+        || lastRow?.classList.contains("replace")
+        ? "replace"
+        : "equal";
     const rowsFragment = document.createDocumentFragment();
 
     for (const row of processedRows) {
@@ -823,6 +904,7 @@ function appendRenderedRows(
             const foldBar = makeFoldBar(row.count, leftLabel, rightLabel, row.label);
             rowsFragment.append(foldBar);
             lastRow = foldBar;
+            previousRowStatus = "equal";
             continue;
         }
 
@@ -836,6 +918,7 @@ function appendRenderedRows(
             rowsFragment.append(foldBar);
             rowsFragment.append(barAnchor);
             lastRow = foldBar;
+            previousRowStatus = "equal";
 
             if (!signatureRow) {
                 continue;
@@ -889,9 +972,11 @@ function appendRenderedRows(
             row,
             leftLabel,
             rightLabel,
+            isChangedRowStatus(row.status) && !isChangedRowStatus(previousRowStatus),
         );
         rowsFragment.append(rowNode);
         lastRow = rowNode;
+        previousRowStatus = row.status;
     }
 
     rowsHost.append(rowsFragment);
@@ -1405,6 +1490,7 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
                     header.setCollapsedBodyVisible?.(false);
                     body.replaceChildren(wrapper);
                     hydrated = true;
+                    installHunkNavigatorIfPossible();
                 } catch (error) {
                     const failure = document.createElement("div");
                     failure.className = "error-state";
@@ -1488,6 +1574,7 @@ function makeErrorCard(entry) {
 
 function renderResult(payload) {
     currentPayload = payload;
+    hunkNavigator = null;
     resultPanel.replaceChildren();
     const renderPassId = ++activeRenderPass;
 
@@ -1509,10 +1596,12 @@ function renderResult(payload) {
             }
             repoView.appendEntry(entry, makeFileCard(entry, renderPassId).card);
         });
+        installHunkNavigatorIfPossible();
         return;
     }
 
     resultPanel.append(makeFileCard(payload, renderPassId).card);
+    installHunkNavigatorIfPossible();
 }
 
 function closeActiveDiffStream() {
@@ -1571,6 +1660,7 @@ function replaceLazyEntry(previousEntry, nextEntry) {
 
 function beginRepoStream(initialPayload) {
     const renderPassId = ++activeRenderPass;
+    hunkNavigator = null;
     resultPanel.replaceChildren();
     renderSummary(initialPayload.summary, initialPayload.mode);
     const repoView = makeRepoGroupView();
@@ -1600,6 +1690,7 @@ function appendRepoStreamEntry(streamState, entry, summary) {
     }
 
     streamState.repoView.appendEntry(entry, makeFileCard(entry, streamState.renderPassId).card);
+    installHunkNavigatorIfPossible();
 }
 
 let nextFileCardBodyId = 0;
@@ -1808,6 +1899,7 @@ async function loadDiffWithOptions() {
     const params = new URLSearchParams();
     const state = getControlState();
     if (!state.valid) {
+        hunkNavigator = null;
         summaryGrid.replaceChildren();
         resultPanel.replaceChildren();
         setStatus(state.message, false);
@@ -1829,6 +1921,7 @@ async function loadDiffWithOptions() {
     }
     history.replaceState({}, "", `/?${params.toString()}`);
     setStatus("Loading diff…");
+    hunkNavigator = null;
     closeActiveDiffStream();
     const loadToken = ++activeLoadToken;
 
@@ -1846,6 +1939,7 @@ async function loadDiffWithOptions() {
 }
 
 function renderLoadError(state, message) {
+    hunkNavigator = null;
     summaryGrid.replaceChildren();
     resultPanel.replaceChildren();
 
@@ -1878,6 +1972,7 @@ function streamDiff(params, state, loadToken) {
         });
         finished = true;
         closeActiveDiffStream();
+        hunkNavigator = null;
         summaryGrid.replaceChildren();
         resultPanel.replaceChildren();
 
@@ -2125,6 +2220,35 @@ function syncModeUI() {
         button.setAttribute("aria-selected", isActive ? "true" : "false");
     }
 }
+
+function shouldIgnoreHunkNavKeyEvent(event) {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+        return true;
+    }
+
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+
+    return target.isContentEditable
+        || target.closest("input, textarea, select, [contenteditable='true']");
+}
+
+window.addEventListener("keydown", (event) => {
+    if (shouldIgnoreHunkNavKeyEvent(event) || !hunkNavigator) {
+        return;
+    }
+
+    if (event.key === "n" && !event.shiftKey) {
+        event.preventDefault();
+        hunkNavigator.scrollNext();
+    } else if (event.key === "N") {
+        event.preventDefault();
+        hunkNavigator.scrollPrev();
+    }
+});
+
 window.addEventListener(
     "scroll",
     () => {
