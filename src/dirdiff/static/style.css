@@ -1183,6 +1183,53 @@ button {
     color: #fecaca;
 }
 
+.hunk-nav {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 30;
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid rgba(125, 211, 252, 0.24);
+    border-radius: 14px;
+    background: rgba(8, 16, 34, 0.82);
+    box-shadow: 0 14px 34px rgba(4, 10, 30, 0.3);
+    backdrop-filter: blur(10px) saturate(115%);
+}
+
+.hunk-nav button {
+    min-height: 34px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    border-radius: 10px;
+    background: rgba(56, 189, 248, 0.13);
+    color: var(--accent);
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.hunk-nav button:hover,
+.hunk-nav button:focus-visible {
+    background: rgba(56, 189, 248, 0.2);
+    border-color: rgba(125, 211, 252, 0.46);
+    color: var(--text);
+}
+
+.hunk-nav kbd {
+    min-width: 18px;
+    padding: 2px 5px;
+    border: 1px solid rgba(237, 241, 255, 0.16);
+    border-radius: 5px;
+    background: rgba(9, 14, 30, 0.64);
+    color: rgba(237, 241, 255, 0.82);
+    font: 0.7rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    text-align: center;
+}
+
 @media (max-width: 1024px) {
     .page-header {
         grid-template-columns: 1fr;
@@ -1282,6 +1329,19 @@ button {
         font-weight: 700;
         letter-spacing: 0.05em;
         text-transform: uppercase;
+    }
+
+    .hunk-nav {
+        right: 10px;
+        bottom: 10px;
+        padding: 6px;
+    }
+
+    .hunk-nav button {
+        min-height: 32px;
+        padding: 0 9px;
+        gap: 6px;
+        font-size: 0.78rem;
     }
 
 }

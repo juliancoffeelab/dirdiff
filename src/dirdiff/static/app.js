@@ -13,6 +13,9 @@ const rightRefInput = document.getElementById("rightRefInput");
 const statusText = document.getElementById("statusText");
 const summaryGrid = document.getElementById("summaryGrid");
 const resultPanel = document.getElementById("resultPanel");
+const prevHunkBtn = document.getElementById("prevHunkBtn");
+const nextHunkBtn = document.getElementById("nextHunkBtn");
+const topHunkBtn = document.getElementById("topHunkBtn");
 const debugMenu = document.getElementById("debugMenu");
 const debugMenuToggle = document.getElementById("debugMenuToggle");
 const debugMenuPanel = document.getElementById("debugMenuPanel");
@@ -502,7 +505,7 @@ class HunkNavigator {
     }
 }
 
-function installHunkNavigatorIfPossible() {
+function installHunkNavigator() {
     if (hunkNavigator || !resultPanel.querySelector(".hunk-anchor")) {
         return;
     }
@@ -511,6 +514,9 @@ function installHunkNavigatorIfPossible() {
         (message) => appendDebugScrollLog("hunkNav", message),
     );
 }
+
+const hunkNavigatorObserver = new MutationObserver(installHunkNavigator);
+hunkNavigatorObserver.observe(resultPanel, { childList: true, subtree: true });
 
 function wrapChangedRange(root, start, end, className, title = "") {
     if (start >= end) return;
@@ -1490,7 +1496,6 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
                     header.setCollapsedBodyVisible?.(false);
                     body.replaceChildren(wrapper);
                     hydrated = true;
-                    installHunkNavigatorIfPossible();
                 } catch (error) {
                     const failure = document.createElement("div");
                     failure.className = "error-state";
@@ -1596,12 +1601,10 @@ function renderResult(payload) {
             }
             repoView.appendEntry(entry, makeFileCard(entry, renderPassId).card);
         });
-        installHunkNavigatorIfPossible();
         return;
     }
 
     resultPanel.append(makeFileCard(payload, renderPassId).card);
-    installHunkNavigatorIfPossible();
 }
 
 function closeActiveDiffStream() {
@@ -1690,7 +1693,6 @@ function appendRepoStreamEntry(streamState, entry, summary) {
     }
 
     streamState.repoView.appendEntry(entry, makeFileCard(entry, streamState.renderPassId).card);
-    installHunkNavigatorIfPossible();
 }
 
 let nextFileCardBodyId = 0;
@@ -2235,17 +2237,35 @@ function shouldIgnoreHunkNavKeyEvent(event) {
         || target.closest("input, textarea, select, [contenteditable='true']");
 }
 
+function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: "instant" });
+    appendDebugScrollLog("hunkNav", `action=top scrollY=${Math.round(window.scrollY)}`);
+}
+
+prevHunkBtn?.addEventListener("click", () => {
+    hunkNavigator?.scrollPrev();
+});
+
+nextHunkBtn?.addEventListener("click", () => {
+    hunkNavigator?.scrollNext();
+});
+
+topHunkBtn?.addEventListener("click", scrollToTop);
+
 window.addEventListener("keydown", (event) => {
-    if (shouldIgnoreHunkNavKeyEvent(event) || !hunkNavigator) {
+    if (shouldIgnoreHunkNavKeyEvent(event)) {
         return;
     }
 
     if (event.key === "n" && !event.shiftKey) {
         event.preventDefault();
-        hunkNavigator.scrollNext();
+        hunkNavigator?.scrollNext();
     } else if (event.key === "N") {
         event.preventDefault();
-        hunkNavigator.scrollPrev();
+        hunkNavigator?.scrollPrev();
+    } else if (event.key === "p") {
+        event.preventDefault();
+        scrollToTop();
     }
 });
 
