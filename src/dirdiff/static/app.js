@@ -1468,60 +1468,66 @@ function makeNotebookFileCard(payload, renderPassId = activeRenderPass) {
     const header = document.createElement("div");
     header.className = "file-card-header";
     header.append(titleWrap, headerActions);
+
+    function renderNotebookBody() {
+        body.replaceChildren();
+        if (payload.summary.notebook_metadata_changed) {
+            const metadataDetails = makeNotebookDetails(
+                notebookSectionSummary("Notebook metadata diff", {
+                    render_mode: payload.notebook_metadata_render_mode || null,
+                    truncated_rows: payload.notebook_metadata_truncated_rows || 0,
+                }),
+                async () => {
+                    if (!payload.notebook_metadata_section) {
+                        payload.notebook_metadata_section = await fetchNotebookSection(
+                            payload,
+                            { section: "notebook-metadata" },
+                        );
+                    }
+                    const metadataSection = makeNotebookSection(
+                        payload.notebook_metadata_section.rows,
+                        "Left notebook metadata",
+                        "Right notebook metadata",
+                        renderPassId,
+                        {
+                            renderMode: payload.notebook_metadata_section.render_mode || null,
+                            truncatedRows: payload.notebook_metadata_section.truncated_rows || 0,
+                        },
+                    );
+                    return metadataSection.host;
+                },
+            );
+            body.append(metadataDetails.details);
+        }
+
+        const cellsHost = document.createElement("div");
+        cellsHost.className = "notebook-cells";
+        for (const cell of payload.cells || []) {
+            const cellResult = makeNotebookCellCard(
+                payload,
+                cell,
+                renderPassId,
+            );
+            cellsHost.append(cellResult.card);
+        }
+        if (!cellsHost.childElementCount) {
+            const empty = document.createElement("div");
+            empty.className = "empty-state";
+            empty.textContent = "No changed cells detected for the selected notebook sides.";
+            cellsHost.append(empty);
+        }
+        body.append(cellsHost);
+    }
+
     header.prepend(
         makeCollapsibleHeader(card, header, body, {
             expandedLabel: `Collapse file ${payload.display_name}`,
             collapsedLabel: `Expand file ${payload.display_name}`,
+            onCollapse: () => body.replaceChildren(),
+            onExpand: renderNotebookBody,
         }),
     );
     card.append(header);
-
-    if (payload.summary.notebook_metadata_changed) {
-        const metadataDetails = makeNotebookDetails(
-            notebookSectionSummary("Notebook metadata diff", {
-                render_mode: payload.notebook_metadata_render_mode || null,
-                truncated_rows: payload.notebook_metadata_truncated_rows || 0,
-            }),
-            async () => {
-                if (!payload.notebook_metadata_section) {
-                    payload.notebook_metadata_section = await fetchNotebookSection(
-                        payload,
-                        { section: "notebook-metadata" },
-                    );
-                }
-                const metadataSection = makeNotebookSection(
-                    payload.notebook_metadata_section.rows,
-                    "Left notebook metadata",
-                    "Right notebook metadata",
-                    renderPassId,
-                    {
-                        renderMode: payload.notebook_metadata_section.render_mode || null,
-                        truncatedRows: payload.notebook_metadata_section.truncated_rows || 0,
-                    },
-                );
-                return metadataSection.host;
-            },
-        );
-        body.append(metadataDetails.details);
-    }
-
-    const cellsHost = document.createElement("div");
-    cellsHost.className = "notebook-cells";
-    for (const cell of payload.cells || []) {
-        const cellResult = makeNotebookCellCard(
-            payload,
-            cell,
-            renderPassId,
-        );
-        cellsHost.append(cellResult.card);
-    }
-    if (!cellsHost.childElementCount) {
-        const empty = document.createElement("div");
-        empty.className = "empty-state";
-        empty.textContent = "No changed cells detected for the selected notebook sides.";
-        cellsHost.append(empty);
-    }
-    body.append(cellsHost);
     card.append(body);
 
     return {
@@ -1623,58 +1629,8 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
     header.append(titleWrap, headerActions);
     let hydrated = !payload.lazy;
     let hydratePromise = null;
-
-    async function hydrateIfNeeded() {
-        if (hydrated) {
-            return;
-        }
-        if (!hydratePromise) {
-            hydratePromise = (async () => {
-                const loading = document.createElement("div");
-                loading.className = "empty-state";
-                loading.textContent = "Loading file diff…";
-                body.replaceChildren(loading);
-                try {
-                    const nextPayload = await fetchFileDiff(payload);
-                    payload.lazy = false;
-                    payload.rows = nextPayload.rows || [];
-                    payload.fold_hints = nextPayload.fold_hints || [];
-                    payload.render_mode = nextPayload.render_mode || null;
-                    payload.truncated_rows = nextPayload.truncated_rows || 0;
-                    payload.summary = nextPayload.summary || payload.summary;
-                    const { wrapper } = renderSideBySide(
-                        payload.rows,
-                        nextPayload.left_label,
-                        nextPayload.right_label,
-                        payload.fold_hints,
-                        renderPassId,
-                    );
-                    header.setCollapsedBodyVisible?.(false);
-                    body.replaceChildren(wrapper);
-                    hydrated = true;
-                } catch (error) {
-                    const failure = document.createElement("div");
-                    failure.className = "error-state";
-                    failure.textContent = error instanceof Error
-                        ? error.message
-                        : "Failed to load file diff.";
-                    body.replaceChildren(failure);
-                }
-            })();
-        }
-        await hydratePromise;
-    }
-
-    header.prepend(
-        makeCollapsibleHeader(card, header, body, {
-            expandedLabel: `Collapse file ${displayName}`,
-            collapsedLabel: `Expand file ${displayName}`,
-            beforeExpand: hydrateIfNeeded,
-            startCollapsed: !!payload.lazy,
-            showCollapsedBody: !!payload.lazy,
-        }),
-    );
     let lazyLoadButton = null;
+
     if (payload.lazy) {
         card.classList.add("file-card-lazy-generated");
         lazyLoadButton = document.createElement("button");
@@ -1695,20 +1651,79 @@ function makeFileCard(payload, renderPassId = activeRenderPass) {
             void header.click();
         });
     }
-    card.append(header);
-    if (payload.lazy) {
-        if (lazyLoadButton) {
-            body.append(lazyLoadButton);
+
+    function renderFileBody() {
+        if (payload.lazy && !hydrated) {
+            if (lazyLoadButton) {
+                body.replaceChildren(lazyLoadButton);
+            }
+            return;
         }
-    } else {
+
         const renderResult = renderSideBySide(
-            payload.rows,
+            payload.rows || [],
             payload.left_label,
             payload.right_label,
             payload.fold_hints || [],
             renderPassId,
         );
-        body.append(renderResult.wrapper);
+        body.replaceChildren(renderResult.wrapper);
+    }
+
+    function unmountFileBody() {
+        body.replaceChildren();
+    }
+
+    async function hydrateIfNeeded() {
+        if (hydrated) {
+            return;
+        }
+        if (!hydratePromise) {
+            hydratePromise = (async () => {
+                const loading = document.createElement("div");
+                loading.className = "empty-state";
+                loading.textContent = "Loading file diff…";
+                body.replaceChildren(loading);
+                try {
+                    const nextPayload = await fetchFileDiff(payload);
+                    payload.lazy = false;
+                    payload.rows = nextPayload.rows || [];
+                    payload.fold_hints = nextPayload.fold_hints || [];
+                    payload.left_label = nextPayload.left_label;
+                    payload.right_label = nextPayload.right_label;
+                    payload.render_mode = nextPayload.render_mode || null;
+                    payload.truncated_rows = nextPayload.truncated_rows || 0;
+                    payload.summary = nextPayload.summary || payload.summary;
+                    header.setCollapsedBodyVisible?.(false);
+                    hydrated = true;
+                    renderFileBody();
+                } catch (error) {
+                    const failure = document.createElement("div");
+                    failure.className = "error-state";
+                    failure.textContent = error instanceof Error
+                        ? error.message
+                        : "Failed to load file diff.";
+                    body.replaceChildren(failure);
+                }
+            })();
+        }
+        await hydratePromise;
+    }
+
+    header.prepend(
+        makeCollapsibleHeader(card, header, body, {
+            expandedLabel: `Collapse file ${displayName}`,
+            collapsedLabel: `Expand file ${displayName}`,
+            beforeExpand: hydrateIfNeeded,
+            startCollapsed: !!payload.lazy,
+            showCollapsedBody: !!payload.lazy,
+            onCollapse: unmountFileBody,
+            onExpand: renderFileBody,
+        }),
+    );
+    card.append(header);
+    if (payload.lazy && lazyLoadButton) {
+        body.replaceChildren(lazyLoadButton);
     }
     card.append(body);
 
@@ -1866,6 +1881,8 @@ function makeCollapsibleHeader(
         beforeExpand = null,
         startCollapsed = false,
         showCollapsedBody = false,
+        onCollapse = null,
+        onExpand = null,
     } = {},
 ) {
     const indicator = document.createElement("span");
@@ -1882,6 +1899,11 @@ function makeCollapsibleHeader(
     let collapsedBodyVisible = showCollapsedBody;
 
     function setExpanded(expanded) {
+        if (expanded) {
+            onExpand?.();
+        } else if (!collapsedBodyVisible) {
+            onCollapse?.();
+        }
         body.hidden = !expanded && !collapsedBodyVisible;
         container.classList.toggle("is-collapsed", !expanded);
         header.setAttribute("aria-expanded", expanded ? "true" : "false");
@@ -1979,6 +2001,12 @@ function makeDirectoryGroup(label) {
             indicatorClassName: "directory-collapse-indicator",
             expandedLabel: `Collapse directory ${label}`,
             collapsedLabel: `Expand directory ${label}`,
+            onCollapse: () => {
+                setExpandablesExpanded([...body.querySelectorAll(".file-card-header")], false);
+            },
+            onExpand: () => {
+                setExpandablesExpanded([...body.querySelectorAll(".file-card-header")], true);
+            },
         }),
         title,
     );

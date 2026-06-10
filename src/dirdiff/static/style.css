@@ -915,15 +915,17 @@ button {
 }
 
 .diff-row.whitespace-only-change .line-no {
-    color: #fde68a;
+    color: #854d0e;
+    background: #fff3c4;
+    font-weight: 700;
 }
 
 .diff-row.whitespace-only-change .diff-side {
-    background: #fffaf0;
+    background: #fff8e6;
 }
 
 .diff-row.whitespace-only-change .line-code {
-    border-left: 3px solid rgba(251, 191, 36, 0.55);
+    border-left: 3px solid #d97706;
     padding-left: 7px;
 }
 
