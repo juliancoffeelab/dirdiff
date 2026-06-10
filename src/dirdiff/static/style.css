@@ -1066,6 +1066,8 @@ button {
     color: var(--muted);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.78rem;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .line-code {
@@ -1077,6 +1079,16 @@ button {
     tab-size: 4;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.83rem;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+body[data-diff-selection-side="left"] .diff-side.side-right,
+body[data-diff-selection-side="left"] .diff-side.side-right *,
+body[data-diff-selection-side="right"] .diff-side.side-left,
+body[data-diff-selection-side="right"] .diff-side.side-left * {
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .ts-token {

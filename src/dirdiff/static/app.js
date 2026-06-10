@@ -448,6 +448,24 @@ function setStatus(message, isError = false) {
     statusText.className = isError ? "status error-text" : "status";
 }
 
+function setDiffSelectionSide(side) {
+    if (side === "left" || side === "right") {
+        document.body.dataset.diffSelectionSide = side;
+        return;
+    }
+    delete document.body.dataset.diffSelectionSide;
+}
+
+document.addEventListener("pointerdown", (event) => {
+    const side = event.target.closest(".diff-side.side-left, .diff-side.side-right");
+    if (!side || !resultPanel.contains(side)) {
+        setDiffSelectionSide(null);
+        return;
+    }
+
+    setDiffSelectionSide(side.classList.contains("side-left") ? "left" : "right");
+});
+
 class HunkNavigator {
     constructor(root, log = () => {}) {
         this.root = root;
