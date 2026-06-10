@@ -46,6 +46,7 @@ const REF_SECTION_LABELS = {
     remote_names: "Remotes",
     remote_branches: "Remote branches",
 };
+const LINE_PIN_HASH_KEY = "pin";
 const SUPPRESSED_SYNTAX_CLASS_PREFIXES = [
     "ts-punctuation",
     "ts-operator",
@@ -61,6 +62,7 @@ let activeDiffStream = null;
 let activeRenderPass = 0;
 let currentPayload = null;
 let hunkNavigator = null;
+let restoredLinePinKey = "";
 let debugScrollLog = [];
 let debugScrollPanel = null;
 let debugScrollBody = null;
@@ -466,6 +468,139 @@ document.addEventListener("pointerdown", (event) => {
     setDiffSelectionSide(side.classList.contains("side-left") ? "left" : "right");
 });
 
+function getLinePinFileLabel(node) {
+    return node.closest(".file-card")?.querySelector(".file-title")?.textContent?.trim() || "";
+}
+
+function getLinePinFromHash() {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const rawPin = params.get(LINE_PIN_HASH_KEY);
+    if (!rawPin) {
+        return null;
+    }
+
+    try {
+        const pin = JSON.parse(rawPin);
+        if (
+            pin
+            && typeof pin.file === "string"
+            && (pin.side === "left" || pin.side === "right")
+            && typeof pin.line === "string"
+            && pin.line
+        ) {
+            return pin;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+function setLinePinInHash(pin) {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    params.set(LINE_PIN_HASH_KEY, JSON.stringify(pin));
+    history.replaceState({}, "", `${window.location.pathname}${window.location.search}#${params.toString()}`);
+}
+
+function clearLinePinInHash() {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    params.delete(LINE_PIN_HASH_KEY);
+    const hash = params.toString();
+    history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${window.location.search}${hash ? `#${hash}` : ""}`,
+    );
+}
+
+function findPinnedLine(pin) {
+    for (const lineNo of resultPanel.querySelectorAll(".line-no")) {
+        if (lineNo.textContent.trim() !== pin.line) {
+            continue;
+        }
+        const side = lineNo.closest(".diff-side");
+        if (!side?.classList.contains(`side-${pin.side}`)) {
+            continue;
+        }
+        if (getLinePinFileLabel(lineNo) !== pin.file) {
+            continue;
+        }
+        return lineNo;
+    }
+    return null;
+}
+
+function highlightPinnedLine(row) {
+    resultPanel.querySelectorAll(".pinned-line").forEach((node) => {
+        node.classList.remove("pinned-line");
+    });
+    row?.classList.add("pinned-line");
+}
+
+function restorePinnedLine() {
+    const pin = getLinePinFromHash();
+    if (!pin) {
+        return;
+    }
+
+    const pinKey = JSON.stringify(pin);
+    if (restoredLinePinKey === pinKey) {
+        return;
+    }
+
+    const lineNo = findPinnedLine(pin);
+    if (!lineNo) {
+        return;
+    }
+
+    const row = lineNo.closest(".diff-row");
+    restoredLinePinKey = pinKey;
+    highlightPinnedLine(row);
+    row?.scrollIntoView({ block: "center", behavior: "instant" });
+    appendDebugScrollLog(
+        "linePin",
+        `action=restore file=${pin.file} side=${pin.side} line=${pin.line} scrollY=${Math.round(window.scrollY)}`,
+    );
+}
+
+resultPanel.addEventListener("click", (event) => {
+    const lineNo = event.target.closest(".line-no");
+    if (!lineNo || !resultPanel.contains(lineNo)) {
+        return;
+    }
+
+    const line = lineNo.textContent.trim();
+    const side = lineNo.closest(".diff-side");
+    if (!line || !side) {
+        return;
+    }
+
+    const pin = {
+        file: getLinePinFileLabel(lineNo),
+        side: side.classList.contains("side-left") ? "left" : "right",
+        line,
+    };
+    const pinKey = JSON.stringify(pin);
+    if (restoredLinePinKey === pinKey && lineNo.closest(".diff-row")?.classList.contains("pinned-line")) {
+        restoredLinePinKey = "";
+        clearLinePinInHash();
+        highlightPinnedLine(null);
+        appendDebugScrollLog(
+            "linePin",
+            `action=unpin file=${pin.file} side=${pin.side} line=${pin.line} scrollY=${Math.round(window.scrollY)}`,
+        );
+        return;
+    }
+
+    restoredLinePinKey = pinKey;
+    setLinePinInHash(pin);
+    highlightPinnedLine(lineNo.closest(".diff-row"));
+    appendDebugScrollLog(
+        "linePin",
+        `action=pin file=${pin.file} side=${pin.side} line=${pin.line} scrollY=${Math.round(window.scrollY)}`,
+    );
+});
+
 class HunkNavigator {
     constructor(root, log = () => {}) {
         this.root = root;
@@ -533,7 +668,10 @@ function installHunkNavigator() {
     );
 }
 
-const hunkNavigatorObserver = new MutationObserver(installHunkNavigator);
+const hunkNavigatorObserver = new MutationObserver(() => {
+    installHunkNavigator();
+    restorePinnedLine();
+});
 hunkNavigatorObserver.observe(resultPanel, { childList: true, subtree: true });
 
 function wrapChangedRange(root, start, end, className, title = "") {
@@ -1598,6 +1736,7 @@ function makeErrorCard(entry) {
 function renderResult(payload) {
     currentPayload = payload;
     hunkNavigator = null;
+    restoredLinePinKey = "";
     resultPanel.replaceChildren();
     const renderPassId = ++activeRenderPass;
 
@@ -1682,6 +1821,7 @@ function replaceLazyEntry(previousEntry, nextEntry) {
 function beginRepoStream(initialPayload) {
     const renderPassId = ++activeRenderPass;
     hunkNavigator = null;
+    restoredLinePinKey = "";
     resultPanel.replaceChildren();
     renderSummary(initialPayload.summary, initialPayload.mode);
     const repoView = makeRepoGroupView();
@@ -1920,6 +2060,7 @@ async function loadDiffWithOptions() {
     const state = getControlState();
     if (!state.valid) {
         hunkNavigator = null;
+        restoredLinePinKey = "";
         summaryGrid.replaceChildren();
         resultPanel.replaceChildren();
         setStatus(state.message, false);
@@ -1939,9 +2080,10 @@ async function loadDiffWithOptions() {
     if (state.reviewBranch) {
         params.set("review_branch", state.reviewBranch);
     }
-    history.replaceState({}, "", `/?${params.toString()}`);
+    history.replaceState({}, "", `/?${params.toString()}${window.location.hash}`);
     setStatus("Loading diff…");
     hunkNavigator = null;
+    restoredLinePinKey = "";
     closeActiveDiffStream();
     const loadToken = ++activeLoadToken;
 
@@ -1960,6 +2102,7 @@ async function loadDiffWithOptions() {
 
 function renderLoadError(state, message) {
     hunkNavigator = null;
+    restoredLinePinKey = "";
     summaryGrid.replaceChildren();
     resultPanel.replaceChildren();
 
@@ -1993,6 +2136,7 @@ function streamDiff(params, state, loadToken) {
         finished = true;
         closeActiveDiffStream();
         hunkNavigator = null;
+        restoredLinePinKey = "";
         summaryGrid.replaceChildren();
         resultPanel.replaceChildren();
 

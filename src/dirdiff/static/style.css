@@ -1068,6 +1068,12 @@ button {
     font-size: 0.78rem;
     -webkit-user-select: none;
     user-select: none;
+    cursor: pointer;
+}
+
+.line-no:hover {
+    color: rgba(248, 250, 255, 0.94);
+    background: rgba(125, 211, 252, 0.1);
 }
 
 .line-code {
@@ -1089,6 +1095,20 @@ body[data-diff-selection-side="right"] .diff-side.side-left,
 body[data-diff-selection-side="right"] .diff-side.side-left * {
     -webkit-user-select: none;
     user-select: none;
+}
+
+.diff-row.pinned-line {
+    box-shadow:
+        inset 3px 0 0 rgba(251, 191, 36, 0.82),
+        inset 0 0 0 1px rgba(251, 191, 36, 0.14),
+        0 0 22px rgba(251, 191, 36, 0.16);
+}
+
+.diff-row.pinned-line .line-no {
+    color: rgba(255, 248, 220, 0.98);
+    background:
+        linear-gradient(90deg, rgba(251, 191, 36, 0.36), rgba(251, 191, 36, 0.16));
+    font-weight: 700;
 }
 
 .ts-token {
