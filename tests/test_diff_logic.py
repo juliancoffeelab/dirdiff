@@ -3,7 +3,6 @@ import json
 import subprocess
 
 from dirdiff.diff import (
-    PLAIN_RENDER_CHAR_THRESHOLD,
     TextDiffService,
     build_loaded_diff,
 )
@@ -11,7 +10,7 @@ from dirdiff.diff import (
 
 def test_counts_whitespace_only_changes_as_modified() -> None:
     diff = build_loaded_diff(
-        display_name="demo.txt",
+        display_name="demo.py",
         mode="files",
         left_label="left",
         right_label="right",
@@ -19,6 +18,8 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
         right_exists=True,
         left_text="    value = 1\n",
         right_text="\tvalue = 1\n",
+        left_path_hint="demo.py",
+        right_path_hint="demo.py",
     )
 
     assert diff["summary"]["changed_lines"] == 1
@@ -863,9 +864,9 @@ def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
     assert entry["summary"]["changed_lines"] == 1
 
 
-def test_large_diff_falls_back_to_plain_render_mode() -> None:
+def test_large_tree_sitter_diff_keeps_rich_render_mode() -> None:
     repeated_line = "value = 1234567890\n"
-    left_text = repeated_line * ((PLAIN_RENDER_CHAR_THRESHOLD // len(repeated_line)) + 10)
+    left_text = repeated_line * 12050
     right_text = left_text.replace("1234567890", "1234567891", 1)
 
     diff = build_loaded_diff(
@@ -881,20 +882,41 @@ def test_large_diff_falls_back_to_plain_render_mode() -> None:
         right_path_hint="large.py",
     )
 
-    assert diff["render_mode"] == "plain"
-    assert "fold_hints" not in diff
-    assert "left_syntax" not in diff["rows"][0]
-    assert "right_syntax" not in diff["rows"][0]
-    assert any(row["status"] == "fold" for row in diff["rows"])
+    assert "render_mode" not in diff
+    assert "truncated_rows" not in diff
+    assert any(row.get("left_syntax") for row in diff["rows"])
+    assert any(row.get("right_syntax") for row in diff["rows"])
+    assert all(row["status"] != "fold" for row in diff["rows"])
     changed_rows = [
         row
         for row in diff["rows"]
-        if row.get("status") != "fold"
-        and row.get("left_text") != row.get("right_text")
+        if row.get("left_text") != row.get("right_text")
     ]
     assert changed_rows
-    assert "left_tokens" not in changed_rows[0]
-    assert "right_tokens" not in changed_rows[0]
+    assert "right_syntax" in changed_rows[0] or "left_syntax" in changed_rows[0]
+
+
+def test_large_plaintext_diff_still_falls_back_to_plain_render_mode() -> None:
+    repeated_line = "value = 1234567890\n"
+    left_text = repeated_line * 12050
+    right_text = left_text.replace("1234567890", "1234567891", 1)
+
+    diff = build_loaded_diff(
+        display_name="large.txt",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=left_text,
+        right_text=right_text,
+        left_path_hint="large.txt",
+        right_path_hint="large.txt",
+    )
+
+    assert diff["render_mode"] == "plain"
+    assert any(row["status"] == "fold" for row in diff["rows"])
+    assert not any(row.get("left_syntax") for row in diff["rows"])
 
 
 def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:

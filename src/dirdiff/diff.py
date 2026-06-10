@@ -28,8 +28,6 @@ ALIGNMENT_WORD_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
 ALIGNMENT_NOISE_WORDS = frozenset({"none", "true", "false", "null"})
 MIN_SIMILAR_LINE_RATIO = 0.45
 ENABLE_PERF_LOGS = os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
-PLAIN_RENDER_ROW_THRESHOLD = 2000
-PLAIN_RENDER_CHAR_THRESHOLD = 200_000
 PLAIN_RENDER_CONTEXT_ROWS = 3
 PLAIN_RENDER_MIN_FOLD_ROWS = 24
 PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
@@ -85,19 +83,6 @@ def _perf_log(message: str) -> None:
 
 def _payload_size_bytes(payload: dict[str, Any]) -> int:
     return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-
-
-def _should_use_plain_rendering(
-    rows: list[dict[str, Any]],
-    left_text: str | None,
-    right_text: str | None,
-) -> bool:
-    row_count = len(rows)
-    char_count = len(left_text or "") + len(right_text or "")
-    return (
-        row_count >= PLAIN_RENDER_ROW_THRESHOLD
-        or char_count >= PLAIN_RENDER_CHAR_THRESHOLD
-    )
 
 
 def _strip_rich_row_markup(rows: list[dict[str, Any]]) -> None:
@@ -483,14 +468,14 @@ def _build_rows_payload(
     right_path_hint: str | None = None,
 ) -> dict[str, Any]:
     rows = _line_rows(left_text, right_text)
-    plain_render = _should_use_plain_rendering(rows, left_text, right_text)
+    left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
+    right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
+    plain_render = left_syntax_lines is None and right_syntax_lines is None
     fold_hints: list[dict[str, object]] = []
 
     if plain_render:
         _strip_rich_row_markup(rows)
     else:
-        left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
-        right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
         fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
 
         for row in rows:

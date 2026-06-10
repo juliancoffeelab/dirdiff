@@ -20,7 +20,7 @@ LOGGER = logging.getLogger(__name__)
 
 ModeParam = Literal["files", "staged", "head", "refs", "branch-review"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
-RowStatus = Literal["equal", "replace", "insert", "delete", "fold"]
+RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
 
 
 class ErrorResponse(BaseModel):
