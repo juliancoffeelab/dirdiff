@@ -124,6 +124,9 @@ export type FileEntry = {
   change_type: "modify" | "add" | "delete" | "rename" | "copy" | null;
   left_path: string | null;
   right_path: string | null;
+  changed_lines?: number | null;
+  added_lines?: number | null;
+  removed_lines?: number | null;
   rows?: DiffRow[];
   fold_hints?: FoldHint[];
   lazy?: boolean;

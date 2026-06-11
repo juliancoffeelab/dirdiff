@@ -159,6 +159,33 @@ class FakeGitRepository(FakeDiffService):
         return TextVersion(label=side, exists=True, text=text)
 
 
+class FakeEngineService(FakeDiffService):
+    def __init__(self, cwd: Path | None = None, *, row_status: str) -> None:
+        super().__init__(cwd)
+        self.row_status = row_status
+
+    def build_git_diff_paths(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None = None,
+        change_type: str | None = None,
+    ) -> dict:
+        payload = super().build_git_diff_paths(
+            left_path=left_path,
+            right_path=right_path,
+            left=left,
+            right=right,
+            display_name=display_name,
+            change_type=change_type,
+        )
+        payload["rows"][0]["status"] = self.row_status
+        return payload
+
+
 def parse_sse_events(text: str) -> list[tuple[str, dict]]:
     events: list[tuple[str, dict]] = []
     event_name: str | None = None
@@ -384,6 +411,27 @@ def test_save_log_endpoint_writes_to_launch_directory(tmp_path: Path) -> None:
     assert saved_path.read_text(encoding="utf-8") == "hello log\n"
 
 
+def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
+    service = FakeEngineService(tmp_path, row_status="replace")
+    git_service = FakeEngineService(tmp_path, row_status="delete")
+    defaults = default_bootstrap()
+    client = TestClient(create_app(service, defaults, services={"git": git_service}))
+
+    response = client.get(
+        "/api/file-diff",
+        params={
+            "engine": "git",
+            "left": "head",
+            "right": "worktree",
+            "left_path": "alpha.txt",
+            "right_path": "alpha.txt",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rows"][0]["status"] == "delete"
+
+
 @pytest.mark.git
 def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
@@ -469,9 +517,13 @@ def test_repo_diff_endpoint_emits_minimal_generated_lockfile_entry(tmp_path: Pat
     assert response.status_code == 200
     assert events[1][1]["entry"] == {
         "lazy": True,
+        "display_name": "Cargo.lock",
         "left_path": "Cargo.lock",
         "right_path": "Cargo.lock",
         "change_type": "modify",
+        "changed_lines": 2,
+        "added_lines": 1,
+        "removed_lines": 1,
     }
 
 
@@ -506,7 +558,11 @@ def test_repo_diff_stream_emits_minimal_deleted_file_entry(tmp_path: Path) -> No
     assert response.status_code == 200
     assert events[1][1]["entry"] == {
         "lazy": True,
+        "display_name": "alpha.txt",
         "left_path": "alpha.txt",
         "right_path": None,
         "change_type": "delete",
+        "changed_lines": 1,
+        "added_lines": 0,
+        "removed_lines": 1,
     }

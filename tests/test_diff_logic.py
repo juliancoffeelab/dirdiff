@@ -4,6 +4,7 @@ import pytest
 import subprocess
 
 from dirdiff.diff import (
+    GitDiffService,
     GitRepository,
     TextDiffService,
     build_loaded_diff,
@@ -692,6 +693,7 @@ def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
     assert diff["mode"] == "repo"
     assert diff["summary"]["changed_files"] == 1
     assert diff["summary"]["changed_lines"] == 1
+    assert diff["summary"]["removed_lines"] == 0
     assert [entry["display_name"] for entry in diff["files"]] == ["alpha.txt"]
 
 
@@ -799,6 +801,74 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     assert diff["summary"]["changed_files"] == 1
     assert diff["summary"]["added_lines"] == 1
     assert diff["summary"]["removed_lines"] == 0
+
+
+@pytest.mark.git
+def test_git_diff_service_uses_git_style_delete_insert_rows(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    changed_file = tmp_path / "alpha.txt"
+    changed_file.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    changed_file.write_text("one\ntwo changed\nthree\n", encoding="utf-8")
+
+    repo = GitRepository.discover(cwd=tmp_path)
+    rich_service = TextDiffService(repo)
+    git_service = GitDiffService(repo)
+
+    rich_diff = rich_service.build_git_diff_paths(
+        left_path="alpha.txt",
+        right_path="alpha.txt",
+        left="head",
+        right="worktree",
+    )
+    git_diff = git_service.build_git_diff_paths(
+        left_path="alpha.txt",
+        right_path="alpha.txt",
+        left="head",
+        right="worktree",
+    )
+    reversed_git_diff = git_service.build_git_diff_paths(
+        left_path="alpha.txt",
+        right_path="alpha.txt",
+        left="worktree",
+        right="head",
+    )
+
+    assert [row["status"] for row in rich_diff["rows"]] == [
+        "equal",
+        "replace",
+        "equal",
+    ]
+    assert [row["status"] for row in git_diff["rows"]] == [
+        "equal",
+        "delete",
+        "insert",
+        "equal",
+    ]
+    assert git_diff["summary"]["modified_lines"] == 0
+    assert git_diff["summary"]["removed_lines"] == 1
+    assert git_diff["summary"]["added_lines"] == 1
+    assert [row["status"] for row in reversed_git_diff["rows"]] == [
+        "equal",
+        "delete",
+        "insert",
+        "equal",
+    ]
+    assert reversed_git_diff["rows"][1]["left_text"] == "two changed"
+    assert reversed_git_diff["rows"][2]["right_text"] == "two"
 
 
 @pytest.mark.git

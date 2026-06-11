@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-from dirdiff.diff import GitRepository, TextDiffService
+from dirdiff.diff import GitDiffService, GitRepository, TextDiffService
 from dirdiff.server import create_app
 from typing import Any
 import uvicorn
@@ -213,6 +213,7 @@ def create_app_from_runtime_config() -> Any:
     repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
     repo = GitRepository.discover(repo_root=repo_root)
     service = TextDiffService(repo)
+    git_service = GitDiffService(repo)
     defaults = build_defaults(
         service,
         left=config.left,
@@ -220,7 +221,7 @@ def create_app_from_runtime_config() -> Any:
         base_branch=config.base_branch,
         review_branch=config.review_branch,
     )
-    return create_app(service, defaults)
+    return create_app(service, defaults, services={"git": git_service})
 
 
 def choose_port(requested_port: int) -> int:

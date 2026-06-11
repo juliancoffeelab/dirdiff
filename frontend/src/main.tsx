@@ -188,13 +188,10 @@ function initialControls(defaults: Defaults): ControlsState {
 
 function initialEngine(defaults: Defaults): DiffEngine {
   const engine = new URLSearchParams(window.location.search).get("engine");
-  if (engine === "dirdiff") {
+  if (engine === "git" || engine === "dirdiff") {
     return engine;
   }
-  if (defaults.engine === "dirdiff") {
-    return defaults.engine;
-  }
-  return "dirdiff";
+  return defaults.engine || "dirdiff";
 }
 
 function buildRequest(
@@ -545,15 +542,26 @@ function App() {
     setDiffSelectionSide(null);
   });
 
-  const loadControls = (nextControls: ControlsState) => {
+  const loadControls = (
+    nextControls: ControlsState,
+    selectedEngine: DiffEngine = engine(),
+  ) => {
     setControls(nextControls);
-    const nextRequest = buildRequest(nextControls, refChoices(), engine());
+    const nextRequest = buildRequest(nextControls, refChoices(), selectedEngine);
     if (typeof nextRequest === "string") {
       stream?.close();
       resetDiffState("error", nextRequest);
       return;
     }
     setRequest(nextRequest);
+  };
+
+  const loadEngine = (nextEngine: DiffEngine) => {
+    setEngine(nextEngine);
+    const currentControls = controls();
+    if (currentControls) {
+      loadControls(currentControls, nextEngine);
+    }
   };
 
   createEffect(() => {
@@ -603,6 +611,35 @@ function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
+  const scrollToFile = (file: FileEntry) => {
+    const directory = entryDirectoryLabel(file);
+    const key = fileKey(file);
+    batch(() => {
+      setDirectoryExpansion((current) => ({
+        ...current,
+        [directory]: true,
+      }));
+      setFileExpansion((current) => ({
+        ...current,
+        [key]: true,
+      }));
+    });
+    requestAnimationFrame(() => {
+      const target = document.getElementById(fileElementId(key));
+      if (!target) {
+        throw new Error(`Could not find file card for ${fileDisplayName(file)}.`);
+      }
+      const header = target.querySelector<HTMLElement>(".file-card-header");
+      if (!header) {
+        throw new Error(`Could not find file header for ${fileDisplayName(file)}.`);
+      }
+      header.scrollIntoView({ block: "start", behavior: "instant" });
+      target.classList.remove("file-card-flash");
+      void target.offsetWidth;
+      target.classList.add("file-card-flash");
+    });
+  };
+
   return (
     <main ref={appRoot} class="app-shell">
       <header class="app-header">
@@ -611,7 +648,7 @@ function App() {
           <div class="app-title-row">
             <h1>dirdiff</h1>
             <div class="header-actions">
-              <DebugMenu engine={engine()} onEngineChange={setEngine} />
+              <DebugMenu engine={engine()} onEngineChange={loadEngine} />
               <a class="legacy-link" href={legacyUrl(request())}>
                 Legacy
               </a>
@@ -656,6 +693,7 @@ function App() {
               setFileErrors={setFileErrors}
               setFiles={setFiles}
             />
+            <FileTreeSidebar files={files()} onScrollToFile={scrollToFile} />
             <HunkNav
               onNext={() => scrollHunk(1)}
               onPrev={() => scrollHunk(-1)}
@@ -774,15 +812,13 @@ function DebugMenu(props: {
               value={props.engine}
               onChange={(event) => {
                 const nextEngine = event.currentTarget.value as DiffEngine;
-                if (nextEngine === "dirdiff") {
+                if (nextEngine === "dirdiff" || nextEngine === "git") {
                   props.onEngineChange(nextEngine);
                 }
               }}
             >
               <option value="dirdiff">{engineLabels.dirdiff}</option>
-              <option value="git" disabled>
-                {engineLabels.git} (soon)
-              </option>
+              <option value="git">{engineLabels.git}</option>
             </select>
           </label>
           <div class="debug-menu-metrics" aria-label="Developer metrics">
@@ -1110,8 +1146,13 @@ function FileList(props: {
 }) {
   const groupsByLabel = createMemo(() => groupFilesByLabel(props.files));
   const groupLabels = createMemo(() => [...groupsByLabel().keys()]);
-  const groupForLabel = (label: string) =>
-    groupsByLabel().get(label) ?? { label, files: [] };
+  const groupForLabel = (label: string) => {
+    const group = groupsByLabel().get(label);
+    if (!group) {
+      throw new Error(`Could not find directory group ${label}.`);
+    }
+    return group;
+  };
 
   const setAllExpanded = (expanded: boolean) => {
     props.setDirectoryExpansion(() =>
@@ -1245,6 +1286,85 @@ function DirectoryGroup(props: {
   );
 }
 
+function FileTreeSidebar(props: {
+  files: FileEntry[];
+  onScrollToFile: (file: FileEntry) => void;
+}) {
+  const [open, setOpen] = createSignal(false);
+  const groups = createMemo(() => [...groupFilesByLabel(props.files).values()]);
+  const lineStats = createMemo(() =>
+    props.files.reduce(
+      (total, file) => addLineStats(total, fileLineStats(file)),
+      emptyLineStats(),
+    ),
+  );
+
+  return (
+    <Show when={props.files.length > 0}>
+      <div class="file-tree-shell" classList={{ open: open() }}>
+        <button
+          type="button"
+          class="file-tree-toggle"
+          onClick={() => setOpen(!open())}
+          aria-expanded={open()}
+          aria-controls="fileTreeSidebar"
+        >
+          Files <TreeLineStats stats={lineStats()} />
+        </button>
+        <Show when={open()}>
+          <aside
+            id="fileTreeSidebar"
+            class="file-tree-sidebar"
+            aria-label="Changed file tree"
+          >
+            <div class="file-tree-header">
+              <strong>Files</strong>
+              <TreeLineStats stats={lineStats()} />
+              <button
+                type="button"
+                class="file-tree-close"
+                onClick={() => setOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div class="file-tree-groups">
+              <For each={groups()}>
+                {(group) => (
+                  <section class="file-tree-group">
+                    <div class="file-tree-directory">
+                      <span>{group.label}</span>
+                      <TreeLineStats stats={groupLineStats(group)} />
+                    </div>
+                    <For each={group.files}>
+                      {(file) => (
+                        <button
+                          type="button"
+                          class="file-tree-file"
+                          classList={{
+                            added: file.change_type === "add",
+                            removed: file.change_type === "delete",
+                            lazy: Boolean(file.lazy),
+                          }}
+                          onClick={() => props.onScrollToFile(file)}
+                          title={fileDisplayName(file)}
+                        >
+                          <span>{fileBasename(file)}</span>
+                          <TreeLineStats stats={fileLineStats(file)} />
+                        </button>
+                      )}
+                    </For>
+                  </section>
+                )}
+              </For>
+            </div>
+          </aside>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
 function FileCard(props: {
   file: FileEntry;
   request: DiffRequest | null;
@@ -1268,10 +1388,7 @@ function FileCard(props: {
       right_exists: Boolean(props.file.right_path),
     };
   const displayName = () =>
-    props.file.display_name ||
-    props.file.right_path ||
-    props.file.left_path ||
-    "(unknown file)";
+    fileDisplayName(props.file);
   const lazyTitle = () => {
     if (props.file.change_type === "delete") {
       return "Load deleted file diff";
@@ -1332,6 +1449,7 @@ function FileCard(props: {
 
   return (
     <article
+      id={fileElementId(key())}
       class="file-card"
       classList={{
         "is-collapsed": !props.expanded,
@@ -1674,14 +1792,92 @@ function NotebookSectionView(props: {
 }
 
 function entryDirectoryPath(entry: FileEntry): string {
-  const pathCandidate = String(
-    entry.right_path || entry.left_path || entry.display_name || "",
-  ).trim();
-  const normalizedPath = pathCandidate.includes(" -> ")
-    ? pathCandidate.split(" -> ").at(-1)?.trim() || pathCandidate
-    : pathCandidate;
-  const lastSlash = normalizedPath.lastIndexOf("/");
-  return lastSlash >= 0 ? normalizedPath.slice(0, lastSlash) : "";
+  const path = fileTreePath(entry);
+  const lastSlash = path.lastIndexOf("/");
+  return lastSlash >= 0 ? path.slice(0, lastSlash) : "";
+}
+
+function fileDisplayName(entry: FileEntry): string {
+  if (!entry.display_name) {
+    throw new Error("File entry is missing display_name.");
+  }
+  return entry.display_name;
+}
+
+function fileBasename(entry: FileEntry): string {
+  const path = fileTreePath(entry);
+  const basename = path.split("/").at(-1);
+  if (!basename) {
+    throw new Error(`Could not derive file basename from ${path}.`);
+  }
+  return basename;
+}
+
+function fileTreePath(entry: FileEntry): string {
+  if (entry.right_path) {
+    return entry.right_path;
+  }
+  if (entry.left_path) {
+    return entry.left_path;
+  }
+  throw new Error(`File entry is missing paths for ${fileDisplayName(entry)}.`);
+}
+
+type LineStats = {
+  added: number;
+  modified: number;
+  removed: number;
+};
+
+function emptyLineStats(): LineStats {
+  return { added: 0, modified: 0, removed: 0 };
+}
+
+function addLineStats(left: LineStats, right: LineStats): LineStats {
+  return {
+    added: left.added + right.added,
+    modified: left.modified + right.modified,
+    removed: left.removed + right.removed,
+  };
+}
+
+function fileLineStats(entry: FileEntry): LineStats {
+  if (entry.summary) {
+    return {
+      added: entry.summary.added_lines,
+      modified: entry.summary.modified_lines,
+      removed: entry.summary.removed_lines,
+    };
+  }
+  if (
+    entry.lazy &&
+    typeof entry.added_lines === "number" &&
+    typeof entry.removed_lines === "number"
+  ) {
+    return {
+      added: entry.added_lines,
+      modified: 0,
+      removed: entry.removed_lines,
+    };
+  }
+  throw new Error(`File entry is missing line stats for ${fileDisplayName(entry)}.`);
+}
+
+function groupLineStats(group: FileGroup): LineStats {
+  return group.files.reduce(
+    (total, file) => addLineStats(total, fileLineStats(file)),
+    emptyLineStats(),
+  );
+}
+
+function TreeLineStats(props: { stats: LineStats }) {
+  return (
+    <span class="file-tree-line-stats">
+      <span class="added">+ {props.stats.added}</span>
+      <span class="changed">~ {props.stats.modified}</span>
+      <span class="removed">- {props.stats.removed}</span>
+    </span>
+  );
 }
 
 function isGeneratedLazyEntry(entry: FileEntry): boolean {
@@ -1837,6 +2033,14 @@ function entryDirectoryLabel(entry: FileEntry): string {
 
 function fileKey(entry: FileEntry): string {
   return `${entry.left_path || ""}\u0000${entry.right_path || ""}\u0000${entry.display_name || ""}\u0000${entry.change_type || ""}`;
+}
+
+function fileElementId(key: string): string {
+  let hash = 5381;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 33) ^ key.charCodeAt(index);
+  }
+  return `file-${(hash >>> 0).toString(36)}`;
 }
 
 function fileDiffQueryKey(request: DiffRequest, entry: FileEntry) {

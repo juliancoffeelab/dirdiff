@@ -19,6 +19,7 @@ from dirdiff.diff import TextDiffError, TextDiffService
 LOGGER = logging.getLogger(__name__)
 
 ModeParam = Literal["files", "staged", "head", "refs", "branch-review"]
+EngineParam = Literal["dirdiff", "git"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
 
@@ -187,9 +188,19 @@ def selected_branches(
     return base_branch, review_branch
 
 
-def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
+def create_app(
+    service: TextDiffService,
+    defaults: dict[str, Any],
+    *,
+    services: Mapping[str, TextDiffService] | None = None,
+) -> FastAPI:
     app = FastAPI()
     asset_version = str(time.time_ns())
+    diff_services = {"dirdiff": service, **(services or {})}
+
+    def selected_service(engine: EngineParam) -> TextDiffService:
+        return diff_services.get(engine, service)
+
     app.mount(
         "/static",
         StaticFiles(packages=[("dirdiff", "static")]),
@@ -251,6 +262,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
         summary="Stream a diff with SSE progress events",
     )
     def serve_diff_stream(
+        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
         left: str = Query(default=defaults["left"], description="Left ref or diff side."),
         right: str = Query(default=defaults["right"], description="Right ref or diff side."),
@@ -268,9 +280,10 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
             base_branch=base_branch,
             review_branch=review_branch,
         )
+        diff_service = selected_service(engine)
         try:
             initial_payload, progress_iter, label_overrides = _build_stream_payload(
-                service=service,
+                service=diff_service,
                 defaults=defaults,
                 mode=mode,
                 left=left,
@@ -337,6 +350,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
         summary="Load a single file diff",
     )
     def serve_file_diff(
+        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
         left: str = Query(default=defaults["left"], description="Left ref or diff side."),
         right: str = Query(default=defaults["right"], description="Right ref or diff side."),
@@ -358,6 +372,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
             base_branch=base_branch,
             review_branch=review_branch,
         )
+        diff_service = selected_service(engine)
 
         try:
             if (
@@ -366,12 +381,12 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
                 and selected_review_branch.strip()
             ):
                 resolved_base_branch, merge_base, normalized_branch = _resolve_branch_review_refs(
-                    service=service,
+                    service=diff_service,
                     base_branch=selected_base_branch,
                     branch=selected_review_branch,
                 )
                 left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
-                payload = service.build_git_diff_paths(
+                payload = diff_service.build_git_diff_paths(
                     left_path=left_path,
                     right_path=right_path,
                     left=merge_base,
@@ -382,7 +397,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
                 payload["left_label"] = left_label
                 payload["right_label"] = normalized_branch
             else:
-                payload = service.build_git_diff_paths(
+                payload = diff_service.build_git_diff_paths(
                     left_path=left_path,
                     right_path=right_path,
                     left=left,
@@ -416,6 +431,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
         summary="Load notebook metadata or output rows for a specific cell",
     )
     def serve_notebook_section(
+        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
         left: str = Query(default=defaults["left"], description="Left ref or diff side."),
         right: str = Query(default=defaults["right"], description="Right ref or diff side."),
@@ -440,6 +456,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
             base_branch=base_branch,
             review_branch=review_branch,
         )
+        diff_service = selected_service(engine)
 
         try:
             if (
@@ -448,11 +465,11 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
                 and selected_review_branch.strip()
             ):
                 resolved_base_branch, merge_base, normalized_branch = _resolve_branch_review_refs(
-                    service=service,
+                    service=diff_service,
                     base_branch=selected_base_branch,
                     branch=selected_review_branch,
                 )
-                payload = service.build_notebook_section_diff(
+                payload = diff_service.build_notebook_section_diff(
                     left_path=left_path,
                     right_path=right_path,
                     left=merge_base,
@@ -463,7 +480,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
                 payload["left_label"] = f"{resolved_base_branch.strip()}...{normalized_branch}"
                 payload["right_label"] = normalized_branch
             else:
-                payload = service.build_notebook_section_diff(
+                payload = diff_service.build_notebook_section_diff(
                     left_path=left_path,
                     right_path=right_path,
                     left=left,

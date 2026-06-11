@@ -127,9 +127,13 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
 def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "lazy": True,
+        "display_name": entry.display_name,
         "left_path": entry.left_path,
         "right_path": entry.right_path,
         "change_type": entry.change_type,
+        "changed_lines": entry.changed_lines,
+        "added_lines": entry.added_lines,
+        "removed_lines": entry.removed_lines,
     }
     if (
         entry.changed_lines is not None
@@ -1401,6 +1405,214 @@ def _line_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
     return rows
 
 
+HUNK_HEADER_PATTERN = re.compile(
+    r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
+    r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
+)
+
+
+def _parse_git_patch_rows(patch_text: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    left_no = 1
+    right_no = 1
+    in_hunk = False
+
+    for line in patch_text.splitlines():
+        hunk_match = HUNK_HEADER_PATTERN.match(line)
+        if hunk_match:
+            left_no = int(hunk_match.group("left_start"))
+            right_no = int(hunk_match.group("right_start"))
+            in_hunk = True
+            continue
+
+        if not in_hunk:
+            continue
+        if line.startswith("\\"):
+            continue
+        if not line:
+            prefix = " "
+            text = ""
+        else:
+            prefix = line[0]
+            text = line[1:]
+
+        if prefix == " ":
+            rows.append(
+                {
+                    "status": "equal",
+                    "left_no": left_no,
+                    "right_no": right_no,
+                    "left_text": text,
+                    "right_text": text,
+                }
+            )
+            left_no += 1
+            right_no += 1
+            continue
+        if prefix == "-":
+            rows.append(
+                {
+                    "status": "delete",
+                    "left_no": left_no,
+                    "right_no": None,
+                    "left_text": text,
+                    "right_text": "",
+                }
+            )
+            left_no += 1
+            continue
+        if prefix == "+":
+            rows.append(
+                {
+                    "status": "insert",
+                    "left_no": None,
+                    "right_no": right_no,
+                    "left_text": "",
+                    "right_text": text,
+                }
+            )
+            right_no += 1
+
+    return rows
+
+
+def _plain_line_rows_for_side(
+    *,
+    text: str,
+    side: Literal["left", "right"],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        if side == "left":
+            rows.append(
+                {
+                    "status": "delete",
+                    "left_no": index,
+                    "right_no": None,
+                    "left_text": line,
+                    "right_text": "",
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "status": "insert",
+                    "left_no": None,
+                    "right_no": index,
+                    "left_text": "",
+                    "right_text": line,
+                }
+            )
+    return rows
+
+
+def _git_style_line_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
+    left_lines = left_text.splitlines()
+    right_lines = right_text.splitlines()
+    matcher = SequenceMatcher(a=left_lines, b=right_lines, autojunk=False)
+    rows: list[dict[str, Any]] = []
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset, left_line in enumerate(left_lines[i1:i2]):
+                rows.append(
+                    {
+                        "status": "equal",
+                        "left_no": i1 + offset + 1,
+                        "right_no": j1 + offset + 1,
+                        "left_text": left_line,
+                        "right_text": left_line,
+                    }
+                )
+            continue
+
+        for offset, left_line in enumerate(left_lines[i1:i2]):
+            rows.append(
+                {
+                    "status": "delete",
+                    "left_no": i1 + offset + 1,
+                    "right_no": None,
+                    "left_text": left_line,
+                    "right_text": "",
+                }
+            )
+        for offset, right_line in enumerate(right_lines[j1:j2]):
+            rows.append(
+                {
+                    "status": "insert",
+                    "left_no": None,
+                    "right_no": j1 + offset + 1,
+                    "left_text": "",
+                    "right_text": right_line,
+                }
+            )
+
+    return rows
+
+
+def _build_git_rows_payload(
+    *,
+    rows: list[dict[str, Any]],
+    left_text: str,
+    right_text: str,
+    left_path_hint: str | None = None,
+    right_path_hint: str | None = None,
+) -> dict[str, Any]:
+    left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
+    right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
+    plain_render = left_syntax_lines is None and right_syntax_lines is None
+    fold_hints: list[dict[str, object]] = []
+
+    if plain_render:
+        _strip_rich_row_markup(rows)
+    else:
+        fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
+        for row in rows:
+            left_no = row.get("left_no")
+            if (
+                isinstance(left_no, int)
+                and left_syntax_lines
+                and left_no - 1 < len(left_syntax_lines)
+                and left_syntax_lines[left_no - 1]
+            ):
+                row["left_syntax"] = left_syntax_lines[left_no - 1]
+
+            right_no = row.get("right_no")
+            if (
+                isinstance(right_no, int)
+                and right_syntax_lines
+                and right_no - 1 < len(right_syntax_lines)
+                and right_syntax_lines[right_no - 1]
+            ):
+                row["right_syntax"] = right_syntax_lines[right_no - 1]
+
+    added_lines = sum(1 for row in rows if row["status"] == "insert")
+    removed_lines = sum(1 for row in rows if row["status"] == "delete")
+    payload_rows = (
+        _collapse_equal_rows_for_large_diff(rows)
+        if plain_render
+        else rows
+    )
+    truncated_rows = 0
+    if plain_render:
+        payload_rows, truncated_rows = _truncate_large_render_rows(payload_rows)
+
+    payload = {
+        "rows": payload_rows,
+        "changed_lines": added_lines + removed_lines,
+        "modified_lines": 0,
+        "added_lines": added_lines,
+        "removed_lines": removed_lines,
+    }
+    if plain_render:
+        payload["render_mode"] = "plain"
+    if truncated_rows:
+        payload["truncated_rows"] = truncated_rows
+    if fold_hints:
+        payload["fold_hints"] = fold_hints
+    return payload
+
+
 def _row_has_any_change(row: dict[str, Any]) -> bool:
     if row.get("status") != "equal":
         return True
@@ -1777,6 +1989,85 @@ class GitRepository:
             return "HEAD"
         return side
 
+    def _diff_args(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        kind: str,
+    ) -> list[str]:
+        args, _ = self._diff_args_with_direction(left=left, right=right, kind=kind)
+        return args
+
+    def _diff_args_with_direction(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        kind: str,
+    ) -> tuple[list[str], bool]:
+        if "worktree" in {left, right}:
+            other = right if left == "worktree" else left
+            args = (
+                ["diff", kind, "-z", "-M"]
+                if other == "index"
+                else ["diff", kind, "-z", "-M", self._git_tree_spec(other)]
+            )
+            return args, left == "worktree"
+        if "index" in {left, right}:
+            other = right if left == "index" else left
+            args = (
+                ["diff", "--cached", kind, "-z", "-M"]
+                if other == "head"
+                else ["diff", "--cached", kind, "-z", "-M", self._git_tree_spec(other)]
+            )
+            return args, left == "index"
+        return [
+            "diff",
+            kind,
+            "-z",
+            "-M",
+            self._git_tree_spec(left),
+            self._git_tree_spec(right),
+        ], False
+
+    def load_git_patch(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        path: str,
+    ) -> str:
+        normalized_left = self.normalize_side(left)
+        normalized_right = self.normalize_side(right)
+        normalized_path = self.normalize_repo_path(path)
+        diff_args, reverse = self._diff_args_with_direction(
+            left=normalized_left,
+            right=normalized_right,
+            kind="--patch",
+        )
+        patch_args = [
+            arg for arg in diff_args if arg not in {"-z", "--patch"}
+        ]
+        patch_args.extend(
+            [
+                "--patch",
+                "--no-ext-diff",
+                "--no-color",
+                "--unified=100000000",
+            ]
+        )
+        if reverse:
+            patch_args.append("-R")
+        patch_args.extend(["--", normalized_path])
+        result = self._run_git(patch_args, check=False)
+        if result.returncode != 0:
+            raise TextDiffError(
+                _decode_text(result.stderr, label="git diff stderr").strip()
+                or "Could not load Git patch."
+            )
+        return _decode_text(result.stdout, label=f"git diff:{normalized_path}")
+
     def _parse_name_status_output(self, output: bytes) -> list[RepoDiffPath]:
         tokens = output.split(b"\0")
         if tokens and not tokens[-1]:
@@ -1858,30 +2149,7 @@ class GitRepository:
         if left == right:
             return []
 
-        diff_args: list[str]
-        if "worktree" in {left, right}:
-            other = right if left == "worktree" else left
-            diff_args = (
-                ["diff", "--name-status", "-z", "-M"]
-                if other == "index"
-                else ["diff", "--name-status", "-z", "-M", self._git_tree_spec(other)]
-            )
-        elif "index" in {left, right}:
-            other = right if left == "index" else left
-            diff_args = (
-                ["diff", "--cached", "--name-status", "-z", "-M"]
-                if other == "head"
-                else ["diff", "--cached", "--name-status", "-z", "-M", self._git_tree_spec(other)]
-            )
-        else:
-            diff_args = [
-                "diff",
-                "--name-status",
-                "-z",
-                "-M",
-                self._git_tree_spec(left),
-                self._git_tree_spec(right),
-            ]
+        diff_args = self._diff_args(left=left, right=right, kind="--name-status")
 
         diff_output = self._run_git(diff_args)
         entries = self._parse_name_status_output(diff_output.stdout)
@@ -2492,3 +2760,128 @@ class TextDiffService:
         if self.repo_root is not None:
             return self.build_repo_diff(left=left, right=right)
         raise TextDiffError("Git-backed diff mode requires a Git repo.")
+
+
+class GitDiffService(TextDiffService):
+    def build_git_diff_paths(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None = None,
+        change_type: str = "modify",
+    ) -> dict[str, Any]:
+        started_at = time.perf_counter()
+        normalized_left = (
+            self.normalize_repo_path(left_path) if left_path is not None else None
+        )
+        normalized_right = (
+            self.normalize_repo_path(right_path) if right_path is not None else None
+        )
+        normalized_left_side = self.normalize_side(left)
+        normalized_right_side = self.normalize_side(right)
+        left_version = (
+            self.load_git_version(normalized_left, normalized_left_side)
+            if normalized_left is not None
+            else TextVersion(label=normalized_left_side, exists=False, text=None)
+        )
+        right_version = (
+            self.load_git_version(normalized_right, normalized_right_side)
+            if normalized_right is not None
+            else TextVersion(label=normalized_right_side, exists=False, text=None)
+        )
+
+        if left_version.error:
+            raise TextDiffError(left_version.error)
+        if right_version.error:
+            raise TextDiffError(right_version.error)
+        if not left_version.exists and not right_version.exists:
+            raise TextDiffError("The selected file is missing on both sides.")
+
+        left_text = left_version.text or ""
+        right_text = right_version.text or ""
+        patch_path = normalized_right or normalized_left
+        rows = (
+            _parse_git_patch_rows(
+                self.repo.load_git_patch(
+                    left=normalized_left_side,
+                    right=normalized_right_side,
+                    path=patch_path,
+                )
+            )
+            if patch_path is not None
+            else []
+        )
+        if not rows and left_version.exists and not right_version.exists:
+            rows = _plain_line_rows_for_side(text=left_text, side="left")
+        elif not rows and right_version.exists and not left_version.exists:
+            rows = _plain_line_rows_for_side(text=right_text, side="right")
+        elif not rows:
+            rows = _git_style_line_rows(left_text, right_text)
+
+        rows_payload = _build_git_rows_payload(
+            rows=rows,
+            left_text=left_text,
+            right_text=right_text,
+            left_path_hint=normalized_left,
+            right_path_hint=normalized_right,
+        )
+        payload = {
+            "display_name": display_name
+            or _display_name_for_repo_paths(normalized_left, normalized_right),
+            "mode": "git",
+            "left_label": normalized_left_side,
+            "right_label": normalized_right_side,
+            "summary": {
+                "changed_lines": rows_payload["changed_lines"],
+                "modified_lines": rows_payload["modified_lines"],
+                "added_lines": rows_payload["added_lines"],
+                "removed_lines": rows_payload["removed_lines"],
+                "left_exists": left_version.exists,
+                "right_exists": right_version.exists,
+            },
+            "rows": rows_payload["rows"],
+            "change_type": change_type,
+            "left_path": normalized_left,
+            "right_path": normalized_right,
+        }
+        if "render_mode" in rows_payload:
+            payload["render_mode"] = rows_payload["render_mode"]
+        if "truncated_rows" in rows_payload:
+            payload["truncated_rows"] = rows_payload["truncated_rows"]
+        if "fold_hints" in rows_payload:
+            payload["fold_hints"] = rows_payload["fold_hints"]
+
+        row_count = len(rows)
+        syntax_span_count = sum(
+            len(row.get("left_syntax", ())) + len(row.get("right_syntax", ()))
+            for row in rows
+        )
+        payload_bytes = _payload_size_bytes(payload)
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        _perf_log(
+            "git-file"
+            f" name={payload['display_name']!r}"
+            f" change={change_type}"
+            f" rows={row_count}"
+            f" left_chars={len(left_text)}"
+            f" right_chars={len(right_text)}"
+            f" syntax_spans={syntax_span_count}"
+            f" payload_bytes={payload_bytes}"
+            f" elapsed_ms={elapsed_ms:.1f}"
+        )
+        return payload
+
+    def build_notebook_section_diff(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        section: str,
+        cell_key: str | None = None,
+    ) -> dict[str, Any]:
+        raise TextDiffError("Notebook sections are not available in the Git engine.")
