@@ -727,6 +727,23 @@ h1 {
   font-weight: 700;
 }
 
+.diff-row.pinned-line {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.diff-row.pinned-line .line-no {
+  color: #1e3a8a;
+  background: #dbeafe;
+  font-weight: 700;
+}
+
+.diff-row.pinned-line .line-code {
+  background: #eff6ff;
+}
+
 .fold-bar {
   appearance: none;
   min-height: 0;
@@ -798,6 +815,10 @@ h1 {
   user-select: none;
 }
 
+.line-no[data-line-pin-line] {
+  cursor: pointer;
+}
+
 .line-code {
   min-width: 0;
   margin: 0;
@@ -809,6 +830,11 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.45;
+}
+
+body[data-diff-selection-side="left"] .diff-side.side-right,
+body[data-diff-selection-side="right"] .diff-side.side-left {
+  user-select: none;
 }
 
 .ts-token {

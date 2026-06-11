@@ -50,6 +50,11 @@ type DebugMetrics = {
   nodes: string;
   spans: string;
 };
+type LinePin = {
+  file: string;
+  side: "left" | "right";
+  line: string;
+};
 
 const modeSides: Record<
   Exclude<DiffMode, "refs" | "branch-review">,
@@ -69,6 +74,7 @@ const modeLabels: Record<DiffMode, string> = {
 };
 
 const builtinSides = new Set(["head", "index", "worktree"]);
+const linePinHashKey = "pin";
 const refSectionLabels: Record<string, string> = {
   builtins: "Built-ins",
   locals: "Local branches",
@@ -297,9 +303,11 @@ function App() {
   const [statusText, setStatusText] = createSignal("Preparing diff...");
   const [currentHunkIndex, setCurrentHunkIndex] = createSignal(0);
   const [hunkNavigationTick, setHunkNavigationTick] = createSignal(0);
+  let appRoot: HTMLElement | undefined;
   let stream: EventSource | undefined;
   let initialized = false;
   let hunkReconcileTimer = 0;
+  let restoredLinePinKey = "";
 
   const refChoices = () =>
     defaults.data?.ref_choices ?? {
@@ -441,6 +449,78 @@ function App() {
   window.addEventListener("keydown", onKeyDown);
   onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
+  const setDiffSelectionSide = (side: "left" | "right" | null) => {
+    if (side) {
+      document.body.dataset.diffSelectionSide = side;
+      return;
+    }
+    delete document.body.dataset.diffSelectionSide;
+  };
+
+  const onPointerDown = (event: PointerEvent) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !appRoot?.contains(target)) {
+      setDiffSelectionSide(null);
+      return;
+    }
+    const side = target.closest(".diff-side.side-left, .diff-side.side-right");
+    if (!side || !appRoot.contains(side)) {
+      setDiffSelectionSide(null);
+      return;
+    }
+    setDiffSelectionSide(
+      side.classList.contains("side-left") ? "left" : "right",
+    );
+  };
+
+  const onLinePinClick = (event: MouseEvent) => {
+    const target = event.target;
+    if (!(target instanceof Element) || target.closest("button")) {
+      return;
+    }
+    const lineNo = target.closest<HTMLElement>(".line-no[data-line-pin-line]");
+    if (!lineNo || !appRoot?.contains(lineNo)) {
+      return;
+    }
+    const pin = linePinFromElement(lineNo);
+    if (!pin) {
+      return;
+    }
+    const pinKey = JSON.stringify(pin);
+    const row = lineNo.closest<HTMLElement>(".diff-row");
+    if (
+      restoredLinePinKey === pinKey &&
+      row?.classList.contains("pinned-line")
+    ) {
+      restoredLinePinKey = "";
+      clearLinePinInHash();
+      highlightPinnedLine(appRoot, null);
+      return;
+    }
+    restoredLinePinKey = pinKey;
+    setLinePinInHash(pin);
+    highlightPinnedLine(appRoot, row);
+  };
+
+  const onHashChange = () => {
+    if (!appRoot) {
+      return;
+    }
+    restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
+      restoredLinePinKey = pinKey;
+    });
+  };
+
+  document.addEventListener("pointerdown", onPointerDown);
+  document.addEventListener("click", onLinePinClick);
+  window.addEventListener("hashchange", onHashChange);
+  onCleanup(() => {
+    document.removeEventListener("pointerdown", onPointerDown);
+    document.removeEventListener("click", onLinePinClick);
+    window.removeEventListener("hashchange", onHashChange);
+    setDiffSelectionSide(null);
+  });
+
   const loadControls = (nextControls: ControlsState) => {
     setControls(nextControls);
     const nextRequest = buildRequest(nextControls, refChoices());
@@ -460,18 +540,28 @@ function App() {
     loadingFiles();
     clearTimeout(hunkReconcileTimer);
     hunkReconcileTimer = window.setTimeout(() => {
-      const anchors = hunkAnchors();
+      const anchors = hunkAnchors(appRoot);
       if (!anchors.length) {
         setCurrentHunkIndex(0);
+        if (appRoot) {
+          restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
+            restoredLinePinKey = pinKey;
+          });
+        }
         return;
       }
       setCurrentHunkIndex((index) => clamp(index, 0, anchors.length - 1));
-      selectCurrentHunk(currentHunkIndex(), false);
+      selectCurrentHunk(currentHunkIndex(), false, appRoot);
+      if (appRoot) {
+        restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
+          restoredLinePinKey = pinKey;
+        });
+      }
     }, 120);
   });
 
   const scrollHunk = (direction: 1 | -1) => {
-    const anchors = hunkAnchors();
+    const anchors = hunkAnchors(appRoot);
     if (!anchors.length) {
       console.error(
         "[dirdiff] Hunk navigation requested with no mounted hunk anchors.",
@@ -482,7 +572,7 @@ function App() {
     }
     const nextIndex = wrapIndex(currentHunkIndex() + direction, anchors.length);
     setCurrentHunkIndex(nextIndex);
-    selectCurrentHunk(nextIndex, true);
+    selectCurrentHunk(nextIndex, true, appRoot);
   };
 
   const scrollTop = () => {
@@ -490,7 +580,7 @@ function App() {
   };
 
   return (
-    <main class="app-shell">
+    <main ref={appRoot} class="app-shell">
       <header class="app-header">
         <div class="app-title-block">
           <p class="eyebrow">Solid Frontend</p>
@@ -1759,12 +1849,16 @@ function groupFilesByLabel(files: FileEntry[]): Map<string, FileGroup> {
   );
 }
 
-function hunkAnchors(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(".hunk-anchor")];
+function hunkAnchors(root: ParentNode = document): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(".hunk-anchor")];
 }
 
-function selectCurrentHunk(index: number, scroll: boolean) {
-  const anchors = hunkAnchors();
+function selectCurrentHunk(
+  index: number,
+  scroll: boolean,
+  root: ParentNode = document,
+) {
+  const anchors = hunkAnchors(root);
   if (!anchors.length) {
     return;
   }
@@ -1781,6 +1875,111 @@ function selectCurrentHunk(index: number, scroll: boolean) {
       behavior: "instant",
     });
   }
+}
+
+function getLinePinFromHash(): LinePin | null {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const rawPin = params.get(linePinHashKey);
+  if (!rawPin) {
+    return null;
+  }
+  try {
+    const pin = JSON.parse(rawPin) as Partial<LinePin>;
+    if (
+      pin &&
+      typeof pin.file === "string" &&
+      (pin.side === "left" || pin.side === "right") &&
+      typeof pin.line === "string" &&
+      pin.line
+    ) {
+      return {
+        file: pin.file,
+        side: pin.side,
+        line: pin.line,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function setLinePinInHash(pin: LinePin) {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  params.set(linePinHashKey, JSON.stringify(pin));
+  history.replaceState(
+    {},
+    "",
+    `${window.location.pathname}${window.location.search}#${params.toString()}`,
+  );
+}
+
+function clearLinePinInHash() {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  params.delete(linePinHashKey);
+  const hash = params.toString();
+  history.replaceState(
+    {},
+    "",
+    `${window.location.pathname}${window.location.search}${hash ? `#${hash}` : ""}`,
+  );
+}
+
+function linePinFromElement(lineNo: HTMLElement): LinePin | null {
+  const file = lineNo.dataset.linePinFile;
+  const side = lineNo.dataset.linePinSide;
+  const line = lineNo.dataset.linePinLine;
+  if (!file || (side !== "left" && side !== "right") || !line) {
+    return null;
+  }
+  return { file, side, line };
+}
+
+function findPinnedLine(root: ParentNode, pin: LinePin): HTMLElement | null {
+  for (const lineNo of root.querySelectorAll<HTMLElement>(
+    ".line-no[data-line-pin-line]",
+  )) {
+    if (
+      lineNo.dataset.linePinFile === pin.file &&
+      lineNo.dataset.linePinSide === pin.side &&
+      lineNo.dataset.linePinLine === pin.line
+    ) {
+      return lineNo;
+    }
+  }
+  return null;
+}
+
+function highlightPinnedLine(root: ParentNode, row: HTMLElement | null) {
+  for (const node of root.querySelectorAll(".pinned-line")) {
+    node.classList.remove("pinned-line");
+  }
+  row?.classList.add("pinned-line");
+}
+
+function restorePinnedLine(
+  root: ParentNode,
+  restoredLinePinKey: string,
+  setRestoredLinePinKey: (pinKey: string) => void,
+) {
+  const pin = getLinePinFromHash();
+  if (!pin) {
+    highlightPinnedLine(root, null);
+    setRestoredLinePinKey("");
+    return;
+  }
+  const pinKey = JSON.stringify(pin);
+  const lineNo = findPinnedLine(root, pin);
+  if (!lineNo) {
+    return;
+  }
+  const row = lineNo.closest<HTMLElement>(".diff-row");
+  if (restoredLinePinKey === pinKey && row?.classList.contains("pinned-line")) {
+    return;
+  }
+  setRestoredLinePinKey(pinKey);
+  highlightPinnedLine(root, row);
+  row?.scrollIntoView({ block: "center", behavior: "instant" });
 }
 
 function wrapIndex(index: number, length: number): number {

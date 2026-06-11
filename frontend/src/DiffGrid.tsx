@@ -16,6 +16,11 @@ type Side = "left" | "right";
 export function DiffGrid(props: { file: FileEntry }) {
   const rows = () =>
     markHunkAnchors(addFoldRows(props.file.rows ?? [], props.file.fold_hints));
+  const fileLabel = () =>
+    props.file.display_name ||
+    props.file.right_path ||
+    props.file.left_path ||
+    "(unknown file)";
 
   return (
     <div class="diff-grid">
@@ -30,6 +35,7 @@ export function DiffGrid(props: { file: FileEntry }) {
       <div class="diff-lines">
         <RenderedRows
           rows={rows()}
+          fileLabel={fileLabel()}
           leftLabel={props.file.left_label || "left"}
           rightLabel={props.file.right_label || "right"}
         />
@@ -44,6 +50,7 @@ type HunkRenderRow = RenderRow & {
 
 function RenderedRows(props: {
   rows: HunkRenderRow[];
+  fileLabel: string;
   leftLabel: string;
   rightLabel: string;
 }) {
@@ -52,11 +59,18 @@ function RenderedRows(props: {
       {(row, index) => (
         <Show
           when={isFoldRow(row)}
-          fallback={<DiffGridRow row={row as DiffRow} rowIndex={index()} />}
+          fallback={
+            <DiffGridRow
+              row={row as DiffRow}
+              rowIndex={index()}
+              fileLabel={props.fileLabel}
+            />
+          }
         >
           <FoldSection
             row={row as FoldRow}
             rowIndex={index()}
+            fileLabel={props.fileLabel}
             leftLabel={props.leftLabel}
             rightLabel={props.rightLabel}
           />
@@ -69,6 +83,7 @@ function RenderedRows(props: {
 function FoldSection(props: {
   row: FoldRow;
   rowIndex: number;
+  fileLabel: string;
   leftLabel: string;
   rightLabel: string;
 }) {
@@ -104,6 +119,7 @@ function FoldSection(props: {
             isHunkAnchor: isChangedRowStatus(props.row.foldedRows[0]?.status),
           }}
           rowIndex={props.rowIndex}
+          fileLabel={props.fileLabel}
           foldToggle={{ expanded: true, onToggle: toggle }}
         />
         <For each={props.row.foldedRows.slice(1)}>
@@ -111,6 +127,7 @@ function FoldSection(props: {
             <DiffGridRow
               row={foldedRow}
               rowIndex={props.rowIndex + foldedIndex() + 1}
+              fileLabel={props.fileLabel}
             />
           )}
         </For>
@@ -134,6 +151,7 @@ function FoldSide(props: { count: number; label: string; sideLabel: string }) {
 function DiffGridRow(props: {
   row: DiffRow & { isHunkAnchor?: boolean };
   rowIndex: number;
+  fileLabel: string;
   foldToggle?: { expanded: boolean; onToggle: () => void };
 }) {
   const row = () => props.row;
@@ -154,8 +172,18 @@ function DiffGridRow(props: {
       title={props.foldToggle ? "Collapse folded rows" : undefined}
       onClick={props.foldToggle?.onToggle}
     >
-      <DiffSide row={row()} side="left" foldToggle={props.foldToggle} />
-      <DiffSide row={row()} side="right" foldToggle={props.foldToggle} />
+      <DiffSide
+        row={row()}
+        side="left"
+        fileLabel={props.fileLabel}
+        foldToggle={props.foldToggle}
+      />
+      <DiffSide
+        row={row()}
+        side="right"
+        fileLabel={props.fileLabel}
+        foldToggle={props.foldToggle}
+      />
     </div>
   );
 }
@@ -163,6 +191,7 @@ function DiffGridRow(props: {
 function DiffSide(props: {
   row: DiffRow;
   side: Side;
+  fileLabel: string;
   foldToggle?: { expanded: boolean; onToggle: () => void };
 }) {
   const lineNo = () =>
@@ -176,13 +205,25 @@ function DiffSide(props: {
     (props.side === "left" ? props.row.left_syntax : props.row.right_syntax) ??
     [];
   const empty = () => lineNo() === null && text() === "";
+  const linePinAttrs = () => {
+    const line = lineNo();
+    if (line === null) {
+      return {};
+    }
+    return {
+      "data-line-pin-file": props.fileLabel,
+      "data-line-pin-side": props.side,
+      "data-line-pin-line": String(line),
+      title: "Pin line",
+    };
+  };
 
   return (
     <div
       class={`diff-side side-${props.side}`}
       classList={{ "empty-side": empty() }}
     >
-      <div class="line-no">
+      <div class="line-no" {...linePinAttrs()}>
         <Show when={props.foldToggle}>
           <button
             type="button"
