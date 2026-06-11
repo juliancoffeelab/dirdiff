@@ -443,7 +443,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
 
         try:
             if (
-                selected_mode == "branch-review"
+                mode == "branch-review"
                 and selected_review_branch
                 and selected_review_branch.strip()
             ):

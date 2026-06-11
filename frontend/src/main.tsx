@@ -4,21 +4,30 @@ import {
   batch,
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   onCleanup,
   onMount,
 } from "solid-js";
 import { render } from "solid-js/web";
 import {
+  QueryClient,
+  QueryClientProvider,
+  createQuery,
+  useQueryClient,
+} from "@tanstack/solid-query";
+import {
   type Defaults,
   type DiffMode,
   type DiffRequest,
   type FileEntry,
+  type NotebookCellEntry,
+  type NotebookSection,
+  type NotebookSummary,
   type RefChoices,
   type Summary,
   fetchDefaults,
   fetchFileDiff,
+  fetchNotebookSection,
   openDiffStream,
 } from "./api";
 import { DiffGrid } from "./DiffGrid";
@@ -85,6 +94,14 @@ const emptyDebugMetrics: DebugMetrics = {
   nodes: "--",
   spans: "--",
 };
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function legacyUrl(request: DiffRequest | null): string {
   const backendOrigin =
@@ -257,7 +274,11 @@ function statusLabel(
 }
 
 function App() {
-  const [defaults] = createResource(fetchDefaults);
+  const defaults = createQuery(() => ({
+    queryKey: ["defaults"],
+    queryFn: fetchDefaults,
+    staleTime: Infinity,
+  }));
   const [controls, setControls] = createSignal<ControlsState | null>(null);
   const [request, setRequest] = createSignal<DiffRequest | null>(null);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
@@ -281,7 +302,7 @@ function App() {
   let hunkReconcileTimer = 0;
 
   const refChoices = () =>
-    defaults()?.ref_choices ?? {
+    defaults.data?.ref_choices ?? {
       builtins: [],
       locals: [],
       remotes: [],
@@ -304,7 +325,7 @@ function App() {
   };
 
   createEffect(() => {
-    const value = defaults();
+    const value = defaults.data;
     if (!value || initialized) {
       return;
     }
@@ -489,7 +510,7 @@ function App() {
         <SummaryView summary={summary()} />
       </header>
 
-      <Show when={defaults.loading}>
+      <Show when={defaults.isPending}>
         <p class="status">Loading defaults...</p>
       </Show>
 
@@ -882,6 +903,9 @@ function AutocompleteField(props: {
 }
 
 function SummaryView(props: { summary: Summary }) {
+  const hasNotebookCells = () =>
+    typeof props.summary.changed_cells === "number";
+
   return (
     <section class="summary" aria-label="Diff summary">
       <SummaryMetric
@@ -896,6 +920,14 @@ function SummaryView(props: { summary: Summary }) {
         changed={props.summary.modified_lines}
         removed={props.summary.removed_lines}
       />
+      <Show when={hasNotebookCells()}>
+        <SummaryMetric
+          label="Cells"
+          added={props.summary.added_cells ?? 0}
+          changed={props.summary.modified_cells ?? 0}
+          removed={props.summary.removed_cells ?? 0}
+        />
+      </Show>
     </section>
   );
 }
@@ -1090,6 +1122,7 @@ function FileCard(props: {
   setFileErrors: StringMapSetter;
   setFiles: FilesSetter;
 }) {
+  const queryClient = useQueryClient();
   const key = () => fileKey(props.file);
   const summary = () =>
     props.file.summary ?? {
@@ -1132,7 +1165,11 @@ function FileCard(props: {
     }));
     props.setFileErrors((current) => ({ ...current, [key()]: "" }));
     try {
-      const hydrated = await fetchFileDiff(props.request, props.file);
+      const hydrated = await queryClient.fetchQuery({
+        queryKey: fileDiffQueryKey(props.request, props.file),
+        queryFn: () => fetchFileDiff(props.request!, props.file),
+        staleTime: Infinity,
+      });
       const nextEntry = { ...props.file, ...hydrated, lazy: false };
       props.setFiles((current) =>
         current.map((entry) => (fileKey(entry) === key() ? nextEntry : entry)),
@@ -1203,11 +1240,16 @@ function FileCard(props: {
             <p class="file-placeholder error-text">{props.error}</p>
           </Show>
           <Show when={!props.loading && !props.error}>
-            <Show
-              when={canRenderRows()}
-              fallback={<FilePlaceholder file={props.file} />}
-            >
-              <DiffGrid file={props.file} />
+            <Show when={props.file.render_kind === "notebook"}>
+              <NotebookFile file={props.file} request={props.request} />
+            </Show>
+            <Show when={props.file.render_kind !== "notebook"}>
+              <Show
+                when={canRenderRows()}
+                fallback={<FilePlaceholder file={props.file} />}
+              >
+                <DiffGrid file={props.file} />
+              </Show>
             </Show>
           </Show>
         </div>
@@ -1223,11 +1265,6 @@ function FileCard(props: {
 }
 
 function FilePlaceholder(props: { file: FileEntry }) {
-  if (props.file.render_kind === "notebook") {
-    return (
-      <p class="file-placeholder">Notebook rendering is not ported yet.</p>
-    );
-  }
   if (props.file.lazy) {
     return (
       <p class="file-placeholder">
@@ -1236,6 +1273,270 @@ function FilePlaceholder(props: { file: FileEntry }) {
     );
   }
   return <p class="file-placeholder">No rows for this file.</p>;
+}
+
+function NotebookFile(props: { file: FileEntry; request: DiffRequest | null }) {
+  const notebookSummary = () =>
+    isNotebookSummary(props.file.summary) ? props.file.summary : null;
+  const summary = () => props.file.summary;
+  const changedCells = () => notebookSummary()?.changed_cells ?? 0;
+  const cells = () => props.file.cells ?? [];
+
+  return (
+    <div class="notebook-file">
+      <div class="notebook-summary">
+        <span class="badge badge-neutral">
+          {summary()?.left_exists ? "left exists" : "left missing"}
+        </span>
+        <span class="badge badge-neutral">
+          {summary()?.right_exists ? "right exists" : "right missing"}
+        </span>
+        <span class="badge badge-neutral">
+          {changedCells()} changed cell{changedCells() === 1 ? "" : "s"}
+        </span>
+        <Show when={notebookSummary()?.notebook_metadata_changed}>
+          <span class="badge badge-neutral">notebook metadata changed</span>
+        </Show>
+      </div>
+
+      <Show when={notebookSummary()?.notebook_metadata_changed}>
+        <NotebookDetails
+          file={props.file}
+          request={props.request}
+          title={notebookSectionSummary("Notebook metadata diff", {
+            renderMode: props.file.notebook_metadata_render_mode ?? null,
+            truncatedRows: props.file.notebook_metadata_truncated_rows ?? 0,
+          })}
+          section="notebook-metadata"
+          leftLabel="Left notebook metadata"
+          rightLabel="Right notebook metadata"
+        />
+      </Show>
+
+      <div class="notebook-cells">
+        <Show
+          when={cells().length > 0}
+          fallback={
+            <p class="file-placeholder">
+              No changed cells detected for the selected notebook sides.
+            </p>
+          }
+        >
+          <For each={cells()}>
+            {(cell) => (
+              <NotebookCell
+                file={props.file}
+                request={props.request}
+                cell={cell}
+              />
+            )}
+          </For>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+function NotebookCell(props: {
+  file: FileEntry;
+  request: DiffRequest | null;
+  cell: NotebookCellEntry;
+}) {
+  const cell = () => props.cell;
+  const leftIndex = () => cell().left_index ?? "—";
+  const rightIndex = () => cell().right_index ?? "—";
+
+  return (
+    <article class="notebook-cell-card">
+      <header class="notebook-cell-header">
+        <div>
+          <h3>
+            {cell().kind.toUpperCase()} {cell().cell_type} cell
+          </h3>
+          <p>
+            Cell ID: {cell().cell_id ?? "missing"} · left #{leftIndex()} · right
+            #{rightIndex()}
+          </p>
+        </div>
+        <div class="badge-row">
+          <span class={`badge ${notebookCellKindBadgeClass(cell().kind)}`}>
+            {cell().kind}
+          </span>
+          <Show when={cell().metadata_changed}>
+            <span class="badge badge-neutral">metadata changed</span>
+          </Show>
+          <Show when={cell().outputs_changed}>
+            <span class="badge badge-neutral">outputs changed</span>
+          </Show>
+          <Show when={!cell().source_changed}>
+            <span class="badge badge-neutral">source unchanged</span>
+          </Show>
+        </div>
+      </header>
+
+      <NotebookSectionView
+        heading="Cell source"
+        rows={cell().source_rows}
+        foldHints={cell().source_fold_hints}
+        leftLabel="Left source"
+        rightLabel="Right source"
+        renderMode={cell().source_render_mode}
+        truncatedRows={cell().source_truncated_rows ?? 0}
+      />
+
+      <Show when={cell().metadata_changed}>
+        <NotebookDetails
+          file={props.file}
+          request={props.request}
+          title={notebookSectionSummary("Cell metadata diff", {
+            renderMode: cell().metadata_render_mode,
+            truncatedRows: cell().metadata_truncated_rows ?? 0,
+          })}
+          section="cell-metadata"
+          cellKey={cell().cell_key}
+          leftLabel="Left metadata"
+          rightLabel="Right metadata"
+        />
+      </Show>
+
+      <Show when={cell().outputs_changed}>
+        <NotebookDetails
+          file={props.file}
+          request={props.request}
+          title={notebookSectionSummary("Cell outputs diff", {
+            renderMode: cell().outputs_render_mode,
+            truncatedRows: cell().outputs_truncated_rows ?? 0,
+          })}
+          section="cell-outputs"
+          cellKey={cell().cell_key}
+          leftLabel="Left outputs"
+          rightLabel="Right outputs"
+        />
+      </Show>
+    </article>
+  );
+}
+
+function NotebookDetails(props: {
+  file: FileEntry;
+  request: DiffRequest | null;
+  title: string;
+  section: string;
+  cellKey?: string;
+  leftLabel: string;
+  rightLabel: string;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = createSignal(false);
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal("");
+  const [section, setSection] = createSignal<NotebookSection | null>(null);
+
+  const load = async () => {
+    if (!props.request || section() || loading()) {
+      return;
+    }
+    setOpen(true);
+    setLoading(true);
+    setError("");
+    try {
+      const payload = await queryClient.fetchQuery({
+        queryKey: notebookSectionQueryKey(
+          props.request,
+          props.file,
+          props.section,
+          props.cellKey ?? null,
+        ),
+        queryFn: () =>
+          fetchNotebookSection(props.request!, props.file, {
+            section: props.section,
+            cellKey: props.cellKey,
+          }),
+        staleTime: Infinity,
+      });
+      setSection(payload);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Failed to load notebook section.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <details
+      class="notebook-details"
+      open={open()}
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setOpen(nextOpen);
+        if (nextOpen) {
+          void load();
+        }
+      }}
+    >
+      <summary>{props.title}</summary>
+      <Show when={loading()}>
+        <p class="notebook-details-message">Loading...</p>
+      </Show>
+      <Show when={error()}>
+        <p class="file-placeholder error-text">{error()}</p>
+      </Show>
+      <Show when={section()}>
+        {(payload) => (
+          <NotebookSectionView
+            rows={payload().rows}
+            foldHints={payload().fold_hints}
+            leftLabel={props.leftLabel}
+            rightLabel={props.rightLabel}
+            renderMode={payload().render_mode}
+            truncatedRows={payload().truncated_rows}
+          />
+        )}
+      </Show>
+    </details>
+  );
+}
+
+function NotebookSectionView(props: {
+  heading?: string;
+  rows: FileEntry["rows"];
+  foldHints: FileEntry["fold_hints"];
+  leftLabel: string;
+  rightLabel: string;
+  renderMode?: "plain" | null;
+  truncatedRows?: number | null;
+}) {
+  const file = (): FileEntry => ({
+    change_type: "modify",
+    left_path: null,
+    right_path: null,
+    left_label: props.leftLabel,
+    right_label: props.rightLabel,
+    rows: props.rows ?? [],
+    fold_hints: props.foldHints ?? [],
+  });
+
+  return (
+    <section class="notebook-section">
+      <Show when={props.heading}>
+        <p class="notebook-section-heading">{props.heading}</p>
+      </Show>
+      <DiffGrid file={file()} />
+      <Show when={props.renderMode === "plain" || (props.truncatedRows ?? 0)}>
+        <p class="notebook-section-note">
+          {props.renderMode === "plain" ? "plain render" : ""}
+          {props.renderMode === "plain" && (props.truncatedRows ?? 0)
+            ? " · "
+            : ""}
+          {(props.truncatedRows ?? 0) ? `truncated ${props.truncatedRows}` : ""}
+        </p>
+      </Show>
+    </section>
+  );
 }
 
 function entryDirectoryPath(entry: FileEntry): string {
@@ -1266,6 +1567,36 @@ function isGeneratedLazyEntry(entry: FileEntry): boolean {
     "uv.lock",
     "yarn.lock",
   ].some((name) => path.endsWith(`/${name}`) || path === name);
+}
+
+function isNotebookSummary(
+  summary: FileEntry["summary"],
+): summary is NotebookSummary {
+  return Boolean(summary && "changed_cells" in summary);
+}
+
+function notebookSectionSummary(
+  label: string,
+  details: { renderMode?: "plain" | null; truncatedRows?: number | null },
+): string {
+  const parts = [label];
+  if (details.renderMode === "plain") {
+    parts.push("plain render");
+  }
+  if (details.truncatedRows) {
+    parts.push(`truncated ${details.truncatedRows}`);
+  }
+  return parts.join(" · ");
+}
+
+function notebookCellKindBadgeClass(kind: NotebookCellEntry["kind"]): string {
+  if (kind === "added") {
+    return "badge-added";
+  }
+  if (kind === "removed") {
+    return "badge-removed";
+  }
+  return "badge-modified";
 }
 
 function splitRemoteQualifiedRef(
@@ -1374,6 +1705,41 @@ function fileKey(entry: FileEntry): string {
   return `${entry.left_path || ""}\u0000${entry.right_path || ""}\u0000${entry.display_name || ""}\u0000${entry.change_type || ""}`;
 }
 
+function fileDiffQueryKey(request: DiffRequest, entry: FileEntry) {
+  return [
+    "file-diff",
+    request.mode,
+    request.left,
+    request.right,
+    request.base_branch,
+    request.review_branch,
+    entry.left_path,
+    entry.right_path,
+    entry.display_name,
+    entry.change_type,
+  ] as const;
+}
+
+function notebookSectionQueryKey(
+  request: DiffRequest,
+  entry: FileEntry,
+  section: string,
+  cellKey: string | null,
+) {
+  return [
+    "notebook-section",
+    request.mode,
+    request.left,
+    request.right,
+    request.base_branch,
+    request.review_branch,
+    entry.left_path,
+    entry.right_path,
+    section,
+    cellKey,
+  ] as const;
+}
+
 function groupFilesByLabel(files: FileEntry[]): Map<string, FileGroup> {
   const groups = new Map<string, FileEntry[]>();
   for (const file of files) {
@@ -1444,4 +1810,11 @@ function shouldIgnoreHunkNavKeyEvent(event: KeyboardEvent): boolean {
   );
 }
 
-render(() => <App />, document.getElementById("root")!);
+render(
+  () => (
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
+  ),
+  document.getElementById("root")!,
+);

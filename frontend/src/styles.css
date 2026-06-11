@@ -430,6 +430,21 @@ h1 {
   color: #6a665d;
 }
 
+.badge-added {
+  background: #e5f4e9;
+  color: #146b3b;
+}
+
+.badge-modified {
+  background: #fff2c9;
+  color: #7b4a0c;
+}
+
+.badge-removed {
+  background: #f9e7e7;
+  color: #971d28;
+}
+
 .file-card {
   border: 1px solid #ded8cc;
   background: #fffdf8;
@@ -484,6 +499,103 @@ h1 {
   border-top: 1px solid #ded8cc;
   padding-top: 12px;
   color: #6a665d;
+}
+
+.notebook-file {
+  display: grid;
+  gap: 14px;
+}
+
+.notebook-summary,
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.notebook-cells {
+  display: grid;
+  gap: 14px;
+}
+
+.notebook-cell-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #ded8cc;
+  background: #fffdf8;
+  padding: 14px;
+}
+
+.notebook-cell-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.notebook-cell-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.notebook-cell-header p {
+  margin: 4px 0 0;
+  color: #6a665d;
+  font-size: 13px;
+}
+
+.notebook-section {
+  display: grid;
+  gap: 10px;
+}
+
+.notebook-section-heading,
+.notebook-section-note,
+.notebook-details-message {
+  margin: 0;
+  color: #6a665d;
+  font-size: 12px;
+}
+
+.notebook-section-heading {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.notebook-details {
+  border: 1px solid #ded8cc;
+  background: #fffdf8;
+}
+
+.notebook-details summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: #6a665d;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.notebook-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.notebook-details summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 8px;
+  color: #2563eb;
+}
+
+.notebook-details[open] summary::before {
+  content: "▾";
+}
+
+.notebook-details > .notebook-section,
+.notebook-details > .notebook-details-message,
+.notebook-details > .error-text {
+  margin: 0;
+  padding: 0 12px 12px;
 }
 
 .file-lazy-load-toggle {

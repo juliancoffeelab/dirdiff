@@ -2263,6 +2263,23 @@ class TextDiffService:
             summary["modified_lines"] += file_diff["summary"]["modified_lines"]
             summary["added_lines"] += file_diff["summary"]["added_lines"]
             summary["removed_lines"] += file_diff["summary"]["removed_lines"]
+            if "changed_cells" in file_diff["summary"]:
+                summary["changed_cells"] = (
+                    summary.get("changed_cells", 0)
+                    + file_diff["summary"]["changed_cells"]
+                )
+                summary["added_cells"] = (
+                    summary.get("added_cells", 0)
+                    + file_diff["summary"]["added_cells"]
+                )
+                summary["modified_cells"] = (
+                    summary.get("modified_cells", 0)
+                    + file_diff["summary"]["modified_cells"]
+                )
+                summary["removed_cells"] = (
+                    summary.get("removed_cells", 0)
+                    + file_diff["summary"]["removed_cells"]
+                )
             _perf_log(
                 "repo-file-done"
                 f" name={entry.display_name!r}"

@@ -1023,6 +1023,10 @@ def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
 
     assert diff["files"][0]["render_kind"] == "notebook"
     assert diff["files"][0]["display_name"] == "demo.ipynb"
+    assert diff["summary"]["changed_cells"] == 1
+    assert diff["summary"]["modified_cells"] == 1
+    assert diff["summary"]["added_cells"] == 0
+    assert diff["summary"]["removed_cells"] == 0
     assert diff["files"][0]["summary"]["changed_cells"] == 1
     assert diff["files"][0]["cells"][0]["cell_type"] == "markdown"
     assert any(
