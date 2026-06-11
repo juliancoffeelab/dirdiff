@@ -1093,6 +1093,74 @@ def test_build_loaded_diff_renders_notebook_cells_when_ipynb_is_valid() -> None:
     )
 
 
+def test_build_loaded_diff_pairs_notebook_cells_by_partial_unique_ids() -> None:
+    left_text = json.dumps(
+        {
+            "cells": [
+                {
+                    "cell_type": "markdown",
+                    "id": "intro",
+                    "metadata": {},
+                    "source": ["## Setup\n\n", "Old body\n"],
+                },
+                {
+                    "cell_type": "code",
+                    "metadata": {},
+                    "source": ["value = 1\n"],
+                    "outputs": [],
+                },
+            ],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+    )
+    right_text = json.dumps(
+        {
+            "cells": [
+                {
+                    "cell_type": "markdown",
+                    "id": "intro",
+                    "metadata": {},
+                    "source": ["## Setup\n\n", "Updated body\n"],
+                },
+                {
+                    "cell_type": "code",
+                    "metadata": {},
+                    "source": ["value = 1\n"],
+                    "outputs": [],
+                },
+            ],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+    )
+
+    diff = build_loaded_diff(
+        display_name="demo.ipynb",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=left_text,
+        right_text=right_text,
+        left_path_hint="demo.ipynb",
+        right_path_hint="demo.ipynb",
+    )
+
+    assert diff["render_kind"] == "notebook"
+    assert diff["summary"]["changed_cells"] == 1
+    assert diff["summary"]["modified_cells"] == 1
+    assert diff["summary"]["added_cells"] == 0
+    assert diff["summary"]["removed_cells"] == 0
+    assert diff["cells"][0]["kind"] == "modified"
+    assert diff["cells"][0]["cell_id"] == "intro"
+    assert diff["cells"][0]["left_index"] == 0
+    assert diff["cells"][0]["right_index"] == 0
+
+
 def test_build_loaded_diff_keeps_notebook_metadata_and_outputs_lazy() -> None:
     left_text = json.dumps(
         {

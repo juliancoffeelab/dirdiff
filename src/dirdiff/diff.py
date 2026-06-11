@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import time
+from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
@@ -351,13 +352,9 @@ def _cell_type_name(
     return "unknown"
 
 
-def _usable_ids(cells: list[dict[str, Any]]) -> list[str] | None:
-    ids = [str(cell.get("id", "")).strip() for cell in cells]
-    if not ids or any(not cell_id for cell_id in ids):
-        return None
-    if len(ids) != len(set(ids)):
-        return None
-    return ids
+def _notebook_cell_id(cell: dict[str, Any]) -> str | None:
+    cell_id = str(cell.get("id", "")).strip()
+    return cell_id or None
 
 
 def _cell_identity(
@@ -392,53 +389,82 @@ def _cell_identity(
     }
 
 
-def _pair_notebook_cells(
+def _pair_notebook_cell_ranges_by_source(
     left_cells: list[dict[str, Any]],
     right_cells: list[dict[str, Any]],
+    left_indices: list[int],
+    right_indices: list[int],
 ) -> list[tuple[str, int | None, int | None]]:
-    left_ids = _usable_ids(left_cells)
-    right_ids = _usable_ids(right_cells)
-
-    if left_ids is not None and right_ids is not None:
-        pairs: list[tuple[str, int | None, int | None]] = []
-        matcher = SequenceMatcher(a=left_ids, b=right_ids, autojunk=False)
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == "equal":
-                for offset in range(i2 - i1):
-                    pairs.append(("paired", i1 + offset, j1 + offset))
-            elif tag == "replace":
-                for left_index in range(i1, i2):
-                    pairs.append(("left_only", left_index, None))
-                for right_index in range(j1, j2):
-                    pairs.append(("right_only", None, right_index))
-            elif tag == "delete":
-                for left_index in range(i1, i2):
-                    pairs.append(("left_only", left_index, None))
-            elif tag == "insert":
-                for right_index in range(j1, j2):
-                    pairs.append(("right_only", None, right_index))
-        return pairs
-
-    left_sources = [_cell_source(cell) for cell in left_cells]
-    right_sources = [_cell_source(cell) for cell in right_cells]
-    pairs = []
+    left_sources = [_cell_source(left_cells[index]) for index in left_indices]
+    right_sources = [_cell_source(right_cells[index]) for index in right_indices]
+    pairs: list[tuple[str, int | None, int | None]] = []
     matcher = SequenceMatcher(a=left_sources, b=right_sources, autojunk=False)
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             for offset in range(i2 - i1):
-                pairs.append(("paired", i1 + offset, j1 + offset))
+                pairs.append(
+                    ("paired", left_indices[i1 + offset], right_indices[j1 + offset])
+                )
         elif tag == "replace":
-            for left_index in range(i1, i2):
-                pairs.append(("left_only", left_index, None))
-            for right_index in range(j1, j2):
-                pairs.append(("right_only", None, right_index))
+            for left_offset in range(i1, i2):
+                pairs.append(("left_only", left_indices[left_offset], None))
+            for right_offset in range(j1, j2):
+                pairs.append(("right_only", None, right_indices[right_offset]))
         elif tag == "delete":
-            for left_index in range(i1, i2):
-                pairs.append(("left_only", left_index, None))
+            for left_offset in range(i1, i2):
+                pairs.append(("left_only", left_indices[left_offset], None))
         elif tag == "insert":
-            for right_index in range(j1, j2):
-                pairs.append(("right_only", None, right_index))
+            for right_offset in range(j1, j2):
+                pairs.append(("right_only", None, right_indices[right_offset]))
     return pairs
+
+
+def _pair_notebook_cells(
+    left_cells: list[dict[str, Any]],
+    right_cells: list[dict[str, Any]],
+) -> list[tuple[str, int | None, int | None]]:
+    left_ids = [_notebook_cell_id(cell) for cell in left_cells]
+    right_ids = [_notebook_cell_id(cell) for cell in right_cells]
+    left_id_counts = Counter(cell_id for cell_id in left_ids if cell_id is not None)
+    right_id_counts = Counter(cell_id for cell_id in right_ids if cell_id is not None)
+    shared_unique_ids = {
+        cell_id
+        for cell_id, count in left_id_counts.items()
+        if count == 1 and right_id_counts.get(cell_id) == 1
+    }
+
+    if shared_unique_ids:
+        left_tokens = [
+            ("id", cell_id) if cell_id in shared_unique_ids else ("left", index)
+            for index, cell_id in enumerate(left_ids)
+        ]
+        right_tokens = [
+            ("id", cell_id) if cell_id in shared_unique_ids else ("right", index)
+            for index, cell_id in enumerate(right_ids)
+        ]
+        pairs: list[tuple[str, int | None, int | None]] = []
+        matcher = SequenceMatcher(a=left_tokens, b=right_tokens, autojunk=False)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                for offset in range(i2 - i1):
+                    pairs.append(("paired", i1 + offset, j1 + offset))
+                continue
+            pairs.extend(
+                _pair_notebook_cell_ranges_by_source(
+                    left_cells,
+                    right_cells,
+                    list(range(i1, i2)),
+                    list(range(j1, j2)),
+                )
+            )
+        return pairs
+
+    return _pair_notebook_cell_ranges_by_source(
+        left_cells,
+        right_cells,
+        list(range(len(left_cells))),
+        list(range(len(right_cells))),
+    )
 
 
 def _find_notebook_cell_pair(
