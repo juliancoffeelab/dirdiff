@@ -473,16 +473,18 @@ function App() {
       <header class="app-header">
         <div class="app-title-block">
           <p class="eyebrow">Solid Frontend</p>
-          <h1>dirdiff</h1>
+          <div class="app-title-row">
+            <h1>dirdiff</h1>
+            <div class="header-actions">
+              <DebugMenu />
+              <a class="legacy-link" href={legacyUrl(request())}>
+                Legacy
+              </a>
+            </div>
+          </div>
           <p class="subtitle">
             The new frontend is now owning app state and API IO.
           </p>
-          <div class="header-actions">
-            <DebugMenu />
-            <a class="legacy-link" href={legacyUrl(request())}>
-              Legacy
-            </a>
-          </div>
         </div>
         <SummaryView summary={summary()} />
       </header>

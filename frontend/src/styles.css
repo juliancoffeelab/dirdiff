@@ -63,6 +63,18 @@ h1 {
   line-height: 1.05;
 }
 
+.app-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 14px;
+}
+
+.app-title-row h1,
+.app-title-row .header-actions {
+  flex: none;
+}
+
 .subtitle {
   margin: 10px 0 0;
   color: #625f58;
@@ -70,9 +82,8 @@ h1 {
 
 .header-actions {
   display: flex;
-  align-items: start;
+  align-items: center;
   gap: 8px;
-  margin-top: 16px;
 }
 
 .legacy-link {
@@ -167,7 +178,7 @@ h1 {
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   align-items: end;
 }
@@ -219,7 +230,7 @@ h1 {
 }
 
 .field {
-  min-width: min(360px, 100%);
+  min-width: 0;
 }
 
 .autocomplete-host {
