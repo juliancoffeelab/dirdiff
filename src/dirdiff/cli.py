@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-from dirdiff.diff import TextDiffService
+from dirdiff.diff import GitRepository, TextDiffService
 from dirdiff.server import create_app
 from typing import Any
 import uvicorn
@@ -176,6 +176,7 @@ def build_defaults(
         initial_mode = "refs"
 
     return {
+        "engine": "dirdiff",
         "mode": initial_mode,
         "left": left,
         "right": right,
@@ -210,7 +211,8 @@ def load_runtime_config() -> RuntimeConfig:
 def create_app_from_runtime_config() -> Any:
     config = load_runtime_config()
     repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
-    service = TextDiffService.discover(repo_root=repo_root)
+    repo = GitRepository.discover(repo_root=repo_root)
+    service = TextDiffService(repo)
     defaults = build_defaults(
         service,
         left=config.left,
@@ -244,7 +246,8 @@ def main() -> None:
     args = parse_args()
     config = runtime_config_from_args(args)
     repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
-    service = TextDiffService.discover(repo_root=repo_root)
+    repo = GitRepository.discover(repo_root=repo_root)
+    service = TextDiffService(repo)
     defaults = build_defaults(
         service,
         left=config.left,

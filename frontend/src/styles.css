@@ -135,6 +135,28 @@ h1 {
   text-transform: uppercase;
 }
 
+.debug-menu-field {
+  display: grid;
+  gap: 6px;
+}
+
+.debug-menu-field span {
+  color: #6a665d;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.debug-menu-field select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid #d8d0c2;
+  background: #fffdf8;
+  color: #24231f;
+  padding: 6px 8px;
+  font: inherit;
+}
+
 .debug-menu-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

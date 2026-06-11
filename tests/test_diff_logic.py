@@ -4,6 +4,7 @@ import pytest
 import subprocess
 
 from dirdiff.diff import (
+    GitRepository,
     TextDiffService,
     build_loaded_diff,
 )
@@ -682,7 +683,7 @@ def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
     untracked_file = tmp_path / "beta.txt"
     untracked_file.write_text("new file\n", encoding="utf-8")
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     diff = service.build_diff(
         left="index",
         right="worktree",
@@ -727,7 +728,7 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     diff = service.build_diff(
         left="head",
         right="worktree",
@@ -783,7 +784,7 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     diff = service.build_diff(
         left="index",
         right="worktree",
@@ -825,7 +826,7 @@ def test_iter_repo_diff_progress_updates_summary_incrementally(
     (tmp_path / "alpha.txt").write_text("one changed\n", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("two changed\n", encoding="utf-8")
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
 
     progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
 
@@ -857,7 +858,7 @@ def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
 
     progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
 
@@ -913,7 +914,7 @@ def test_iter_repo_diff_progress_marks_large_changed_files_lazy(
         encoding="utf-8",
     )
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
 
     progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
 
@@ -951,7 +952,7 @@ def test_iter_repo_diff_progress_marks_deleted_files_lazy(tmp_path: Path) -> Non
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
     deleted_file.unlink()
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
 
     progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
 
@@ -1076,7 +1077,7 @@ def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     diff = service.build_diff(left="index", right="worktree")
 
     assert diff["files"][0]["render_kind"] == "notebook"
@@ -1362,7 +1363,7 @@ def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
         encoding="utf-8",
     )
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     diff = service.build_diff(left="index", right="worktree")
     notebook_diff = diff["files"][0]
     cell_key = notebook_diff["cells"][0]["cell_key"]
@@ -1487,7 +1488,7 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     ref_choices = service.list_ref_choices()
     merge_base, normalized_branch = service.resolve_branch_diff_sides(
         base_branch="upstream/main",

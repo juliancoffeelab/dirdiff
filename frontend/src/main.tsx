@@ -17,6 +17,7 @@ import {
 } from "@tanstack/solid-query";
 import {
   type Defaults,
+  type DiffEngine,
   type DiffMode,
   type DiffRequest,
   type FileEntry,
@@ -71,6 +72,10 @@ const modeLabels: Record<DiffMode, string> = {
   "against-head": "Diff against HEAD",
   refs: "Compare refs",
   "branch-review": "Branch review",
+};
+const engineLabels: Record<DiffEngine, string> = {
+  dirdiff: "Dirdiff",
+  git: "Git",
 };
 
 const builtinSides = new Set(["head", "index", "worktree"]);
@@ -181,15 +186,28 @@ function initialControls(defaults: Defaults): ControlsState {
   };
 }
 
+function initialEngine(defaults: Defaults): DiffEngine {
+  const engine = new URLSearchParams(window.location.search).get("engine");
+  if (engine === "dirdiff") {
+    return engine;
+  }
+  if (defaults.engine === "dirdiff") {
+    return defaults.engine;
+  }
+  return "dirdiff";
+}
+
 function buildRequest(
   controls: ControlsState,
   refChoices: RefChoices,
+  engine: DiffEngine,
 ): DiffRequest | string {
   if (controls.mode === "refs") {
     if (!controls.left.trim() || !controls.right.trim()) {
       return "Enter both refs to compare them.";
     }
     return {
+      engine,
       mode: controls.mode,
       left: controls.left.trim(),
       right: controls.right.trim(),
@@ -215,6 +233,7 @@ function buildRequest(
       return "Pick a branch to compare against the base branch.";
     }
     return {
+      engine,
       mode: controls.mode,
       left: "",
       right: "",
@@ -233,6 +252,7 @@ function buildRequest(
 
   const [left, right] = modeSides[controls.mode];
   return {
+    engine,
     mode: controls.mode,
     left,
     right,
@@ -243,6 +263,7 @@ function buildRequest(
 
 function requestQuery(request: DiffRequest): URLSearchParams {
   const params = new URLSearchParams();
+  params.set("engine", request.engine);
   params.set("mode", request.mode);
   if (request.left) {
     params.set("left", request.left);
@@ -285,6 +306,7 @@ function App() {
     queryFn: fetchDefaults,
     staleTime: Infinity,
   }));
+  const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
   const [controls, setControls] = createSignal<ControlsState | null>(null);
   const [request, setRequest] = createSignal<DiffRequest | null>(null);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
@@ -338,9 +360,11 @@ function App() {
       return;
     }
     initialized = true;
+    const nextEngine = initialEngine(value);
     const nextControls = initialControls(value);
+    setEngine(nextEngine);
     setControls(nextControls);
-    const nextRequest = buildRequest(nextControls, refChoices());
+    const nextRequest = buildRequest(nextControls, refChoices(), nextEngine);
     if (typeof nextRequest === "string") {
       setStatus("error");
       setStatusText(nextRequest);
@@ -523,7 +547,7 @@ function App() {
 
   const loadControls = (nextControls: ControlsState) => {
     setControls(nextControls);
-    const nextRequest = buildRequest(nextControls, refChoices());
+    const nextRequest = buildRequest(nextControls, refChoices(), engine());
     if (typeof nextRequest === "string") {
       stream?.close();
       resetDiffState("error", nextRequest);
@@ -587,7 +611,7 @@ function App() {
           <div class="app-title-row">
             <h1>dirdiff</h1>
             <div class="header-actions">
-              <DebugMenu />
+              <DebugMenu engine={engine()} onEngineChange={setEngine} />
               <a class="legacy-link" href={legacyUrl(request())}>
                 Legacy
               </a>
@@ -644,7 +668,10 @@ function App() {
   );
 }
 
-function DebugMenu() {
+function DebugMenu(props: {
+  engine: DiffEngine;
+  onEngineChange: (engine: DiffEngine) => void;
+}) {
   const [open, setOpen] = createSignal(false);
   const [metrics, setMetrics] = createSignal<DebugMetrics>(emptyDebugMetrics);
   let panel: HTMLDivElement | undefined;
@@ -741,6 +768,23 @@ function DebugMenu() {
           <div class="debug-menu-header">
             <strong>Developer Controls</strong>
           </div>
+          <label class="debug-menu-field">
+            <span>Engine</span>
+            <select
+              value={props.engine}
+              onChange={(event) => {
+                const nextEngine = event.currentTarget.value as DiffEngine;
+                if (nextEngine === "dirdiff") {
+                  props.onEngineChange(nextEngine);
+                }
+              }}
+            >
+              <option value="dirdiff">{engineLabels.dirdiff}</option>
+              <option value="git" disabled>
+                {engineLabels.git} (soon)
+              </option>
+            </select>
+          </label>
           <div class="debug-menu-metrics" aria-label="Developer metrics">
             <DebugMetric label="FPS" value={metrics().fps} />
             <DebugMetric label="Nodes" value={metrics().nodes} />
@@ -1798,6 +1842,7 @@ function fileKey(entry: FileEntry): string {
 function fileDiffQueryKey(request: DiffRequest, entry: FileEntry) {
   return [
     "file-diff",
+    request.engine,
     request.mode,
     request.left,
     request.right,
@@ -1818,6 +1863,7 @@ function notebookSectionQueryKey(
 ) {
   return [
     "notebook-section",
+    request.engine,
     request.mode,
     request.left,
     request.right,

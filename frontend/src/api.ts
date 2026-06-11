@@ -4,6 +4,7 @@ export type DiffMode =
   | "against-head"
   | "refs"
   | "branch-review";
+export type DiffEngine = "dirdiff" | "git";
 
 export type RefChoices = {
   builtins: string[];
@@ -13,6 +14,7 @@ export type RefChoices = {
 };
 
 export type Defaults = {
+  engine: DiffEngine;
   mode: DiffMode;
   left: string;
   right: string;
@@ -23,6 +25,7 @@ export type Defaults = {
 };
 
 export type DiffRequest = {
+  engine: DiffEngine;
   mode: DiffMode;
   left: string;
   right: string;
@@ -228,6 +231,7 @@ export async function fetchFileDiff(
   entry: FileEntry,
 ): Promise<FileEntry> {
   const params = new URLSearchParams();
+  params.set("engine", request.engine);
   params.set("mode", request.mode === "against-head" ? "files" : request.mode);
   if (request.left) {
     params.set("left", request.left);
@@ -266,6 +270,7 @@ export async function fetchNotebookSection(
   options: { section: string; cellKey?: string | null },
 ): Promise<NotebookSection> {
   const params = new URLSearchParams();
+  params.set("engine", request.engine);
   params.set("mode", request.mode === "against-head" ? "files" : request.mode);
   if (request.left) {
     params.set("left", request.left);
@@ -304,6 +309,7 @@ export function openDiffStream(
   onTransportError: (error: Event) => void,
 ): EventSource {
   const params = new URLSearchParams();
+  params.set("engine", request.engine);
   params.set("mode", request.mode === "against-head" ? "files" : request.mode);
   params.set("left", request.left);
   params.set("right", request.right);

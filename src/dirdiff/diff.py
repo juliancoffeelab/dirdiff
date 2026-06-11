@@ -1520,7 +1520,7 @@ def _empty_repo_summary() -> dict[str, int]:
     }
 
 
-class TextDiffService:
+class GitRepository:
     def __init__(self, repo_root: Path | None, *, cwd: Path | None = None) -> None:
         self.repo_root = repo_root.resolve() if repo_root is not None else None
         self.cwd = (cwd or Path.cwd()).resolve()
@@ -1531,7 +1531,7 @@ class TextDiffService:
         cwd: Path | None = None,
         *,
         repo_root: Path | None = None,
-    ) -> "TextDiffService":
+    ) -> "GitRepository":
         working_dir = (cwd or Path.cwd()).resolve()
         if repo_root is not None:
             return cls(Path(repo_root).expanduser().resolve(), cwd=working_dir)
@@ -1961,6 +1961,77 @@ class TextDiffService:
             exists=True,
             text=_decode_text(result.stdout, label=f"{side}:{path}"),
         )
+
+
+class TextDiffService:
+    def __init__(self, repo: GitRepository) -> None:
+        self.repo = repo
+
+    @property
+    def repo_root(self) -> Path | None:
+        return self.repo.repo_root
+
+    @property
+    def cwd(self) -> Path:
+        return self.repo.cwd
+
+    def normalize_side(self, raw_side: str) -> SideName:
+        return self.repo.normalize_side(raw_side)
+
+    def discover_default_path(self) -> str:
+        return self.repo.discover_default_path()
+
+    def current_branch_name(self) -> str:
+        return self.repo.current_branch_name()
+
+    def list_branch_names(self) -> list[str]:
+        return self.repo.list_branch_names()
+
+    def list_remote_ref_names(self) -> list[str]:
+        return self.repo.list_remote_ref_names()
+
+    def list_remote_names(self) -> list[str]:
+        return self.repo.list_remote_names()
+
+    def list_ref_choices(self) -> dict[str, list[str]]:
+        return self.repo.list_ref_choices()
+
+    def default_remote_name(self) -> str:
+        return self.repo.default_remote_name()
+
+    def branch_upstream_name(self, branch_name: str) -> str:
+        return self.repo.branch_upstream_name(branch_name)
+
+    def default_base_branch(self) -> str:
+        return self.repo.default_base_branch()
+
+    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
+        return self.repo.preferred_review_branch(base_branch=base_branch)
+
+    def resolve_branch_diff_sides(
+        self,
+        *,
+        base_branch: str,
+        branch: str,
+    ) -> tuple[str, str]:
+        return self.repo.resolve_branch_diff_sides(
+            base_branch=base_branch,
+            branch=branch,
+        )
+
+    def list_repo_diff_paths(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+    ) -> list[RepoDiffPath]:
+        return self.repo.list_repo_diff_paths(left=left, right=right)
+
+    def normalize_repo_path(self, raw_path: str) -> str:
+        return self.repo.normalize_repo_path(raw_path)
+
+    def load_git_version(self, path: str, side: SideName) -> TextVersion:
+        return self.repo.load_git_version(path, side)
 
     def build_git_diff_paths(
         self,

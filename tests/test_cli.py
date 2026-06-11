@@ -18,7 +18,7 @@ from dirdiff.cli import (
     load_runtime_config,
     store_runtime_config,
 )
-from dirdiff.diff import TextDiffService
+from dirdiff.diff import GitRepository, RepoDiffPath, TextDiffService, TextVersion
 from dirdiff.server import create_app
 
 
@@ -47,6 +47,7 @@ TEXT_SUMMARY = {
 
 def default_bootstrap() -> dict:
     return {
+        "engine": "dirdiff",
         "mode": "files",
         "left": "index",
         "right": "worktree",
@@ -139,6 +140,25 @@ class FakeDiffService:
         }
 
 
+class FakeGitRepository(FakeDiffService):
+    def list_repo_diff_paths(self, *, left: str, right: str) -> list[RepoDiffPath]:
+        return [
+            RepoDiffPath(
+                left_path="alpha.txt",
+                right_path="alpha.txt",
+                display_name="alpha.txt",
+                change_type="modify",
+            )
+        ]
+
+    def normalize_repo_path(self, raw_path: str) -> str:
+        return raw_path
+
+    def load_git_version(self, path: str, side: str) -> TextVersion:
+        text = "one\n" if side == "index" else "two\n"
+        return TextVersion(label=side, exists=True, text=text)
+
+
 def parse_sse_events(text: str) -> list[tuple[str, dict]]:
     events: list[tuple[str, dict]] = []
     event_name: str | None = None
@@ -203,12 +223,12 @@ def test_create_app_from_runtime_config_uses_stored_repo_root(
 ) -> None:
     discovered_repo_root: Path | None = None
 
-    def discover(*, repo_root: Path | None = None, cwd: Path | None = None) -> FakeDiffService:
+    def discover(*, repo_root: Path | None = None, cwd: Path | None = None) -> FakeGitRepository:
         nonlocal discovered_repo_root
         discovered_repo_root = repo_root
-        return FakeDiffService(repo_root or cwd or tmp_path)
+        return FakeGitRepository(repo_root or cwd or tmp_path)
 
-    monkeypatch.setattr(TextDiffService, "discover", staticmethod(discover))
+    monkeypatch.setattr(GitRepository, "discover", staticmethod(discover))
     store_runtime_config(
         RuntimeConfig(
             repo_root=str(tmp_path),
@@ -385,7 +405,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
 
@@ -439,7 +459,7 @@ def test_repo_diff_endpoint_emits_minimal_generated_lockfile_entry(tmp_path: Pat
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
 
@@ -476,7 +496,7 @@ def test_repo_diff_stream_emits_minimal_deleted_file_entry(tmp_path: Path) -> No
     subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
     deleted_file.unlink()
 
-    service = TextDiffService.discover(cwd=tmp_path)
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
 
