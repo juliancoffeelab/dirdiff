@@ -32,6 +32,7 @@ ENABLE_PERF_LOGS = os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
 PLAIN_RENDER_CONTEXT_ROWS = 3
 PLAIN_RENDER_MIN_FOLD_ROWS = 24
 PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
+LARGE_CHANGED_LINES_LAZY_THRESHOLD = 1000
 GENERATED_FILES = frozenset(
     {
         "cargo.lock",
@@ -64,6 +65,9 @@ class RepoDiffPath:
     right_path: str | None
     display_name: str
     change_type: str
+    changed_lines: int | None = None
+    added_lines: int | None = None
+    removed_lines: int | None = None
 
 
 @dataclass(frozen=True)
@@ -113,16 +117,29 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
         entry.change_type == "delete"
         or _looks_generated_path(entry.right_path)
         or _looks_generated_path(entry.left_path)
+        or (
+            entry.changed_lines is not None
+            and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
+        )
     )
 
 
 def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "lazy": True,
         "left_path": entry.left_path,
         "right_path": entry.right_path,
         "change_type": entry.change_type,
     }
+    if (
+        entry.changed_lines is not None
+        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
+    ):
+        payload["lazy_reason"] = (
+            f"{entry.display_name} has {entry.changed_lines} changed lines, "
+            "so it is folded by default. Click to fetch and open it."
+        )
+    return payload
 
 
 def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:
@@ -1811,6 +1828,25 @@ class TextDiffService:
 
         return entries
 
+    def _parse_numstat_output(self, output: bytes) -> dict[str, tuple[int, int]]:
+        tokens = output.split(b"\0")
+        if tokens and not tokens[-1]:
+            tokens = tokens[:-1]
+
+        counts: dict[str, tuple[int, int]] = {}
+        for token in tokens:
+            parts = token.decode("utf-8").split("\t")
+            if len(parts) != 3:
+                continue
+            added_raw, removed_raw, path = parts
+            if added_raw == "-" or removed_raw == "-":
+                continue
+            try:
+                counts[path] = (int(added_raw), int(removed_raw))
+            except ValueError:
+                continue
+        return counts
+
     def list_repo_diff_paths(
         self,
         *,
@@ -1849,7 +1885,33 @@ class TextDiffService:
 
         diff_output = self._run_git(diff_args)
         entries = self._parse_name_status_output(diff_output.stdout)
-        return sorted(entries, key=lambda entry: (entry.display_name, entry.change_type))
+        numstat_args = list(diff_args)
+        numstat_args[numstat_args.index("--name-status")] = "--numstat"
+        numstat_output = self._run_git(numstat_args)
+        line_counts = self._parse_numstat_output(numstat_output.stdout)
+        entries_with_counts: list[RepoDiffPath] = []
+        for entry in entries:
+            path = entry.right_path or entry.left_path or entry.display_name
+            line_count = line_counts.get(path)
+            if line_count is None:
+                entries_with_counts.append(entry)
+                continue
+            added_lines, removed_lines = line_count
+            entries_with_counts.append(
+                RepoDiffPath(
+                    left_path=entry.left_path,
+                    right_path=entry.right_path,
+                    display_name=entry.display_name,
+                    change_type=entry.change_type,
+                    changed_lines=added_lines + removed_lines,
+                    added_lines=added_lines,
+                    removed_lines=removed_lines,
+                )
+            )
+        return sorted(
+            entries_with_counts,
+            key=lambda entry: (entry.display_name, entry.change_type),
+        )
 
     def normalize_repo_path(self, raw_path: str) -> str:
         if self.repo_root is None:
@@ -2237,6 +2299,12 @@ class TextDiffService:
                     summary["removed_files"] += 1
                 else:
                     summary["updated_files"] += 1
+                if entry.changed_lines is not None:
+                    summary["changed_lines"] += entry.changed_lines
+                if entry.added_lines is not None:
+                    summary["added_lines"] += entry.added_lines
+                if entry.removed_lines is not None:
+                    summary["removed_lines"] += entry.removed_lines
                 yield RepoDiffProgress(
                     entry=_to_lazy_repo_file_entry(entry),
                     summary=dict(summary),

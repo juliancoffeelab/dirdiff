@@ -873,6 +873,64 @@ def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
 
 
 @pytest.mark.git
+def test_iter_repo_diff_progress_marks_large_changed_files_lazy(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    large_file = tmp_path / "large.txt"
+    large_file.write_text("old\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "large.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    large_file.write_text(
+        "".join(f"line {index}\n" for index in range(1001)),
+        encoding="utf-8",
+    )
+
+    service = TextDiffService.discover(cwd=tmp_path)
+
+    progress = list(service.iter_repo_diff_progress(left="index", right="worktree"))
+
+    assert len(progress) == 1
+    entry = progress[0].entry
+    assert entry["lazy"] is True
+    assert entry["left_path"] == "large.txt"
+    assert entry["right_path"] == "large.txt"
+    assert entry["change_type"] == "modify"
+    assert "1002 changed lines" in entry["lazy_reason"]
+    assert progress[0].summary["changed_files"] == 1
+    assert progress[0].summary["changed_lines"] == 1002
+    assert progress[0].summary["added_lines"] == 1001
+    assert progress[0].summary["removed_lines"] == 1
+
+
+@pytest.mark.git
 def test_iter_repo_diff_progress_marks_deleted_files_lazy(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
