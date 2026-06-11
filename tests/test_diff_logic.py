@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import pytest
 import subprocess
 
 from dirdiff.diff import (
@@ -651,6 +652,7 @@ def test_markdown_non_heading_content_does_not_fold() -> None:
     assert diff.get("fold_hints", []) == []
 
 
+@pytest.mark.git
 def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -692,6 +694,7 @@ def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
     assert [entry["display_name"] for entry in diff["files"]] == ["alpha.txt"]
 
 
+@pytest.mark.git
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -739,6 +742,7 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     assert diff["files"][0]["right_path"] == "renamed.txt"
 
 
+@pytest.mark.git
 def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -796,6 +800,7 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     assert diff["summary"]["removed_lines"] == 0
 
 
+@pytest.mark.git
 def test_iter_repo_diff_progress_updates_summary_incrementally(
     tmp_path: Path,
 ) -> None:
@@ -831,6 +836,7 @@ def test_iter_repo_diff_progress_updates_summary_incrementally(
     assert progress[1].summary["changed_lines"] >= progress[0].summary["changed_lines"]
 
 
+@pytest.mark.git
 def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -866,6 +872,7 @@ def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
     assert progress[0].summary["changed_files"] == 1
 
 
+@pytest.mark.git
 def test_iter_repo_diff_progress_marks_deleted_files_lazy(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -956,6 +963,7 @@ def test_large_plaintext_diff_still_falls_back_to_plain_render_mode() -> None:
     assert not any(row.get("left_syntax") for row in diff["rows"])
 
 
+@pytest.mark.git
 def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -1154,6 +1162,7 @@ def test_build_loaded_diff_keeps_notebook_metadata_and_outputs_lazy() -> None:
     assert cell["outputs_hunk_count"] >= 1
 
 
+@pytest.mark.git
 def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
     tmp_path: Path,
 ) -> None:
@@ -1288,6 +1297,7 @@ def test_build_loaded_diff_falls_back_to_text_for_invalid_notebook_json() -> Non
     assert "rows" in diff
 
 
+@pytest.mark.git
 def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(

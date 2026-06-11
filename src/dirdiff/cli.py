@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -20,6 +21,7 @@ import uvicorn
 
 
 DEFAULT_PORT = 5052
+DEFAULT_FRONTEND_PORT = 5173
 PORT_FALLBACK_ATTEMPTS = 20
 RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
 
@@ -76,6 +78,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Start the local server without opening a browser tab.",
     )
+    parser.add_argument(
+        "--frontend-port",
+        type=int,
+        default=DEFAULT_FRONTEND_PORT,
+        help=f"Solid frontend dev server port (default: {DEFAULT_FRONTEND_PORT})",
+    )
+    parser.add_argument(
+        "--no-frontend-dev",
+        action="store_true",
+        help="Do not start the Solid frontend dev server.",
+    )
+    parser.add_argument(
+        "--legacy-frontend",
+        action="store_true",
+        help="Open the current static frontend instead of the Solid frontend.",
+    )
     return parser.parse_args()
 
 
@@ -94,6 +112,34 @@ def _build_url(port: int, defaults: dict[str, Any]) -> str:
         }
     }
     return f"http://127.0.0.1:{port}/?{urlencode(query, quote_via=quote)}"
+
+
+def _frontend_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "frontend"
+
+
+def _start_frontend_dev_server(
+    *,
+    backend_port: int,
+    frontend_port: int,
+) -> subprocess.Popen[bytes]:
+    env = os.environ.copy()
+    env["VITE_DIRDIFF_BACKEND_ORIGIN"] = f"http://127.0.0.1:{backend_port}"
+    return subprocess.Popen(
+        [
+            "npm",
+            "run",
+            "dev",
+            "--",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(frontend_port),
+            "--strictPort",
+        ],
+        cwd=_frontend_dir(),
+        env=env,
+    )
 
 
 def build_defaults(
@@ -208,25 +254,60 @@ def main() -> None:
     )
 
     actual_port = choose_port(args.port)
-    url = _build_url(actual_port, defaults)
+    use_frontend_dev = not (args.no_frontend_dev or args.legacy_frontend)
+    actual_frontend_port = choose_port(args.frontend_port) if use_frontend_dev else args.frontend_port
+    if use_frontend_dev and actual_frontend_port == actual_port:
+        actual_frontend_port = choose_port(actual_port + 1)
+    backend_url = _build_url(actual_port, defaults)
+    url = (
+        _build_url(actual_frontend_port, defaults)
+        if use_frontend_dev
+        else backend_url
+    )
     if actual_port != args.port:
         print(
             f"Port {args.port} is in use; using {actual_port} instead.",
             file=sys.stderr,
         )
+    if use_frontend_dev and actual_frontend_port != args.frontend_port:
+        print(
+            f"Frontend port {args.frontend_port} is in use; using {actual_frontend_port} instead.",
+            file=sys.stderr,
+        )
+
+    frontend_process: subprocess.Popen[bytes] | None = None
+    if use_frontend_dev:
+        try:
+            frontend_process = _start_frontend_dev_server(
+                backend_port=actual_port,
+                frontend_port=actual_frontend_port,
+            )
+        except FileNotFoundError:
+            print(
+                "Could not start Solid frontend: npm was not found. Falling back to the static frontend.",
+                file=sys.stderr,
+            )
+            url = backend_url
+
+    print(f"dirdiff: {url}", file=sys.stderr)
+
     if not (args.no_open_browser or args.headless):
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
 
     store_runtime_config(config)
 
-    uvicorn.run(
-        "dirdiff.cli:create_app_from_runtime_config",
-        host="127.0.0.1",
-        port=actual_port,
-        factory=True,
-        reload=True,
-        reload_dirs=[str(Path(__file__).resolve().parent)],
-        reload_includes=["*.py", "*.html", "*.js", "*.css"],
-        log_config=None,
-        access_log=False,
-    )
+    try:
+        uvicorn.run(
+            "dirdiff.cli:create_app_from_runtime_config",
+            host="127.0.0.1",
+            port=actual_port,
+            factory=True,
+            reload=True,
+            reload_dirs=[str(Path(__file__).resolve().parent)],
+            reload_includes=["*.py", "*.html", "*.js", "*.css"],
+            log_config=None,
+            access_log=False,
+        )
+    finally:
+        if frontend_process is not None:
+            frontend_process.terminate()

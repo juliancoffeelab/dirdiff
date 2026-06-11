@@ -206,6 +206,10 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
         html = html.replace("__ASSET_VERSION__", asset_version)
         return HTMLResponse(html)
 
+    @app.get("/api/defaults")
+    def serve_defaults() -> dict[str, Any]:
+        return defaults
+
     @app.post(
         "/api/save-log",
         response_model=SaveLogResponse,
@@ -288,6 +292,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
 
         def event_stream() -> Iterator[bytes]:
             yield _encode_sse("init", initial_payload)
+            latest_summary = initial_payload["summary"]
             try:
                 for progress in progress_iter:
                     entry = dict(progress.entry)
@@ -295,6 +300,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
                         entry["left_label"] = label_overrides[0]
                     if label_overrides[1]:
                         entry["right_label"] = label_overrides[1]
+                    latest_summary = progress.summary
                     yield _encode_sse(
                         "file",
                         {
@@ -310,7 +316,7 @@ def create_app(service: TextDiffService, defaults: dict[str, Any]) -> FastAPI:
                 yield _encode_sse("stream-error", {"error": "Internal server error."})
                 return
 
-            yield _encode_sse("done", {"summary": initial_payload["summary"]})
+            yield _encode_sse("done", {"summary": latest_summary})
 
         return StreamingResponse(
             event_stream(),

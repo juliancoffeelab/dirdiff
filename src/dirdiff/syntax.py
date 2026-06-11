@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import importlib
 from importlib.resources import files
+import re
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
@@ -16,6 +17,7 @@ class SyntaxLanguageSpec:
     suffixes: tuple[str, ...]
     filenames: tuple[str, ...] = ()
     language_attr: str = "language"
+    query_package: str | None = None
 
 
 @dataclass(frozen=True)
@@ -33,20 +35,29 @@ LANGUAGE_SPECS: tuple[SyntaxLanguageSpec, ...] = (
     ),
     SyntaxLanguageSpec(
         module_name="tree_sitter_javascript",
-        query_path="queries/highlights.scm",
-        suffixes=(".js", ".jsx", ".mjs", ".cjs"),
+        query_path="queries/highlights/javascript.scm",
+        suffixes=(".js", ".mjs", ".cjs"),
+        query_package="dirdiff",
+    ),
+    SyntaxLanguageSpec(
+        module_name="tree_sitter_javascript",
+        query_path="queries/highlights/jsx.scm",
+        suffixes=(".jsx",),
+        query_package="dirdiff",
     ),
     SyntaxLanguageSpec(
         module_name="tree_sitter_typescript",
-        query_path="queries/highlights.scm",
+        query_path="queries/highlights/typescript.scm",
         suffixes=(".ts", ".mts", ".cts"),
         language_attr="language_typescript",
+        query_package="dirdiff",
     ),
     SyntaxLanguageSpec(
         module_name="tree_sitter_typescript",
-        query_path="queries/highlights.scm",
+        query_path="queries/highlights/tsx.scm",
         suffixes=(".tsx",),
         language_attr="language_tsx",
+        query_package="dirdiff",
     ),
     SyntaxLanguageSpec(
         module_name="tree_sitter_rust",
@@ -123,15 +134,44 @@ def _load_language_query(
     module_name: str,
     language_attr: str,
     query_path: str,
+    query_package: str | None,
 ) -> tuple[Language, Query]:
     module = importlib.import_module(module_name)
     language_factory = getattr(module, language_attr)
     language = Language(language_factory())
-    query = Query(
-        language,
-        files(module_name).joinpath(query_path).read_text(encoding="utf-8"),
-    )
+    query_text = _load_query_text(query_package or module_name, query_path)
+    query = Query(language, query_text)
     return language, query
+
+
+@lru_cache(maxsize=None)
+def _load_query_text(package_name: str, query_path: str) -> str:
+    query_file = files(package_name).joinpath(query_path)
+    query_text = query_file.read_text(encoding="utf-8")
+    inherited_query_texts = [
+        _load_query_text(package_name, _sibling_query_path(query_path, inherited_name))
+        for inherited_name in _inherited_query_names(query_text)
+    ]
+    return "\n".join([*inherited_query_texts, query_text])
+
+
+def _inherited_query_names(query_text: str) -> list[str]:
+    inherited_names: list[str] = []
+    for line in query_text.splitlines():
+        match = re.match(r"\s*;\s*inherits:\s*(.+)$", line)
+        if not match:
+            continue
+        inherited_names.extend(
+            name.strip()
+            for name in match.group(1).split(",")
+            if name.strip()
+        )
+    return inherited_names
+
+
+def _sibling_query_path(query_path: str, query_name: str) -> str:
+    parent = query_path.rsplit("/", 1)[0]
+    return f"{parent}/{query_name}.scm"
 
 
 def _highlight_lines_with_spec(
@@ -143,6 +183,7 @@ def _highlight_lines_with_spec(
             spec.module_name,
             spec.language_attr,
             spec.query_path,
+            spec.query_package,
         )
     except (ImportError, AttributeError, FileNotFoundError, OSError, ValueError):
         return None
@@ -234,7 +275,7 @@ def _collapse_line_intervals(
                 key=lambda item: (
                     item[1] - item[0],
                     -len(item[2]),
-                    item[3],
+                    -item[3],
                 ),
             )
             _append_span(spans, position, event_position, chosen[2])
@@ -252,7 +293,7 @@ def _collapse_line_intervals(
             key=lambda item: (
                 item[1] - item[0],
                 -len(item[2]),
-                item[3],
+                -item[3],
             ),
         )
         _append_span(spans, position, len(line_text), chosen[2])
