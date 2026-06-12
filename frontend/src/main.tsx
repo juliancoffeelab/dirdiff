@@ -465,6 +465,25 @@ function App() {
   onCleanup(() => stream?.close());
   onCleanup(() => clearTimeout(hunkReconcileTimer));
 
+  const toggleDiffViewMode = () => {
+    setDiffViewMode((mode) => (mode === "split" ? "inline" : "split"));
+  };
+
+  const setAllFilesExpanded = (expanded: boolean) => {
+    const currentFiles = files();
+    const groups = [...groupFilesByLabel(currentFiles).keys()];
+    batch(() => {
+      setDirectoryExpansion(() =>
+        Object.fromEntries(groups.map((label) => [label, expanded])),
+      );
+      setFileExpansion(() =>
+        Object.fromEntries(
+          currentFiles.map((file) => [fileKey(file), expanded]),
+        ),
+      );
+    });
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (shouldIgnoreHunkNavKeyEvent(event)) {
       return;
@@ -487,6 +506,21 @@ function App() {
     if (event.code === "KeyT") {
       event.preventDefault();
       setFileTreeOpen((open) => !open);
+      return;
+    }
+    if (event.code === "KeyI") {
+      event.preventDefault();
+      toggleDiffViewMode();
+      return;
+    }
+    if (event.code === "KeyS") {
+      event.preventDefault();
+      setAllFilesExpanded(true);
+      return;
+    }
+    if (event.code === "KeyF") {
+      event.preventDefault();
+      setAllFilesExpanded(false);
       return;
     }
     if (event.code === "KeyD") {
@@ -788,6 +822,7 @@ function App() {
               setLoadingFiles={setLoadingFiles}
               setFileErrors={setFileErrors}
               setFiles={setFiles}
+              onSetAllExpanded={setAllFilesExpanded}
             />
             <FileTreeSidebar
               files={files()}
@@ -982,6 +1017,9 @@ function HelpModal(props: {
           </HotkeyHelpSection>
           <HotkeyHelpSection title="UI">
             <HotkeyHelpRow keys="t" label="Toggle the file tree" />
+            <HotkeyHelpRow keys="i" label="Toggle inline diff view" />
+            <HotkeyHelpRow keys="s" label="Show all files" />
+            <HotkeyHelpRow keys="f" label="Fold all files" />
           </HotkeyHelpSection>
           <HotkeyHelpSection title="Misc">
             <HotkeyHelpRow keys="d" label="Toggle developer metrics" />
@@ -1326,6 +1364,7 @@ function FileList(props: {
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
   setFiles: FilesSetter;
+  onSetAllExpanded: (expanded: boolean) => void;
 }) {
   const groupsByLabel = createMemo(() => groupFilesByLabel(props.files));
   const groupLabels = createMemo(() => [...groupsByLabel().keys()]);
@@ -1335,15 +1374,6 @@ function FileList(props: {
       throw new Error(`Could not find directory group ${label}.`);
     }
     return group;
-  };
-
-  const setAllExpanded = (expanded: boolean) => {
-    props.setDirectoryExpansion(() =>
-      Object.fromEntries(groupLabels().map((label) => [label, expanded])),
-    );
-    props.setFileExpansion(() =>
-      Object.fromEntries(props.files.map((file) => [fileKey(file), expanded])),
-    );
   };
 
   const setDirectoryExpanded = (label: string, expanded: boolean) => {
@@ -1367,10 +1397,10 @@ function FileList(props: {
         fallback={<p class="empty">No files loaded yet.</p>}
       >
         <div class="repo-fold-controls">
-          <button type="button" onClick={() => setAllExpanded(false)}>
+          <button type="button" onClick={() => props.onSetAllExpanded(false)}>
             Fold all
           </button>
-          <button type="button" onClick={() => setAllExpanded(true)}>
+          <button type="button" onClick={() => props.onSetAllExpanded(true)}>
             Show all
           </button>
         </div>
