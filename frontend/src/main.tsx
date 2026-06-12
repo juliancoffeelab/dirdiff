@@ -549,6 +549,11 @@ function App() {
       setAllFilesExpanded(false);
       return;
     }
+    if (event.code === "KeyR") {
+      event.preventDefault();
+      reloadControls();
+      return;
+    }
     if (event.code === "KeyD") {
       event.preventDefault();
       setDebugMenuOpen((open) => !open);
@@ -675,6 +680,14 @@ function App() {
       return;
     }
     setRequest(nextRequest);
+  };
+
+  const reloadControls = () => {
+    const currentControls = controls();
+    if (!currentControls) {
+      return;
+    }
+    loadControls(currentControls);
   };
 
   const loadEngine = (nextEngine: DiffEngine) => {
@@ -1048,6 +1061,7 @@ function HelpModal(props: {
             <HotkeyHelpRow keys="f" label="Fold all files" />
           </HotkeyHelpSection>
           <HotkeyHelpSection title="Misc">
+            <HotkeyHelpRow keys="r" label="Reload the current diff" />
             <HotkeyHelpRow keys="d" label="Toggle developer metrics" />
             <HotkeyHelpRow keys="h" label="Toggle this help panel" />
           </HotkeyHelpSection>
