@@ -380,28 +380,30 @@ h1 {
 
 .file-tree-shell {
   position: fixed;
-  top: 152px;
-  bottom: 94px;
-  left: 16px;
+  bottom: 22px;
+  left: 22px;
   z-index: 40;
+  display: grid;
+  justify-items: start;
   pointer-events: none;
 }
 
 .file-tree-shell.open {
-  width: min(300px, calc(100vw - 32px));
+  width: min(280px, calc(100vw - 44px));
 }
 
 .file-tree-toggle {
   pointer-events: auto;
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 8px;
-  min-height: 34px;
+  min-width: 42px;
+  min-height: 38px;
   border: 1px solid #d8d0c2;
   background: #fffdf8;
   color: #24231f;
-  padding: 6px 10px;
+  padding: 6px 9px;
   box-shadow: 0 4px 18px rgb(36 35 31 / 8%);
   font-weight: 700;
 }
@@ -418,23 +420,46 @@ h1 {
 .file-tree-shell.open .file-tree-toggle {
   width: 100%;
   min-height: 40px;
+  justify-content: space-between;
+  border-top: 0;
   border-bottom: 0;
   box-shadow: 0 8px 24px rgb(36 35 31 / 10%);
   text-transform: uppercase;
 }
 
+.file-tree-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.file-tree-label {
+  margin-right: auto;
+}
+
+.file-tree-toggle kbd {
+  min-width: 18px;
+  border: 1px solid #ded8cc;
+  background: #f4f1ea;
+  color: #625f58;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: none;
+}
+
 .file-tree-sidebar {
   pointer-events: auto;
-  height: calc(100vh - 246px);
+  max-height: min(520px, calc(100vh - 100px));
   width: 100%;
   border: 1px solid #d8d0c2;
-  border-top: 0;
+  border-bottom: 0;
   background: #fffdf8;
   box-shadow: 0 8px 24px rgb(36 35 31 / 10%);
 }
 
 .file-tree-groups {
-  height: 100%;
+  max-height: min(520px, calc(100vh - 100px));
   overflow: auto;
   padding: 6px;
 }
@@ -1175,14 +1200,16 @@ body[data-diff-selection-side="right"] .diff-side.side-left {
   }
 
   .file-tree-shell {
-    top: 12px;
     bottom: 12px;
     left: 12px;
     z-index: 60;
   }
 
-  .file-tree-sidebar {
-    height: calc(100vh - 66px);
+  .file-tree-shell.open {
     width: min(320px, calc(100vw - 24px));
+  }
+
+  .file-tree-sidebar {
+    max-height: calc(100vh - 66px);
   }
 }

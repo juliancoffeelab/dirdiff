@@ -322,6 +322,7 @@ function App() {
   const [summary, setSummary] = createSignal<Summary>(emptySummary);
   const [status, setStatus] = createSignal<LoadState>("idle");
   const [statusText, setStatusText] = createSignal("Preparing diff...");
+  const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
   const [currentHunkIndex, setCurrentHunkIndex] = createSignal(0);
   const [hunkNavigationTick, setHunkNavigationTick] = createSignal(0);
   let appRoot: HTMLElement | undefined;
@@ -466,6 +467,11 @@ function App() {
     if (event.key === "p") {
       event.preventDefault();
       scrollTop();
+      return;
+    }
+    if (event.key === "t") {
+      event.preventDefault();
+      setFileTreeOpen((open) => !open);
     }
   };
 
@@ -695,7 +701,12 @@ function App() {
               setFileErrors={setFileErrors}
               setFiles={setFiles}
             />
-            <FileTreeSidebar files={files()} onScrollToFile={scrollToFile} />
+            <FileTreeSidebar
+              files={files()}
+              open={fileTreeOpen()}
+              onOpenChange={setFileTreeOpen}
+              onScrollToFile={scrollToFile}
+            />
             <HunkNav
               onNext={() => scrollHunk(1)}
               onPrev={() => scrollHunk(-1)}
@@ -1350,9 +1361,10 @@ function DirectoryGroup(props: {
 
 function FileTreeSidebar(props: {
   files: FileEntry[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onScrollToFile: (file: FileEntry) => void;
 }) {
-  const [open, setOpen] = createSignal(false);
   const groups = createMemo(() => [...groupFilesByLabel(props.files).values()]);
   const lineStats = createMemo(() =>
     props.files.reduce(
@@ -1363,17 +1375,8 @@ function FileTreeSidebar(props: {
 
   return (
     <Show when={props.files.length > 0}>
-      <div class="file-tree-shell" classList={{ open: open() }}>
-        <button
-          type="button"
-          class="file-tree-toggle"
-          onClick={() => setOpen(!open())}
-          aria-expanded={open()}
-          aria-controls="fileTreeSidebar"
-        >
-          Files <TreeLineStats stats={lineStats()} />
-        </button>
-        <Show when={open()}>
+      <div class="file-tree-shell" classList={{ open: props.open }}>
+        <Show when={props.open}>
           <aside
             id="fileTreeSidebar"
             class="file-tree-sidebar"
@@ -1411,6 +1414,23 @@ function FileTreeSidebar(props: {
             </div>
           </aside>
         </Show>
+        <button
+          type="button"
+          class="file-tree-toggle"
+          onClick={() => props.onOpenChange(!props.open)}
+          aria-expanded={props.open}
+          aria-controls="fileTreeSidebar"
+          aria-label={props.open ? "Close file tree" : "Open file tree"}
+        >
+          <span class="file-tree-icon" aria-hidden="true">
+            ▦
+          </span>
+          <Show when={props.open}>
+            <span class="file-tree-label">Files</span>
+            <TreeLineStats stats={lineStats()} />
+          </Show>
+          <kbd>t</kbd>
+        </button>
       </div>
     </Show>
   );
