@@ -555,7 +555,11 @@ function App() {
     selectedEngine: DiffEngine = engine(),
   ) => {
     setControls(nextControls);
-    const nextRequest = buildRequest(nextControls, refChoices(), selectedEngine);
+    const nextRequest = buildRequest(
+      nextControls,
+      refChoices(),
+      selectedEngine,
+    );
     if (typeof nextRequest === "string") {
       stream?.close();
       resetDiffState("error", nextRequest);
@@ -635,16 +639,46 @@ function App() {
     requestAnimationFrame(() => {
       const target = document.getElementById(fileElementId(key));
       if (!target) {
-        throw new Error(`Could not find file card for ${fileDisplayName(file)}.`);
+        throw new Error(
+          `Could not find file card for ${fileDisplayName(file)}.`,
+        );
       }
       const header = target.querySelector<HTMLElement>(".file-card-header");
       if (!header) {
-        throw new Error(`Could not find file header for ${fileDisplayName(file)}.`);
+        throw new Error(
+          `Could not find file header for ${fileDisplayName(file)}.`,
+        );
       }
       header.scrollIntoView({ block: "start", behavior: "instant" });
       target.classList.remove("file-card-flash");
       void target.offsetWidth;
       target.classList.add("file-card-flash");
+    });
+  };
+
+  const scrollToDirectory = (group: FileGroup) => {
+    batch(() => {
+      setDirectoryExpansion((current) => ({
+        ...current,
+        [group.label]: true,
+      }));
+      setFileExpansion((current) => ({
+        ...current,
+        ...Object.fromEntries(group.files.map((file) => [fileKey(file), true])),
+      }));
+    });
+    requestAnimationFrame(() => {
+      const target = document.getElementById(directoryElementId(group.label));
+      if (!target) {
+        throw new Error(`Could not find directory group for ${group.label}.`);
+      }
+      const header = target.querySelector<HTMLElement>(
+        ".directory-group-header",
+      );
+      if (!header) {
+        throw new Error(`Could not find directory header for ${group.label}.`);
+      }
+      header.scrollIntoView({ block: "start", behavior: "instant" });
     });
   };
 
@@ -703,8 +737,13 @@ function App() {
             />
             <FileTreeSidebar
               files={files()}
+              directoryExpansion={directoryExpansion()}
+              fileExpansion={fileExpansion()}
               open={fileTreeOpen()}
               onOpenChange={setFileTreeOpen}
+              setDirectoryExpansion={setDirectoryExpansion}
+              setFileExpansion={setFileExpansion}
+              onScrollToDirectory={scrollToDirectory}
               onScrollToFile={scrollToFile}
             />
             <HunkNav
@@ -1148,10 +1187,18 @@ function directoryExpansionValue(
   current: Record<string, boolean>,
   directory: string,
 ): boolean {
-  if (Object.hasOwn(current, directory)) {
-    return current[directory];
+  return expansionValue(current, directory, true);
+}
+
+function expansionValue(
+  current: Record<string, boolean>,
+  key: string,
+  defaultValue: boolean,
+): boolean {
+  if (Object.hasOwn(current, key)) {
+    return current[key];
   }
-  return true;
+  return defaultValue;
 }
 
 function nextFileExpansion(
@@ -1182,7 +1229,9 @@ function shouldExpandFileByDefault(file: FileEntry): boolean {
 function renderedLineCount(file: FileEntry): number {
   if (file.render_kind === "notebook") {
     if (!file.cells) {
-      throw new Error(`Notebook file is missing cells for ${fileDisplayName(file)}.`);
+      throw new Error(
+        `Notebook file is missing cells for ${fileDisplayName(file)}.`,
+      );
     }
     if (!file.notebook_metadata_rows) {
       throw new Error(
@@ -1312,6 +1361,7 @@ function DirectoryGroup(props: {
 
   return (
     <section
+      id={directoryElementId(group().label)}
       class="directory-group"
       classList={{ "is-collapsed": !props.expanded }}
     >
@@ -1361,8 +1411,13 @@ function DirectoryGroup(props: {
 
 function FileTreeSidebar(props: {
   files: FileEntry[];
+  directoryExpansion: Record<string, boolean>;
+  fileExpansion: Record<string, boolean>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  setDirectoryExpansion: ExpansionSetter;
+  setFileExpansion: ExpansionSetter;
+  onScrollToDirectory: (group: FileGroup) => void;
   onScrollToFile: (file: FileEntry) => void;
 }) {
   const groups = createMemo(() => [...groupFilesByLabel(props.files).values()]);
@@ -1372,6 +1427,30 @@ function FileTreeSidebar(props: {
       emptyLineStats(),
     ),
   );
+  const directoryExpanded = (group: FileGroup) =>
+    expansionValue(props.directoryExpansion, group.label, true);
+  const fileExpanded = (file: FileEntry) =>
+    expansionValue(props.fileExpansion, fileKey(file), !file.lazy);
+
+  const setDirectoryExpanded = (group: FileGroup, expanded: boolean) => {
+    props.setDirectoryExpansion((current) => ({
+      ...current,
+      [group.label]: expanded,
+    }));
+    props.setFileExpansion((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        group.files.map((file) => [fileKey(file), expanded]),
+      ),
+    }));
+  };
+
+  const setFileExpanded = (file: FileEntry, expanded: boolean) => {
+    props.setFileExpansion((current) => ({
+      ...current,
+      [fileKey(file)]: expanded,
+    }));
+  };
 
   return (
     <Show when={props.files.length > 0}>
@@ -1387,25 +1466,71 @@ function FileTreeSidebar(props: {
                 {(group) => (
                   <section class="file-tree-group">
                     <div class="file-tree-directory">
-                      <span>{group.label}</span>
+                      <button
+                        type="button"
+                        class="file-tree-visibility-toggle"
+                        onClick={() =>
+                          setDirectoryExpanded(group, !directoryExpanded(group))
+                        }
+                        aria-label={
+                          directoryExpanded(group)
+                            ? `Fold ${group.label}`
+                            : `Show ${group.label}`
+                        }
+                      >
+                        <span
+                          class="file-tree-visibility-box"
+                          classList={{ visible: directoryExpanded(group) }}
+                          aria-hidden="true"
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        class="file-tree-directory-target"
+                        onClick={() => props.onScrollToDirectory(group)}
+                      >
+                        {group.label}
+                      </button>
                       <TreeLineStats stats={groupLineStats(group)} />
                     </div>
                     <For each={group.files}>
                       {(file) => (
-                        <button
-                          type="button"
+                        <div
                           class="file-tree-file"
                           classList={{
                             added: file.change_type === "add",
                             removed: file.change_type === "delete",
                             lazy: Boolean(file.lazy),
                           }}
-                          onClick={() => props.onScrollToFile(file)}
                           title={fileDisplayName(file)}
                         >
-                          <span>{fileBasename(file)}</span>
+                          <button
+                            type="button"
+                            class="file-tree-visibility-toggle"
+                            onClick={() =>
+                              setFileExpanded(file, !fileExpanded(file))
+                            }
+                            aria-label={
+                              fileExpanded(file)
+                                ? `Fold ${fileDisplayName(file)}`
+                                : `Show ${fileDisplayName(file)}`
+                            }
+                          >
+                            <span
+                              class="file-tree-visibility-box"
+                              classList={{ visible: fileExpanded(file) }}
+                              aria-hidden="true"
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            class="file-tree-file-target"
+                            onClick={() => props.onScrollToFile(file)}
+                          >
+                            {fileBasename(file)}
+                          </button>
                           <TreeLineStats stats={fileLineStats(file)} />
-                        </button>
+                        </div>
                       )}
                     </For>
                   </section>
@@ -1458,8 +1583,7 @@ function FileCard(props: {
       left_exists: Boolean(props.file.left_path),
       right_exists: Boolean(props.file.right_path),
     };
-  const displayName = () =>
-    fileDisplayName(props.file);
+  const displayName = () => fileDisplayName(props.file);
   const lazyTitle = () => {
     if (props.file.change_type === "delete") {
       return "Load deleted file diff";
@@ -1931,7 +2055,9 @@ function fileLineStats(entry: FileEntry): LineStats {
       removed: entry.removed_lines,
     };
   }
-  throw new Error(`File entry is missing line stats for ${fileDisplayName(entry)}.`);
+  throw new Error(
+    `File entry is missing line stats for ${fileDisplayName(entry)}.`,
+  );
 }
 
 function groupLineStats(group: FileGroup): LineStats {
@@ -2107,11 +2233,19 @@ function fileKey(entry: FileEntry): string {
 }
 
 function fileElementId(key: string): string {
+  return hashedElementId("file", key);
+}
+
+function directoryElementId(label: string): string {
+  return hashedElementId("directory", label);
+}
+
+function hashedElementId(prefix: string, value: string): string {
   let hash = 5381;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = (hash * 33) ^ key.charCodeAt(index);
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(index);
   }
-  return `file-${(hash >>> 0).toString(36)}`;
+  return `${prefix}-${(hash >>> 0).toString(36)}`;
 }
 
 function fileDiffQueryKey(request: DiffRequest, entry: FileEntry) {
