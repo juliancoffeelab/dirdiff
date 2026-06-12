@@ -199,6 +199,14 @@ function initialEngine(defaults: Defaults): DiffEngine {
   return defaults.engine || "dirdiff";
 }
 
+function initialDiffViewMode(): DiffViewMode {
+  const view = new URLSearchParams(window.location.search).get("view");
+  if (view === "split" || view === "inline") {
+    return view;
+  }
+  return "split";
+}
+
 function buildRequest(
   controls: ControlsState,
   refChoices: RefChoices,
@@ -282,6 +290,15 @@ function requestQuery(request: DiffRequest): URLSearchParams {
   return params;
 }
 
+function appQuery(
+  request: DiffRequest,
+  viewMode: DiffViewMode,
+): URLSearchParams {
+  const params = requestQuery(request);
+  params.set("view", viewMode);
+  return params;
+}
+
 function statusLabel(
   request: DiffRequest,
   leftLabel?: string,
@@ -309,7 +326,9 @@ function App() {
     staleTime: Infinity,
   }));
   const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
-  const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>("split");
+  const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>(
+    initialDiffViewMode(),
+  );
   const [controls, setControls] = createSignal<ControlsState | null>(null);
   const [request, setRequest] = createSignal<DiffRequest | null>(null);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
@@ -387,11 +406,6 @@ function App() {
 
     stream?.close();
     resetDiffState("loading", "Loading diff...");
-    history.replaceState(
-      {},
-      "",
-      `/?${requestQuery(activeRequest).toString()}${window.location.hash}`,
-    );
 
     stream = openDiffStream(
       activeRequest,
@@ -459,6 +473,18 @@ function App() {
           setStatusText("Diff stream failed.");
         });
       },
+    );
+  });
+
+  createEffect(() => {
+    const activeRequest = request();
+    if (!activeRequest) {
+      return;
+    }
+    history.replaceState(
+      {},
+      "",
+      `/?${appQuery(activeRequest, diffViewMode()).toString()}${window.location.hash}`,
     );
   });
 
