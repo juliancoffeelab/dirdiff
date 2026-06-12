@@ -86,6 +86,7 @@ const diffViewLabels: Record<DiffViewMode, string> = {
 
 const builtinSides = new Set(["head", "index", "worktree"]);
 const linePinHashKey = "pin";
+const defaultCollapseFileCountThreshold = 50;
 const refSectionLabels: Record<string, string> = {
   builtins: "Built-ins",
   locals: "Local branches",
@@ -320,11 +321,22 @@ function statusLabel(
   return `${leftLabel || request.left} vs ${rightLabel || request.right}`;
 }
 
+function loadedStatusLabel(
+  baseStatus: string,
+  loadedFiles: number,
+  failedDetailFiles: number,
+): string {
+  const fileWord = loadedFiles === 1 ? "file" : "files";
+  const failureText =
+    failedDetailFiles > 0 ? `, failed details ${failedDetailFiles}` : "";
+  return `${baseStatus} · loaded ${loadedFiles} ${fileWord}${failureText}`;
+}
+
 function App() {
   const defaults = createQuery(() => ({
     queryKey: ["defaults"],
     queryFn: fetchDefaults,
-    staleTime: Infinity,
+    staleTime: 0,
   }));
   const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
   const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>(
@@ -333,6 +345,8 @@ function App() {
   const [controls, setControls] = createSignal<ControlsState | null>(null);
   const [request, setRequest] = createSignal<DiffRequest | null>(null);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
+  const [lazyFiles, setLazyFiles] = createSignal<FileEntry[]>([]);
+  const [fileOrder, setFileOrder] = createSignal<Record<string, number>>({});
   const [directoryExpansion, setDirectoryExpansion] = createSignal<
     Record<string, boolean>
   >({});
@@ -353,6 +367,7 @@ function App() {
   let initialized = false;
   let restoredLinePinKey = "";
   let requestVersion = 0;
+  const currentRequestVersion = () => requestVersion;
   const hunkNav = createHunkNavigation(() => appRoot, {
     afterReconcile: () => {
       if (!appRoot) {
@@ -379,10 +394,19 @@ function App() {
       remotes: [],
       remote_names: [],
     };
+  const displayFiles = createMemo(() =>
+    [...files(), ...lazyFiles()].sort(
+      (leftFile, rightFile) =>
+        (fileOrder()[fileKey(leftFile)] ?? 0) -
+        (fileOrder()[fileKey(rightFile)] ?? 0),
+    ),
+  );
 
   const resetDiffState = (nextStatus: LoadState, nextStatusText: string) => {
     batch(() => {
       setFiles([]);
+      setLazyFiles([]);
+      setFileOrder({});
       setDirectoryExpansion({});
       setFileExpansion({});
       setLoadingFiles({});
@@ -403,36 +427,34 @@ function App() {
       if (version !== requestVersion) {
         return;
       }
-      const pin = getLinePinFromHash();
-      const nextDirectoryExpansion: Record<string, boolean> = {};
-      let nextFileExpansionState: Record<string, boolean> = {};
-      for (const entry of payload.files) {
-        const key = fileKey(entry);
-        const directory = entryDirectoryLabel(entry);
-        const shouldOpenPinnedFile =
-          pin !== null && fileMatchesLinePin(entry, pin);
-        nextDirectoryExpansion[directory] = shouldOpenPinnedFile
-          ? true
-          : directoryExpansionValue(nextDirectoryExpansion, directory);
-        nextFileExpansionState = nextFileExpansion(
-          nextFileExpansionState,
-          entry,
-          key,
-        );
-        if (shouldOpenPinnedFile) {
-          nextFileExpansionState = { ...nextFileExpansionState, [key]: true };
-        }
-      }
+      const order = Object.fromEntries(
+        payload.files.map((entry, index) => [fileKey(entry), index]),
+      );
+      const lazyManifestFiles = payload.files.filter((entry) => entry.lazy);
+      const baseStatus = statusLabel(
+        activeRequest,
+        payload.left_label,
+        payload.right_label,
+      );
       batch(() => {
-        setFiles(payload.files);
-        setDirectoryExpansion(nextDirectoryExpansion);
-        setFileExpansion(nextFileExpansionState);
+        setLazyFiles(lazyManifestFiles);
+        setFileOrder(order);
         setSummary(payload.summary);
-        setStatus("done");
         setStatusText(
-          statusLabel(activeRequest, payload.left_label, payload.right_label),
-        );
+            loadedStatusLabel(
+              baseStatus,
+              lazyManifestFiles.length,
+              0,
+            ),
+          );
       });
+      void hydrateManifestFiles(
+        activeRequest,
+        payload.files,
+        version,
+        baseStatus,
+        lazyManifestFiles.length,
+      );
     } catch (error) {
       if (signal.aborted || version !== requestVersion) {
         return;
@@ -443,6 +465,145 @@ function App() {
           error instanceof Error ? error.message : "Failed to load diff.",
         );
       });
+    }
+  }
+
+  async function hydrateManifestFiles(
+    activeRequest: DiffRequest,
+    manifestFiles: FileEntry[],
+    version: number,
+    baseStatus: string,
+    initialLoadedFiles: number,
+  ) {
+    const pendingFiles = manifestFiles.filter((entry) => !entry.lazy);
+    const collapseFilesByDefault =
+      manifestFiles.length > defaultCollapseFileCountThreshold;
+    if (pendingFiles.length === 0) {
+      if (version === requestVersion) {
+        setStatus("done");
+        setStatusText(baseStatus);
+      }
+      return;
+    }
+    const pin = getLinePinFromHash();
+    let hasFailure = false;
+    let loadedFiles = initialLoadedFiles;
+    let failedDetailFiles = 0;
+
+    const workers = Array.from(
+      { length: Math.min(4, pendingFiles.length) },
+      async (_, workerIndex) => {
+        for (
+          let index = workerIndex;
+          index < pendingFiles.length;
+          index += 4
+        ) {
+          if (version !== requestVersion) {
+            return;
+          }
+          const entry = pendingFiles[index];
+          const key = fileKey(entry);
+          try {
+            const hydrated = await queryClient.fetchQuery({
+              queryKey: fileDiffQueryKey(activeRequest, entry),
+              queryFn: () => fetchFileDiff(activeRequest, entry),
+              staleTime: 0,
+            });
+            if (version !== requestVersion) {
+              return;
+            }
+            const nextEntry = {
+              ...entry,
+              ...hydrated,
+              lazy: false,
+              default_expanded: collapseFilesByDefault
+                ? false
+                : hydrated.default_expanded,
+            };
+            const nextKey = fileKey(nextEntry);
+            const shouldOpenPinnedFile =
+              pin !== null && fileMatchesLinePin(nextEntry, pin);
+            loadedFiles += 1;
+            batch(() => {
+              setFiles((current) => {
+                const withoutCurrent = current.filter(
+                  (file) => fileKey(file) !== nextKey,
+                );
+                return sortFilesByOrder(
+                  [...withoutCurrent, nextEntry],
+                  fileOrder(),
+                );
+              });
+              setDirectoryExpansion((current) => {
+                const directory = entryDirectoryLabel(nextEntry);
+                if (shouldOpenPinnedFile) {
+                  return { ...current, [directory]: true };
+                }
+                if (Object.hasOwn(current, directory)) {
+                  return current;
+                }
+                return { ...current, [directory]: true };
+              });
+              setFileExpansion((current) =>
+                nextFileExpansion(
+                  shouldOpenPinnedFile
+                    ? { ...current, [nextKey]: true }
+                    : current,
+                  nextEntry,
+                  nextKey,
+                ),
+              );
+              setSummary((current) =>
+                addHydratedNotebookSummary(current, nextEntry),
+              );
+              setStatusText(
+                loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
+              );
+            });
+          } catch (error) {
+            if (version !== requestVersion) {
+              return;
+            }
+            hasFailure = true;
+            loadedFiles += 1;
+            failedDetailFiles += 1;
+            batch(() => {
+              setFiles((current) => {
+                const withoutCurrent = current.filter(
+                  (file) => fileKey(file) !== key,
+                );
+                return sortFilesByOrder([...withoutCurrent, entry], fileOrder());
+              });
+              setDirectoryExpansion((current) => {
+                const directory = entryDirectoryLabel(entry);
+                if (Object.hasOwn(current, directory)) {
+                  return current;
+                }
+                return { ...current, [directory]: true };
+              });
+              setFileExpansion((current) => ({ ...current, [key]: true }));
+              setFileErrors((current) => ({
+                ...current,
+                [key]:
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to load file diff.",
+              }));
+              setStatus("error");
+              setStatusText(
+                loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
+              );
+            });
+          }
+        }
+      },
+    );
+    await Promise.all(workers);
+    if (version === requestVersion) {
+      setStatus(hasFailure ? "error" : "done");
+      if (!hasFailure) {
+        setStatusText(baseStatus);
+      }
     }
   }
 
@@ -495,7 +656,7 @@ function App() {
   };
 
   const setAllFilesExpanded = (expanded: boolean) => {
-    const currentFiles = files();
+    const currentFiles = displayFiles();
     const groups = [...groupFilesByLabel(currentFiles).keys()];
     batch(() => {
       setDirectoryExpansion(() =>
@@ -805,8 +966,10 @@ function App() {
             />
             <p class={`status ${status()}`}>{statusText()}</p>
             <FileList
-              files={files()}
+              files={displayFiles()}
               request={request()}
+              requestVersion={currentRequestVersion}
+              fileOrder={fileOrder()}
               directoryExpansion={directoryExpansion()}
               fileExpansion={fileExpansion()}
               loadingFiles={loadingFiles()}
@@ -817,10 +980,12 @@ function App() {
               setLoadingFiles={setLoadingFiles}
               setFileErrors={setFileErrors}
               setFiles={setFiles}
+              setLazyFiles={setLazyFiles}
+              setSummary={setSummary}
               onSetAllExpanded={setAllFilesExpanded}
             />
             <FileTreeSidebar
-              files={files()}
+              files={displayFiles()}
               directoryExpansion={directoryExpansion()}
               fileExpansion={fileExpansion()}
               open={fileTreeOpen()}
@@ -1311,6 +1476,7 @@ type ExpansionSetter = (
   updater: (current: Record<string, boolean>) => Record<string, boolean>,
 ) => void;
 type FilesSetter = (updater: (current: FileEntry[]) => FileEntry[]) => void;
+type SummarySetter = (updater: (current: Summary) => Summary) => void;
 type StringMapSetter = (
   updater: (current: Record<string, string>) => Record<string, string>,
 ) => void;
@@ -1343,13 +1509,15 @@ function nextFileExpansion(
   }
   return {
     ...current,
-    [newFileKey]: newFile.default_expanded,
+    [newFileKey]: newFile.default_expanded ?? false,
   };
 }
 
 function FileList(props: {
   files: FileEntry[];
   request: DiffRequest | null;
+  requestVersion: () => number;
+  fileOrder: Record<string, number>;
   diffViewMode: DiffViewMode;
   directoryExpansion: Record<string, boolean>;
   fileExpansion: Record<string, boolean>;
@@ -1360,6 +1528,8 @@ function FileList(props: {
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
   setFiles: FilesSetter;
+  setLazyFiles: FilesSetter;
+  setSummary: SummarySetter;
   onSetAllExpanded: (expanded: boolean) => void;
 }) {
   const groupsByLabel = createMemo(() => groupFilesByLabel(props.files));
@@ -1406,8 +1576,10 @@ function FileList(props: {
               <DirectoryGroup
                 group={() => groupForLabel(label)}
                 request={props.request}
+                requestVersion={props.requestVersion}
                 expanded={props.directoryExpansion[label] ?? true}
                 fileExpansion={props.fileExpansion}
+                fileOrder={props.fileOrder}
                 loadingFiles={props.loadingFiles}
                 fileErrors={props.fileErrors}
                 diffViewMode={props.diffViewMode}
@@ -1423,6 +1595,8 @@ function FileList(props: {
                 setLoadingFiles={props.setLoadingFiles}
                 setFileErrors={props.setFileErrors}
                 setFiles={props.setFiles}
+                setLazyFiles={props.setLazyFiles}
+                setSummary={props.setSummary}
               />
             )}
           </For>
@@ -1435,9 +1609,11 @@ function FileList(props: {
 function DirectoryGroup(props: {
   group: () => FileGroup;
   request: DiffRequest | null;
+  requestVersion: () => number;
   diffViewMode: DiffViewMode;
   expanded: boolean;
   fileExpansion: Record<string, boolean>;
+  fileOrder: Record<string, number>;
   loadingFiles: Record<string, boolean>;
   fileErrors: Record<string, string>;
   setExpanded: (expanded: boolean) => void;
@@ -1445,6 +1621,8 @@ function DirectoryGroup(props: {
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
   setFiles: FilesSetter;
+  setLazyFiles: FilesSetter;
+  setSummary: SummarySetter;
 }) {
   const group = () => props.group();
 
@@ -1479,16 +1657,22 @@ function DirectoryGroup(props: {
                 <FileCard
                   file={file}
                   request={props.request}
-                  expanded={props.fileExpansion[key] ?? file.default_expanded}
+                  requestVersion={props.requestVersion}
+                  expanded={
+                    props.fileExpansion[key] ?? file.default_expanded ?? false
+                  }
                   loading={props.loadingFiles[key] ?? false}
                   error={props.fileErrors[key] ?? ""}
                   diffViewMode={props.diffViewMode}
+                  fileOrder={props.fileOrder}
                   setExpanded={(expanded) =>
                     props.setFileExpanded(key, expanded)
                   }
                   setLoadingFiles={props.setLoadingFiles}
                   setFileErrors={props.setFileErrors}
                   setFiles={props.setFiles}
+                  setLazyFiles={props.setLazyFiles}
+                  setSummary={props.setSummary}
                 />
               );
             }}
@@ -1520,7 +1704,11 @@ function FileTreeSidebar(props: {
   const directoryExpanded = (group: FileGroup) =>
     expansionValue(props.directoryExpansion, group.label, true);
   const fileExpanded = (file: FileEntry) =>
-    expansionValue(props.fileExpansion, fileKey(file), file.default_expanded);
+    expansionValue(
+      props.fileExpansion,
+      fileKey(file),
+      file.default_expanded ?? false,
+    );
 
   const setDirectoryExpanded = (group: FileGroup, expanded: boolean) => {
     props.setDirectoryExpansion((current) => ({
@@ -1654,7 +1842,9 @@ function FileTreeSidebar(props: {
 function FileCard(props: {
   file: FileEntry;
   request: DiffRequest | null;
+  requestVersion: () => number;
   diffViewMode: DiffViewMode;
+  fileOrder: Record<string, number>;
   expanded: boolean;
   loading: boolean;
   error: string;
@@ -1662,6 +1852,8 @@ function FileCard(props: {
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
   setFiles: FilesSetter;
+  setLazyFiles: FilesSetter;
+  setSummary: SummarySetter;
 }) {
   const queryClient = useQueryClient();
   const key = () => fileKey(props.file);
@@ -1675,6 +1867,7 @@ function FileCard(props: {
       right_exists: Boolean(props.file.right_path),
     };
   const displayName = () => fileDisplayName(props.file);
+  const needsHydration = () => !fileEntryIsHydrated(props.file);
   const lazyTitle = () => {
     if (props.file.change_type === "delete") {
       return "Load deleted file diff";
@@ -1687,40 +1880,62 @@ function FileCard(props: {
     props.file.lazy_reason ||
     `${displayName()} is folded by default. Click to fetch and open it.`;
   const canRenderRows = () =>
-    !props.file.lazy &&
+    fileEntryIsHydrated(props.file) &&
     props.file.render_kind !== "notebook" &&
     (props.file.rows?.length ?? 0) > 0;
 
   const expand = async () => {
     props.setExpanded(true);
-    if (!props.file.lazy || !props.request || props.loading) {
+    const activeRequest = props.request;
+    const activeVersion = props.requestVersion();
+    const activeKey = key();
+    if (!needsHydration() || !activeRequest || props.loading) {
       return;
     }
     props.setLoadingFiles((current) => ({
       ...current,
-      [key()]: true,
+      [activeKey]: true,
     }));
-    props.setFileErrors((current) => ({ ...current, [key()]: "" }));
+    props.setFileErrors((current) => ({ ...current, [activeKey]: "" }));
     try {
       const hydrated = await queryClient.fetchQuery({
-        queryKey: fileDiffQueryKey(props.request, props.file),
-        queryFn: () => fetchFileDiff(props.request!, props.file),
-        staleTime: Infinity,
+        queryKey: fileDiffQueryKey(activeRequest, props.file),
+        queryFn: () => fetchFileDiff(activeRequest, props.file),
+        staleTime: 0,
       });
+      if (props.requestVersion() !== activeVersion) {
+        return;
+      }
       const nextEntry = { ...props.file, ...hydrated, lazy: false };
-      props.setFiles((current) =>
-        current.map((entry) => (fileKey(entry) === key() ? nextEntry : entry)),
+      const nextKey = fileKey(nextEntry);
+      props.setFiles((current) => {
+        const withoutCurrent = current.filter(
+          (entry) => fileKey(entry) !== nextKey,
+        );
+        return sortFilesByOrder([...withoutCurrent, nextEntry], props.fileOrder);
+      });
+      props.setLazyFiles((current) =>
+        current.filter((entry) => fileKey(entry) !== activeKey),
+      );
+      props.setSummary((current) =>
+        addHydratedNotebookSummary(current, nextEntry),
       );
     } catch (error) {
+      if (props.requestVersion() !== activeVersion) {
+        return;
+      }
       props.setFileErrors((current) => ({
         ...current,
-        [key()]:
+        [activeKey]:
           error instanceof Error ? error.message : "Failed to load file diff.",
       }));
     } finally {
+      if (props.requestVersion() !== activeVersion) {
+        return;
+      }
       props.setLoadingFiles((current) => ({
         ...current,
-        [key()]: false,
+        [activeKey]: false,
       }));
     }
   };
@@ -1796,7 +2011,7 @@ function FileCard(props: {
           </Show>
         </div>
       </Show>
-      <Show when={!props.expanded && props.file.lazy}>
+      <Show when={needsHydration() && props.file.lazy}>
         <button type="button" class="file-lazy-load-toggle" onClick={expand}>
           <span class="file-lazy-load-toggle-title">{lazyTitle()}</span>
           <span class="file-lazy-load-toggle-meta">{lazyMeta()}</span>
@@ -1807,10 +2022,10 @@ function FileCard(props: {
 }
 
 function FilePlaceholder(props: { file: FileEntry }) {
-  if (props.file.lazy) {
+  if (!fileEntryIsHydrated(props.file)) {
     return (
       <p class="file-placeholder">
-        {props.file.lazy_reason || "Lazy file loading is not ported yet."}
+        {props.file.lazy_reason || "Loading file diff..."}
       </p>
     );
   }
@@ -2005,7 +2220,7 @@ function NotebookDetails(props: {
             section: props.section,
             cellKey: props.cellKey,
           }),
-        staleTime: Infinity,
+        staleTime: 0,
       });
       setSection(payload);
     } catch (caught) {
@@ -2102,10 +2317,7 @@ function entryDirectoryPath(entry: FileEntry): string {
 }
 
 function fileDisplayName(entry: FileEntry): string {
-  if (!entry.display_name) {
-    throw new Error("File entry is missing display_name.");
-  }
-  return entry.display_name;
+  return entry.display_name ?? fileTreePath(entry);
 }
 
 function fileBasename(entry: FileEntry): string {
@@ -2124,7 +2336,7 @@ function fileTreePath(entry: FileEntry): string {
   if (entry.left_path) {
     return entry.left_path;
   }
-  throw new Error(`File entry is missing paths for ${fileDisplayName(entry)}.`);
+  throw new Error("File entry is missing paths.");
 }
 
 type LineStats = {
@@ -2164,9 +2376,31 @@ function fileLineStats(entry: FileEntry): LineStats {
       removed: entry.removed_lines,
     };
   }
-  throw new Error(
-    `File entry is missing line stats for ${fileDisplayName(entry)}.`,
-  );
+  return emptyLineStats();
+}
+
+function fileEntryIsHydrated(entry: FileEntry): boolean {
+  return entry.render_kind === "notebook" || entry.rows !== undefined;
+}
+
+function addHydratedNotebookSummary(
+  current: Summary,
+  entry: FileEntry,
+): Summary {
+  const entrySummary = entry.summary;
+  if (!entrySummary || !("changed_cells" in entrySummary)) {
+    return current;
+  }
+  const notebookSummary = entrySummary as NotebookSummary;
+  return {
+    ...current,
+    changed_cells:
+      (current.changed_cells ?? 0) + notebookSummary.changed_cells,
+    added_cells: (current.added_cells ?? 0) + notebookSummary.added_cells,
+    modified_cells:
+      (current.modified_cells ?? 0) + notebookSummary.modified_cells,
+    removed_cells: (current.removed_cells ?? 0) + notebookSummary.removed_cells,
+  };
 }
 
 function groupLineStats(group: FileGroup): LineStats {
@@ -2338,7 +2572,20 @@ function entryDirectoryLabel(entry: FileEntry): string {
 }
 
 function fileKey(entry: FileEntry): string {
-  return `${entry.left_path || ""}\u0000${entry.right_path || ""}\u0000${entry.display_name || ""}\u0000${entry.change_type || ""}`;
+  const leftPath = entry.left_path || "";
+  const rightPath = entry.right_path || "";
+  const displayName = leftPath || rightPath ? "" : entry.display_name || "";
+  return `${leftPath}\u0000${rightPath}\u0000${displayName}\u0000${entry.change_type || ""}`;
+}
+
+function sortFilesByOrder(
+  files: FileEntry[],
+  order: Record<string, number>,
+): FileEntry[] {
+  return [...files].sort(
+    (leftFile, rightFile) =>
+      (order[fileKey(leftFile)] ?? 0) - (order[fileKey(rightFile)] ?? 0),
+  );
 }
 
 function fileElementId(key: string): string {

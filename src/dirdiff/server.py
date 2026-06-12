@@ -113,7 +113,7 @@ class TextFileDiffResponse(BaseModel):
     left_path: str | None = None
     right_path: str | None = None
     lazy: bool = False
-    default_expanded: bool
+    default_expanded: bool = True
     lazy_reason: str | None = None
     render_mode: Literal["plain"] | None = None
     truncated_rows: int | None = None
@@ -175,7 +175,15 @@ class NotebookFileDiffResponse(BaseModel):
     change_type: ChangeType | None = None
     left_path: str | None = None
     right_path: str | None = None
-    default_expanded: bool
+    default_expanded: bool = True
+
+
+class RepoFileEntryResponse(BaseModel):
+    change_type: ChangeType
+    left_path: str | None = None
+    right_path: str | None = None
+    lazy: bool = False
+    lazy_reason: str | None = None
 
 
 class NotebookSectionDiffResponse(BaseModel):
@@ -197,7 +205,7 @@ class RepoDiffResponse(BaseModel):
     left_label: str
     right_label: str
     summary: RepoDiffSummaryResponse
-    files: list[TextFileDiffResponse | NotebookFileDiffResponse]
+    files: list[RepoFileEntryResponse]
 
 
 DiffRowResponse.model_rebuild()
@@ -272,6 +280,8 @@ def create_app(
     @app.get(
         "/api/diff",
         response_model=RepoDiffResponse,
+        response_model_exclude_defaults=True,
+        response_model_exclude_none=True,
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
@@ -305,25 +315,28 @@ def create_app(
         )
         diff_service = selected_service(engine)
         try:
-            initial_payload, progress_iter, label_overrides = _build_stream_payload(
-                service=diff_service,
-                defaults=defaults,
-                mode=mode,
-                left=left,
-                right=right,
-                base_branch=selected_base_branch,
-                branch=selected_review_branch,
-            )
-            latest_summary = initial_payload["summary"]
-            file_entries: list[dict[str, Any]] = []
-            for progress in progress_iter:
-                entry = dict(progress.entry)
-                if label_overrides[0]:
-                    entry["left_label"] = label_overrides[0]
-                if label_overrides[1]:
-                    entry["right_label"] = label_overrides[1]
-                latest_summary = progress.summary
-                file_entries.append(entry)
+            if mode == "branch-review" and selected_review_branch:
+                resolved_base_branch, merge_base, normalized_branch = (
+                    _resolve_branch_review_refs(
+                        service=diff_service,
+                        base_branch=selected_base_branch,
+                        branch=selected_review_branch,
+                    )
+                )
+                left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
+                payload = diff_service.build_repo_manifest(
+                    left=merge_base,
+                    right=normalized_branch,
+                )
+                payload["left_label"] = left_label
+                payload["right_label"] = normalized_branch
+            else:
+                normalized_left = diff_service.normalize_side(left)
+                normalized_right = diff_service.normalize_side(right)
+                payload = diff_service.build_repo_manifest(
+                    left=normalized_left,
+                    right=normalized_right,
+                )
         except TextDiffError as exc:
             return JSONResponse(
                 {"error": str(exc)},
@@ -336,13 +349,7 @@ def create_app(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
-        return RepoDiffResponse.model_validate(
-            {
-                **initial_payload,
-                "summary": latest_summary,
-                "files": file_entries,
-            }
-        )
+        return RepoDiffResponse.model_validate(payload)
 
     @app.get(
         "/api/diff-stream",

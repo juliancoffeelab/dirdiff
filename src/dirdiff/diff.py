@@ -129,7 +129,6 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
 def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "lazy": True,
-        "default_expanded": False,
         "display_name": entry.display_name,
         "left_path": entry.left_path,
         "right_path": entry.right_path,
@@ -147,6 +146,48 @@ def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
             "so it is folded by default. Click to fetch and open it."
         )
     return payload
+
+
+def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    return {
+        "left_path": entry.left_path,
+        "right_path": entry.right_path,
+        "change_type": entry.change_type,
+    }
+
+
+def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "left_path": entry.left_path,
+        "right_path": entry.right_path,
+        "change_type": entry.change_type,
+        "lazy": True,
+    }
+    if (
+        entry.changed_lines is not None
+        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
+    ):
+        payload["lazy_reason"] = (
+            f"{entry.display_name} has {entry.changed_lines} changed lines, "
+            "so it is folded by default. Click to fetch and open it."
+        )
+    return payload
+
+
+def _summary_for_repo_path(entry: RepoDiffPath) -> dict[str, int | bool]:
+    raw_added = entry.added_lines or 0
+    raw_removed = entry.removed_lines or 0
+    modified_lines = min(raw_added, raw_removed)
+    added_lines = raw_added - modified_lines
+    removed_lines = raw_removed - modified_lines
+    return {
+        "changed_lines": modified_lines + added_lines + removed_lines,
+        "modified_lines": modified_lines,
+        "added_lines": added_lines,
+        "removed_lines": removed_lines,
+        "left_exists": entry.left_path is not None,
+        "right_exists": entry.right_path is not None,
+    }
 
 
 def _payload_render_row_count(payload: dict[str, Any]) -> int:
@@ -2099,17 +2140,31 @@ class GitRepository:
             tokens = tokens[:-1]
 
         counts: dict[str, tuple[int, int]] = {}
-        for token in tokens:
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            index += 1
             parts = token.decode("utf-8").split("\t")
             if len(parts) != 3:
                 continue
             added_raw, removed_raw, path = parts
             if added_raw == "-" or removed_raw == "-":
+                if path == "" and index + 1 < len(tokens):
+                    index += 2
                 continue
             try:
-                counts[path] = (int(added_raw), int(removed_raw))
+                line_count = (int(added_raw), int(removed_raw))
             except ValueError:
                 continue
+            if path == "":
+                if index + 1 >= len(tokens):
+                    continue
+                index += 1
+                right_path = tokens[index].decode("utf-8")
+                index += 1
+                counts[right_path] = line_count
+                continue
+            counts[path] = line_count
         return counts
 
     def list_repo_diff_paths(
@@ -2575,6 +2630,47 @@ class TextDiffService:
             f" elapsed_ms={elapsed_ms:.1f}"
         )
         return payload
+
+    def build_repo_manifest(
+        self,
+        *,
+        left: str,
+        right: str,
+    ) -> dict[str, Any]:
+        normalized_left = self.normalize_side(left)
+        normalized_right = self.normalize_side(right)
+        paths = self.list_repo_diff_paths(left=normalized_left, right=normalized_right)
+        summary = _empty_repo_summary()
+        files: list[dict[str, Any]] = []
+
+        for entry in paths:
+            file_entry = (
+                _to_lazy_repo_manifest_file_entry(entry)
+                if _should_lazy_load_repo_entry(entry)
+                else _to_repo_manifest_file_entry(entry)
+            )
+            line_summary = _summary_for_repo_path(entry)
+            summary["changed_files"] += 1
+            if entry.change_type == "add":
+                summary["added_files"] += 1
+            elif entry.change_type == "delete":
+                summary["removed_files"] += 1
+            else:
+                summary["updated_files"] += 1
+            summary["changed_lines"] += line_summary["changed_lines"]
+            summary["modified_lines"] += line_summary["modified_lines"]
+            summary["added_lines"] += line_summary["added_lines"]
+            summary["removed_lines"] += line_summary["removed_lines"]
+            files.append(file_entry)
+
+        return {
+            "display_name": "Repository diff",
+            "mode": "repo",
+            "left_label": normalized_left,
+            "right_label": normalized_right,
+            "summary": summary,
+            "files": files,
+        }
 
     def iter_repo_diff_progress(
         self,

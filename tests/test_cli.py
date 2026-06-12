@@ -449,6 +449,16 @@ def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
     assert response.json()["rows"][0]["status"] == "delete"
 
 
+def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
+    repository = GitRepository(tmp_path)
+
+    counts = repository._parse_numstat_output(
+        b"2\t1\t\0old/name.txt\0new/name.txt\0"
+    )
+
+    assert counts == {"new/name.txt": (2, 1)}
+
+
 @pytest.mark.git
 def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> None:
     subprocess.run(
