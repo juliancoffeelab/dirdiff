@@ -1546,7 +1546,7 @@ function FileCard(props: {
         </span>
       </button>
       <Show when={props.expanded}>
-        <div>
+        <div class="file-card-body">
           <Show when={props.loading}>
             <p class="file-placeholder">Loading file diff...</p>
           </Show>

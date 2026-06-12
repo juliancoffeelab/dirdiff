@@ -625,9 +625,7 @@ h1 {
 .file-card {
   border: 1px solid #ded8cc;
   background: #fffdf8;
-  padding: 14px;
-  content-visibility: auto;
-  contain-intrinsic-size: 180px;
+  padding: 0;
 }
 
 .file-card.file-card-flash {
@@ -645,6 +643,9 @@ h1 {
 }
 
 .file-card-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: start;
   justify-content: space-between;
@@ -652,15 +653,23 @@ h1 {
   width: 100%;
   margin-bottom: 12px;
   min-height: 0;
-  padding: 0;
+  padding: 14px;
   border: 0;
-  background: transparent;
+  border-bottom: 1px solid #ded8cc;
+  background: #fffdf8;
   color: inherit;
   text-align: left;
 }
 
 .file-card.is-collapsed .file-card-header {
   margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.file-card-body {
+  padding: 0 14px 14px;
+  content-visibility: auto;
+  contain-intrinsic-size: 180px;
 }
 
 .file-card h2 {
