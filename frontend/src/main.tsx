@@ -370,6 +370,7 @@ function App() {
     fileExpansion,
     loadingFiles,
   ]);
+  hunkNav.followScroll();
 
   const refChoices = () =>
     defaults.data?.ref_choices ?? {
