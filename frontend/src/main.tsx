@@ -204,7 +204,7 @@ function initialDiffViewMode(): DiffViewMode {
   if (view === "split" || view === "inline") {
     return view;
   }
-  return "split";
+  return "inline";
 }
 
 function buildRequest(
