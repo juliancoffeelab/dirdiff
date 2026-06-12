@@ -831,6 +831,10 @@ h1 {
   background: #f4f1ea;
 }
 
+.inline-header-row {
+  grid-template-columns: 46px 46px minmax(0, 1fr);
+}
+
 .diff-pane-header {
   padding: 10px 12px;
   color: #6a665d;
@@ -839,6 +843,18 @@ h1 {
 }
 
 .diff-side-header + .diff-side-header {
+  border-left: 1px solid #ded8cc;
+}
+
+.inline-line-header {
+  padding-right: 8px;
+  padding-left: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.inline-line-header + .diff-pane-header {
   border-left: 1px solid #ded8cc;
 }
 
@@ -861,6 +877,35 @@ h1 {
   border-left: 1px solid #ded8cc;
 }
 
+.inline-diff-row {
+  grid-template-columns: 46px 46px minmax(0, 1fr);
+  border-top: 0;
+}
+
+.inline-diff-row .line-no {
+  border-right: 0;
+}
+
+.inline-diff-row .line-no:nth-child(2) {
+  border-right: 1px solid #ded8cc;
+}
+
+.inline-diff-row .line-no {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.inline-marker {
+  display: inline-block;
+  width: 20px;
+  margin-left: -20px;
+  color: #6a665d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  text-align: center;
+  user-select: none;
+}
+
 .diff-row.insert .diff-side.side-right {
   background: #e9f8ed;
 }
@@ -871,6 +916,16 @@ h1 {
 
 .diff-row.replace .diff-side {
   background: #fff7d6;
+}
+
+.inline-diff-row.insert .line-no,
+.inline-diff-row.insert .line-code {
+  background: #e9f8ed;
+}
+
+.inline-diff-row.delete .line-no,
+.inline-diff-row.delete .line-code {
+  background: #fff0f0;
 }
 
 .diff-side.empty-side {
@@ -951,8 +1006,24 @@ h1 {
   background: #f4f1ea;
 }
 
+.inline-fold-bar {
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-color: #ded8cc;
+  border-style: dashed;
+  background: #f4f1ea;
+}
+
+.inline-fold-bar .line-no,
+.inline-fold-bar .fold-label {
+  background: #f4f1ea;
+}
+
 .fold-bar:hover .diff-side,
-.fold-toggle-row:hover .line-code {
+.fold-toggle-row:hover .line-code,
+.inline-fold-bar:hover .line-no,
+.inline-fold-bar:hover .fold-label {
   background: #ece8df;
 }
 
@@ -1019,6 +1090,17 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.inline-line-code {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  padding-left: 29px;
+  line-height: 1.3;
+}
+
+.inline-fold-label {
+  padding-left: 29px;
 }
 
 body[data-diff-selection-side="left"] .diff-side.side-right,

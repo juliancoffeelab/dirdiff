@@ -32,7 +32,7 @@ import {
   fetchNotebookSection,
   openDiffStream,
 } from "./api";
-import { DiffGrid } from "./DiffGrid";
+import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import "./styles.css";
 
 type LoadState = "idle" | "loading" | "done" | "error";
@@ -79,6 +79,10 @@ const AUTO_COLLAPSE_FILE_COUNT_LIMIT = 50;
 const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   git: "Git",
+};
+const diffViewLabels: Record<DiffViewMode, string> = {
+  split: "Split",
+  inline: "Inline",
 };
 
 const builtinSides = new Set(["head", "index", "worktree"]);
@@ -307,6 +311,7 @@ function App() {
     staleTime: Infinity,
   }));
   const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
+  const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>("split");
   const [controls, setControls] = createSignal<ControlsState | null>(null);
   const [request, setRequest] = createSignal<DiffRequest | null>(null);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
@@ -705,6 +710,10 @@ function App() {
             <h1>dirdiff</h1>
             <div class="header-actions">
               <EngineSelect engine={engine()} onEngineChange={loadEngine} />
+              <DiffViewSelect
+                viewMode={diffViewMode()}
+                onViewModeChange={setDiffViewMode}
+              />
               <a class="legacy-link" href={legacyUrl(request())}>
                 Legacy
               </a>
@@ -743,6 +752,7 @@ function App() {
               fileExpansion={fileExpansion()}
               loadingFiles={loadingFiles()}
               fileErrors={fileErrors()}
+              diffViewMode={diffViewMode()}
               setDirectoryExpansion={setDirectoryExpansion}
               setFileExpansion={setFileExpansion}
               setLoadingFiles={setLoadingFiles}
@@ -792,6 +802,26 @@ function EngineSelect(props: {
       >
         <option value="dirdiff">{engineLabels.dirdiff}</option>
         <option value="git">{engineLabels.git}</option>
+      </select>
+    </label>
+  );
+}
+
+function DiffViewSelect(props: {
+  viewMode: DiffViewMode;
+  onViewModeChange: (viewMode: DiffViewMode) => void;
+}) {
+  return (
+    <label class="engine-select">
+      <span>View</span>
+      <select
+        value={props.viewMode}
+        onChange={(event) =>
+          props.onViewModeChange(event.currentTarget.value as DiffViewMode)
+        }
+      >
+        <option value="split">{diffViewLabels.split}</option>
+        <option value="inline">{diffViewLabels.inline}</option>
       </select>
     </label>
   );
@@ -1294,6 +1324,7 @@ function renderedLineCount(file: FileEntry): number {
 function FileList(props: {
   files: FileEntry[];
   request: DiffRequest | null;
+  diffViewMode: DiffViewMode;
   directoryExpansion: Record<string, boolean>;
   fileExpansion: Record<string, boolean>;
   loadingFiles: Record<string, boolean>;
@@ -1361,6 +1392,7 @@ function FileList(props: {
                 fileExpansion={props.fileExpansion}
                 loadingFiles={props.loadingFiles}
                 fileErrors={props.fileErrors}
+                diffViewMode={props.diffViewMode}
                 setExpanded={(expanded) =>
                   setDirectoryExpanded(label, expanded)
                 }
@@ -1385,6 +1417,7 @@ function FileList(props: {
 function DirectoryGroup(props: {
   group: () => FileGroup;
   request: DiffRequest | null;
+  diffViewMode: DiffViewMode;
   expanded: boolean;
   fileExpansion: Record<string, boolean>;
   loadingFiles: Record<string, boolean>;
@@ -1431,6 +1464,7 @@ function DirectoryGroup(props: {
                   expanded={props.fileExpansion[key] ?? !file.lazy}
                   loading={props.loadingFiles[key] ?? false}
                   error={props.fileErrors[key] ?? ""}
+                  diffViewMode={props.diffViewMode}
                   setExpanded={(expanded) =>
                     props.setFileExpanded(key, expanded)
                   }
@@ -1602,6 +1636,7 @@ function FileTreeSidebar(props: {
 function FileCard(props: {
   file: FileEntry;
   request: DiffRequest | null;
+  diffViewMode: DiffViewMode;
   expanded: boolean;
   loading: boolean;
   error: string;
@@ -1726,14 +1761,18 @@ function FileCard(props: {
           </Show>
           <Show when={!props.loading && !props.error}>
             <Show when={props.file.render_kind === "notebook"}>
-              <NotebookFile file={props.file} request={props.request} />
+              <NotebookFile
+                file={props.file}
+                request={props.request}
+                diffViewMode={props.diffViewMode}
+              />
             </Show>
             <Show when={props.file.render_kind !== "notebook"}>
               <Show
                 when={canRenderRows()}
                 fallback={<FilePlaceholder file={props.file} />}
               >
-                <DiffGrid file={props.file} />
+                <DiffGrid file={props.file} viewMode={props.diffViewMode} />
               </Show>
             </Show>
           </Show>
@@ -1760,7 +1799,11 @@ function FilePlaceholder(props: { file: FileEntry }) {
   return <p class="file-placeholder">No rows for this file.</p>;
 }
 
-function NotebookFile(props: { file: FileEntry; request: DiffRequest | null }) {
+function NotebookFile(props: {
+  file: FileEntry;
+  request: DiffRequest | null;
+  diffViewMode: DiffViewMode;
+}) {
   const notebookSummary = () =>
     isNotebookSummary(props.file.summary) ? props.file.summary : null;
   const summary = () => props.file.summary;
@@ -1795,6 +1838,7 @@ function NotebookFile(props: { file: FileEntry; request: DiffRequest | null }) {
           section="notebook-metadata"
           leftLabel="Left notebook metadata"
           rightLabel="Right notebook metadata"
+          diffViewMode={props.diffViewMode}
         />
       </Show>
 
@@ -1813,6 +1857,7 @@ function NotebookFile(props: { file: FileEntry; request: DiffRequest | null }) {
                 file={props.file}
                 request={props.request}
                 cell={cell}
+                diffViewMode={props.diffViewMode}
               />
             )}
           </For>
@@ -1826,6 +1871,7 @@ function NotebookCell(props: {
   file: FileEntry;
   request: DiffRequest | null;
   cell: NotebookCellEntry;
+  diffViewMode: DiffViewMode;
 }) {
   const cell = () => props.cell;
   const leftIndex = () => cell().left_index ?? "—";
@@ -1867,6 +1913,7 @@ function NotebookCell(props: {
         rightLabel="Right source"
         renderMode={cell().source_render_mode}
         truncatedRows={cell().source_truncated_rows ?? 0}
+        diffViewMode={props.diffViewMode}
       />
 
       <Show when={cell().metadata_changed}>
@@ -1881,6 +1928,7 @@ function NotebookCell(props: {
           cellKey={cell().cell_key}
           leftLabel="Left metadata"
           rightLabel="Right metadata"
+          diffViewMode={props.diffViewMode}
         />
       </Show>
 
@@ -1896,6 +1944,7 @@ function NotebookCell(props: {
           cellKey={cell().cell_key}
           leftLabel="Left outputs"
           rightLabel="Right outputs"
+          diffViewMode={props.diffViewMode}
         />
       </Show>
     </article>
@@ -1910,6 +1959,7 @@ function NotebookDetails(props: {
   cellKey?: string;
   leftLabel: string;
   rightLabel: string;
+  diffViewMode: DiffViewMode;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = createSignal(false);
@@ -1979,6 +2029,7 @@ function NotebookDetails(props: {
             rightLabel={props.rightLabel}
             renderMode={payload().render_mode}
             truncatedRows={payload().truncated_rows}
+            diffViewMode={props.diffViewMode}
           />
         )}
       </Show>
@@ -1994,6 +2045,7 @@ function NotebookSectionView(props: {
   rightLabel: string;
   renderMode?: "plain" | null;
   truncatedRows?: number | null;
+  diffViewMode: DiffViewMode;
 }) {
   const file = (): FileEntry => ({
     change_type: "modify",
@@ -2010,7 +2062,7 @@ function NotebookSectionView(props: {
       <Show when={props.heading}>
         <p class="notebook-section-heading">{props.heading}</p>
       </Show>
-      <DiffGrid file={file()} />
+      <DiffGrid file={file()} viewMode={props.diffViewMode} />
       <Show when={props.renderMode === "plain" || (props.truncatedRows ?? 0)}>
         <p class="notebook-section-note">
           {props.renderMode === "plain" ? "plain render" : ""}
