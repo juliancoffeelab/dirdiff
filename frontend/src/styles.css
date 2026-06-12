@@ -387,10 +387,15 @@ h1 {
   pointer-events: none;
 }
 
+.file-tree-shell.open {
+  width: min(300px, calc(100vw - 32px));
+}
+
 .file-tree-toggle {
   pointer-events: auto;
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   min-height: 34px;
   border: 1px solid #d8d0c2;
@@ -411,56 +416,25 @@ h1 {
 }
 
 .file-tree-shell.open .file-tree-toggle {
-  margin-bottom: 8px;
+  width: 100%;
+  min-height: 40px;
+  border-bottom: 0;
+  box-shadow: 0 8px 24px rgb(36 35 31 / 10%);
+  text-transform: uppercase;
 }
 
 .file-tree-sidebar {
   pointer-events: auto;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
   height: calc(100vh - 246px);
-  width: min(300px, calc(100vw - 32px));
+  width: 100%;
   border: 1px solid #d8d0c2;
+  border-top: 0;
   background: #fffdf8;
   box-shadow: 0 8px 24px rgb(36 35 31 / 10%);
 }
 
-.file-tree-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 40px;
-  padding: 8px 10px;
-  border-bottom: 1px solid #ded8cc;
-}
-
-.file-tree-header strong {
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
-.file-tree-header span {
-  color: #6a665d;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.file-tree-header > .file-tree-line-stats {
-  font-size: 11px;
-}
-
-.file-tree-close {
-  min-height: 28px;
-  border: 1px solid #d8d0c2;
-  background: #fffdf8;
-  color: #24231f;
-  padding: 4px 8px;
-  font: inherit;
-  font-size: 12px;
-}
-
 .file-tree-groups {
+  height: 100%;
   overflow: auto;
   padding: 6px;
 }

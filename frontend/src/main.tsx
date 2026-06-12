@@ -1379,17 +1379,6 @@ function FileTreeSidebar(props: {
             class="file-tree-sidebar"
             aria-label="Changed file tree"
           >
-            <div class="file-tree-header">
-              <strong>Files</strong>
-              <TreeLineStats stats={lineStats()} />
-              <button
-                type="button"
-                class="file-tree-close"
-                onClick={() => setOpen(false)}
-              >
-                Close
-              </button>
-            </div>
             <div class="file-tree-groups">
               <For each={groups()}>
                 {(group) => (
