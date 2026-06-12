@@ -279,10 +279,16 @@ def create_app(
         summary="Load a repository diff",
     )
     def serve_diff(
-        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
+        engine: EngineParam = Query(
+            default=defaults["engine"], description="Diff engine."
+        ),
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
-        left: str = Query(default=defaults["left"], description="Left ref or diff side."),
-        right: str = Query(default=defaults["right"], description="Right ref or diff side."),
+        left: str = Query(
+            default=defaults["left"], description="Left ref or diff side."
+        ),
+        right: str = Query(
+            default=defaults["right"], description="Right ref or diff side."
+        ),
         base_branch: str | None = Query(
             default=defaults.get("base_branch"),
             description="Base branch for branch-review mode.",
@@ -358,10 +364,16 @@ def create_app(
         summary="Stream a diff with SSE progress events",
     )
     def serve_diff_stream(
-        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
+        engine: EngineParam = Query(
+            default=defaults["engine"], description="Diff engine."
+        ),
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
-        left: str = Query(default=defaults["left"], description="Left ref or diff side."),
-        right: str = Query(default=defaults["right"], description="Right ref or diff side."),
+        left: str = Query(
+            default=defaults["left"], description="Left ref or diff side."
+        ),
+        right: str = Query(
+            default=defaults["right"], description="Right ref or diff side."
+        ),
         base_branch: str | None = Query(
             default=defaults.get("base_branch"),
             description="Base branch for branch-review mode.",
@@ -446,10 +458,16 @@ def create_app(
         summary="Load a single file diff",
     )
     def serve_file_diff(
-        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
+        engine: EngineParam = Query(
+            default=defaults["engine"], description="Diff engine."
+        ),
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
-        left: str = Query(default=defaults["left"], description="Left ref or diff side."),
-        right: str = Query(default=defaults["right"], description="Right ref or diff side."),
+        left: str = Query(
+            default=defaults["left"], description="Left ref or diff side."
+        ),
+        right: str = Query(
+            default=defaults["right"], description="Right ref or diff side."
+        ),
         base_branch: str | None = Query(
             default=defaults.get("base_branch"),
             description="Base branch for branch-review mode.",
@@ -458,10 +476,18 @@ def create_app(
             default=defaults.get("review_branch"),
             description="Branch being reviewed in branch-review mode.",
         ),
-        left_path: str | None = Query(default=None, description="Repo-relative path on the left side."),
-        right_path: str | None = Query(default=None, description="Repo-relative path on the right side."),
-        display_name: str | None = Query(default=None, description="UI display name override."),
-        change_type: ChangeType = Query(default="modify", description="Git change classification."),
+        left_path: str | None = Query(
+            default=None, description="Repo-relative path on the left side."
+        ),
+        right_path: str | None = Query(
+            default=None, description="Repo-relative path on the right side."
+        ),
+        display_name: str | None = Query(
+            default=None, description="UI display name override."
+        ),
+        change_type: ChangeType = Query(
+            default="modify", description="Git change classification."
+        ),
     ) -> TextFileDiffResponse | NotebookFileDiffResponse | JSONResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
@@ -476,10 +502,12 @@ def create_app(
                 and selected_review_branch
                 and selected_review_branch.strip()
             ):
-                resolved_base_branch, merge_base, normalized_branch = _resolve_branch_review_refs(
-                    service=diff_service,
-                    base_branch=selected_base_branch,
-                    branch=selected_review_branch,
+                resolved_base_branch, merge_base, normalized_branch = (
+                    _resolve_branch_review_refs(
+                        service=diff_service,
+                        base_branch=selected_base_branch,
+                        branch=selected_review_branch,
+                    )
                 )
                 left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
                 payload = diff_service.build_git_diff_paths(
@@ -527,10 +555,16 @@ def create_app(
         summary="Load notebook metadata or output rows for a specific cell",
     )
     def serve_notebook_section(
-        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
+        engine: EngineParam = Query(
+            default=defaults["engine"], description="Diff engine."
+        ),
         mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
-        left: str = Query(default=defaults["left"], description="Left ref or diff side."),
-        right: str = Query(default=defaults["right"], description="Right ref or diff side."),
+        left: str = Query(
+            default=defaults["left"], description="Left ref or diff side."
+        ),
+        right: str = Query(
+            default=defaults["right"], description="Right ref or diff side."
+        ),
         base_branch: str | None = Query(
             default=defaults.get("base_branch"),
             description="Base branch for branch-review mode.",
@@ -543,9 +577,15 @@ def create_app(
             default=None,
             description="Notebook section name, for example `notebook-metadata`, `cell-metadata`, or `cell-outputs`.",
         ),
-        cell_key: str | None = Query(default=None, description="Stable notebook cell key."),
-        left_path: str | None = Query(default=None, description="Repo-relative path on the left side."),
-        right_path: str | None = Query(default=None, description="Repo-relative path on the right side."),
+        cell_key: str | None = Query(
+            default=None, description="Stable notebook cell key."
+        ),
+        left_path: str | None = Query(
+            default=None, description="Repo-relative path on the left side."
+        ),
+        right_path: str | None = Query(
+            default=None, description="Repo-relative path on the right side."
+        ),
     ) -> NotebookSectionDiffResponse | JSONResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
@@ -560,10 +600,12 @@ def create_app(
                 and selected_review_branch
                 and selected_review_branch.strip()
             ):
-                resolved_base_branch, merge_base, normalized_branch = _resolve_branch_review_refs(
-                    service=diff_service,
-                    base_branch=selected_base_branch,
-                    branch=selected_review_branch,
+                resolved_base_branch, merge_base, normalized_branch = (
+                    _resolve_branch_review_refs(
+                        service=diff_service,
+                        base_branch=selected_base_branch,
+                        branch=selected_review_branch,
+                    )
                 )
                 payload = diff_service.build_notebook_section_diff(
                     left_path=left_path,
@@ -573,7 +615,9 @@ def create_app(
                     section=section or "",
                     cell_key=cell_key,
                 )
-                payload["left_label"] = f"{resolved_base_branch.strip()}...{normalized_branch}"
+                payload["left_label"] = (
+                    f"{resolved_base_branch.strip()}...{normalized_branch}"
+                )
                 payload["right_label"] = normalized_branch
             else:
                 payload = diff_service.build_notebook_section_diff(
@@ -626,10 +670,12 @@ def _build_stream_payload(
     branch: str | None,
 ) -> tuple[dict[str, Any], Any, tuple[str | None, str | None]]:
     if mode == "branch-review" and branch and branch.strip():
-        resolved_base_branch, merge_base, normalized_branch = _resolve_branch_review_refs(
-            service=service,
-            base_branch=base_branch,
-            branch=branch,
+        resolved_base_branch, merge_base, normalized_branch = (
+            _resolve_branch_review_refs(
+                service=service,
+                base_branch=base_branch,
+                branch=branch,
+            )
         )
         left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
         progress_iter = service.iter_repo_diff_progress(

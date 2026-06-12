@@ -162,9 +162,7 @@ def _inherited_query_names(query_text: str) -> list[str]:
         if not match:
             continue
         inherited_names.extend(
-            name.strip()
-            for name in match.group(1).split(",")
-            if name.strip()
+            name.strip() for name in match.group(1).split(",") if name.strip()
         )
     return inherited_names
 
@@ -185,7 +183,7 @@ def _highlight_lines_with_spec(
             spec.query_path,
             spec.query_package,
         )
-    except (ImportError, AttributeError, FileNotFoundError, OSError, ValueError):
+    except ImportError, AttributeError, FileNotFoundError, OSError, ValueError:
         return None
 
     parser = Parser(language)

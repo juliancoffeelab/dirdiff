@@ -172,7 +172,7 @@ def fold_hints_for_path(
             spec.language_attr,
             spec.query_path,
         )
-    except (ImportError, AttributeError, FileNotFoundError, OSError, ValueError):
+    except ImportError, AttributeError, FileNotFoundError, OSError, ValueError:
         return []
 
     parser = Parser(language)
@@ -208,7 +208,10 @@ def fold_hints_for_path(
     _assign_candidate_parents(candidates)
     root_candidates = sorted(
         (candidate for candidate in candidates if candidate.parent is None),
-        key=lambda candidate: (candidate.context_start_byte, candidate.context_end_byte),
+        key=lambda candidate: (
+            candidate.context_start_byte,
+            candidate.context_end_byte,
+        ),
     )
 
     hints: list[dict[str, object]] = []
@@ -236,7 +239,13 @@ def _collect_markdown_section_hints(
         if not label_nodes:
             continue
         heading = label_nodes[0]
-        headings.append((heading, _markdown_heading_level(heading), _markdown_heading_label(heading, source_bytes)))
+        headings.append(
+            (
+                heading,
+                _markdown_heading_level(heading),
+                _markdown_heading_label(heading, source_bytes),
+            )
+        )
 
     if not headings:
         return []
@@ -247,7 +256,7 @@ def _collect_markdown_section_hints(
         context_start_line, _ = _node_line_span(heading, source_bytes)
         heading_start_line, heading_end_line = _node_line_span(heading, source_bytes)
         context_end_line = max(right_line_to_row)
-        for next_heading, next_level, _next_label in headings[index + 1:]:
+        for next_heading, next_level, _next_label in headings[index + 1 :]:
             if next_level <= _markdown_heading_level(heading):
                 context_end_line = next_heading.start_point.row
                 break
@@ -276,7 +285,9 @@ def _collect_markdown_section_hints(
                 hidden_start_row=hidden_row_span[0],
                 hidden_end_row=hidden_row_span[1],
                 context_start_byte=heading.start_byte,
-                context_end_byte=_line_end_byte_for_line(source_bytes, context_end_line),
+                context_end_byte=_line_end_byte_for_line(
+                    source_bytes, context_end_line
+                ),
             )
         )
 
@@ -286,7 +297,10 @@ def _collect_markdown_section_hints(
     _assign_candidate_parents(candidates)
     root_candidates = sorted(
         (candidate for candidate in candidates if candidate.parent is None),
-        key=lambda candidate: (candidate.context_start_byte, candidate.context_end_byte),
+        key=lambda candidate: (
+            candidate.context_start_byte,
+            candidate.context_end_byte,
+        ),
     )
     hints: list[dict[str, object]] = []
     for candidate in root_candidates:
@@ -314,10 +328,13 @@ def _collect_candidates(
         fold_node = fold_nodes[0]
         context_node = (
             fold_node.parent
-            if rule.region_kind in {"function_like", "class_like"} and fold_node.parent is not None
+            if rule.region_kind in {"function_like", "class_like"}
+            and fold_node.parent is not None
             else fold_node
         )
-        context_start_line, context_end_line = _node_line_span(context_node, source_bytes)
+        context_start_line, context_end_line = _node_line_span(
+            context_node, source_bytes
+        )
         hidden_start_line, hidden_end_line = _hidden_line_span(
             fold_node,
             source_bytes,
@@ -340,7 +357,9 @@ def _collect_candidates(
             continue
 
         label_nodes = capture_map.get("fold.label", [])
-        label_text = _node_text(label_nodes[0], source_bytes).strip() if label_nodes else None
+        label_text = (
+            _node_text(label_nodes[0], source_bytes).strip() if label_nodes else None
+        )
         candidate = FoldCandidate(
             rule=rule,
             fold_node=fold_node,
@@ -459,7 +478,10 @@ def _child_candidates(
 ) -> list[FoldCandidate]:
     return sorted(
         (candidate for candidate in all_candidates if candidate.parent is parent),
-        key=lambda candidate: (candidate.context_start_byte, candidate.context_end_byte),
+        key=lambda candidate: (
+            candidate.context_start_byte,
+            candidate.context_end_byte,
+        ),
     )
 
 
@@ -467,7 +489,7 @@ def _region_is_unchanged(
     candidate: FoldCandidate,
     rows: list[dict[str, Any]],
 ) -> bool:
-    span = rows[candidate.context_start_row:candidate.context_end_row]
+    span = rows[candidate.context_start_row : candidate.context_end_row]
     if candidate.rule.region_kind == "section":
         span = _trim_markdown_section_trailing_blank_rows(span)
     return bool(span) and all(not _row_has_any_change(row) for row in span)
@@ -519,7 +541,7 @@ def _node_line_span(node: Node, source_bytes: bytes) -> tuple[int, int]:
     if (
         node.end_byte > node.start_byte
         and node.end_point.column == 0
-        and source_bytes[node.end_byte - 1:node.end_byte] == b"\n"
+        and source_bytes[node.end_byte - 1 : node.end_byte] == b"\n"
     ):
         end_line -= 1
     return start_line, max(start_line, end_line)
@@ -549,7 +571,9 @@ def _lines_to_row_span(
 
 
 def _node_text(node: Node, source_bytes: bytes) -> str:
-    return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="ignore")
+    return source_bytes[node.start_byte : node.end_byte].decode(
+        "utf-8", errors="ignore"
+    )
 
 
 def _markdown_heading_level(node: Node) -> int:
@@ -581,14 +605,14 @@ def _line_end_byte_for_line(source_bytes: bytes, line_number: int) -> int:
         if current_line == line_number:
             start = index
             break
-        if source_bytes[index:index + 1] == b"\n":
+        if source_bytes[index : index + 1] == b"\n":
             current_line += 1
         index += 1
     else:
         return len(source_bytes)
 
     end = start
-    while end < len(source_bytes) and source_bytes[end:end + 1] != b"\n":
+    while end < len(source_bytes) and source_bytes[end : end + 1] != b"\n":
         end += 1
     if end < len(source_bytes):
         end += 1

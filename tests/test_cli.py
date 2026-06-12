@@ -250,7 +250,9 @@ def test_create_app_from_runtime_config_uses_stored_repo_root(
 ) -> None:
     discovered_repo_root: Path | None = None
 
-    def discover(*, repo_root: Path | None = None, cwd: Path | None = None) -> FakeGitRepository:
+    def discover(
+        *, repo_root: Path | None = None, cwd: Path | None = None
+    ) -> FakeGitRepository:
         nonlocal discovered_repo_root
         discovered_repo_root = repo_root
         return FakeGitRepository(repo_root or cwd or tmp_path)
@@ -392,9 +394,24 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
     assert "TextFileDiffResponse" in spec["components"]["schemas"]
     assert "NotebookSectionDiffResponse" in spec["components"]["schemas"]
     diff_params = spec["paths"]["/api/diff-stream"]["get"]["parameters"]
-    assert next(param for param in diff_params if param["name"] == "mode")["schema"]["default"] == "files"
-    assert next(param for param in diff_params if param["name"] == "left")["schema"]["default"] == "index"
-    assert next(param for param in diff_params if param["name"] == "right")["schema"]["default"] == "worktree"
+    assert (
+        next(param for param in diff_params if param["name"] == "mode")["schema"][
+            "default"
+        ]
+        == "files"
+    )
+    assert (
+        next(param for param in diff_params if param["name"] == "left")["schema"][
+            "default"
+        ]
+        == "index"
+    )
+    assert (
+        next(param for param in diff_params if param["name"] == "right")["schema"][
+            "default"
+        ]
+        == "worktree"
+    )
 
 
 def test_save_log_endpoint_writes_to_launch_directory(tmp_path: Path) -> None:
@@ -434,7 +451,9 @@ def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
 
 @pytest.mark.git
 def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -449,8 +468,15 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
     )
     lockfile = tmp_path / "Cargo.lock"
     lockfile.write_text("version = 1\n", encoding="utf-8")
-    subprocess.run(["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
     service = TextDiffService(GitRepository.discover(cwd=tmp_path))
@@ -487,8 +513,12 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
 
 
 @pytest.mark.git
-def test_repo_diff_endpoint_emits_minimal_generated_lockfile_entry(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+def test_repo_diff_endpoint_emits_minimal_generated_lockfile_entry(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -503,8 +533,15 @@ def test_repo_diff_endpoint_emits_minimal_generated_lockfile_entry(tmp_path: Pat
     )
     lockfile = tmp_path / "Cargo.lock"
     lockfile.write_text("version = 1\n", encoding="utf-8")
-    subprocess.run(["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
     service = TextDiffService(GitRepository.discover(cwd=tmp_path))
@@ -529,7 +566,9 @@ def test_repo_diff_endpoint_emits_minimal_generated_lockfile_entry(tmp_path: Pat
 
 @pytest.mark.git
 def test_repo_diff_stream_emits_minimal_deleted_file_entry(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -544,8 +583,15 @@ def test_repo_diff_stream_emits_minimal_deleted_file_entry(tmp_path: Path) -> No
     )
     deleted_file = tmp_path / "alpha.txt"
     deleted_file.write_text("one\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     deleted_file.unlink()
 
     service = TextDiffService(GitRepository.discover(cwd=tmp_path))

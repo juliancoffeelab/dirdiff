@@ -169,11 +169,7 @@ def test_changed_top_level_function_does_not_fold_descendants() -> None:
         left_exists=True,
         right_exists=True,
         left_text=(
-            "def helper():\n"
-            "    config = {\n"
-            '        "a": 1,\n'
-            "    }\n"
-            "    return None\n"
+            'def helper():\n    config = {\n        "a": 1,\n    }\n    return None\n'
         ),
         right_text=(
             "def helper():\n"
@@ -197,20 +193,8 @@ def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
         right_label="right",
         left_exists=True,
         right_exists=True,
-        left_text=(
-            "CONFIG = {\n"
-            '    "a": 1,\n'
-            '    "b": 2,\n'
-            "}\n\n"
-            "value = 1\n"
-        ),
-        right_text=(
-            "CONFIG = {\n"
-            '    "a": 1,\n'
-            '    "b": 2,\n'
-            "}\n\n"
-            "value = 2\n"
-        ),
+        left_text=('CONFIG = {\n    "a": 1,\n    "b": 2,\n}\n\nvalue = 1\n'),
+        right_text=('CONFIG = {\n    "a": 1,\n    "b": 2,\n}\n\nvalue = 2\n'),
         left_path_hint="demo.py",
         right_path_hint="demo.py",
     )
@@ -327,20 +311,10 @@ def test_javascript_classes_fold_unchanged_methods_only() -> None:
         left_exists=True,
         right_exists=True,
         left_text=(
-            "class Example {\n"
-            "  a() {\n"
-            "    return 1;\n"
-            "  }\n"
-            "}\n\n"
-            "const value = 1;\n"
+            "class Example {\n  a() {\n    return 1;\n  }\n}\n\nconst value = 1;\n"
         ),
         right_text=(
-            "class Example {\n"
-            "  a() {\n"
-            "    return 1;\n"
-            "  }\n"
-            "}\n\n"
-            "const value = 2;\n"
+            "class Example {\n  a() {\n    return 1;\n  }\n}\n\nconst value = 2;\n"
         ),
         left_path_hint="demo.js",
         right_path_hint="demo.js",
@@ -609,7 +583,9 @@ def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> No
     ]
 
 
-def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folded() -> None:
+def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folded() -> (
+    None
+):
     diff = build_loaded_diff(
         display_name="demo.md",
         mode="files",
@@ -672,7 +648,9 @@ def test_builds_whole_repo_diff_by_default(tmp_path: Path) -> None:
 
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\ntwo\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
         cwd=tmp_path,
@@ -715,7 +693,9 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
 
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\ntwo\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
         cwd=tmp_path,
@@ -747,7 +727,9 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
 
 @pytest.mark.git
 def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -763,12 +745,26 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
 
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
 
-    subprocess.run(["git", "checkout", "-b", "feature"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-b", "feature"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     tracked_file.write_text("one\nfeature change\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "feature change"],
         cwd=tmp_path,
@@ -776,9 +772,13 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    subprocess.run(["git", "checkout", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     tracked_file.write_text("one\nmaster-only change\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "master change"],
         cwd=tmp_path,
@@ -820,8 +820,15 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(tmp_path: Path) -> N
     )
     changed_file = tmp_path / "alpha.txt"
     changed_file.write_text("one\ntwo\nthree\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     changed_file.write_text("one\ntwo changed\nthree\n", encoding="utf-8")
 
     repo = GitRepository.discover(cwd=tmp_path)
@@ -875,7 +882,9 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(tmp_path: Path) -> N
 def test_iter_repo_diff_progress_updates_summary_incrementally(
     tmp_path: Path,
 ) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -891,7 +900,12 @@ def test_iter_repo_diff_progress_updates_summary_incrementally(
     (tmp_path / "alpha.txt").write_text("one\n", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("two\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
 
     (tmp_path / "alpha.txt").write_text("one changed\n", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("two changed\n", encoding="utf-8")
@@ -909,7 +923,9 @@ def test_iter_repo_diff_progress_updates_summary_incrementally(
 
 @pytest.mark.git
 def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -924,8 +940,15 @@ def test_iter_repo_diff_progress_marks_lockfiles_lazy(tmp_path: Path) -> None:
     )
     lockfile = tmp_path / "Cargo.lock"
     lockfile.write_text("version = 1\n", encoding="utf-8")
-    subprocess.run(["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
     service = TextDiffService(GitRepository.discover(cwd=tmp_path))
@@ -1003,7 +1026,9 @@ def test_iter_repo_diff_progress_marks_large_changed_files_lazy(
 
 @pytest.mark.git
 def test_iter_repo_diff_progress_marks_deleted_files_lazy(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -1018,8 +1043,15 @@ def test_iter_repo_diff_progress_marks_deleted_files_lazy(tmp_path: Path) -> Non
     )
     deleted_file = tmp_path / "alpha.txt"
     deleted_file.write_text("one\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     deleted_file.unlink()
 
     service = TextDiffService(GitRepository.discover(cwd=tmp_path))
@@ -1061,9 +1093,7 @@ def test_large_tree_sitter_diff_keeps_rich_render_mode() -> None:
     assert any(row.get("right_syntax") for row in diff["rows"])
     assert all(row["status"] != "fold" for row in diff["rows"])
     changed_rows = [
-        row
-        for row in diff["rows"]
-        if row.get("left_text") != row.get("right_text")
+        row for row in diff["rows"] if row.get("left_text") != row.get("right_text")
     ]
     assert changed_rows
     assert "right_syntax" in changed_rows[0] or "left_syntax" in changed_rows[0]
@@ -1094,7 +1124,9 @@ def test_large_plaintext_diff_still_falls_back_to_plain_render_mode() -> None:
 
 @pytest.mark.git
 def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -1126,8 +1158,15 @@ def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    subprocess.run(["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     notebook.write_text(
         json.dumps(
             {
@@ -1189,7 +1228,9 @@ def test_build_loaded_diff_renders_notebook_cells_when_ipynb_is_valid() -> None:
                     "id": "code-1",
                     "metadata": {"collapsed": True},
                     "source": ["value = 2\n", "print(value)\n"],
-                    "outputs": [{"output_type": "stream", "name": "stdout", "text": "2\n"}],
+                    "outputs": [
+                        {"output_type": "stream", "name": "stdout", "text": "2\n"}
+                    ],
                 }
             ],
             "metadata": {"kernelspec": {"name": "python3"}},
@@ -1216,8 +1257,7 @@ def test_build_loaded_diff_renders_notebook_cells_when_ipynb_is_valid() -> None:
     assert diff["cells"][0]["metadata_changed"] is True
     assert diff["cells"][0]["outputs_changed"] is True
     assert any(
-        row["left_text"] == "value = 1"
-        and row["right_text"] == "value = 2"
+        row["left_text"] == "value = 1" and row["right_text"] == "value = 2"
         for row in diff["cells"][0]["source_rows"]
     )
 
@@ -1367,7 +1407,9 @@ def test_build_loaded_diff_keeps_notebook_metadata_and_outputs_lazy() -> None:
 def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
     tmp_path: Path,
 ) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -1401,8 +1443,15 @@ def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
         ),
         encoding="utf-8",
     )
-    subprocess.run(["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
 
     notebook.write_text(
         json.dumps(
@@ -1500,7 +1549,9 @@ def test_build_loaded_diff_falls_back_to_text_for_invalid_notebook_json() -> Non
 
 @pytest.mark.git
 def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -1515,8 +1566,15 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
     )
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\n", encoding="utf-8")
-    subprocess.run(["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     base_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=tmp_path,
@@ -1531,7 +1589,12 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
         capture_output=True,
     )
     tracked_file.write_text("two\n", encoding="utf-8")
-    subprocess.run(["git", "commit", "-am", "second"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-am", "second"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     branch_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=tmp_path,

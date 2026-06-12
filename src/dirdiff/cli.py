@@ -37,7 +37,9 @@ class RuntimeConfig:
 
 def configure_logging() -> None:
     logging.basicConfig(
-        level=logging.INFO if os.environ.get("DIRDIFF_DEBUG_PERF") == "1" else logging.WARNING,
+        level=logging.INFO
+        if os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
+        else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
 
@@ -47,7 +49,9 @@ def parse_args() -> argparse.Namespace:
         description="Standalone diff viewer for generic text files."
     )
     parser.add_argument("--left", default="index", help="Left diff side or Git ref")
-    parser.add_argument("--right", default="worktree", help="Right diff side or Git ref")
+    parser.add_argument(
+        "--right", default="worktree", help="Right diff side or Git ref"
+    )
     parser.add_argument(
         "--base-branch",
         help="Base branch for branch-review mode (defaults to master/main when available)",
@@ -151,23 +155,19 @@ def build_defaults(
     review_branch: str | None = None,
 ) -> dict[str, Any]:
     default_base_branch = service.default_base_branch()
-    preferred_review_branch = service.preferred_review_branch(base_branch=default_base_branch)
-    default_remote = service.default_remote_name()
-    default_base_ref = (
-        service.branch_upstream_name(default_base_branch)
-        or (
-            f"{default_remote}/{default_base_branch}"
-            if default_remote and default_base_branch
-            else default_base_branch
-        )
+    preferred_review_branch = service.preferred_review_branch(
+        base_branch=default_base_branch
     )
-    review_branch_ref = (
-        service.branch_upstream_name(preferred_review_branch)
-        or (
-            f"{default_remote}/{preferred_review_branch}"
-            if default_remote and preferred_review_branch
-            else preferred_review_branch
-        )
+    default_remote = service.default_remote_name()
+    default_base_ref = service.branch_upstream_name(default_base_branch) or (
+        f"{default_remote}/{default_base_branch}"
+        if default_remote and default_base_branch
+        else default_base_branch
+    )
+    review_branch_ref = service.branch_upstream_name(preferred_review_branch) or (
+        f"{default_remote}/{preferred_review_branch}"
+        if default_remote and preferred_review_branch
+        else preferred_review_branch
     )
     initial_mode = "files"
     if review_branch:
@@ -259,14 +259,14 @@ def main() -> None:
 
     actual_port = choose_port(args.port)
     use_frontend_dev = not (args.no_frontend_dev or args.legacy_frontend)
-    actual_frontend_port = choose_port(args.frontend_port) if use_frontend_dev else args.frontend_port
+    actual_frontend_port = (
+        choose_port(args.frontend_port) if use_frontend_dev else args.frontend_port
+    )
     if use_frontend_dev and actual_frontend_port == actual_port:
         actual_frontend_port = choose_port(actual_port + 1)
     backend_url = _build_url(actual_port, defaults)
     url = (
-        _build_url(actual_frontend_port, defaults)
-        if use_frontend_dev
-        else backend_url
+        _build_url(actual_frontend_port, defaults) if use_frontend_dev else backend_url
     )
     if actual_port != args.port:
         print(

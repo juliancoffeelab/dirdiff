@@ -214,7 +214,7 @@ def _collapse_equal_rows_for_large_diff(
 
         leading = run_rows[:context_rows]
         trailing = run_rows[-context_rows:] if context_rows else []
-        middle = run_rows[context_rows:len(run_rows) - len(trailing)]
+        middle = run_rows[context_rows : len(run_rows) - len(trailing)]
 
         collapsed.extend(leading)
         if middle:
@@ -577,11 +577,7 @@ def _build_rows_payload(
     added_lines = sum(1 for row in rows if row["status"] == "insert")
     removed_lines = sum(1 for row in rows if row["status"] == "delete")
 
-    payload_rows = (
-        _collapse_equal_rows_for_large_diff(rows)
-        if plain_render
-        else rows
-    )
+    payload_rows = _collapse_equal_rows_for_large_diff(rows) if plain_render else rows
     truncated_rows = 0
     if plain_render:
         payload_rows, truncated_rows = _truncate_large_render_rows(payload_rows)
@@ -718,9 +714,7 @@ def _build_notebook_cell_diff(
         "metadata_removed_lines": (
             metadata_stats["removed_lines"] if metadata_stats else 0
         ),
-        "metadata_hunk_count": (
-            metadata_stats["hunk_count"] if metadata_stats else 0
-        ),
+        "metadata_hunk_count": (metadata_stats["hunk_count"] if metadata_stats else 0),
         "metadata_lazy": metadata_changed and not include_metadata_rows,
         "outputs_changed_lines": (
             outputs_stats["changed_lines"] if outputs_stats else 0
@@ -728,15 +722,11 @@ def _build_notebook_cell_diff(
         "outputs_modified_lines": (
             outputs_stats["modified_lines"] if outputs_stats else 0
         ),
-        "outputs_added_lines": (
-            outputs_stats["added_lines"] if outputs_stats else 0
-        ),
+        "outputs_added_lines": (outputs_stats["added_lines"] if outputs_stats else 0),
         "outputs_removed_lines": (
             outputs_stats["removed_lines"] if outputs_stats else 0
         ),
-        "outputs_hunk_count": (
-            outputs_stats["hunk_count"] if outputs_stats else 0
-        ),
+        "outputs_hunk_count": (outputs_stats["hunk_count"] if outputs_stats else 0),
         "outputs_lazy": outputs_changed and not include_outputs_rows,
     }
     if "render_mode" in source_payload:
@@ -797,7 +787,9 @@ def _build_notebook_diff_payload(
         added_lines += notebook_metadata_stats["added_lines"]
         removed_lines += notebook_metadata_stats["removed_lines"]
 
-    for pair_kind, left_index, right_index in _pair_notebook_cells(left_cells, right_cells):
+    for pair_kind, left_index, right_index in _pair_notebook_cells(
+        left_cells, right_cells
+    ):
         left_cell = left_cells[left_index] if left_index is not None else None
         right_cell = right_cells[right_index] if right_index is not None else None
         cell_diff = _build_notebook_cell_diff(
@@ -881,24 +873,16 @@ def _append_char_level_diff(
         if tag == "equal":
             text = left_text[i1:i2]
             if text:
-                left_tokens.append(
-                    {"text": text, "changed": False, "is_ws": is_ws}
-                )
-                right_tokens.append(
-                    {"text": text, "changed": False, "is_ws": is_ws}
-                )
+                left_tokens.append({"text": text, "changed": False, "is_ws": is_ws})
+                right_tokens.append({"text": text, "changed": False, "is_ws": is_ws})
         elif tag == "delete":
             text = left_text[i1:i2]
             if text:
-                left_tokens.append(
-                    {"text": text, "changed": True, "is_ws": is_ws}
-                )
+                left_tokens.append({"text": text, "changed": True, "is_ws": is_ws})
         elif tag == "insert":
             text = right_text[j1:j2]
             if text:
-                right_tokens.append(
-                    {"text": text, "changed": True, "is_ws": is_ws}
-                )
+                right_tokens.append({"text": text, "changed": True, "is_ws": is_ws})
         else:
             left_piece = left_text[i1:i2]
             right_piece = right_text[j1:j2]
@@ -939,9 +923,7 @@ def _append_identifier_level_diff(
         if tag == "equal":
             for li, ri in zip(range(i1, i2), range(j1, j2)):
                 text = left_parts[li]
-                left_tokens.append(
-                    {"text": text, "changed": False, "is_ws": False}
-                )
+                left_tokens.append({"text": text, "changed": False, "is_ws": False})
                 right_tokens.append(
                     {"text": right_parts[ri], "changed": False, "is_ws": False}
                 )
@@ -1007,17 +989,13 @@ def _has_shared_informative_alignment_word(
     right_words: list[str],
 ) -> bool:
     left_informative = {
-        word.casefold()
-        for word in left_words
-        if _is_informative_alignment_word(word)
+        word.casefold() for word in left_words if _is_informative_alignment_word(word)
     }
     if not left_informative:
         return False
 
     right_informative = {
-        word.casefold()
-        for word in right_words
-        if _is_informative_alignment_word(word)
+        word.casefold() for word in right_words if _is_informative_alignment_word(word)
     }
     return bool(left_informative & right_informative)
 
@@ -1052,9 +1030,7 @@ def _align_similar_lines(
     scores: list[list[float]] = [
         [0.0] * (right_count + 1) for _ in range(left_count + 1)
     ]
-    decisions: list[list[str]] = [
-        ["done"] * right_count for _ in range(left_count)
-    ]
+    decisions: list[list[str]] = [["done"] * right_count for _ in range(left_count)]
 
     for left_index in range(left_count - 1, -1, -1):
         for right_index in range(right_count - 1, -1, -1):
@@ -1071,10 +1047,7 @@ def _align_similar_lines(
                 right_lines[right_index],
             )
             if pair_ratio >= MIN_SIMILAR_LINE_RATIO:
-                pair_score = (
-                    pair_ratio
-                    + scores[left_index + 1][right_index + 1]
-                )
+                pair_score = pair_ratio + scores[left_index + 1][right_index + 1]
                 if pair_score > best_score:
                     best_score = pair_score
                     decision = "pair"
@@ -1119,9 +1092,7 @@ def _inline_diff(
     left_data = make_tokens(left_bits)
     right_data = make_tokens(right_bits)
     left_keys = ["" if token["is_ws"] else token["text"] for token in left_data]
-    right_keys = [
-        "" if token["is_ws"] else token["text"] for token in right_data
-    ]
+    right_keys = ["" if token["is_ws"] else token["text"] for token in right_data]
 
     matcher = SequenceMatcher(a=left_keys, b=right_keys, autojunk=False)
     left_tokens: list[dict[str, Any]] = []
@@ -1231,10 +1202,9 @@ def _inline_diff(
                         if not left_token["is_ws"] and not right_token["is_ws"]:
                             left_parts = _identifier_diff_parts(left_token["text"])
                             right_parts = _identifier_diff_parts(right_token["text"])
-                            if (
-                                left_parts != [left_token["text"]]
-                                or right_parts != [right_token["text"]]
-                            ):
+                            if left_parts != [left_token["text"]] or right_parts != [
+                                right_token["text"]
+                            ]:
                                 _append_identifier_level_diff(
                                     left_token["text"],
                                     right_token["text"],
@@ -1287,11 +1257,7 @@ def _paired_line_row(
     right_no: int,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
-        "status": (
-            "equal"
-            if left_line.lstrip() == right_line.lstrip()
-            else "replace"
-        ),
+        "status": ("equal" if left_line.lstrip() == right_line.lstrip() else "replace"),
         "left_no": left_no,
         "right_no": right_no,
         "left_text": left_line,
@@ -1322,9 +1288,7 @@ def _line_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
 
         if tag == "equal":
             for left_line, right_line in zip(left_block, right_block):
-                rows.append(
-                    _paired_line_row(left_line, right_line, left_no, right_no)
-                )
+                rows.append(_paired_line_row(left_line, right_line, left_no, right_no))
                 left_no += 1
                 right_no += 1
             continue
@@ -1609,11 +1573,7 @@ def _build_git_rows_payload(
 
     added_lines = sum(1 for row in rows if row["status"] == "insert")
     removed_lines = sum(1 for row in rows if row["status"] == "delete")
-    payload_rows = (
-        _collapse_equal_rows_for_large_diff(rows)
-        if plain_render
-        else rows
-    )
+    payload_rows = _collapse_equal_rows_for_large_diff(rows) if plain_render else rows
     truncated_rows = 0
     if plain_render:
         payload_rows, truncated_rows = _truncate_large_render_rows(payload_rows)
@@ -1651,9 +1611,7 @@ def _decode_text(data: bytes, *, label: str) -> str:
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise TextDiffError(
-            f"{label} is not valid UTF-8 text: {exc}"
-        ) from exc
+        raise TextDiffError(f"{label} is not valid UTF-8 text: {exc}") from exc
 
 
 def _display_name_for_repo_paths(
@@ -1678,7 +1636,9 @@ def build_loaded_diff(
     left_path_hint: str | None = None,
     right_path_hint: str | None = None,
 ) -> dict[str, Any]:
-    if _looks_like_notebook_path(right_path_hint) or _looks_like_notebook_path(left_path_hint):
+    if _looks_like_notebook_path(right_path_hint) or _looks_like_notebook_path(
+        left_path_hint
+    ):
         notebook_payload = _build_notebook_diff_payload(
             display_name=display_name,
             mode=mode,
@@ -1887,11 +1847,7 @@ class GitRepository:
         if result.returncode != 0:
             return []
         return sorted(
-            {
-                line.strip()
-                for line in result.stdout.splitlines()
-                if line.strip()
-            }
+            {line.strip() for line in result.stdout.splitlines() if line.strip()}
         )
 
     def list_remote_ref_names(self) -> list[str]:
@@ -1913,11 +1869,7 @@ class GitRepository:
 
     def list_remote_names(self) -> list[str]:
         return sorted(
-            {
-                ref.split("/", 1)[0]
-                for ref in self.list_remote_ref_names()
-                if "/" in ref
-            }
+            {ref.split("/", 1)[0] for ref in self.list_remote_ref_names() if "/" in ref}
         )
 
     def list_ref_choices(self) -> dict[str, list[str]]:
@@ -2068,9 +2020,7 @@ class GitRepository:
             right=normalized_right,
             kind="--patch",
         )
-        patch_args = [
-            arg for arg in diff_args if arg not in {"-z", "--patch"}
-        ]
+        patch_args = [arg for arg in diff_args if arg not in {"-z", "--patch"}]
         patch_args.extend(
             [
                 "--patch",
@@ -2114,7 +2064,9 @@ class GitRepository:
                     RepoDiffPath(
                         left_path=left_path,
                         right_path=right_path,
-                        display_name=_display_name_for_repo_paths(left_path, right_path),
+                        display_name=_display_name_for_repo_paths(
+                            left_path, right_path
+                        ),
                         change_type="rename" if change_kind == "R" else "copy",
                     )
                 )
@@ -2463,13 +2415,9 @@ class TextDiffService:
             else None
         )
         if left_version.exists and left_notebook is None:
-            raise TextDiffError(
-                f"Could not parse notebook on {normalized_left_side}."
-            )
+            raise TextDiffError(f"Could not parse notebook on {normalized_left_side}.")
         if right_version.exists and right_notebook is None:
-            raise TextDiffError(
-                f"Could not parse notebook on {normalized_right_side}."
-            )
+            raise TextDiffError(f"Could not parse notebook on {normalized_right_side}.")
 
         return {
             "left_path": normalized_left,
@@ -2645,9 +2593,7 @@ class TextDiffService:
                 right=normalized_right,
             )
         )
-        collapse_files_by_default = (
-            len(entries) > DEFAULT_COLLAPSE_FILE_COUNT_THRESHOLD
-        )
+        collapse_files_by_default = len(entries) > DEFAULT_COLLAPSE_FILE_COUNT_THRESHOLD
         summary = _empty_repo_summary()
         for entry in entries:
             _perf_log(
@@ -2706,10 +2652,9 @@ class TextDiffService:
                 )
                 continue
 
-            if (
-                file_diff["summary"]["changed_lines"] <= 0
-                and file_diff.get("change_type") not in {"rename", "copy"}
-            ):
+            if file_diff["summary"]["changed_lines"] <= 0 and file_diff.get(
+                "change_type"
+            ) not in {"rename", "copy"}:
                 continue
             if collapse_files_by_default:
                 file_diff["default_expanded"] = False
@@ -2731,8 +2676,7 @@ class TextDiffService:
                     + file_diff["summary"]["changed_cells"]
                 )
                 summary["added_cells"] = (
-                    summary.get("added_cells", 0)
-                    + file_diff["summary"]["added_cells"]
+                    summary.get("added_cells", 0) + file_diff["summary"]["added_cells"]
                 )
                 summary["modified_cells"] = (
                     summary.get("modified_cells", 0)
