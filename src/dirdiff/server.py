@@ -97,6 +97,7 @@ class TextFileDiffResponse(BaseModel):
     left_path: str | None = None
     right_path: str | None = None
     lazy: bool = False
+    default_expanded: bool
     lazy_reason: str | None = None
     render_mode: Literal["plain"] | None = None
     truncated_rows: int | None = None
@@ -158,6 +159,7 @@ class NotebookFileDiffResponse(BaseModel):
     change_type: ChangeType | None = None
     left_path: str | None = None
     right_path: str | None = None
+    default_expanded: bool
 
 
 class NotebookSectionDiffResponse(BaseModel):

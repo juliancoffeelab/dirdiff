@@ -33,6 +33,8 @@ PLAIN_RENDER_CONTEXT_ROWS = 3
 PLAIN_RENDER_MIN_FOLD_ROWS = 24
 PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
 LARGE_CHANGED_LINES_LAZY_THRESHOLD = 1000
+DEFAULT_COLLAPSE_FILE_COUNT_THRESHOLD = 50
+DEFAULT_EXPAND_RENDER_ROW_LIMIT = 500
 GENERATED_FILES = frozenset(
     {
         "cargo.lock",
@@ -127,6 +129,7 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
 def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "lazy": True,
+        "default_expanded": False,
         "display_name": entry.display_name,
         "left_path": entry.left_path,
         "right_path": entry.right_path,
@@ -144,6 +147,23 @@ def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
             "so it is folded by default. Click to fetch and open it."
         )
     return payload
+
+
+def _payload_render_row_count(payload: dict[str, Any]) -> int:
+    if payload.get("render_kind") == "notebook":
+        total = len(payload.get("notebook_metadata_rows", ()))
+        for cell in payload.get("cells", ()):
+            total += len(cell.get("source_rows", ()))
+            total += len(cell.get("metadata_rows", ()))
+            total += len(cell.get("outputs_rows", ()))
+        return total
+    return len(payload.get("rows", ()))
+
+
+def _default_expanded_for_payload(payload: dict[str, Any]) -> bool:
+    if payload.get("lazy"):
+        return False
+    return _payload_render_row_count(payload) <= DEFAULT_EXPAND_RENDER_ROW_LIMIT
 
 
 def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:
@@ -844,6 +864,7 @@ def _build_notebook_diff_payload(
         "notebook_metadata_lazy": notebook_metadata_stats is not None,
         "cells": cells,
     }
+    payload["default_expanded"] = _default_expanded_for_payload(payload)
     return payload
 
 
@@ -1692,6 +1713,7 @@ def build_loaded_diff(
         },
         "rows": rows_payload["rows"],
     }
+    payload["default_expanded"] = _default_expanded_for_payload(payload)
     if "render_mode" in rows_payload:
         payload["render_mode"] = rows_payload["render_mode"]
     if "truncated_rows" in rows_payload:
@@ -2623,6 +2645,9 @@ class TextDiffService:
                 right=normalized_right,
             )
         )
+        collapse_files_by_default = (
+            len(entries) > DEFAULT_COLLAPSE_FILE_COUNT_THRESHOLD
+        )
         summary = _empty_repo_summary()
         for entry in entries:
             _perf_log(
@@ -2631,6 +2656,7 @@ class TextDiffService:
                 f" change={entry.change_type}"
             )
             if _should_lazy_load_repo_entry(entry):
+                lazy_entry = _to_lazy_repo_file_entry(entry)
                 summary["changed_files"] += 1
                 if entry.change_type == "add":
                     summary["added_files"] += 1
@@ -2645,7 +2671,7 @@ class TextDiffService:
                 if entry.removed_lines is not None:
                     summary["removed_lines"] += entry.removed_lines
                 yield RepoDiffProgress(
-                    entry=_to_lazy_repo_file_entry(entry),
+                    entry=lazy_entry,
                     summary=dict(summary),
                 )
                 continue
@@ -2674,6 +2700,7 @@ class TextDiffService:
                         "right_label": normalized_right,
                         "change_type": entry.change_type,
                         "error": str(exc),
+                        "default_expanded": False,
                     },
                     summary=dict(summary),
                 )
@@ -2684,6 +2711,8 @@ class TextDiffService:
                 and file_diff.get("change_type") not in {"rename", "copy"}
             ):
                 continue
+            if collapse_files_by_default:
+                file_diff["default_expanded"] = False
 
             summary["changed_files"] += 1
             if entry.change_type == "add":
@@ -2847,6 +2876,7 @@ class GitDiffService(TextDiffService):
             "left_path": normalized_left,
             "right_path": normalized_right,
         }
+        payload["default_expanded"] = _default_expanded_for_payload(payload)
         if "render_mode" in rows_payload:
             payload["render_mode"] = rows_payload["render_mode"]
         if "truncated_rows" in rows_payload:

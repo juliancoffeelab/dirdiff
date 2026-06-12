@@ -74,8 +74,6 @@ const modeLabels: Record<DiffMode, string> = {
   refs: "Compare refs",
   "branch-review": "Branch review",
 };
-const AUTO_COLLAPSE_RENDERED_ROW_LIMIT = 500;
-const AUTO_COLLAPSE_FILE_COUNT_LIMIT = 50;
 const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   git: "Git",
@@ -411,15 +409,24 @@ function App() {
           const key = fileKey(event.entry);
           const directory = entryDirectoryLabel(event.entry);
           const nextFiles = [...files(), event.entry];
+          const pin = getLinePinFromHash();
+          const shouldOpenPinnedFile =
+            pin !== null && fileMatchesLinePin(event.entry, pin);
           batch(() => {
             setFiles(() => nextFiles);
             setDirectoryExpansion((current) => ({
               ...current,
-              [directory]: directoryExpansionValue(current, directory),
+              [directory]: shouldOpenPinnedFile
+                ? true
+                : directoryExpansionValue(current, directory),
             }));
-            setFileExpansion((current) =>
-              nextFileExpansion(current, nextFiles, event.entry, key),
-            );
+            setFileExpansion((current) => {
+              const next = nextFileExpansion(current, event.entry, key);
+              if (shouldOpenPinnedFile) {
+                return { ...next, [key]: true };
+              }
+              return next;
+            });
             setSummary(event.summary);
             setStatusText(
               `${statusLabel(activeRequest)} · loaded ${event.summary.changed_files} files...`,
@@ -550,9 +557,32 @@ function App() {
     highlightPinnedLine(appRoot, row);
   };
 
+  const openPinnedFile = (pin: LinePin) => {
+    const file = files().find((entry) => fileMatchesLinePin(entry, pin));
+    if (!file) {
+      return;
+    }
+    const directory = entryDirectoryLabel(file);
+    const key = fileKey(file);
+    batch(() => {
+      setDirectoryExpansion((current) => ({
+        ...current,
+        [directory]: true,
+      }));
+      setFileExpansion((current) => ({
+        ...current,
+        [key]: true,
+      }));
+    });
+  };
+
   const onHashChange = () => {
     if (!appRoot) {
       return;
+    }
+    const pin = getLinePinFromHash();
+    if (pin) {
+      openPinnedFile(pin);
     }
     restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
       restoredLinePinKey = pinKey;
@@ -1271,54 +1301,16 @@ function expansionValue(
 
 function nextFileExpansion(
   current: Record<string, boolean>,
-  files: FileEntry[],
   newFile: FileEntry,
   newFileKey: string,
 ): Record<string, boolean> {
-  if (files.length > AUTO_COLLAPSE_FILE_COUNT_LIMIT) {
-    return Object.fromEntries(files.map((file) => [fileKey(file), false]));
-  }
   if (Object.hasOwn(current, newFileKey)) {
     return current;
   }
   return {
     ...current,
-    [newFileKey]: shouldExpandFileByDefault(newFile),
+    [newFileKey]: newFile.default_expanded,
   };
-}
-
-function shouldExpandFileByDefault(file: FileEntry): boolean {
-  if (file.lazy) {
-    return false;
-  }
-  return renderedLineCount(file) <= AUTO_COLLAPSE_RENDERED_ROW_LIMIT;
-}
-
-function renderedLineCount(file: FileEntry): number {
-  if (file.render_kind === "notebook") {
-    if (!file.cells) {
-      throw new Error(
-        `Notebook file is missing cells for ${fileDisplayName(file)}.`,
-      );
-    }
-    if (!file.notebook_metadata_rows) {
-      throw new Error(
-        `Notebook file is missing metadata rows for ${fileDisplayName(file)}.`,
-      );
-    }
-    return file.cells.reduce(
-      (total, cell) =>
-        total +
-        cell.source_rows.length +
-        cell.metadata_rows.length +
-        cell.outputs_rows.length,
-      file.notebook_metadata_rows.length,
-    );
-  }
-  if (!file.rows) {
-    throw new Error(`File is missing rows for ${fileDisplayName(file)}.`);
-  }
-  return file.rows.length;
 }
 
 function FileList(props: {
@@ -1461,7 +1453,7 @@ function DirectoryGroup(props: {
                 <FileCard
                   file={file}
                   request={props.request}
-                  expanded={props.fileExpansion[key] ?? !file.lazy}
+                  expanded={props.fileExpansion[key] ?? file.default_expanded}
                   loading={props.loadingFiles[key] ?? false}
                   error={props.fileErrors[key] ?? ""}
                   diffViewMode={props.diffViewMode}
@@ -1502,7 +1494,7 @@ function FileTreeSidebar(props: {
   const directoryExpanded = (group: FileGroup) =>
     expansionValue(props.directoryExpansion, group.label, true);
   const fileExpanded = (file: FileEntry) =>
-    expansionValue(props.fileExpansion, fileKey(file), !file.lazy);
+    expansionValue(props.fileExpansion, fileKey(file), file.default_expanded);
 
   const setDirectoryExpanded = (group: FileGroup, expanded: boolean) => {
     props.setDirectoryExpansion((current) => ({
@@ -2055,6 +2047,7 @@ function NotebookSectionView(props: {
     right_label: props.rightLabel,
     rows: props.rows ?? [],
     fold_hints: props.foldHints ?? [],
+    default_expanded: true,
   });
 
   return (
@@ -2480,6 +2473,10 @@ function linePinFromElement(lineNo: HTMLElement): LinePin | null {
   return { file, side, line };
 }
 
+function fileMatchesLinePin(file: FileEntry, pin: LinePin): boolean {
+  return fileDisplayName(file) === pin.file;
+}
+
 function findPinnedLine(root: ParentNode, pin: LinePin): HTMLElement | null {
   for (const lineNo of root.querySelectorAll<HTMLElement>(
     ".line-no[data-line-pin-line]",
@@ -2516,6 +2513,7 @@ function restorePinnedLine(
   const pinKey = JSON.stringify(pin);
   const lineNo = findPinnedLine(root, pin);
   if (!lineNo) {
+    highlightPinnedLine(root, null);
     return;
   }
   const row = lineNo.closest<HTMLElement>(".diff-row");

@@ -130,6 +130,7 @@ export type FileEntry = {
   rows?: DiffRow[];
   fold_hints?: FoldHint[];
   lazy?: boolean;
+  default_expanded: boolean;
   lazy_reason?: string | null;
   render_kind?: "notebook";
   notebook_metadata_rows?: DiffRow[];
