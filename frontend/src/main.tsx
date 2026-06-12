@@ -457,32 +457,32 @@ function App() {
     if (shouldIgnoreHunkNavKeyEvent(event)) {
       return;
     }
-    if (event.key === "n" && !event.shiftKey) {
+    if (event.code === "KeyN" && !event.shiftKey) {
       event.preventDefault();
       scrollHunk(1);
       return;
     }
-    if (event.key === "N") {
+    if (event.code === "KeyN" && event.shiftKey) {
       event.preventDefault();
       scrollHunk(-1);
       return;
     }
-    if (event.key === "p") {
+    if (event.code === "KeyP") {
       event.preventDefault();
       scrollTop();
       return;
     }
-    if (event.key === "t") {
+    if (event.code === "KeyT") {
       event.preventDefault();
       setFileTreeOpen((open) => !open);
       return;
     }
-    if (event.key === "d") {
+    if (event.code === "KeyD") {
       event.preventDefault();
       setDebugMenuOpen((open) => !open);
       return;
     }
-    if (event.key === "h") {
+    if (event.code === "KeyH") {
       event.preventDefault();
       setHelpOpen((open) => !open);
       return;
