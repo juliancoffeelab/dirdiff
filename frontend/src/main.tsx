@@ -28,9 +28,9 @@ import {
   type RefChoices,
   type Summary,
   fetchDefaults,
+  fetchDiff,
   fetchFileDiff,
   fetchNotebookSection,
-  openDiffStream,
 } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import "./styles.css";
@@ -351,10 +351,10 @@ function App() {
   const [currentHunkIndex, setCurrentHunkIndex] = createSignal(0);
   const [hunkNavigationTick, setHunkNavigationTick] = createSignal(0);
   let appRoot: HTMLElement | undefined;
-  let stream: EventSource | undefined;
   let initialized = false;
   let hunkReconcileTimer = 0;
   let restoredLinePinKey = "";
+  let requestVersion = 0;
 
   const refChoices = () =>
     defaults.data?.ref_choices ?? {
@@ -378,6 +378,59 @@ function App() {
       setHunkNavigationTick((tick) => tick + 1);
     });
   };
+
+  async function loadDiff(
+    activeRequest: DiffRequest,
+    signal: AbortSignal,
+    version: number,
+  ) {
+    try {
+      const payload = await fetchDiff(activeRequest, signal);
+      if (version !== requestVersion) {
+        return;
+      }
+      const pin = getLinePinFromHash();
+      const nextDirectoryExpansion: Record<string, boolean> = {};
+      let nextFileExpansionState: Record<string, boolean> = {};
+      for (const entry of payload.files) {
+        const key = fileKey(entry);
+        const directory = entryDirectoryLabel(entry);
+        const shouldOpenPinnedFile =
+          pin !== null && fileMatchesLinePin(entry, pin);
+        nextDirectoryExpansion[directory] = shouldOpenPinnedFile
+          ? true
+          : directoryExpansionValue(nextDirectoryExpansion, directory);
+        nextFileExpansionState = nextFileExpansion(
+          nextFileExpansionState,
+          entry,
+          key,
+        );
+        if (shouldOpenPinnedFile) {
+          nextFileExpansionState = { ...nextFileExpansionState, [key]: true };
+        }
+      }
+      batch(() => {
+        setFiles(payload.files);
+        setDirectoryExpansion(nextDirectoryExpansion);
+        setFileExpansion(nextFileExpansionState);
+        setSummary(payload.summary);
+        setStatus("done");
+        setStatusText(
+          statusLabel(activeRequest, payload.left_label, payload.right_label),
+        );
+      });
+    } catch (error) {
+      if (signal.aborted || version !== requestVersion) {
+        return;
+      }
+      batch(() => {
+        setStatus("error");
+        setStatusText(
+          error instanceof Error ? error.message : "Failed to load diff.",
+        );
+      });
+    }
+  }
 
   createEffect(() => {
     const value = defaults.data;
@@ -404,76 +457,11 @@ function App() {
       return;
     }
 
-    stream?.close();
+    const controller = new AbortController();
+    const version = ++requestVersion;
     resetDiffState("loading", "Loading diff...");
-
-    stream = openDiffStream(
-      activeRequest,
-      (event) => {
-        if (event.type === "init") {
-          batch(() => {
-            setSummary(event.payload.summary);
-            setStatusText(
-              `${statusLabel(activeRequest, event.payload.left_label, event.payload.right_label)} · streaming...`,
-            );
-          });
-          return;
-        }
-        if (event.type === "file") {
-          const key = fileKey(event.entry);
-          const directory = entryDirectoryLabel(event.entry);
-          const nextFiles = [...files(), event.entry];
-          const pin = getLinePinFromHash();
-          const shouldOpenPinnedFile =
-            pin !== null && fileMatchesLinePin(event.entry, pin);
-          batch(() => {
-            setFiles(() => nextFiles);
-            setDirectoryExpansion((current) => ({
-              ...current,
-              [directory]: shouldOpenPinnedFile
-                ? true
-                : directoryExpansionValue(current, directory),
-            }));
-            setFileExpansion((current) => {
-              const next = nextFileExpansion(current, event.entry, key);
-              if (shouldOpenPinnedFile) {
-                return { ...next, [key]: true };
-              }
-              return next;
-            });
-            setSummary(event.summary);
-            setStatusText(
-              `${statusLabel(activeRequest)} · loaded ${event.summary.changed_files} files...`,
-            );
-          });
-          return;
-        }
-        if (event.type === "done") {
-          stream?.close();
-          batch(() => {
-            setSummary(event.summary);
-            setStatus("done");
-            setStatusText(statusLabel(activeRequest));
-          });
-          return;
-        }
-        stream?.close();
-        batch(() => {
-          setStatus("error");
-          setStatusText(event.error);
-        });
-      },
-      () => {
-        if (status() === "done") {
-          return;
-        }
-        stream?.close();
-        batch(() => {
-          setStatus("error");
-          setStatusText("Diff stream failed.");
-        });
-      },
-    );
+    void loadDiff(activeRequest, controller.signal, version);
+    onCleanup(() => controller.abort());
   });
 
   createEffect(() => {
@@ -488,7 +476,6 @@ function App() {
     );
   });
 
-  onCleanup(() => stream?.close());
   onCleanup(() => clearTimeout(hunkReconcileTimer));
 
   const toggleDiffViewMode = () => {
@@ -675,7 +662,7 @@ function App() {
       selectedEngine,
     );
     if (typeof nextRequest === "string") {
-      stream?.close();
+      setRequest(null);
       resetDiffState("error", nextRequest);
       return;
     }

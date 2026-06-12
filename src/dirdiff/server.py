@@ -86,6 +86,22 @@ class NotebookDiffSummaryResponse(TextDiffSummaryResponse):
     notebook_metadata_changed: bool
 
 
+class RepoDiffSummaryResponse(BaseModel):
+    changed_files: int
+    added_files: int
+    removed_files: int
+    updated_files: int
+    changed_lines: int
+    modified_lines: int
+    added_lines: int
+    removed_lines: int
+    skipped_files: int
+    changed_cells: int | None = None
+    added_cells: int | None = None
+    removed_cells: int | None = None
+    modified_cells: int | None = None
+
+
 class TextFileDiffResponse(BaseModel):
     display_name: str
     mode: Literal["git"]
@@ -175,6 +191,15 @@ class NotebookSectionDiffResponse(BaseModel):
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
 
 
+class RepoDiffResponse(BaseModel):
+    display_name: str
+    mode: Literal["repo"]
+    left_label: str
+    right_label: str
+    summary: RepoDiffSummaryResponse
+    files: list[TextFileDiffResponse | NotebookFileDiffResponse]
+
+
 DiffRowResponse.model_rebuild()
 
 
@@ -243,6 +268,75 @@ def create_app(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
         return SaveLogResponse(path=str(destination))
+
+    @app.get(
+        "/api/diff",
+        response_model=RepoDiffResponse,
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+        },
+        summary="Load a repository diff",
+    )
+    def serve_diff(
+        engine: EngineParam = Query(default=defaults["engine"], description="Diff engine."),
+        mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
+        left: str = Query(default=defaults["left"], description="Left ref or diff side."),
+        right: str = Query(default=defaults["right"], description="Right ref or diff side."),
+        base_branch: str | None = Query(
+            default=defaults.get("base_branch"),
+            description="Base branch for branch-review mode.",
+        ),
+        review_branch: str | None = Query(
+            default=defaults.get("review_branch"),
+            description="Branch being reviewed in branch-review mode.",
+        ),
+    ) -> RepoDiffResponse | JSONResponse:
+        selected_base_branch, selected_review_branch = selected_branches(
+            mode=mode,
+            base_branch=base_branch,
+            review_branch=review_branch,
+        )
+        diff_service = selected_service(engine)
+        try:
+            initial_payload, progress_iter, label_overrides = _build_stream_payload(
+                service=diff_service,
+                defaults=defaults,
+                mode=mode,
+                left=left,
+                right=right,
+                base_branch=selected_base_branch,
+                branch=selected_review_branch,
+            )
+            latest_summary = initial_payload["summary"]
+            file_entries: list[dict[str, Any]] = []
+            for progress in progress_iter:
+                entry = dict(progress.entry)
+                if label_overrides[0]:
+                    entry["left_label"] = label_overrides[0]
+                if label_overrides[1]:
+                    entry["right_label"] = label_overrides[1]
+                latest_summary = progress.summary
+                file_entries.append(entry)
+        except TextDiffError as exc:
+            return JSONResponse(
+                {"error": str(exc)},
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+        except Exception as exc:
+            LOGGER.exception("Diff request crashed: %s", exc)
+            return JSONResponse(
+                {"error": "Internal server error."},
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+
+        return RepoDiffResponse.model_validate(
+            {
+                **initial_payload,
+                "summary": latest_summary,
+                "files": file_entries,
+            }
+        )
 
     @app.get(
         "/api/diff-stream",

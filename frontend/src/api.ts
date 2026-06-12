@@ -57,6 +57,10 @@ export type RepoPayload = {
   summary: Summary;
 };
 
+export type RepoDiffPayload = RepoPayload & {
+  files: FileEntry[];
+};
+
 export type FileSummary = {
   changed_lines: number;
   modified_lines: number;
@@ -195,33 +199,6 @@ export type NotebookSection = {
   fold_hints: FoldHint[];
 };
 
-export type DiffStreamInitEvent = {
-  type: "init";
-  payload: RepoPayload;
-};
-
-export type DiffStreamFileEvent = {
-  type: "file";
-  entry: FileEntry;
-  summary: Summary;
-};
-
-export type DiffStreamDoneEvent = {
-  type: "done";
-  summary: Summary;
-};
-
-export type DiffStreamErrorEvent = {
-  type: "stream-error";
-  error: string;
-};
-
-export type DiffStreamEvent =
-  | DiffStreamInitEvent
-  | DiffStreamFileEvent
-  | DiffStreamDoneEvent
-  | DiffStreamErrorEvent;
-
 export async function fetchDefaults(): Promise<Defaults> {
   const response = await fetch("/api/defaults");
   if (!response.ok) {
@@ -230,10 +207,7 @@ export async function fetchDefaults(): Promise<Defaults> {
   return (await response.json()) as Defaults;
 }
 
-export async function fetchFileDiff(
-  request: DiffRequest,
-  entry: FileEntry,
-): Promise<FileEntry> {
+function diffRequestParams(request: DiffRequest): URLSearchParams {
   const params = new URLSearchParams();
   params.set("engine", request.engine);
   params.set("mode", request.mode === "against-head" ? "files" : request.mode);
@@ -249,6 +223,27 @@ export async function fetchFileDiff(
   if (request.review_branch) {
     params.set("review_branch", request.review_branch);
   }
+  return params;
+}
+
+export async function fetchDiff(
+  request: DiffRequest,
+  signal?: AbortSignal,
+): Promise<RepoDiffPayload> {
+  const params = diffRequestParams(request);
+  const response = await fetch(`/api/diff?${params.toString()}`, { signal });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Failed to load diff.");
+  }
+  return payload as RepoDiffPayload;
+}
+
+export async function fetchFileDiff(
+  request: DiffRequest,
+  entry: FileEntry,
+): Promise<FileEntry> {
+  const params = diffRequestParams(request);
   if (entry.left_path) {
     params.set("left_path", entry.left_path);
   }
@@ -273,21 +268,7 @@ export async function fetchNotebookSection(
   entry: FileEntry,
   options: { section: string; cellKey?: string | null },
 ): Promise<NotebookSection> {
-  const params = new URLSearchParams();
-  params.set("engine", request.engine);
-  params.set("mode", request.mode === "against-head" ? "files" : request.mode);
-  if (request.left) {
-    params.set("left", request.left);
-  }
-  if (request.right) {
-    params.set("right", request.right);
-  }
-  if (request.base_branch) {
-    params.set("base_branch", request.base_branch);
-  }
-  if (request.review_branch) {
-    params.set("review_branch", request.review_branch);
-  }
+  const params = diffRequestParams(request);
   if (entry.left_path) {
     params.set("left_path", entry.left_path);
   }
@@ -305,51 +286,4 @@ export async function fetchNotebookSection(
     throw new Error(payload.error || "Failed to load notebook section.");
   }
   return payload as NotebookSection;
-}
-
-export function openDiffStream(
-  request: DiffRequest,
-  onEvent: (event: DiffStreamEvent) => void,
-  onTransportError: (error: Event) => void,
-): EventSource {
-  const params = new URLSearchParams();
-  params.set("engine", request.engine);
-  params.set("mode", request.mode === "against-head" ? "files" : request.mode);
-  params.set("left", request.left);
-  params.set("right", request.right);
-  if (request.base_branch) {
-    params.set("base_branch", request.base_branch);
-  }
-  if (request.review_branch) {
-    params.set("review_branch", request.review_branch);
-  }
-
-  const source = new EventSource(`/api/diff-stream?${params.toString()}`);
-  source.addEventListener("init", (event) => {
-    onEvent({
-      type: "init",
-      payload: JSON.parse(event.data) as RepoPayload,
-    });
-  });
-  source.addEventListener("file", (event) => {
-    const payload = JSON.parse(event.data) as {
-      entry: FileEntry;
-      summary: Summary;
-    };
-    onEvent({
-      type: "file",
-      entry: payload.entry,
-      summary: payload.summary,
-    });
-  });
-  source.addEventListener("done", (event) => {
-    const payload = JSON.parse(event.data) as { summary: Summary };
-    onEvent({ type: "done", summary: payload.summary });
-  });
-  source.addEventListener("stream-error", (event) => {
-    const payload = JSON.parse(event.data) as { error: string };
-    onEvent({ type: "stream-error", error: payload.error });
-  });
-  source.onerror = onTransportError;
-  return source;
 }
