@@ -73,6 +73,8 @@ const modeLabels: Record<DiffMode, string> = {
   refs: "Compare refs",
   "branch-review": "Branch review",
 };
+const AUTO_COLLAPSE_RENDERED_ROW_LIMIT = 500;
+const AUTO_COLLAPSE_FILE_COUNT_LIMIT = 50;
 const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   git: "Git",
@@ -399,16 +401,16 @@ function App() {
         if (event.type === "file") {
           const key = fileKey(event.entry);
           const directory = entryDirectoryLabel(event.entry);
+          const nextFiles = [...files(), event.entry];
           batch(() => {
-            setFiles((current) => [...current, event.entry]);
+            setFiles(() => nextFiles);
             setDirectoryExpansion((current) => ({
               ...current,
-              [directory]: current[directory] ?? true,
+              [directory]: directoryExpansionValue(current, directory),
             }));
-            setFileExpansion((current) => ({
-              ...current,
-              [key]: current[key] ?? !event.entry.lazy,
-            }));
+            setFileExpansion((current) =>
+              nextFileExpansion(current, nextFiles, event.entry, key),
+            );
             setSummary(event.summary);
             setStatusText(
               `${statusLabel(activeRequest)} · loaded ${event.summary.changed_files} files...`,
@@ -1130,6 +1132,66 @@ type FilesSetter = (updater: (current: FileEntry[]) => FileEntry[]) => void;
 type StringMapSetter = (
   updater: (current: Record<string, string>) => Record<string, string>,
 ) => void;
+
+function directoryExpansionValue(
+  current: Record<string, boolean>,
+  directory: string,
+): boolean {
+  if (Object.hasOwn(current, directory)) {
+    return current[directory];
+  }
+  return true;
+}
+
+function nextFileExpansion(
+  current: Record<string, boolean>,
+  files: FileEntry[],
+  newFile: FileEntry,
+  newFileKey: string,
+): Record<string, boolean> {
+  if (files.length > AUTO_COLLAPSE_FILE_COUNT_LIMIT) {
+    return Object.fromEntries(files.map((file) => [fileKey(file), false]));
+  }
+  if (Object.hasOwn(current, newFileKey)) {
+    return current;
+  }
+  return {
+    ...current,
+    [newFileKey]: shouldExpandFileByDefault(newFile),
+  };
+}
+
+function shouldExpandFileByDefault(file: FileEntry): boolean {
+  if (file.lazy) {
+    return false;
+  }
+  return renderedLineCount(file) <= AUTO_COLLAPSE_RENDERED_ROW_LIMIT;
+}
+
+function renderedLineCount(file: FileEntry): number {
+  if (file.render_kind === "notebook") {
+    if (!file.cells) {
+      throw new Error(`Notebook file is missing cells for ${fileDisplayName(file)}.`);
+    }
+    if (!file.notebook_metadata_rows) {
+      throw new Error(
+        `Notebook file is missing metadata rows for ${fileDisplayName(file)}.`,
+      );
+    }
+    return file.cells.reduce(
+      (total, cell) =>
+        total +
+        cell.source_rows.length +
+        cell.metadata_rows.length +
+        cell.outputs_rows.length,
+      file.notebook_metadata_rows.length,
+    );
+  }
+  if (!file.rows) {
+    throw new Error(`File is missing rows for ${fileDisplayName(file)}.`);
+  }
+  return file.rows.length;
+}
 
 function FileList(props: {
   files: FileEntry[];
