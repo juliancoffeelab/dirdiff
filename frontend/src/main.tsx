@@ -7,6 +7,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  type JSX,
 } from "solid-js";
 import { render } from "solid-js/web";
 import {
@@ -322,6 +323,8 @@ function App() {
   const [summary, setSummary] = createSignal<Summary>(emptySummary);
   const [status, setStatus] = createSignal<LoadState>("idle");
   const [statusText, setStatusText] = createSignal("Preparing diff...");
+  const [debugMenuOpen, setDebugMenuOpen] = createSignal(false);
+  const [helpOpen, setHelpOpen] = createSignal(false);
   const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
   const [currentHunkIndex, setCurrentHunkIndex] = createSignal(0);
   const [hunkNavigationTick, setHunkNavigationTick] = createSignal(0);
@@ -472,6 +475,17 @@ function App() {
     if (event.key === "t") {
       event.preventDefault();
       setFileTreeOpen((open) => !open);
+      return;
+    }
+    if (event.key === "d") {
+      event.preventDefault();
+      setDebugMenuOpen((open) => !open);
+      return;
+    }
+    if (event.key === "h") {
+      event.preventDefault();
+      setHelpOpen((open) => !open);
+      return;
     }
   };
 
@@ -690,7 +704,7 @@ function App() {
           <div class="app-title-row">
             <h1>dirdiff</h1>
             <div class="header-actions">
-              <DebugMenu engine={engine()} onEngineChange={loadEngine} />
+              <EngineSelect engine={engine()} onEngineChange={loadEngine} />
               <a class="legacy-link" href={legacyUrl(request())}>
                 Legacy
               </a>
@@ -747,9 +761,11 @@ function App() {
               onScrollToFile={scrollToFile}
             />
             <HunkNav
+              debugOpen={debugMenuOpen()}
+              helpOpen={helpOpen()}
+              onHelpOpenChange={setHelpOpen}
               onNext={() => scrollHunk(1)}
               onPrev={() => scrollHunk(-1)}
-              onTop={scrollTop}
             />
           </>
         )}
@@ -758,14 +774,31 @@ function App() {
   );
 }
 
-function DebugMenu(props: {
+function EngineSelect(props: {
   engine: DiffEngine;
   onEngineChange: (engine: DiffEngine) => void;
 }) {
-  const [open, setOpen] = createSignal(false);
+  return (
+    <label class="engine-select">
+      <span>Engine</span>
+      <select
+        value={props.engine}
+        onChange={(event) => {
+          const nextEngine = event.currentTarget.value as DiffEngine;
+          if (nextEngine === "dirdiff" || nextEngine === "git") {
+            props.onEngineChange(nextEngine);
+          }
+        }}
+      >
+        <option value="dirdiff">{engineLabels.dirdiff}</option>
+        <option value="git">{engineLabels.git}</option>
+      </select>
+    </label>
+  );
+}
+
+function DebugHud(props: { open: boolean }) {
   const [metrics, setMetrics] = createSignal<DebugMetrics>(emptyDebugMetrics);
-  let panel: HTMLDivElement | undefined;
-  let toggle: HTMLButtonElement | undefined;
   let frame = 0;
   let sampleStartedAt = performance.now();
   let sampleFrames = 0;
@@ -782,26 +815,6 @@ function DebugMenu(props: {
     });
   };
 
-  const positionPanel = () => {
-    if (!panel || !toggle || !open()) {
-      return;
-    }
-    const margin = 16;
-    const rect = toggle.getBoundingClientRect();
-    const panelWidth = panel.offsetWidth || 240;
-    const panelHeight = panel.offsetHeight || 160;
-    const left = Math.min(
-      Math.max(rect.left, margin),
-      Math.max(margin, window.innerWidth - panelWidth - margin),
-    );
-    const top = Math.min(
-      Math.max(rect.bottom + 10, margin),
-      Math.max(margin, window.innerHeight - panelHeight - margin),
-    );
-    panel.style.setProperty("--debug-menu-left", `${Math.round(left)}px`);
-    panel.style.setProperty("--debug-menu-top", `${Math.round(top)}px`);
-  };
-
   const tick = (now: number) => {
     sampleFrames += 1;
     const sampleElapsed = now - sampleStartedAt;
@@ -810,7 +823,7 @@ function DebugMenu(props: {
       sampleStartedAt = now;
       sampleFrames = 0;
     }
-    if (open() && now - displayUpdatedAt >= 900) {
+    if (props.open && now - displayUpdatedAt >= 900) {
       updateMetrics();
       displayUpdatedAt = now;
     }
@@ -819,68 +832,25 @@ function DebugMenu(props: {
 
   onMount(() => {
     frame = requestAnimationFrame(tick);
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    const reposition = () => positionPanel();
-    document.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("resize", reposition);
     onCleanup(() => {
       cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("resize", reposition);
     });
   });
 
   createEffect(() => {
-    if (open()) {
+    if (props.open) {
       updateMetrics();
-      requestAnimationFrame(positionPanel);
     }
   });
 
   return (
-    <div class="debug-menu" onClick={(event) => event.stopPropagation()}>
-      <button
-        ref={toggle}
-        type="button"
-        class="debug-menu-toggle"
-        aria-expanded={open()}
-        aria-controls="debugMenuPanel"
-        onClick={() => setOpen((value) => !value)}
-      >
-        Dev
-      </button>
-      <Show when={open()}>
-        <div ref={panel} class="debug-menu-panel" id="debugMenuPanel">
-          <div class="debug-menu-header">
-            <strong>Developer Controls</strong>
-          </div>
-          <label class="debug-menu-field">
-            <span>Engine</span>
-            <select
-              value={props.engine}
-              onChange={(event) => {
-                const nextEngine = event.currentTarget.value as DiffEngine;
-                if (nextEngine === "dirdiff" || nextEngine === "git") {
-                  props.onEngineChange(nextEngine);
-                }
-              }}
-            >
-              <option value="dirdiff">{engineLabels.dirdiff}</option>
-              <option value="git">{engineLabels.git}</option>
-            </select>
-          </label>
-          <div class="debug-menu-metrics" aria-label="Developer metrics">
-            <DebugMetric label="FPS" value={metrics().fps} />
-            <DebugMetric label="Nodes" value={metrics().nodes} />
-            <DebugMetric label="Spans" value={metrics().spans} />
-          </div>
-        </div>
-      </Show>
-    </div>
+    <Show when={props.open}>
+      <div class="debug-hud" aria-label="Developer metrics">
+        <DebugMetric label="FPS" value={metrics().fps} />
+        <DebugMetric label="Nodes" value={metrics().nodes} />
+        <DebugMetric label="Spans" value={metrics().spans} />
+      </div>
+    </Show>
   );
 }
 
@@ -894,22 +864,90 @@ function DebugMetric(props: { label: string; value: string }) {
 }
 
 function HunkNav(props: {
+  debugOpen: boolean;
+  helpOpen: boolean;
+  onHelpOpenChange: (open: boolean) => void;
   onNext: () => void;
   onPrev: () => void;
-  onTop: () => void;
 }) {
   return (
-    <nav class="hunk-nav" aria-label="Hunk navigation">
-      <button type="button" onClick={props.onNext} title="Next hunk (n)">
-        Next <kbd>n</kbd>
-      </button>
-      <button type="button" onClick={props.onPrev} title="Previous hunk (N)">
-        Prev <kbd>N</kbd>
-      </button>
-      <button type="button" onClick={props.onTop} title="Scroll to top (p)">
-        Top <kbd>p</kbd>
-      </button>
-    </nav>
+    <div class="hud-stack">
+      <DebugHud open={props.debugOpen} />
+      <HelpModal open={props.helpOpen} onOpenChange={props.onHelpOpenChange} />
+      <nav class="hunk-nav" aria-label="Hunk navigation">
+        <button type="button" onClick={props.onNext} title="Next hunk (n)">
+          Next <kbd>n</kbd>
+        </button>
+        <button type="button" onClick={props.onPrev} title="Previous hunk (N)">
+          Prev <kbd>N</kbd>
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onHelpOpenChange(!props.helpOpen)}
+          aria-expanded={props.helpOpen}
+          title="Hotkey help (h)"
+        >
+          Help <kbd>h</kbd>
+        </button>
+      </nav>
+    </div>
+  );
+}
+
+function HelpModal(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Show when={props.open}>
+      <div
+        class="help-modal-backdrop"
+        onClick={() => props.onOpenChange(false)}
+      >
+        <section
+          class="help-modal"
+          aria-label="Hotkey help"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div class="help-modal-header">
+            <strong>Hotkeys</strong>
+            <button type="button" onClick={() => props.onOpenChange(false)}>
+              Close
+            </button>
+          </div>
+          <HotkeyHelpSection title="Navigation">
+            <HotkeyHelpRow keys="n" label="Go to the next hunk" />
+            <HotkeyHelpRow keys="N" label="Go to the previous hunk" />
+            <HotkeyHelpRow keys="p" label="Go to the top" />
+          </HotkeyHelpSection>
+          <HotkeyHelpSection title="UI">
+            <HotkeyHelpRow keys="t" label="Toggle the file tree" />
+          </HotkeyHelpSection>
+          <HotkeyHelpSection title="Misc">
+            <HotkeyHelpRow keys="d" label="Toggle developer metrics" />
+            <HotkeyHelpRow keys="h" label="Toggle this help panel" />
+          </HotkeyHelpSection>
+        </section>
+      </div>
+    </Show>
+  );
+}
+
+function HotkeyHelpSection(props: { title: string; children: JSX.Element }) {
+  return (
+    <section class="help-modal-section">
+      <h2>{props.title}</h2>
+      <div class="help-modal-grid">{props.children}</div>
+    </section>
+  );
+}
+
+function HotkeyHelpRow(props: { keys: string; label: string }) {
+  return (
+    <div class="help-hud-row">
+      <kbd>{props.keys}</kbd>
+      <span>{props.label}</span>
+    </div>
   );
 }
 
