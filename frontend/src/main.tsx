@@ -16,6 +16,7 @@ import {
   createQuery,
   useQueryClient,
 } from "@tanstack/solid-query";
+import { createHunkNavigation } from "./hunkNavigation";
 import {
   type Defaults,
   type DiffEngine,
@@ -348,13 +349,27 @@ function App() {
   const [debugMenuOpen, setDebugMenuOpen] = createSignal(false);
   const [helpOpen, setHelpOpen] = createSignal(false);
   const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
-  const [currentHunkIndex, setCurrentHunkIndex] = createSignal(0);
-  const [hunkNavigationTick, setHunkNavigationTick] = createSignal(0);
   let appRoot: HTMLElement | undefined;
   let initialized = false;
-  let hunkReconcileTimer = 0;
   let restoredLinePinKey = "";
   let requestVersion = 0;
+  const hunkNav = createHunkNavigation(() => appRoot, {
+    afterReconcile: () => {
+      if (!appRoot) {
+        return;
+      }
+      restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
+        restoredLinePinKey = pinKey;
+      });
+    },
+  });
+
+  hunkNav.reconcileWhen([
+    files,
+    directoryExpansion,
+    fileExpansion,
+    loadingFiles,
+  ]);
 
   const refChoices = () =>
     defaults.data?.ref_choices ?? {
@@ -374,8 +389,6 @@ function App() {
       setSummary(emptySummary);
       setStatus(nextStatus);
       setStatusText(nextStatusText);
-      setCurrentHunkIndex(0);
-      setHunkNavigationTick((tick) => tick + 1);
     });
   };
 
@@ -476,8 +489,6 @@ function App() {
     );
   });
 
-  onCleanup(() => clearTimeout(hunkReconcileTimer));
-
   const toggleDiffViewMode = () => {
     setDiffViewMode((mode) => (mode === "split" ? "inline" : "split"));
   };
@@ -503,12 +514,12 @@ function App() {
     }
     if (event.code === "KeyN" && !event.shiftKey) {
       event.preventDefault();
-      scrollHunk(1);
+      hunkNav.scrollNext();
       return;
     }
     if (event.code === "KeyN" && event.shiftKey) {
       event.preventDefault();
-      scrollHunk(-1);
+      hunkNav.scrollPrev();
       return;
     }
     if (event.code === "KeyP") {
@@ -685,49 +696,6 @@ function App() {
     }
   };
 
-  createEffect(() => {
-    hunkNavigationTick();
-    files();
-    directoryExpansion();
-    fileExpansion();
-    loadingFiles();
-    clearTimeout(hunkReconcileTimer);
-    hunkReconcileTimer = window.setTimeout(() => {
-      const anchors = hunkAnchors(appRoot);
-      if (!anchors.length) {
-        setCurrentHunkIndex(0);
-        if (appRoot) {
-          restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
-            restoredLinePinKey = pinKey;
-          });
-        }
-        return;
-      }
-      setCurrentHunkIndex((index) => clamp(index, 0, anchors.length - 1));
-      selectCurrentHunk(currentHunkIndex(), false, appRoot);
-      if (appRoot) {
-        restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
-          restoredLinePinKey = pinKey;
-        });
-      }
-    }, 120);
-  });
-
-  const scrollHunk = (direction: 1 | -1) => {
-    const anchors = hunkAnchors(appRoot);
-    if (!anchors.length) {
-      console.error(
-        "[dirdiff] Hunk navigation requested with no mounted hunk anchors.",
-      );
-      throw new Error(
-        "Hunk navigation requested with no mounted hunk anchors.",
-      );
-    }
-    const nextIndex = wrapIndex(currentHunkIndex() + direction, anchors.length);
-    setCurrentHunkIndex(nextIndex);
-    selectCurrentHunk(nextIndex, true, appRoot);
-  };
-
   const scrollTop = () => {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
@@ -865,8 +833,8 @@ function App() {
               debugOpen={debugMenuOpen()}
               helpOpen={helpOpen()}
               onHelpOpenChange={setHelpOpen}
-              onNext={() => scrollHunk(1)}
-              onPrev={() => scrollHunk(-1)}
+              onNext={hunkNav.scrollNext}
+              onPrev={hunkNav.scrollPrev}
             />
           </>
         )}
@@ -2444,34 +2412,6 @@ function groupFilesByLabel(files: FileEntry[]): Map<string, FileGroup> {
   );
 }
 
-function hunkAnchors(root: ParentNode = document): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>(".hunk-anchor")];
-}
-
-function selectCurrentHunk(
-  index: number,
-  scroll: boolean,
-  root: ParentNode = document,
-) {
-  const anchors = hunkAnchors(root);
-  if (!anchors.length) {
-    return;
-  }
-  const selected = anchors[clamp(index, 0, anchors.length - 1)];
-  for (const anchor of anchors) {
-    anchor.classList.remove("active-hunk");
-    anchor.removeAttribute("aria-current");
-  }
-  selected.classList.add("active-hunk");
-  selected.setAttribute("aria-current", "true");
-  if (scroll) {
-    selected.scrollIntoView({
-      block: "center",
-      behavior: "instant",
-    });
-  }
-}
-
 function getLinePinFromHash(): LinePin | null {
   const params = new URLSearchParams(window.location.hash.slice(1));
   const rawPin = params.get(linePinHashKey);
@@ -2580,14 +2520,6 @@ function restorePinnedLine(
   setRestoredLinePinKey(pinKey);
   highlightPinnedLine(root, row);
   row?.scrollIntoView({ block: "center", behavior: "instant" });
-}
-
-function wrapIndex(index: number, length: number): number {
-  return ((index % length) + length) % length;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function shouldIgnoreHunkNavKeyEvent(event: KeyboardEvent): boolean {
