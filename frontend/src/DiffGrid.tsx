@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type JSX } from "solid-js";
+import { createEffect } from "solid-js";
 import type { DiffRow, FileEntry, InlineToken, SyntaxSpan } from "./api";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
 
@@ -17,14 +17,6 @@ type InlineMarker = " " | "-" | "+";
 export type DiffViewMode = "split" | "inline";
 
 export function DiffGrid(props: { file: FileEntry; viewMode: DiffViewMode }) {
-  const rows = () =>
-    markHunkAnchors(addFoldRows(props.file.rows ?? [], props.file.fold_hints));
-  const fileLabel = () =>
-    props.file.display_name ||
-    props.file.right_path ||
-    props.file.left_path ||
-    "(unknown file)";
-
   return (
     <div
       class="diff-grid"
@@ -41,18 +33,7 @@ export function DiffGrid(props: { file: FileEntry; viewMode: DiffViewMode }) {
           rightLabel={props.file.right_label || "right"}
         />
       )}
-      <div class="diff-lines">
-        {props.viewMode === "inline" ? (
-          <InlineRows rows={rows()} fileLabel={fileLabel()} />
-        ) : (
-          <SplitRows
-            rows={rows()}
-            fileLabel={fileLabel()}
-            leftLabel={props.file.left_label || "left"}
-            rightLabel={props.file.right_label || "right"}
-          />
-        )}
-      </div>
+      <ImperativeDiffLines file={props.file} viewMode={props.viewMode} />
     </div>
   );
 }
@@ -84,315 +65,362 @@ type HunkRenderRow = RenderRow & {
   isHunkAnchor?: boolean;
 };
 
-function SplitRows(props: {
-  rows: HunkRenderRow[];
-  fileLabel: string;
-  leftLabel: string;
-  rightLabel: string;
+function ImperativeDiffLines(props: {
+  file: FileEntry;
+  viewMode: DiffViewMode;
 }) {
+  let root!: HTMLDivElement;
+  const expandedFolds = new Set<number>();
+  let previousFile: FileEntry | undefined;
+  let previousViewMode: DiffViewMode | undefined;
+
+  const render = () => {
+    if (props.file !== previousFile || props.viewMode !== previousViewMode) {
+      expandedFolds.clear();
+      previousFile = props.file;
+      previousViewMode = props.viewMode;
+    }
+
+    const rows = markHunkAnchors(
+      addFoldRows(props.file.rows ?? [], props.file.fold_hints),
+    );
+    const fileLabel = fileDisplayLabel(props.file);
+    const fragment =
+      props.viewMode === "inline"
+        ? renderInlineRowsDom(rows, fileLabel, expandedFolds)
+        : renderSplitRowsDom(
+            rows,
+            fileLabel,
+            props.file.left_label || "left",
+            props.file.right_label || "right",
+            expandedFolds,
+          );
+    root.replaceChildren(fragment);
+  };
+
+  createEffect(render);
+
+  return <div ref={root} class="diff-lines" />;
+}
+
+function fileDisplayLabel(file: FileEntry): string {
   return (
-    <For each={props.rows}>
-      {(row, index) => (
-        <>
-          {isFoldRow(row) ? (
-            <FoldSection
-              row={row as FoldRow}
-              rowIndex={index()}
-              fileLabel={props.fileLabel}
-              leftLabel={props.leftLabel}
-              rightLabel={props.rightLabel}
-            />
-          ) : (
-            <DiffGridRow
-              row={row as DiffRow}
-              rowIndex={index()}
-              fileLabel={props.fileLabel}
-            />
-          )}
-        </>
-      )}
-    </For>
+    file.display_name || file.right_path || file.left_path || "(unknown file)"
   );
 }
 
-function InlineRows(props: { rows: HunkRenderRow[]; fileLabel: string }) {
-  return (
-    <For each={props.rows}>
-      {(row, index) => (
-        <>
-          {isFoldRow(row) ? (
-            <InlineFoldSection
-              row={row as FoldRow}
-              rowIndex={index()}
-              fileLabel={props.fileLabel}
-            />
-          ) : (
-            <InlineDiffRows
-              row={row as DiffRow & { isHunkAnchor?: boolean }}
-              rowIndex={index()}
-              fileLabel={props.fileLabel}
-            />
-          )}
-        </>
-      )}
-    </For>
+function renderSplitRowsDom(
+  rows: HunkRenderRow[],
+  fileLabel: string,
+  leftLabel: string,
+  rightLabel: string,
+  expandedFolds: Set<number>,
+): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  rows.forEach((row, index) => {
+    if (isFoldRow(row)) {
+      fragment.append(
+        renderSplitFoldDom(
+          row,
+          index,
+          fileLabel,
+          leftLabel,
+          rightLabel,
+          expandedFolds,
+        ),
+      );
+      return;
+    }
+    fragment.append(renderSplitDiffRowDom(row, index, fileLabel));
+  });
+  return fragment;
+}
+
+function renderInlineRowsDom(
+  rows: HunkRenderRow[],
+  fileLabel: string,
+  expandedFolds: Set<number>,
+): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  rows.forEach((row, index) => {
+    if (isFoldRow(row)) {
+      fragment.append(
+        renderInlineFoldDom(row, index, fileLabel, expandedFolds),
+      );
+      return;
+    }
+    fragment.append(renderInlineDiffRowsDom(row, index, fileLabel));
+  });
+  return fragment;
+}
+
+function renderSplitFoldDom(
+  row: FoldRow,
+  rowIndex: number,
+  fileLabel: string,
+  leftLabel: string,
+  rightLabel: string,
+  expandedFolds: Set<number>,
+): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.style.display = "contents";
+
+  const toggle = () => {
+    if (expandedFolds.has(rowIndex)) {
+      expandedFolds.delete(rowIndex);
+    } else {
+      expandedFolds.add(rowIndex);
+    }
+    renderFold();
+  };
+
+  const renderFold = () => {
+    const expanded = expandedFolds.has(rowIndex);
+    if (expanded) {
+      const fragment = document.createDocumentFragment();
+      const firstRow = row.foldedRows[0];
+      if (firstRow) {
+        fragment.append(
+          renderSplitDiffRowDom(
+            {
+              ...firstRow,
+              isHunkAnchor: isChangedRowStatus(firstRow.status),
+            },
+            rowIndex,
+            fileLabel,
+            { expanded: true, onToggle: toggle },
+          ),
+        );
+      }
+      row.foldedRows.slice(1).forEach((foldedRow, foldedIndex) => {
+        fragment.append(
+          renderSplitDiffRowDom(
+            foldedRow,
+            rowIndex + foldedIndex + 1,
+            fileLabel,
+          ),
+        );
+      });
+      wrapper.replaceChildren(fragment);
+      return;
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "diff-row fold-bar";
+    button.dataset.rowIndex = String(rowIndex);
+    button.title = "Expand folded rows";
+    button.addEventListener("click", toggle);
+    button.append(
+      createFoldSideDom(row.count, row.label, leftLabel),
+      createFoldSideDom(row.count, row.label, rightLabel),
+    );
+    wrapper.replaceChildren(button);
+  };
+
+  renderFold();
+  return wrapper;
+}
+
+function renderInlineFoldDom(
+  row: FoldRow,
+  rowIndex: number,
+  fileLabel: string,
+  expandedFolds: Set<number>,
+): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.style.display = "contents";
+
+  const toggle = () => {
+    if (expandedFolds.has(rowIndex)) {
+      expandedFolds.delete(rowIndex);
+    } else {
+      expandedFolds.add(rowIndex);
+    }
+    renderFold();
+  };
+
+  const renderFold = () => {
+    const expanded = expandedFolds.has(rowIndex);
+    if (expanded) {
+      const fragment = document.createDocumentFragment();
+      const firstRow = row.foldedRows[0];
+      if (firstRow) {
+        fragment.append(
+          renderInlineDiffRowsDom(
+            {
+              ...firstRow,
+              isHunkAnchor: isChangedRowStatus(firstRow.status),
+            },
+            rowIndex,
+            fileLabel,
+            { expanded: true, onToggle: toggle },
+          ),
+        );
+      }
+      row.foldedRows.slice(1).forEach((foldedRow, foldedIndex) => {
+        fragment.append(
+          renderInlineDiffRowsDom(
+            foldedRow,
+            rowIndex + foldedIndex + 1,
+            fileLabel,
+          ),
+        );
+      });
+      wrapper.replaceChildren(fragment);
+      return;
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "diff-row inline-diff-row inline-fold-bar";
+    button.dataset.rowIndex = String(rowIndex);
+    button.title = "Expand folded rows";
+    button.addEventListener("click", toggle);
+    button.append(
+      createPlainLineNumberDom(".."),
+      createPlainLineNumberDom(".."),
+      createElementWithClass(
+        "div",
+        "fold-label inline-fold-label",
+        foldLabel(row),
+      ),
+    );
+    wrapper.replaceChildren(button);
+  };
+
+  renderFold();
+  return wrapper;
+}
+
+type FoldToggle = { expanded: boolean; onToggle: () => void };
+
+function renderSplitDiffRowDom(
+  row: DiffRow & { isHunkAnchor?: boolean },
+  rowIndex: number,
+  fileLabel: string,
+  foldToggle?: FoldToggle,
+): HTMLElement {
+  const element = document.createElement("div");
+  element.className = diffRowClass(row.status, row, foldToggle);
+  element.dataset.rowIndex = String(rowIndex);
+  if (foldToggle) {
+    element.title = "Collapse folded rows";
+    element.addEventListener("click", foldToggle.onToggle);
+  }
+  element.append(
+    createDiffSideDom(row, "left", fileLabel, foldToggle),
+    createDiffSideDom(row, "right", fileLabel, foldToggle),
   );
+  return element;
 }
 
-function FoldSection(props: {
-  row: FoldRow;
-  rowIndex: number;
-  fileLabel: string;
-  leftLabel: string;
-  rightLabel: string;
-}) {
-  const [expanded, setExpanded] = createSignal(false);
-  const toggle = () => setExpanded((value) => !value);
+function renderInlineDiffRowsDom(
+  row: DiffRow & { isHunkAnchor?: boolean },
+  rowIndex: number,
+  fileLabel: string,
+  foldToggle?: FoldToggle,
+): DocumentFragment | HTMLElement {
+  const rightText = row.right_text ?? "";
+  const leftText = row.left_text ?? "";
+  const sharedText = rightText || leftText;
+  const sharedTokens =
+    (row.right_tokens?.length ? row.right_tokens : row.left_tokens) ?? [];
+  const sharedSyntax =
+    (row.right_syntax?.length ? row.right_syntax : row.left_syntax) ?? [];
 
-  return (
-    <>
-      <Show when={!expanded()}>
-        <button
-          type="button"
-          class="diff-row fold-bar"
-          data-row-index={props.rowIndex}
-          onClick={toggle}
-          title="Expand folded rows"
-        >
-          <FoldSide
-            count={props.row.count}
-            label={props.row.label}
-            sideLabel={props.leftLabel}
-          />
-          <FoldSide
-            count={props.row.count}
-            label={props.row.label}
-            sideLabel={props.rightLabel}
-          />
-        </button>
-      </Show>
-      <Show when={expanded()}>
-        <DiffGridRow
-          row={{
-            ...props.row.foldedRows[0],
-            isHunkAnchor: isChangedRowStatus(props.row.foldedRows[0]?.status),
-          }}
-          rowIndex={props.rowIndex}
-          fileLabel={props.fileLabel}
-          foldToggle={{ expanded: true, onToggle: toggle }}
-        />
-        <For each={props.row.foldedRows.slice(1)}>
-          {(foldedRow, foldedIndex) => (
-            <DiffGridRow
-              row={foldedRow}
-              rowIndex={props.rowIndex + foldedIndex() + 1}
-              fileLabel={props.fileLabel}
-            />
-          )}
-        </For>
-      </Show>
-    </>
-  );
+  switch (row.status) {
+    case "equal":
+      return renderInlineDiffRowDom({
+        status: "equal",
+        marker: " ",
+        leftNo: row.left_no,
+        rightNo: row.right_no,
+        text: sharedText,
+        tokens: sharedTokens,
+        syntax: sharedSyntax,
+        rowIndex,
+        fileLabel,
+        sourceRow: row,
+        foldToggle,
+      });
+    case "delete":
+      return renderInlineDiffRowDom({
+        status: "delete",
+        marker: "-",
+        leftNo: row.left_no,
+        rightNo: null,
+        text: leftText,
+        tokens: row.left_tokens ?? [],
+        syntax: row.left_syntax ?? [],
+        rowIndex,
+        fileLabel,
+        sourceRow: row,
+        foldToggle,
+      });
+    case "insert":
+      return renderInlineDiffRowDom({
+        status: "insert",
+        marker: "+",
+        leftNo: null,
+        rightNo: row.right_no,
+        text: rightText,
+        tokens: row.right_tokens ?? [],
+        syntax: row.right_syntax ?? [],
+        rowIndex,
+        fileLabel,
+        sourceRow: row,
+        foldToggle,
+      });
+    case "replace": {
+      const fragment = document.createDocumentFragment();
+      fragment.append(
+        renderInlineDiffRowDom({
+          status: "delete",
+          marker: "-",
+          leftNo: row.left_no,
+          rightNo: null,
+          text: leftText,
+          tokens: row.left_tokens ?? [],
+          syntax: row.left_syntax ?? [],
+          rowIndex,
+          fileLabel,
+          sourceRow: row,
+          foldToggle,
+        }),
+        renderInlineDiffRowDom({
+          status: "insert",
+          marker: "+",
+          leftNo: null,
+          rightNo: row.right_no,
+          text: rightText,
+          tokens: row.right_tokens ?? [],
+          syntax: row.right_syntax ?? [],
+          rowIndex,
+          fileLabel,
+          sourceRow: { ...row, isHunkAnchor: false },
+        }),
+      );
+      return fragment;
+    }
+    default:
+      return renderInlineDiffRowDom({
+        status: "equal",
+        marker: " ",
+        leftNo: row.left_no,
+        rightNo: row.right_no,
+        text: sharedText,
+        tokens: sharedTokens,
+        syntax: sharedSyntax,
+        rowIndex,
+        fileLabel,
+        sourceRow: row,
+        foldToggle,
+      });
+  }
 }
 
-function FoldSide(props: { count: number; label: string; sideLabel: string }) {
-  const lineText = () => `${props.count} line${props.count === 1 ? "" : "s"}`;
-  const text = () =>
-    props.label ? `... ${lineText()} in ${props.label}` : `... ${lineText()}`;
-  return (
-    <div class="diff-side fold-side" data-side-label={props.sideLabel}>
-      <div class="line-no">..</div>
-      <div class="fold-label">{text()}</div>
-    </div>
-  );
-}
-
-function InlineFoldSection(props: {
-  row: FoldRow;
-  rowIndex: number;
-  fileLabel: string;
-}) {
-  const [expanded, setExpanded] = createSignal(false);
-  const toggle = () => setExpanded((value) => !value);
-
-  return (
-    <>
-      <Show when={!expanded()}>
-        <button
-          type="button"
-          class="diff-row inline-diff-row inline-fold-bar"
-          data-row-index={props.rowIndex}
-          onClick={toggle}
-          title="Expand folded rows"
-        >
-          <div class="line-no">..</div>
-          <div class="line-no">..</div>
-          <div class="fold-label inline-fold-label">{foldLabel(props.row)}</div>
-        </button>
-      </Show>
-      <Show when={expanded()}>
-        <InlineDiffRows
-          row={{
-            ...props.row.foldedRows[0],
-            isHunkAnchor: isChangedRowStatus(props.row.foldedRows[0]?.status),
-          }}
-          rowIndex={props.rowIndex}
-          fileLabel={props.fileLabel}
-          foldToggle={{ expanded: true, onToggle: toggle }}
-        />
-        <For each={props.row.foldedRows.slice(1)}>
-          {(foldedRow, foldedIndex) => (
-            <InlineDiffRows
-              row={foldedRow}
-              rowIndex={props.rowIndex + foldedIndex() + 1}
-              fileLabel={props.fileLabel}
-            />
-          )}
-        </For>
-      </Show>
-    </>
-  );
-}
-
-function foldLabel(row: FoldRow) {
-  const lineText = `${row.count} line${row.count === 1 ? "" : "s"}`;
-  return row.label ? `... ${lineText} in ${row.label}` : `... ${lineText}`;
-}
-
-function DiffGridRow(props: {
-  row: DiffRow & { isHunkAnchor?: boolean };
-  rowIndex: number;
-  fileLabel: string;
-  foldToggle?: { expanded: boolean; onToggle: () => void };
-}) {
-  const row = () => props.row;
-  const changed = () => isChangedRowStatus(row().status);
-  const whitespaceOnly = () => changed() && isWhitespaceOnlyChange(row());
-
-  return (
-    <div
-      class="diff-row"
-      classList={{
-        [row().status]: true,
-        "hunk-anchor": Boolean(row().isHunkAnchor),
-        "whitespace-only-change": whitespaceOnly(),
-        "fold-toggle-row": Boolean(props.foldToggle),
-        "fold-expanded": Boolean(props.foldToggle?.expanded),
-      }}
-      data-row-index={props.rowIndex}
-      title={props.foldToggle ? "Collapse folded rows" : undefined}
-      onClick={props.foldToggle?.onToggle}
-    >
-      <DiffSide
-        row={row()}
-        side="left"
-        fileLabel={props.fileLabel}
-        foldToggle={props.foldToggle}
-      />
-      <DiffSide
-        row={row()}
-        side="right"
-        fileLabel={props.fileLabel}
-        foldToggle={props.foldToggle}
-      />
-    </div>
-  );
-}
-
-function InlineDiffRows(props: {
-  row: DiffRow & { isHunkAnchor?: boolean };
-  rowIndex: number;
-  fileLabel: string;
-  foldToggle?: { expanded: boolean; onToggle: () => void };
-}) {
-  const row = () => props.row;
-  const rightText = () => row().right_text ?? "";
-  const leftText = () => row().left_text ?? "";
-  const sharedText = () => rightText() || leftText();
-  const sharedTokens = () =>
-    (row().right_tokens?.length ? row().right_tokens : row().left_tokens) ?? [];
-  const sharedSyntax = () =>
-    (row().right_syntax?.length ? row().right_syntax : row().left_syntax) ?? [];
-
-  return (
-    <>
-      <Show when={row().status === "equal"}>
-        <InlineDiffRow
-          status="equal"
-          marker=" "
-          leftNo={row().left_no}
-          rightNo={row().right_no}
-          text={sharedText()}
-          tokens={sharedTokens()}
-          syntax={sharedSyntax()}
-          rowIndex={props.rowIndex}
-          fileLabel={props.fileLabel}
-          sourceRow={row()}
-          foldToggle={props.foldToggle}
-        />
-      </Show>
-      <Show when={row().status === "delete"}>
-        <InlineDiffRow
-          status="delete"
-          marker="-"
-          leftNo={row().left_no}
-          rightNo={null}
-          text={leftText()}
-          tokens={row().left_tokens ?? []}
-          syntax={row().left_syntax ?? []}
-          rowIndex={props.rowIndex}
-          fileLabel={props.fileLabel}
-          sourceRow={row()}
-          foldToggle={props.foldToggle}
-        />
-      </Show>
-      <Show when={row().status === "insert"}>
-        <InlineDiffRow
-          status="insert"
-          marker="+"
-          leftNo={null}
-          rightNo={row().right_no}
-          text={rightText()}
-          tokens={row().right_tokens ?? []}
-          syntax={row().right_syntax ?? []}
-          rowIndex={props.rowIndex}
-          fileLabel={props.fileLabel}
-          sourceRow={row()}
-          foldToggle={props.foldToggle}
-        />
-      </Show>
-      <Show when={row().status === "replace"}>
-        <InlineDiffRow
-          status="delete"
-          marker="-"
-          leftNo={row().left_no}
-          rightNo={null}
-          text={leftText()}
-          tokens={row().left_tokens ?? []}
-          syntax={row().left_syntax ?? []}
-          rowIndex={props.rowIndex}
-          fileLabel={props.fileLabel}
-          sourceRow={row()}
-          foldToggle={props.foldToggle}
-        />
-        <InlineDiffRow
-          status="insert"
-          marker="+"
-          leftNo={null}
-          rightNo={row().right_no}
-          text={rightText()}
-          tokens={row().right_tokens ?? []}
-          syntax={row().right_syntax ?? []}
-          rowIndex={props.rowIndex}
-          fileLabel={props.fileLabel}
-          sourceRow={{ ...row(), isHunkAnchor: false }}
-        />
-      </Show>
-    </>
-  );
-}
-
-function InlineDiffRow(props: {
+function renderInlineDiffRowDom(props: {
   status: "equal" | "delete" | "insert";
   marker: InlineMarker;
   leftNo: number | null;
@@ -403,219 +431,239 @@ function InlineDiffRow(props: {
   rowIndex: number;
   fileLabel: string;
   sourceRow: DiffRow & { isHunkAnchor?: boolean };
-  foldToggle?: { expanded: boolean; onToggle: () => void };
-}) {
-  const changed = () => props.status !== "equal";
-  const whitespaceOnly = () =>
-    changed() && isWhitespaceOnlyChange(props.sourceRow);
-
-  return (
-    <div
-      class="diff-row inline-diff-row"
-      classList={{
-        [props.status]: true,
-        "hunk-anchor": Boolean(props.sourceRow.isHunkAnchor),
-        "whitespace-only-change": whitespaceOnly(),
-        "fold-toggle-row": Boolean(props.foldToggle),
-        "fold-expanded": Boolean(props.foldToggle?.expanded),
-      }}
-      data-row-index={props.rowIndex}
-      title={props.foldToggle ? "Collapse folded rows" : undefined}
-      onClick={props.foldToggle?.onToggle}
-    >
-      <LineNumber lineNo={props.leftNo} side="left" fileLabel={props.fileLabel}>
-        <Show when={props.foldToggle}>
-          <FoldToggleButton foldToggle={props.foldToggle} />
-        </Show>
-      </LineNumber>
-      <LineNumber
-        lineNo={props.rightNo}
-        side="right"
-        fileLabel={props.fileLabel}
-      />
-      <InlineLineCode
-        marker={props.marker}
-        text={props.text}
-        tokens={props.tokens}
-        syntax={props.syntax}
-      />
-    </div>
+  foldToggle?: FoldToggle;
+}): HTMLElement {
+  const element = document.createElement("div");
+  element.className = diffRowClass(
+    props.status,
+    props.sourceRow,
+    props.foldToggle,
+    "inline-diff-row",
   );
+  element.dataset.rowIndex = String(props.rowIndex);
+  if (props.foldToggle) {
+    element.title = "Collapse folded rows";
+    element.addEventListener("click", props.foldToggle.onToggle);
+  }
+  element.append(
+    createLineNumberDom(
+      props.leftNo,
+      "left",
+      props.fileLabel,
+      props.foldToggle,
+    ),
+    createLineNumberDom(props.rightNo, "right", props.fileLabel),
+    createInlineLineCodeDom(
+      props.marker,
+      props.text,
+      props.tokens,
+      props.syntax,
+    ),
+  );
+  return element;
 }
 
-function DiffSide(props: {
-  row: DiffRow;
-  side: Side;
-  fileLabel: string;
-  foldToggle?: { expanded: boolean; onToggle: () => void };
-}) {
-  const lineNo = () =>
-    props.side === "left" ? props.row.left_no : props.row.right_no;
-  const text = () =>
-    (props.side === "left" ? props.row.left_text : props.row.right_text) ?? "";
-  const tokens = () =>
-    (props.side === "left" ? props.row.left_tokens : props.row.right_tokens) ??
-    [];
-  const syntax = () =>
-    (props.side === "left" ? props.row.left_syntax : props.row.right_syntax) ??
-    [];
-  const empty = () => lineNo() === null && text() === "";
-
-  return (
-    <div
-      class={`diff-side side-${props.side}`}
-      classList={{ "empty-side": empty() }}
-    >
-      <LineNumber
-        lineNo={lineNo()}
-        side={props.side}
-        fileLabel={props.fileLabel}
-      >
-        <Show when={props.foldToggle}>
-          <FoldToggleButton foldToggle={props.foldToggle} />
-        </Show>
-      </LineNumber>
-      <LineCode text={text()} tokens={tokens()} syntax={syntax()} />
-    </div>
-  );
-}
-
-function FoldToggleButton(props: {
-  foldToggle?: { expanded: boolean; onToggle: () => void };
-}) {
-  return (
-    <button
-      type="button"
-      class="inline-fold-toggle"
-      aria-label={props.foldToggle?.expanded ? "Collapse fold" : "Expand fold"}
-      onClick={(event) => {
-        event.stopPropagation();
-        props.foldToggle?.onToggle();
-      }}
-    >
-      {props.foldToggle?.expanded ? "▾" : "▸"}
-    </button>
-  );
-}
-
-function LineNumber(props: {
-  lineNo: number | null;
-  side: Side;
-  fileLabel: string;
-  children?: JSX.Element;
-}) {
-  const linePinAttrs = () => {
-    if (props.lineNo === null) {
-      return {};
+function diffRowClass(
+  status: string,
+  row: DiffRow & { isHunkAnchor?: boolean },
+  foldToggle?: FoldToggle,
+  extraClass = "",
+): string {
+  const classes = ["diff-row"];
+  if (extraClass) {
+    classes.push(extraClass);
+  }
+  classes.push(status);
+  if (row.isHunkAnchor) {
+    classes.push("hunk-anchor");
+  }
+  if (isChangedRowStatus(status) && isWhitespaceOnlyChange(row)) {
+    classes.push("whitespace-only-change");
+  }
+  if (foldToggle) {
+    classes.push("fold-toggle-row");
+    if (foldToggle.expanded) {
+      classes.push("fold-expanded");
     }
-    return {
-      "data-line-pin-file": props.fileLabel,
-      "data-line-pin-side": props.side,
-      "data-line-pin-line": String(props.lineNo),
-      title: "Pin line",
-    };
-  };
-
-  return (
-    <div class="line-no" {...linePinAttrs()}>
-      {props.children}
-      {props.lineNo ?? ""}
-    </div>
-  );
+  }
+  return classes.join(" ");
 }
 
-function LineCode(props: {
-  text: string;
-  tokens: InlineToken[];
-  syntax: SyntaxSpan[];
-}) {
-  return (
-    <code class="line-code">
-      <DecoratedText
-        text={props.text}
-        tokens={props.tokens}
-        syntax={props.syntax}
-      />
-    </code>
+function createDiffSideDom(
+  row: DiffRow,
+  side: Side,
+  fileLabel: string,
+  foldToggle?: FoldToggle,
+): HTMLElement {
+  const lineNo = side === "left" ? row.left_no : row.right_no;
+  const text = (side === "left" ? row.left_text : row.right_text) ?? "";
+  const tokens = (side === "left" ? row.left_tokens : row.right_tokens) ?? [];
+  const syntax = (side === "left" ? row.left_syntax : row.right_syntax) ?? [];
+  const element = document.createElement("div");
+  element.className = `diff-side side-${side}${
+    lineNo === null && text === "" ? " empty-side" : ""
+  }`;
+  element.append(
+    createLineNumberDom(lineNo, side, fileLabel, foldToggle),
+    createLineCodeDom(text, tokens, syntax),
   );
+  return element;
 }
 
-function InlineLineCode(props: {
-  marker: InlineMarker;
-  text: string;
-  tokens: InlineToken[];
-  syntax: SyntaxSpan[];
-}) {
-  return (
-    <code class="line-code inline-line-code">
-      <span class="inline-marker" aria-hidden="true">
-        {props.marker}
-      </span>
-      <DecoratedText
-        text={props.text}
-        tokens={props.tokens}
-        syntax={props.syntax}
-      />
-    </code>
+function createFoldSideDom(
+  count: number,
+  label: string,
+  sideLabel: string,
+): HTMLElement {
+  const element = document.createElement("div");
+  element.className = "diff-side fold-side";
+  element.dataset.sideLabel = sideLabel;
+  element.append(
+    createPlainLineNumberDom(".."),
+    createElementWithClass(
+      "div",
+      "fold-label",
+      label
+        ? `... ${foldLineText(count)} in ${label}`
+        : `... ${foldLineText(count)}`,
+    ),
   );
+  return element;
 }
 
-function DecoratedText(props: {
-  text: string;
-  tokens: InlineToken[];
-  syntax: SyntaxSpan[];
-}) {
-  const tokenNodes = () => tokenParts(props.tokens);
-  return (
-    <>
-      {tokenNodes().length > 0 ? (
-        <For each={tokenNodes()}>
-          {(part) => (
-            <span
-              classList={{
-                "token-changed": part.changed,
-                whitespace: part.changed && part.isWhitespace,
-                "whitespace-leading":
-                  part.changed && part.isWhitespace && part.leading,
-              }}
-              title={
-                part.changed && part.isWhitespace
-                  ? "Whitespace changed"
-                  : undefined
-              }
-            >
-              {part.text}
-            </span>
-          )}
-        </For>
-      ) : (
-        <SyntaxText text={props.text} syntax={props.syntax} />
-      )}
-    </>
-  );
+function foldLineText(count: number): string {
+  return `${count} line${count === 1 ? "" : "s"}`;
 }
 
-function SyntaxText(props: { text: string; syntax: SyntaxSpan[] }) {
-  const parts = () => syntaxParts(props.text, props.syntax);
-  return (
-    <>
-      {parts().length > 0 ? (
-        <For each={parts()}>
-          {(part) =>
-            part.classes.length > 0 ? (
-              <span class={`ts-token ${part.classes.join(" ")}`}>
-                {part.text}
-              </span>
-            ) : (
-              part.text
-            )
-          }
-        </For>
-      ) : (
-        props.text
-      )}
-    </>
-  );
+function foldLabel(row: FoldRow): string {
+  const lineText = foldLineText(row.count);
+  return row.label ? `... ${lineText} in ${row.label}` : `... ${lineText}`;
+}
+
+function createLineNumberDom(
+  lineNo: number | null,
+  side: Side,
+  fileLabel: string,
+  foldToggle?: FoldToggle,
+): HTMLElement {
+  const element = document.createElement("div");
+  element.className = "line-no";
+  if (lineNo !== null) {
+    element.dataset.linePinFile = fileLabel;
+    element.dataset.linePinSide = side;
+    element.dataset.linePinLine = String(lineNo);
+    element.title = "Pin line";
+  }
+  if (foldToggle) {
+    element.append(createFoldToggleButtonDom(foldToggle));
+  }
+  element.append(lineNo === null ? "" : String(lineNo));
+  return element;
+}
+
+function createPlainLineNumberDom(text: string): HTMLElement {
+  return createElementWithClass("div", "line-no", text);
+}
+
+function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "inline-fold-toggle";
+  button.ariaLabel = foldToggle.expanded ? "Collapse fold" : "Expand fold";
+  button.textContent = foldToggle.expanded ? "▾" : "▸";
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    foldToggle.onToggle();
+  });
+  return button;
+}
+
+function createLineCodeDom(
+  text: string,
+  tokens: InlineToken[],
+  syntax: SyntaxSpan[],
+): HTMLElement {
+  const element = document.createElement("code");
+  element.className = "line-code";
+  appendDecoratedText(element, text, tokens, syntax);
+  return element;
+}
+
+function createInlineLineCodeDom(
+  marker: InlineMarker,
+  text: string,
+  tokens: InlineToken[],
+  syntax: SyntaxSpan[],
+): HTMLElement {
+  const element = document.createElement("code");
+  element.className = "line-code inline-line-code";
+  const markerElement = document.createElement("span");
+  markerElement.className = "inline-marker";
+  markerElement.ariaHidden = "true";
+  markerElement.textContent = marker;
+  element.append(markerElement);
+  appendDecoratedText(element, text, tokens, syntax);
+  return element;
+}
+
+function appendDecoratedText(
+  element: HTMLElement,
+  text: string,
+  tokens: InlineToken[],
+  syntax: SyntaxSpan[],
+) {
+  const tokenNodes = tokenParts(tokens);
+  if (tokenNodes.length > 0) {
+    for (const part of tokenNodes) {
+      const span = document.createElement("span");
+      const classes = [];
+      if (part.changed) {
+        classes.push("token-changed");
+      }
+      if (part.changed && part.isWhitespace) {
+        classes.push("whitespace");
+      }
+      if (part.changed && part.isWhitespace && part.leading) {
+        classes.push("whitespace-leading");
+      }
+      if (classes.length) {
+        span.className = classes.join(" ");
+      }
+      if (part.changed && part.isWhitespace) {
+        span.title = "Whitespace changed";
+      }
+      span.textContent = part.text;
+      element.append(span);
+    }
+    return;
+  }
+
+  const syntaxNodes = syntaxParts(text, syntax);
+  if (syntaxNodes.length === 0) {
+    element.append(text);
+    return;
+  }
+  for (const part of syntaxNodes) {
+    if (part.classes.length === 0) {
+      element.append(part.text);
+      continue;
+    }
+    const span = document.createElement("span");
+    span.className = `ts-token ${part.classes.join(" ")}`;
+    span.textContent = part.text;
+    element.append(span);
+  }
+}
+
+function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
+  tagName: K,
+  className: string,
+  text: string,
+): HTMLElementTagNameMap[K] {
+  const element = document.createElement(tagName);
+  element.className = className;
+  element.textContent = text;
+  return element;
 }
 
 function isChangedRowStatus(status: string): boolean {
