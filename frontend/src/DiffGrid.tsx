@@ -1,5 +1,11 @@
 import { createEffect } from "solid-js";
-import type { DiffRow, FileEntry, InlineToken, SyntaxSpan } from "./api";
+import type {
+  DiffRow,
+  FileEntry,
+  InlineToken,
+  RowStatus,
+  SyntaxSpan,
+} from "./api";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
 
 const suppressedSyntaxClassPrefixes = [
@@ -13,14 +19,22 @@ const suppressedSyntaxClassPrefixes = [
 
 type Side = "left" | "right";
 type InlineMarker = " " | "-" | "+";
+type InlineRowStatus = "equal" | "delete" | "insert" | "replace";
 
 export type DiffViewMode = "split" | "inline";
 
-export function DiffGrid(props: { file: FileEntry; viewMode: DiffViewMode }) {
+export function DiffGrid(props: {
+  file: FileEntry;
+  viewMode: DiffViewMode;
+  semanticReplaceRows?: boolean;
+}) {
   return (
     <div
       class="diff-grid"
-      classList={{ "diff-grid-inline": props.viewMode === "inline" }}
+      classList={{
+        "diff-grid-inline": props.viewMode === "inline",
+        "diff-grid-semantic-replace": Boolean(props.semanticReplaceRows),
+      }}
     >
       {props.viewMode === "inline" ? (
         <InlineHeader
@@ -33,7 +47,11 @@ export function DiffGrid(props: { file: FileEntry; viewMode: DiffViewMode }) {
           rightLabel={props.file.right_label || "right"}
         />
       )}
-      <ImperativeDiffLines file={props.file} viewMode={props.viewMode} />
+      <ImperativeDiffLines
+        file={props.file}
+        viewMode={props.viewMode}
+        semanticReplaceRows={props.semanticReplaceRows}
+      />
     </div>
   );
 }
@@ -65,20 +83,32 @@ type HunkRenderRow = RenderRow & {
   isHunkAnchor?: boolean;
 };
 
+type InlineLineNumberState = {
+  leftNo: number | null;
+  rightNo: number | null;
+};
+
 function ImperativeDiffLines(props: {
   file: FileEntry;
   viewMode: DiffViewMode;
+  semanticReplaceRows?: boolean;
 }) {
   let root!: HTMLDivElement;
   const expandedFolds = new Set<number>();
   let previousFile: FileEntry | undefined;
   let previousViewMode: DiffViewMode | undefined;
+  let previousSemanticReplaceRows: boolean | undefined;
 
   const render = () => {
-    if (props.file !== previousFile || props.viewMode !== previousViewMode) {
+    if (
+      props.file !== previousFile ||
+      props.viewMode !== previousViewMode ||
+      props.semanticReplaceRows !== previousSemanticReplaceRows
+    ) {
       expandedFolds.clear();
       previousFile = props.file;
       previousViewMode = props.viewMode;
+      previousSemanticReplaceRows = props.semanticReplaceRows;
     }
 
     const rows = markHunkAnchors(
@@ -86,15 +116,17 @@ function ImperativeDiffLines(props: {
     );
     const fileLabel = fileDisplayLabel(props.file);
     const fragment =
-      props.viewMode === "inline"
-        ? renderInlineRowsDom(rows, fileLabel, expandedFolds)
-        : renderSplitRowsDom(
-            rows,
-            fileLabel,
-            props.file.left_label || "left",
-            props.file.right_label || "right",
-            expandedFolds,
-          );
+      props.viewMode === "inline" && props.semanticReplaceRows
+        ? renderSemanticInlineRowsDom(rows, fileLabel, expandedFolds)
+        : props.viewMode === "inline"
+          ? renderInlineRowsDom(rows, fileLabel, expandedFolds)
+          : renderSplitRowsDom(
+              rows,
+              fileLabel,
+              props.file.left_label || "left",
+              props.file.right_label || "right",
+              expandedFolds,
+            );
     root.replaceChildren(fragment);
   };
 
@@ -142,14 +174,60 @@ function renderInlineRowsDom(
   expandedFolds: Set<number>,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
+  const lineNumberState: InlineLineNumberState = {
+    leftNo: null,
+    rightNo: null,
+  };
   rows.forEach((row, index) => {
     if (isFoldRow(row)) {
       fragment.append(
         renderInlineFoldDom(row, index, fileLabel, expandedFolds),
       );
+      lineNumberState.leftNo = null;
+      lineNumberState.rightNo = null;
       return;
     }
-    fragment.append(renderInlineDiffRowsDom(row, index, fileLabel));
+    fragment.append(
+      renderInlineDiffRowsDom(
+        row,
+        index,
+        fileLabel,
+        undefined,
+        lineNumberState,
+      ),
+    );
+  });
+  return fragment;
+}
+
+function renderSemanticInlineRowsDom(
+  rows: HunkRenderRow[],
+  fileLabel: string,
+  expandedFolds: Set<number>,
+): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  const lineNumberState: InlineLineNumberState = {
+    leftNo: null,
+    rightNo: null,
+  };
+  rows.forEach((row, index) => {
+    if (isFoldRow(row)) {
+      fragment.append(
+        renderInlineFoldDom(row, index, fileLabel, expandedFolds, true),
+      );
+      lineNumberState.leftNo = null;
+      lineNumberState.rightNo = null;
+      return;
+    }
+    fragment.append(
+      renderSemanticInlineDiffRowsDom(
+        row,
+        index,
+        fileLabel,
+        undefined,
+        lineNumberState,
+      ),
+    );
   });
   return fragment;
 }
@@ -227,6 +305,7 @@ function renderInlineFoldDom(
   rowIndex: number,
   fileLabel: string,
   expandedFolds: Set<number>,
+  semanticReplaceRows = false,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
@@ -244,10 +323,17 @@ function renderInlineFoldDom(
     const expanded = expandedFolds.has(rowIndex);
     if (expanded) {
       const fragment = document.createDocumentFragment();
+      const lineNumberState: InlineLineNumberState = {
+        leftNo: null,
+        rightNo: null,
+      };
       const firstRow = row.foldedRows[0];
       if (firstRow) {
+        const renderDiffRows = semanticReplaceRows
+          ? renderSemanticInlineDiffRowsDom
+          : renderInlineDiffRowsDom;
         fragment.append(
-          renderInlineDiffRowsDom(
+          renderDiffRows(
             {
               ...firstRow,
               isHunkAnchor: isChangedRowStatus(firstRow.status),
@@ -255,15 +341,21 @@ function renderInlineFoldDom(
             rowIndex,
             fileLabel,
             { expanded: true, onToggle: toggle },
+            lineNumberState,
           ),
         );
       }
+      const renderDiffRows = semanticReplaceRows
+        ? renderSemanticInlineDiffRowsDom
+        : renderInlineDiffRowsDom;
       row.foldedRows.slice(1).forEach((foldedRow, foldedIndex) => {
         fragment.append(
-          renderInlineDiffRowsDom(
+          renderDiffRows(
             foldedRow,
             rowIndex + foldedIndex + 1,
             fileLabel,
+            undefined,
+            lineNumberState,
           ),
         );
       });
@@ -320,6 +412,7 @@ function renderInlineDiffRowsDom(
   rowIndex: number,
   fileLabel: string,
   foldToggle?: FoldToggle,
+  lineNumberState?: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
   const rightText = row.right_text ?? "";
   const leftText = row.left_text ?? "";
@@ -343,6 +436,7 @@ function renderInlineDiffRowsDom(
         fileLabel,
         sourceRow: row,
         foldToggle,
+        lineNumberState,
       });
     case "delete":
       return renderInlineDiffRowDom({
@@ -357,6 +451,7 @@ function renderInlineDiffRowsDom(
         fileLabel,
         sourceRow: row,
         foldToggle,
+        lineNumberState,
       });
     case "insert":
       return renderInlineDiffRowDom({
@@ -371,6 +466,7 @@ function renderInlineDiffRowsDom(
         fileLabel,
         sourceRow: row,
         foldToggle,
+        lineNumberState,
       });
     case "replace": {
       const fragment = document.createDocumentFragment();
@@ -387,6 +483,8 @@ function renderInlineDiffRowsDom(
           fileLabel,
           sourceRow: row,
           foldToggle,
+          lineNumberState,
+          tokenRowStatus: "replace",
         }),
         renderInlineDiffRowDom({
           status: "insert",
@@ -399,6 +497,8 @@ function renderInlineDiffRowsDom(
           rowIndex,
           fileLabel,
           sourceRow: { ...row, isHunkAnchor: false },
+          lineNumberState,
+          tokenRowStatus: "replace",
         }),
       );
       return fragment;
@@ -416,12 +516,66 @@ function renderInlineDiffRowsDom(
         fileLabel,
         sourceRow: row,
         foldToggle,
+        lineNumberState,
       });
   }
 }
 
+function renderSemanticInlineDiffRowsDom(
+  row: DiffRow & { isHunkAnchor?: boolean },
+  rowIndex: number,
+  fileLabel: string,
+  foldToggle?: FoldToggle,
+  lineNumberState?: InlineLineNumberState,
+): DocumentFragment | HTMLElement {
+  if (!canCollapseSemanticInlineRow(row)) {
+    return renderInlineDiffRowsDom(
+      row,
+      rowIndex,
+      fileLabel,
+      foldToggle,
+      lineNumberState,
+    );
+  }
+
+  const rightText = row.right_text ?? "";
+  return renderInlineDiffRowDom({
+    status: "replace",
+    marker: " ",
+    leftNo: row.left_no,
+    rightNo: row.right_no,
+    text: rightText,
+    tokens: row.right_tokens ?? [],
+    syntax: row.right_syntax ?? [],
+    rowIndex,
+    fileLabel,
+    sourceRow: row,
+    foldToggle,
+    lineNumberState,
+  });
+}
+
+function canCollapseSemanticInlineRow(row: DiffRow): boolean {
+  if (row.status !== "replace") {
+    return false;
+  }
+  const leftTokens = row.left_tokens ?? [];
+  const rightTokens = row.right_tokens ?? [];
+  const oldSideHasChanges = leftTokens.some(
+    (token) => token.status !== "unchanged",
+  );
+  const rightChangedStatuses = rightTokens
+    .filter((token) => token.status !== "unchanged")
+    .map((token) => token.status);
+  return (
+    !oldSideHasChanges &&
+    rightChangedStatuses.length > 0 &&
+    rightChangedStatuses.every((status) => status === "insert")
+  );
+}
+
 function renderInlineDiffRowDom(props: {
-  status: "equal" | "delete" | "insert";
+  status: InlineRowStatus;
   marker: InlineMarker;
   leftNo: number | null;
   rightNo: number | null;
@@ -432,6 +586,8 @@ function renderInlineDiffRowDom(props: {
   fileLabel: string;
   sourceRow: DiffRow & { isHunkAnchor?: boolean };
   foldToggle?: FoldToggle;
+  lineNumberState?: InlineLineNumberState;
+  tokenRowStatus?: InlineRowStatus;
 }): HTMLElement {
   const element = document.createElement("div");
   element.className = diffRowClass(
@@ -447,20 +603,45 @@ function renderInlineDiffRowDom(props: {
   }
   element.append(
     createLineNumberDom(
-      props.leftNo,
+      inlineDisplayLineNo(props.leftNo, "left", props.lineNumberState),
       "left",
       props.fileLabel,
       props.foldToggle,
+      props.leftNo,
     ),
-    createLineNumberDom(props.rightNo, "right", props.fileLabel),
+    createLineNumberDom(
+      inlineDisplayLineNo(props.rightNo, "right", props.lineNumberState),
+      "right",
+      props.fileLabel,
+      undefined,
+      props.rightNo,
+    ),
     createInlineLineCodeDom(
       props.marker,
       props.text,
       props.tokens,
       props.syntax,
+      props.tokenRowStatus ?? props.status,
     ),
   );
   return element;
+}
+
+function inlineDisplayLineNo(
+  lineNo: number | null,
+  side: Side,
+  state?: InlineLineNumberState,
+): number | null {
+  if (!state || lineNo === null) {
+    return lineNo;
+  }
+  const previousLineNo = side === "left" ? state.leftNo : state.rightNo;
+  if (side === "left") {
+    state.leftNo = lineNo;
+  } else {
+    state.rightNo = lineNo;
+  }
+  return previousLineNo === lineNo ? null : lineNo;
 }
 
 function diffRowClass(
@@ -505,7 +686,7 @@ function createDiffSideDom(
   }`;
   element.append(
     createLineNumberDom(lineNo, side, fileLabel, foldToggle),
-    createLineCodeDom(text, tokens, syntax),
+    createLineCodeDom(text, tokens, syntax, row.status),
   );
   return element;
 }
@@ -545,13 +726,14 @@ function createLineNumberDom(
   side: Side,
   fileLabel: string,
   foldToggle?: FoldToggle,
+  pinLineNo: number | null = lineNo,
 ): HTMLElement {
   const element = document.createElement("div");
   element.className = "line-no";
-  if (lineNo !== null) {
+  if (pinLineNo !== null) {
     element.dataset.linePinFile = fileLabel;
     element.dataset.linePinSide = side;
-    element.dataset.linePinLine = String(lineNo);
+    element.dataset.linePinLine = String(pinLineNo);
     element.title = "Pin line";
   }
   if (foldToggle) {
@@ -582,10 +764,11 @@ function createLineCodeDom(
   text: string,
   tokens: InlineToken[],
   syntax: SyntaxSpan[],
+  rowStatus?: RowStatus,
 ): HTMLElement {
   const element = document.createElement("code");
   element.className = "line-code";
-  appendDecoratedText(element, text, tokens, syntax);
+  appendDecoratedText(element, text, tokens, syntax, rowStatus);
   return element;
 }
 
@@ -594,6 +777,7 @@ function createInlineLineCodeDom(
   text: string,
   tokens: InlineToken[],
   syntax: SyntaxSpan[],
+  rowStatus?: "equal" | "delete" | "insert" | "replace",
 ): HTMLElement {
   const element = document.createElement("code");
   element.className = "line-code inline-line-code";
@@ -602,7 +786,7 @@ function createInlineLineCodeDom(
   markerElement.ariaHidden = "true";
   markerElement.textContent = marker;
   element.append(markerElement);
-  appendDecoratedText(element, text, tokens, syntax);
+  appendDecoratedText(element, text, tokens, syntax, rowStatus);
   return element;
 }
 
@@ -611,45 +795,38 @@ function appendDecoratedText(
   text: string,
   tokens: InlineToken[],
   syntax: SyntaxSpan[],
+  rowStatus?: RowStatus | "equal" | "delete" | "insert",
 ) {
-  const tokenNodes = tokenParts(tokens);
-  if (tokenNodes.length > 0) {
-    for (const part of tokenNodes) {
-      const span = document.createElement("span");
-      const classes = [];
-      if (part.changed) {
-        classes.push("token-changed");
-      }
-      if (part.changed && part.isWhitespace) {
-        classes.push("whitespace");
-      }
-      if (part.changed && part.isWhitespace && part.leading) {
-        classes.push("whitespace-leading");
-      }
-      if (classes.length) {
-        span.className = classes.join(" ");
-      }
-      if (part.changed && part.isWhitespace) {
-        span.title = "Whitespace changed";
-      }
-      span.textContent = part.text;
-      element.append(span);
-    }
-    return;
-  }
-
-  const syntaxNodes = syntaxParts(text, syntax);
-  if (syntaxNodes.length === 0) {
+  const parts = decoratedParts(text, tokens, syntax);
+  if (parts.length === 0) {
     element.append(text);
     return;
   }
-  for (const part of syntaxNodes) {
-    if (part.classes.length === 0) {
+  for (const part of parts) {
+    const tokenChanged = part.status !== "unchanged";
+    if (part.classes.length === 0 && !tokenChanged) {
       element.append(part.text);
       continue;
     }
     const span = document.createElement("span");
-    span.className = `ts-token ${part.classes.join(" ")}`;
+    const classes = [...part.classes];
+    const rowAlreadyShowsTokenChange =
+      (rowStatus === "insert" && part.status === "insert") ||
+      (rowStatus === "delete" && part.status === "delete");
+    const showTokenChange = tokenChanged && !rowAlreadyShowsTokenChange;
+    if (showTokenChange) {
+      classes.push("token-changed", `token-${part.status}`);
+    }
+    if (showTokenChange && part.isWhitespace) {
+      classes.push("whitespace");
+    }
+    if (showTokenChange && part.isWhitespace && part.leading) {
+      classes.push("whitespace-leading");
+    }
+    span.className = classes.join(" ");
+    if (showTokenChange && part.isWhitespace) {
+      span.title = "Whitespace changed";
+    }
     span.textContent = part.text;
     element.append(span);
   }
@@ -688,46 +865,88 @@ function isWhitespaceOnlyChange(row: DiffRow): boolean {
   const leftTokens = row.left_tokens ?? [];
   const rightTokens = row.right_tokens ?? [];
   const changedTokens = [...leftTokens, ...rightTokens].filter(
-    (token) => token.changed,
+    (token) => token.status !== "unchanged",
   );
   return (
     changedTokens.length > 0 && changedTokens.every((token) => token.is_ws)
   );
 }
 
-function tokenParts(tokens: InlineToken[]) {
-  return tokens.map((token, index) => ({
-    text: token.text,
-    changed: token.changed,
-    isWhitespace: token.is_ws,
-    leading: token.is_ws && index === 0,
-  }));
+type TokenPart = {
+  start: number;
+  end: number;
+  status: InlineToken["status"];
+  isWhitespace: boolean;
+  leading: boolean;
+};
+
+function tokenParts(tokens: InlineToken[]): TokenPart[] {
+  let cursor = 0;
+  return tokens.map((token, index) => {
+    const start = cursor;
+    const end = start + token.text.length;
+    cursor = end;
+    return {
+      start,
+      end,
+      status: token.status,
+      isWhitespace: token.is_ws,
+      leading: token.is_ws && index === 0,
+    };
+  });
 }
 
-function syntaxParts(text: string, syntax: SyntaxSpan[]) {
-  if (!text || !syntax.length) {
+function decoratedParts(
+  text: string,
+  tokens: InlineToken[],
+  syntax: SyntaxSpan[],
+) {
+  if (!text || (!tokens.length && !syntax.length)) {
     return [];
   }
 
-  const parts: Array<{ text: string; classes: string[] }> = [];
-  let cursor = 0;
-  for (const span of syntax) {
-    const start = clamp(span.start, 0, text.length);
-    const end = clamp(span.end, start, text.length);
-    if (start > cursor) {
-      parts.push({ text: text.slice(cursor, start), classes: [] });
-    }
-    if (end > start) {
-      const classes = visibleSyntaxClasses(span.classes);
-      parts.push({
-        text: text.slice(start, end),
-        classes,
-      });
-    }
-    cursor = Math.max(cursor, end);
+  const tokenNodes = tokenParts(tokens);
+  const boundaries = new Set([0, text.length]);
+  for (const token of tokenNodes) {
+    boundaries.add(clamp(token.start, 0, text.length));
+    boundaries.add(clamp(token.end, 0, text.length));
   }
-  if (cursor < text.length) {
-    parts.push({ text: text.slice(cursor), classes: [] });
+  for (const span of syntax) {
+    boundaries.add(clamp(span.start, 0, text.length));
+    boundaries.add(clamp(span.end, 0, text.length));
+  }
+
+  const sortedBoundaries = [...boundaries].sort((left, right) => left - right);
+  const parts: Array<{
+    text: string;
+    classes: string[];
+    status: InlineToken["status"];
+    isWhitespace: boolean;
+    leading: boolean;
+  }> = [];
+
+  for (let index = 0; index < sortedBoundaries.length - 1; index += 1) {
+    const start = sortedBoundaries[index];
+    const end = sortedBoundaries[index + 1];
+    if (end <= start) {
+      continue;
+    }
+    const token = tokenNodes.find(
+      (candidate) => start >= candidate.start && end <= candidate.end,
+    );
+    const syntaxClasses = syntax
+      .filter((span) => start >= span.start && end <= span.end)
+      .flatMap((span) => visibleSyntaxClasses(span.classes));
+    const classes = syntaxClasses.length
+      ? ["ts-token", ...new Set(syntaxClasses)]
+      : [];
+    parts.push({
+      text: text.slice(start, end),
+      classes,
+      status: token?.status ?? "unchanged",
+      isWhitespace: token?.isWhitespace ?? /^\s+$/.test(text.slice(start, end)),
+      leading: token?.leading ?? false,
+    });
   }
   return parts;
 }

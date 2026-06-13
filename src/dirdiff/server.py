@@ -15,7 +15,7 @@ from dirdiff.diff import TextDiffError, TextDiffService
 LOGGER = logging.getLogger(__name__)
 
 ModeParam = Literal["files", "staged", "head", "refs", "branch-review"]
-EngineParam = Literal["dirdiff", "git"]
+EngineParam = Literal["dirdiff", "git", "difftastic"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
 
@@ -32,8 +32,8 @@ class SyntaxSpanResponse(BaseModel):
 
 class InlineTokenResponse(BaseModel):
     text: str
-    changed: bool
     is_ws: bool
+    status: Literal["unchanged", "replace", "insert", "delete"]
 
 
 class FoldHintResponse(BaseModel):

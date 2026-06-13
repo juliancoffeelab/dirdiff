@@ -898,6 +898,10 @@ h1 {
   background: #fff7d6;
 }
 
+.diff-grid-semantic-replace .diff-row.replace .diff-side {
+  background: transparent;
+}
+
 .inline-diff-row.insert .line-no,
 .inline-diff-row.insert .line-code {
   background: #e9f8ed;
@@ -1184,6 +1188,14 @@ h1 {
 .token-changed {
   background: #ffe08a;
   padding: 0 1px;
+}
+
+.token-changed.token-insert {
+  background: #b8f3c9;
+}
+
+.token-changed.token-delete {
+  background: #ffc9c9;
 }
 
 .token-changed.whitespace-leading,

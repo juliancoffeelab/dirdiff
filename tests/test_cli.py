@@ -373,13 +373,20 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
 def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
     service = FakeEngineService(tmp_path, row_status="replace")
     git_service = FakeEngineService(tmp_path, row_status="delete")
+    difftastic_service = FakeEngineService(tmp_path, row_status="insert")
     defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults, services={"git": git_service}))
+    client = TestClient(
+        create_app(
+            service,
+            defaults,
+            services={"git": git_service, "difftastic": difftastic_service},
+        )
+    )
 
     response = client.get(
         "/api/file-diff",
         params={
-            "engine": "git",
+            "engine": "difftastic",
             "left": "head",
             "right": "worktree",
             "left_path": "alpha.txt",
@@ -388,4 +395,4 @@ def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["rows"][0]["status"] == "delete"
+    assert response.json()["rows"][0]["status"] == "insert"

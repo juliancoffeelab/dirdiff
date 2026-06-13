@@ -78,6 +78,7 @@ const modeLabels: Record<DiffMode, string> = {
 const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   git: "Git",
+  difftastic: "Difftastic",
 };
 const diffViewLabels: Record<DiffViewMode, string> = {
   split: "Split",
@@ -186,7 +187,7 @@ function initialControls(defaults: Defaults): ControlsState {
 
 function initialEngine(defaults: Defaults): DiffEngine {
   const engine = new URLSearchParams(window.location.search).get("engine");
-  if (engine === "git" || engine === "dirdiff") {
+  if (engine === "git" || engine === "dirdiff" || engine === "difftastic") {
     return engine;
   }
   return defaults.engine || "dirdiff";
@@ -375,6 +376,7 @@ function App() {
     directoryExpansion,
     fileExpansion,
     loadingFiles,
+    diffViewMode,
   ]);
   hunkNav.followScroll();
 
@@ -1012,13 +1014,19 @@ function EngineSelect(props: {
         value={props.engine}
         onChange={(event) => {
           const nextEngine = event.currentTarget.value as DiffEngine;
-          if (nextEngine === "dirdiff" || nextEngine === "git") {
+          if (
+            nextEngine === "dirdiff" ||
+            nextEngine === "git" ||
+            nextEngine === "difftastic"
+          ) {
             props.onEngineChange(nextEngine);
+            event.currentTarget.blur();
           }
         }}
       >
         <option value="dirdiff">{engineLabels.dirdiff}</option>
         <option value="git">{engineLabels.git}</option>
+        <option value="difftastic">{engineLabels.difftastic}</option>
       </select>
     </label>
   );
@@ -1033,9 +1041,10 @@ function DiffViewSelect(props: {
       <span>View</span>
       <select
         value={props.viewMode}
-        onChange={(event) =>
-          props.onViewModeChange(event.currentTarget.value as DiffViewMode)
-        }
+        onChange={(event) => {
+          props.onViewModeChange(event.currentTarget.value as DiffViewMode);
+          event.currentTarget.blur();
+        }}
       >
         <option value="split">{diffViewLabels.split}</option>
         <option value="inline">{diffViewLabels.inline}</option>
@@ -2000,7 +2009,11 @@ function FileCard(props: {
                 when={canRenderRows()}
                 fallback={<FilePlaceholder file={props.file} />}
               >
-                <DiffGrid file={props.file} viewMode={props.diffViewMode} />
+                <DiffGrid
+                  file={props.file}
+                  viewMode={props.diffViewMode}
+                  semanticReplaceRows={props.request?.engine === "difftastic"}
+                />
               </Show>
             </Show>
           </Show>

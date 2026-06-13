@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -886,26 +887,30 @@ def _append_char_level_diff(
         if tag == "equal":
             text = left_text[i1:i2]
             if text:
-                left_tokens.append({"text": text, "changed": False, "is_ws": is_ws})
-                right_tokens.append({"text": text, "changed": False, "is_ws": is_ws})
+                left_tokens.append(
+                    {"text": text, "status": "unchanged", "is_ws": is_ws}
+                )
+                right_tokens.append(
+                    {"text": text, "status": "unchanged", "is_ws": is_ws}
+                )
         elif tag == "delete":
             text = left_text[i1:i2]
             if text:
-                left_tokens.append({"text": text, "changed": True, "is_ws": is_ws})
+                left_tokens.append({"text": text, "status": "delete", "is_ws": is_ws})
         elif tag == "insert":
             text = right_text[j1:j2]
             if text:
-                right_tokens.append({"text": text, "changed": True, "is_ws": is_ws})
+                right_tokens.append({"text": text, "status": "insert", "is_ws": is_ws})
         else:
             left_piece = left_text[i1:i2]
             right_piece = right_text[j1:j2]
             if left_piece:
                 left_tokens.append(
-                    {"text": left_piece, "changed": True, "is_ws": is_ws}
+                    {"text": left_piece, "status": "replace", "is_ws": is_ws}
                 )
             if right_piece:
                 right_tokens.append(
-                    {"text": right_piece, "changed": True, "is_ws": is_ws}
+                    {"text": right_piece, "status": "replace", "is_ws": is_ws}
                 )
 
 
@@ -936,21 +941,27 @@ def _append_identifier_level_diff(
         if tag == "equal":
             for li, ri in zip(range(i1, i2), range(j1, j2)):
                 text = left_parts[li]
-                left_tokens.append({"text": text, "changed": False, "is_ws": False})
+                left_tokens.append(
+                    {"text": text, "status": "unchanged", "is_ws": False}
+                )
                 right_tokens.append(
-                    {"text": right_parts[ri], "changed": False, "is_ws": False}
+                    {
+                        "text": right_parts[ri],
+                        "status": "unchanged",
+                        "is_ws": False,
+                    }
                 )
         elif tag == "delete":
             for li in range(i1, i2):
                 left_tokens.append(
-                    {"text": left_parts[li], "changed": True, "is_ws": False}
+                    {"text": left_parts[li], "status": "delete", "is_ws": False}
                 )
         elif tag == "insert":
             for ri in range(j1, j2):
                 right_tokens.append(
                     {
                         "text": right_parts[ri],
-                        "changed": True,
+                        "status": "insert",
                         "is_ws": False,
                     }
                 )
@@ -961,14 +972,14 @@ def _append_identifier_level_diff(
                 left_tokens.append(
                     {
                         "text": left_parts[i1],
-                        "changed": True,
+                        "status": "replace",
                         "is_ws": False,
                     }
                 )
                 right_tokens.append(
                     {
                         "text": right_parts[j1],
-                        "changed": True,
+                        "status": "replace",
                         "is_ws": False,
                     }
                 )
@@ -976,13 +987,13 @@ def _append_identifier_level_diff(
 
             for li in range(i1, i2):
                 left_tokens.append(
-                    {"text": left_parts[li], "changed": True, "is_ws": False}
+                    {"text": left_parts[li], "status": "replace", "is_ws": False}
                 )
             for ri in range(j1, j2):
                 right_tokens.append(
                     {
                         "text": right_parts[ri],
-                        "changed": True,
+                        "status": "replace",
                         "is_ws": False,
                     }
                 )
@@ -1128,14 +1139,14 @@ def _inline_diff(
                     left_tokens.append(
                         {
                             "text": left_token["text"],
-                            "changed": False,
+                            "status": "unchanged",
                             "is_ws": left_token["is_ws"],
                         }
                     )
                     right_tokens.append(
                         {
                             "text": right_token["text"],
-                            "changed": False,
+                            "status": "unchanged",
                             "is_ws": right_token["is_ws"],
                         }
                     )
@@ -1145,7 +1156,7 @@ def _inline_diff(
                 left_tokens.append(
                     {
                         "text": token["text"],
-                        "changed": True,
+                        "status": "delete",
                         "is_ws": token["is_ws"],
                     }
                 )
@@ -1155,7 +1166,7 @@ def _inline_diff(
                 right_tokens.append(
                     {
                         "text": token["text"],
-                        "changed": True,
+                        "status": "insert",
                         "is_ws": token["is_ws"],
                     }
                 )
@@ -1175,14 +1186,14 @@ def _inline_diff(
                         left_tokens.append(
                             {
                                 "text": left_token["text"],
-                                "changed": False,
+                                "status": "unchanged",
                                 "is_ws": left_token["is_ws"],
                             }
                         )
                         right_tokens.append(
                             {
                                 "text": right_token["text"],
-                                "changed": False,
+                                "status": "unchanged",
                                 "is_ws": right_token["is_ws"],
                             }
                         )
@@ -1192,7 +1203,7 @@ def _inline_diff(
                         left_tokens.append(
                             {
                                 "text": token["text"],
-                                "changed": True,
+                                "status": "delete",
                                 "is_ws": token["is_ws"],
                             }
                         )
@@ -1202,7 +1213,7 @@ def _inline_diff(
                         right_tokens.append(
                             {
                                 "text": token["text"],
-                                "changed": True,
+                                "status": "insert",
                                 "is_ws": token["is_ws"],
                             }
                         )
@@ -1228,14 +1239,14 @@ def _inline_diff(
                                 left_tokens.append(
                                     {
                                         "text": left_token["text"],
-                                        "changed": True,
+                                        "status": "replace",
                                         "is_ws": False,
                                     }
                                 )
                                 right_tokens.append(
                                     {
                                         "text": right_token["text"],
-                                        "changed": True,
+                                        "status": "replace",
                                         "is_ws": False,
                                     }
                                 )
@@ -1246,7 +1257,7 @@ def _inline_diff(
                         left_tokens.append(
                             {
                                 "text": token["text"],
-                                "changed": True,
+                                "status": "replace",
                                 "is_ws": token["is_ws"],
                             }
                         )
@@ -1255,7 +1266,7 @@ def _inline_diff(
                         right_tokens.append(
                             {
                                 "text": token["text"],
-                                "changed": True,
+                                "status": "replace",
                                 "is_ws": token["is_ws"],
                             }
                         )
@@ -1548,6 +1559,667 @@ def _git_style_line_rows(left_text: str, right_text: str) -> list[dict[str, Any]
     return rows
 
 
+def _changed_tokens_for_ranges(
+    line: str,
+    ranges: list[tuple[int, int]],
+    *,
+    status: Literal["replace", "insert", "delete"] = "replace",
+) -> list[dict[str, Any]]:
+    if not ranges:
+        return []
+
+    tokens: list[dict[str, Any]] = []
+    cursor = 0
+    for raw_start, raw_end in sorted(ranges):
+        start = max(cursor, max(0, min(raw_start, len(line))))
+        end = max(start, min(raw_end, len(line)))
+        if start > cursor:
+            text = line[cursor:start]
+            tokens.append(
+                {"text": text, "status": "unchanged", "is_ws": text.isspace()}
+            )
+        if end > start:
+            text = line[start:end]
+            tokens.append(
+                {
+                    "text": text,
+                    "status": status,
+                    "is_ws": text.isspace(),
+                }
+            )
+        cursor = max(cursor, end)
+
+    if cursor < len(line):
+        text = line[cursor:]
+        tokens.append({"text": text, "status": "unchanged", "is_ws": text.isspace()})
+    return tokens
+
+
+def _difftastic_changed_ranges_by_line(
+    diff_json: dict[str, Any],
+    *,
+    side: Literal["lhs", "rhs"],
+) -> dict[int, list[tuple[int, int]]]:
+    ranges: dict[int, list[tuple[int, int]]] = {}
+    chunks = diff_json.get("chunks", [])
+    if not isinstance(chunks, list):
+        return ranges
+
+    for chunk in chunks:
+        if not isinstance(chunk, list):
+            continue
+        for entry in chunk:
+            if not isinstance(entry, dict):
+                continue
+            side_entry = entry.get(side)
+            if not isinstance(side_entry, dict):
+                continue
+            line_number = side_entry.get("line_number")
+            changes = side_entry.get("changes", [])
+            if not isinstance(line_number, int) or not isinstance(changes, list):
+                continue
+            line_ranges = ranges.setdefault(line_number, [])
+            for change in changes:
+                if not isinstance(change, dict):
+                    continue
+                start = change.get("start")
+                end = change.get("end")
+                if isinstance(start, int) and isinstance(end, int):
+                    line_ranges.append((start, end))
+    return ranges
+
+
+def _shared_semantic_line_text(left_line: str, right_line: str) -> tuple[str, str]:
+    if left_line == right_line:
+        return left_line, right_line
+    if left_line.startswith(right_line):
+        return right_line, right_line
+    if right_line.startswith(left_line):
+        return left_line, left_line
+    return left_line, right_line
+
+
+def _remove_line_ranges(line: str, ranges: list[tuple[int, int]]) -> str:
+    if not ranges:
+        return line
+
+    pieces: list[str] = []
+    cursor = 0
+    for raw_start, raw_end in sorted(ranges):
+        start = max(cursor, max(0, min(raw_start, len(line))))
+        end = max(start, min(raw_end, len(line)))
+        if start > cursor:
+            pieces.append(line[cursor:start])
+        cursor = max(cursor, end)
+    if cursor < len(line):
+        pieces.append(line[cursor:])
+    return "".join(pieces)
+
+
+def _clip_one_sided_semantic_line_text(
+    *,
+    left_line: str,
+    right_line: str,
+    left_ranges: list[tuple[int, int]],
+    right_ranges: list[tuple[int, int]],
+) -> tuple[str, str]:
+    if not left_ranges and right_ranges:
+        semantic_left = _remove_line_ranges(right_line, right_ranges)
+        if left_line.startswith(semantic_left):
+            return semantic_left, right_line
+    if left_ranges and not right_ranges:
+        semantic_right = _remove_line_ranges(left_line, left_ranges)
+        if right_line.startswith(semantic_right):
+            return left_line, semantic_right
+    return left_line, right_line
+
+
+@dataclass(frozen=True)
+class DifftasticAlignedLine:
+    left_index: int | None
+    right_index: int | None
+
+
+@dataclass(frozen=True)
+class DifftasticLineFragment:
+    source_index: int
+    text: str
+
+
+def _difftastic_aligned_lines(value: Any) -> list[DifftasticAlignedLine]:
+    if not isinstance(value, list):
+        return []
+
+    aligned: list[DifftasticAlignedLine] = []
+    for pair in value:
+        if not isinstance(pair, list | tuple) or len(pair) != 2:
+            continue
+        raw_left, raw_right = pair
+        aligned.append(
+            DifftasticAlignedLine(
+                left_index=raw_left if isinstance(raw_left, int) else None,
+                right_index=raw_right if isinstance(raw_right, int) else None,
+            )
+        )
+    return aligned
+
+
+def _difftastic_line_anchor_bounds(
+    aligned_lines: list[DifftasticAlignedLine],
+    row_index: int,
+    *,
+    side: Literal["left", "right"],
+) -> tuple[int, int]:
+    def side_index(line: DifftasticAlignedLine) -> int | None:
+        return line.left_index if side == "left" else line.right_index
+
+    lower = -1
+    for line in reversed(aligned_lines[:row_index]):
+        index = side_index(line)
+        if index is not None:
+            lower = index
+            break
+
+    upper = 10**12
+    for line in aligned_lines[row_index + 1 :]:
+        index = side_index(line)
+        if index is not None:
+            upper = index
+            break
+
+    return lower, upper
+
+
+def _find_difftastic_reconstructed_line(
+    lines: list[str],
+    candidate: str,
+    *,
+    lower_bound: int,
+    upper_bound: int,
+    used: set[int],
+) -> int | None:
+    if not candidate:
+        return None
+
+    for index, line in enumerate(lines):
+        if index in used:
+            continue
+        if not lower_bound < index < upper_bound:
+            continue
+        if line == candidate:
+            return index
+    return None
+
+
+def _difftastic_line_item_key(line: str) -> str:
+    return line.strip().rstrip(",").strip()
+
+
+def _difftastic_fragment_key_is_matchable(key: str) -> bool:
+    return bool(key) and key not in {"{", "}"}
+
+
+def _common_prefix_length(left: str, right: str) -> int:
+    limit = min(len(left), len(right))
+    index = 0
+    while index < limit and left[index] == right[index]:
+        index += 1
+    return index
+
+
+def _difftastic_suffix_fragment_after_ranges(
+    *,
+    line: str,
+    ranges: list[tuple[int, int]],
+    counterpart_line: str,
+    counterpart_ranges: list[tuple[int, int]],
+) -> str:
+    if not ranges:
+        return ""
+
+    suffix_start = max(max(0, min(end, len(line))) for _, end in ranges)
+    suffix = line[suffix_start:]
+    if not suffix.strip():
+        return ""
+
+    counterpart_suffix = ""
+    if counterpart_ranges:
+        counterpart_suffix_start = max(
+            max(0, min(end, len(counterpart_line))) for _, end in counterpart_ranges
+        )
+        counterpart_suffix = counterpart_line[counterpart_suffix_start:]
+
+    shared_prefix_length = _common_prefix_length(suffix, counterpart_suffix)
+    return suffix[shared_prefix_length:]
+
+
+def _find_difftastic_reconstructed_fragment(
+    fragments: list[DifftasticLineFragment],
+    candidate: str,
+    *,
+    lower_bound: int,
+    upper_bound: int,
+    used: set[tuple[int, str]],
+) -> DifftasticLineFragment | None:
+    key = _difftastic_line_item_key(candidate)
+    if not _difftastic_fragment_key_is_matchable(key):
+        return None
+
+    for fragment in fragments:
+        used_key = (fragment.source_index, key)
+        if used_key in used:
+            continue
+        if not lower_bound <= fragment.source_index < upper_bound:
+            continue
+        if key in fragment.text:
+            return fragment
+    return None
+
+
+def _difftastic_fragment_key(fragment: DifftasticLineFragment) -> tuple[int, str]:
+    return (fragment.source_index, _difftastic_line_item_key(fragment.text))
+
+
+def _delete_only_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "delete",
+        "left_no": row.get("left_no"),
+        "right_no": None,
+        "left_text": row.get("left_text", ""),
+        "right_text": "",
+    }
+
+
+def _insert_only_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "insert",
+        "left_no": None,
+        "right_no": row.get("right_no"),
+        "left_text": "",
+        "right_text": row.get("right_text", ""),
+    }
+
+
+def _equal_row_from_crossed_replacements(
+    left_row: dict[str, Any],
+    right_row: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "equal",
+        "left_no": left_row.get("left_no"),
+        "right_no": right_row.get("right_no"),
+        "left_text": left_row.get("left_text", ""),
+        "right_text": right_row.get("right_text", ""),
+    }
+
+
+def _repair_shifted_difftastic_replacements(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    repaired: list[dict[str, Any]] = []
+    index = 0
+    while index < len(rows):
+        row = rows[index]
+        next_row = rows[index + 1] if index + 1 < len(rows) else None
+        if (
+            next_row is not None
+            and row.get("status") == "replace"
+            and next_row.get("status") == "replace"
+        ):
+            if row.get("right_text") and row.get("right_text") == next_row.get(
+                "left_text"
+            ):
+                repaired.append(_delete_only_row(row))
+                repaired.append(_equal_row_from_crossed_replacements(next_row, row))
+                repaired.append(_insert_only_row(next_row))
+                index += 2
+                continue
+            if row.get("left_text") and row.get("left_text") == next_row.get(
+                "right_text"
+            ):
+                repaired.append(_insert_only_row(row))
+                repaired.append(_equal_row_from_crossed_replacements(row, next_row))
+                repaired.append(_delete_only_row(next_row))
+                index += 2
+                continue
+        repaired.append(row)
+        index += 1
+    return repaired
+
+
+def _difftastic_rows_from_json(
+    diff_json: dict[str, Any],
+    *,
+    left_text: str,
+    right_text: str,
+) -> list[dict[str, Any]]:
+    left_lines = left_text.splitlines()
+    right_lines = right_text.splitlines()
+    left_ranges = _difftastic_changed_ranges_by_line(diff_json, side="lhs")
+    right_ranges = _difftastic_changed_ranges_by_line(diff_json, side="rhs")
+    aligned_lines = _difftastic_aligned_lines(diff_json.get("aligned_lines", []))
+    if not aligned_lines:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    used_left: set[int] = set()
+    used_right: set[int] = set()
+    left_fragments: list[DifftasticLineFragment] = []
+    right_fragments: list[DifftasticLineFragment] = []
+    used_left_fragments: set[tuple[int, str]] = set()
+    used_right_fragments: set[tuple[int, str]] = set()
+    for aligned_index, pair in enumerate(aligned_lines):
+        left_index = pair.left_index
+        right_index = pair.right_index
+        if left_index in used_left or right_index in used_right:
+            continue
+        left_exists = left_index is not None and 0 <= left_index < len(left_lines)
+        right_exists = right_index is not None and 0 <= right_index < len(right_lines)
+
+        if not left_exists and not right_exists:
+            continue
+
+        if left_exists and right_exists:
+            assert left_index is not None
+            assert right_index is not None
+            original_left_line = left_lines[left_index]
+            original_right_line = right_lines[right_index]
+            left_line = original_left_line
+            right_line = original_right_line
+            left_line_ranges = left_ranges.get(left_index, [])
+            right_line_ranges = right_ranges.get(right_index, [])
+            if not left_line_ranges and not right_line_ranges:
+                left_line, right_line = _shared_semantic_line_text(
+                    left_line, right_line
+                )
+            else:
+                left_line, right_line = _clip_one_sided_semantic_line_text(
+                    left_line=left_line,
+                    right_line=right_line,
+                    left_ranges=left_line_ranges,
+                    right_ranges=right_line_ranges,
+                )
+            if original_left_line.startswith(left_line):
+                residual_left = original_left_line[len(left_line) :]
+                if residual_left.strip():
+                    left_fragments.append(
+                        DifftasticLineFragment(
+                            source_index=left_index,
+                            text=residual_left,
+                        )
+                    )
+            if original_right_line.startswith(right_line):
+                residual_right = original_right_line[len(right_line) :]
+                if residual_right.strip():
+                    right_fragments.append(
+                        DifftasticLineFragment(
+                            source_index=right_index,
+                            text=residual_right,
+                        )
+                    )
+            left_suffix_fragment = _difftastic_suffix_fragment_after_ranges(
+                line=original_left_line,
+                ranges=left_line_ranges,
+                counterpart_line=original_right_line,
+                counterpart_ranges=right_line_ranges,
+            )
+            if left_suffix_fragment.strip():
+                left_fragments.append(
+                    DifftasticLineFragment(
+                        source_index=left_index,
+                        text=left_suffix_fragment,
+                    )
+                )
+            right_suffix_fragment = _difftastic_suffix_fragment_after_ranges(
+                line=original_right_line,
+                ranges=right_line_ranges,
+                counterpart_line=original_left_line,
+                counterpart_ranges=left_line_ranges,
+            )
+            if right_suffix_fragment.strip():
+                right_fragments.append(
+                    DifftasticLineFragment(
+                        source_index=right_index,
+                        text=right_suffix_fragment,
+                    )
+                )
+            row = _paired_line_row(
+                left_line,
+                right_line,
+                left_index + 1,
+                right_index + 1,
+            )
+            left_status = "replace" if right_line_ranges else "delete"
+            right_status = "replace" if left_line_ranges else "insert"
+            left_tokens = _changed_tokens_for_ranges(
+                left_line,
+                left_line_ranges,
+                status=left_status,
+            )
+            right_tokens = _changed_tokens_for_ranges(
+                right_line,
+                right_line_ranges,
+                status=right_status,
+            )
+            if left_tokens or right_tokens:
+                row["status"] = "replace"
+                row["left_tokens"] = left_tokens
+                row["right_tokens"] = right_tokens
+            rows.append(row)
+            used_left.add(left_index)
+            used_right.add(right_index)
+            continue
+
+        if left_exists:
+            assert left_index is not None
+            left_line_ranges = left_ranges.get(left_index, [])
+            candidate_right = _remove_line_ranges(
+                left_lines[left_index], left_line_ranges
+            )
+            lower, upper = _difftastic_line_anchor_bounds(
+                aligned_lines, aligned_index, side="right"
+            )
+            if left_line_ranges:
+                reconstructed_right_index = _find_difftastic_reconstructed_line(
+                    right_lines,
+                    candidate_right,
+                    lower_bound=lower,
+                    upper_bound=upper,
+                    used=used_right,
+                )
+                if reconstructed_right_index is not None:
+                    row = _paired_line_row(
+                        left_lines[left_index],
+                        candidate_right,
+                        left_index + 1,
+                        reconstructed_right_index + 1,
+                    )
+                    row["status"] = "replace"
+                    row["left_tokens"] = _changed_tokens_for_ranges(
+                        left_lines[left_index],
+                        left_line_ranges,
+                        status="delete",
+                    )
+                    row.pop("right_tokens", None)
+                    rows.append(row)
+                    used_left.add(left_index)
+                    used_right.add(reconstructed_right_index)
+                    continue
+                reconstructed_right_fragment = _find_difftastic_reconstructed_fragment(
+                    right_fragments,
+                    candidate_right,
+                    lower_bound=lower,
+                    upper_bound=upper,
+                    used=used_right_fragments,
+                )
+                if reconstructed_right_fragment is not None:
+                    row = _paired_line_row(
+                        left_lines[left_index],
+                        candidate_right,
+                        left_index + 1,
+                        reconstructed_right_fragment.source_index + 1,
+                    )
+                    row["status"] = "replace"
+                    row["left_tokens"] = _changed_tokens_for_ranges(
+                        left_lines[left_index],
+                        left_line_ranges,
+                        status="delete",
+                    )
+                    row.pop("right_tokens", None)
+                    rows.append(row)
+                    used_left.add(left_index)
+                    used_right_fragments.add(
+                        (
+                            reconstructed_right_fragment.source_index,
+                            _difftastic_line_item_key(candidate_right),
+                        )
+                    )
+                    continue
+            if not left_line_ranges:
+                reconstructed_right_fragment = _find_difftastic_reconstructed_fragment(
+                    right_fragments,
+                    candidate_right,
+                    lower_bound=lower,
+                    upper_bound=upper,
+                    used=used_right_fragments,
+                )
+                if reconstructed_right_fragment is not None:
+                    rows.append(
+                        _paired_line_row(
+                            left_lines[left_index],
+                            candidate_right,
+                            left_index + 1,
+                            reconstructed_right_fragment.source_index + 1,
+                        )
+                    )
+                    used_left.add(left_index)
+                    used_right_fragments.add(
+                        _difftastic_fragment_key(reconstructed_right_fragment)
+                    )
+                    continue
+            row = {
+                "status": "delete" if left_line_ranges else "equal",
+                "left_no": left_index + 1,
+                "right_no": None,
+                "left_text": left_lines[left_index],
+                "right_text": "",
+            }
+            left_tokens = _changed_tokens_for_ranges(
+                left_lines[left_index],
+                left_line_ranges,
+                status="delete",
+            )
+            if left_tokens:
+                row["left_tokens"] = left_tokens
+            rows.append(row)
+            used_left.add(left_index)
+            continue
+
+        assert right_index is not None
+        right_line_ranges = right_ranges.get(right_index, [])
+        candidate_left = _remove_line_ranges(
+            right_lines[right_index], right_line_ranges
+        )
+        lower, upper = _difftastic_line_anchor_bounds(
+            aligned_lines, aligned_index, side="left"
+        )
+        if right_line_ranges:
+            reconstructed_left_index = _find_difftastic_reconstructed_line(
+                left_lines,
+                candidate_left,
+                lower_bound=lower,
+                upper_bound=upper,
+                used=used_left,
+            )
+            if reconstructed_left_index is not None:
+                row = _paired_line_row(
+                    candidate_left,
+                    right_lines[right_index],
+                    reconstructed_left_index + 1,
+                    right_index + 1,
+                )
+                row["status"] = "replace"
+                row["right_tokens"] = _changed_tokens_for_ranges(
+                    right_lines[right_index],
+                    right_line_ranges,
+                    status="insert",
+                )
+                row.pop("left_tokens", None)
+                rows.append(row)
+                used_left.add(reconstructed_left_index)
+                used_right.add(right_index)
+                continue
+            reconstructed_left_fragment = _find_difftastic_reconstructed_fragment(
+                left_fragments,
+                candidate_left,
+                lower_bound=lower,
+                upper_bound=upper,
+                used=used_left_fragments,
+            )
+            if reconstructed_left_fragment is not None:
+                row = _paired_line_row(
+                    candidate_left,
+                    right_lines[right_index],
+                    reconstructed_left_fragment.source_index + 1,
+                    right_index + 1,
+                )
+                row["status"] = "replace"
+                row["right_tokens"] = _changed_tokens_for_ranges(
+                    right_lines[right_index],
+                    right_line_ranges,
+                    status="insert",
+                )
+                row.pop("left_tokens", None)
+                rows.append(row)
+                used_left_fragments.add(
+                    (
+                        reconstructed_left_fragment.source_index,
+                        _difftastic_line_item_key(candidate_left),
+                    )
+                )
+                used_right.add(right_index)
+                continue
+        if not right_line_ranges:
+            reconstructed_left_fragment = _find_difftastic_reconstructed_fragment(
+                left_fragments,
+                candidate_left,
+                lower_bound=lower,
+                upper_bound=upper,
+                used=used_left_fragments,
+            )
+            if reconstructed_left_fragment is not None:
+                rows.append(
+                    _paired_line_row(
+                        candidate_left,
+                        right_lines[right_index],
+                        reconstructed_left_fragment.source_index + 1,
+                        right_index + 1,
+                    )
+                )
+                used_left_fragments.add(
+                    _difftastic_fragment_key(reconstructed_left_fragment)
+                )
+                used_right.add(right_index)
+                continue
+        rows.append(
+            {
+                "status": "insert" if right_line_ranges else "equal",
+                "left_no": None,
+                "right_no": right_index + 1,
+                "left_text": "",
+                "right_text": right_lines[right_index],
+                "right_tokens": _changed_tokens_for_ranges(
+                    right_lines[right_index],
+                    right_line_ranges,
+                    status="insert",
+                ),
+            }
+        )
+        used_right.add(right_index)
+
+    return _repair_shifted_difftastic_replacements(rows)
+
+
 def _build_git_rows_payload(
     *,
     rows: list[dict[str, Any]],
@@ -1613,7 +2285,7 @@ def _row_has_any_change(row: dict[str, Any]) -> bool:
     if row.get("left_text") != row.get("right_text"):
         return True
     return any(
-        token.get("changed")
+        token.get("status") != "unchanged"
         for token in row.get("left_tokens", []) + row.get("right_tokens", [])
     )
 
@@ -2715,3 +3387,189 @@ class GitDiffService(TextDiffService):
         cell_key: str | None = None,
     ) -> dict[str, Any]:
         raise TextDiffError("Notebook sections are not available in the Git engine.")
+
+
+class DifftasticDiffService(TextDiffService):
+    def _run_difftastic_json(
+        self,
+        *,
+        left_text: str,
+        right_text: str,
+        left_path_hint: str | None,
+        right_path_hint: str | None,
+    ) -> dict[str, Any]:
+        left_suffix = Path(left_path_hint or "left.txt").suffix or ".txt"
+        right_suffix = Path(right_path_hint or left_path_hint or "right.txt").suffix
+        right_suffix = right_suffix or left_suffix
+
+        with tempfile.TemporaryDirectory(prefix="dirdiff-difftastic-") as raw_tmp:
+            tmp = Path(raw_tmp)
+            left_path = tmp / f"left{left_suffix}"
+            right_path = tmp / f"right{right_suffix}"
+            left_path.write_text(left_text, encoding="utf-8")
+            right_path.write_text(right_text, encoding="utf-8")
+
+            env = {**os.environ, "DFT_UNSTABLE": "yes"}
+            try:
+                result = subprocess.run(
+                    [
+                        "difft",
+                        "--display",
+                        "json",
+                        "--context",
+                        "100000000",
+                        str(left_path),
+                        str(right_path),
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+            except FileNotFoundError as exc:
+                raise TextDiffError(
+                    "Difftastic engine requires the `difft` executable on PATH."
+                ) from exc
+
+        if result.returncode != 0:
+            raise TextDiffError(
+                result.stderr.strip() or "Difftastic could not build this diff."
+            )
+        try:
+            parsed = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise TextDiffError("Difftastic returned invalid JSON.") from exc
+
+        if isinstance(parsed, list):
+            if not parsed:
+                return {"aligned_lines": [], "chunks": []}
+            first = parsed[0]
+            if isinstance(first, dict):
+                return first
+        if isinstance(parsed, dict):
+            return parsed
+        raise TextDiffError("Difftastic returned an unexpected JSON payload.")
+
+    def build_git_diff_paths(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None = None,
+        change_type: str = "modify",
+    ) -> dict[str, Any]:
+        if _looks_like_notebook_path(right_path) or _looks_like_notebook_path(
+            left_path
+        ):
+            return super().build_git_diff_paths(
+                left_path=left_path,
+                right_path=right_path,
+                left=left,
+                right=right,
+                display_name=display_name,
+                change_type=change_type,
+            )
+
+        started_at = time.perf_counter()
+        normalized_left = (
+            self.normalize_repo_path(left_path) if left_path is not None else None
+        )
+        normalized_right = (
+            self.normalize_repo_path(right_path) if right_path is not None else None
+        )
+        normalized_left_side = self.normalize_side(left)
+        normalized_right_side = self.normalize_side(right)
+        left_version = (
+            self.load_git_version(normalized_left, normalized_left_side)
+            if normalized_left is not None
+            else TextVersion(label=normalized_left_side, exists=False, text=None)
+        )
+        right_version = (
+            self.load_git_version(normalized_right, normalized_right_side)
+            if normalized_right is not None
+            else TextVersion(label=normalized_right_side, exists=False, text=None)
+        )
+
+        if left_version.error:
+            raise TextDiffError(left_version.error)
+        if right_version.error:
+            raise TextDiffError(right_version.error)
+        if not left_version.exists and not right_version.exists:
+            raise TextDiffError("The selected file is missing on both sides.")
+
+        left_text = left_version.text or ""
+        right_text = right_version.text or ""
+        if left_version.exists and right_version.exists:
+            diff_json = self._run_difftastic_json(
+                left_text=left_text,
+                right_text=right_text,
+                left_path_hint=normalized_left,
+                right_path_hint=normalized_right,
+            )
+            rows = _difftastic_rows_from_json(
+                diff_json,
+                left_text=left_text,
+                right_text=right_text,
+            )
+            if not rows:
+                rows = _git_style_line_rows(left_text, right_text)
+        elif left_version.exists:
+            rows = _plain_line_rows_for_side(text=left_text, side="left")
+        else:
+            rows = _plain_line_rows_for_side(text=right_text, side="right")
+
+        rows_payload = _build_git_rows_payload(
+            rows=rows,
+            left_text=left_text,
+            right_text=right_text,
+            left_path_hint=normalized_left,
+            right_path_hint=normalized_right,
+        )
+        payload = {
+            "display_name": display_name
+            or _display_name_for_repo_paths(normalized_left, normalized_right),
+            "mode": "git",
+            "left_label": normalized_left_side,
+            "right_label": normalized_right_side,
+            "summary": {
+                "changed_lines": rows_payload["changed_lines"],
+                "modified_lines": rows_payload["modified_lines"],
+                "added_lines": rows_payload["added_lines"],
+                "removed_lines": rows_payload["removed_lines"],
+                "left_exists": left_version.exists,
+                "right_exists": right_version.exists,
+            },
+            "rows": rows_payload["rows"],
+            "change_type": change_type,
+            "left_path": normalized_left,
+            "right_path": normalized_right,
+        }
+        payload["default_expanded"] = _default_expanded_for_payload(payload)
+        if "render_mode" in rows_payload:
+            payload["render_mode"] = rows_payload["render_mode"]
+        if "truncated_rows" in rows_payload:
+            payload["truncated_rows"] = rows_payload["truncated_rows"]
+        if "fold_hints" in rows_payload:
+            payload["fold_hints"] = rows_payload["fold_hints"]
+
+        row_count = len(rows)
+        syntax_span_count = sum(
+            len(row.get("left_syntax", ())) + len(row.get("right_syntax", ()))
+            for row in rows
+        )
+        payload_bytes = _payload_size_bytes(payload)
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        _perf_log(
+            "difftastic-file"
+            f" name={payload['display_name']!r}"
+            f" change={change_type}"
+            f" rows={row_count}"
+            f" left_chars={len(left_text)}"
+            f" right_chars={len(right_text)}"
+            f" syntax_spans={syntax_span_count}"
+            f" payload_bytes={payload_bytes}"
+            f" elapsed_ms={elapsed_ms:.1f}"
+        )
+        return payload

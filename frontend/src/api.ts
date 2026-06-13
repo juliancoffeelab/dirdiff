@@ -4,7 +4,7 @@ export type DiffMode =
   | "against-head"
   | "refs"
   | "branch-review";
-export type DiffEngine = "dirdiff" | "git";
+export type DiffEngine = "dirdiff" | "git" | "difftastic";
 
 export type RefChoices = {
   builtins: string[];
@@ -88,8 +88,8 @@ export type RowStatus =
 
 export type InlineToken = {
   text: string;
-  changed: boolean;
   is_ws: boolean;
+  status: "unchanged" | "replace" | "insert" | "delete";
 };
 
 export type SyntaxSpan = {

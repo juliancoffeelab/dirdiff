@@ -625,7 +625,7 @@ def _row_has_any_change(row: dict[str, Any]) -> bool:
     if row.get("left_text") != row.get("right_text"):
         return True
     return any(
-        token.get("changed")
+        token.get("status") != "unchanged"
         for token in row.get("left_tokens", []) + row.get("right_tokens", [])
     )
 

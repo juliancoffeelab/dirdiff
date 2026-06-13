@@ -1,6 +1,6 @@
 import json
 
-from dirdiff.diff import build_loaded_diff
+from dirdiff.diff import _difftastic_rows_from_json, build_loaded_diff
 
 
 def test_counts_whitespace_only_changes_as_modified() -> None:
@@ -42,14 +42,14 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
         if token["text"] == "(":
             break
         if token["text"] != "function" and not token["is_ws"]:
-            left_name_tokens.append((token["text"], token["changed"]))
+            left_name_tokens.append((token["text"], (token["status"] != "unchanged")))
 
     right_name_tokens = []
     for token in diff["rows"][0]["right_tokens"]:
         if token["text"] == "(":
             break
         if token["text"] != "function" and not token["is_ws"]:
-            right_name_tokens.append((token["text"], token["changed"]))
+            right_name_tokens.append((token["text"], (token["status"] != "unchanged")))
 
     assert left_name_tokens == [
         ("find", True),
@@ -77,12 +77,12 @@ def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
     )
 
     left_tokens = [
-        (token["text"], token["changed"])
+        (token["text"], (token["status"] != "unchanged"))
         for token in diff["rows"][0]["left_tokens"]
         if token["text"] not in {"await", " ", "(", "page", ",", "0", ");"}
     ]
     right_tokens = [
-        (token["text"], token["changed"])
+        (token["text"], (token["status"] != "unchanged"))
         for token in diff["rows"][0]["right_tokens"]
         if token["text"] not in {"await", " ", "(", "page", ",", "0", ");"}
     ]
@@ -98,6 +98,619 @@ def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
         ("Row", False),
         ("Index", True),
     ]
+
+
+def test_difftastic_json_rows_use_semantic_alignment_and_changed_ranges() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [1, 1], [None, 2], [None, 3], [None, 4]],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 11, "end": 12}],
+                        },
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 11, "end": 12}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 4, "end": 10}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 11, "end": 12}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text="def alpha():\n    return 1\n",
+        right_text="def alpha():\n    return 2\n\ndef beta():\n    return 3\n",
+    )
+
+    assert [row["status"] for row in rows] == [
+        "equal",
+        "replace",
+        "equal",
+        "insert",
+        "insert",
+    ]
+    assert rows[1]["left_tokens"] == [
+        {"text": "    return ", "status": "unchanged", "is_ws": False},
+        {"text": "1", "status": "replace", "is_ws": False},
+    ]
+    assert rows[3]["right_text"] == "def beta():"
+    assert rows[3]["right_tokens"] == [
+        {"text": "def ", "status": "unchanged", "is_ws": False},
+        {"text": "beta()", "status": "insert", "is_ws": False},
+        {"text": ":", "status": "unchanged", "is_ws": False},
+    ]
+
+
+def test_difftastic_rows_render_split_arguments_as_semantic_context() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [None, 1],
+                [None, 2],
+                [None, 3],
+                [None, 4],
+            ],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 38, "end": 50}],
+                        },
+                    }
+                ]
+            ],
+        },
+        left_text='    return create_app(service, defaults, services={"git": git_service})\n',
+        right_text=(
+            "    return create_app(\n"
+            "        service,\n"
+            "        defaults,\n"
+            '        services={"git": git_service, "difftastic": difftastic_service},\n'
+            "    )\n"
+        ),
+    )
+
+    assert rows[0]["status"] == "equal"
+    assert rows[0]["left_text"] == "    return create_app("
+    assert rows[0]["right_text"] == "    return create_app("
+    assert [row["status"] for row in rows[1:]] == [
+        "equal",
+        "equal",
+        "insert",
+        "equal",
+    ]
+    assert rows[3]["right_tokens"][1]["status"] == "insert"
+
+
+def test_difftastic_rows_clip_old_tail_for_one_sided_paired_insert() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [None, 1],
+                [None, 2],
+                [None, 3],
+                [None, 4],
+                [None, 5],
+                [1, 6],
+            ],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 25, "end": 26}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 4, "end": 25}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 19, "end": 20}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 0, "end": 1}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            "from dirdiff.diff import GitDiffService, GitRepository, TextDiffService\n"
+            "from dirdiff.server import create_app\n"
+        ),
+        right_text=(
+            "from dirdiff.diff import (\n"
+            "    DifftasticDiffService,\n"
+            "    GitDiffService,\n"
+            "    GitRepository,\n"
+            "    TextDiffService,\n"
+            ")\n"
+            "from dirdiff.server import create_app\n"
+        ),
+    )
+
+    assert rows[0]["status"] == "replace"
+    assert rows[0]["left_text"] == "from dirdiff.diff import "
+    assert rows[0]["right_text"] == "from dirdiff.diff import ("
+    assert rows[0]["right_tokens"] == [
+        {"text": "from dirdiff.diff import ", "status": "unchanged", "is_ws": False},
+        {"text": "(", "status": "insert", "is_ws": False},
+    ]
+    assert rows[1]["status"] == "insert"
+    assert rows[2]["status"] == "equal"
+    assert rows[6]["left_text"] == "from dirdiff.server import create_app"
+
+
+def test_difftastic_rows_pair_one_sided_rhs_token_insert_with_matching_lhs_line() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, 2],
+                [3, 3],
+                [4, 4],
+                [None, 5],
+                [None, 6],
+                [6, 7],
+            ],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 2, "end": 11}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 6,
+                            "changes": [{"start": 12, "end": 13}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            'import { createEffect } from "solid-js";\n'
+            "import type {\n"
+            "  DiffRow,\n"
+            "  FileEntry,\n"
+            "  InlineToken,\n"
+            "  SyntaxSpan\n"
+            '} from "./api";\n'
+        ),
+        right_text=(
+            'import { createEffect } from "solid-js";\n'
+            "import type {\n"
+            "  DiffRow,\n"
+            "  FileEntry,\n"
+            "  InlineToken,\n"
+            "  RowStatus,\n"
+            "  SyntaxSpan,\n"
+            '} from "./api";\n'
+        ),
+    )
+
+    assert rows[5]["status"] == "insert"
+    assert rows[5]["right_text"] == "  RowStatus,"
+    assert rows[6]["status"] == "replace"
+    assert rows[6]["left_no"] == 6
+    assert rows[6]["right_no"] == 7
+    assert rows[6]["left_text"] == "  SyntaxSpan"
+    assert rows[6]["right_text"] == "  SyntaxSpan,"
+    assert rows[6]["right_tokens"] == [
+        {"text": "  SyntaxSpan", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+    assert rows[7]["left_text"] == '} from "./api";'
+
+
+def test_difftastic_rows_pair_rhs_token_insert_from_split_lhs_line_tail() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [None, 2],
+                [None, 3],
+                [None, 4],
+                [None, 5],
+                [None, 6],
+                [None, 7],
+                [2, 8],
+            ],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 2, "end": 11}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 6,
+                            "changes": [{"start": 12, "end": 13}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            'import { createEffect } from "solid-js";\n'
+            'import type { DiffRow, FileEntry, InlineToken, SyntaxSpan } from "./api";\n'
+            'import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";\n'
+        ),
+        right_text=(
+            'import { createEffect } from "solid-js";\n'
+            "import type {\n"
+            "  DiffRow,\n"
+            "  FileEntry,\n"
+            "  InlineToken,\n"
+            "  RowStatus,\n"
+            "  SyntaxSpan,\n"
+            '} from "./api";\n'
+            'import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";\n'
+        ),
+    )
+
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_text"] == "import type {"
+    assert rows[1]["right_text"] == "import type {"
+    assert rows[2]["status"] == "equal"
+    assert rows[2]["left_no"] == 2
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == "  DiffRow,"
+    assert rows[2]["right_text"] == "  DiffRow,"
+    assert rows[5]["status"] == "insert"
+    assert rows[5]["left_no"] is None
+    assert rows[5]["right_text"] == "  RowStatus,"
+    assert rows[6]["status"] == "replace"
+    assert rows[6]["left_no"] == 2
+    assert rows[6]["right_no"] == 7
+    assert rows[6]["left_text"] == "  SyntaxSpan"
+    assert rows[6]["right_text"] == "  SyntaxSpan,"
+    assert rows[6]["right_tokens"] == [
+        {"text": "  SyntaxSpan", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+    assert rows[7]["status"] == "equal"
+    assert rows[7]["left_no"] == 2
+    assert rows[7]["right_no"] == 8
+    assert rows[7]["left_text"] == '} from "./api";'
+    assert rows[7]["right_text"] == '} from "./api";'
+    assert rows[8]["left_text"].startswith("import { addFoldRows")
+
+
+def test_difftastic_rows_pair_rhs_lines_from_replaced_lhs_line_tail() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [None, 1],
+                [None, 2],
+                [None, 3],
+                [None, 4],
+                [1, 5],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 9, "end": 20}],
+                        },
+                        "rhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 9, "end": 23}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 2, "end": 8},
+                                {"start": 8, "end": 9},
+                                {"start": 10, "end": 21},
+                                {"start": 21, "end": 22},
+                                {"start": 22, "end": 23},
+                                {"start": 23, "end": 24},
+                            ],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 22, "end": 23}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            "function syntaxParts(text: string, syntax: SyntaxSpan[]) {\n"
+            "  if (!text || !syntax.length) {\n"
+        ),
+        right_text=(
+            "function decoratedParts(\n"
+            "  text: string,\n"
+            "  tokens: InlineToken[],\n"
+            "  syntax: SyntaxSpan[],\n"
+            ") {\n"
+            "  if (!text || (!tokens.length && !syntax.length)) {\n"
+        ),
+    )
+
+    assert rows[0]["status"] == "replace"
+    assert (
+        rows[0]["left_text"]
+        == "function syntaxParts(text: string, syntax: SyntaxSpan[]) {"
+    )
+    assert rows[0]["right_text"] == "function decoratedParts("
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_no"] == 1
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == "  text: string,"
+    assert rows[1]["right_text"] == "  text: string,"
+    assert rows[2]["status"] == "insert"
+    assert rows[2]["right_text"] == "  tokens: InlineToken[],"
+    assert rows[3]["status"] == "replace"
+    assert rows[3]["left_no"] == 1
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == "  syntax: SyntaxSpan[]"
+    assert rows[3]["right_text"] == "  syntax: SyntaxSpan[],"
+    assert rows[3]["right_tokens"] == [
+        {"text": "  syntax: SyntaxSpan[]", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+    assert rows[4]["status"] == "equal"
+    assert rows[4]["left_no"] == 1
+    assert rows[4]["right_no"] == 5
+    assert rows[4]["left_text"] == ") {"
+    assert rows[4]["right_text"] == ") {"
+
+
+def test_difftastic_reconstructed_rhs_insert_does_not_mark_lhs_tokens() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1]],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 9, "end": 20}],
+                        },
+                        "rhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 9, "end": 23}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 22, "end": 23}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text="function syntaxParts(syntax: SyntaxSpan[]) {\n",
+        right_text=("function decoratedParts(\n  syntax: SyntaxSpan[],\n"),
+    )
+
+    assert rows[1]["status"] == "replace"
+    assert rows[1]["left_text"] == "  syntax: SyntaxSpan[]"
+    assert rows[1]["right_text"] == "  syntax: SyntaxSpan[],"
+    assert rows[1].get("left_tokens") in (None, [])
+    assert rows[1]["right_tokens"] == [
+        {"text": "  syntax: SyntaxSpan[]", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+
+
+def test_difftastic_does_not_pair_bare_brace_residual_fragment() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [1, None], [2, 1]],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 2, "end": 8}],
+                        },
+                        "rhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 2, "end": 5}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 2, "end": 28}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            "  let cursor = 0;\n"
+            "  for (const span of syntax) {\n"
+            "    const start = clamp(span.start, 0, text.length);\n"
+        ),
+        right_text=(
+            "  for (let index = 0; index < sortedBoundaries.length - 1; index += 1) {\n"
+            "    const start = sortedBoundaries[index];\n"
+        ),
+    )
+
+    assert rows[0]["status"] == "replace"
+    assert rows[0]["right_text"].endswith(") {")
+    assert rows[1]["status"] == "delete"
+    assert rows[1]["left_text"] == "  for (const span of syntax) {"
+    assert rows[1]["right_no"] is None
+    assert rows[1]["right_text"] == ""
+
+
+def test_difftastic_rows_repair_shifted_delete_equal_insert_fields() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, 2],
+                [3, 3],
+                [4, 4],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 2, "end": 9}],
+                        },
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 2, "end": 7}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 2, "end": 7}],
+                        },
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 2, "end": 8}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            "export type InlineToken = {\n"
+            "  text: string;\n"
+            "  changed: boolean;\n"
+            "  is_ws: boolean;\n"
+            "};\n"
+        ),
+        right_text=(
+            "export type InlineToken = {\n"
+            "  text: string;\n"
+            "  is_ws: boolean;\n"
+            '  status: "unchanged" | "replace" | "insert" | "delete";\n'
+            "};\n"
+        ),
+    )
+
+    assert [row["status"] for row in rows] == [
+        "equal",
+        "equal",
+        "delete",
+        "equal",
+        "insert",
+        "equal",
+    ]
+    assert rows[2]["left_no"] == 3
+    assert rows[2]["left_text"] == "  changed: boolean;"
+    assert rows[2]["right_no"] is None
+    assert rows[3]["left_no"] == 4
+    assert rows[3]["right_no"] == 3
+    assert rows[3]["left_text"] == "  is_ws: boolean;"
+    assert rows[3]["right_text"] == "  is_ws: boolean;"
+    assert rows[3].get("left_tokens") is None
+    assert rows[3].get("right_tokens") is None
+    assert rows[4]["left_no"] is None
+    assert rows[4]["right_no"] == 4
+    assert (
+        rows[4]["right_text"]
+        == '  status: "unchanged" | "replace" | "insert" | "delete";'
+    )
+
+
+def test_difftastic_rows_pair_one_sided_lhs_token_delete_with_matching_rhs_line() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, 2],
+                [3, 3],
+                [4, 4],
+                [5, None],
+                [6, 6],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 12, "end": 13}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            'import { createEffect } from "solid-js";\n'
+            "import type {\n"
+            "  DiffRow,\n"
+            "  FileEntry,\n"
+            "  InlineToken,\n"
+            "  SyntaxSpan,\n"
+            '} from "./api";\n'
+        ),
+        right_text=(
+            'import { createEffect } from "solid-js";\n'
+            "import type {\n"
+            "  DiffRow,\n"
+            "  FileEntry,\n"
+            "  InlineToken,\n"
+            "  SyntaxSpan\n"
+            '} from "./api";\n'
+        ),
+    )
+
+    assert rows[5]["status"] == "replace"
+    assert rows[5]["left_no"] == 6
+    assert rows[5]["right_no"] == 6
+    assert rows[5]["left_text"] == "  SyntaxSpan,"
+    assert rows[5]["right_text"] == "  SyntaxSpan"
+    assert rows[5]["left_tokens"] == [
+        {"text": "  SyntaxSpan", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "delete", "is_ws": False},
+    ]
+    assert rows[6]["left_text"] == '} from "./api";'
 
 
 def test_tree_sitter_highlights_multiline_python_strings() -> None:
