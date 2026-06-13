@@ -1085,8 +1085,8 @@ h1 {
   padding-left: 29px;
 }
 
-body[data-diff-selection-side="left"] .diff-side.side-right,
-body[data-diff-selection-side="right"] .diff-side.side-left {
+.diff-grid[data-diff-selection-side="left"] .diff-side.side-right,
+.diff-grid[data-diff-selection-side="right"] .diff-side.side-left {
   user-select: none;
 }
 

@@ -730,11 +730,12 @@ function App() {
   onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
   const setDiffSelectionSide = (side: "left" | "right" | null) => {
-    if (side) {
-      document.body.dataset.diffSelectionSide = side;
+    appRoot
+      ?.querySelector<HTMLElement>(".diff-grid[data-diff-selection-side]")
+      ?.removeAttribute("data-diff-selection-side");
+    if (!side) {
       return;
     }
-    delete document.body.dataset.diffSelectionSide;
   };
 
   const onPointerDown = (event: PointerEvent) => {
@@ -748,9 +749,17 @@ function App() {
       setDiffSelectionSide(null);
       return;
     }
+    const grid = side.closest<HTMLElement>(".diff-grid");
+    if (!grid || !appRoot.contains(grid)) {
+      setDiffSelectionSide(null);
+      return;
+    }
     setDiffSelectionSide(
       side.classList.contains("side-left") ? "left" : "right",
     );
+    grid.dataset.diffSelectionSide = side.classList.contains("side-left")
+      ? "left"
+      : "right";
   };
 
   const onLinePinClick = (event: MouseEvent) => {
