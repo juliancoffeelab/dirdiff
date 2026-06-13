@@ -91,12 +91,12 @@ def parse_args() -> argparse.Namespace:
         "--frontend-port",
         type=int,
         default=DEFAULT_FRONTEND_PORT,
-        help=f"Solid frontend dev server port (default: {DEFAULT_FRONTEND_PORT})",
+        help=f"Vite frontend dev server port (default: {DEFAULT_FRONTEND_PORT})",
     )
     parser.add_argument(
         "--no-frontend-dev",
         action="store_true",
-        help="Serve the packaged Solid frontend instead of starting the Vite dev server.",
+        help="Do not start Vite; serve only the backend API and diagnostic page.",
     )
     return parser.parse_args()
 
@@ -293,7 +293,7 @@ def main() -> None:
             )
         except FileNotFoundError:
             print(
-                "Could not start the Solid frontend dev server. Falling back to the packaged frontend.",
+                "Could not start the Vite frontend dev server. Opening the backend diagnostic page instead.",
                 file=sys.stderr,
             )
             url = backend_url

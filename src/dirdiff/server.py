@@ -1,12 +1,10 @@
 import logging
 from collections.abc import Mapping
 from http import HTTPStatus
-from importlib.resources import files
 from typing import Any, Literal
 
 from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from dirdiff.diff import TextDiffError, TextDiffService
@@ -223,16 +221,57 @@ def create_app(
     def selected_service(engine: EngineParam) -> TextDiffService:
         return diff_services.get(engine, service)
 
-    app.mount(
-        "/assets",
-        StaticFiles(packages=[("dirdiff", "frontend/assets")]),
-        name="assets",
-    )
-
-    @app.get("/", response_class=FileResponse)
-    def serve_index() -> FileResponse:
-        index_path = files("dirdiff").joinpath("frontend/index.html")
-        return FileResponse(index_path)
+    @app.get("/", response_class=HTMLResponse)
+    def serve_frontend_missing() -> HTMLResponse:
+        return HTMLResponse(
+            """
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>dirdiff frontend unavailable</title>
+                <style>
+                  body {
+                    margin: 0;
+                    background: #fbfaf7;
+                    color: #24231f;
+                    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                  }
+                  main {
+                    max-width: 640px;
+                    margin: 72px auto;
+                    padding: 0 24px;
+                  }
+                  h1 {
+                    margin: 0 0 12px;
+                    font-size: 28px;
+                  }
+                  p {
+                    color: #625f58;
+                    line-height: 1.45;
+                  }
+                  code {
+                    color: #24231f;
+                    font-weight: 700;
+                  }
+                </style>
+              </head>
+              <body>
+                <main>
+                  <h1>Oops, the Vite frontend is not running.</h1>
+                  <p>
+                    dirdiff's API server is up, but the browser UI is served by
+                    Vite during local runs. Start dirdiff without
+                    <code>--no-frontend-dev</code>, or check the terminal for why
+                    Vite refused to start.
+                  </p>
+                </main>
+              </body>
+            </html>
+            """,
+            status_code=503,
+        )
 
     @app.get("/api/defaults")
     def serve_defaults() -> dict[str, Any]:

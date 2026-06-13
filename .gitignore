@@ -6,6 +6,7 @@ __pycache__/
 .uv-cache/
 frontend/dist/
 frontend/node_modules/
+frontend/.vite
 
 # docs
 todo.md

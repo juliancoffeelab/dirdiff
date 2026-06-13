@@ -269,6 +269,18 @@ def test_defaults_endpoint_returns_frontend_bootstrap_state(
     assert response.json() == defaults
 
 
+def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
+    service = FakeDiffService(tmp_path)
+    defaults = default_bootstrap()
+    client = TestClient(create_app(service, defaults))
+
+    response = client.get("/")
+
+    assert response.status_code == 503
+    assert "Vite frontend is not running" in response.text
+    assert "--no-frontend-dev" in response.text
+
+
 def test_build_defaults_prefers_remote_qualified_branch_review_refs(
     tmp_path: Path,
 ) -> None:
