@@ -23,6 +23,7 @@ import {
   type DiffMode,
   type DiffRequest,
   type FileEntry,
+  type FileKind,
   type NotebookCellEntry,
   type NotebookSection,
   type NotebookSummary,
@@ -240,6 +241,7 @@ function buildRequest(
       right: controls.right.trim(),
       base_branch: null,
       review_branch: null,
+      show_untracked: false,
     };
   }
 
@@ -273,6 +275,7 @@ function buildRequest(
         controls.reviewBranch,
         refChoices.remote_names,
       ),
+      show_untracked: false,
     };
   }
 
@@ -284,6 +287,7 @@ function buildRequest(
     right,
     base_branch: null,
     review_branch: null,
+    show_untracked: controls.mode === "against-head",
   };
 }
 
@@ -302,6 +306,9 @@ function requestQuery(request: DiffRequest): URLSearchParams {
   }
   if (request.review_branch) {
     params.set("review_branch", request.review_branch);
+  }
+  if (request.show_untracked) {
+    params.set("show_untracked", "true");
   }
   return params;
 }
@@ -522,7 +529,7 @@ function App() {
             const nextEntry = {
               ...entry,
               ...hydrated,
-              lazy: false,
+              lazy: null,
               default_expanded: collapseFilesByDefault
                 ? false
                 : hydrated.default_expanded,
@@ -1972,8 +1979,9 @@ function FileTreeSidebar(props: {
                         <div
                           class="file-tree-file"
                           classList={{
-                            added: file.change_type === "add",
-                            removed: file.change_type === "delete",
+                            added: fileKindStatus(file.file_kind) === "added",
+                            removed:
+                              fileKindStatus(file.file_kind) === "deleted",
                             lazy: Boolean(file.lazy),
                           }}
                           title={fileDisplayName(file)}
@@ -2053,28 +2061,41 @@ function FileCard(props: {
 }) {
   const queryClient = useQueryClient();
   const key = () => fileKey(props.file);
-  const summary = () =>
-    props.file.summary ?? {
-      added_lines: 0,
-      modified_lines: 0,
-      removed_lines: 0,
-      changed_lines: 0,
-      left_exists: Boolean(props.file.left_path),
-      right_exists: Boolean(props.file.right_path),
-    };
+  const lineStats = () => fileLineStats(props.file);
   const displayName = () => fileDisplayName(props.file);
   const needsHydration = () => !fileEntryIsHydrated(props.file);
   const lazyTitle = () => {
-    if (props.file.change_type === "delete") {
-      return "Load deleted file diff";
+    switch (props.file.lazy) {
+      case "deleted":
+        return "Load deleted file diff";
+      case "generated":
+        return "Load generated diff";
+      case "too_big":
+        return "Load large diff";
+      case "untracked":
+        return "Load untracked file";
+      case "pure_renamed":
+        return "Load renamed file diff";
+      default:
+        return "Load diff";
     }
-    return isGeneratedLazyEntry(props.file)
-      ? "Load generated diff"
-      : "Load diff";
   };
-  const lazyMeta = () =>
-    props.file.lazy_reason ||
-    `${displayName()} is folded by default. Click to fetch and open it.`;
+  const lazyMeta = () => {
+    switch (props.file.lazy) {
+      case "deleted":
+        return `${displayName()} is deleted. Click to fetch and open it.`;
+      case "generated":
+        return `${displayName()} looks generated. Click to fetch and open it.`;
+      case "too_big":
+        return `${displayName()} is large. Click to fetch and open it.`;
+      case "untracked":
+        return `${displayName()} is untracked. Click to fetch and open it.`;
+      case "pure_renamed":
+        return `${displayName()} was renamed without content changes. Click to fetch and open it.`;
+      default:
+        return `${displayName()} is folded by default. Click to fetch and open it.`;
+    }
+  };
   const canRenderRows = () =>
     fileEntryIsHydrated(props.file) &&
     props.file.render_kind !== "notebook" &&
@@ -2102,7 +2123,7 @@ function FileCard(props: {
       if (props.requestVersion() !== activeVersion) {
         return;
       }
-      const nextEntry = { ...props.file, ...hydrated, lazy: false };
+      const nextEntry = { ...props.file, ...hydrated, lazy: null };
       const nextKey = fileKey(nextEntry);
       props.setFiles((current) => {
         const withoutCurrent = current.filter(
@@ -2166,24 +2187,28 @@ function FileCard(props: {
           <span class="file-collapse-indicator" aria-hidden="true">
             {props.expanded ? "▾" : "▸"}
           </span>
-          <span>
+          <span class="file-card-title-row">
             <h2>{displayName()}</h2>
-            <p>
-              {props.file.lazy
-                ? isGeneratedLazyEntry(props.file)
-                  ? "generated"
-                  : "loads on expand"
-                : (props.file.change_type ?? "modify")}
-            </p>
+            <span class="file-card-status">
+              {fileKindLabel(props.file.file_kind)}
+            </span>
           </span>
         </span>
         <span class="file-stats">
-          <span class="delta added">+ {summary().added_lines}</span>
-          <span class="delta changed">~ {summary().modified_lines}</span>
-          <span class="delta removed">- {summary().removed_lines}</span>
+          <span class="delta added">+ {formatLineStat(lineStats().added)}</span>
+          <span class="delta changed">
+            ~ {formatLineStat(lineStats().modified)}
+          </span>
+          <span class="delta removed">
+            - {formatLineStat(lineStats().removed)}
+          </span>
         </span>
       </button>
-      <Show when={props.expanded}>
+      <Show
+        when={
+          props.expanded && (!needsHydration() || props.loading || props.error)
+        }
+      >
         <div class="file-card-body">
           <Show when={props.loading}>
             <p class="file-placeholder">Loading file diff...</p>
@@ -2214,8 +2239,19 @@ function FileCard(props: {
           </Show>
         </div>
       </Show>
-      <Show when={needsHydration() && props.file.lazy}>
-        <button type="button" class="file-lazy-load-toggle" onClick={expand}>
+      <Show when={needsHydration() && props.file.lazy && !props.loading}>
+        <button
+          type="button"
+          class="file-lazy-load-toggle"
+          classList={{
+            "is-untracked": props.file.lazy === "untracked",
+            "is-generated": props.file.lazy === "generated",
+            "is-deleted": props.file.lazy === "deleted",
+            "is-too-big": props.file.lazy === "too_big",
+            "is-pure-renamed": props.file.lazy === "pure_renamed",
+          }}
+          onClick={expand}
+        >
           <span class="file-lazy-load-toggle-title">{lazyTitle()}</span>
           <span class="file-lazy-load-toggle-meta">{lazyMeta()}</span>
         </button>
@@ -2228,7 +2264,9 @@ function FilePlaceholder(props: { file: FileEntry }) {
   if (!fileEntryIsHydrated(props.file)) {
     return (
       <p class="file-placeholder">
-        {props.file.lazy_reason || "Loading file diff..."}
+        {props.file.lazy
+          ? "Click Load diff to fetch this file."
+          : "Loading file diff..."}
       </p>
     );
   }
@@ -2484,7 +2522,7 @@ function NotebookSectionView(props: {
   diffViewMode: DiffViewMode;
 }) {
   const file = (): FileEntry => ({
-    change_type: "modify",
+    file_kind: { type: "git", status: "modified" },
     left_path: null,
     right_path: null,
     left_label: props.leftLabel,
@@ -2543,9 +2581,9 @@ function fileTreePath(entry: FileEntry): string {
 }
 
 type LineStats = {
-  added: number;
-  modified: number;
-  removed: number;
+  added: number | null;
+  modified: number | null;
+  removed: number | null;
 };
 
 function emptyLineStats(): LineStats {
@@ -2554,10 +2592,21 @@ function emptyLineStats(): LineStats {
 
 function addLineStats(left: LineStats, right: LineStats): LineStats {
   return {
-    added: left.added + right.added,
-    modified: left.modified + right.modified,
-    removed: left.removed + right.removed,
+    added: addLineStat(left.added, right.added),
+    modified: addLineStat(left.modified, right.modified),
+    removed: addLineStat(left.removed, right.removed),
   };
+}
+
+function addLineStat(left: number | null, right: number | null): number | null {
+  if (left === null || right === null) {
+    return null;
+  }
+  return left + right;
+}
+
+function unknownLineStats(): LineStats {
+  return { added: null, modified: null, removed: null };
 }
 
 function fileLineStats(entry: FileEntry): LineStats {
@@ -2579,7 +2628,11 @@ function fileLineStats(entry: FileEntry): LineStats {
       removed: entry.removed_lines,
     };
   }
-  return emptyLineStats();
+  return unknownLineStats();
+}
+
+function formatLineStat(value: number | null): string {
+  return value === null ? "?" : String(value);
 }
 
 function fileEntryIsHydrated(entry: FileEntry): boolean {
@@ -2615,30 +2668,26 @@ function groupLineStats(group: FileGroup): LineStats {
 function TreeLineStats(props: { stats: LineStats }) {
   return (
     <span class="file-tree-line-stats">
-      <span class="added">+ {props.stats.added}</span>
-      <span class="changed">~ {props.stats.modified}</span>
-      <span class="removed">- {props.stats.removed}</span>
+      <span class="added">+ {formatLineStat(props.stats.added)}</span>
+      <span class="changed">~ {formatLineStat(props.stats.modified)}</span>
+      <span class="removed">- {formatLineStat(props.stats.removed)}</span>
     </span>
   );
 }
 
-function isGeneratedLazyEntry(entry: FileEntry): boolean {
-  const path = String(entry.right_path || entry.left_path || "")
-    .trim()
-    .toLowerCase();
-  return [
-    "cargo.lock",
-    "composer.lock",
-    "flake.lock",
-    "go.sum",
-    "package-lock.json",
-    "pdm.lock",
-    "pipfile.lock",
-    "pnpm-lock.yaml",
-    "poetry.lock",
-    "uv.lock",
-    "yarn.lock",
-  ].some((name) => path.endsWith(`/${name}`) || path === name);
+function fileKindStatus(fileKind: FileKind): string {
+  return fileKind.type === "git" ? fileKind.status : "untracked";
+}
+
+function fileKindLabel(fileKind: FileKind): string {
+  return fileKindStatus(fileKind);
+}
+
+function fileKindKey(fileKind: FileKind): string {
+  if (fileKind.type === "untracked") {
+    return "untracked";
+  }
+  return `git:${fileKind.status}`;
 }
 
 function isNotebookSummary(
@@ -2812,7 +2861,7 @@ function fileKey(entry: FileEntry): string {
   const leftPath = entry.left_path || "";
   const rightPath = entry.right_path || "";
   const displayName = leftPath || rightPath ? "" : entry.display_name || "";
-  return `${leftPath}\u0000${rightPath}\u0000${displayName}\u0000${entry.change_type || ""}`;
+  return `${leftPath}\u0000${rightPath}\u0000${displayName}\u0000${fileKindKey(entry.file_kind)}`;
 }
 
 function sortFilesByOrder(
@@ -2850,10 +2899,11 @@ function fileDiffQueryKey(request: DiffRequest, entry: FileEntry) {
     request.right,
     request.base_branch,
     request.review_branch,
+    request.show_untracked,
     entry.left_path,
     entry.right_path,
     entry.display_name,
-    entry.change_type,
+    fileKindKey(entry.file_kind),
   ] as const;
 }
 
@@ -2871,6 +2921,7 @@ function notebookSectionQueryKey(
     request.right,
     request.base_branch,
     request.review_branch,
+    request.show_untracked,
     entry.left_path,
     entry.right_path,
     section,

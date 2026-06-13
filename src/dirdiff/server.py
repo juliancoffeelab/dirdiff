@@ -15,6 +15,10 @@ LOGGER = logging.getLogger(__name__)
 ModeParam = Literal["files", "staged", "head", "refs", "branch-review"]
 EngineParam = Literal["dirdiff", "git", "difftastic"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
+GitFileStatus = Literal["modified", "added", "deleted", "renamed", "copied"]
+LazyReason = (
+    Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"] | None
+)
 RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
 
 
@@ -88,6 +92,18 @@ class RepoDiffSummaryResponse(BaseModel):
     modified_cells: int | None = None
 
 
+class GitFileKindResponse(BaseModel):
+    type: Literal["git"]
+    status: GitFileStatus
+
+
+class UntrackedFileKindResponse(BaseModel):
+    type: Literal["untracked"]
+
+
+FileKindResponse = GitFileKindResponse | UntrackedFileKindResponse
+
+
 class TextFileDiffResponse(BaseModel):
     display_name: str
     mode: Literal["git"]
@@ -95,12 +111,11 @@ class TextFileDiffResponse(BaseModel):
     right_label: str
     summary: TextDiffSummaryResponse
     rows: list[DiffRowResponse]
-    change_type: ChangeType | None = None
+    file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
-    lazy: bool = False
+    lazy: LazyReason = None
     default_expanded: bool = True
-    lazy_reason: str | None = None
     render_mode: Literal["plain"] | None = None
     truncated_rows: int | None = None
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
@@ -158,18 +173,17 @@ class NotebookFileDiffResponse(BaseModel):
     notebook_metadata_hunk_count: int
     notebook_metadata_lazy: bool
     cells: list[NotebookCellDiffResponse]
-    change_type: ChangeType | None = None
+    file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
     default_expanded: bool = True
 
 
 class RepoFileEntryResponse(BaseModel):
-    change_type: ChangeType
+    file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
-    lazy: bool = False
-    lazy_reason: str | None = None
+    lazy: LazyReason = None
 
 
 class NotebookSectionDiffResponse(BaseModel):
@@ -307,6 +321,10 @@ def create_app(
             default=defaults.get("review_branch"),
             description="Branch being reviewed in branch-review mode.",
         ),
+        show_untracked: bool = Query(
+            default=False,
+            description="Include untracked worktree files when supported by the selected mode.",
+        ),
     ) -> RepoDiffResponse | JSONResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
@@ -327,6 +345,7 @@ def create_app(
                 payload = diff_service.build_repo_manifest(
                     left=merge_base,
                     right=normalized_branch,
+                    show_untracked=False,
                 )
                 payload["left_label"] = left_label
                 payload["right_label"] = normalized_branch
@@ -336,6 +355,7 @@ def create_app(
                 payload = diff_service.build_repo_manifest(
                     left=normalized_left,
                     right=normalized_right,
+                    show_untracked=show_untracked,
                 )
         except TextDiffError as exc:
             return JSONResponse(
@@ -391,6 +411,9 @@ def create_app(
         change_type: ChangeType = Query(
             default="modify", description="Git change classification."
         ),
+        file_kind: Literal["git", "untracked"] = Query(
+            default="git", description="File kind from the repo manifest."
+        ),
     ) -> TextFileDiffResponse | NotebookFileDiffResponse | JSONResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
@@ -420,6 +443,7 @@ def create_app(
                     right=normalized_branch,
                     display_name=display_name,
                     change_type=change_type,
+                    file_kind=file_kind,
                 )
                 payload["left_label"] = left_label
                 payload["right_label"] = normalized_branch
@@ -431,6 +455,7 @@ def create_app(
                     right=right,
                     display_name=display_name,
                     change_type=change_type,
+                    file_kind=file_kind,
                 )
         except TextDiffError as exc:
             return JSONResponse(

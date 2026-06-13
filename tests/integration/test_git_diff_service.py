@@ -48,11 +48,97 @@ def test_build_repo_manifest_lists_changed_tracked_files(tmp_path: Path) -> None
     assert manifest["summary"]["removed_lines"] == 0
     assert manifest["files"] == [
         {
-            "change_type": "modify",
+            "file_kind": {"type": "git", "status": "modified"},
             "left_path": "alpha.txt",
             "right_path": "alpha.txt",
         }
     ]
+
+
+def test_build_repo_manifest_can_include_untracked_files_as_lazy(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    untracked_file = tmp_path / "beta.txt"
+    untracked_file.write_text("new file\n", encoding="utf-8")
+
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    manifest = service.build_repo_manifest(
+        left="head",
+        right="worktree",
+        show_untracked=True,
+    )
+
+    assert manifest["summary"]["changed_files"] == 1
+    assert manifest["summary"]["added_files"] == 1
+    assert manifest["summary"]["changed_lines"] == 0
+    assert manifest["files"] == [
+        {
+            "file_kind": {"type": "untracked"},
+            "left_path": None,
+            "right_path": "beta.txt",
+            "lazy": "untracked",
+        }
+    ]
+
+
+def test_untracked_lazy_file_can_be_loaded_from_worktree(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    untracked_file = tmp_path / "beta.txt"
+    untracked_file.write_text("new file\n", encoding="utf-8")
+
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    payload = service.build_git_diff_paths(
+        left_path=None,
+        right_path="beta.txt",
+        left="head",
+        right="worktree",
+        change_type="add",
+        file_kind="untracked",
+    )
+
+    assert payload["file_kind"] == {"type": "untracked"}
+    assert payload["summary"]["added_lines"] == 1
+    assert payload["rows"][0]["status"] == "insert"
+    assert payload["rows"][0]["right_text"] == "new file"
 
 
 def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
@@ -130,7 +216,7 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     assert manifest["right_label"] == "feature"
     assert manifest["files"] == [
         {
-            "change_type": "modify",
+            "file_kind": {"type": "git", "status": "modified"},
             "left_path": "alpha.txt",
             "right_path": "alpha.txt",
         }
@@ -293,10 +379,10 @@ def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
     assert len(manifest["files"]) == 1
     entry = manifest["files"][0]
     assert entry == {
-        "lazy": True,
+        "lazy": "generated",
         "left_path": "Cargo.lock",
         "right_path": "Cargo.lock",
-        "change_type": "modify",
+        "file_kind": {"type": "git", "status": "modified"},
     }
     assert manifest["summary"]["changed_files"] == 1
 
@@ -347,11 +433,10 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
 
     assert len(manifest["files"]) == 1
     entry = manifest["files"][0]
-    assert entry["lazy"] is True
+    assert entry["lazy"] == "too_big"
     assert entry["left_path"] == "large.txt"
     assert entry["right_path"] == "large.txt"
-    assert entry["change_type"] == "modify"
-    assert "1002 changed lines" in entry["lazy_reason"]
+    assert entry["file_kind"] == {"type": "git", "status": "modified"}
     assert manifest["summary"]["changed_files"] == 1
     assert manifest["summary"]["changed_lines"] == 1001
     assert manifest["summary"]["modified_lines"] == 1
@@ -395,12 +480,62 @@ def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
     assert len(manifest["files"]) == 1
     entry = manifest["files"][0]
     assert entry == {
-        "lazy": True,
+        "lazy": "deleted",
         "left_path": "alpha.txt",
         "right_path": None,
-        "change_type": "delete",
+        "file_kind": {"type": "git", "status": "deleted"},
     }
     assert manifest["summary"]["changed_files"] == 1
+
+
+def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    source_file = tmp_path / "alpha.txt"
+    source_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "mv", "alpha.txt", "beta.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+
+    manifest = service.build_repo_manifest(left="head", right="worktree")
+
+    assert len(manifest["files"]) == 1
+    entry = manifest["files"][0]
+    assert entry == {
+        "lazy": "pure_renamed",
+        "left_path": "alpha.txt",
+        "right_path": "beta.txt",
+        "file_kind": {"type": "git", "status": "renamed"},
+    }
+    assert manifest["summary"]["changed_files"] == 1
+    assert manifest["summary"]["changed_lines"] == 0
 
 
 def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:

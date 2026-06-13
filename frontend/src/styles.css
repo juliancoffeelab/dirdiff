@@ -335,6 +335,7 @@ h1 {
   justify-content: center;
   padding: 4px 8px;
   font-weight: 700;
+  line-height: 1;
 }
 
 .delta.added {
@@ -691,7 +692,7 @@ h1 {
   top: 0;
   z-index: 20;
   display: flex;
-  align-items: start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
   width: 100%;
@@ -719,12 +720,21 @@ h1 {
 .file-card h2 {
   margin: 0;
   font-size: 15px;
+  line-height: 1;
 }
 
-.file-card p {
-  margin: 4px 0 0;
+.file-card-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-card-status {
   color: #6a665d;
   font-size: 13px;
+  line-height: 1;
 }
 
 .file-stats {
@@ -861,6 +871,66 @@ h1 {
   background: #fff3bd;
 }
 
+.file-lazy-load-toggle.is-untracked {
+  border-color: #c9c3b8;
+  background: #f3f1ec;
+  color: #4f4a43;
+}
+
+.file-lazy-load-toggle.is-untracked:hover,
+.file-lazy-load-toggle.is-untracked:focus-visible {
+  border-color: #a7a095;
+  background: #ebe7df;
+}
+
+.file-lazy-load-toggle.is-generated {
+  border-color: #e7a55b;
+  background: #fff1df;
+  color: #8a3f00;
+}
+
+.file-lazy-load-toggle.is-generated:hover,
+.file-lazy-load-toggle.is-generated:focus-visible {
+  border-color: #cc7a1a;
+  background: #ffe4c2;
+}
+
+.file-lazy-load-toggle.is-deleted {
+  border-color: #e3a0a0;
+  background: #fdeaea;
+  color: #8f1f28;
+}
+
+.file-lazy-load-toggle.is-deleted:hover,
+.file-lazy-load-toggle.is-deleted:focus-visible {
+  border-color: #c75555;
+  background: #fad8d8;
+}
+
+.file-lazy-load-toggle.is-too-big {
+  border-color: #e6c86c;
+  background: #fff8df;
+  color: #6f4e00;
+}
+
+.file-lazy-load-toggle.is-too-big:hover,
+.file-lazy-load-toggle.is-too-big:focus-visible {
+  border-color: #d6a900;
+  background: #fff3bd;
+}
+
+.file-lazy-load-toggle.is-pure-renamed {
+  border-color: #9bbbe7;
+  background: #eaf3ff;
+  color: #1d4f8f;
+}
+
+.file-lazy-load-toggle.is-pure-renamed:hover,
+.file-lazy-load-toggle.is-pure-renamed:focus-visible {
+  border-color: #5f8ed0;
+  background: #dbeafe;
+}
+
 .file-lazy-load-toggle-title {
   font-size: 15px;
   font-weight: 800;
@@ -871,6 +941,26 @@ h1 {
   color: #876400;
   font-size: 12px;
   line-height: 1.25;
+}
+
+.file-lazy-load-toggle.is-untracked .file-lazy-load-toggle-meta {
+  color: #686157;
+}
+
+.file-lazy-load-toggle.is-generated .file-lazy-load-toggle-meta {
+  color: #9a520e;
+}
+
+.file-lazy-load-toggle.is-deleted .file-lazy-load-toggle-meta {
+  color: #a33a3a;
+}
+
+.file-lazy-load-toggle.is-too-big .file-lazy-load-toggle-meta {
+  color: #876400;
+}
+
+.file-lazy-load-toggle.is-pure-renamed .file-lazy-load-toggle-meta {
+  color: #38699f;
 }
 
 .diff-grid {

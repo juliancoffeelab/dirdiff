@@ -31,6 +31,7 @@ export type DiffRequest = {
   right: string;
   base_branch: string | null;
   review_branch: string | null;
+  show_untracked: boolean;
 };
 
 export type Summary = {
@@ -119,13 +120,31 @@ export type FoldHint = {
   label: string;
 };
 
+export type GitChangeType = "modify" | "add" | "delete" | "rename" | "copy";
+
+export type FileKind =
+  | {
+      type: "git";
+      status: "modified" | "added" | "deleted" | "renamed" | "copied";
+    }
+  | {
+      type: "untracked";
+    };
+
+export type LazyReason =
+  | "too_big"
+  | "generated"
+  | "deleted"
+  | "untracked"
+  | "pure_renamed";
+
 export type FileEntry = {
   display_name?: string;
   mode?: "git";
   left_label?: string;
   right_label?: string;
   summary?: FileSummary | NotebookSummary;
-  change_type: "modify" | "add" | "delete" | "rename" | "copy" | null;
+  file_kind: FileKind;
   left_path: string | null;
   right_path: string | null;
   changed_lines?: number | null;
@@ -133,9 +152,8 @@ export type FileEntry = {
   removed_lines?: number | null;
   rows?: DiffRow[];
   fold_hints?: FoldHint[];
-  lazy?: boolean;
+  lazy?: LazyReason | null;
   default_expanded?: boolean;
-  lazy_reason?: string | null;
   render_kind?: "notebook";
   notebook_metadata_rows?: DiffRow[];
   notebook_metadata_changed_lines?: number;
@@ -223,6 +241,9 @@ function diffRequestParams(request: DiffRequest): URLSearchParams {
   if (request.review_branch) {
     params.set("review_branch", request.review_branch);
   }
+  if (request.show_untracked) {
+    params.set("show_untracked", "true");
+  }
   return params;
 }
 
@@ -253,7 +274,8 @@ export async function fetchFileDiff(
   if (entry.display_name) {
     params.set("display_name", entry.display_name);
   }
-  params.set("change_type", entry.change_type || "modify");
+  params.set("change_type", changeTypeForFileKind(entry.file_kind));
+  params.set("file_kind", entry.file_kind.type);
 
   const response = await fetch(`/api/file-diff?${params.toString()}`);
   const payload = await response.json();
@@ -261,6 +283,25 @@ export async function fetchFileDiff(
     throw new Error(payload.error || "Failed to load file diff.");
   }
   return payload as FileEntry;
+}
+
+function changeTypeForFileKind(fileKind: FileKind): GitChangeType {
+  if (fileKind.type === "untracked") {
+    return "add";
+  }
+  switch (fileKind.status) {
+    case "added":
+      return "add";
+    case "deleted":
+      return "delete";
+    case "renamed":
+      return "rename";
+    case "copied":
+      return "copy";
+    case "modified":
+    default:
+      return "modify";
+  }
 }
 
 export async function fetchNotebookSection(

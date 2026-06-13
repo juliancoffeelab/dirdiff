@@ -30,7 +30,11 @@ dependencies = [
 dirdiff = "dirdiff.cli:main"
 
 [dependency-groups]
-dev = ["httpx2>=2.3.0", "pytest>=8.0", "ruff>=0.15.17"]
+dev = [
+    "httpx2>=2.3.0",
+    "pytest>=8.0",
+    "ruff>=0.15.17",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dirdiff"]

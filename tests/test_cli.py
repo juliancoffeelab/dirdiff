@@ -87,7 +87,9 @@ class FakeDiffService:
     def normalize_side(self, side: str) -> str:
         return side
 
-    def build_repo_manifest(self, *, left: str, right: str) -> dict:
+    def build_repo_manifest(
+        self, *, left: str, right: str, show_untracked: bool = False
+    ) -> dict:
         return {
             "display_name": "Repository diff",
             "mode": "repo",
@@ -96,7 +98,7 @@ class FakeDiffService:
             "summary": SUMMARY,
             "files": [
                 {
-                    "change_type": "modify",
+                    "file_kind": {"type": "git", "status": "modified"},
                     "left_path": "alpha.txt",
                     "right_path": "alpha.txt",
                 }
@@ -112,7 +114,21 @@ class FakeDiffService:
         right: str,
         display_name: str | None = None,
         change_type: str | None = None,
+        file_kind: str | None = None,
     ) -> dict:
+        kind = (
+            {"type": "untracked"}
+            if file_kind == "untracked"
+            else {
+                "type": "git",
+                "status": {
+                    "add": "added",
+                    "delete": "deleted",
+                    "rename": "renamed",
+                    "copy": "copied",
+                }.get(change_type, "modified"),
+            }
+        )
         return {
             "display_name": display_name or left_path or right_path or "alpha.txt",
             "mode": "git",
@@ -128,16 +144,18 @@ class FakeDiffService:
                     "right_text": "two",
                 }
             ],
-            "change_type": change_type,
+            "file_kind": kind,
             "left_path": left_path,
             "right_path": right_path,
-            "lazy": False,
+            "lazy": None,
             "fold_hints": [],
         }
 
 
 class FakeGitRepository(FakeDiffService):
-    def list_repo_diff_paths(self, *, left: str, right: str) -> list[RepoDiffPath]:
+    def list_repo_diff_paths(
+        self, *, left: str, right: str, show_untracked: bool = False
+    ) -> list[RepoDiffPath]:
         return [
             RepoDiffPath(
                 left_path="alpha.txt",
@@ -169,6 +187,7 @@ class FakeEngineService(FakeDiffService):
         right: str,
         display_name: str | None = None,
         change_type: str | None = None,
+        file_kind: str | None = None,
     ) -> dict:
         payload = super().build_git_diff_paths(
             left_path=left_path,
@@ -177,6 +196,7 @@ class FakeEngineService(FakeDiffService):
             right=right,
             display_name=display_name,
             change_type=change_type,
+            file_kind=file_kind,
         )
         payload["rows"][0]["status"] = self.row_status
         return payload
@@ -310,7 +330,7 @@ def test_diff_endpoint_returns_repo_manifest(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert payload["files"][0] == {
-        "change_type": "modify",
+        "file_kind": {"type": "git", "status": "modified"},
         "left_path": "alpha.txt",
         "right_path": "alpha.txt",
     }
@@ -331,7 +351,7 @@ def test_diff_endpoint_supports_compare_refs_mode(tmp_path: Path) -> None:
     assert payload["left_label"] == "HEAD~1"
     assert payload["right_label"] == "HEAD"
     assert payload["files"][0] == {
-        "change_type": "modify",
+        "file_kind": {"type": "git", "status": "modified"},
         "left_path": "alpha.txt",
         "right_path": "alpha.txt",
     }

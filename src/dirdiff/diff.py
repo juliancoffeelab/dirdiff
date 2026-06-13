@@ -71,6 +71,16 @@ class RepoDiffPath:
     changed_lines: int | None = None
     added_lines: int | None = None
     removed_lines: int | None = None
+    untracked: bool = False
+
+
+GIT_FILE_STATUS_BY_CHANGE_TYPE = {
+    "modify": "modified",
+    "add": "added",
+    "delete": "deleted",
+    "rename": "renamed",
+    "copy": "copied",
+}
 
 
 class TextDiffError(ValueError):
@@ -111,7 +121,9 @@ def _looks_generated_path(path: str | None) -> bool:
 
 def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
     return (
-        entry.change_type == "delete"
+        entry.untracked
+        or entry.change_type == "delete"
+        or (entry.change_type == "rename" and (entry.changed_lines or 0) == 0)
         or _looks_generated_path(entry.right_path)
         or _looks_generated_path(entry.left_path)
         or (
@@ -121,11 +133,52 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
     )
 
 
+def _file_kind_for_repo_entry(entry: RepoDiffPath) -> dict[str, str]:
+    if entry.untracked:
+        return {"type": "untracked"}
+    return {
+        "type": "git",
+        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE.get(entry.change_type, "modified"),
+    }
+
+
+def _file_kind_for_change_type(
+    change_type: str,
+    *,
+    file_kind: str | None = None,
+) -> dict[str, str]:
+    if file_kind == "untracked":
+        return {"type": "untracked"}
+    return {
+        "type": "git",
+        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE.get(change_type, "modified"),
+    }
+
+
+def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
+    if entry.untracked:
+        return "untracked"
+    if entry.change_type == "delete":
+        return "deleted"
+    if entry.change_type == "rename" and (entry.changed_lines or 0) == 0:
+        return "pure_renamed"
+    if _looks_generated_path(entry.right_path) or _looks_generated_path(
+        entry.left_path
+    ):
+        return "generated"
+    if (
+        entry.changed_lines is not None
+        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
+    ):
+        return "too_big"
+    return None
+
+
 def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     return {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
-        "change_type": entry.change_type,
+        "file_kind": _file_kind_for_repo_entry(entry),
     }
 
 
@@ -133,17 +186,11 @@ def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
-        "change_type": entry.change_type,
-        "lazy": True,
+        "file_kind": _file_kind_for_repo_entry(entry),
     }
-    if (
-        entry.changed_lines is not None
-        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
-    ):
-        payload["lazy_reason"] = (
-            f"{entry.display_name} has {entry.changed_lines} changed lines, "
-            "so it is folded by default. Click to fetch and open it."
-        )
+    lazy = _lazy_reason_for_repo_entry(entry)
+    if lazy is not None:
+        payload["lazy"] = lazy
     return payload
 
 
@@ -2811,11 +2858,37 @@ class GitRepository:
             counts[path] = line_count
         return counts
 
+    def _list_untracked_worktree_paths(self) -> list[RepoDiffPath]:
+        if self.repo_root is None:
+            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+
+        result = self._run_git(["ls-files", "--others", "--exclude-standard", "-z"])
+        tokens = result.stdout.split(b"\0")
+        if tokens and not tokens[-1]:
+            tokens = tokens[:-1]
+
+        entries: list[RepoDiffPath] = []
+        for token in tokens:
+            path = token.decode("utf-8")
+            if not path:
+                continue
+            entries.append(
+                RepoDiffPath(
+                    left_path=None,
+                    right_path=path,
+                    display_name=path,
+                    change_type="add",
+                    untracked=True,
+                )
+            )
+        return entries
+
     def list_repo_diff_paths(
         self,
         *,
         left: SideName,
         right: SideName,
+        show_untracked: bool = False,
     ) -> list[RepoDiffPath]:
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
@@ -2849,6 +2922,8 @@ class GitRepository:
                     removed_lines=removed_lines,
                 )
             )
+        if show_untracked and left == "head" and right == "worktree":
+            entries_with_counts.extend(self._list_untracked_worktree_paths())
         return sorted(
             entries_with_counts,
             key=lambda entry: (entry.display_name, entry.change_type),
@@ -2965,8 +3040,13 @@ class TextDiffService:
         *,
         left: SideName,
         right: SideName,
+        show_untracked: bool = False,
     ) -> list[RepoDiffPath]:
-        return self.repo.list_repo_diff_paths(left=left, right=right)
+        return self.repo.list_repo_diff_paths(
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )
 
     def normalize_repo_path(self, raw_path: str) -> str:
         return self.repo.normalize_repo_path(raw_path)
@@ -2983,6 +3063,7 @@ class TextDiffService:
         right: str,
         display_name: str | None = None,
         change_type: str = "modify",
+        file_kind: str | None = None,
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
         normalized_left = (
@@ -3024,7 +3105,10 @@ class TextDiffService:
             left_path_hint=normalized_left,
             right_path_hint=normalized_right,
         )
-        payload["change_type"] = change_type
+        payload["file_kind"] = _file_kind_for_change_type(
+            change_type,
+            file_kind=file_kind,
+        )
         payload["left_path"] = normalized_left
         payload["right_path"] = normalized_right
         left_text = left_version.text or ""
@@ -3226,10 +3310,15 @@ class TextDiffService:
         *,
         left: str,
         right: str,
+        show_untracked: bool = False,
     ) -> dict[str, Any]:
         normalized_left = self.normalize_side(left)
         normalized_right = self.normalize_side(right)
-        paths = self.list_repo_diff_paths(left=normalized_left, right=normalized_right)
+        paths = self.list_repo_diff_paths(
+            left=normalized_left,
+            right=normalized_right,
+            show_untracked=show_untracked,
+        )
         summary = _empty_repo_summary()
         files: list[dict[str, Any]] = []
 
@@ -3273,6 +3362,7 @@ class GitDiffService(TextDiffService):
         right: str,
         display_name: str | None = None,
         change_type: str = "modify",
+        file_kind: str | None = None,
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
         normalized_left = (
@@ -3344,7 +3434,10 @@ class GitDiffService(TextDiffService):
                 "right_exists": right_version.exists,
             },
             "rows": rows_payload["rows"],
-            "change_type": change_type,
+            "file_kind": _file_kind_for_change_type(
+                change_type,
+                file_kind=file_kind,
+            ),
             "left_path": normalized_left,
             "right_path": normalized_right,
         }
@@ -3459,6 +3552,7 @@ class DifftasticDiffService(TextDiffService):
         right: str,
         display_name: str | None = None,
         change_type: str = "modify",
+        file_kind: str | None = None,
     ) -> dict[str, Any]:
         if _looks_like_notebook_path(right_path) or _looks_like_notebook_path(
             left_path
@@ -3470,6 +3564,7 @@ class DifftasticDiffService(TextDiffService):
                 right=right,
                 display_name=display_name,
                 change_type=change_type,
+                file_kind=file_kind,
             )
 
         started_at = time.perf_counter()
@@ -3542,7 +3637,10 @@ class DifftasticDiffService(TextDiffService):
                 "right_exists": right_version.exists,
             },
             "rows": rows_payload["rows"],
-            "change_type": change_type,
+            "file_kind": _file_kind_for_change_type(
+                change_type,
+                file_kind=file_kind,
+            ),
             "left_path": normalized_left,
             "right_path": normalized_right,
         }

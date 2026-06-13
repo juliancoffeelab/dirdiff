@@ -44,10 +44,10 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
     repo_response = client.get("/api/diff")
     repo_entry = repo_response.json()["files"][0]
     assert repo_entry == {
-        "lazy": True,
+        "lazy": "generated",
         "left_path": "Cargo.lock",
         "right_path": "Cargo.lock",
-        "change_type": "modify",
+        "file_kind": {"type": "git", "status": "modified"},
     }
 
     response = client.get(
@@ -65,7 +65,8 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
 
     assert response.status_code == 200
     assert payload["display_name"] == "Cargo.lock"
-    assert payload.get("lazy") is False
+    assert payload.get("lazy") is None
+    assert payload["file_kind"] == {"type": "git", "status": "modified"}
     assert payload["rows"]
 
 
@@ -107,7 +108,7 @@ def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(tmp_path: Path) -
 
     assert response.status_code == 200
     assert payload["files"][0] == {
-        "lazy": True,
+        "lazy": "deleted",
         "left_path": "alpha.txt",
-        "change_type": "delete",
+        "file_kind": {"type": "git", "status": "deleted"},
     }
