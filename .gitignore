@@ -6,3 +6,7 @@ __pycache__/
 .uv-cache/
 frontend/dist/
 frontend/node_modules/
+
+# docs
+todo.md
+report/
