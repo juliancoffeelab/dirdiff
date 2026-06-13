@@ -187,6 +187,7 @@ h1 {
 
 .field {
   min-width: 0;
+  min-height: 54px;
 }
 
 .autocomplete-host {
@@ -194,17 +195,62 @@ h1 {
 }
 
 .field span {
+  flex: 0 0 124px;
   color: #6a665d;
+  white-space: nowrap;
 }
 
-.field input {
+.field input,
+.field select {
   min-width: 0;
   flex: 1;
-  border: 0;
+  min-height: 32px;
+  border: 1px solid #ded8cc;
   outline: 0;
-  background: transparent;
+  background: #fbfaf7;
   color: #24231f;
+  padding: 4px 8px;
   font-weight: 700;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: #24231f;
+  background: #fffdf8;
+}
+
+.branch-source-field {
+  overflow: visible;
+}
+
+.branch-source-control {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.branch-source-toggle {
+  width: 92px;
+  height: 30px;
+  border: 1px solid #d8d0c2;
+  background: #f4f1ea;
+  color: #24231f;
+  padding: 4px 9px;
+  font-weight: 800;
+}
+
+.branch-source-toggle[aria-pressed="true"] {
+  border-color: #24231f;
+  background: #24231f;
+  color: #fffdf8;
+}
+
+.branch-source-remote {
+  width: 100%;
 }
 
 .autocomplete-panel {

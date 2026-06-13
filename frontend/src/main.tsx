@@ -37,12 +37,15 @@ import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import "./styles.css";
 
 type LoadState = "idle" | "loading" | "done" | "error";
+type BranchSource = "local" | "remote";
 type ControlsState = {
   mode: DiffMode;
   left: string;
   right: string;
+  baseSource: BranchSource;
   baseRemote: string;
   baseBranch: string;
+  branchSource: BranchSource;
   branchRemote: string;
   reviewBranch: string;
 };
@@ -167,8 +170,10 @@ function initialControls(defaults: Defaults): ControlsState {
       mode,
       left: modeLeft,
       right: modeRight,
+      baseSource: baseBranchParts.remote ? "remote" : "local",
       baseRemote: baseBranchParts.remote,
       baseBranch: baseBranchParts.value,
+      branchSource: reviewBranchParts.remote ? "remote" : "local",
       branchRemote: reviewBranchParts.remote,
       reviewBranch: reviewBranchParts.value,
     };
@@ -178,8 +183,10 @@ function initialControls(defaults: Defaults): ControlsState {
     mode,
     left,
     right,
+    baseSource: baseBranchParts.remote ? "remote" : "local",
     baseRemote: baseBranchParts.remote,
     baseBranch: baseBranchParts.value,
+    branchSource: reviewBranchParts.remote ? "remote" : "local",
     branchRemote: reviewBranchParts.remote,
     reviewBranch: reviewBranchParts.value,
   };
@@ -221,16 +228,13 @@ function buildRequest(
   }
 
   if (controls.mode === "branch-review") {
-    if (!(refChoices.remote_names || []).length) {
-      return "Branch review needs at least one remote.";
-    }
-    if (!controls.baseRemote.trim()) {
+    if (controls.baseSource === "remote" && !controls.baseRemote.trim()) {
       return "Pick a base remote.";
     }
     if (!controls.baseBranch.trim()) {
       return "Pick a base branch.";
     }
-    if (!controls.branchRemote.trim()) {
+    if (controls.branchSource === "remote" && !controls.branchRemote.trim()) {
       return "Pick a branch remote.";
     }
     if (!controls.reviewBranch.trim()) {
@@ -241,12 +245,14 @@ function buildRequest(
       mode: controls.mode,
       left: "",
       right: "",
-      base_branch: qualifyRemoteRef(
+      base_branch: branchReviewRef(
+        controls.baseSource,
         controls.baseRemote,
         controls.baseBranch,
         refChoices.remote_names,
       ),
-      review_branch: qualifyRemoteRef(
+      review_branch: branchReviewRef(
+        controls.branchSource,
         controls.branchRemote,
         controls.reviewBranch,
         refChoices.remote_names,
@@ -1278,44 +1284,62 @@ function Controls(props: {
       </Show>
 
       <Show when={draft().mode === "branch-review"}>
-        <AutocompleteField
+        <BranchSourceField
           label="Base remote"
-          value={draft().baseRemote}
-          groups={(query) =>
-            filterRefChoices(props.refChoices, query, ["remote_names"])
+          source={draft().baseSource}
+          remote={draft().baseRemote}
+          remoteChoices={props.refChoices.remote_names || []}
+          onSource={(baseSource) =>
+            updateDraft({
+              baseSource,
+              baseRemote:
+                baseSource === "remote" && !draft().baseRemote
+                  ? (props.refChoices.remote_names || [])[0] || ""
+                  : draft().baseRemote,
+            })
           }
-          onValue={(baseRemote) => updateDraft({ baseRemote })}
+          onRemote={(baseRemote) => updateDraft({ baseRemote })}
         />
         <AutocompleteField
           label="Base branch"
           value={draft().baseBranch}
-          groups={(query) => {
-            const values = filterValues(
-              listRemoteBranchChoices(props.refChoices, draft().baseRemote),
+          groups={(query) =>
+            filterBranchChoices(
+              props.refChoices,
+              draft().baseSource,
+              draft().baseRemote,
               query,
-            );
-            return values.length ? [["remote_branches", values]] : [];
-          }}
+            )
+          }
           onValue={(baseBranch) => updateDraft({ baseBranch })}
         />
-        <AutocompleteField
+        <BranchSourceField
           label="Branch remote"
-          value={draft().branchRemote}
-          groups={(query) =>
-            filterRefChoices(props.refChoices, query, ["remote_names"])
+          source={draft().branchSource}
+          remote={draft().branchRemote}
+          remoteChoices={props.refChoices.remote_names || []}
+          onSource={(branchSource) =>
+            updateDraft({
+              branchSource,
+              branchRemote:
+                branchSource === "remote" && !draft().branchRemote
+                  ? (props.refChoices.remote_names || [])[0] || ""
+                  : draft().branchRemote,
+            })
           }
-          onValue={(branchRemote) => updateDraft({ branchRemote })}
+          onRemote={(branchRemote) => updateDraft({ branchRemote })}
         />
         <AutocompleteField
           label="Branch to review"
           value={draft().reviewBranch}
-          groups={(query) => {
-            const values = filterValues(
-              listRemoteBranchChoices(props.refChoices, draft().branchRemote),
+          groups={(query) =>
+            filterBranchChoices(
+              props.refChoices,
+              draft().branchSource,
+              draft().branchRemote,
               query,
-            );
-            return values.length ? [["remote_branches", values]] : [];
-          }}
+            )
+          }
           onValue={(reviewBranch) => updateDraft({ reviewBranch })}
         />
       </Show>
@@ -1324,6 +1348,134 @@ function Controls(props: {
         Load
       </button>
     </form>
+  );
+}
+
+function BranchSourceField(props: {
+  label: string;
+  source: BranchSource;
+  remote: string;
+  remoteChoices: string[];
+  onSource: (source: BranchSource) => void;
+  onRemote: (remote: string) => void;
+}) {
+  let input: HTMLInputElement | undefined;
+  const [focused, setFocused] = createSignal(false);
+  const [blurTimer, setBlurTimer] = createSignal<number | undefined>();
+  const groups = createMemo(() => {
+    if (!focused() || props.source !== "remote") {
+      return [];
+    }
+    const values = filterValues(props.remoteChoices, props.remote);
+    return values.length ? [["remote_names", values] as AutocompleteGroup] : [];
+  });
+
+  onMount(() => {
+    if (!input) {
+      return;
+    }
+    const open = () => setFocused(true);
+    input.addEventListener("focus", open);
+    input.addEventListener("blur", closeSoon);
+    onCleanup(() => {
+      input?.removeEventListener("focus", open);
+      input?.removeEventListener("blur", closeSoon);
+    });
+  });
+
+  onCleanup(() => {
+    const timer = blurTimer();
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+
+  const closeSoon = () => {
+    setBlurTimer(window.setTimeout(() => setFocused(false), 120));
+  };
+
+  const keepOpen = () => {
+    const timer = blurTimer();
+    if (timer) {
+      clearTimeout(timer);
+      setBlurTimer(undefined);
+    }
+  };
+
+  const toggleSource = () => {
+    props.onSource(props.source === "local" ? "remote" : "local");
+    setFocused(props.source === "local");
+  };
+
+  return (
+    <div class="field branch-source-field autocomplete-host">
+      <span>{props.label}</span>
+      <div
+        classList={{
+          "branch-source-control": true,
+          "is-remote": props.source === "remote",
+        }}
+      >
+        <button
+          type="button"
+          class="branch-source-toggle"
+          aria-pressed={props.source === "remote"}
+          onClick={toggleSource}
+        >
+          {props.source === "remote" ? "Remote" : "Local"}
+        </button>
+        <Show when={props.source === "remote"}>
+          <input
+            ref={input}
+            class="branch-source-remote"
+            value={props.remote}
+            aria-label={props.label}
+            placeholder="remote"
+            spellcheck={false}
+            autocomplete="off"
+            onClick={() => setFocused(true)}
+            onPointerDown={() => setFocused(true)}
+            onInput={(event) => {
+              props.onRemote(event.currentTarget.value);
+              setFocused(true);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setFocused(false);
+              }
+            }}
+          />
+        </Show>
+      </div>
+      <Show when={groups().length > 0}>
+        <div class="autocomplete-panel" onMouseDown={keepOpen}>
+          <For each={groups()}>
+            {([section, values]) => (
+              <div class="autocomplete-section">
+                <div class="autocomplete-section-label">
+                  {refSectionLabels[section] || section}
+                </div>
+                <For each={values}>
+                  {(value) => (
+                    <button
+                      type="button"
+                      class="autocomplete-option"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        props.onRemote(value);
+                        setFocused(false);
+                      }}
+                    >
+                      {value}
+                    </button>
+                  )}
+                </For>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
   );
 }
 
@@ -2524,6 +2676,18 @@ function qualifyRemoteRef(
   return `${normalizedRemote}/${normalizedRef}`;
 }
 
+function branchReviewRef(
+  source: BranchSource,
+  remote: string,
+  branch: string,
+  remoteNames: string[],
+): string {
+  if (source === "local") {
+    return branch.trim();
+  }
+  return qualifyRemoteRef(remote, branch, remoteNames);
+}
+
 function filterRefChoices(
   refChoices: RefChoices,
   query: string,
@@ -2543,6 +2707,22 @@ function filterRefChoices(
     }
   }
   return filtered;
+}
+
+function filterBranchChoices(
+  refChoices: RefChoices,
+  source: BranchSource,
+  remoteName: string,
+  query: string,
+): AutocompleteGroup[] {
+  if (source === "local") {
+    return filterRefChoices(refChoices, query, ["locals"]);
+  }
+  const values = filterValues(
+    listRemoteBranchChoices(refChoices, remoteName),
+    query,
+  );
+  return values.length ? [["remote_branches", values]] : [];
 }
 
 function listRemoteBranchChoices(
