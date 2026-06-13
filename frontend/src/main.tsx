@@ -78,6 +78,7 @@ const modeLabels: Record<DiffMode, string> = {
   refs: "Compare refs",
   "branch-review": "Branch review",
 };
+const topLevelModes: DiffMode[] = ["against-head", "refs", "branch-review"];
 const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   git: "Git",
@@ -97,6 +98,11 @@ const refSectionLabels: Record<string, string> = {
   remotes: "Remote refs",
   remote_names: "Remotes",
   remote_branches: "Remote branches",
+};
+const builtinRefDescriptions: Record<string, string> = {
+  head: "Current commit on this branch.",
+  index: "Staged snapshot, what the next commit would include.",
+  worktree: "Files on disk, including unstaged changes.",
 };
 
 const emptySummary: Summary = {
@@ -134,16 +140,23 @@ function inferMode(
   if (baseBranch || reviewBranch) {
     return "branch-review";
   }
-  if (left === "index" && right === "worktree") {
-    return "files";
+  return left === "head" && right === "worktree" ? "against-head" : "refs";
+}
+
+function normalizeTopLevelMode(
+  mode: DiffMode | null,
+  left: string,
+  right: string,
+  baseBranch: string,
+  reviewBranch: string,
+): DiffMode {
+  if (mode === "refs" || mode === "branch-review" || mode === "against-head") {
+    return mode;
   }
-  if (left === "head" && right === "index") {
-    return "staged";
-  }
-  if (left === "head" && right === "worktree") {
+  if (mode === "files" || mode === "staged") {
     return "against-head";
   }
-  return "refs";
+  return inferMode(left, right, baseBranch, reviewBranch);
 }
 
 function initialControls(defaults: Defaults): ControlsState {
@@ -159,10 +172,13 @@ function initialControls(defaults: Defaults): ControlsState {
     reviewBranchRef,
     remoteNames,
   );
-  const mode =
-    (search.get("mode") as DiffMode | null) ||
-    defaults.mode ||
-    inferMode(left, right, reviewBranchParts.value, baseBranchParts.value);
+  const mode = normalizeTopLevelMode(
+    (search.get("mode") as DiffMode | null) || defaults.mode || null,
+    left,
+    right,
+    baseBranchParts.value,
+    reviewBranchParts.value,
+  );
 
   if (mode in modeSides) {
     const [modeLeft, modeRight] = modeSides[mode as keyof typeof modeSides];
@@ -939,9 +955,7 @@ function App() {
               />
             </div>
           </div>
-          <p class="subtitle">
-            Review working tree, staged, branch, or ref diffs.
-          </p>
+          <p class="subtitle">Review local changes, refs, or branches.</p>
         </div>
         <SummaryView summary={summary()} />
       </header>
@@ -1238,8 +1252,8 @@ function Controls(props: {
     <form class="controls" onSubmit={submit}>
       <fieldset class="mode-tabs">
         <legend>View</legend>
-        <For each={Object.entries(modeLabels) as [DiffMode, string][]}>
-          {([mode, label]) => (
+        <For each={topLevelModes}>
+          {(mode) => (
             <button
               type="button"
               classList={{ "is-active": draft().mode === mode }}
@@ -1250,7 +1264,7 @@ function Controls(props: {
                 props.onLoad(nextDraft);
               }}
             >
-              {label}
+              {modeLabels[mode]}
             </button>
           )}
         </For>
@@ -1258,7 +1272,7 @@ function Controls(props: {
 
       <Show when={draft().mode === "refs"}>
         <AutocompleteField
-          label="Left ref"
+          label="Old ref"
           value={draft().left}
           groups={(query) =>
             filterRefChoices(props.refChoices, query, [
@@ -1270,7 +1284,7 @@ function Controls(props: {
           onValue={(left) => updateDraft({ left })}
         />
         <AutocompleteField
-          label="Right ref"
+          label="New ref"
           value={draft().right}
           groups={(query) =>
             filterRefChoices(props.refChoices, query, [
@@ -1487,14 +1501,18 @@ function AutocompleteField(props: {
 }) {
   let input: HTMLInputElement | undefined;
   const [focused, setFocused] = createSignal(false);
+  const [query, setQuery] = createSignal("");
   const [blurTimer, setBlurTimer] = createSignal<number | undefined>();
-  const groups = createMemo(() => (focused() ? props.groups(props.value) : []));
+  const groups = createMemo(() => (focused() ? props.groups(query()) : []));
 
   onMount(() => {
     if (!input) {
       return;
     }
-    const open = () => setFocused(true);
+    const open = () => {
+      setQuery("");
+      setFocused(true);
+    };
     input.addEventListener("focus", open);
     input.addEventListener("blur", closeSoon);
     onCleanup(() => {
@@ -1511,7 +1529,12 @@ function AutocompleteField(props: {
   });
 
   const closeSoon = () => {
-    setBlurTimer(window.setTimeout(() => setFocused(false), 120));
+    setBlurTimer(
+      window.setTimeout(() => {
+        setFocused(false);
+        setQuery("");
+      }, 120),
+    );
   };
 
   const keepOpen = () => {
@@ -1530,15 +1553,23 @@ function AutocompleteField(props: {
         value={props.value}
         spellcheck={false}
         autocomplete="off"
-        onClick={() => setFocused(true)}
-        onPointerDown={() => setFocused(true)}
+        onClick={() => {
+          setQuery("");
+          setFocused(true);
+        }}
+        onPointerDown={() => {
+          setQuery("");
+          setFocused(true);
+        }}
         onInput={(event) => {
           props.onValue(event.currentTarget.value);
+          setQuery(event.currentTarget.value);
           setFocused(true);
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             setFocused(false);
+            setQuery("");
           }
         }}
       />
@@ -1551,19 +1582,31 @@ function AutocompleteField(props: {
                   {refSectionLabels[section] || section}
                 </div>
                 <For each={values}>
-                  {(value) => (
-                    <button
-                      type="button"
-                      class="autocomplete-option"
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        props.onValue(value);
-                        setFocused(false);
-                      }}
-                    >
-                      {value}
-                    </button>
-                  )}
+                  {(value) => {
+                    const description = autocompleteOptionDescription(
+                      section,
+                      value,
+                    );
+                    return (
+                      <button
+                        type="button"
+                        class="autocomplete-option"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          props.onValue(value);
+                          setFocused(false);
+                          setQuery("");
+                        }}
+                      >
+                        <span class="autocomplete-option-label">{value}</span>
+                        <Show when={description}>
+                          <span class="autocomplete-option-description">
+                            {description}
+                          </span>
+                        </Show>
+                      </button>
+                    );
+                  }}
                 </For>
               </div>
             )}
@@ -2723,6 +2766,13 @@ function filterBranchChoices(
     query,
   );
   return values.length ? [["remote_branches", values]] : [];
+}
+
+function autocompleteOptionDescription(section: string, value: string): string {
+  if (section !== "builtins") {
+    return "";
+  }
+  return builtinRefDescriptions[value] || "";
 }
 
 function listRemoteBranchChoices(

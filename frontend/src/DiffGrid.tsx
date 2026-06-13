@@ -69,10 +69,10 @@ function InlineHeader(props: { leftLabel: string; rightLabel: string }) {
   return (
     <div class="diff-header-row inline-header-row">
       <div class="diff-pane-header inline-line-header" title={props.leftLabel}>
-        theirs
+        old
       </div>
       <div class="diff-pane-header inline-line-header" title={props.rightLabel}>
-        ours
+        new
       </div>
       <div class="diff-pane-header">Code</div>
     </div>
