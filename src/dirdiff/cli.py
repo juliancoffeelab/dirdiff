@@ -91,12 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-frontend-dev",
         action="store_true",
-        help="Do not start the Solid frontend dev server.",
-    )
-    parser.add_argument(
-        "--legacy-frontend",
-        action="store_true",
-        help="Open the current static frontend instead of the Solid frontend.",
+        help="Serve the packaged Solid frontend instead of starting the Vite dev server.",
     )
     return parser.parse_args()
 
@@ -258,7 +253,7 @@ def main() -> None:
     )
 
     actual_port = choose_port(args.port)
-    use_frontend_dev = not (args.no_frontend_dev or args.legacy_frontend)
+    use_frontend_dev = not args.no_frontend_dev
     actual_frontend_port = (
         choose_port(args.frontend_port) if use_frontend_dev else args.frontend_port
     )
@@ -288,7 +283,7 @@ def main() -> None:
             )
         except FileNotFoundError:
             print(
-                "Could not start Solid frontend: npm was not found. Falling back to the static frontend.",
+                "Could not start the Solid frontend dev server. Falling back to the packaged frontend.",
                 file=sys.stderr,
             )
             url = backend_url

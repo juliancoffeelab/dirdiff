@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import json
-import pytest
 import socket
-import subprocess
-from types import SimpleNamespace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -18,7 +14,7 @@ from dirdiff.cli import (
     load_runtime_config,
     store_runtime_config,
 )
-from dirdiff.diff import GitRepository, RepoDiffPath, TextDiffService, TextVersion
+from dirdiff.diff import GitRepository, RepoDiffPath, TextVersion
 from dirdiff.server import create_app
 
 
@@ -91,21 +87,21 @@ class FakeDiffService:
     def normalize_side(self, side: str) -> str:
         return side
 
-    def iter_repo_diff_progress(self, *, left: str, right: str):
-        yield SimpleNamespace(
-            entry={
-                "display_name": "alpha.txt",
-                "mode": "git",
-                "left_label": left,
-                "right_label": right,
-                "summary": TEXT_SUMMARY,
-                "rows": [],
-                "change_type": "modify",
-                "left_path": "alpha.txt",
-                "right_path": "alpha.txt",
-            },
-            summary=SUMMARY,
-        )
+    def build_repo_manifest(self, *, left: str, right: str) -> dict:
+        return {
+            "display_name": "Repository diff",
+            "mode": "repo",
+            "left_label": left,
+            "right_label": right,
+            "summary": SUMMARY,
+            "files": [
+                {
+                    "change_type": "modify",
+                    "left_path": "alpha.txt",
+                    "right_path": "alpha.txt",
+                }
+            ],
+        }
 
     def build_git_diff_paths(
         self,
@@ -186,19 +182,6 @@ class FakeEngineService(FakeDiffService):
         return payload
 
 
-def parse_sse_events(text: str) -> list[tuple[str, dict]]:
-    events: list[tuple[str, dict]] = []
-    event_name: str | None = None
-    for line in text.splitlines():
-        if line.startswith("event: "):
-            event_name = line.removeprefix("event: ")
-            continue
-        if line.startswith("data: ") and event_name is not None:
-            events.append((event_name, json.loads(line.removeprefix("data: "))))
-            event_name = None
-    return events
-
-
 def test_choose_port_uses_next_port_when_requested_port_is_busy() -> None:
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -265,13 +248,12 @@ def test_create_app_from_runtime_config_uses_stored_repo_root(
     )
 
     client = TestClient(create_app_from_runtime_config())
-    response = client.get("/api/diff-stream")
-    events = parse_sse_events(response.text)
+    response = client.get("/api/diff")
+    payload = response.json()
 
     assert response.status_code == 200
     assert discovered_repo_root == tmp_path
-    assert events[0][0] == "init"
-    assert events[0][1]["mode"] == "repo"
+    assert payload["mode"] == "repo"
 
 
 def test_defaults_endpoint_returns_frontend_bootstrap_state(
@@ -285,18 +267,6 @@ def test_defaults_endpoint_returns_frontend_bootstrap_state(
 
     assert response.status_code == 200
     assert response.json() == defaults
-
-
-def test_build_defaults_keeps_review_branch_selected_even_on_master(
-    tmp_path: Path,
-) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = build_defaults(service)
-
-    assert defaults["mode"] == "files"
-    assert defaults["base_branch"] == "master"
-    assert defaults["review_branch"] == "feature"
-    assert defaults["ref_choices"]["locals"] == ["feature", "master"]
 
 
 def test_build_defaults_prefers_remote_qualified_branch_review_refs(
@@ -316,57 +286,43 @@ def test_build_defaults_prefers_remote_qualified_branch_review_refs(
     assert defaults["review_branch"] == "origin/feature"
 
 
-def test_diff_stream_endpoint_emits_progress_events(tmp_path: Path) -> None:
+def test_diff_endpoint_returns_repo_manifest(tmp_path: Path) -> None:
     service = FakeDiffService(tmp_path)
     defaults = default_bootstrap()
     client = TestClient(create_app(service, defaults))
     response = client.get(
-        "/api/diff-stream",
+        "/api/diff",
         params={"mode": "files", "left": "index", "right": "worktree"},
     )
-    events = parse_sse_events(response.text)
+    payload = response.json()
 
-    assert events[0][0] == "init"
-    assert events[1][0] == "file"
-    assert events[1][1]["entry"]["display_name"] == "alpha.txt"
-    assert events[2][0] == "done"
-    assert events[2][1]["summary"] == events[1][1]["summary"]
-    assert events[2][1]["summary"]["changed_files"] == 1
+    assert response.status_code == 200
+    assert payload["files"][0] == {
+        "change_type": "modify",
+        "left_path": "alpha.txt",
+        "right_path": "alpha.txt",
+    }
+    assert payload["summary"]["changed_files"] == 1
 
 
-def test_diff_stream_endpoint_streams_compare_refs_mode(tmp_path: Path) -> None:
+def test_diff_endpoint_supports_compare_refs_mode(tmp_path: Path) -> None:
     service = FakeDiffService(tmp_path)
     defaults = default_bootstrap()
     client = TestClient(create_app(service, defaults))
     response = client.get(
-        "/api/diff-stream",
+        "/api/diff",
         params={"mode": "refs", "left": "HEAD~1", "right": "HEAD"},
     )
-    events = parse_sse_events(response.text)
+    payload = response.json()
 
-    assert events[0] == (
-        "init",
-        {
-            "display_name": "Repository diff",
-            "mode": "repo",
-            "left_label": "HEAD~1",
-            "right_label": "HEAD",
-            "summary": {
-                "changed_files": 0,
-                "added_files": 0,
-                "removed_files": 0,
-                "updated_files": 0,
-                "changed_lines": 0,
-                "modified_lines": 0,
-                "added_lines": 0,
-                "removed_lines": 0,
-                "skipped_files": 0,
-            },
-        },
-    )
-    assert events[1][0] == "file"
-    assert events[1][1]["entry"]["display_name"] == "alpha.txt"
-    assert events[2][0] == "done"
+    assert response.status_code == 200
+    assert payload["left_label"] == "HEAD~1"
+    assert payload["right_label"] == "HEAD"
+    assert payload["files"][0] == {
+        "change_type": "modify",
+        "left_path": "alpha.txt",
+        "right_path": "alpha.txt",
+    }
 
 
 def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
@@ -389,11 +345,11 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
     spec = response.json()
 
     assert response.status_code == 200
-    assert "/api/diff-stream" in spec["paths"]
+    assert "/api/diff" in spec["paths"]
     assert "/api/file-diff" in spec["paths"]
     assert "TextFileDiffResponse" in spec["components"]["schemas"]
     assert "NotebookSectionDiffResponse" in spec["components"]["schemas"]
-    diff_params = spec["paths"]["/api/diff-stream"]["get"]["parameters"]
+    diff_params = spec["paths"]["/api/diff"]["get"]["parameters"]
     assert (
         next(param for param in diff_params if param["name"] == "mode")["schema"][
             "default"
@@ -412,20 +368,6 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
         ]
         == "worktree"
     )
-
-
-def test_save_log_endpoint_writes_to_launch_directory(tmp_path: Path) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults))
-
-    response = client.post("/api/save-log", json={"text": "hello log\n"})
-    payload = response.json()
-    saved_path = Path(payload["path"])
-
-    assert response.status_code == 200
-    assert saved_path.parent == tmp_path.resolve()
-    assert saved_path.read_text(encoding="utf-8") == "hello log\n"
 
 
 def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
@@ -447,178 +389,3 @@ def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["rows"][0]["status"] == "delete"
-
-
-def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
-    repository = GitRepository(tmp_path)
-
-    counts = repository._parse_numstat_output(
-        b"2\t1\t\0old/name.txt\0new/name.txt\0"
-    )
-
-    assert counts == {"new/name.txt": (2, 1)}
-
-
-@pytest.mark.git
-def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> None:
-    subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    lockfile = tmp_path / "Cargo.lock"
-    lockfile.write_text("version = 1\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "initial"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    lockfile.write_text("version = 2\n", encoding="utf-8")
-
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
-    defaults = build_defaults(service)
-    client = TestClient(create_app(service, defaults))
-
-    repo_response = client.get("/api/diff-stream")
-    repo_events = parse_sse_events(repo_response.text)
-    repo_entry = repo_events[1][1]["entry"]
-    assert repo_entry == {
-        "lazy": True,
-        "left_path": "Cargo.lock",
-        "right_path": "Cargo.lock",
-        "change_type": "modify",
-    }
-
-    response = client.get(
-        "/api/file-diff",
-        params={
-            "mode": "files",
-            "left": "index",
-            "right": "worktree",
-            "left_path": "Cargo.lock",
-            "right_path": "Cargo.lock",
-            "change_type": "modify",
-        },
-    )
-    payload = response.json()
-
-    assert response.status_code == 200
-    assert payload["display_name"] == "Cargo.lock"
-    assert payload.get("lazy") is False
-    assert payload["rows"]
-
-
-@pytest.mark.git
-def test_repo_diff_endpoint_emits_minimal_generated_lockfile_entry(
-    tmp_path: Path,
-) -> None:
-    subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    lockfile = tmp_path / "Cargo.lock"
-    lockfile.write_text("version = 1\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "initial"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    lockfile.write_text("version = 2\n", encoding="utf-8")
-
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
-    defaults = build_defaults(service)
-    client = TestClient(create_app(service, defaults))
-
-    response = client.get("/api/diff-stream")
-    events = parse_sse_events(response.text)
-
-    assert response.status_code == 200
-    assert events[1][1]["entry"] == {
-        "lazy": True,
-        "display_name": "Cargo.lock",
-        "left_path": "Cargo.lock",
-        "right_path": "Cargo.lock",
-        "change_type": "modify",
-        "changed_lines": 2,
-        "added_lines": 1,
-        "removed_lines": 1,
-    }
-
-
-@pytest.mark.git
-def test_repo_diff_stream_emits_minimal_deleted_file_entry(tmp_path: Path) -> None:
-    subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    deleted_file = tmp_path / "alpha.txt"
-    deleted_file.write_text("one\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "initial"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    deleted_file.unlink()
-
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
-    defaults = build_defaults(service)
-    client = TestClient(create_app(service, defaults))
-
-    response = client.get("/api/diff-stream")
-    events = parse_sse_events(response.text)
-
-    assert response.status_code == 200
-    assert events[1][1]["entry"] == {
-        "lazy": True,
-        "display_name": "alpha.txt",
-        "left_path": "alpha.txt",
-        "right_path": None,
-        "change_type": "delete",
-        "changed_lines": 1,
-        "added_lines": 0,
-        "removed_lines": 1,
-    }

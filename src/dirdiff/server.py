@@ -1,15 +1,11 @@
-from __future__ import annotations
-
-import json
 import logging
-import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from http import HTTPStatus
 from importlib.resources import files
 from typing import Any, Literal
 
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -26,14 +22,6 @@ RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
 
 class ErrorResponse(BaseModel):
     error: str
-
-
-class SaveLogRequest(BaseModel):
-    text: str
-
-
-class SaveLogResponse(BaseModel):
-    path: str
 
 
 class SyntaxSpanResponse(BaseModel):
@@ -230,52 +218,25 @@ def create_app(
     services: Mapping[str, TextDiffService] | None = None,
 ) -> FastAPI:
     app = FastAPI()
-    asset_version = str(time.time_ns())
     diff_services = {"dirdiff": service, **(services or {})}
 
     def selected_service(engine: EngineParam) -> TextDiffService:
         return diff_services.get(engine, service)
 
     app.mount(
-        "/static",
-        StaticFiles(packages=[("dirdiff", "static")]),
-        name="static",
+        "/assets",
+        StaticFiles(packages=[("dirdiff", "frontend/assets")]),
+        name="assets",
     )
 
-    @app.get("/", response_class=HTMLResponse)
-    def serve_index() -> HTMLResponse:
-        template_path = files("dirdiff").joinpath("templates/index.html")
-        html = template_path.read_text(encoding="utf-8").replace(
-            "__DEFAULTS_JSON__",
-            json.dumps(defaults),
-        )
-        html = html.replace("__ASSET_VERSION__", asset_version)
-        return HTMLResponse(html)
+    @app.get("/", response_class=FileResponse)
+    def serve_index() -> FileResponse:
+        index_path = files("dirdiff").joinpath("frontend/index.html")
+        return FileResponse(index_path)
 
     @app.get("/api/defaults")
     def serve_defaults() -> dict[str, Any]:
         return defaults
-
-    @app.post(
-        "/api/save-log",
-        response_model=SaveLogResponse,
-        responses={
-            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
-        },
-        summary="Save a debug log to the launch directory",
-    )
-    def save_log(payload: SaveLogRequest) -> SaveLogResponse | JSONResponse:
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        destination = service.cwd / f"dirdiff-scroll-debug-{timestamp}.log"
-        try:
-            destination.write_text(payload.text, encoding="utf-8")
-        except OSError as exc:
-            LOGGER.exception("Failed to save debug log: %s", exc)
-            return JSONResponse(
-                {"error": f"Failed to save debug log: {exc}"},
-                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
-        return SaveLogResponse(path=str(destination))
 
     @app.get(
         "/api/diff",
@@ -350,110 +311,6 @@ def create_app(
             )
 
         return RepoDiffResponse.model_validate(payload)
-
-    @app.get(
-        "/api/diff-stream",
-        response_model=None,
-        responses={
-            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
-            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
-            HTTPStatus.OK: {
-                "content": {
-                    "text/event-stream": {
-                        "schema": {
-                            "type": "string",
-                            "description": "Server-sent events emitting `init`, `file`, `done`, and `stream-error` events.",
-                        }
-                    }
-                }
-            },
-        },
-        summary="Stream a diff with SSE progress events",
-    )
-    def serve_diff_stream(
-        engine: EngineParam = Query(
-            default=defaults["engine"], description="Diff engine."
-        ),
-        mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
-        left: str = Query(
-            default=defaults["left"], description="Left ref or diff side."
-        ),
-        right: str = Query(
-            default=defaults["right"], description="Right ref or diff side."
-        ),
-        base_branch: str | None = Query(
-            default=defaults.get("base_branch"),
-            description="Base branch for branch-review mode.",
-        ),
-        review_branch: str | None = Query(
-            default=defaults.get("review_branch"),
-            description="Branch being reviewed in branch-review mode.",
-        ),
-    ) -> Any:
-        selected_base_branch, selected_review_branch = selected_branches(
-            mode=mode,
-            base_branch=base_branch,
-            review_branch=review_branch,
-        )
-        diff_service = selected_service(engine)
-        try:
-            initial_payload, progress_iter, label_overrides = _build_stream_payload(
-                service=diff_service,
-                defaults=defaults,
-                mode=mode,
-                left=left,
-                right=right,
-                base_branch=selected_base_branch,
-                branch=selected_review_branch,
-            )
-        except TextDiffError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
-                status_code=HTTPStatus.BAD_REQUEST,
-            )
-        except Exception as exc:
-            LOGGER.exception("Diff stream request crashed before streaming: %s", exc)
-            return JSONResponse(
-                {"error": "Internal server error."},
-                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
-
-        def event_stream() -> Iterator[bytes]:
-            yield _encode_sse("init", initial_payload)
-            latest_summary = initial_payload["summary"]
-            try:
-                for progress in progress_iter:
-                    entry = dict(progress.entry)
-                    if label_overrides[0]:
-                        entry["left_label"] = label_overrides[0]
-                    if label_overrides[1]:
-                        entry["right_label"] = label_overrides[1]
-                    latest_summary = progress.summary
-                    yield _encode_sse(
-                        "file",
-                        {
-                            "entry": entry,
-                            "summary": progress.summary,
-                        },
-                    )
-            except TextDiffError as exc:
-                yield _encode_sse("stream-error", {"error": str(exc)})
-                return
-            except Exception as exc:
-                LOGGER.exception("Diff stream request crashed while streaming: %s", exc)
-                yield _encode_sse("stream-error", {"error": "Internal server error."})
-                return
-
-            yield _encode_sse("done", {"summary": latest_summary})
-
-        return StreamingResponse(
-            event_stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "close",
-            },
-        )
 
     @app.get(
         "/api/file-diff",
@@ -664,81 +521,3 @@ def _resolve_branch_review_refs(
         branch=branch,
     )
     return resolved_base_branch, merge_base, normalized_branch
-
-
-def _build_stream_payload(
-    *,
-    service: TextDiffService,
-    defaults: Mapping[str, Any],
-    mode: str | None,
-    left: str | None,
-    right: str | None,
-    base_branch: str | None,
-    branch: str | None,
-) -> tuple[dict[str, Any], Any, tuple[str | None, str | None]]:
-    if mode == "branch-review" and branch and branch.strip():
-        resolved_base_branch, merge_base, normalized_branch = (
-            _resolve_branch_review_refs(
-                service=service,
-                base_branch=base_branch,
-                branch=branch,
-            )
-        )
-        left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
-        progress_iter = service.iter_repo_diff_progress(
-            left=merge_base,
-            right=normalized_branch,
-        )
-        return (
-            {
-                "display_name": "Repository diff",
-                "mode": "repo",
-                "left_label": left_label,
-                "right_label": normalized_branch,
-                "summary": {
-                    "changed_files": 0,
-                    "added_files": 0,
-                    "removed_files": 0,
-                    "updated_files": 0,
-                    "changed_lines": 0,
-                    "modified_lines": 0,
-                    "added_lines": 0,
-                    "removed_lines": 0,
-                    "skipped_files": 0,
-                },
-            },
-            progress_iter,
-            (left_label, normalized_branch),
-        )
-
-    normalized_left = service.normalize_side(left or defaults["left"])
-    normalized_right = service.normalize_side(right or defaults["right"])
-    progress_iter = service.iter_repo_diff_progress(
-        left=normalized_left,
-        right=normalized_right,
-    )
-    return (
-        {
-            "display_name": "Repository diff",
-            "mode": "repo",
-            "left_label": normalized_left,
-            "right_label": normalized_right,
-            "summary": {
-                "changed_files": 0,
-                "added_files": 0,
-                "removed_files": 0,
-                "updated_files": 0,
-                "changed_lines": 0,
-                "modified_lines": 0,
-                "added_lines": 0,
-                "removed_lines": 0,
-                "skipped_files": 0,
-            },
-        },
-        progress_iter,
-        (None, None),
-    )
-
-
-def _encode_sse(event: str, payload: dict[str, Any]) -> bytes:
-    return f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")

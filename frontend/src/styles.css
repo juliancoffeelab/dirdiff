@@ -86,8 +86,7 @@ h1 {
   gap: 8px;
 }
 
-.engine-select,
-.legacy-link {
+.engine-select {
   border: 1px solid #d8d0c2;
   background: #fffdf8;
   color: #24231f;
@@ -115,10 +114,6 @@ h1 {
   font: inherit;
   font-weight: 700;
   outline: 0;
-}
-
-.legacy-link {
-  text-decoration: none;
 }
 
 .controls,
@@ -1361,10 +1356,6 @@ h1 {
 
   .summary {
     justify-content: flex-start;
-  }
-
-  .legacy-link {
-    width: max-content;
   }
 
   .file-tree-shell {

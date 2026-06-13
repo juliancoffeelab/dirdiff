@@ -121,15 +121,6 @@ const queryClient = new QueryClient({
   },
 });
 
-function legacyUrl(request: DiffRequest | null): string {
-  const backendOrigin =
-    import.meta.env.VITE_DIRDIFF_BACKEND_ORIGIN ?? window.location.origin;
-  const query = request
-    ? `?${requestQuery(request).toString()}`
-    : window.location.search;
-  return `${backendOrigin}/${query}`;
-}
-
 function inferMode(
   left: string,
   right: string,
@@ -441,12 +432,8 @@ function App() {
         setFileOrder(order);
         setSummary(payload.summary);
         setStatusText(
-            loadedStatusLabel(
-              baseStatus,
-              lazyManifestFiles.length,
-              0,
-            ),
-          );
+          loadedStatusLabel(baseStatus, lazyManifestFiles.length, 0),
+        );
       });
       void hydrateManifestFiles(
         activeRequest,
@@ -493,11 +480,7 @@ function App() {
     const workers = Array.from(
       { length: Math.min(4, pendingFiles.length) },
       async (_, workerIndex) => {
-        for (
-          let index = workerIndex;
-          index < pendingFiles.length;
-          index += 4
-        ) {
+        for (let index = workerIndex; index < pendingFiles.length; index += 4) {
           if (version !== requestVersion) {
             return;
           }
@@ -572,7 +555,10 @@ function App() {
                 const withoutCurrent = current.filter(
                   (file) => fileKey(file) !== key,
                 );
-                return sortFilesByOrder([...withoutCurrent, entry], fileOrder());
+                return sortFilesByOrder(
+                  [...withoutCurrent, entry],
+                  fileOrder(),
+                );
               });
               setDirectoryExpansion((current) => {
                 const directory = entryDirectoryLabel(entry);
@@ -934,7 +920,7 @@ function App() {
     <main ref={appRoot} class="app-shell">
       <header class="app-header">
         <div class="app-title-block">
-          <p class="eyebrow">Solid Frontend</p>
+          <p class="eyebrow">Diff viewer</p>
           <div class="app-title-row">
             <h1>dirdiff</h1>
             <div class="header-actions">
@@ -943,13 +929,10 @@ function App() {
                 viewMode={diffViewMode()}
                 onViewModeChange={setDiffViewMode}
               />
-              <a class="legacy-link" href={legacyUrl(request())}>
-                Legacy
-              </a>
             </div>
           </div>
           <p class="subtitle">
-            The new frontend is now owning app state and API IO.
+            Review working tree, staged, branch, or ref diffs.
           </p>
         </div>
         <SummaryView summary={summary()} />
@@ -1921,7 +1904,10 @@ function FileCard(props: {
         const withoutCurrent = current.filter(
           (entry) => fileKey(entry) !== nextKey,
         );
-        return sortFilesByOrder([...withoutCurrent, nextEntry], props.fileOrder);
+        return sortFilesByOrder(
+          [...withoutCurrent, nextEntry],
+          props.fileOrder,
+        );
       });
       props.setLazyFiles((current) =>
         current.filter((entry) => fileKey(entry) !== activeKey),
@@ -2403,8 +2389,7 @@ function addHydratedNotebookSummary(
   const notebookSummary = entrySummary as NotebookSummary;
   return {
     ...current,
-    changed_cells:
-      (current.changed_cells ?? 0) + notebookSummary.changed_cells,
+    changed_cells: (current.changed_cells ?? 0) + notebookSummary.changed_cells,
     added_cells: (current.added_cells ?? 0) + notebookSummary.added_cells,
     modified_cells:
       (current.modified_cells ?? 0) + notebookSummary.modified_cells,

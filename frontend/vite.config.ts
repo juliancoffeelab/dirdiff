@@ -7,6 +7,10 @@ export default defineConfig(() => {
 
   return {
     plugins: [solid()],
+    build: {
+      outDir: "../src/dirdiff/frontend",
+      emptyOutDir: true,
+    },
     server: {
       proxy: {
         "/api": backendOrigin,

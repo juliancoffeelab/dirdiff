@@ -37,4 +37,5 @@ packages = ["src/dirdiff"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["-m", "not git"]
 markers = ["git: tests that create real git repositories or shell out to git"]

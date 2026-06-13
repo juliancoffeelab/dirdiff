@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from dirdiff.fold import fold_hints_for_path
 from dirdiff.syntax import highlight_lines_for_path
@@ -72,12 +72,6 @@ class RepoDiffPath:
     removed_lines: int | None = None
 
 
-@dataclass(frozen=True)
-class RepoDiffProgress:
-    entry: dict[str, Any]
-    summary: dict[str, int]
-
-
 class TextDiffError(ValueError):
     """Raised when a diff request cannot be fulfilled safely."""
 
@@ -124,28 +118,6 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
             and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
         )
     )
-
-
-def _to_lazy_repo_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "lazy": True,
-        "display_name": entry.display_name,
-        "left_path": entry.left_path,
-        "right_path": entry.right_path,
-        "change_type": entry.change_type,
-        "changed_lines": entry.changed_lines,
-        "added_lines": entry.added_lines,
-        "removed_lines": entry.removed_lines,
-    }
-    if (
-        entry.changed_lines is not None
-        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
-    ):
-        payload["lazy_reason"] = (
-            f"{entry.display_name} has {entry.changed_lines} changed lines, "
-            "so it is folded by default. Click to fetch and open it."
-        )
-    return payload
 
 
 def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
@@ -2577,60 +2549,6 @@ class TextDiffService:
             "fold_hints": payload.get("fold_hints", []),
         }
 
-    def build_repo_diff(
-        self,
-        *,
-        left: str,
-        right: str,
-    ) -> dict[str, Any]:
-        started_at = time.perf_counter()
-        normalized_left = self.normalize_side(left)
-        normalized_right = self.normalize_side(right)
-        paths = self.list_repo_diff_paths(left=normalized_left, right=normalized_right)
-        _perf_log(
-            "repo-start"
-            f" left={normalized_left!r}"
-            f" right={normalized_right!r}"
-            f" changed_paths={len(paths)}"
-        )
-        if not paths:
-            return _empty_repo_diff(
-                left_label=normalized_left,
-                right_label=normalized_right,
-            )
-
-        files: list[dict[str, Any]] = []
-        summary = _empty_repo_summary()
-
-        for progress in self.iter_repo_diff_progress(
-            left=normalized_left,
-            right=normalized_right,
-            paths=paths,
-        ):
-            files.append(progress.entry)
-            summary = progress.summary
-
-        payload = {
-            "display_name": "Repository diff",
-            "mode": "repo",
-            "left_label": normalized_left,
-            "right_label": normalized_right,
-            "summary": summary,
-            "files": files,
-        }
-        elapsed_ms = (time.perf_counter() - started_at) * 1000
-        _perf_log(
-            "repo-done"
-            f" left={normalized_left!r}"
-            f" right={normalized_right!r}"
-            f" files={len(files)}"
-            f" changed_files={summary['changed_files']}"
-            f" skipped_files={summary['skipped_files']}"
-            f" payload_bytes={_payload_size_bytes(payload)}"
-            f" elapsed_ms={elapsed_ms:.1f}"
-        )
-        return payload
-
     def build_repo_manifest(
         self,
         *,
@@ -2671,164 +2589,6 @@ class TextDiffService:
             "summary": summary,
             "files": files,
         }
-
-    def iter_repo_diff_progress(
-        self,
-        *,
-        left: str,
-        right: str,
-        paths: list[RepoDiffPath] | None = None,
-    ) -> Iterator[RepoDiffProgress]:
-        normalized_left = self.normalize_side(left)
-        normalized_right = self.normalize_side(right)
-        entries = (
-            paths
-            if paths is not None
-            else self.list_repo_diff_paths(
-                left=normalized_left,
-                right=normalized_right,
-            )
-        )
-        collapse_files_by_default = len(entries) > DEFAULT_COLLAPSE_FILE_COUNT_THRESHOLD
-        summary = _empty_repo_summary()
-        for entry in entries:
-            _perf_log(
-                "repo-file-start"
-                f" name={entry.display_name!r}"
-                f" change={entry.change_type}"
-            )
-            if _should_lazy_load_repo_entry(entry):
-                lazy_entry = _to_lazy_repo_file_entry(entry)
-                summary["changed_files"] += 1
-                if entry.change_type == "add":
-                    summary["added_files"] += 1
-                elif entry.change_type == "delete":
-                    summary["removed_files"] += 1
-                else:
-                    summary["updated_files"] += 1
-                if entry.changed_lines is not None:
-                    summary["changed_lines"] += entry.changed_lines
-                if entry.added_lines is not None:
-                    summary["added_lines"] += entry.added_lines
-                if entry.removed_lines is not None:
-                    summary["removed_lines"] += entry.removed_lines
-                yield RepoDiffProgress(
-                    entry=lazy_entry,
-                    summary=dict(summary),
-                )
-                continue
-            try:
-                file_diff = self.build_git_diff_paths(
-                    left_path=entry.left_path,
-                    right_path=entry.right_path,
-                    left=normalized_left,
-                    right=normalized_right,
-                    display_name=entry.display_name,
-                    change_type=entry.change_type,
-                )
-            except TextDiffError as exc:
-                summary["skipped_files"] += 1
-                _perf_log(
-                    "repo-file-skip"
-                    f" name={entry.display_name!r}"
-                    f" change={entry.change_type}"
-                    f" reason={str(exc)!r}"
-                )
-                yield RepoDiffProgress(
-                    entry={
-                        "display_name": entry.display_name,
-                        "mode": "git",
-                        "left_label": normalized_left,
-                        "right_label": normalized_right,
-                        "change_type": entry.change_type,
-                        "error": str(exc),
-                        "default_expanded": False,
-                    },
-                    summary=dict(summary),
-                )
-                continue
-
-            if file_diff["summary"]["changed_lines"] <= 0 and file_diff.get(
-                "change_type"
-            ) not in {"rename", "copy"}:
-                continue
-            if collapse_files_by_default:
-                file_diff["default_expanded"] = False
-
-            summary["changed_files"] += 1
-            if entry.change_type == "add":
-                summary["added_files"] += 1
-            elif entry.change_type == "delete":
-                summary["removed_files"] += 1
-            else:
-                summary["updated_files"] += 1
-            summary["changed_lines"] += file_diff["summary"]["changed_lines"]
-            summary["modified_lines"] += file_diff["summary"]["modified_lines"]
-            summary["added_lines"] += file_diff["summary"]["added_lines"]
-            summary["removed_lines"] += file_diff["summary"]["removed_lines"]
-            if "changed_cells" in file_diff["summary"]:
-                summary["changed_cells"] = (
-                    summary.get("changed_cells", 0)
-                    + file_diff["summary"]["changed_cells"]
-                )
-                summary["added_cells"] = (
-                    summary.get("added_cells", 0) + file_diff["summary"]["added_cells"]
-                )
-                summary["modified_cells"] = (
-                    summary.get("modified_cells", 0)
-                    + file_diff["summary"]["modified_cells"]
-                )
-                summary["removed_cells"] = (
-                    summary.get("removed_cells", 0)
-                    + file_diff["summary"]["removed_cells"]
-                )
-            _perf_log(
-                "repo-file-done"
-                f" name={entry.display_name!r}"
-                f" change={entry.change_type}"
-                f" changed_files={summary['changed_files']}"
-                f" changed_lines={summary['changed_lines']}"
-            )
-            yield RepoDiffProgress(entry=file_diff, summary=dict(summary))
-
-    def build_branch_diff(
-        self,
-        *,
-        base_branch: str,
-        branch: str,
-    ) -> dict[str, Any]:
-        merge_base, normalized_branch = self.resolve_branch_diff_sides(
-            base_branch=base_branch,
-            branch=branch,
-        )
-        left_label = f"{base_branch.strip()}...{normalized_branch}"
-
-        payload = self.build_repo_diff(left=merge_base, right=normalized_branch)
-        payload["left_label"] = left_label
-        payload["right_label"] = normalized_branch
-        for entry in payload.get("files", []):
-            if "left_label" in entry:
-                entry["left_label"] = left_label
-            if "right_label" in entry:
-                entry["right_label"] = normalized_branch
-        return payload
-
-    def build_diff(
-        self,
-        *,
-        left: str,
-        right: str,
-        base_branch: str | None = None,
-        branch: str | None = None,
-    ) -> dict[str, Any]:
-        if branch and branch.strip():
-            return self.build_branch_diff(
-                base_branch=base_branch or self.default_base_branch(),
-                branch=branch,
-            )
-        if self.repo_root is not None:
-            return self.build_repo_diff(left=left, right=right)
-        raise TextDiffError("Git-backed diff mode requires a Git repo.")
 
 
 class GitDiffService(TextDiffService):
