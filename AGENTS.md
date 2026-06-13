@@ -6,10 +6,12 @@
 - `.venv/bin/...` entry points are also fine for repeated local commands that do not need dependency resolution.
 - Run the app with `uv --no-cache run dirdiff ...`; prefer `uv --no-cache run dirdiff --headless` for local verification so Vite serves the frontend.
 - Keep in mind that user runs it as `dirdiff` via installed tool with `uv tool install -e .`
+
+# Linting & Quality
 - Run `make format` afterwards
 - For user-visible frontend/rendering changes, verify in the browser against a local app session.
-- Do not rebuild or commit generated frontend bundles for ordinary UI iteration; the app uses Vite by default. Only run `npm --prefix frontend run build` when explicitly checking production/package behavior.
-- Do not add Playwright tests/docs unless explicitly asked.
+- For ordinary frontend TypeScript verification, use `make tscheck`.
+- Do not rebuild or commit generated frontend bundles for ordinary UI iteration; the app uses Vite by default. Only run `npm --prefix frontend run build` when explicitly requested by the user.
 - Keep console entry points in `pyproject.toml`.
 
 # Testing
