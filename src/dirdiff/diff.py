@@ -1606,6 +1606,16 @@ def _git_style_line_rows(left_text: str, right_text: str) -> list[dict[str, Any]
     return rows
 
 
+def _difftastic_changed_token_parts(text: str) -> list[str]:
+    if not text:
+        return []
+    if len(text) >= 2 and text[0] in {'"', "'"} and text[-1] == text[0]:
+        return [text]
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\(\)", text):
+        return [text]
+    return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\s+|.", text)
+
+
 def _changed_tokens_for_ranges(
     line: str,
     ranges: list[tuple[int, int]],
@@ -1627,19 +1637,88 @@ def _changed_tokens_for_ranges(
             )
         if end > start:
             text = line[start:end]
-            tokens.append(
-                {
-                    "text": text,
-                    "status": status,
-                    "is_ws": text.isspace(),
-                }
-            )
+            for part in _difftastic_changed_token_parts(text):
+                tokens.append(
+                    {
+                        "text": part,
+                        "status": status,
+                        "is_ws": part.isspace(),
+                    }
+                )
         cursor = max(cursor, end)
 
     if cursor < len(line):
         text = line[cursor:]
         tokens.append({"text": text, "status": "unchanged", "is_ws": text.isspace()})
     return tokens
+
+
+def _changed_tokens_for_ranges_with_statuses(
+    line: str,
+    ranges: list[tuple[int, int]],
+    statuses: list[Literal["replace", "insert", "delete"]],
+) -> list[dict[str, Any]]:
+    if not ranges:
+        return []
+
+    tokens: list[dict[str, Any]] = []
+    cursor = 0
+    for index, (raw_start, raw_end) in enumerate(sorted(ranges)):
+        start = max(cursor, max(0, min(raw_start, len(line))))
+        end = max(start, min(raw_end, len(line)))
+        if start > cursor:
+            text = line[cursor:start]
+            tokens.append(
+                {"text": text, "status": "unchanged", "is_ws": text.isspace()}
+            )
+        if end > start:
+            text = line[start:end]
+            status = statuses[index] if index < len(statuses) else statuses[-1]
+            for part in _difftastic_changed_token_parts(text):
+                tokens.append(
+                    {
+                        "text": part,
+                        "status": status,
+                        "is_ws": part.isspace(),
+                    }
+                )
+        cursor = max(cursor, end)
+
+    if cursor < len(line):
+        text = line[cursor:]
+        tokens.append({"text": text, "status": "unchanged", "is_ws": text.isspace()})
+    return tokens
+
+
+def _paired_difftastic_range_statuses(
+    *,
+    own_ranges: list[tuple[int, int]],
+    counterpart_ranges: list[tuple[int, int]],
+    extra_status: Literal["insert", "delete"],
+) -> list[Literal["replace", "insert", "delete"]]:
+    paired_count = min(len(own_ranges), len(counterpart_ranges))
+    return ["replace"] * paired_count + [extra_status] * (
+        len(own_ranges) - paired_count
+    )
+
+
+def _difftastic_row_status_from_tokens(
+    tokens: list[dict[str, Any]],
+) -> Literal["equal", "replace", "insert", "delete"]:
+    significant_tokens = [token for token in tokens if not token.get("is_ws")]
+    changed_statuses = [
+        token.get("status")
+        for token in significant_tokens
+        if token.get("status") != "unchanged"
+    ]
+    all_statuses = [token.get("status") for token in significant_tokens]
+    if all_statuses and all(status == "insert" for status in all_statuses):
+        return "insert"
+    if all_statuses and all(status == "delete" for status in all_statuses):
+        return "delete"
+    if changed_statuses:
+        return "replace"
+    return "equal"
 
 
 def _difftastic_changed_ranges_by_line(
@@ -1803,7 +1882,26 @@ def _difftastic_line_item_key(line: str) -> str:
 
 
 def _difftastic_fragment_key_is_matchable(key: str) -> bool:
-    return bool(key) and key not in {"{", "}"}
+    return bool(key) and key not in {"{", "}", ":"}
+
+
+def _difftastic_fragment_contains_key(fragment_text: str, key: str) -> bool:
+    start = 0
+    while True:
+        index = fragment_text.find(key, start)
+        if index < 0:
+            return False
+        before = fragment_text[index - 1] if index > 0 else ""
+        if "=" in fragment_text[:index]:
+            start = index + 1
+            continue
+        after_index = index + len(key)
+        after = fragment_text[after_index] if after_index < len(fragment_text) else ""
+        before_ok = not before or before.isspace() or before in "([{,]}"
+        after_ok = not after or after.isspace() or after in ")]},;"
+        if before_ok and after_ok:
+            return True
+        start = index + 1
 
 
 def _common_prefix_length(left: str, right: str) -> int:
@@ -1858,7 +1956,7 @@ def _find_difftastic_reconstructed_fragment(
             continue
         if not lower_bound <= fragment.source_index < upper_bound:
             continue
-        if key in fragment.text:
+        if _difftastic_fragment_contains_key(fragment.text, key):
             return fragment
     return None
 
@@ -2038,16 +2136,36 @@ def _difftastic_rows_from_json(
             )
             left_status = "replace" if right_line_ranges else "delete"
             right_status = "replace" if left_line_ranges else "insert"
-            left_tokens = _changed_tokens_for_ranges(
-                left_line,
-                left_line_ranges,
-                status=left_status,
-            )
-            right_tokens = _changed_tokens_for_ranges(
-                right_line,
-                right_line_ranges,
-                status=right_status,
-            )
+            if left_line_ranges and right_line_ranges:
+                left_tokens = _changed_tokens_for_ranges_with_statuses(
+                    left_line,
+                    left_line_ranges,
+                    _paired_difftastic_range_statuses(
+                        own_ranges=left_line_ranges,
+                        counterpart_ranges=right_line_ranges,
+                        extra_status="delete",
+                    ),
+                )
+                right_tokens = _changed_tokens_for_ranges_with_statuses(
+                    right_line,
+                    right_line_ranges,
+                    _paired_difftastic_range_statuses(
+                        own_ranges=right_line_ranges,
+                        counterpart_ranges=left_line_ranges,
+                        extra_status="insert",
+                    ),
+                )
+            else:
+                left_tokens = _changed_tokens_for_ranges(
+                    left_line,
+                    left_line_ranges,
+                    status=left_status,
+                )
+                right_tokens = _changed_tokens_for_ranges(
+                    right_line,
+                    right_line_ranges,
+                    status=right_status,
+                )
             if left_tokens or right_tokens:
                 row["status"] = "replace"
                 row["left_tokens"] = left_tokens
@@ -2144,18 +2262,18 @@ def _difftastic_rows_from_json(
                         _difftastic_fragment_key(reconstructed_right_fragment)
                     )
                     continue
-            row = {
-                "status": "delete" if left_line_ranges else "equal",
-                "left_no": left_index + 1,
-                "right_no": None,
-                "left_text": left_lines[left_index],
-                "right_text": "",
-            }
             left_tokens = _changed_tokens_for_ranges(
                 left_lines[left_index],
                 left_line_ranges,
                 status="delete",
             )
+            row = {
+                "status": _difftastic_row_status_from_tokens(left_tokens),
+                "left_no": left_index + 1,
+                "right_no": None,
+                "left_text": left_lines[left_index],
+                "right_text": "",
+            }
             if left_tokens:
                 row["left_tokens"] = left_tokens
             rows.append(row)
@@ -2248,18 +2366,19 @@ def _difftastic_rows_from_json(
                 )
                 used_right.add(right_index)
                 continue
+        right_tokens = _changed_tokens_for_ranges(
+            right_lines[right_index],
+            right_line_ranges,
+            status="insert",
+        )
         rows.append(
             {
-                "status": "insert" if right_line_ranges else "equal",
+                "status": _difftastic_row_status_from_tokens(right_tokens),
                 "left_no": None,
                 "right_no": right_index + 1,
                 "left_text": "",
                 "right_text": right_lines[right_index],
-                "right_tokens": _changed_tokens_for_ranges(
-                    right_lines[right_index],
-                    right_line_ranges,
-                    status="insert",
-                ),
+                "right_tokens": right_tokens,
             }
         )
         used_right.add(right_index)

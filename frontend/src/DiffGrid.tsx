@@ -470,37 +470,46 @@ function renderInlineDiffRowsDom(
       });
     case "replace": {
       const fragment = document.createDocumentFragment();
-      fragment.append(
-        renderInlineDiffRowDom({
-          status: "delete",
-          marker: "-",
-          leftNo: row.left_no,
-          rightNo: null,
-          text: leftText,
-          tokens: row.left_tokens ?? [],
-          syntax: row.left_syntax ?? [],
-          rowIndex,
-          fileLabel,
-          sourceRow: row,
-          foldToggle,
-          lineNumberState,
-          tokenRowStatus: "replace",
-        }),
-        renderInlineDiffRowDom({
-          status: "insert",
-          marker: "+",
-          leftNo: null,
-          rightNo: row.right_no,
-          text: rightText,
-          tokens: row.right_tokens ?? [],
-          syntax: row.right_syntax ?? [],
-          rowIndex,
-          fileLabel,
-          sourceRow: { ...row, isHunkAnchor: false },
-          lineNumberState,
-          tokenRowStatus: "replace",
-        }),
-      );
+      const hasLeftSide = inlineSideExists(row.left_no, leftText);
+      const hasRightSide = inlineSideExists(row.right_no, rightText);
+      if (hasLeftSide) {
+        fragment.append(
+          renderInlineDiffRowDom({
+            status: "delete",
+            marker: "-",
+            leftNo: row.left_no,
+            rightNo: null,
+            text: leftText,
+            tokens: row.left_tokens ?? [],
+            syntax: row.left_syntax ?? [],
+            rowIndex,
+            fileLabel,
+            sourceRow: row,
+            foldToggle,
+            lineNumberState,
+            tokenRowStatus: "replace",
+          }),
+        );
+      }
+      if (hasRightSide) {
+        fragment.append(
+          renderInlineDiffRowDom({
+            status: "insert",
+            marker: "+",
+            leftNo: null,
+            rightNo: row.right_no,
+            text: rightText,
+            tokens: row.right_tokens ?? [],
+            syntax: row.right_syntax ?? [],
+            rowIndex,
+            fileLabel,
+            sourceRow: { ...row, isHunkAnchor: !hasLeftSide },
+            foldToggle: hasLeftSide ? undefined : foldToggle,
+            lineNumberState,
+            tokenRowStatus: "replace",
+          }),
+        );
+      }
       return fragment;
     }
     default:
@@ -519,6 +528,10 @@ function renderInlineDiffRowsDom(
         lineNumberState,
       });
   }
+}
+
+function inlineSideExists(lineNo: number | null, text: string): boolean {
+  return lineNo !== null || text.length > 0;
 }
 
 function renderSemanticInlineDiffRowsDom(
@@ -786,7 +799,9 @@ function createInlineLineCodeDom(
   markerElement.ariaHidden = "true";
   markerElement.textContent = marker;
   element.append(markerElement);
-  appendDecoratedText(element, text, tokens, syntax, rowStatus);
+  const inlineTokenRowStatus =
+    rowStatus === "insert" || rowStatus === "delete" ? "replace" : rowStatus;
+  appendDecoratedText(element, text, tokens, syntax, inlineTokenRowStatus);
   return element;
 }
 

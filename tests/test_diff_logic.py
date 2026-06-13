@@ -139,8 +139,8 @@ def test_difftastic_json_rows_use_semantic_alignment_and_changed_ranges() -> Non
         "equal",
         "replace",
         "equal",
-        "insert",
-        "insert",
+        "replace",
+        "replace",
     ]
     assert rows[1]["left_tokens"] == [
         {"text": "    return ", "status": "unchanged", "is_ws": False},
@@ -191,7 +191,7 @@ def test_difftastic_rows_render_split_arguments_as_semantic_context() -> None:
     assert [row["status"] for row in rows[1:]] == [
         "equal",
         "equal",
-        "insert",
+        "replace",
         "equal",
     ]
     assert rows[3]["right_tokens"][1]["status"] == "insert"
@@ -260,7 +260,7 @@ def test_difftastic_rows_clip_old_tail_for_one_sided_paired_insert() -> None:
         {"text": "from dirdiff.diff import ", "status": "unchanged", "is_ws": False},
         {"text": "(", "status": "insert", "is_ws": False},
     ]
-    assert rows[1]["status"] == "insert"
+    assert rows[1]["status"] == "replace"
     assert rows[2]["status"] == "equal"
     assert rows[6]["left_text"] == "from dirdiff.server import create_app"
 
@@ -318,7 +318,7 @@ def test_difftastic_rows_pair_one_sided_rhs_token_insert_with_matching_lhs_line(
         ),
     )
 
-    assert rows[5]["status"] == "insert"
+    assert rows[5]["status"] == "replace"
     assert rows[5]["right_text"] == "  RowStatus,"
     assert rows[6]["status"] == "replace"
     assert rows[6]["left_no"] == 6
@@ -389,7 +389,7 @@ def test_difftastic_rows_pair_rhs_token_insert_from_split_lhs_line_tail() -> Non
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == "  DiffRow,"
     assert rows[2]["right_text"] == "  DiffRow,"
-    assert rows[5]["status"] == "insert"
+    assert rows[5]["status"] == "replace"
     assert rows[5]["left_no"] is None
     assert rows[5]["right_text"] == "  RowStatus,"
     assert rows[6]["status"] == "replace"
@@ -574,7 +574,7 @@ def test_difftastic_does_not_pair_bare_brace_residual_fragment() -> None:
 
     assert rows[0]["status"] == "replace"
     assert rows[0]["right_text"].endswith(") {")
-    assert rows[1]["status"] == "delete"
+    assert rows[1]["status"] == "replace"
     assert rows[1]["left_text"] == "  for (const span of syntax) {"
     assert rows[1]["right_no"] is None
     assert rows[1]["right_text"] == ""
@@ -654,6 +654,933 @@ def test_difftastic_rows_repair_shifted_delete_equal_insert_fields() -> None:
         rows[4]["right_text"]
         == '  status: "unchanged" | "replace" | "insert" | "delete";'
     )
+
+
+def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, None],
+                [3, 2],
+                [None, 3],
+                [4, 4],
+                [5, None],
+                [6, None],
+                [7, None],
+                [8, 5],
+                [9, None],
+                [10, None],
+                [11, None],
+                [12, 6],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 8, "end": 40}],
+                        },
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 8, "end": 53}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 8, "end": 21}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 4, "end": 45}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 7, "end": 8}],
+                        },
+                        "rhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 7, "end": 11}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 8, "end": 27}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 6,
+                            "changes": [{"start": 8, "end": 68}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 7,
+                            "changes": [{"start": 4, "end": 5}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 8,
+                            "changes": [{"start": 16, "end": 34}],
+                        },
+                        "rhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 16, "end": 30}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 9,
+                            "changes": [{"start": 12, "end": 77}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 10,
+                            "changes": [{"start": 12, "end": 69}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 11,
+                            "changes": [{"start": 8, "end": 9}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            '        "right_path": entry.right_path,\n'
+            '        "change_type": entry.change_type,\n'
+            '        "lazy": True,\n'
+            "    }\n"
+            "    if (\n"
+            "        entry.changed_lines is not None\n"
+            "        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD\n"
+            "    ):\n"
+            '        payload["lazy_reason"] = (\n'
+            '            f"{entry.display_name} has {entry.changed_lines} changed lines, "\n'
+            '            "so it is folded by default. Click to fetch and open it."\n'
+            "        )\n"
+            "    return payload\n"
+        ),
+        right_text=(
+            '        "right_path": entry.right_path,\n'
+            '        "file_kind": _file_kind_for_repo_entry(entry),\n'
+            "    }\n"
+            "    lazy = _lazy_reason_for_repo_entry(entry)\n"
+            "    if lazy is not None:\n"
+            '        payload["lazy"] = lazy\n'
+            "    return payload\n"
+        ),
+    )
+
+    numbered_right_rows = [row for row in rows if isinstance(row.get("right_no"), int)]
+    right_numbers = [row["right_no"] for row in numbered_right_rows]
+
+    assert right_numbers == sorted(set(right_numbers))
+
+
+def test_difftastic_rows_keep_collapsed_condition_suffix_unchanged() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, None],
+                [3, 2],
+                [None, 3],
+                [4, 4],
+                [5, None],
+                [6, None],
+                [7, None],
+                [8, 5],
+                [9, None],
+                [10, None],
+                [11, None],
+                [12, 6],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 8, "end": 40}],
+                        },
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 8, "end": 53}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 8, "end": 21}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 4, "end": 45}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 7, "end": 8}],
+                        },
+                        "rhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 7, "end": 11}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 8, "end": 27}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 6,
+                            "changes": [{"start": 8, "end": 68}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 7,
+                            "changes": [{"start": 4, "end": 5}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 8,
+                            "changes": [{"start": 16, "end": 34}],
+                        },
+                        "rhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 16, "end": 30}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 9,
+                            "changes": [{"start": 12, "end": 77}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 10,
+                            "changes": [{"start": 12, "end": 69}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 11,
+                            "changes": [{"start": 8, "end": 9}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            '        "right_path": entry.right_path,\n'
+            '        "change_type": entry.change_type,\n'
+            '        "lazy": True,\n'
+            "    }\n"
+            "    if (\n"
+            "        entry.changed_lines is not None\n"
+            "        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD\n"
+            "    ):\n"
+            '        payload["lazy_reason"] = (\n'
+            '            f"{entry.display_name} has {entry.changed_lines} changed lines, "\n'
+            '            "so it is folded by default. Click to fetch and open it."\n'
+            "        )\n"
+            "    return payload\n"
+        ),
+        right_text=(
+            '        "right_path": entry.right_path,\n'
+            '        "file_kind": _file_kind_for_repo_entry(entry),\n'
+            "    }\n"
+            "    lazy = _lazy_reason_for_repo_entry(entry)\n"
+            "    if lazy is not None:\n"
+            '        payload["lazy"] = lazy\n'
+            "    return payload\n"
+        ),
+    )
+
+    condition_row = next(row for row in rows if row.get("right_no") == 5)
+
+    assert condition_row["status"] == "replace"
+    assert condition_row["right_tokens"] == [
+        {"text": "    if ", "status": "unchanged", "is_ws": False},
+        {"text": "lazy", "status": "replace", "is_ws": False},
+        {"text": " is not None:", "status": "unchanged", "is_ws": False},
+    ]
+
+
+def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [None, 2],
+                [None, 3],
+                [None, 4],
+                [2, 5],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 16, "end": 29}],
+                        },
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 16, "end": 27},
+                                {"start": 31, "end": 58},
+                            ],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 23, "end": 24}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 12, "end": 32}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 8, "end": 9}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            "        )\n"
+            '        payload["change_type"] = change_type\n'
+            '        payload["left_path"] = normalized_left\n'
+        ),
+        right_text=(
+            "        )\n"
+            '        payload["file_kind"] = _file_kind_for_change_type(\n'
+            "            change_type,\n"
+            "            file_kind=file_kind,\n"
+            "        )\n"
+            '        payload["left_path"] = normalized_left\n'
+        ),
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "        )",
+            "right_text": "        )",
+        },
+        {
+            "status": "replace",
+            "left_no": 2,
+            "right_no": 2,
+            "left_text": '        payload["change_type"] = change_type',
+            "right_text": '        payload["file_kind"] = _file_kind_for_change_type(',
+            "left_tokens": [
+                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {"text": '"change_type"', "status": "replace", "is_ws": False},
+                {"text": "] = change_type", "status": "unchanged", "is_ws": False},
+            ],
+            "right_tokens": [
+                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {"text": '"file_kind"', "status": "replace", "is_ws": False},
+                {"text": "] = ", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "_file_kind_for_change_type",
+                    "status": "insert",
+                    "is_ws": False,
+                },
+                {"text": "(", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "replace",
+            "left_no": None,
+            "right_no": 3,
+            "left_text": "",
+            "right_text": "            change_type,",
+            "right_tokens": [
+                {
+                    "text": "            change_type",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 4,
+            "left_text": "",
+            "right_text": "            file_kind=file_kind,",
+            "right_tokens": [
+                {"text": "            ", "status": "unchanged", "is_ws": True},
+                {"text": "file_kind", "status": "insert", "is_ws": False},
+                {"text": "=", "status": "insert", "is_ws": False},
+                {"text": "file_kind", "status": "insert", "is_ws": False},
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 5,
+            "left_text": "",
+            "right_text": "        )",
+            "right_tokens": [
+                {"text": "        ", "status": "unchanged", "is_ws": True},
+                {"text": ")", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "equal",
+            "left_no": 3,
+            "right_no": 6,
+            "left_text": '        payload["left_path"] = normalized_left',
+            "right_text": '        payload["left_path"] = normalized_left',
+        },
+    ]
+
+
+def test_difftastic_rows_status_is_equal_for_right_only_line_without_changed_tokens() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {"aligned_lines": [[0, 0], [None, 1]], "chunks": [[]]},
+        left_text="value = arg\n",
+        right_text="value = arg\nvalue = arg\n",
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "value = arg",
+            "right_text": "value = arg",
+        },
+        {
+            "status": "equal",
+            "left_no": None,
+            "right_no": 2,
+            "left_text": "",
+            "right_text": "value = arg",
+            "right_tokens": [],
+        },
+    ]
+
+
+def test_difftastic_rows_status_is_replace_for_mixed_unchanged_and_insert_tokens() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 11, "end": 12}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text="value = arg\n",
+        right_text="value = arg\nvalue = arg,\n",
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "value = arg",
+            "right_text": "value = arg",
+        },
+        {
+            "status": "replace",
+            "left_no": None,
+            "right_no": 2,
+            "left_text": "",
+            "right_text": "value = arg,",
+            "right_tokens": [
+                {"text": "value = arg", "status": "unchanged", "is_ws": False},
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+    ]
+
+
+def test_difftastic_rows_status_is_insert_when_every_changed_token_is_insert() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 0, "end": 9}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text="value = arg\n",
+        right_text="value = arg\nnew_value\n",
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "value = arg",
+            "right_text": "value = arg",
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 2,
+            "left_text": "",
+            "right_text": "new_value",
+            "right_tokens": [
+                {"text": "new_value", "status": "insert", "is_ws": False},
+            ],
+        },
+    ]
+
+
+def test_difftastic_rows_status_is_replace_when_changed_tokens_are_not_inserted() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0]],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 8, "end": 11}],
+                        },
+                        "rhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 8, "end": 11}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text="value = old\n",
+        right_text="value = new\n",
+    )
+
+    assert rows == [
+        {
+            "status": "replace",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "value = old",
+            "right_text": "value = new",
+            "left_tokens": [
+                {"text": "value = ", "status": "unchanged", "is_ws": False},
+                {"text": "old", "status": "replace", "is_ws": False},
+            ],
+            "right_tokens": [
+                {"text": "value = ", "status": "unchanged", "is_ws": False},
+                {"text": "new", "status": "replace", "is_ws": False},
+            ],
+        },
+    ]
+
+
+def test_difftastic_rows_status_is_delete_when_every_changed_token_is_delete() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [1, None]],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 0, "end": 9}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text="value = arg\nold_value\n",
+        right_text="value = arg\n",
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "value = arg",
+            "right_text": "value = arg",
+        },
+        {
+            "status": "delete",
+            "left_no": 2,
+            "right_no": None,
+            "left_text": "old_value",
+            "right_text": "",
+            "left_tokens": [
+                {"text": "old_value", "status": "delete", "is_ws": False},
+            ],
+        },
+    ]
+
+
+def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, 2],
+                [3, None],
+                [4, 3],
+                [None, 4],
+                [5, 5],
+                [6, None],
+                [7, None],
+                [8, None],
+                [9, 6],
+                [10, None],
+                [11, None],
+                [12, None],
+                [13, 7],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 8, "end": 21}],
+                        },
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 8, "end": 19},
+                                {"start": 21, "end": 53},
+                            ],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 8, "end": 21}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 4, "end": 45}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 7, "end": 8}],
+                        },
+                        "rhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 7, "end": 11}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 6,
+                            "changes": [{"start": 8, "end": 27}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 7,
+                            "changes": [{"start": 8, "end": 68}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 8,
+                            "changes": [{"start": 4, "end": 5}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 9,
+                            "changes": [{"start": 16, "end": 34}],
+                        },
+                        "rhs": {
+                            "line_number": 6,
+                            "changes": [
+                                {"start": 16, "end": 22},
+                                {"start": 26, "end": 30},
+                            ],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 10,
+                            "changes": [{"start": 12, "end": 77}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 11,
+                            "changes": [{"start": 12, "end": 69}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 12,
+                            "changes": [{"start": 8, "end": 9}],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            "def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:\n"
+            "    payload: dict[str, Any] = {\n"
+            '        "change_type": entry.change_type,\n'
+            '        "lazy": True,\n'
+            "    }\n"
+            "    if (\n"
+            "        entry.changed_lines is not None\n"
+            "        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD\n"
+            "    ):\n"
+            '        payload["lazy_reason"] = (\n'
+            '            f"{entry.display_name} has {entry.changed_lines} changed lines, "\n'
+            '            "so it is folded by default. Click to fetch and open it."\n'
+            "        )\n"
+            "    return payload\n"
+        ),
+        right_text=(
+            "def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:\n"
+            "    payload: dict[str, Any] = {\n"
+            '        "file_kind": _file_kind_for_repo_entry(entry),\n'
+            "    }\n"
+            "    lazy = _lazy_reason_for_repo_entry(entry)\n"
+            "    if lazy is not None:\n"
+            '        payload["lazy"] = lazy\n'
+            "    return payload\n"
+        ),
+    )
+
+    assert [row["status"] for row in rows] == [
+        "equal",
+        "equal",
+        "replace",
+        "delete",
+        "equal",
+        "insert",
+        "replace",
+        "replace",
+        "delete",
+        "replace",
+        "replace",
+        "delete",
+        "delete",
+        "delete",
+        "equal",
+    ]
+    condition_row = next(
+        row for row in rows if row.get("right_text") == "    if lazy is not None:"
+    )
+    assert condition_row["right_tokens"] == [
+        {"text": "    if ", "status": "unchanged", "is_ws": False},
+        {"text": "lazy", "status": "replace", "is_ws": False},
+        {"text": " is not None:", "status": "unchanged", "is_ws": False},
+    ]
+
+
+def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, 2],
+                [None, 3],
+                [None, 4],
+                [None, 5],
+                [3, 6],
+            ],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 3,
+                            "changes": [{"start": 23, "end": 24}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 4,
+                            "changes": [{"start": 12, "end": 32}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 5,
+                            "changes": [{"start": 8, "end": 9}],
+                        },
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 16, "end": 29}],
+                        },
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 16, "end": 27},
+                                {"start": 31, "end": 58},
+                            ],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            "            right_path_hint=normalized_right,\n"
+            "        )\n"
+            '        payload["change_type"] = change_type\n'
+            '        payload["left_path"] = normalized_left\n'
+        ),
+        right_text=(
+            "            right_path_hint=normalized_right,\n"
+            "        )\n"
+            '        payload["file_kind"] = _file_kind_for_change_type(\n'
+            "            change_type,\n"
+            "            file_kind=file_kind,\n"
+            "        )\n"
+            '        payload["left_path"] = normalized_left\n'
+        ),
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "            right_path_hint=normalized_right,",
+            "right_text": "            right_path_hint=normalized_right,",
+        },
+        {
+            "status": "equal",
+            "left_no": 2,
+            "right_no": 2,
+            "left_text": "        )",
+            "right_text": "        )",
+        },
+        {
+            "status": "replace",
+            "left_no": 3,
+            "right_no": 3,
+            "left_text": '        payload["change_type"] = change_type',
+            "right_text": '        payload["file_kind"] = _file_kind_for_change_type(',
+            "left_tokens": [
+                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {"text": '"change_type"', "status": "replace", "is_ws": False},
+                {"text": "] = change_type", "status": "unchanged", "is_ws": False},
+            ],
+            "right_tokens": [
+                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {"text": '"file_kind"', "status": "replace", "is_ws": False},
+                {"text": "] = ", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "_file_kind_for_change_type",
+                    "status": "insert",
+                    "is_ws": False,
+                },
+                {"text": "(", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "replace",
+            "left_no": None,
+            "right_no": 4,
+            "left_text": "",
+            "right_text": "            change_type,",
+            "right_tokens": [
+                {
+                    "text": "            change_type",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 5,
+            "left_text": "",
+            "right_text": "            file_kind=file_kind,",
+            "right_tokens": [
+                {"text": "            ", "status": "unchanged", "is_ws": True},
+                {"text": "file_kind", "status": "insert", "is_ws": False},
+                {"text": "=", "status": "insert", "is_ws": False},
+                {"text": "file_kind", "status": "insert", "is_ws": False},
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 6,
+            "left_text": "",
+            "right_text": "        )",
+            "right_tokens": [
+                {"text": "        ", "status": "unchanged", "is_ws": True},
+                {"text": ")", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "equal",
+            "left_no": 4,
+            "right_no": 7,
+            "left_text": '        payload["left_path"] = normalized_left',
+            "right_text": '        payload["left_path"] = normalized_left',
+        },
+    ]
 
 
 def test_difftastic_rows_pair_one_sided_lhs_token_delete_with_matching_rhs_line() -> (
