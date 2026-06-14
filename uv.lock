@@ -105,11 +105,13 @@ dependencies = [
     { name = "fastapi" },
     { name = "tree-sitter" },
     { name = "tree-sitter-bash" },
+    { name = "tree-sitter-clojure" },
     { name = "tree-sitter-css" },
     { name = "tree-sitter-html" },
     { name = "tree-sitter-javascript" },
     { name = "tree-sitter-json" },
     { name = "tree-sitter-markdown" },
+    { name = "tree-sitter-ocaml" },
     { name = "tree-sitter-python" },
     { name = "tree-sitter-rust" },
     { name = "tree-sitter-toml" },
@@ -132,11 +134,13 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.3" },
     { name = "tree-sitter", specifier = ">=0.25.2" },
     { name = "tree-sitter-bash", specifier = ">=0.25.1" },
+    { name = "tree-sitter-clojure", git = "ssh://git@github.com/juliancoffeelab/tree-sitter-clojure-py.git?rev=main" },
     { name = "tree-sitter-css", specifier = ">=0.25.0" },
     { name = "tree-sitter-html", specifier = ">=0.23.2" },
     { name = "tree-sitter-javascript", specifier = ">=0.25.0" },
     { name = "tree-sitter-json", specifier = ">=0.24.8" },
     { name = "tree-sitter-markdown", specifier = ">=0.5.1" },
+    { name = "tree-sitter-ocaml", specifier = ">=0.25.0" },
     { name = "tree-sitter-python", specifier = ">=0.25.0" },
     { name = "tree-sitter-rust", specifier = ">=0.24.2" },
     { name = "tree-sitter-toml", specifier = ">=0.7.0" },
@@ -475,6 +479,14 @@ wheels = [
 ]
 
 [[package]]
+name = "tree-sitter-clojure"
+version = "0.1.0"
+source = { git = "ssh://git@github.com/juliancoffeelab/tree-sitter-clojure-py.git?rev=main#6e24a1813fa7a2e288cf1ed18283ed56dacd0784" }
+dependencies = [
+    { name = "tree-sitter" },
+]
+
+[[package]]
 name = "tree-sitter-css"
 version = "0.25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -550,6 +562,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8c/c8/8218482d56b78755cdc20816a28754145cb1767e1e7e0ddde5988547ab86/tree_sitter_markdown-0.5.1-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:b8a8a04a5d942c177cc590ec40074fcf3658f3a7c0a3388a8575990003665d8c", size = 184922, upload-time = "2025-09-16T17:12:08.937Z" },
     { url = "https://files.pythonhosted.org/packages/b6/ca/423600960b91c3aba6f2202ad4c430b5401e652d51a73a59769375c2b4ea/tree_sitter_markdown-0.5.1-cp39-abi3-win_amd64.whl", hash = "sha256:b1b0e4cbcf5a7b85005f1e9266fc2ed9b649b41a6048f3b1abae3612368d97a6", size = 142519, upload-time = "2025-09-16T17:12:10.027Z" },
     { url = "https://files.pythonhosted.org/packages/93/f5/327dd7fa42ae39796a8853685c40a8ac968585260094c581047270cbc851/tree_sitter_markdown-0.5.1-cp39-abi3-win_arm64.whl", hash = "sha256:2296ef53a757d8f5b848616706d0518e04d487bc7748bd05755d4a3a65711542", size = 137166, upload-time = "2025-09-16T17:12:10.858Z" },
+]
+
+[[package]]
+name = "tree-sitter-ocaml"
+version = "0.25.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/51/eab58652cc54221192a82bb0cb2c7ce50954e2b18db4fcfb8791d6dfd7fe/tree_sitter_ocaml-0.25.0.tar.gz", hash = "sha256:f5833261dd85cf170da2bb4dd0273e138bf488f1d6937d38c511b2918c19a51e", size = 1642387, upload-time = "2026-05-09T19:26:40.773Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/c6/0184e6872f24e8ad1eab26e7c9dee6e5ac7980b1cfe4885095453f946579/tree_sitter_ocaml-0.25.0-cp310-abi3-macosx_10_9_x86_64.whl", hash = "sha256:ee544bb2c28926e173d78de2ba210c8093fc73cc897da9d93fc9062a9be9695f", size = 663463, upload-time = "2026-05-09T19:26:28.795Z" },
+    { url = "https://files.pythonhosted.org/packages/07/04/bdd1257dae21cc1172aed235f7f4e908a21d826d303d5d961e9c566ab2e5/tree_sitter_ocaml-0.25.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:b376fda33b092befd9cc889b2d1f71d5fca643daff04255990580b563ccea63f", size = 711155, upload-time = "2026-05-09T19:26:30.566Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/c8/8edd26733d1fe67eb781fd35910c8f22e2f115a941993d8367076f78222c/tree_sitter_ocaml-0.25.0-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:2035b643ff801c0a1023026284bb462bbc002f98f577395ade660faf21ff65db", size = 713718, upload-time = "2026-05-09T19:26:32.119Z" },
+    { url = "https://files.pythonhosted.org/packages/34/b7/0c67840dfa5e2f3a1c5536c0c9f946a7f573a42fdfd2b2a57fd3d88cabdc/tree_sitter_ocaml-0.25.0-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f7897e35905f851a4465674f88cfe116e58b99d0e60630ad82a211a115402a7d", size = 715599, upload-time = "2026-05-09T19:26:33.76Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/e1/0f7fc18d3b2e02630b266fee6c2f3416460623746da786cd712a82012036/tree_sitter_ocaml-0.25.0-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:8fa32599619e21026d21145d0a1af4a6ef17b36d51c2b9ba9dc470ea5d301047", size = 712176, upload-time = "2026-05-09T19:26:35.094Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/03/1e0563fff25f21d9d67b7f6edb60a260c19dc9a22f5b0b03700f6b585471/tree_sitter_ocaml-0.25.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:72ead1435b43d8434c93e9e71c0429d74e90b5005dfcc43cb7776ae4842a110a", size = 714160, upload-time = "2026-05-09T19:26:36.406Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/59/5263f0209a9fc31a53aeaa2d7be02bb0cab6420b04fa5dee58800929d6c7/tree_sitter_ocaml-0.25.0-cp310-abi3-win_amd64.whl", hash = "sha256:e0b41127fb602878e757c25f2ecc451688f82f909102f422e782a9b7d4fb3ff0", size = 665343, upload-time = "2026-05-09T19:26:38.029Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/05/ea0517c683cb5572dd8bd688e119bddbb8d2fd3974fcb1db00e724fa836b/tree_sitter_ocaml-0.25.0-cp310-abi3-win_arm64.whl", hash = "sha256:e370b50ddbc1de652966a78697258d21a26d59a618ff5807cd343811a480372e", size = 661149, upload-time = "2026-05-09T19:26:39.331Z" },
 ]
 
 [[package]]

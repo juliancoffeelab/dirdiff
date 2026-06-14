@@ -91,6 +91,23 @@ LANGUAGE_SPECS: tuple[SyntaxLanguageSpec, ...] = (
         suffixes=(".md", ".markdown"),
     ),
     SyntaxLanguageSpec(
+        module_name="tree_sitter_clojure",
+        query_path="queries/highlights.scm",
+        suffixes=(".clj", ".cljs", ".cljc", ".edn"),
+    ),
+    SyntaxLanguageSpec(
+        module_name="tree_sitter_ocaml",
+        query_path="queries/highlights.scm",
+        suffixes=(".ml",),
+        language_attr="language_ocaml",
+    ),
+    SyntaxLanguageSpec(
+        module_name="tree_sitter_ocaml",
+        query_path="queries/highlights.scm",
+        suffixes=(".mli",),
+        language_attr="language_ocaml_interface",
+    ),
+    SyntaxLanguageSpec(
         module_name="tree_sitter_toml",
         query_path="queries/highlights.scm",
         suffixes=(".toml",),

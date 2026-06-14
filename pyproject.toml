@@ -12,11 +12,13 @@ dependencies = [
     "fastapi>=0.136.3",
     "tree-sitter>=0.25.2",
     "tree-sitter-bash>=0.25.1",
+    "tree-sitter-clojure",
     "tree-sitter-css>=0.25.0",
     "tree-sitter-html>=0.23.2",
     "tree-sitter-javascript>=0.25.0",
     "tree-sitter-json>=0.24.8",
     "tree-sitter-markdown>=0.5.1",
+    "tree-sitter-ocaml>=0.25.0",
     "tree-sitter-python>=0.25.0",
     "tree-sitter-rust>=0.24.2",
     "tree-sitter-toml>=0.7.0",
@@ -47,3 +49,6 @@ markers = ["git: tests that create real git repositories or shell out to git"]
 
 [tool.mypy]
 exclude = ["tests/presets/"]
+
+[tool.uv.sources]
+tree-sitter-clojure = { git = "ssh://git@github.com/juliancoffeelab/tree-sitter-clojure-py.git", rev = "main" }
