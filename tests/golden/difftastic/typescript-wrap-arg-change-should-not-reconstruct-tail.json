@@ -1,0 +1,78 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "return compute(foo.bar, baz);",
+    "right_text": "return compute(",
+    "left_tokens": [
+      {
+        "text": "return compute(foo.",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "bar",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": ", baz);",
+        "status": "unchanged",
+        "is_ws": false
+      }
+    ],
+    "right_tokens": []
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "  foo.barWrapped,",
+    "right_tokens": [
+      {
+        "text": "  foo.",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "barWrapped",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "unchanged",
+        "is_ws": false
+      }
+    ]
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "  baz,",
+    "right_tokens": [
+      {
+        "text": "  baz",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "insert",
+        "is_ws": false
+      }
+    ]
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": ");",
+    "right_tokens": []
+  }
+]

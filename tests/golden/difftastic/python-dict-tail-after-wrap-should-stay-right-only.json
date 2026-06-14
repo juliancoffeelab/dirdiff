@@ -1,0 +1,139 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "value = make({\"left\": thing, \"mid\": keep, \"right\": done})",
+    "right_text": "value = make(",
+    "left_tokens": [
+      {
+        "text": "value = make({\"left\": ",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "thing",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": ", ",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "\"mid\"",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": ":",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": " ",
+        "status": "unchanged",
+        "is_ws": true
+      },
+      {
+        "text": "keep",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": " \"right\": done})",
+        "status": "unchanged",
+        "is_ws": false
+      }
+    ],
+    "right_tokens": []
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "    {",
+    "right_tokens": []
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "        \"left\": wrap(thing_changed),",
+    "right_tokens": [
+      {
+        "text": "        \"left\": ",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "wrap",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": "(",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": "thing_changed",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": ")",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "unchanged",
+        "is_ws": false
+      }
+    ]
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": "        \"right\": done,",
+    "right_tokens": [
+      {
+        "text": "        \"right\": done",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "insert",
+        "is_ws": false
+      }
+    ]
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 5,
+    "left_text": "",
+    "right_text": "    }",
+    "right_tokens": []
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 6,
+    "left_text": "",
+    "right_text": ")",
+    "right_tokens": []
+  }
+]

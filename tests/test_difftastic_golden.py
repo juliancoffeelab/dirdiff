@@ -17,10 +17,15 @@ from dirdiff.diff import (
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"
+BROKEN_PRESET_NAMES: set[str] = set()
 
 
 def _preset_dirs() -> list[Path]:
-    return [path for path in sorted(PRESETS_ROOT.iterdir()) if path.is_dir()]
+    return [
+        path
+        for path in sorted(PRESETS_ROOT.iterdir())
+        if path.is_dir() and path.name not in BROKEN_PRESET_NAMES
+    ]
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=lambda path: path.name)
@@ -48,5 +53,8 @@ def test_difftastic_preset_rows_match_golden(preset_dir: Path) -> None:
     )
 
     golden_path = GOLDEN_ROOT / f"{preset_dir.name}.json"
+    if not golden_path.exists():
+        golden_path.write_text(json.dumps(rows, indent=2) + "\n")
+        pytest.fail(f"Created missing golden: {golden_path}. Re-run the test.")
     expected = json.loads(golden_path.read_text())
     assert rows == expected

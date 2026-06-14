@@ -1,0 +1,108 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "const x = make([alpha, keep, omega]);",
+    "right_text": "const x = make([",
+    "left_tokens": [
+      {
+        "text": "const x = make([",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "alpha",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": ", ",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "keep",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "delete",
+        "is_ws": false
+      },
+      {
+        "text": " omega]);",
+        "status": "unchanged",
+        "is_ws": false
+      }
+    ],
+    "right_tokens": []
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "  wrap(alphaChanged),",
+    "right_tokens": [
+      {
+        "text": "  ",
+        "status": "unchanged",
+        "is_ws": true
+      },
+      {
+        "text": "wrap",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": "(",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": "alphaChanged",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": ")",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "unchanged",
+        "is_ws": false
+      }
+    ]
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "  omega,",
+    "right_tokens": [
+      {
+        "text": "  omega",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "insert",
+        "is_ws": false
+      }
+    ]
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": "]);",
+    "right_tokens": []
+  }
+]

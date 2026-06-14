@@ -8,8 +8,9 @@
 - Keep in mind that user runs it as `dirdiff` via installed tool with `uv tool install -e .`
 
 # Important rules
-Never. Ever. Do. Fallbacks. If you want to use anything like `or` chain, `??`, or anything like that.
-Dont do that. If you need, really need, ask the user first.
+- Never do fallsbacks (`or` chains, `??` chains, or anything like that). If you
+*really* need, ask user on *every* case.
+- Never edit tests. If you *really* need, ask user on *every* testcase.
 
 # Linting & Quality
 - Run `make format` afterwards

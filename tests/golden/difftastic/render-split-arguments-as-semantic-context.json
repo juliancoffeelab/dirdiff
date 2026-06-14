@@ -1,148 +1,147 @@
 [
   {
+    "status": "equal",
     "left_no": 1,
-    "left_text": "def create_app(service, defaults, *, services):",
     "right_no": 1,
-    "right_text": "def create_app(service, defaults, *, services):",
-    "status": "equal"
+    "left_text": "def create_app(service, defaults, *, services):",
+    "right_text": "def create_app(service, defaults, *, services):"
   },
   {
+    "status": "equal",
     "left_no": 2,
-    "left_text": "    return service, defaults, services",
     "right_no": 2,
-    "right_text": "    return service, defaults, services",
-    "status": "equal"
+    "left_text": "    return service, defaults, services",
+    "right_text": "    return service, defaults, services"
   },
   {
+    "status": "equal",
     "left_no": 3,
-    "left_text": "",
     "right_no": 3,
-    "right_text": "",
-    "status": "equal"
-  },
-  {
-    "left_no": 4,
     "left_text": "",
-    "right_no": 4,
-    "right_text": "",
-    "status": "equal"
+    "right_text": ""
   },
   {
+    "status": "equal",
+    "left_no": 4,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": ""
+  },
+  {
+    "status": "replace",
     "left_no": 5,
-    "left_text": "def preset(service, defaults, git_service):",
-    "left_tokens": [],
     "right_no": 5,
+    "left_text": "def preset(service, defaults, git_service):",
     "right_text": "def preset(service, defaults, git_service, difftastic_service):",
+    "left_tokens": [],
     "right_tokens": [
       {
-        "is_ws": false,
+        "text": "def preset(service, defaults, git_service",
         "status": "unchanged",
-        "text": "def preset(service, defaults, git_service"
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": ",",
         "status": "insert",
-        "text": ","
+        "is_ws": false
       },
       {
-        "is_ws": true,
+        "text": " ",
         "status": "unchanged",
-        "text": " "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "difftastic_service",
         "status": "insert",
-        "text": "difftastic_service"
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": "):",
         "status": "unchanged",
-        "text": "):"
+        "is_ws": false
       }
-    ],
-    "status": "replace"
+    ]
   },
   {
+    "status": "equal",
     "left_no": 6,
-    "left_text": "    return create_app(",
     "right_no": 6,
-    "right_text": "    return create_app(",
-    "status": "equal"
+    "left_text": "    return create_app(",
+    "right_text": "    return create_app("
   },
   {
+    "status": "equal",
     "left_no": 6,
-    "left_text": "        service,",
     "right_no": 7,
-    "right_text": "        service,",
-    "status": "equal"
+    "left_text": "        service,",
+    "right_text": "        service,"
   },
   {
+    "status": "equal",
     "left_no": 6,
-    "left_text": "        defaults,",
     "right_no": 8,
-    "right_text": "        defaults,",
-    "status": "equal"
+    "left_text": "        defaults,",
+    "right_text": "        defaults,"
   },
   {
-    "left_no": null,
-    "left_text": "",
+    "status": "replace",
+    "left_no": 6,
     "right_no": 9,
+    "left_text": "        services={\"git\": git_service}",
     "right_text": "        services={\"git\": git_service, \"difftastic\": difftastic_service},",
     "right_tokens": [
       {
-        "is_ws": false,
+        "text": "        services={\"git\": git_service",
         "status": "unchanged",
-        "text": "        services={\"git\": git_service"
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": ",",
         "status": "insert",
-        "text": ","
+        "is_ws": false
       },
       {
-        "is_ws": true,
+        "text": " ",
         "status": "unchanged",
-        "text": " "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "\"difftastic\"",
         "status": "insert",
-        "text": "\"difftastic\""
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": ":",
         "status": "insert",
-        "text": ":"
+        "is_ws": false
       },
       {
-        "is_ws": true,
+        "text": " ",
         "status": "unchanged",
-        "text": " "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "difftastic_service",
         "status": "insert",
-        "text": "difftastic_service"
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": "}",
         "status": "unchanged",
-        "text": "}"
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": ",",
         "status": "insert",
-        "text": ","
+        "is_ws": false
       }
-    ],
-    "status": "replace"
+    ]
   },
   {
-    "left_no": null,
-    "left_text": "",
+    "status": "equal",
+    "left_no": 6,
     "right_no": 10,
-    "right_text": "    )",
-    "right_tokens": [],
-    "status": "equal"
+    "left_text": "    )",
+    "right_text": "    )"
   }
 ]

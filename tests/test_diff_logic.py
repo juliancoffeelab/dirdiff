@@ -129,6 +129,29 @@ def test_tree_sitter_highlights_multiline_python_strings() -> None:
     assert "ts-string" in second_line_classes
 
 
+def test_tree_sitter_highlights_clojure_strings() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.clj",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text='(defn greet [] "hello")\n',
+        right_text='(defn greet [] "hello")\n',
+        left_path_hint="demo.clj",
+        right_path_hint="demo.clj",
+    )
+
+    first_line_classes = {
+        css_class
+        for span in diff["rows"][0]["left_syntax"]
+        for css_class in span["classes"]
+    }
+
+    assert "ts-string" in first_line_classes
+
+
 def test_fold_hints_include_unchanged_top_level_function_body() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",

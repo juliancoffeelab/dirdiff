@@ -1,0 +1,57 @@
+[
+  {
+    "status": "equal",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "(render {",
+    "right_text": "(render {"
+  },
+  {
+    "status": "equal",
+    "left_no": 1,
+    "right_no": 2,
+    "left_text": "  :on-click handle-click!",
+    "right_text": "  :on-click handle-click!"
+  },
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 3,
+    "left_text": "  :on-submit submit-form!",
+    "right_text": "  :on-submit (wrap submit-form!)",
+    "right_tokens": [
+      {
+        "text": "  :on-submit ",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": "(",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": "wrap",
+        "status": "insert",
+        "is_ws": false
+      },
+      {
+        "text": " submit-form!",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": ")",
+        "status": "insert",
+        "is_ws": false
+      }
+    ]
+  },
+  {
+    "status": "equal",
+    "left_no": 1,
+    "right_no": 4,
+    "left_text": "})",
+    "right_text": "})"
+  }
+]

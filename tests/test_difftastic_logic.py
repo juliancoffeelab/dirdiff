@@ -108,7 +108,29 @@ def test_difftastic_rows_render_split_arguments_as_semantic_context() -> None:
         "replace",
         "equal",
     ]
-    assert rows[3]["right_tokens"][1]["status"] == "insert"
+    assert rows[1]["left_no"] == 1
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == "        service,"
+    assert rows[1]["right_text"] == "        service,"
+    assert rows[2]["left_no"] == 1
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == "        defaults,"
+    assert rows[2]["right_text"] == "        defaults,"
+    assert rows[3]["left_no"] == 1
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == '        services={"git": git_service}'
+    assert (
+        rows[3]["right_text"]
+        == '        services={"git": git_service, "difftastic": difftastic_service},'
+    )
+    assert any(
+        token["status"] == "insert" and token["text"] == '"difftastic"'
+        for token in rows[3]["right_tokens"]
+    )
+    assert rows[4]["left_no"] == 1
+    assert rows[4]["right_no"] == 5
+    assert rows[4]["left_text"] == "    )"
+    assert rows[4]["right_text"] == "    )"
 
 
 def test_difftastic_rows_clip_old_tail_for_one_sided_paired_insert() -> None:
@@ -412,6 +434,743 @@ def test_difftastic_rows_pair_rhs_lines_from_replaced_lhs_line_tail() -> None:
         {"text": "  syntax: SyntaxSpan[]", "status": "unchanged", "is_ws": False},
         {"text": ",", "status": "insert", "is_ws": False},
     ]
+
+
+def test_difftastic_rows_preserve_left_context_for_clojure_wrapper_insert() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 13, "end": 14},
+                                {"start": 14, "end": 18},
+                                {"start": 31, "end": 32},
+                            ],
+                        }
+                    }
+                ]
+            ],
+        },
+        left_text="(render {:on-click handle-click! :on-submit submit-form!})\n",
+        right_text=(
+            "(render {\n"
+            "  :on-click handle-click!\n"
+            "  :on-submit (wrap submit-form!)\n"
+            "})\n"
+        ),
+    )
+
+    assert rows[0]["status"] == "equal"
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_no"] == 1
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == "  :on-click handle-click!"
+    assert rows[1]["right_text"] == "  :on-click handle-click!"
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] == 1
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == "  :on-submit submit-form!"
+    assert rows[2]["right_text"] == "  :on-submit (wrap submit-form!)"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  :on-submit ", "status": "unchanged", "is_ws": False},
+        {"text": "(", "status": "insert", "is_ws": False},
+        {"text": "wrap", "status": "insert", "is_ws": False},
+        {"text": " submit-form!", "status": "unchanged", "is_ws": False},
+        {"text": ")", "status": "insert", "is_ws": False},
+    ]
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] == 1
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == "})"
+    assert rows[3]["right_text"] == "})"
+
+
+def test_difftastic_rows_preserve_left_context_for_clojure_comp_insert() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 13, "end": 14},
+                                {"start": 14, "end": 18},
+                                {"start": 19, "end": 24},
+                                {"start": 42, "end": 43},
+                            ],
+                        }
+                    }
+                ]
+            ],
+        },
+        left_text="(render {:on-click handle-click! :on-submit user/submit-form!})\n",
+        right_text=(
+            "(render {\n"
+            "  :on-click handle-click!\n"
+            "  :on-submit (comp audit user/submit-form!)\n"
+            "})\n"
+        ),
+    )
+
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_no"] == 1
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == "  :on-click handle-click!"
+    assert rows[1]["right_text"] == "  :on-click handle-click!"
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] == 1
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == "  :on-submit user/submit-form!"
+    assert rows[2]["right_text"] == "  :on-submit (comp audit user/submit-form!)"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  :on-submit ", "status": "unchanged", "is_ws": False},
+        {"text": "(", "status": "insert", "is_ws": False},
+        {"text": "comp", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "audit", "status": "insert", "is_ws": False},
+        {"text": " user/submit-form!", "status": "unchanged", "is_ws": False},
+        {"text": ")", "status": "insert", "is_ws": False},
+    ]
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] == 1
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == "})"
+    assert rows[3]["right_text"] == "})"
+
+
+def test_difftastic_rows_preserve_clojure_map_tail_after_middle_wrap_change() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 8, "end": 9},
+                                {"start": 9, "end": 13},
+                                {"start": 21, "end": 22},
+                            ],
+                        }
+                    }
+                ]
+            ],
+        },
+        left_text="(render {:left foo-bar :right baz})\n",
+        right_text="(render {\n  :left (wrap foo-bar)\n  :right baz\n})\n",
+    )
+
+    assert rows[0]["status"] == "equal"
+    assert rows[0]["left_text"] == "(render {"
+    assert rows[1]["status"] == "replace"
+    assert rows[1]["left_no"] == 1
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == "  :left foo-bar"
+    assert rows[1]["right_text"] == "  :left (wrap foo-bar)"
+    assert rows[1]["right_tokens"] == [
+        {"text": "  :left ", "status": "unchanged", "is_ws": False},
+        {"text": "(", "status": "insert", "is_ws": False},
+        {"text": "wrap", "status": "insert", "is_ws": False},
+        {"text": " foo-bar", "status": "unchanged", "is_ws": False},
+        {"text": ")", "status": "insert", "is_ws": False},
+    ]
+    assert rows[2]["status"] == "equal"
+    assert rows[2]["left_no"] == 1
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == "  :right baz"
+    assert rows[2]["right_text"] == "  :right baz"
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] == 1
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == "})"
+    assert rows[3]["right_text"] == "})"
+
+
+def test_difftastic_rows_do_not_reconstruct_unchanged_tail_after_split_call_change() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [1, 2], [None, 3], [2, 4]],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [{"start": 19, "end": 22}],
+                        },
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [{"start": 6, "end": 16}],
+                        },
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 5, "end": 6}],
+                        }
+                    },
+                ]
+            ],
+        },
+        left_text="return compute(foo.bar, baz);\n",
+        right_text="return compute(\n  foo.barWrapped,\n  baz,\n);\n",
+    )
+
+    assert rows[0]["status"] == "replace"
+    assert rows[0]["left_text"] == "return compute(foo.bar, baz);"
+    assert rows[0]["right_text"] == "return compute("
+    assert rows[1]["status"] == "replace"
+    assert rows[1]["left_no"] is None
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == ""
+    assert rows[1]["right_text"] == "  foo.barWrapped,"
+    assert rows[1]["right_tokens"] == [
+        {"text": "  foo.", "status": "unchanged", "is_ws": False},
+        {"text": "barWrapped", "status": "insert", "is_ws": False},
+        {"text": ",", "status": "unchanged", "is_ws": False},
+    ]
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  baz,"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  baz", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] is None
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["right_text"] == ");"
+
+
+def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 2, "end": 6},
+                                {"start": 6, "end": 7},
+                                {"start": 7, "end": 19},
+                                {"start": 19, "end": 20},
+                            ],
+                        }
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 7, "end": 8}],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 16, "end": 21},
+                                {"start": 23, "end": 27},
+                                {"start": 27, "end": 28},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="const x = make([alpha, keep, omega]);\n",
+        right_text="const x = make([\n  wrap(alphaChanged),\n  omega,\n]);\n",
+    )
+
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  omega,"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  omega", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+
+
+def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 12, "end": 16},
+                                {"start": 16, "end": 17},
+                                {"start": 17, "end": 30},
+                                {"start": 30, "end": 31},
+                            ],
+                        }
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 17, "end": 18}],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 22, "end": 27},
+                                {"start": 29, "end": 34},
+                                {"start": 34, "end": 35},
+                                {"start": 36, "end": 40},
+                                {"start": 40, "end": 41},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text='value = make({"left": thing, "mid": keep, "right": done})\n',
+        right_text=(
+            'value = make({\n    "left": wrap(thing_changed),\n    "right": done,\n})\n'
+        ),
+    )
+
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == '    "right": done,'
+    assert rows[2]["right_tokens"] == [
+        {"text": '    "right": done', "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+
+
+def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 2, "end": 3},
+                                {"start": 3, "end": 7},
+                                {"start": 8, "end": 15},
+                                {"start": 15, "end": 16},
+                            ],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 9, "end": 16},
+                                {"start": 17, "end": 21},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="(render [foo-bar keep baz])\n",
+        right_text="(render [\n  (wrap foo-baz)\n  baz\n])\n",
+    )
+
+    assert rows[2]["status"] == "equal"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  baz"
+
+
+def test_difftastic_rows_do_not_reconstruct_clojure_map_tail_after_wrap_removal() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 8, "end": 9},
+                                {"start": 9, "end": 13},
+                                {"start": 14, "end": 27},
+                                {"start": 27, "end": 28},
+                            ],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 15, "end": 20},
+                                {"start": 21, "end": 26},
+                                {"start": 27, "end": 31},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="(render {:left thing :tail keep :end done})\n",
+        right_text="(render {\n  :left (wrap thing-changed)\n  :end done\n})\n",
+    )
+
+    assert rows[2]["status"] == "equal"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  :end done"
+
+
+def test_difftastic_rows_do_not_reconstruct_rust_range_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 4, "end": 8},
+                                {"start": 8, "end": 9},
+                                {"start": 12, "end": 14},
+                                {"start": 14, "end": 15},
+                            ],
+                        }
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 8, "end": 9}],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 20, "end": 22},
+                                {"start": 24, "end": 28},
+                                {"start": 28, "end": 29},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="let value = call(5..10, keep, tail);\n",
+        right_text="let value = call(\n    wrap(5..20),\n    tail,\n);\n",
+    )
+
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "    tail,"
+    assert rows[2]["right_tokens"] == [
+        {"text": "    tail", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+
+
+def test_difftastic_rows_do_not_reconstruct_rust_range_inclusive_tail_after_wrap() -> (
+    None
+):
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 1,
+                            "changes": [
+                                {"start": 4, "end": 8},
+                                {"start": 8, "end": 9},
+                                {"start": 13, "end": 15},
+                                {"start": 15, "end": 16},
+                            ],
+                        }
+                    },
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [{"start": 8, "end": 9}],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 21, "end": 23},
+                                {"start": 25, "end": 29},
+                                {"start": 29, "end": 30},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="let value = call(5..=10, keep, tail);\n",
+        right_text="let value = call(\n    wrap(5..=20),\n    tail,\n);\n",
+    )
+
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "    tail,"
+    assert rows[2]["right_tokens"] == [
+        {"text": "    tail", "status": "unchanged", "is_ws": False},
+        {"text": ",", "status": "insert", "is_ws": False},
+    ]
+
+
+def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [1, 3]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 5, "end": 9},
+                                {"start": 10, "end": 17},
+                            ],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 22, "end": 29},
+                                {"start": 30, "end": 34},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="let value = render @@ compute keep tail\n",
+        right_text="let value =\n  render\n  @@ wrap changed\n  tail\n",
+    )
+
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_no"] is None
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == ""
+    assert rows[1]["right_text"] == "  render"
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  @@ wrap changed"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  @@ ", "status": "unchanged", "is_ws": False},
+        {"text": "wrap", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "changed", "status": "insert", "is_ws": False},
+    ]
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] is None
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == ""
+    assert rows[3]["right_text"] == "  tail"
+
+
+def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [1, 3]],
+            "chunks": [
+                [
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 5, "end": 9},
+                                {"start": 10, "end": 17},
+                            ],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 21, "end": 26},
+                                {"start": 27, "end": 31},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="let value = outer @@ inner keep tail\n",
+        right_text="let value =\n  outer\n  @@ wrap changed\n  tail\n",
+    )
+
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_no"] is None
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == ""
+    assert rows[1]["right_text"] == "  outer"
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  @@ wrap changed"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  @@ ", "status": "unchanged", "is_ws": False},
+        {"text": "wrap", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "changed", "status": "insert", "is_ws": False},
+    ]
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] is None
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == ""
+    assert rows[3]["right_text"] == "  tail"
+
+
+def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {"rhs": {"line_number": 1, "changes": []}},
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 5, "end": 9},
+                                {"start": 10, "end": 17},
+                            ],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 21, "end": 25},
+                                {"start": 26, "end": 30},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="let value = input |> step keep |> tail\n",
+        right_text="let value =\n  input\n  |> wrap changed\n  |> tail\n",
+    )
+
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_no"] is None
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == ""
+    assert rows[1]["right_text"] == "  input"
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  |> wrap changed"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  |> ", "status": "unchanged", "is_ws": False},
+        {"text": "wrap", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "changed", "status": "insert", "is_ws": False},
+    ]
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] is None
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == ""
+    assert rows[3]["right_text"] == "  |> tail"
+
+
+def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
+            "chunks": [
+                [
+                    {"rhs": {"line_number": 1, "changes": []}},
+                    {
+                        "rhs": {
+                            "line_number": 2,
+                            "changes": [
+                                {"start": 5, "end": 9},
+                                {"start": 10, "end": 17},
+                            ],
+                        }
+                    },
+                    {
+                        "lhs": {
+                            "line_number": 0,
+                            "changes": [
+                                {"start": 21, "end": 26},
+                                {"start": 27, "end": 31},
+                            ],
+                        },
+                        "rhs": {"line_number": 0, "changes": []},
+                    },
+                ]
+            ],
+        },
+        left_text="let value = input |> first keep |> second tail\n",
+        right_text="let value =\n  input\n  |> wrap changed\n  |> second tail\n",
+    )
+
+    assert rows[1]["status"] == "equal"
+    assert rows[1]["left_no"] is None
+    assert rows[1]["right_no"] == 2
+    assert rows[1]["left_text"] == ""
+    assert rows[1]["right_text"] == "  input"
+    assert rows[2]["status"] == "replace"
+    assert rows[2]["left_no"] is None
+    assert rows[2]["right_no"] == 3
+    assert rows[2]["left_text"] == ""
+    assert rows[2]["right_text"] == "  |> wrap changed"
+    assert rows[2]["right_tokens"] == [
+        {"text": "  |> ", "status": "unchanged", "is_ws": False},
+        {"text": "wrap", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "changed", "status": "insert", "is_ws": False},
+    ]
+    assert rows[3]["status"] == "equal"
+    assert rows[3]["left_no"] is None
+    assert rows[3]["right_no"] == 4
+    assert rows[3]["left_text"] == ""
+    assert rows[3]["right_text"] == "  |> second tail"
 
 
 def test_difftastic_reconstructed_rhs_insert_does_not_mark_lhs_tokens() -> None:

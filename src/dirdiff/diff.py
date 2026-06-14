@@ -1797,6 +1797,7 @@ class DifftasticAlignedLine:
 class DifftasticLineFragment:
     source_index: int
     text: str
+    kind: Literal["suffix", "residual"]
 
 
 def _difftastic_aligned_lines(value: Any) -> list[DifftasticAlignedLine]:
@@ -1904,12 +1905,216 @@ def _difftastic_tokens_have_member_access(tokens: list[str]) -> bool:
     return "." in tokens
 
 
+def _difftastic_token_can_start_safe_residual_key(token: str) -> bool:
+    return token == ":"
+
+
+def _difftastic_tokens_are_safe_residual_gap(tokens: list[str]) -> bool:
+    return all(_difftastic_token_is_syntax(token) for token in tokens)
+
+
+def _difftastic_residual_fragment_covers_window(
+    fragment_text: str,
+    candidate_texts: list[str],
+) -> bool:
+    fragment_tokens = _difftastic_fragment_tokens(fragment_text)
+    cursor = 0
+    for candidate_text in candidate_texts:
+        key = _difftastic_line_item_key(candidate_text)
+        if not _difftastic_fragment_key_is_matchable(key):
+            continue
+        key_tokens = _difftastic_fragment_tokens(key)
+        if not key_tokens:
+            continue
+
+        matched = False
+        last_start = len(fragment_tokens) - len(key_tokens)
+        for start in range(cursor, last_start + 1):
+            if fragment_tokens[start : start + len(key_tokens)] != key_tokens:
+                continue
+            if not _difftastic_tokens_are_safe_residual_gap(
+                fragment_tokens[cursor:start]
+            ):
+                return False
+            cursor = start + len(key_tokens)
+            matched = True
+            break
+
+        if not matched:
+            continue
+
+    return _difftastic_tokens_are_safe_residual_gap(fragment_tokens[cursor:])
+
+
+def _difftastic_right_only_window_candidate_texts(
+    aligned_lines: list[DifftasticAlignedLine],
+    row_index: int,
+    right_lines: list[str],
+    right_ranges: dict[int, list[tuple[int, int]]],
+) -> list[str]:
+    start = row_index
+    while start > 0 and aligned_lines[start - 1].left_index is None:
+        start -= 1
+
+    end = row_index
+    while end + 1 < len(aligned_lines) and aligned_lines[end + 1].left_index is None:
+        end += 1
+
+    candidates: list[str] = []
+    for pair in aligned_lines[start : end + 1]:
+        right_index = pair.right_index
+        if right_index is None or not (0 <= right_index < len(right_lines)):
+            continue
+        candidates.append(
+            _remove_line_ranges(
+                right_lines[right_index], right_ranges.get(right_index, [])
+            )
+        )
+    return candidates
+
+
+def _difftastic_right_only_window_bounds(
+    aligned_lines: list[DifftasticAlignedLine],
+    row_index: int,
+) -> tuple[int, int]:
+    start = row_index
+    while start > 0 and aligned_lines[start - 1].left_index is None:
+        start -= 1
+
+    end = row_index
+    while end + 1 < len(aligned_lines) and aligned_lines[end + 1].left_index is None:
+        end += 1
+
+    return start, end
+
+
+def _difftastic_leading_whitespace(text: str) -> str:
+    return text[: len(text) - len(text.lstrip())]
+
+
+def _difftastic_split_residual_items(text: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] = []
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    quote: str | None = None
+    escape = False
+
+    def flush_current() -> None:
+        item = "".join(current).strip()
+        if item:
+            items.append(item)
+        current.clear()
+
+    for char in text:
+        if quote is not None:
+            current.append(char)
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == quote:
+                quote = None
+            continue
+
+        if char in {'"', "'"}:
+            quote = char
+            current.append(char)
+            continue
+
+        if char == "," and paren_depth == bracket_depth == brace_depth == 0:
+            current.append(char)
+            flush_current()
+            continue
+
+        if char in ")]}" and paren_depth == bracket_depth == brace_depth == 0:
+            flush_current()
+            items.append(char)
+            continue
+
+        current.append(char)
+        if char == "(":
+            paren_depth += 1
+        elif char == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif char == "[":
+            bracket_depth += 1
+        elif char == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif char == "{":
+            brace_depth += 1
+        elif char == "}":
+            brace_depth = max(0, brace_depth - 1)
+
+    flush_current()
+    return items
+
+
+def _difftastic_plan_right_only_residual_window(
+    *,
+    aligned_lines: list[DifftasticAlignedLine],
+    row_index: int,
+    left_fragments: list[DifftasticLineFragment],
+    lower_bound: int,
+    upper_bound: int,
+    right_lines: list[str],
+    right_ranges: dict[int, list[tuple[int, int]]],
+) -> dict[int, tuple[int, str]] | None:
+    start, end = _difftastic_right_only_window_bounds(aligned_lines, row_index)
+    window_pairs = aligned_lines[start : end + 1]
+    right_indexes = [
+        pair.right_index
+        for pair in window_pairs
+        if pair.right_index is not None and 0 <= pair.right_index < len(right_lines)
+    ]
+    if len(right_indexes) != len(window_pairs):
+        return None
+
+    for fragment in left_fragments:
+        if fragment.kind != "residual":
+            continue
+        if not lower_bound <= fragment.source_index < upper_bound:
+            continue
+
+        items = _difftastic_split_residual_items(fragment.text)
+        if len(items) != len(right_indexes):
+            continue
+
+        matches_window = True
+        for item, right_index in zip(items, right_indexes, strict=True):
+            ranges = right_ranges.get(right_index, [])
+            if ranges:
+                continue
+            candidate = _remove_line_ranges(right_lines[right_index], ranges).strip()
+            if _difftastic_line_item_key(candidate) != _difftastic_line_item_key(item):
+                matches_window = False
+                break
+
+        if not matches_window:
+            continue
+
+        return {
+            right_index: (
+                fragment.source_index,
+                f"{_difftastic_leading_whitespace(right_lines[right_index])}{item}",
+            )
+            for item, right_index in zip(items, right_indexes, strict=True)
+        }
+
+    return None
+
+
 def _difftastic_fragment_contains_key(
     fragment_text: str,
     key: str,
     *,
     allow_syntax_only: bool = False,
     allow_assignment: bool = True,
+    fragment_kind: Literal["suffix", "residual"] = "suffix",
+    allow_syntax_leading_residual: bool = False,
 ) -> bool:
     fragment_tokens = _difftastic_fragment_tokens(fragment_text)
     key_tokens = _difftastic_fragment_tokens(key)
@@ -1918,6 +2123,7 @@ def _difftastic_fragment_contains_key(
 
     key_is_syntax_only = _difftastic_tokens_are_syntax(key_tokens)
     key_is_assignment = _difftastic_tokens_are_assignment(key_tokens)
+    key_starts_with_closing_syntax = key_tokens[0] in {")", "]", "}", ">"}
     key_starts_with_syntax = _difftastic_token_is_syntax(key_tokens[0])
     if key_is_syntax_only and not allow_syntax_only:
         return False
@@ -1934,6 +2140,31 @@ def _difftastic_fragment_contains_key(
     last_start = len(fragment_tokens) - len(key_tokens)
     for index in range(last_start + 1):
         if fragment_tokens[index : index + len(key_tokens)] != key_tokens:
+            continue
+        if (
+            fragment_kind == "residual"
+            and key_starts_with_syntax
+            and not key_is_syntax_only
+            and not key_starts_with_closing_syntax
+        ):
+            if not allow_syntax_leading_residual:
+                continue
+            if index == 0 and not _difftastic_token_can_start_safe_residual_key(
+                key_tokens[0]
+            ):
+                continue
+        if (
+            fragment_kind == "suffix"
+            and index == 0
+            and (len(key_tokens) == 1 or key_starts_with_syntax)
+        ):
+            continue
+        if (
+            fragment_kind == "suffix"
+            and len(key_tokens) == 1
+            and index > 0
+            and fragment_tokens[index - 1] == ","
+        ):
             continue
         if (
             not key_is_syntax_only
@@ -1961,6 +2192,10 @@ def _common_prefix_length(left: str, right: str) -> int:
     while index < limit and left[index] == right[index]:
         index += 1
     return index
+
+
+def _collapse_reconstructed_gap_spaces(text: str) -> str:
+    return re.sub(r"(?<=\S) {2,}(?=\S)", " ", text)
 
 
 def _difftastic_suffix_fragment_after_ranges(
@@ -1998,6 +2233,7 @@ def _find_difftastic_reconstructed_fragment(
     used: set[tuple[int, str]],
     allow_assignment: bool = True,
     allow_syntax_only: bool = True,
+    residual_candidate_window: list[str] | None = None,
 ) -> DifftasticLineFragment | None:
     key = _difftastic_line_item_key(candidate)
     if not _difftastic_fragment_key_is_matchable(key):
@@ -2009,6 +2245,22 @@ def _find_difftastic_reconstructed_fragment(
             continue
         if not lower_bound <= fragment.source_index < upper_bound:
             continue
+        if (
+            fragment.kind == "residual"
+            and residual_candidate_window is not None
+            and _difftastic_residual_fragment_covers_window(
+                fragment.text, residual_candidate_window
+            )
+        ):
+            safe_residual_window = True
+        else:
+            safe_residual_window = False
+        if (
+            fragment.kind == "residual"
+            and residual_candidate_window is not None
+            and not safe_residual_window
+        ):
+            continue
         if _difftastic_fragment_contains_key(
             fragment.text,
             key,
@@ -2018,6 +2270,8 @@ def _find_difftastic_reconstructed_fragment(
                 for used_fragment_index, _ in used
             ),
             allow_assignment=allow_assignment,
+            fragment_kind=fragment.kind,
+            allow_syntax_leading_residual=safe_residual_window,
         ):
             return fragment
     return None
@@ -2115,6 +2369,7 @@ def _difftastic_rows_from_json(
     right_fragments: list[DifftasticLineFragment] = []
     used_left_fragments: set[tuple[int, str]] = set()
     used_right_fragments: set[tuple[int, str]] = set()
+    planned_left_window_rows: dict[int, tuple[int, str]] = {}
     for aligned_index, pair in enumerate(aligned_lines):
         left_index = pair.left_index
         right_index = pair.right_index
@@ -2153,6 +2408,7 @@ def _difftastic_rows_from_json(
                         DifftasticLineFragment(
                             source_index=left_index,
                             text=residual_left,
+                            kind="residual",
                         )
                     )
             if original_right_line.startswith(right_line):
@@ -2162,6 +2418,7 @@ def _difftastic_rows_from_json(
                         DifftasticLineFragment(
                             source_index=right_index,
                             text=residual_right,
+                            kind="residual",
                         )
                     )
             left_suffix_fragment = _difftastic_suffix_fragment_after_ranges(
@@ -2175,6 +2432,7 @@ def _difftastic_rows_from_json(
                     DifftasticLineFragment(
                         source_index=left_index,
                         text=left_suffix_fragment,
+                        kind="suffix",
                     )
                 )
             right_suffix_fragment = _difftastic_suffix_fragment_after_ranges(
@@ -2188,6 +2446,7 @@ def _difftastic_rows_from_json(
                     DifftasticLineFragment(
                         source_index=right_index,
                         text=right_suffix_fragment,
+                        kind="suffix",
                     )
                 )
             row = _paired_line_row(
@@ -2358,6 +2617,44 @@ def _difftastic_rows_from_json(
         lower, upper = _difftastic_line_anchor_bounds(
             aligned_lines, aligned_index, side="left"
         )
+        if right_index not in planned_left_window_rows:
+            planned_window_rows = _difftastic_plan_right_only_residual_window(
+                aligned_lines=aligned_lines,
+                row_index=aligned_index,
+                left_fragments=left_fragments,
+                lower_bound=lower,
+                upper_bound=upper,
+                right_lines=right_lines,
+                right_ranges=right_ranges,
+            )
+            if planned_window_rows is not None:
+                planned_left_window_rows.update(planned_window_rows)
+        planned_left_row = planned_left_window_rows.get(right_index)
+        if planned_left_row is not None:
+            planned_source_index, planned_left_text = planned_left_row
+            row = _paired_line_row(
+                planned_left_text,
+                right_lines[right_index],
+                planned_source_index + 1,
+                right_index + 1,
+            )
+            if right_line_ranges:
+                row["status"] = "replace"
+                row["right_tokens"] = _changed_tokens_for_ranges(
+                    right_lines[right_index],
+                    right_line_ranges,
+                    status="insert",
+                )
+                row.pop("left_tokens", None)
+            rows.append(row)
+            used_right.add(right_index)
+            continue
+        right_only_window_candidates = _difftastic_right_only_window_candidate_texts(
+            aligned_lines,
+            aligned_index,
+            right_lines,
+            right_ranges,
+        )
         if right_line_ranges:
             reconstructed_left_index = _find_difftastic_reconstructed_line(
                 left_lines,
@@ -2392,10 +2689,11 @@ def _difftastic_rows_from_json(
                 used=used_left_fragments,
                 allow_assignment=False,
                 allow_syntax_only=False,
+                residual_candidate_window=right_only_window_candidates,
             )
             if reconstructed_left_fragment is not None:
                 row = _paired_line_row(
-                    candidate_left,
+                    _collapse_reconstructed_gap_spaces(candidate_left),
                     right_lines[right_index],
                     reconstructed_left_fragment.source_index + 1,
                     right_index + 1,
@@ -2424,12 +2722,13 @@ def _difftastic_rows_from_json(
                 upper_bound=upper,
                 used=used_left_fragments,
                 allow_assignment=False,
-                allow_syntax_only=False,
+                allow_syntax_only=True,
+                residual_candidate_window=right_only_window_candidates,
             )
             if reconstructed_left_fragment is not None:
                 rows.append(
                     _paired_line_row(
-                        candidate_left,
+                        _collapse_reconstructed_gap_spaces(candidate_left),
                         right_lines[right_index],
                         reconstructed_left_fragment.source_index + 1,
                         right_index + 1,
