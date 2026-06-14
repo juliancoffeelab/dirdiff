@@ -385,6 +385,7 @@ function App() {
   const [helpOpen, setHelpOpen] = createSignal(false);
   const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
   let appRoot: HTMLElement | undefined;
+  let appHeader: HTMLElement | undefined;
   let initialized = false;
   let restoredLinePinKey = "";
   let requestVersion = 0;
@@ -408,6 +409,28 @@ function App() {
     diffViewMode,
   ]);
   hunkNav.followScroll();
+
+  onMount(() => {
+    if (!appRoot || !appHeader) {
+      return;
+    }
+
+    const updateStickyHeaderOffset = () => {
+      appRoot.style.setProperty(
+        "--app-header-sticky-offset",
+        `${appHeader?.offsetHeight ?? 0}px`,
+      );
+    };
+
+    updateStickyHeaderOffset();
+    const observer = new ResizeObserver(updateStickyHeaderOffset);
+    observer.observe(appHeader);
+    window.addEventListener("resize", updateStickyHeaderOffset);
+    onCleanup(() => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateStickyHeaderOffset);
+    });
+  });
 
   const refChoices = () =>
     defaults.data?.ref_choices ?? {
@@ -949,9 +972,8 @@ function App() {
 
   return (
     <main ref={appRoot} class="app-shell">
-      <header class="app-header">
+      <header ref={appHeader} class="app-header">
         <div class="app-title-block">
-          <p class="eyebrow">Diff viewer</p>
           <div class="app-title-row">
             <h1>dirdiff</h1>
             <div class="header-actions">
@@ -962,7 +984,6 @@ function App() {
               />
             </div>
           </div>
-          <p class="subtitle">Review local changes, refs, or branches.</p>
         </div>
         <SummaryView summary={summary()} />
       </header>
@@ -1660,8 +1681,10 @@ function SummaryMetric(props: {
   changed: number;
   removed: number;
 }) {
+  const metricClass = () => props.label.toLowerCase();
+
   return (
-    <div class="summary-group">
+    <div class={`summary-group summary-group-${metricClass()}`}>
       <strong>{props.label}</strong>
       <span class="delta added">+ {props.added}</span>
       <span class="delta changed">~ {props.changed}</span>
