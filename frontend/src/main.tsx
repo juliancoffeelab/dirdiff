@@ -22,6 +22,7 @@ import {
   type DiffEngine,
   type DiffMode,
   type DiffRequest,
+  type DiffRow,
   type FileEntry,
   type FileKind,
   type NotebookCellEntry,
@@ -92,7 +93,6 @@ const diffViewLabels: Record<DiffViewMode, string> = {
 
 const builtinSides = new Set(["head", "index", "worktree"]);
 const linePinHashKey = "pin";
-const defaultCollapseFileCountThreshold = 50;
 const refSectionLabels: Record<string, string> = {
   builtins: "Built-ins",
   locals: "Local branches",
@@ -379,6 +379,16 @@ function App() {
   );
   const [fileErrors, setFileErrors] = createSignal<Record<string, string>>({});
   const [summary, setSummary] = createSignal<Summary>(emptySummary);
+  const [linePin, setLinePin] = createSignal<LinePin | null>(
+    getLinePinFromHash(),
+  );
+  const [forcedRichFileIds, setForcedRichFileIds] = createSignal<string[]>([]);
+  const [activeHunkFileId, setActiveHunkFileId] = createSignal<string | null>(
+    null,
+  );
+  const [virtualizedFileIds, setVirtualizedFileIds] = createSignal<string[]>(
+    [],
+  );
   const [status, setStatus] = createSignal<LoadState>("idle");
   const [statusText, setStatusText] = createSignal("Preparing diff...");
   const [debugMenuOpen, setDebugMenuOpen] = createSignal(false);
@@ -390,6 +400,39 @@ function App() {
   let restoredLinePinKey = "";
   let requestVersion = 0;
   const currentRequestVersion = () => requestVersion;
+  const setForcedRichPreloadIds = (nextIds: string[]) => {
+    setForcedRichFileIds((currentIds) =>
+      stringArraysEqual(currentIds, nextIds) ? currentIds : nextIds,
+    );
+  };
+  const forceRichFileId = (fileId: string) => {
+    setForcedRichFileIds((currentIds) =>
+      currentIds.includes(fileId) ? currentIds : [...currentIds, fileId],
+    );
+  };
+  const setFileVirtualized = (fileId: string, virtualized: boolean) => {
+    setVirtualizedFileIds((currentIds) => {
+      if (virtualized) {
+        return currentIds.includes(fileId)
+          ? currentIds
+          : [...currentIds, fileId];
+      }
+      return currentIds.filter((currentId) => currentId !== fileId);
+    });
+  };
+  const displayFiles = createMemo(() =>
+    [...files(), ...lazyFiles()].sort(
+      (leftFile, rightFile) =>
+        (fileOrder()[fileKey(leftFile)] ?? 0) -
+        (fileOrder()[fileKey(rightFile)] ?? 0),
+    ),
+  );
+  createEffect(() => {
+    if (forcedRichFileIds().length > 0) {
+      return;
+    }
+    setForcedRichPreloadIds(richPreloadFileIdsForFileId(null, displayFiles()));
+  });
   const hunkNav = createHunkNavigation(() => appRoot, {
     afterReconcile: () => {
       if (!appRoot) {
@@ -399,6 +442,16 @@ function App() {
         restoredLinePinKey = pinKey;
       });
     },
+    onSelectionChange: ({ selected }) => {
+      if (!selected) {
+        setActiveHunkFileId(null);
+        return;
+      }
+      setActiveHunkFileId(fileIdForHunkAnchor(selected));
+      setForcedRichPreloadIds(
+        richPreloadFileIdsForAnchor(selected, displayFiles()),
+      );
+    },
   });
 
   hunkNav.reconcileWhen([
@@ -406,6 +459,7 @@ function App() {
     directoryExpansion,
     fileExpansion,
     loadingFiles,
+    forcedRichFileIds,
     diffViewMode,
   ]);
   hunkNav.followScroll();
@@ -439,14 +493,6 @@ function App() {
       remotes: [],
       remote_names: [],
     };
-  const displayFiles = createMemo(() =>
-    [...files(), ...lazyFiles()].sort(
-      (leftFile, rightFile) =>
-        (fileOrder()[fileKey(leftFile)] ?? 0) -
-        (fileOrder()[fileKey(rightFile)] ?? 0),
-    ),
-  );
-
   const resetDiffState = (nextStatus: LoadState, nextStatusText: string) => {
     batch(() => {
       setFiles([]);
@@ -456,6 +502,9 @@ function App() {
       setFileExpansion({});
       setLoadingFiles({});
       setFileErrors({});
+      setForcedRichFileIds([]);
+      setActiveHunkFileId(null);
+      setVirtualizedFileIds([]);
       setSummary(emptySummary);
       setStatus(nextStatus);
       setStatusText(nextStatusText);
@@ -517,8 +566,6 @@ function App() {
     initialLoadedFiles: number,
   ) {
     const pendingFiles = manifestFiles.filter((entry) => !entry.lazy);
-    const collapseFilesByDefault =
-      manifestFiles.length > defaultCollapseFileCountThreshold;
     if (pendingFiles.length === 0) {
       if (version === requestVersion) {
         setStatus("done");
@@ -553,9 +600,7 @@ function App() {
               ...entry,
               ...hydrated,
               lazy: null,
-              default_expanded: collapseFilesByDefault
-                ? false
-                : hydrated.default_expanded,
+              default_expanded: hydrated.default_expanded,
             };
             const nextKey = fileKey(nextEntry);
             const shouldOpenPinnedFile =
@@ -823,11 +868,13 @@ function App() {
     ) {
       restoredLinePinKey = "";
       clearLinePinInHash();
+      setLinePin(null);
       highlightPinnedLine(appRoot, null);
       return;
     }
     restoredLinePinKey = pinKey;
     setLinePinInHash(pin);
+    setLinePin(pin);
     highlightPinnedLine(appRoot, row);
   };
 
@@ -855,6 +902,7 @@ function App() {
       return;
     }
     const pin = getLinePinFromHash();
+    setLinePin(pin);
     if (pin) {
       openPinnedFile(pin);
     }
@@ -914,6 +962,7 @@ function App() {
   const scrollToFile = (file: FileEntry) => {
     const directory = entryDirectoryLabel(file);
     const key = fileKey(file);
+    const fileId = fileElementId(key);
     batch(() => {
       setDirectoryExpansion((current) => ({
         ...current,
@@ -923,24 +972,30 @@ function App() {
         ...current,
         [key]: true,
       }));
+      forceRichFileId(fileId);
     });
     requestAnimationFrame(() => {
-      const target = document.getElementById(fileElementId(key));
-      if (!target) {
-        throw new Error(
-          `Could not find file card for ${fileDisplayName(file)}.`,
-        );
-      }
-      const header = target.querySelector<HTMLElement>(".file-card-header");
-      if (!header) {
-        throw new Error(
-          `Could not find file header for ${fileDisplayName(file)}.`,
-        );
-      }
-      header.scrollIntoView({ block: "start", behavior: "instant" });
-      target.classList.remove("file-card-flash");
-      void target.offsetWidth;
-      target.classList.add("file-card-flash");
+      requestAnimationFrame(() => {
+        const card = document.getElementById(fileId);
+        if (!card) {
+          throw new Error(
+            `Could not find file card for ${fileDisplayName(file)}.`,
+          );
+        }
+        const target =
+          card.querySelector<HTMLElement>(
+            ".diff-row.hunk-anchor:not(.virtual-hunk-anchor)",
+          ) ?? document.getElementById(fileBodyAnchorElementId(key));
+        if (!target) {
+          throw new Error(
+            `Could not find file scroll target for ${fileDisplayName(file)}.`,
+          );
+        }
+        target.scrollIntoView({ block: "center", behavior: "instant" });
+        card.classList.remove("file-card-flash");
+        void card.offsetWidth;
+        card.classList.add("file-card-flash");
+      });
     });
   };
 
@@ -1016,6 +1071,9 @@ function App() {
               fileExpansion={fileExpansion()}
               loadingFiles={loadingFiles()}
               fileErrors={fileErrors()}
+              linePin={linePin()}
+              forcedRichFileIds={forcedRichFileIds()}
+              onFileVirtualizedChange={setFileVirtualized}
               diffViewMode={diffViewMode()}
               setDirectoryExpansion={setDirectoryExpansion}
               setFileExpansion={setFileExpansion}
@@ -1030,6 +1088,8 @@ function App() {
               files={displayFiles()}
               directoryExpansion={directoryExpansion()}
               fileExpansion={fileExpansion()}
+              activeHunkFileId={activeHunkFileId()}
+              virtualizedFileIds={virtualizedFileIds()}
               open={fileTreeOpen()}
               onOpenChange={setFileTreeOpen}
               setDirectoryExpansion={setDirectoryExpansion}
@@ -1749,6 +1809,9 @@ function FileList(props: {
   fileExpansion: Record<string, boolean>;
   loadingFiles: Record<string, boolean>;
   fileErrors: Record<string, string>;
+  linePin: LinePin | null;
+  forcedRichFileIds: string[];
+  onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
   setDirectoryExpansion: ExpansionSetter;
   setFileExpansion: ExpansionSetter;
   setLoadingFiles: ExpansionSetter;
@@ -1808,6 +1871,9 @@ function FileList(props: {
                 fileOrder={props.fileOrder}
                 loadingFiles={props.loadingFiles}
                 fileErrors={props.fileErrors}
+                linePin={props.linePin}
+                forcedRichFileIds={props.forcedRichFileIds}
+                onFileVirtualizedChange={props.onFileVirtualizedChange}
                 diffViewMode={props.diffViewMode}
                 setExpanded={(expanded) =>
                   setDirectoryExpanded(label, expanded)
@@ -1842,6 +1908,9 @@ function DirectoryGroup(props: {
   fileOrder: Record<string, number>;
   loadingFiles: Record<string, boolean>;
   fileErrors: Record<string, string>;
+  linePin: LinePin | null;
+  forcedRichFileIds: string[];
+  onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
   setExpanded: (expanded: boolean) => void;
   setFileExpanded: (key: string, expanded: boolean) => void;
   setLoadingFiles: ExpansionSetter;
@@ -1864,9 +1933,7 @@ function DirectoryGroup(props: {
         onClick={() => props.setExpanded(!props.expanded)}
       >
         <span class="directory-group-heading">
-          <span class="directory-collapse-indicator" aria-hidden="true">
-            {props.expanded ? "▾" : "▸"}
-          </span>
+          <VisibilityIndicator size="large" visible={props.expanded} />
           <span class="directory-group-title">{group().label}</span>
         </span>
         <span class="badge badge-neutral">
@@ -1889,6 +1956,9 @@ function DirectoryGroup(props: {
                   }
                   loading={props.loadingFiles[key] ?? false}
                   error={props.fileErrors[key] ?? ""}
+                  linePin={props.linePin}
+                  forcedRichFileIds={props.forcedRichFileIds}
+                  onFileVirtualizedChange={props.onFileVirtualizedChange}
                   diffViewMode={props.diffViewMode}
                   fileOrder={props.fileOrder}
                   setExpanded={(expanded) =>
@@ -1913,6 +1983,8 @@ function FileTreeSidebar(props: {
   files: FileEntry[];
   directoryExpansion: Record<string, boolean>;
   fileExpansion: Record<string, boolean>;
+  activeHunkFileId: string | null;
+  virtualizedFileIds: string[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   setDirectoryExpansion: ExpansionSetter;
@@ -1955,6 +2027,22 @@ function FileTreeSidebar(props: {
       [fileKey(file)]: expanded,
     }));
   };
+  const fileIsActiveHunkFile = (file: FileEntry) =>
+    props.activeHunkFileId === fileElementId(fileKey(file));
+  const fileIsVirtualized = (file: FileEntry) =>
+    props.virtualizedFileIds.includes(fileElementId(fileKey(file)));
+
+  createEffect(() => {
+    if (!props.open || props.activeHunkFileId === null) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      const activeRow = document.querySelector<HTMLElement>(
+        `[data-file-tree-file-id="${props.activeHunkFileId}"]`,
+      );
+      activeRow?.scrollIntoView({ block: "nearest", behavior: "instant" });
+    });
+  });
 
   return (
     <Show when={props.files.length > 0}>
@@ -1982,10 +2070,9 @@ function FileTreeSidebar(props: {
                             : `Show ${group.label}`
                         }
                       >
-                        <span
-                          class="file-tree-visibility-box"
-                          classList={{ visible: directoryExpanded(group) }}
-                          aria-hidden="true"
+                        <VisibilityIndicator
+                          size="small"
+                          visible={directoryExpanded(group)}
                         />
                       </button>
                       <button
@@ -1998,45 +2085,60 @@ function FileTreeSidebar(props: {
                       <TreeLineStats stats={groupLineStats(group)} />
                     </div>
                     <For each={group.files}>
-                      {(file) => (
-                        <div
-                          class="file-tree-file"
-                          classList={{
-                            added: fileKindStatus(file.file_kind) === "added",
-                            removed:
-                              fileKindStatus(file.file_kind) === "deleted",
-                            lazy: Boolean(file.lazy),
-                          }}
-                          title={fileDisplayName(file)}
-                        >
-                          <button
-                            type="button"
-                            class="file-tree-visibility-toggle"
-                            onClick={() =>
-                              setFileExpanded(file, !fileExpanded(file))
+                      {(file) => {
+                        const virtualized = () => fileIsVirtualized(file);
+                        return (
+                          <div
+                            class="file-tree-file"
+                            data-file-tree-file-id={fileElementId(
+                              fileKey(file),
+                            )}
+                            classList={{
+                              added: fileKindStatus(file.file_kind) === "added",
+                              removed:
+                                fileKindStatus(file.file_kind) === "deleted",
+                              lazy: Boolean(file.lazy),
+                              "active-hunk-file": fileIsActiveHunkFile(file),
+                            }}
+                            aria-current={
+                              fileIsActiveHunkFile(file) ? "true" : undefined
                             }
-                            aria-label={
-                              fileExpanded(file)
-                                ? `Fold ${fileDisplayName(file)}`
-                                : `Show ${fileDisplayName(file)}`
-                            }
+                            title={fileDisplayName(file)}
                           >
-                            <span
-                              class="file-tree-visibility-box"
-                              classList={{ visible: fileExpanded(file) }}
-                              aria-hidden="true"
-                            />
-                          </button>
-                          <button
-                            type="button"
-                            class="file-tree-file-target"
-                            onClick={() => props.onScrollToFile(file)}
-                          >
-                            {fileBasename(file)}
-                          </button>
-                          <TreeLineStats stats={fileLineStats(file)} />
-                        </div>
-                      )}
+                            <button
+                              type="button"
+                              class="file-tree-visibility-toggle"
+                              onClick={() =>
+                                setFileExpanded(file, !fileExpanded(file))
+                              }
+                              aria-label={
+                                fileExpanded(file)
+                                  ? `Fold ${fileDisplayName(file)}`
+                                  : `Show ${fileDisplayName(file)}`
+                              }
+                            >
+                              <VisibilityIndicator
+                                size="small"
+                                visible={fileExpanded(file)}
+                                virtualized={virtualized()}
+                              />
+                            </button>
+                            <button
+                              type="button"
+                              class="file-tree-file-target"
+                              aria-current={
+                                fileIsActiveHunkFile(file) ? "true" : undefined
+                              }
+                              onClick={() => props.onScrollToFile(file)}
+                            >
+                              <span class="file-tree-file-name">
+                                {fileBasename(file)}
+                              </span>
+                              <TreeLineStats stats={fileLineStats(file)} />
+                            </button>
+                          </div>
+                        );
+                      }}
                     </For>
                   </section>
                 )}
@@ -2075,6 +2177,9 @@ function FileCard(props: {
   expanded: boolean;
   loading: boolean;
   error: string;
+  linePin: LinePin | null;
+  forcedRichFileIds: string[];
+  onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
   setExpanded: (expanded: boolean) => void;
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
@@ -2083,10 +2188,30 @@ function FileCard(props: {
   setSummary: SummarySetter;
 }) {
   const queryClient = useQueryClient();
+  let bodyViewport: HTMLDivElement | undefined;
+  const [nearViewport, setNearViewport] = createSignal(false);
   const key = () => fileKey(props.file);
   const lineStats = () => fileLineStats(props.file);
   const displayName = () => fileDisplayName(props.file);
   const needsHydration = () => !fileEntryIsHydrated(props.file);
+  const isPinnedFile = () =>
+    props.linePin !== null && fileMatchesLinePin(props.file, props.linePin);
+  const isForcedRichFile = () =>
+    props.forcedRichFileIds.includes(fileElementId(key()));
+  const canVirtualizeBody = () =>
+    props.file.render_kind !== "notebook" && canRenderRows();
+  const shouldRenderRichBody = () =>
+    !canVirtualizeBody() ||
+    nearViewport() ||
+    isPinnedFile() ||
+    isForcedRichFile();
+  const isVirtualizedBody = () =>
+    props.expanded && canRenderRows() && !shouldRenderRichBody();
+  createEffect(() => {
+    const fileId = fileElementId(key());
+    props.onFileVirtualizedChange(fileId, isVirtualizedBody());
+    onCleanup(() => props.onFileVirtualizedChange(fileId, false));
+  });
   const lazyTitle = () => {
     switch (props.file.lazy) {
       case "deleted":
@@ -2123,6 +2248,26 @@ function FileCard(props: {
     fileEntryIsHydrated(props.file) &&
     props.file.render_kind !== "notebook" &&
     (props.file.rows?.length ?? 0) > 0;
+
+  createEffect(() => {
+    props.expanded;
+    props.file;
+    if (!bodyViewport || !props.expanded || !canVirtualizeBody()) {
+      setNearViewport(false);
+      return;
+    }
+    if (!("IntersectionObserver" in window)) {
+      setNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearViewport(entry?.isIntersecting ?? false),
+      { rootMargin: "1500px 0px" },
+    );
+    observer.observe(bodyViewport);
+    onCleanup(() => observer.disconnect());
+  });
 
   const expand = async () => {
     props.setExpanded(true);
@@ -2207,9 +2352,11 @@ function FileCard(props: {
         aria-expanded={props.expanded}
       >
         <span class="file-card-heading">
-          <span class="file-collapse-indicator" aria-hidden="true">
-            {props.expanded ? "▾" : "▸"}
-          </span>
+          <VisibilityIndicator
+            size="large"
+            visible={props.expanded && !isVirtualizedBody()}
+            virtualized={isVirtualizedBody()}
+          />
           <span class="file-card-title-row">
             <h2>{displayName()}</h2>
             <span class="file-card-status">
@@ -2227,12 +2374,20 @@ function FileCard(props: {
           </span>
         </span>
       </button>
+      <div
+        id={fileBodyAnchorElementId(key())}
+        class="file-card-scroll-target"
+        aria-hidden="true"
+      />
+      <Show when={!props.expanded && canRenderRows()}>
+        <HunkSkipAnchors file={props.file} />
+      </Show>
       <Show
         when={
           props.expanded && (!needsHydration() || props.loading || props.error)
         }
       >
-        <div class="file-card-body">
+        <div ref={bodyViewport} class="file-card-body">
           <Show when={props.loading}>
             <p class="file-placeholder">Loading file diff...</p>
           </Show>
@@ -2252,11 +2407,16 @@ function FileCard(props: {
                 when={canRenderRows()}
                 fallback={<FilePlaceholder file={props.file} />}
               >
-                <DiffGrid
-                  file={props.file}
-                  viewMode={props.diffViewMode}
-                  semanticReplaceRows={props.request?.engine === "difftastic"}
-                />
+                <Show
+                  when={shouldRenderRichBody()}
+                  fallback={<PlainSplitFileDiff file={props.file} />}
+                >
+                  <DiffGrid
+                    file={props.file}
+                    viewMode={props.diffViewMode}
+                    semanticReplaceRows={props.request?.engine === "difftastic"}
+                  />
+                </Show>
               </Show>
             </Show>
           </Show>
@@ -2294,6 +2454,156 @@ function FilePlaceholder(props: { file: FileEntry }) {
     );
   }
   return <p class="file-placeholder">No rows for this file.</p>;
+}
+
+function PlainSplitFileDiff(props: { file: FileEntry }) {
+  const text = () => plainSplitText(props.file.rows ?? []);
+  const hunkAnchors = () => virtualHunkAnchors(props.file.rows ?? []);
+
+  return (
+    <div class="plain-split-diff" aria-label="Virtualized plain split diff">
+      <For each={hunkAnchors()}>
+        {(anchor) => (
+          <span
+            class="diff-row hunk-anchor virtual-hunk-anchor"
+            style={{ top: `${virtualHunkAnchorTop(anchor.rowIndex)}px` }}
+            aria-hidden="true"
+          />
+        )}
+      </For>
+      <pre>{text().left}</pre>
+      <pre>{text().right}</pre>
+    </div>
+  );
+}
+
+function HunkSkipAnchors(props: { file: FileEntry }) {
+  const hunkAnchors = () => virtualHunkAnchors(props.file.rows ?? []);
+
+  return (
+    <div class="hunk-skip-anchors" aria-hidden="true">
+      <For each={hunkAnchors()}>
+        {() => <span class="diff-row hunk-anchor hunk-skip" />}
+      </For>
+    </div>
+  );
+}
+
+const RICH_PRELOAD_FILE_RADIUS = 2;
+
+function richPreloadFileIdsForAnchor(
+  anchor: HTMLElement,
+  files: FileEntry[],
+): string[] {
+  return richPreloadFileIdsForFileId(fileIdForHunkAnchor(anchor), files);
+}
+
+function fileIdForHunkAnchor(anchor: HTMLElement): string | null {
+  return anchor.closest<HTMLElement>(".file-card")?.id ?? null;
+}
+
+function richPreloadFileIdsForFileId(
+  activeFileId: string | null,
+  files: FileEntry[],
+): string[] {
+  const changedFileIds = files
+    .filter(fileCanHaveDomHunks)
+    .map((file) => fileElementId(fileKey(file)));
+  if (!changedFileIds.length) {
+    return [];
+  }
+
+  const forced = new Set<string>();
+  forced.add(changedFileIds[0]);
+  forced.add(changedFileIds[changedFileIds.length - 1]);
+
+  const activeIndex =
+    activeFileId === null ? -1 : changedFileIds.indexOf(activeFileId);
+  if (activeIndex !== -1) {
+    const start = Math.max(0, activeIndex - RICH_PRELOAD_FILE_RADIUS);
+    const end = Math.min(
+      changedFileIds.length - 1,
+      activeIndex + RICH_PRELOAD_FILE_RADIUS,
+    );
+    for (let index = start; index <= end; index += 1) {
+      forced.add(changedFileIds[index]);
+    }
+  }
+
+  return [...forced];
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function fileCanHaveDomHunks(file: FileEntry): boolean {
+  return (
+    fileEntryIsHydrated(file) &&
+    file.render_kind !== "notebook" &&
+    (file.rows?.length ?? 0) > 0 &&
+    fileHasChangedRows(file)
+  );
+}
+
+function virtualHunkAnchors(rows: DiffRow[]): { rowIndex: number }[] {
+  let previousChanged = false;
+  const anchors: { rowIndex: number }[] = [];
+  rows.forEach((row, rowIndex) => {
+    if (row.status === "fold") {
+      previousChanged = false;
+      return;
+    }
+
+    const changed = isChangedDiffRowStatus(row.status);
+    if (changed && !previousChanged) {
+      anchors.push({ rowIndex });
+    }
+    previousChanged = changed;
+  });
+  return anchors;
+}
+
+function virtualHunkAnchorTop(rowIndex: number): number {
+  return 10 + rowIndex * 17.4;
+}
+
+function isChangedDiffRowStatus(status: DiffRow["status"]): boolean {
+  return status === "replace" || status === "insert" || status === "delete";
+}
+
+function plainSplitText(rows: DiffRow[]): { left: string; right: string } {
+  const left: string[] = [];
+  const right: string[] = [];
+
+  for (const row of rows) {
+    left.push(plainSideText(row, "left"));
+    right.push(plainSideText(row, "right"));
+  }
+
+  return {
+    left: left.join("\n"),
+    right: right.join("\n"),
+  };
+}
+
+function plainSideText(row: DiffRow, side: "left" | "right"): string {
+  if (row.status === "fold") {
+    return row.label ?? `... ${row.count ?? 0} lines`;
+  }
+  return (side === "left" ? row.left_text : row.right_text) ?? "";
+}
+
+function fileHasChangedRows(file: FileEntry): boolean {
+  return (file.rows ?? []).some(
+    (row) =>
+      row.status === "insert" ||
+      row.status === "delete" ||
+      row.status === "replace",
+  );
 }
 
 function NotebookFile(props: {
@@ -2688,6 +2998,27 @@ function groupLineStats(group: FileGroup): LineStats {
   );
 }
 
+function VisibilityIndicator(props: {
+  size: "small" | "large";
+  visible: boolean;
+  virtualized?: boolean;
+}) {
+  return (
+    <span
+      class="visibility-indicator"
+      classList={{
+        large: props.size === "large",
+        small: props.size === "small",
+        visible: props.visible,
+        virtualized: props.virtualized ?? false,
+      }}
+      aria-hidden="true"
+    >
+      {props.virtualized ? "V" : ""}
+    </span>
+  );
+}
+
 function TreeLineStats(props: { stats: LineStats }) {
   return (
     <span class="file-tree-line-stats">
@@ -2899,6 +3230,10 @@ function sortFilesByOrder(
 
 function fileElementId(key: string): string {
   return hashedElementId("file", key);
+}
+
+function fileBodyAnchorElementId(key: string): string {
+  return hashedElementId("file-body", key);
 }
 
 function directoryElementId(label: string): string {

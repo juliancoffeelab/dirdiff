@@ -2,29 +2,46 @@ import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
 
 type HunkNavigationOptions = {
   afterReconcile?: () => void;
+  onSelectionChange?: (selection: {
+    anchors: HunkAnchor[];
+    index: number;
+    selected: HTMLElement | null;
+  }) => void;
 };
 
 const SCROLL_FOLLOW_INTERVAL_MS = 100;
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 150;
 const READING_LINE_RATIO = 0.5;
 
-function hunkAnchors(root: ParentNode | undefined): HTMLElement[] {
+type HunkAnchor = HTMLElement | null;
+
+function hunkAnchorElements(root: ParentNode | undefined): HTMLElement[] {
   return [...(root ?? document).querySelectorAll<HTMLElement>(".hunk-anchor")];
+}
+
+function hunkAnchors(root: ParentNode | undefined): HunkAnchor[] {
+  return hunkAnchorElements(root).map((anchor) =>
+    anchor.classList.contains("hunk-skip") ? null : anchor,
+  );
 }
 
 function selectCurrentHunk(options: {
   index: number;
   scroll: boolean;
   root: ParentNode | undefined;
-}) {
+}): HTMLElement | null {
   const anchors = hunkAnchors(options.root);
+  const anchorElements = hunkAnchorElements(options.root);
   if (!anchors.length) {
-    return;
+    return null;
   }
   const selected = anchors[clamp(options.index, 0, anchors.length - 1)];
-  for (const anchor of anchors) {
+  for (const anchor of anchorElements) {
     anchor.classList.remove("active-hunk");
     anchor.removeAttribute("aria-current");
+  }
+  if (!selected) {
+    return null;
   }
   selected.classList.add("active-hunk");
   selected.setAttribute("aria-current", "true");
@@ -34,6 +51,7 @@ function selectCurrentHunk(options: {
       behavior: "instant",
     });
   }
+  return selected;
 }
 
 function wrapIndex(index: number, length: number): number {
@@ -42,6 +60,24 @@ function wrapIndex(index: number, length: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function nextSelectableIndex(
+  anchors: HunkAnchor[],
+  startIndex: number,
+  direction: 1 | -1,
+): number | null {
+  if (!anchors.some(Boolean)) {
+    return null;
+  }
+  let index = wrapIndex(startIndex, anchors.length);
+  for (let steps = 0; steps < anchors.length; steps += 1) {
+    if (anchors[index]) {
+      return index;
+    }
+    index = wrapIndex(index + direction, anchors.length);
+  }
+  return null;
 }
 
 export function createHunkNavigation(
@@ -55,8 +91,22 @@ export function createHunkNavigation(
 
   const anchors = () => hunkAnchors(root());
 
-  const select = (options: { index: number; scroll: boolean }) => {
-    selectCurrentHunk({ ...options, root: root() });
+  const select = (selectionOptions: { index: number; scroll: boolean }) => {
+    const currentAnchors = anchors();
+    if (!currentAnchors.length) {
+      return;
+    }
+    const index = clamp(selectionOptions.index, 0, currentAnchors.length - 1);
+    const selected = selectCurrentHunk({
+      index,
+      scroll: selectionOptions.scroll,
+      root: root(),
+    });
+    options.onSelectionChange?.({
+      anchors: currentAnchors,
+      index,
+      selected,
+    });
   };
 
   const cancelReconcileTimer = () => {
@@ -90,6 +140,9 @@ export function createHunkNavigation(
     let nextDistance = Number.POSITIVE_INFINITY;
 
     currentAnchors.forEach((anchor, index) => {
+      if (!anchor) {
+        return;
+      }
       const distance = Math.abs(
         anchor.getBoundingClientRect().top - readingLineY,
       );
@@ -118,7 +171,13 @@ export function createHunkNavigation(
         return;
       }
 
-      const nextIndex = clamp(currentIndex(), 0, currentAnchors.length - 1);
+      const activeIndex = currentAnchors.findIndex((anchor) =>
+        anchor?.classList.contains("active-hunk"),
+      );
+      const nextIndex =
+        activeIndex === -1
+          ? clamp(currentIndex(), 0, currentAnchors.length - 1)
+          : activeIndex;
       setCurrentIndex(nextIndex);
       select({ index: nextIndex, scroll: false });
       options.afterReconcile?.();
@@ -137,10 +196,16 @@ export function createHunkNavigation(
       );
     }
 
-    const nextIndex = wrapIndex(
+    const nextIndex = nextSelectableIndex(
+      currentAnchors,
       currentIndex() + direction,
-      currentAnchors.length,
+      direction,
     );
+    if (nextIndex === null) {
+      setCurrentIndex(0);
+      select({ index: 0, scroll: false });
+      return;
+    }
     setCurrentIndex(nextIndex);
     ignoreScrollFollowFor(PROGRAMMATIC_SCROLL_IGNORE_MS);
     select({ index: nextIndex, scroll: true });

@@ -301,7 +301,7 @@ def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
     assert "--no-frontend-dev" in response.text
 
 
-def test_build_defaults_prefers_remote_qualified_branch_review_refs(
+def test_build_defaults_uses_local_branch_review_refs_by_default(
     tmp_path: Path,
 ) -> None:
     class RemoteFakeDiffService(FakeDiffService):
@@ -314,8 +314,8 @@ def test_build_defaults_prefers_remote_qualified_branch_review_refs(
     service = RemoteFakeDiffService(tmp_path)
     defaults = build_defaults(service)
 
-    assert defaults["base_branch"] == "origin/master"
-    assert defaults["review_branch"] == "origin/feature"
+    assert defaults["base_branch"] == "master"
+    assert defaults["review_branch"] == "feature"
 
 
 def test_diff_endpoint_returns_repo_manifest(tmp_path: Path) -> None:

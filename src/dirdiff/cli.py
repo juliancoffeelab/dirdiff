@@ -158,17 +158,6 @@ def build_defaults(
     preferred_review_branch = service.preferred_review_branch(
         base_branch=default_base_branch
     )
-    default_remote = service.default_remote_name()
-    default_base_ref = service.branch_upstream_name(default_base_branch) or (
-        f"{default_remote}/{default_base_branch}"
-        if default_remote and default_base_branch
-        else default_base_branch
-    )
-    review_branch_ref = service.branch_upstream_name(preferred_review_branch) or (
-        f"{default_remote}/{preferred_review_branch}"
-        if default_remote and preferred_review_branch
-        else preferred_review_branch
-    )
     initial_mode = "files"
     if review_branch:
         initial_mode = "branch-review"
@@ -180,8 +169,8 @@ def build_defaults(
         "mode": initial_mode,
         "left": left,
         "right": right,
-        "base_branch": base_branch or default_base_ref,
-        "review_branch": review_branch or review_branch_ref,
+        "base_branch": base_branch or default_base_branch,
+        "review_branch": review_branch or preferred_review_branch,
         "ref_choices": service.list_ref_choices(),
         "repo_available": bool(service.repo_root),
     }

@@ -34,8 +34,6 @@ PLAIN_RENDER_CONTEXT_ROWS = 3
 PLAIN_RENDER_MIN_FOLD_ROWS = 24
 PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
 LARGE_CHANGED_LINES_LAZY_THRESHOLD = 1000
-DEFAULT_COLLAPSE_FILE_COUNT_THRESHOLD = 50
-DEFAULT_EXPAND_RENDER_ROW_LIMIT = 500
 GENERATED_FILES = frozenset(
     {
         "cargo.lock",
@@ -210,21 +208,10 @@ def _summary_for_repo_path(entry: RepoDiffPath) -> dict[str, int | bool]:
     }
 
 
-def _payload_render_row_count(payload: dict[str, Any]) -> int:
-    if payload.get("render_kind") == "notebook":
-        total = len(payload.get("notebook_metadata_rows", ()))
-        for cell in payload.get("cells", ()):
-            total += len(cell.get("source_rows", ()))
-            total += len(cell.get("metadata_rows", ()))
-            total += len(cell.get("outputs_rows", ()))
-        return total
-    return len(payload.get("rows", ()))
-
-
 def _default_expanded_for_payload(payload: dict[str, Any]) -> bool:
     if payload.get("lazy"):
         return False
-    return _payload_render_row_count(payload) <= DEFAULT_EXPAND_RENDER_ROW_LIMIT
+    return True
 
 
 def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:
