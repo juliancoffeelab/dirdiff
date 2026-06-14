@@ -8,17 +8,20 @@ from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from dirdiff.diff import TextDiffError
+from dirdiff.sources import TextDiffError
 
 
 LOGGER = logging.getLogger(__name__)
 
-ModeParam = Literal["files", "staged", "head", "refs", "branch-review", "preset"]
+ModeParam = Literal[
+    "files", "staged", "head", "refs", "branch-review", "preset"
+]
 EngineParam = Literal["dirdiff", "git", "difftastic"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 GitFileStatus = Literal["modified", "added", "deleted", "renamed", "copied"]
 LazyReason = (
-    Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"] | None
+    Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"]
+    | None
 )
 RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
 
@@ -29,7 +32,9 @@ class DiffServiceProtocol(Protocol):
 
     def default_base_branch(self) -> str: ...
 
-    def preferred_review_branch(self, *, base_branch: str | None = None) -> str: ...
+    def preferred_review_branch(
+        self, *, base_branch: str | None = None
+    ) -> str: ...
 
     def list_ref_choices(self) -> dict[str, list[str]]: ...
 
@@ -303,7 +308,9 @@ def create_app(
         engine: EngineParam, *, mode: ModeParam
     ) -> DiffServiceProtocol:
         if mode == "preset":
-            return preset_diff_services.get(engine, preset_diff_services["dirdiff"])
+            return preset_diff_services.get(
+                engine, preset_diff_services["dirdiff"]
+            )
         return diff_services.get(engine, service)
 
     @app.get("/", response_class=HTMLResponse)
@@ -377,7 +384,9 @@ def create_app(
         engine: EngineParam = Query(
             default=defaults["engine"], description="Diff engine."
         ),
-        mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
+        mode: ModeParam = Query(
+            default=defaults["mode"], description="UI diff mode."
+        ),
         left: str = Query(
             default=defaults["left"], description="Left ref or diff side."
         ),
@@ -409,7 +418,9 @@ def create_app(
         diff_service = selected_service(engine, mode=mode)
         try:
             if mode == "preset":
-                preset_name = preset.strip() if preset and preset.strip() else "presets"
+                preset_name = (
+                    preset.strip() if preset and preset.strip() else "presets"
+                )
                 payload = diff_service.build_repo_manifest(
                     left=preset_name,
                     right="new",
@@ -426,7 +437,9 @@ def create_app(
                         branch=selected_review_branch,
                     )
                 )
-                left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
+                left_label = (
+                    f"{resolved_base_branch.strip()}...{normalized_branch}"
+                )
                 payload = diff_service.build_repo_manifest(
                     left=merge_base,
                     right=normalized_branch,
@@ -469,7 +482,9 @@ def create_app(
         engine: EngineParam = Query(
             default=defaults["engine"], description="Diff engine."
         ),
-        mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
+        mode: ModeParam = Query(
+            default=defaults["mode"], description="UI diff mode."
+        ),
         left: str = Query(
             default=defaults["left"], description="Left ref or diff side."
         ),
@@ -513,7 +528,9 @@ def create_app(
 
         try:
             if mode == "preset":
-                preset_name = preset.strip() if preset and preset.strip() else "presets"
+                preset_name = (
+                    preset.strip() if preset and preset.strip() else "presets"
+                )
                 payload = diff_service.build_git_diff_paths(
                     left_path=left_path,
                     right_path=right_path,
@@ -537,7 +554,9 @@ def create_app(
                         branch=selected_review_branch,
                     )
                 )
-                left_label = f"{resolved_base_branch.strip()}...{normalized_branch}"
+                left_label = (
+                    f"{resolved_base_branch.strip()}...{normalized_branch}"
+                )
                 payload = diff_service.build_git_diff_paths(
                     left_path=left_path,
                     right_path=right_path,
@@ -588,7 +607,9 @@ def create_app(
         engine: EngineParam = Query(
             default=defaults["engine"], description="Diff engine."
         ),
-        mode: ModeParam = Query(default=defaults["mode"], description="UI diff mode."),
+        mode: ModeParam = Query(
+            default=defaults["mode"], description="UI diff mode."
+        ),
         left: str = Query(
             default=defaults["left"], description="Left ref or diff side."
         ),
@@ -630,7 +651,9 @@ def create_app(
 
         try:
             if mode == "preset":
-                preset_name = preset.strip() if preset and preset.strip() else "presets"
+                preset_name = (
+                    preset.strip() if preset and preset.strip() else "presets"
+                )
                 payload = diff_service.build_notebook_section_diff(
                     left_path=left_path,
                     right_path=right_path,

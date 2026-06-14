@@ -5,7 +5,9 @@ from dirdiff.diff import GitBackend, TextDiffService
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -22,7 +24,10 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\ntwo\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -50,7 +55,10 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
 
 def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -67,7 +75,10 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -141,12 +152,16 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
     except ValueError as exc:
         assert str(exc) == "Unknown Git ref: rich-text"
     else:
-        raise AssertionError("expected remote ref to require explicit remote name")
+        raise AssertionError(
+            "expected remote ref to require explicit remote name"
+        )
 
 
 def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
     repository = GitBackend(tmp_path)
 
-    counts = repository._parse_numstat_output(b"2\t1\t\0old/name.txt\0new/name.txt\0")
+    counts = repository._parse_numstat_output(
+        b"2\t1\t\0old/name.txt\0new/name.txt\0"
+    )
 
     assert counts == {"new/name.txt": (2, 1)}

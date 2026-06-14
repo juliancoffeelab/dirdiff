@@ -40,6 +40,9 @@ dev = [
     "syrupy>=5.3.2",
 ]
 
+[tool.uv.sources]
+tree-sitter-clojure = { git = "ssh://git@github.com/juliancoffeelab/tree-sitter-clojure-py.git", rev = "main" }
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/dirdiff"]
 
@@ -51,5 +54,6 @@ markers = ["git: tests that create real git repositories or shell out to git"]
 [tool.mypy]
 exclude = ["tests/presets/"]
 
-[tool.uv.sources]
-tree-sitter-clojure = { git = "ssh://git@github.com/juliancoffeelab/tree-sitter-clojure-py.git", rev = "main" }
+[tool.ruff]
+line-length = 80
+extend-exclude = ["tests/presets/"]

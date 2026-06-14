@@ -8,9 +8,14 @@ from dirdiff.diff import GitBackend, TextDiffService
 from dirdiff.server import create_app
 
 
-def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> None:
+def test_file_diff_endpoint_returns_full_generated_file_rows(
+    tmp_path: Path,
+) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -27,7 +32,10 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
     lockfile = tmp_path / "Cargo.lock"
     lockfile.write_text("version = 1\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "Cargo.lock"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -70,9 +78,14 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
     assert payload["rows"]
 
 
-def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(tmp_path: Path) -> None:
+def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(
+    tmp_path: Path,
+) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -89,7 +102,10 @@ def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(tmp_path: Path) -
     deleted_file = tmp_path / "alpha.txt"
     deleted_file.write_text("one\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],

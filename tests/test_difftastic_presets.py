@@ -15,7 +15,9 @@ REPO_ROOT = Path(__file__).parents[1]
 
 
 def test_difftastic_presets_have_old_and_new_files() -> None:
-    preset_dirs = sorted(path for path in PRESETS_ROOT.iterdir() if path.is_dir())
+    preset_dirs = sorted(
+        path for path in PRESETS_ROOT.iterdir() if path.is_dir()
+    )
 
     assert preset_dirs
     for preset_dir in preset_dirs:

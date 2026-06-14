@@ -140,7 +140,10 @@ class FakeDiffService:
             }
         )
         return {
-            "display_name": display_name or left_path or right_path or "alpha.txt",
+            "display_name": display_name
+            or left_path
+            or right_path
+            or "alpha.txt",
             "mode": "git",
             "left_label": left,
             "right_label": right,
@@ -357,7 +360,9 @@ def test_create_app_from_runtime_config_uses_stored_repo_root(
     assert payload["mode"] == "repo"
 
 
-def test_preset_backend_lists_all_presets_and_loads_file_diff(tmp_path: Path) -> None:
+def test_preset_backend_lists_all_presets_and_loads_file_diff(
+    tmp_path: Path,
+) -> None:
     first_preset_dir = tmp_path / "example"
     first_preset_dir.mkdir()
     (first_preset_dir / "old.py").write_text(
@@ -594,21 +599,21 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
     assert "NotebookSectionDiffResponse" in spec["components"]["schemas"]
     diff_params = spec["paths"]["/api/diff"]["get"]["parameters"]
     assert (
-        next(param for param in diff_params if param["name"] == "mode")["schema"][
-            "default"
-        ]
+        next(param for param in diff_params if param["name"] == "mode")[
+            "schema"
+        ]["default"]
         == "files"
     )
     assert (
-        next(param for param in diff_params if param["name"] == "left")["schema"][
-            "default"
-        ]
+        next(param for param in diff_params if param["name"] == "left")[
+            "schema"
+        ]["default"]
         == "index"
     )
     assert (
-        next(param for param in diff_params if param["name"] == "right")["schema"][
-            "default"
-        ]
+        next(param for param in diff_params if param["name"] == "right")[
+            "schema"
+        ]["default"]
         == "worktree"
     )
 

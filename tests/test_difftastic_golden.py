@@ -47,7 +47,9 @@ class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
     def get_snapshot_name(cls, *, test_location, index=0) -> str:
         if isinstance(index, str):
             return index
-        return super().get_snapshot_name(test_location=test_location, index=index)
+        return super().get_snapshot_name(
+            test_location=test_location, index=index
+        )
 
 
 def _preset_dirs() -> list[Path]:
@@ -60,10 +62,14 @@ def _preset_dirs() -> list[Path]:
 
 @pytest.fixture
 def snapshot_json(snapshot):
-    return snapshot.with_defaults(extension_class=DifftasticGoldenSnapshotExtension)
+    return snapshot.with_defaults(
+        extension_class=DifftasticGoldenSnapshotExtension
+    )
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=lambda path: path.name)
+@pytest.mark.parametrize(
+    "preset_dir", _preset_dirs(), ids=lambda path: path.name
+)
 def test_difftastic_preset_rows_match_golden(
     preset_dir: Path,
     snapshot_json,

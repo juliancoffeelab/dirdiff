@@ -14,7 +14,9 @@ def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
     assert _difftastic_engine_warning({"language": "TypeScript"}) is None
 
 
-def test_difftastic_json_rows_use_semantic_alignment_and_changed_ranges() -> None:
+def test_difftastic_json_rows_use_semantic_alignment_and_changed_ranges() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [1, 1], [None, 2], [None, 3], [None, 4]],
@@ -193,7 +195,11 @@ def test_difftastic_rows_clip_old_tail_for_one_sided_paired_insert() -> None:
     assert rows[0]["left_text"] == "from dirdiff.diff import "
     assert rows[0]["right_text"] == "from dirdiff.diff import ("
     assert rows[0]["right_tokens"] == [
-        {"text": "from dirdiff.diff import ", "status": "unchanged", "is_ws": False},
+        {
+            "text": "from dirdiff.diff import ",
+            "status": "unchanged",
+            "is_ws": False,
+        },
         {"text": "(", "status": "insert", "is_ws": False},
     ]
     assert rows[1]["status"] == "replace"
@@ -268,7 +274,9 @@ def test_difftastic_rows_pair_one_sided_rhs_token_insert_with_matching_lhs_line(
     assert rows[7]["left_text"] == '} from "./api";'
 
 
-def test_difftastic_rows_pair_rhs_token_insert_from_split_lhs_line_tail() -> None:
+def test_difftastic_rows_pair_rhs_token_insert_from_split_lhs_line_tail() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [
@@ -431,12 +439,18 @@ def test_difftastic_rows_pair_rhs_lines_from_replaced_lhs_line_tail() -> None:
     assert rows[6]["left_text"] == "  syntax: SyntaxSpan[]"
     assert rows[6]["right_text"] == "  syntax: SyntaxSpan[],"
     assert rows[6]["right_tokens"] == [
-        {"text": "  syntax: SyntaxSpan[]", "status": "unchanged", "is_ws": False},
+        {
+            "text": "  syntax: SyntaxSpan[]",
+            "status": "unchanged",
+            "is_ws": False,
+        },
         {"text": ",", "status": "insert", "is_ws": False},
     ]
 
 
-def test_difftastic_rows_preserve_left_context_for_clojure_wrapper_insert() -> None:
+def test_difftastic_rows_preserve_left_context_for_clojure_wrapper_insert() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -489,7 +503,9 @@ def test_difftastic_rows_preserve_left_context_for_clojure_wrapper_insert() -> N
     assert rows[3]["right_text"] == "})"
 
 
-def test_difftastic_rows_preserve_left_context_for_clojure_comp_insert() -> None:
+def test_difftastic_rows_preserve_left_context_for_clojure_comp_insert() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -527,7 +543,9 @@ def test_difftastic_rows_preserve_left_context_for_clojure_comp_insert() -> None
     assert rows[2]["left_no"] == 1
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == "  :on-submit user/submit-form!"
-    assert rows[2]["right_text"] == "  :on-submit (comp audit user/submit-form!)"
+    assert (
+        rows[2]["right_text"] == "  :on-submit (comp audit user/submit-form!)"
+    )
     assert rows[2]["right_tokens"] == [
         {"text": "  :on-submit ", "status": "unchanged", "is_ws": False},
         {"text": "(", "status": "insert", "is_ws": False},
@@ -544,7 +562,9 @@ def test_difftastic_rows_preserve_left_context_for_clojure_comp_insert() -> None
     assert rows[3]["right_text"] == "})"
 
 
-def test_difftastic_rows_preserve_clojure_map_tail_after_middle_wrap_change() -> None:
+def test_difftastic_rows_preserve_clojure_map_tail_after_middle_wrap_change() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -652,7 +672,9 @@ def test_difftastic_rows_do_not_reconstruct_unchanged_tail_after_split_call_chan
     assert rows[3]["right_text"] == ");"
 
 
-def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -704,7 +726,9 @@ def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -
     ]
 
 
-def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -760,7 +784,9 @@ def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> Non
     ]
 
 
-def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -845,7 +871,9 @@ def test_difftastic_rows_do_not_reconstruct_clojure_map_tail_after_wrap_removal(
     assert rows[2]["right_text"] == "  :end done"
 
 
-def test_difftastic_rows_do_not_reconstruct_rust_range_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_rust_range_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -951,7 +979,9 @@ def test_difftastic_rows_do_not_reconstruct_rust_range_inclusive_tail_after_wrap
     ]
 
 
-def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [1, 3]],
@@ -1006,7 +1036,9 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> None
     assert rows[3]["right_text"] == "  tail"
 
 
-def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [1, 3]],
@@ -1061,7 +1093,9 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() 
     assert rows[3]["right_text"] == "  tail"
 
 
-def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -1117,7 +1151,9 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> None
     assert rows[3]["right_text"] == "  |> tail"
 
 
-def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() -> None:
+def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
@@ -1207,7 +1243,11 @@ def test_difftastic_reconstructed_rhs_insert_does_not_mark_lhs_tokens() -> None:
     assert rows[1]["right_text"] == "  syntax: SyntaxSpan[],"
     assert rows[1].get("left_tokens") in (None, [])
     assert rows[1]["right_tokens"] == [
-        {"text": "  syntax: SyntaxSpan[]", "status": "unchanged", "is_ws": False},
+        {
+            "text": "  syntax: SyntaxSpan[]",
+            "status": "unchanged",
+            "is_ws": False,
+        },
         {"text": ",", "status": "insert", "is_ws": False},
     ]
 
@@ -1332,7 +1372,9 @@ def test_difftastic_rows_repair_shifted_delete_equal_insert_fields() -> None:
     )
 
 
-def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> None:
+def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [
@@ -1460,7 +1502,9 @@ def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> 
         ),
     )
 
-    numbered_right_rows = [row for row in rows if isinstance(row.get("right_no"), int)]
+    numbered_right_rows = [
+        row for row in rows if isinstance(row.get("right_no"), int)
+    ]
     right_numbers = [row["right_no"] for row in numbered_right_rows]
 
     assert right_numbers == sorted(set(right_numbers))
@@ -1604,7 +1648,9 @@ def test_difftastic_rows_keep_collapsed_condition_suffix_unchanged() -> None:
     ]
 
 
-def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() -> None:
+def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [
@@ -1681,12 +1727,24 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "left_text": '        payload["change_type"] = change_type',
             "right_text": '        payload["file_kind"] = _file_kind_for_change_type(',
             "left_tokens": [
-                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "        payload[",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
                 {"text": '"change_type"', "status": "replace", "is_ws": False},
-                {"text": "] = change_type", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "] = change_type",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
             ],
             "right_tokens": [
-                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "        payload[",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
                 {"text": '"file_kind"', "status": "replace", "is_ws": False},
                 {"text": "] = ", "status": "unchanged", "is_ws": False},
                 {
@@ -1747,7 +1805,9 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
     ]
 
 
-def test_difftastic_rows_keep_moved_show_wrapper_lines_as_replacements() -> None:
+def test_difftastic_rows_keep_moved_show_wrapper_lines_as_replacements() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [
@@ -1837,7 +1897,11 @@ def test_difftastic_rows_keep_moved_show_wrapper_lines_as_replacements() -> None
             "left_text": "                fallback={<FilePlaceholder file={props.file} />}",
             "right_text": "",
             "left_tokens": [
-                {"text": "                ", "status": "unchanged", "is_ws": True},
+                {
+                    "text": "                ",
+                    "status": "unchanged",
+                    "is_ws": True,
+                },
                 {"text": "fallback", "status": "delete", "is_ws": False},
                 {"text": "=", "status": "delete", "is_ws": False},
                 {"text": "{", "status": "delete", "is_ws": False},
@@ -1966,7 +2030,9 @@ def test_difftastic_rows_status_is_replace_for_mixed_unchanged_and_insert_tokens
     ]
 
 
-def test_difftastic_rows_status_is_insert_when_every_changed_token_is_insert() -> None:
+def test_difftastic_rows_status_is_insert_when_every_changed_token_is_insert() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1]],
@@ -2050,7 +2116,9 @@ def test_difftastic_rows_status_is_replace_when_changed_tokens_are_not_inserted(
     ]
 
 
-def test_difftastic_rows_status_is_delete_when_every_changed_token_is_delete() -> None:
+def test_difftastic_rows_status_is_delete_when_every_changed_token_is_delete() -> (
+    None
+):
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [1, None]],
@@ -2245,7 +2313,9 @@ def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
         "equal",
     ]
     condition_row = next(
-        row for row in rows if row.get("right_text") == "    if lazy is not None:"
+        row
+        for row in rows
+        if row.get("right_text") == "    if lazy is not None:"
     )
     assert condition_row["right_tokens"] == [
         {"text": "    if ", "status": "unchanged", "is_ws": False},
@@ -2341,12 +2411,24 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "left_text": '        payload["change_type"] = change_type',
             "right_text": '        payload["file_kind"] = _file_kind_for_change_type(',
             "left_tokens": [
-                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "        payload[",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
                 {"text": '"change_type"', "status": "replace", "is_ws": False},
-                {"text": "] = change_type", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "] = change_type",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
             ],
             "right_tokens": [
-                {"text": "        payload[", "status": "unchanged", "is_ws": False},
+                {
+                    "text": "        payload[",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
                 {"text": '"file_kind"', "status": "replace", "is_ws": False},
                 {"text": "] = ", "status": "unchanged", "is_ws": False},
                 {

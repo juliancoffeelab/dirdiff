@@ -5,8 +5,12 @@ import subprocess
 from dirdiff.diff import GitDiffService, GitBackend, TextDiffService
 
 
-def test_build_repo_manifest_lists_changed_tracked_files(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+def test_build_repo_manifest_lists_changed_tracked_files(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -23,7 +27,10 @@ def test_build_repo_manifest_lists_changed_tracked_files(tmp_path: Path) -> None
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\ntwo\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -58,7 +65,9 @@ def test_build_repo_manifest_lists_changed_tracked_files(tmp_path: Path) -> None
 def test_build_repo_manifest_can_include_untracked_files_as_lazy(
     tmp_path: Path,
 ) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -75,7 +84,10 @@ def test_build_repo_manifest_can_include_untracked_files_as_lazy(
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -107,8 +119,12 @@ def test_build_repo_manifest_can_include_untracked_files_as_lazy(
     ]
 
 
-def test_untracked_lazy_file_can_be_loaded_from_worktree(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+def test_untracked_lazy_file_can_be_loaded_from_worktree(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=tmp_path,
@@ -143,7 +159,10 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(tmp_path: Path) -> None
 
 def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -161,7 +180,10 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     tracked_file = tmp_path / "alpha.txt"
     tracked_file.write_text("one\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -178,7 +200,10 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     )
     tracked_file.write_text("one\nfeature change\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "feature change"],
@@ -188,11 +213,17 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     )
 
     subprocess.run(
-        ["git", "checkout", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "checkout", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     tracked_file.write_text("one\nmaster-only change\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "master change"],
@@ -226,8 +257,12 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     assert manifest["summary"]["removed_lines"] == 0
 
 
-def test_git_diff_service_uses_git_style_delete_insert_rows(tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+def test_git_diff_service_uses_git_style_delete_insert_rows(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
         cwd=tmp_path,
@@ -243,7 +278,10 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(tmp_path: Path) -> N
     changed_file = tmp_path / "alpha.txt"
     changed_file.write_text("one\ntwo\nthree\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -304,7 +342,10 @@ def test_build_repo_manifest_summarizes_changed_files(
     tmp_path: Path,
 ) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -320,7 +361,9 @@ def test_build_repo_manifest_summarizes_changed_files(
     )
     (tmp_path / "alpha.txt").write_text("one\n", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("two\n", encoding="utf-8")
-    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "."], cwd=tmp_path, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
         cwd=tmp_path,
@@ -345,7 +388,10 @@ def test_build_repo_manifest_summarizes_changed_files(
 
 def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -362,7 +408,10 @@ def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
     lockfile = tmp_path / "Cargo.lock"
     lockfile.write_text("version = 1\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "Cargo.lock"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "Cargo.lock"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -446,7 +495,10 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
 
 def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -463,7 +515,10 @@ def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
     deleted_file = tmp_path / "alpha.txt"
     deleted_file.write_text("one\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -490,7 +545,10 @@ def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
 
 def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -507,7 +565,10 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
     source_file = tmp_path / "alpha.txt"
     source_file.write_text("one\n", encoding="utf-8")
     subprocess.run(
-        ["git", "add", "alpha.txt"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -540,7 +601,10 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
 
 def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -574,7 +638,10 @@ def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     subprocess.run(
-        ["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "demo.ipynb"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
@@ -628,7 +695,10 @@ def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
     tmp_path: Path,
 ) -> None:
     subprocess.run(
-        ["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
@@ -664,7 +734,10 @@ def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
         encoding="utf-8",
     )
     subprocess.run(
-        ["git", "add", "demo.ipynb"], cwd=tmp_path, check=True, capture_output=True
+        ["git", "add", "demo.ipynb"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "initial"],

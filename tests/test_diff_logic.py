@@ -42,14 +42,18 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
         if token["text"] == "(":
             break
         if token["text"] != "function" and not token["is_ws"]:
-            left_name_tokens.append((token["text"], (token["status"] != "unchanged")))
+            left_name_tokens.append(
+                (token["text"], (token["status"] != "unchanged"))
+            )
 
     right_name_tokens = []
     for token in diff["rows"][0]["right_tokens"]:
         if token["text"] == "(":
             break
         if token["text"] != "function" and not token["is_ws"]:
-            right_name_tokens.append((token["text"], (token["status"] != "unchanged")))
+            right_name_tokens.append(
+                (token["text"], (token["status"] != "unchanged"))
+            )
 
     assert left_name_tokens == [
         ("find", True),
@@ -552,7 +556,9 @@ def test_markdown_unchanged_heading_section_folds_under_heading() -> None:
     ]
 
 
-def test_markdown_changed_parent_section_allows_unchanged_child_heading_fold() -> None:
+def test_markdown_changed_parent_section_allows_unchanged_child_heading_fold() -> (
+    None
+):
     diff = build_loaded_diff(
         display_name="demo.md",
         mode="files",
@@ -575,7 +581,9 @@ def test_markdown_changed_parent_section_allows_unchanged_child_heading_fold() -
     ]
 
 
-def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> None:
+def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> (
+    None
+):
     diff = build_loaded_diff(
         display_name="demo.md",
         mode="files",
@@ -669,7 +677,9 @@ def test_large_tree_sitter_diff_keeps_rich_render_mode() -> None:
     assert any(row.get("right_syntax") for row in diff["rows"])
     assert all(row["status"] != "fold" for row in diff["rows"])
     changed_rows = [
-        row for row in diff["rows"] if row.get("left_text") != row.get("right_text")
+        row
+        for row in diff["rows"]
+        if row.get("left_text") != row.get("right_text")
     ]
     assert changed_rows
     assert "right_syntax" in changed_rows[0] or "left_syntax" in changed_rows[0]
@@ -724,7 +734,11 @@ def test_build_loaded_diff_renders_notebook_cells_when_ipynb_is_valid() -> None:
                     "metadata": {"collapsed": True},
                     "source": ["value = 2\n", "print(value)\n"],
                     "outputs": [
-                        {"output_type": "stream", "name": "stdout", "text": "2\n"}
+                        {
+                            "output_type": "stream",
+                            "name": "stdout",
+                            "text": "2\n",
+                        }
                     ],
                 }
             ],
@@ -898,7 +912,9 @@ def test_build_loaded_diff_keeps_notebook_metadata_and_outputs_lazy() -> None:
     assert cell["outputs_hunk_count"] >= 1
 
 
-def test_build_loaded_diff_falls_back_to_text_for_invalid_notebook_json() -> None:
+def test_build_loaded_diff_falls_back_to_text_for_invalid_notebook_json() -> (
+    None
+):
     diff = build_loaded_diff(
         display_name="broken.ipynb",
         mode="files",

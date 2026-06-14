@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from functools import lru_cache
-import importlib
 from importlib.resources import files
 from typing import Any, Literal
 
@@ -255,7 +255,9 @@ def _collect_markdown_section_hints(
     rule = spec.rules[0]
     for index, (heading, _level, label_text) in enumerate(headings):
         context_start_line, _ = _node_line_span(heading, source_bytes)
-        heading_start_line, heading_end_line = _node_line_span(heading, source_bytes)
+        heading_start_line, heading_end_line = _node_line_span(
+            heading, source_bytes
+        )
         context_end_line = max(right_line_to_row)
         for next_heading, next_level, _next_label in headings[index + 1 :]:
             if next_level <= _markdown_heading_level(heading):
@@ -359,7 +361,9 @@ def _collect_candidates(
 
         label_nodes = capture_map.get("fold.label", [])
         label_text = (
-            _node_text(label_nodes[0], source_bytes).strip() if label_nodes else None
+            _node_text(label_nodes[0], source_bytes).strip()
+            if label_nodes
+            else None
         )
         candidate = FoldCandidate(
             rule=rule,
@@ -381,7 +385,9 @@ def _collect_candidates(
             candidate.hidden_end_row,
         )
         existing = deduped.get(dedupe_key)
-        if existing is None or (not existing.label_text and candidate.label_text):
+        if existing is None or (
+            not existing.label_text and candidate.label_text
+        ):
             deduped[dedupe_key] = candidate
 
     return sorted(
@@ -482,7 +488,11 @@ def _child_candidates(
     all_candidates: list[FoldCandidate],
 ) -> list[FoldCandidate]:
     return sorted(
-        (candidate for candidate in all_candidates if candidate.parent is parent),
+        (
+            candidate
+            for candidate in all_candidates
+            if candidate.parent is parent
+        ),
         key=lambda candidate: (
             candidate.context_start_byte,
             candidate.context_end_byte,
@@ -584,8 +594,12 @@ def _node_text(node: Node, source_bytes: bytes) -> str:
 def _markdown_heading_level(node: Node) -> int:
     if node.type == "atx_heading":
         for child in node.children:
-            if child.type.startswith("atx_h") and child.type.endswith("_marker"):
-                return int(child.type.removeprefix("atx_h").removesuffix("_marker"))
+            if child.type.startswith("atx_h") and child.type.endswith(
+                "_marker"
+            ):
+                return int(
+                    child.type.removeprefix("atx_h").removesuffix("_marker")
+                )
         return 6
     if node.type == "setext_heading":
         for child in node.children:

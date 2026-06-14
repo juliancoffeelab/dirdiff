@@ -166,7 +166,9 @@ def _load_query_text(package_name: str, query_path: str) -> str:
     query_file = files(package_name).joinpath(query_path)
     query_text = query_file.read_text(encoding="utf-8")
     inherited_query_texts = [
-        _load_query_text(package_name, _sibling_query_path(query_path, inherited_name))
+        _load_query_text(
+            package_name, _sibling_query_path(query_path, inherited_name)
+        )
         for inherited_name in _inherited_query_names(query_text)
     ]
     return "\n".join([*inherited_query_texts, query_text])
@@ -219,7 +221,9 @@ def _highlight_lines_with_spec(
 
     byte_boundaries = [0]
     for character in text:
-        byte_boundaries.append(byte_boundaries[-1] + len(character.encode("utf-8")))
+        byte_boundaries.append(
+            byte_boundaries[-1] + len(character.encode("utf-8"))
+        )
 
     line_texts = text.splitlines()
     line_starts = [0]
@@ -240,18 +244,26 @@ def _highlight_lines_with_spec(
         first_line = bisect_right(line_starts, start_char) - 1
         last_line = bisect_right(line_starts, max(start_char, end_char - 1)) - 1
 
-        for line_index in range(first_line, min(last_line + 1, len(line_texts))):
+        for line_index in range(
+            first_line, min(last_line + 1, len(line_texts))
+        ):
             line_start = line_starts[line_index]
             line_end = line_start + len(line_texts[line_index])
             local_start = max(start_char, line_start) - line_start
             local_end = min(end_char, line_end) - line_start
             if local_start >= local_end:
                 continue
-            line_intervals[line_index].append((local_start, local_end, classes, order))
+            line_intervals[line_index].append(
+                (local_start, local_end, classes, order)
+            )
 
     return [
         [
-            {"start": span.start, "end": span.end, "classes": list(span.classes)}
+            {
+                "start": span.start,
+                "end": span.end,
+                "classes": list(span.classes),
+            }
             for span in _collapse_line_intervals(line, intervals)
         ]
         for line, intervals in zip(line_texts, line_intervals)

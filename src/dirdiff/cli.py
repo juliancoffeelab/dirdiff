@@ -13,13 +13,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-from dirdiff.diff import (
+from dirdiff.services import (
     DifftasticDiffService,
-    PresetBackend,
     GitDiffService,
-    GitBackend,
     TextDiffService,
 )
+from dirdiff.sources import GitBackend, PresetBackend
 from dirdiff.server import DiffServiceProtocol, create_app
 from typing import Any
 import uvicorn
@@ -54,7 +53,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Standalone diff viewer for generic text files."
     )
-    parser.add_argument("--left", default="index", help="Left diff side or Git ref")
+    parser.add_argument(
+        "--left", default="index", help="Left diff side or Git ref"
+    )
     parser.add_argument(
         "--right", default="worktree", help="Right diff side or Git ref"
     )
@@ -206,7 +207,9 @@ def load_runtime_config() -> RuntimeConfig:
 
 def create_app_from_runtime_config() -> Any:
     config = load_runtime_config()
-    repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
+    repo_root = (
+        Path(config.repo_root).expanduser() if config.repo_root else None
+    )
     repo = GitBackend.discover(repo_root=repo_root)
     presets_root = (
         Path(config.presets_root).expanduser() if config.presets_root else None
@@ -280,7 +283,9 @@ def main() -> None:
     configure_logging()
     args = parse_args()
     config = runtime_config_from_args(args)
-    repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
+    repo_root = (
+        Path(config.repo_root).expanduser() if config.repo_root else None
+    )
     repo = GitBackend.discover(repo_root=repo_root)
     service = TextDiffService(repo)
     defaults = build_defaults(
@@ -304,7 +309,9 @@ def main() -> None:
 
     backend_url = _build_url(actual_port, defaults)
     url = (
-        _build_url(actual_frontend_port, defaults) if use_frontend_dev else backend_url
+        _build_url(actual_frontend_port, defaults)
+        if use_frontend_dev
+        else backend_url
     )
     if use_frontend_dev and (
         actual_port != args.port or actual_frontend_port != args.frontend_port
