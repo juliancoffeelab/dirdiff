@@ -127,6 +127,7 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "syrupy" },
 ]
 
 [package.metadata]
@@ -156,6 +157,7 @@ dev = [
     { name = "mypy", specifier = ">=2.1.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.15.17" },
+    { name = "syrupy", specifier = ">=5.3.2" },
 ]
 
 [[package]]
@@ -445,6 +447,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/25/44/ec35f1b6e83094b997da438a02c8c9b0ade2b1e84cfc48bd4656780760a6/starlette-1.2.1.tar.gz", hash = "sha256:9b9b5ebb992e67d6093741e63c2f59e4f6fff986f81163c087867bd7b924b3f6", size = 2701854, upload-time = "2026-05-31T01:07:51.847Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1c/54/196d0c1db10af76baa4f64894448505d60d3cdf70ef92cbb35f46a4e4c71/starlette-1.2.1-py3-none-any.whl", hash = "sha256:4de0082d08c8f6764a85a54cf1120d6939507a19905c7768acad2a9f875d2b89", size = 73350, upload-time = "2026-05-31T01:07:50.09Z" },
+]
+
+[[package]]
+name = "syrupy"
+version = "5.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/72/c793cd7c56b09f71be80ee2f4cc64c8e2b6a3dc8abf37fbfb09785aa00a7/syrupy-5.3.2.tar.gz", hash = "sha256:d4c9d4badb165a5694dcd869812717d899a8aa0b6f14f842437cb57c4ce09b3a", size = 85948, upload-time = "2026-06-09T14:46:32.721Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/19/e45765fa26388f42e22af2fc27f06e78e1da56d4211f883f6f8ddaac7646/syrupy-5.3.2-py3-none-any.whl", hash = "sha256:a4cb08f07342655816c16b6b3aef5f6af8859ef5fbad6a57d0e2c20c0f8be54c", size = 52643, upload-time = "2026-06-09T14:46:31.168Z" },
 ]
 
 [[package]]
