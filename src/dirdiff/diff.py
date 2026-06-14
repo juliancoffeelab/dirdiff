@@ -9,11 +9,11 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
-from difflib import SequenceMatcher
+from difflib import SequenceMatcher, unified_diff
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
-from dirdiff.fold import fold_hints_for_path
+from dirdiff.fold import FoldHint, fold_hints_for_path
 from dirdiff.syntax import highlight_lines_for_path
 
 
@@ -590,7 +590,7 @@ def _build_rows_payload(
     left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
     right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
     plain_render = left_syntax_lines is None and right_syntax_lines is None
-    fold_hints: list[dict[str, object]] = []
+    fold_hints: list[FoldHint] = []
 
     if plain_render:
         _strip_rich_row_markup(rows)
@@ -1684,9 +1684,9 @@ def _paired_difftastic_range_statuses(
     extra_status: Literal["insert", "delete"],
 ) -> list[Literal["replace", "insert", "delete"]]:
     paired_count = min(len(own_ranges), len(counterpart_ranges))
-    return ["replace"] * paired_count + [extra_status] * (
-        len(own_ranges) - paired_count
-    )
+    statuses: list[Literal["replace", "insert", "delete"]] = ["replace"] * paired_count
+    statuses.extend([extra_status] * (len(own_ranges) - paired_count))
+    return statuses
 
 
 def _difftastic_row_status_from_tokens(
@@ -1882,23 +1882,77 @@ def _difftastic_fragment_key_is_matchable(key: str) -> bool:
     return bool(key) and key not in {"{", "}", ":"}
 
 
-def _difftastic_fragment_contains_key(fragment_text: str, key: str) -> bool:
-    start = 0
-    while True:
-        index = fragment_text.find(key, start)
-        if index < 0:
-            return False
-        before = fragment_text[index - 1] if index > 0 else ""
-        if "=" in fragment_text[:index]:
-            start = index + 1
+def _difftastic_fragment_tokens(text: str) -> list[str]:
+    return [
+        part for part in _difftastic_changed_token_parts(text) if not part.isspace()
+    ]
+
+
+def _difftastic_token_is_syntax(token: str) -> bool:
+    return not re.fullmatch(r"\w+", token, flags=re.UNICODE)
+
+
+def _difftastic_tokens_are_syntax(tokens: list[str]) -> bool:
+    return bool(tokens) and all(_difftastic_token_is_syntax(token) for token in tokens)
+
+
+def _difftastic_tokens_are_assignment(tokens: list[str]) -> bool:
+    return "=" in tokens
+
+
+def _difftastic_tokens_have_member_access(tokens: list[str]) -> bool:
+    return "." in tokens
+
+
+def _difftastic_fragment_contains_key(
+    fragment_text: str,
+    key: str,
+    *,
+    allow_syntax_only: bool = False,
+    allow_assignment: bool = True,
+) -> bool:
+    fragment_tokens = _difftastic_fragment_tokens(fragment_text)
+    key_tokens = _difftastic_fragment_tokens(key)
+    if not key_tokens or len(key_tokens) > len(fragment_tokens):
+        return False
+
+    key_is_syntax_only = _difftastic_tokens_are_syntax(key_tokens)
+    key_is_assignment = _difftastic_tokens_are_assignment(key_tokens)
+    key_starts_with_syntax = _difftastic_token_is_syntax(key_tokens[0])
+    if key_is_syntax_only and not allow_syntax_only:
+        return False
+    if key_is_assignment and not allow_assignment:
+        return False
+    if (
+        not key_is_assignment
+        and not key_starts_with_syntax
+        and len(key_tokens) > 1
+        and fragment_text[:1].isspace()
+    ):
+        return False
+
+    last_start = len(fragment_tokens) - len(key_tokens)
+    for index in range(last_start + 1):
+        if fragment_tokens[index : index + len(key_tokens)] != key_tokens:
             continue
-        after_index = index + len(key)
-        after = fragment_text[after_index] if after_index < len(fragment_text) else ""
-        before_ok = not before or before.isspace() or before in "([{,]}"
-        after_ok = not after or after.isspace() or after in ")]},;"
-        if before_ok and after_ok:
+        if (
+            not key_is_syntax_only
+            and not key_is_assignment
+            and not key_starts_with_syntax
+            and index > 0
+            and not _difftastic_token_is_syntax(fragment_tokens[index - 1])
+        ):
+            continue
+        if not key_is_syntax_only and _difftastic_tokens_have_member_access(
+            fragment_tokens[:index]
+        ):
+            continue
+        if not key_is_syntax_only and "=" in fragment_tokens[:index]:
+            continue
+        tail_tokens = fragment_tokens[index + len(key_tokens) :]
+        if not tail_tokens or _difftastic_token_is_syntax(tail_tokens[0]):
             return True
-        start = index + 1
+    return False
 
 
 def _common_prefix_length(left: str, right: str) -> int:
@@ -1942,6 +1996,8 @@ def _find_difftastic_reconstructed_fragment(
     lower_bound: int,
     upper_bound: int,
     used: set[tuple[int, str]],
+    allow_assignment: bool = True,
+    allow_syntax_only: bool = True,
 ) -> DifftasticLineFragment | None:
     key = _difftastic_line_item_key(candidate)
     if not _difftastic_fragment_key_is_matchable(key):
@@ -1953,7 +2009,16 @@ def _find_difftastic_reconstructed_fragment(
             continue
         if not lower_bound <= fragment.source_index < upper_bound:
             continue
-        if _difftastic_fragment_contains_key(fragment.text, key):
+        if _difftastic_fragment_contains_key(
+            fragment.text,
+            key,
+            allow_syntax_only=allow_syntax_only
+            and any(
+                used_fragment_index == fragment.source_index
+                for used_fragment_index, _ in used
+            ),
+            allow_assignment=allow_assignment,
+        ):
             return fragment
     return None
 
@@ -2131,8 +2196,12 @@ def _difftastic_rows_from_json(
                 left_index + 1,
                 right_index + 1,
             )
-            left_status = "replace" if right_line_ranges else "delete"
-            right_status = "replace" if left_line_ranges else "insert"
+            left_status: Literal["replace", "delete"] = (
+                "replace" if right_line_ranges else "delete"
+            )
+            right_status: Literal["replace", "insert"] = (
+                "replace" if left_line_ranges else "insert"
+            )
             if left_line_ranges and right_line_ranges:
                 left_tokens = _changed_tokens_for_ranges_with_statuses(
                     left_line,
@@ -2321,6 +2390,8 @@ def _difftastic_rows_from_json(
                 lower_bound=lower,
                 upper_bound=upper,
                 used=used_left_fragments,
+                allow_assignment=False,
+                allow_syntax_only=False,
             )
             if reconstructed_left_fragment is not None:
                 row = _paired_line_row(
@@ -2352,6 +2423,8 @@ def _difftastic_rows_from_json(
                 lower_bound=lower,
                 upper_bound=upper,
                 used=used_left_fragments,
+                allow_assignment=False,
+                allow_syntax_only=False,
             )
             if reconstructed_left_fragment is not None:
                 rows.append(
@@ -2398,7 +2471,7 @@ def _build_git_rows_payload(
     left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
     right_syntax_lines = highlight_lines_for_path(right_path_hint, right_text)
     plain_render = left_syntax_lines is None and right_syntax_lines is None
-    fold_hints: list[dict[str, object]] = []
+    fold_hints: list[FoldHint] = []
 
     if plain_render:
         _strip_rich_row_markup(rows)
@@ -2566,7 +2639,62 @@ def _empty_repo_summary() -> dict[str, int]:
     }
 
 
-class GitRepository:
+class WorkspaceBackend(Protocol):
+    @property
+    def repo_root(self) -> Path | None: ...
+
+    @property
+    def cwd(self) -> Path: ...
+
+    def normalize_side(self, raw_side: str) -> SideName: ...
+
+    def discover_default_path(self) -> str: ...
+
+    def current_branch_name(self) -> str: ...
+
+    def list_branch_names(self) -> list[str]: ...
+
+    def list_remote_ref_names(self) -> list[str]: ...
+
+    def list_remote_names(self) -> list[str]: ...
+
+    def list_ref_choices(self) -> dict[str, list[str]]: ...
+
+    def default_remote_name(self) -> str: ...
+
+    def branch_upstream_name(self, branch_name: str) -> str: ...
+
+    def default_base_branch(self) -> str: ...
+
+    def preferred_review_branch(self, *, base_branch: str | None = None) -> str: ...
+
+    def resolve_branch_diff_sides(
+        self,
+        *,
+        base_branch: str,
+        branch: str,
+    ) -> tuple[str, str]: ...
+
+    def list_repo_diff_paths(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        show_untracked: bool = False,
+    ) -> list[RepoDiffPath]: ...
+
+    def normalize_repo_path(self, raw_path: str) -> str: ...
+
+    def load_version(self, path: str, side: SideName) -> TextVersion: ...
+
+
+class PatchBackend(WorkspaceBackend, Protocol):
+    def load_unified_patch(
+        self, *, left: SideName, right: SideName, path: str
+    ) -> str: ...
+
+
+class GitBackend:
     def __init__(self, repo_root: Path | None, *, cwd: Path | None = None) -> None:
         self.repo_root = repo_root.resolve() if repo_root is not None else None
         self.cwd = (cwd or Path.cwd()).resolve()
@@ -2577,7 +2705,7 @@ class GitRepository:
         cwd: Path | None = None,
         *,
         repo_root: Path | None = None,
-    ) -> "GitRepository":
+    ) -> "GitBackend":
         working_dir = (cwd or Path.cwd()).resolve()
         if repo_root is not None:
             return cls(Path(repo_root).expanduser().resolve(), cwd=working_dir)
@@ -2857,7 +2985,7 @@ class GitRepository:
             self._git_tree_spec(right),
         ], False
 
-    def load_git_patch(
+    def load_unified_patch(
         self,
         *,
         left: SideName,
@@ -2929,13 +3057,15 @@ class GitRepository:
             path = tokens[index].decode("utf-8")
             index += 1
 
-            left_path = path if change_kind != "A" else None
-            right_path = path if change_kind != "D" else None
+            current_left_path: str | None = path if change_kind != "A" else None
+            current_right_path: str | None = path if change_kind != "D" else None
             entries.append(
                 RepoDiffPath(
-                    left_path=left_path,
-                    right_path=right_path,
-                    display_name=_display_name_for_repo_paths(left_path, right_path),
+                    left_path=current_left_path,
+                    right_path=current_right_path,
+                    display_name=_display_name_for_repo_paths(
+                        current_left_path, current_right_path
+                    ),
                     change_type={
                         "A": "add",
                         "D": "delete",
@@ -3066,7 +3196,7 @@ class GitRepository:
             raise TextDiffError("Repo path must stay inside the repo.")
         return normalized
 
-    def load_git_version(self, path: str, side: SideName) -> TextVersion:
+    def load_version(self, path: str, side: SideName) -> TextVersion:
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
 
@@ -3099,8 +3229,228 @@ class GitRepository:
         )
 
 
+class PresetBackend:
+    def __init__(self, presets_root: Path, *, cwd: Path | None = None) -> None:
+        self.presets_root = presets_root.expanduser().resolve()
+        self.repo_root = self.presets_root
+        self.cwd = (cwd or Path.cwd()).resolve()
+
+    @classmethod
+    def discover(
+        cls,
+        cwd: Path | None = None,
+        *,
+        presets_root: Path | None = None,
+    ) -> "PresetBackend":
+        working_dir = (cwd or Path.cwd()).resolve()
+        root = presets_root or working_dir / "tests" / "presets" / "difftastic"
+        return cls(root, cwd=working_dir)
+
+    def _preset_dirs(self) -> list[Path]:
+        if not self.presets_root.exists():
+            return []
+        return sorted(
+            path
+            for path in self.presets_root.iterdir()
+            if path.is_dir()
+            and len(list(path.glob("old.*"))) == 1
+            and len(list(path.glob("new.*"))) == 1
+        )
+
+    def _list_preset_names(self) -> list[str]:
+        return [path.name for path in self._preset_dirs()]
+
+    def _preset_dir(self, preset_name: str) -> Path:
+        normalized = preset_name.strip()
+        if not normalized:
+            names = self._list_preset_names()
+            if not names:
+                raise TextDiffError(f"No presets found in {self.presets_root}.")
+            normalized = names[0]
+        if "/" in normalized or normalized in {".", ".."}:
+            raise TextDiffError("Preset name must be a single directory name.")
+        preset_dir = self.presets_root / normalized
+        if not preset_dir.is_dir():
+            raise TextDiffError(f"Unknown preset: {normalized}")
+        return preset_dir
+
+    def _preset_pair(self, preset_name: str) -> tuple[Path, Path]:
+        preset_dir = self._preset_dir(preset_name)
+        old_files = sorted(preset_dir.glob("old.*"))
+        new_files = sorted(preset_dir.glob("new.*"))
+        if len(old_files) != 1 or len(new_files) != 1:
+            raise TextDiffError(
+                f"Preset {preset_dir.name} must contain exactly one old.* and one new.* file."
+            )
+        return old_files[0], new_files[0]
+
+    def _path_for_side(self, path: str, side: SideName) -> Path:
+        normalized_path = self.normalize_repo_path(path)
+        full_path = self.presets_root / normalized_path
+        if full_path.is_file():
+            return full_path
+
+        preset = (
+            side
+            if side not in {"presets", "new"}
+            else PurePosixPath(normalized_path).parts[0]
+        )
+        old_path, new_path = self._preset_pair(preset)
+        wanted_name = PurePosixPath(normalized_path).name
+        if wanted_name == old_path.name:
+            return old_path
+        if wanted_name == new_path.name:
+            return new_path
+        raise TextDiffError(f"Preset file is missing: {normalized_path}")
+
+    def normalize_side(self, raw_side: str) -> SideName:
+        side = raw_side.strip()
+        if side in {"presets", "new"}:
+            return side
+        if side in self._list_preset_names():
+            return side
+        raise TextDiffError(f"Unknown preset: {side}")
+
+    def discover_default_path(self) -> str:
+        names = self._list_preset_names()
+        if not names:
+            raise TextDiffError(f"No presets found in {self.presets_root}.")
+        old_path, _ = self._preset_pair(names[0])
+        return f"{names[0]}/{old_path.name}"
+
+    def current_branch_name(self) -> str:
+        raise TextDiffError("Preset backend does not have a current Git branch.")
+
+    def list_branch_names(self) -> list[str]:
+        raise TextDiffError("Preset backend does not have Git branches.")
+
+    def list_remote_ref_names(self) -> list[str]:
+        raise TextDiffError("Preset backend does not have Git remote refs.")
+
+    def list_remote_names(self) -> list[str]:
+        raise TextDiffError("Preset backend does not have Git remotes.")
+
+    def list_ref_choices(self) -> dict[str, list[str]]:
+        return {
+            "builtins": [],
+            "locals": [],
+            "remotes": [],
+            "remote_names": [],
+        }
+
+    def default_remote_name(self) -> str:
+        raise TextDiffError("Preset backend does not have a default Git remote.")
+
+    def branch_upstream_name(self, branch_name: str) -> str:
+        raise TextDiffError("Preset backend does not have Git branch upstreams.")
+
+    def default_base_branch(self) -> str:
+        raise TextDiffError("Preset backend does not have a default base branch.")
+
+    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
+        raise TextDiffError("Preset backend does not support branch review.")
+
+    def resolve_branch_diff_sides(
+        self,
+        *,
+        base_branch: str,
+        branch: str,
+    ) -> tuple[str, str]:
+        raise TextDiffError("Preset backend does not support branch review.")
+
+    def list_repo_diff_paths(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        show_untracked: bool = False,
+    ) -> list[RepoDiffPath]:
+        normalized_left = self.normalize_side(left)
+        if right != "new":
+            raise TextDiffError(
+                "Preset diffs compare a preset's old.* and new.* files."
+            )
+        preset_names = (
+            self._list_preset_names()
+            if normalized_left == "presets"
+            else [normalized_left]
+        )
+        entries: list[RepoDiffPath] = []
+        for preset_name in preset_names:
+            old_path, new_path = self._preset_pair(preset_name)
+            old_text = old_path.read_text(encoding="utf-8")
+            new_text = new_path.read_text(encoding="utf-8")
+            rows = _line_rows(old_text, new_text)
+            added = sum(1 for row in rows if row["status"] == "insert")
+            removed = sum(1 for row in rows if row["status"] == "delete")
+            replaced = sum(1 for row in rows if row["status"] == "replace")
+            entries.append(
+                RepoDiffPath(
+                    left_path=f"{preset_name}/{old_path.name}",
+                    right_path=f"{preset_name}/{new_path.name}",
+                    display_name=f"{preset_name}/{new_path.name}",
+                    change_type="modify",
+                    changed_lines=added + removed + replaced,
+                    added_lines=added + replaced,
+                    removed_lines=removed + replaced,
+                )
+            )
+        return entries
+
+    def normalize_repo_path(self, raw_path: str) -> str:
+        if not raw_path.strip():
+            raise TextDiffError("Preset path is required.")
+        if raw_path.endswith("/"):
+            raise TextDiffError("Preset path must point to a file.")
+        candidate = PurePosixPath(raw_path)
+        if candidate.is_absolute():
+            raise TextDiffError("Use a preset-relative path.")
+        normalized = candidate.as_posix()
+        if normalized.startswith("../") or normalized == "..":
+            raise TextDiffError("Preset path must stay inside the presets root.")
+        parts = candidate.parts
+        if len(parts) != 2:
+            raise TextDiffError(
+                "Preset path must look like <preset>/<old-or-new-file>."
+            )
+        return normalized
+
+    def load_version(self, path: str, side: SideName) -> TextVersion:
+        normalized_path = self.normalize_repo_path(path)
+        file_path = self._path_for_side(normalized_path, side)
+        if not file_path.exists():
+            return TextVersion(label=side, exists=False, text=None)
+        return TextVersion(
+            label=side,
+            exists=True,
+            text=file_path.read_text(encoding="utf-8"),
+        )
+
+    def load_unified_patch(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        path: str,
+    ) -> str:
+        preset_name = PurePosixPath(path).parts[0]
+        self.normalize_side(left)
+        old_path, new_path = self._preset_pair(preset_name)
+        old_text = old_path.read_text(encoding="utf-8")
+        new_text = new_path.read_text(encoding="utf-8")
+        return "".join(
+            unified_diff(
+                old_text.splitlines(keepends=True),
+                new_text.splitlines(keepends=True),
+                fromfile=f"a/{preset_name}/{old_path.name}",
+                tofile=f"b/{preset_name}/{new_path.name}",
+                n=100000000,
+            )
+        )
+
+
 class TextDiffService:
-    def __init__(self, repo: GitRepository) -> None:
+    def __init__(self, repo: WorkspaceBackend) -> None:
         self.repo = repo
 
     @property
@@ -3171,8 +3521,8 @@ class TextDiffService:
     def normalize_repo_path(self, raw_path: str) -> str:
         return self.repo.normalize_repo_path(raw_path)
 
-    def load_git_version(self, path: str, side: SideName) -> TextVersion:
-        return self.repo.load_git_version(path, side)
+    def load_version(self, path: str, side: SideName) -> TextVersion:
+        return self.repo.load_version(path, side)
 
     def build_git_diff_paths(
         self,
@@ -3195,12 +3545,12 @@ class TextDiffService:
         normalized_left_side = self.normalize_side(left)
         normalized_right_side = self.normalize_side(right)
         left_version = (
-            self.load_git_version(normalized_left, normalized_left_side)
+            self.load_version(normalized_left, normalized_left_side)
             if normalized_left is not None
             else TextVersion(label=normalized_left_side, exists=False, text=None)
         )
         right_version = (
-            self.load_git_version(normalized_right, normalized_right_side)
+            self.load_version(normalized_right, normalized_right_side)
             if normalized_right is not None
             else TextVersion(label=normalized_right_side, exists=False, text=None)
         )
@@ -3290,12 +3640,12 @@ class TextDiffService:
         normalized_left_side = self.normalize_side(left)
         normalized_right_side = self.normalize_side(right)
         left_version = (
-            self.load_git_version(normalized_left, normalized_left_side)
+            self.load_version(normalized_left, normalized_left_side)
             if normalized_left is not None
             else TextVersion(label=normalized_left_side, exists=False, text=None)
         )
         right_version = (
-            self.load_git_version(normalized_right, normalized_right_side)
+            self.load_version(normalized_right, normalized_right_side)
             if normalized_right is not None
             else TextVersion(label=normalized_right_side, exists=False, text=None)
         )
@@ -3338,7 +3688,7 @@ class TextDiffService:
         right_path: str | None,
         left: str,
         right: str,
-        section: str,
+        section: str | None,
         cell_key: str | None = None,
     ) -> dict[str, Any]:
         context = self._load_git_notebook_context(
@@ -3390,6 +3740,8 @@ class TextDiffService:
             cell_key=cell_key,
         )
 
+        left_value: dict[str, Any] | list[Any]
+        right_value: dict[str, Any] | list[Any]
         if section == "cell-metadata":
             left_value = _cell_metadata(left_cell)
             right_value = _cell_metadata(right_cell)
@@ -3473,6 +3825,12 @@ class TextDiffService:
 
 
 class GitDiffService(TextDiffService):
+    repo: PatchBackend
+
+    def __init__(self, repo: PatchBackend) -> None:
+        super().__init__(repo)
+        self.repo = repo
+
     def build_git_diff_paths(
         self,
         *,
@@ -3494,12 +3852,12 @@ class GitDiffService(TextDiffService):
         normalized_left_side = self.normalize_side(left)
         normalized_right_side = self.normalize_side(right)
         left_version = (
-            self.load_git_version(normalized_left, normalized_left_side)
+            self.load_version(normalized_left, normalized_left_side)
             if normalized_left is not None
             else TextVersion(label=normalized_left_side, exists=False, text=None)
         )
         right_version = (
-            self.load_git_version(normalized_right, normalized_right_side)
+            self.load_version(normalized_right, normalized_right_side)
             if normalized_right is not None
             else TextVersion(label=normalized_right_side, exists=False, text=None)
         )
@@ -3516,7 +3874,7 @@ class GitDiffService(TextDiffService):
         patch_path = normalized_right or normalized_left
         rows = (
             _parse_git_patch_rows(
-                self.repo.load_git_patch(
+                self.repo.load_unified_patch(
                     left=normalized_left_side,
                     right=normalized_right_side,
                     path=patch_path,
@@ -3596,7 +3954,7 @@ class GitDiffService(TextDiffService):
         right_path: str | None,
         left: str,
         right: str,
-        section: str,
+        section: str | None,
         cell_key: str | None = None,
     ) -> dict[str, Any]:
         raise TextDiffError("Notebook sections are not available in the Git engine.")
@@ -3697,12 +4055,12 @@ class DifftasticDiffService(TextDiffService):
         normalized_left_side = self.normalize_side(left)
         normalized_right_side = self.normalize_side(right)
         left_version = (
-            self.load_git_version(normalized_left, normalized_left_side)
+            self.load_version(normalized_left, normalized_left_side)
             if normalized_left is not None
             else TextVersion(label=normalized_left_side, exists=False, text=None)
         )
         right_version = (
-            self.load_git_version(normalized_right, normalized_right_side)
+            self.load_version(normalized_right, normalized_right_side)
             if normalized_right is not None
             else TextVersion(label=normalized_right_side, exists=False, text=None)
         )

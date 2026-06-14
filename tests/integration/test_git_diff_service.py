@@ -2,7 +2,7 @@ from pathlib import Path
 import json
 import subprocess
 
-from dirdiff.diff import GitDiffService, GitRepository, TextDiffService
+from dirdiff.diff import GitDiffService, GitBackend, TextDiffService
 
 
 def test_build_repo_manifest_lists_changed_tracked_files(tmp_path: Path) -> None:
@@ -36,7 +36,7 @@ def test_build_repo_manifest_lists_changed_tracked_files(tmp_path: Path) -> None
     untracked_file = tmp_path / "beta.txt"
     untracked_file.write_text("new file\n", encoding="utf-8")
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     manifest = service.build_repo_manifest(
         left="index",
         right="worktree",
@@ -87,7 +87,7 @@ def test_build_repo_manifest_can_include_untracked_files_as_lazy(
     untracked_file = tmp_path / "beta.txt"
     untracked_file.write_text("new file\n", encoding="utf-8")
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     manifest = service.build_repo_manifest(
         left="head",
         right="worktree",
@@ -125,7 +125,7 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(tmp_path: Path) -> None
     untracked_file = tmp_path / "beta.txt"
     untracked_file.write_text("new file\n", encoding="utf-8")
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     payload = service.build_git_diff_paths(
         left_path=None,
         right_path="beta.txt",
@@ -201,7 +201,7 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     merge_base, normalized_branch = service.resolve_branch_diff_sides(
         base_branch="master",
         branch="feature",
@@ -253,7 +253,7 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(tmp_path: Path) -> N
     )
     changed_file.write_text("one\ntwo changed\nthree\n", encoding="utf-8")
 
-    repo = GitRepository.discover(cwd=tmp_path)
+    repo = GitBackend.discover(cwd=tmp_path)
     rich_service = TextDiffService(repo)
     git_service = GitDiffService(repo)
 
@@ -331,7 +331,7 @@ def test_build_repo_manifest_summarizes_changed_files(
     (tmp_path / "alpha.txt").write_text("one changed\n", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("two changed\n", encoding="utf-8")
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
 
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
@@ -372,7 +372,7 @@ def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
     )
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
 
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
@@ -427,7 +427,7 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
         encoding="utf-8",
     )
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
 
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
@@ -473,7 +473,7 @@ def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
     )
     deleted_file.unlink()
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
 
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
@@ -522,7 +522,7 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
 
     manifest = service.build_repo_manifest(left="head", right="worktree")
 
@@ -601,7 +601,7 @@ def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     notebook_diff = service.build_git_diff_paths(
         left_path="demo.ipynb",
         right_path="demo.ipynb",
@@ -702,7 +702,7 @@ def test_build_notebook_section_diff_loads_lazy_sections_on_demand(
         encoding="utf-8",
     )
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     notebook_diff = service.build_git_diff_paths(
         left_path="demo.ipynb",
         right_path="demo.ipynb",

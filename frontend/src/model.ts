@@ -37,7 +37,7 @@ export type FileGroup = {
 };
 
 const modeSides: Record<
-  Exclude<DiffMode, "refs" | "branch-review">,
+  Exclude<DiffMode, "refs" | "branch-review" | "preset">,
   [string, string]
 > = {
   files: ["index", "worktree"],
@@ -51,11 +51,13 @@ export const modeLabels: Record<DiffMode, string> = {
   "against-head": "Diff against HEAD",
   refs: "Compare refs",
   "branch-review": "Branch review",
+  preset: "Preset",
 };
 export const topLevelModes: DiffMode[] = [
   "against-head",
   "refs",
   "branch-review",
+  "preset",
 ];
 export const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
@@ -106,7 +108,12 @@ function normalizeTopLevelMode(
   baseBranch: string,
   reviewBranch: string,
 ): DiffMode {
-  if (mode === "refs" || mode === "branch-review" || mode === "against-head") {
+  if (
+    mode === "refs" ||
+    mode === "branch-review" ||
+    mode === "against-head" ||
+    mode === "preset"
+  ) {
     return mode;
   }
   if (mode === "files" || mode === "staged") {
@@ -194,6 +201,18 @@ export function buildRequest(
       mode: controls.mode,
       left: controls.left.trim(),
       right: controls.right.trim(),
+      base_branch: null,
+      review_branch: null,
+      show_untracked: false,
+    };
+  }
+
+  if (controls.mode === "preset") {
+    return {
+      engine,
+      mode: controls.mode,
+      left: "presets",
+      right: "new",
       base_branch: null,
       review_branch: null,
       show_untracked: false,
@@ -293,6 +312,9 @@ export function statusLabel(
   }
   if (request.mode === "branch-review") {
     return `${request.review_branch} vs ${request.base_branch}`;
+  }
+  if (request.mode === "preset") {
+    return "Preset diffs";
   }
   return `${leftLabel || request.left} vs ${rightLabel || request.right}`;
 }

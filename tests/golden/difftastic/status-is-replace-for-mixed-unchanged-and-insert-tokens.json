@@ -1,0 +1,58 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "value = arg",
+    "right_no": 1,
+    "right_text": "value = arg",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "value = (arg,)",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "value"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "arg"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  }
+]

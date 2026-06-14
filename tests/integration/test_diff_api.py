@@ -4,7 +4,7 @@ import subprocess
 from fastapi.testclient import TestClient
 
 from dirdiff.cli import build_defaults
-from dirdiff.diff import GitRepository, TextDiffService
+from dirdiff.diff import GitBackend, TextDiffService
 from dirdiff.server import create_app
 
 
@@ -37,7 +37,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(tmp_path: Path) -> 
     )
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
 
@@ -99,7 +99,7 @@ def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(tmp_path: Path) -
     )
     deleted_file.unlink()
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     defaults = build_defaults(service)
     client = TestClient(create_app(service, defaults))
 

@@ -32,6 +32,7 @@ dirdiff = "dirdiff.cli:main"
 [dependency-groups]
 dev = [
     "httpx2>=2.3.0",
+    "mypy>=2.1.0",
     "pytest>=8.0",
     "ruff>=0.15.17",
 ]
@@ -43,3 +44,6 @@ packages = ["src/dirdiff"]
 testpaths = ["tests"]
 addopts = ["-m", "not git"]
 markers = ["git: tests that create real git repositories or shell out to git"]
+
+[tool.mypy]
+exclude = ["tests/presets/"]

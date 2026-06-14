@@ -219,13 +219,13 @@ function App() {
     });
   });
 
-  const refChoices = () =>
-    defaults.data?.ref_choices ?? {
-      builtins: [],
-      locals: [],
-      remotes: [],
-      remote_names: [],
-    };
+  const refChoices = () => {
+    const value = defaults.data;
+    if (!value) {
+      throw new Error("Ref choices require loaded defaults.");
+    }
+    return value.ref_choices;
+  };
   const resetDiffState = (nextStatus: LoadState, nextStatusText: string) => {
     batch(() => {
       setFiles([]);

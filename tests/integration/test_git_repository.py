@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess
 
-from dirdiff.diff import GitRepository, TextDiffService
+from dirdiff.diff import GitBackend, TextDiffService
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
@@ -38,7 +38,7 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     paths = service.list_repo_diff_paths(left="head", right="worktree")
 
     assert len(paths) == 1
@@ -121,7 +121,7 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     ref_choices = service.list_ref_choices()
     merge_base, normalized_branch = service.resolve_branch_diff_sides(
         base_branch="upstream/main",
@@ -145,7 +145,7 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
 
 
 def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
-    repository = GitRepository(tmp_path)
+    repository = GitBackend(tmp_path)
 
     counts = repository._parse_numstat_output(b"2\t1\t\0old/name.txt\0new/name.txt\0")
 

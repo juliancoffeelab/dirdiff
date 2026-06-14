@@ -3,7 +3,8 @@ export type DiffMode =
   | "staged"
   | "against-head"
   | "refs"
-  | "branch-review";
+  | "branch-review"
+  | "preset";
 export type DiffEngine = "dirdiff" | "git" | "difftastic";
 
 export type RefChoices = {

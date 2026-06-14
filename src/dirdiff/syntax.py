@@ -210,7 +210,7 @@ def _highlight_lines_with_spec(
         if character == "\n":
             line_starts.append(index + 1)
 
-    line_intervals: list[list[tuple[int, int, tuple[str, ...]]]] = [
+    line_intervals: list[list[tuple[int, int, tuple[str, ...], int]]] = [
         [] for _ in line_texts
     ]
     for order, (capture_name, start_byte, end_byte) in enumerate(captures):

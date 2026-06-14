@@ -1,0 +1,365 @@
+[
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 1,
+    "right_text": "type InlineToken = { text: string };",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "type"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "InlineToken"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "text"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "string"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 1,
+    "left_text": "type SyntaxSpan = { start: number; end: number };",
+    "right_no": 2,
+    "right_text": "type SyntaxSpan = { start: number; end: number };",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "export function syntaxParts(syntax: SyntaxSpan[]): SyntaxSpan[] {",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "export function "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "syntaxParts"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "(syntax: SyntaxSpan[]): SyntaxSpan"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " {"
+      }
+    ],
+    "right_no": 4,
+    "right_text": "export function decoratedParts(",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "export function "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "decoratedParts"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "  syntax: SyntaxSpan[],",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  syntax: SyntaxSpan[]"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "  tokens: InlineToken[],",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "tokens"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "InlineToken"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 7,
+    "right_text": "): Array<SyntaxSpan | InlineToken> {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "): "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Array"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "SyntaxSpan "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "InlineToken"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " {"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  return syntax;",
+    "left_tokens": [],
+    "right_no": 8,
+    "right_text": "  return [...syntax, ...tokens];",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  return "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "syntax"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "tokens"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 5,
+    "left_text": "}",
+    "right_no": 9,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

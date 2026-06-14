@@ -1,18 +1,19 @@
 import logging
 from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any, Literal, Protocol
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from dirdiff.diff import TextDiffError, TextDiffService
+from dirdiff.diff import TextDiffError
 
 
 LOGGER = logging.getLogger(__name__)
 
-ModeParam = Literal["files", "staged", "head", "refs", "branch-review"]
+ModeParam = Literal["files", "staged", "head", "refs", "branch-review", "preset"]
 EngineParam = Literal["dirdiff", "git", "difftastic"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 GitFileStatus = Literal["modified", "added", "deleted", "renamed", "copied"]
@@ -20,6 +21,50 @@ LazyReason = (
     Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"] | None
 )
 RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
+
+
+class DiffServiceProtocol(Protocol):
+    @property
+    def repo_root(self) -> Path | None: ...
+
+    def default_base_branch(self) -> str: ...
+
+    def preferred_review_branch(self, *, base_branch: str | None = None) -> str: ...
+
+    def list_ref_choices(self) -> dict[str, list[str]]: ...
+
+    def normalize_side(self, side: str) -> str: ...
+
+    def resolve_branch_diff_sides(
+        self, *, base_branch: str, branch: str
+    ) -> tuple[str, str]: ...
+
+    def build_repo_manifest(
+        self, *, left: str, right: str, show_untracked: bool = False
+    ) -> dict[str, Any]: ...
+
+    def build_git_diff_paths(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None = None,
+        change_type: str = "modify",
+        file_kind: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    def build_notebook_section_diff(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        section: str | None,
+        cell_key: str | None = None,
+    ) -> dict[str, Any]: ...
 
 
 class ApiModel(BaseModel):
@@ -241,15 +286,24 @@ def selected_branches(
 
 
 def create_app(
-    service: TextDiffService,
+    service: DiffServiceProtocol,
     defaults: dict[str, Any],
     *,
-    services: Mapping[str, TextDiffService] | None = None,
+    services: Mapping[str, DiffServiceProtocol] | None = None,
+    preset_services: Mapping[str, DiffServiceProtocol] | None = None,
 ) -> FastAPI:
     app = FastAPI()
     diff_services = {"dirdiff": service, **(services or {})}
+    preset_diff_services = {
+        "dirdiff": service,
+        **(preset_services or {}),
+    }
 
-    def selected_service(engine: EngineParam) -> TextDiffService:
+    def selected_service(
+        engine: EngineParam, *, mode: ModeParam
+    ) -> DiffServiceProtocol:
+        if mode == "preset":
+            return preset_diff_services.get(engine, preset_diff_services["dirdiff"])
         return diff_services.get(engine, service)
 
     @app.get("/", response_class=HTMLResponse)
@@ -338,6 +392,10 @@ def create_app(
             default=defaults.get("review_branch"),
             description="Branch being reviewed in branch-review mode.",
         ),
+        preset: str | None = Query(
+            default=defaults.get("preset"),
+            description="Preset name for preset mode.",
+        ),
         show_untracked: bool = Query(
             default=False,
             description="Include untracked worktree files when supported by the selected mode.",
@@ -348,9 +406,19 @@ def create_app(
             base_branch=base_branch,
             review_branch=review_branch,
         )
-        diff_service = selected_service(engine)
+        diff_service = selected_service(engine, mode=mode)
         try:
-            if mode == "branch-review" and selected_review_branch:
+            if mode == "preset":
+                preset_name = preset.strip() if preset and preset.strip() else "presets"
+                payload = diff_service.build_repo_manifest(
+                    left=preset_name,
+                    right="new",
+                    show_untracked=False,
+                )
+                payload["display_name"] = "Preset diffs"
+                payload["left_label"] = "old"
+                payload["right_label"] = "new"
+            elif mode == "branch-review" and selected_review_branch:
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
                         service=diff_service,
@@ -416,6 +484,10 @@ def create_app(
             default=defaults.get("review_branch"),
             description="Branch being reviewed in branch-review mode.",
         ),
+        preset: str | None = Query(
+            default=defaults.get("preset"),
+            description="Preset name for preset mode.",
+        ),
         left_path: str | None = Query(
             default=None, description="Repo-relative path on the left side."
         ),
@@ -437,10 +509,23 @@ def create_app(
             base_branch=base_branch,
             review_branch=review_branch,
         )
-        diff_service = selected_service(engine)
+        diff_service = selected_service(engine, mode=mode)
 
         try:
-            if (
+            if mode == "preset":
+                preset_name = preset.strip() if preset and preset.strip() else "presets"
+                payload = diff_service.build_git_diff_paths(
+                    left_path=left_path,
+                    right_path=right_path,
+                    left=preset_name,
+                    right="new",
+                    display_name=display_name,
+                    change_type=change_type,
+                    file_kind=file_kind,
+                )
+                payload["left_label"] = "old"
+                payload["right_label"] = "new"
+            elif (
                 mode == "branch-review"
                 and selected_review_branch
                 and selected_review_branch.strip()
@@ -518,6 +603,10 @@ def create_app(
             default=defaults.get("review_branch"),
             description="Branch being reviewed in branch-review mode.",
         ),
+        preset: str | None = Query(
+            default=defaults.get("preset"),
+            description="Preset name for preset mode.",
+        ),
         section: str | None = Query(
             default=None,
             description="Notebook section name, for example `notebook-metadata`, `cell-metadata`, or `cell-outputs`.",
@@ -537,10 +626,22 @@ def create_app(
             base_branch=base_branch,
             review_branch=review_branch,
         )
-        diff_service = selected_service(engine)
+        diff_service = selected_service(engine, mode=mode)
 
         try:
-            if (
+            if mode == "preset":
+                preset_name = preset.strip() if preset and preset.strip() else "presets"
+                payload = diff_service.build_notebook_section_diff(
+                    left_path=left_path,
+                    right_path=right_path,
+                    left=preset_name,
+                    right="new",
+                    section=section,
+                    cell_key=cell_key,
+                )
+                payload["left_label"] = "old"
+                payload["right_label"] = "new"
+            elif (
                 mode == "branch-review"
                 and selected_review_branch
                 and selected_review_branch.strip()
@@ -557,7 +658,7 @@ def create_app(
                     right_path=right_path,
                     left=merge_base,
                     right=normalized_branch,
-                    section=section or "",
+                    section=section,
                     cell_key=cell_key,
                 )
                 payload["left_label"] = (
@@ -570,7 +671,7 @@ def create_app(
                     right_path=right_path,
                     left=left,
                     right=right,
-                    section=section or "",
+                    section=section,
                     cell_key=cell_key,
                 )
         except TextDiffError as exc:
@@ -592,7 +693,7 @@ def create_app(
 
 def _resolve_branch_review_refs(
     *,
-    service: TextDiffService,
+    service: DiffServiceProtocol,
     base_branch: str | None,
     branch: str,
 ) -> tuple[str, str, str]:

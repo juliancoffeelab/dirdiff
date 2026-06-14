@@ -10,6 +10,7 @@ from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
 RegionKind = Literal["function_like", "class_like", "container", "section"]
 StartMode = Literal["node_start", "next_line"]
+FoldHint = dict[str, int | str]
 
 
 @dataclass(frozen=True)
@@ -158,7 +159,7 @@ def fold_hints_for_path(
     path: str | None,
     text: str | None,
     rows: list[dict[str, Any]],
-) -> list[dict[str, object]]:
+) -> list[FoldHint]:
     if not path or not text or not rows:
         return []
 
@@ -214,10 +215,10 @@ def fold_hints_for_path(
         ),
     )
 
-    hints: list[dict[str, object]] = []
+    hints: list[FoldHint] = []
     for candidate in root_candidates:
         _collect_hints(candidate, candidates, rows, hints)
-    hints.sort(key=lambda hint: (int(hint["start_row"]), int(hint["end_row"])))
+    hints.sort(key=_fold_hint_sort_key)
     return hints
 
 
@@ -227,7 +228,7 @@ def _collect_markdown_section_hints(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
     rows: list[dict[str, Any]],
-) -> list[dict[str, object]]:
+) -> list[FoldHint]:
     if not spec.rules:
         return []
 
@@ -302,10 +303,10 @@ def _collect_markdown_section_hints(
             candidate.context_end_byte,
         ),
     )
-    hints: list[dict[str, object]] = []
+    hints: list[FoldHint] = []
     for candidate in root_candidates:
         _collect_hints(candidate, candidates, rows, hints)
-    hints.sort(key=lambda hint: (int(hint["start_row"]), int(hint["end_row"])))
+    hints.sort(key=_fold_hint_sort_key)
     return hints
 
 
@@ -409,7 +410,7 @@ def _collect_hints(
     candidate: FoldCandidate,
     all_candidates: list[FoldCandidate],
     rows: list[dict[str, Any]],
-    hints: list[dict[str, object]],
+    hints: list[FoldHint],
 ) -> None:
     if candidate.rule.region_kind == "class_like":
         for child in _child_candidates(candidate, all_candidates):
@@ -453,7 +454,7 @@ def _collect_hints(
 def _candidate_to_hint(
     candidate: FoldCandidate,
     rows: list[dict[str, Any]],
-) -> dict[str, object] | None:
+) -> FoldHint | None:
     hidden_rows = candidate.hidden_end_row - candidate.hidden_start_row
     if hidden_rows < candidate.rule.min_hidden_rows:
         return None
@@ -470,6 +471,10 @@ def _candidate_to_hint(
         "end_row": candidate.hidden_end_row,
         "label": label,
     }
+
+
+def _fold_hint_sort_key(hint: FoldHint) -> tuple[int, int]:
+    return int(hint["start_row"]), int(hint["end_row"])
 
 
 def _child_candidates(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,7 +18,13 @@ from dirdiff.cli import (
     load_runtime_config,
     store_runtime_config,
 )
-from dirdiff.diff import GitRepository, RepoDiffPath, TextVersion
+from dirdiff.diff import (
+    GitBackend,
+    PresetBackend,
+    RepoDiffPath,
+    TextDiffService,
+    TextVersion,
+)
 from dirdiff.server import TextFileDiffResponse, create_app
 
 
@@ -129,7 +136,7 @@ class FakeDiffService:
                     "delete": "deleted",
                     "rename": "renamed",
                     "copy": "copied",
-                }.get(change_type, "modified"),
+                }.get(change_type or "modify", "modified"),
             }
         )
         return {
@@ -154,8 +161,37 @@ class FakeDiffService:
             "fold_hints": [],
         }
 
+    def build_notebook_section_diff(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        section: str | None,
+        cell_key: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "display_name": left_path or right_path or "notebook.ipynb",
+            "mode": "notebook-section",
+            "left_label": left,
+            "right_label": right,
+            "summary": TEXT_SUMMARY,
+            "rows": [],
+            "left_path": left_path,
+            "right_path": right_path,
+            "section": section,
+            "cell_key": cell_key,
+            "fold_hints": [],
+        }
 
-class FakeGitRepository(FakeDiffService):
+    def resolve_branch_diff_sides(
+        self, *, base_branch: str, branch: str
+    ) -> tuple[str, str]:
+        return f"merge-base({base_branch},{branch})", branch
+
+
+class FakeGitBackend(FakeDiffService):
     def list_repo_diff_paths(
         self, *, left: str, right: str, show_untracked: bool = False
     ) -> list[RepoDiffPath]:
@@ -171,7 +207,7 @@ class FakeGitRepository(FakeDiffService):
     def normalize_repo_path(self, raw_path: str) -> str:
         return raw_path
 
-    def load_git_version(self, path: str, side: str) -> TextVersion:
+    def load_version(self, path: str, side: str) -> TextVersion:
         text = "one\n" if side == "index" else "two\n"
         return TextVersion(label=side, exists=True, text=text)
 
@@ -300,12 +336,12 @@ def test_create_app_from_runtime_config_uses_stored_repo_root(
 
     def discover(
         *, repo_root: Path | None = None, cwd: Path | None = None
-    ) -> FakeGitRepository:
+    ) -> FakeGitBackend:
         nonlocal discovered_repo_root
         discovered_repo_root = repo_root
-        return FakeGitRepository(repo_root or cwd or tmp_path)
+        return FakeGitBackend(repo_root or cwd or tmp_path)
 
-    monkeypatch.setattr(GitRepository, "discover", staticmethod(discover))
+    monkeypatch.setattr(GitBackend, "discover", staticmethod(discover))
     store_runtime_config(
         RuntimeConfig(
             repo_root=str(tmp_path),
@@ -319,6 +355,136 @@ def test_create_app_from_runtime_config_uses_stored_repo_root(
     assert response.status_code == 200
     assert discovered_repo_root == tmp_path
     assert payload["mode"] == "repo"
+
+
+def test_preset_backend_lists_all_presets_and_loads_file_diff(tmp_path: Path) -> None:
+    first_preset_dir = tmp_path / "example"
+    first_preset_dir.mkdir()
+    (first_preset_dir / "old.py").write_text(
+        "def value():\n    return 1\n", encoding="utf-8"
+    )
+    (first_preset_dir / "new.py").write_text(
+        "def value():\n    return 2\n", encoding="utf-8"
+    )
+    second_preset_dir = tmp_path / "second"
+    second_preset_dir.mkdir()
+    (second_preset_dir / "old.ts").write_text(
+        "export const value = 1;\n", encoding="utf-8"
+    )
+    (second_preset_dir / "new.ts").write_text(
+        "export const value = 2;\n", encoding="utf-8"
+    )
+    backend = PresetBackend(tmp_path)
+    service = TextDiffService(backend)
+    defaults = default_bootstrap()
+    defaults["mode"] = "preset"
+    defaults["left"] = "presets"
+    defaults["right"] = "new"
+    client = TestClient(create_app(service, defaults))
+
+    manifest_response = client.get(
+        "/api/diff",
+        params={"mode": "preset", "engine": "dirdiff"},
+    )
+    manifest = manifest_response.json()
+
+    assert manifest_response.status_code == 200
+    assert manifest == {
+        "display_name": "Preset diffs",
+        "mode": "repo",
+        "left_label": "old",
+        "right_label": "new",
+        "summary": {
+            "changed_files": 2,
+            "added_files": 0,
+            "removed_files": 0,
+            "updated_files": 2,
+            "changed_lines": 2,
+            "modified_lines": 2,
+            "added_lines": 0,
+            "removed_lines": 0,
+            "skipped_files": 0,
+        },
+        "files": [
+            {
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "example/old.py",
+                "right_path": "example/new.py",
+            },
+            {
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "second/old.ts",
+                "right_path": "second/new.ts",
+            },
+        ],
+    }
+
+    file_response = client.get(
+        "/api/file-diff",
+        params={
+            "mode": "preset",
+            "engine": "dirdiff",
+            "left_path": "example/old.py",
+            "right_path": "example/new.py",
+        },
+    )
+    file_payload = file_response.json()
+
+    assert file_response.status_code == 200
+    assert file_payload["left_label"] == "old"
+    assert file_payload["right_label"] == "new"
+    assert file_payload["rows"] == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "def value():",
+            "right_text": "def value():",
+            "left_tokens": [],
+            "right_tokens": [],
+            "left_syntax": [
+                {"start": 0, "end": 3, "classes": ["ts-keyword"]},
+                {"start": 4, "end": 9, "classes": ["ts-function"]},
+            ],
+            "right_syntax": [
+                {"start": 0, "end": 3, "classes": ["ts-keyword"]},
+                {"start": 4, "end": 9, "classes": ["ts-function"]},
+            ],
+            "count": None,
+            "foldedRows": [],
+            "label": None,
+        },
+        {
+            "status": "replace",
+            "left_no": 2,
+            "right_no": 2,
+            "left_text": "    return 1",
+            "right_text": "    return 2",
+            "left_tokens": [
+                {"text": "    ", "is_ws": True, "status": "unchanged"},
+                {"text": "return", "is_ws": False, "status": "unchanged"},
+                {"text": " ", "is_ws": True, "status": "unchanged"},
+                {"text": "1", "is_ws": False, "status": "replace"},
+            ],
+            "right_tokens": [
+                {"text": "    ", "is_ws": True, "status": "unchanged"},
+                {"text": "return", "is_ws": False, "status": "unchanged"},
+                {"text": " ", "is_ws": True, "status": "unchanged"},
+                {"text": "2", "is_ws": False, "status": "replace"},
+            ],
+            "left_syntax": [
+                {"start": 4, "end": 10, "classes": ["ts-keyword"]},
+                {"start": 11, "end": 12, "classes": ["ts-number"]},
+            ],
+            "right_syntax": [
+                {"start": 4, "end": 10, "classes": ["ts-keyword"]},
+                {"start": 11, "end": 12, "classes": ["ts-number"]},
+            ],
+            "count": None,
+            "foldedRows": [],
+            "label": None,
+        },
+    ]
 
 
 def test_defaults_endpoint_returns_frontend_bootstrap_state(

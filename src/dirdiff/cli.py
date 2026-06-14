@@ -15,11 +15,12 @@ from urllib.parse import quote, urlencode
 
 from dirdiff.diff import (
     DifftasticDiffService,
+    PresetBackend,
     GitDiffService,
-    GitRepository,
+    GitBackend,
     TextDiffService,
 )
-from dirdiff.server import create_app
+from dirdiff.server import DiffServiceProtocol, create_app
 from typing import Any
 import uvicorn
 
@@ -37,6 +38,7 @@ class RuntimeConfig:
     base_branch: str | None = None
     review_branch: str | None = None
     repo_root: str | None = None
+    presets_root: str | None = None
 
 
 def configure_logging() -> None:
@@ -69,6 +71,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--repo-root",
         help="Optional Git repo root to use for repo-backed diffs",
+    )
+    parser.add_argument(
+        "--presets-root",
+        help="Directory containing preset folders with old.* and new.* files.",
     )
     parser.add_argument(
         "--port",
@@ -146,7 +152,7 @@ def _start_frontend_dev_server(
 
 
 def build_defaults(
-    service: TextDiffService,
+    service: DiffServiceProtocol,
     *,
     left: str = "index",
     right: str = "worktree",
@@ -157,6 +163,7 @@ def build_defaults(
     preferred_review_branch = service.preferred_review_branch(
         base_branch=default_base_branch
     )
+    ref_choices = service.list_ref_choices()
     initial_mode = "files"
     if review_branch:
         initial_mode = "branch-review"
@@ -170,7 +177,7 @@ def build_defaults(
         "right": right,
         "base_branch": base_branch or default_base_branch,
         "review_branch": review_branch or preferred_review_branch,
-        "ref_choices": service.list_ref_choices(),
+        "ref_choices": ref_choices,
         "repo_available": bool(service.repo_root),
     }
 
@@ -182,6 +189,7 @@ def runtime_config_from_args(args: argparse.Namespace) -> RuntimeConfig:
         base_branch=args.base_branch,
         review_branch=args.review_branch,
         repo_root=args.repo_root,
+        presets_root=args.presets_root,
     )
 
 
@@ -199,10 +207,17 @@ def load_runtime_config() -> RuntimeConfig:
 def create_app_from_runtime_config() -> Any:
     config = load_runtime_config()
     repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
-    repo = GitRepository.discover(repo_root=repo_root)
+    repo = GitBackend.discover(repo_root=repo_root)
+    presets_root = (
+        Path(config.presets_root).expanduser() if config.presets_root else None
+    )
+    preset_repo = PresetBackend.discover(presets_root=presets_root)
     service = TextDiffService(repo)
     git_service = GitDiffService(repo)
     difftastic_service = DifftasticDiffService(repo)
+    preset_service = TextDiffService(preset_repo)
+    preset_git_service = GitDiffService(preset_repo)
+    preset_difftastic_service = DifftasticDiffService(preset_repo)
     defaults = build_defaults(
         service,
         left=config.left,
@@ -214,6 +229,11 @@ def create_app_from_runtime_config() -> Any:
         service,
         defaults,
         services={"git": git_service, "difftastic": difftastic_service},
+        preset_services={
+            "dirdiff": preset_service,
+            "git": preset_git_service,
+            "difftastic": preset_difftastic_service,
+        },
     )
 
 
@@ -261,7 +281,7 @@ def main() -> None:
     args = parse_args()
     config = runtime_config_from_args(args)
     repo_root = Path(config.repo_root).expanduser() if config.repo_root else None
-    repo = GitRepository.discover(repo_root=repo_root)
+    repo = GitBackend.discover(repo_root=repo_root)
     service = TextDiffService(repo)
     defaults = build_defaults(
         service,

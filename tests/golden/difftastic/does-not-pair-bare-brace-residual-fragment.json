@@ -1,0 +1,1046 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "type SyntaxSpan = { start: number; end: number };",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "type"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "SyntaxSpan"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "start"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ";"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "end"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "number"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ";"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 2,
+    "left_text": "",
+    "right_no": null,
+    "right_text": "",
+    "status": "replace"
+  },
+  {
+    "left_no": 3,
+    "left_text": "function clamp(value: number, min: number, max: number): number {",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "function"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "clamp"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "value"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "min"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "max"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "number"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  return Math.min(Math.max(value, min), max);",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Math"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "min"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Math"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "max"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "value"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "min"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "max"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ";"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 5,
+    "left_text": "}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 6,
+    "left_text": "",
+    "right_no": null,
+    "right_text": "",
+    "status": "replace"
+  },
+  {
+    "left_no": 7,
+    "left_text": "export function syntaxParts(text: string, syntax: SyntaxSpan[]): string[] {",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "export function syntaxParts(text: string, "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "syntax"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "SyntaxSpan"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "[]): string[] {"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "export function syntaxParts(text: string, sortedBoundaries: number[]): string[] {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "export function syntaxParts(text: string, "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "sortedBoundaries"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "[]): string[] {"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 8,
+    "left_text": "  const parts: string[] = [];",
+    "right_no": 2,
+    "right_text": "  const parts: string[] = [];",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "  let cursor = 0;",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  let "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "cursor"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = 0;"
+      }
+    ],
+    "right_no": 3,
+    "right_text": "  for (let index = 0; index < sortedBoundaries.length - 1; index += 1) {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "for"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "let "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "index"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = 0; "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "index"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "sortedBoundaries"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "length"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "-"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "1"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "index"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "+"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "1"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " {"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 10,
+    "left_text": "  for (const span of syntax) {",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "for"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "span"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "of"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "syntax"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " {"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "replace"
+  },
+  {
+    "left_no": 11,
+    "left_text": "    const start = clamp(span.start, 0, text.length);",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    const start = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "clamp"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "span"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "start"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "0"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "text"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "length"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "right_no": 4,
+    "right_text": "    const start = sortedBoundaries[index];",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    const start = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "sortedBoundaries"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "index"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "    const end = sortedBoundaries[index + 1];",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "end"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "sortedBoundaries"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "index"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "+"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "1"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 12,
+    "left_text": "    parts.push(text.slice(cursor, start));",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    parts.push(text.slice("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "cursor"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ","
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " start));"
+      }
+    ],
+    "right_no": 6,
+    "right_text": "    parts.push(text.slice(start, end));",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    parts.push(text.slice(start"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "end"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "));"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    cursor = span.end;",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "cursor"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "span"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "end"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ";"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 14,
+    "left_text": "  }",
+    "right_no": 7,
+    "right_text": "  }",
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "  return parts;",
+    "right_no": 8,
+    "right_text": "  return parts;",
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "}",
+    "right_no": 9,
+    "right_text": "}",
+    "status": "equal"
+  }
+]
