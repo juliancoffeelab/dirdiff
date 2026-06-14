@@ -11,18 +11,18 @@ import threading
 import webbrowser
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote, urlencode
 
+import uvicorn
+
+from dirdiff.server import DiffServiceProtocol, create_app
 from dirdiff.services import (
     DifftasticDiffService,
     GitDiffService,
     TextDiffService,
 )
 from dirdiff.sources import GitBackend, PresetBackend
-from dirdiff.server import DiffServiceProtocol, create_app
-from typing import Any
-import uvicorn
-
 
 DEFAULT_PORT = 5052
 DEFAULT_FRONTEND_PORT = 5173

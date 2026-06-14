@@ -8,7 +8,6 @@ from typing import Any, Literal
 from dirdiff.fold import FoldHint, fold_hints_for_path
 from dirdiff.highlight import highlight_lines_for_path
 
-
 INLINE_TOKEN_PATTERN = re.compile(r"\w+|\s+|[^\w\s]+", flags=re.UNICODE)
 INLINE_IDENTIFIER_PART_PATTERN = re.compile(
     r"[A-Z]+(?=[A-Z][a-z]|[0-9]|_|$)|[A-Z]?[a-z]+|[0-9]+|_+|[^A-Za-z0-9_]+",
@@ -43,9 +42,7 @@ def _looks_like_notebook_path(path: str | None) -> bool:
 
 
 def _default_expanded_for_payload(payload: dict[str, Any]) -> bool:
-    if payload.get("lazy"):
-        return False
-    return True
+    return not payload.get("lazy")
 
 
 def _collapse_equal_rows_for_large_diff(
@@ -143,7 +140,11 @@ def _count_changed_rows_and_hunks(
         right_block = right_lines[j1:j2]
 
         if tag == "equal":
-            for left_line, right_line in zip(left_block, right_block):
+            for left_line, right_line in zip(
+                left_block,
+                right_block,
+                strict=True,
+            ):
                 changed = left_line != right_line
                 if changed:
                     modified_lines += 1
@@ -348,7 +349,7 @@ def _append_identifier_level_diff(
     matcher = SequenceMatcher(a=left_parts, b=right_parts, autojunk=False)
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            for li, ri in zip(range(i1, i2), range(j1, j2)):
+            for li, ri in zip(range(i1, i2), range(j1, j2), strict=True):
                 text = left_parts[li]
                 left_tokens.append(
                     {"text": text, "status": "unchanged", "is_ws": False}
@@ -547,7 +548,7 @@ def _inline_diff(
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            for li, ri in zip(range(i1, i2), range(j1, j2)):
+            for li, ri in zip(range(i1, i2), range(j1, j2), strict=True):
                 left_token = left_data[li]
                 right_token = right_data[ri]
                 if left_token["is_ws"] and right_token["is_ws"]:
@@ -603,7 +604,11 @@ def _inline_diff(
             )
             for inner_tag, ii1, ii2, jj1, jj2 in inner_matcher.get_opcodes():
                 if inner_tag == "equal":
-                    for lrel, rrel in zip(range(ii1, ii2), range(jj1, jj2)):
+                    for lrel, rrel in zip(
+                        range(ii1, ii2),
+                        range(jj1, jj2),
+                        strict=True,
+                    ):
                         left_token = left_slice[lrel]
                         right_token = right_slice[rrel]
                         left_tokens.append(
@@ -740,7 +745,11 @@ def _line_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
         right_block = right_lines[j1:j2]
 
         if tag == "equal":
-            for left_line, right_line in zip(left_block, right_block):
+            for left_line, right_line in zip(
+                left_block,
+                right_block,
+                strict=True,
+            ):
                 rows.append(
                     _paired_line_row(left_line, right_line, left_no, right_no)
                 )

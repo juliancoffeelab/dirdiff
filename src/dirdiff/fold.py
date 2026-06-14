@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 from importlib.resources import files
 from typing import Any, Literal
 
@@ -189,36 +189,38 @@ def fold_hints_for_path(
 
     cursor = QueryCursor(query)
     if any(rule.region_kind == "section" for rule in spec.rules):
-        return _collect_markdown_section_hints(
+        hints = _collect_markdown_section_hints(
             spec,
             cursor.matches(tree.root_node),
             source_bytes,
             right_line_to_row,
             rows,
         )
+    else:
+        candidates = _collect_candidates(
+            spec,
+            cursor.matches(tree.root_node),
+            source_bytes,
+            right_line_to_row,
+        )
+        hints = []
+        if candidates:
+            _assign_candidate_parents(candidates)
+            root_candidates = sorted(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.parent is None
+                ),
+                key=lambda candidate: (
+                    candidate.context_start_byte,
+                    candidate.context_end_byte,
+                ),
+            )
 
-    candidates = _collect_candidates(
-        spec,
-        cursor.matches(tree.root_node),
-        source_bytes,
-        right_line_to_row,
-    )
-    if not candidates:
-        return []
-
-    _assign_candidate_parents(candidates)
-    root_candidates = sorted(
-        (candidate for candidate in candidates if candidate.parent is None),
-        key=lambda candidate: (
-            candidate.context_start_byte,
-            candidate.context_end_byte,
-        ),
-    )
-
-    hints: list[FoldHint] = []
-    for candidate in root_candidates:
-        _collect_hints(candidate, candidates, rows, hints)
-    hints.sort(key=_fold_hint_sort_key)
+            for candidate in root_candidates:
+                _collect_hints(candidate, candidates, rows, hints)
+            hints.sort(key=_fold_hint_sort_key)
     return hints
 
 
@@ -255,9 +257,7 @@ def _collect_markdown_section_hints(
     rule = spec.rules[0]
     for index, (heading, _level, label_text) in enumerate(headings):
         context_start_line, _ = _node_line_span(heading, source_bytes)
-        heading_start_line, heading_end_line = _node_line_span(
-            heading, source_bytes
-        )
+        _, heading_end_line = _node_line_span(heading, source_bytes)
         context_end_line = max(right_line_to_row)
         for next_heading, next_level, _next_label in headings[index + 1 :]:
             if next_level <= _markdown_heading_level(heading):
@@ -422,39 +422,32 @@ def _collect_hints(
         for child in _child_candidates(candidate, all_candidates):
             if child.rule.region_kind in {"function_like", "class_like"}:
                 _collect_hints(child, all_candidates, rows, hints)
-        return
-
-    if candidate.rule.region_kind == "function_like":
+    elif candidate.rule.region_kind == "function_like":
         if _region_is_unchanged(candidate, rows):
             hint = _candidate_to_hint(candidate, rows)
             if hint is not None:
                 hints.append(hint)
-        return
-
-    if candidate.rule.region_kind == "container":
-        if _has_ancestor_kind(candidate, "function_like"):
-            return
-        if _has_ancestor_kind(candidate, "class_like"):
-            return
+    elif candidate.rule.region_kind == "container":
+        if not _has_ancestor_kind(candidate, "function_like") and not (
+            _has_ancestor_kind(candidate, "class_like")
+        ):
+            if _region_is_unchanged(candidate, rows):
+                hint = _candidate_to_hint(candidate, rows)
+                if hint is not None:
+                    hints.append(hint)
+            else:
+                for child in _child_candidates(candidate, all_candidates):
+                    if child.rule.region_kind == "container":
+                        _collect_hints(child, all_candidates, rows, hints)
+    elif candidate.rule.region_kind == "section":
         if _region_is_unchanged(candidate, rows):
             hint = _candidate_to_hint(candidate, rows)
             if hint is not None:
                 hints.append(hint)
-            return
-        for child in _child_candidates(candidate, all_candidates):
-            if child.rule.region_kind == "container":
-                _collect_hints(child, all_candidates, rows, hints)
-        return
-
-    if candidate.rule.region_kind == "section":
-        if _region_is_unchanged(candidate, rows):
-            hint = _candidate_to_hint(candidate, rows)
-            if hint is not None:
-                hints.append(hint)
-            return
-        for child in _child_candidates(candidate, all_candidates):
-            if child.rule.region_kind == "section":
-                _collect_hints(child, all_candidates, rows, hints)
+        else:
+            for child in _child_candidates(candidate, all_candidates):
+                if child.rule.region_kind == "section":
+                    _collect_hints(child, all_candidates, rows, hints)
 
 
 def _candidate_to_hint(
@@ -660,7 +653,7 @@ def _spec_for_path(path: str) -> FoldLanguageSpec | None:
     return None
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_language_query(
     module_name: str,
     language_attr: str,

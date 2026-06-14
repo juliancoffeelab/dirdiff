@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import importlib
+import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from functools import lru_cache
-import importlib
+from functools import cache
 from importlib.resources import files
-import re
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
@@ -146,7 +146,7 @@ def _spec_for_path(path: str) -> SyntaxLanguageSpec | None:
     return None
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_language_query(
     module_name: str,
     language_attr: str,
@@ -161,7 +161,7 @@ def _load_language_query(
     return language, query
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_query_text(package_name: str, query_path: str) -> str:
     query_file = files(package_name).joinpath(query_path)
     query_text = query_file.read_text(encoding="utf-8")
@@ -266,7 +266,7 @@ def _highlight_lines_with_spec(
             }
             for span in _collapse_line_intervals(line, intervals)
         ]
-        for line, intervals in zip(line_texts, line_intervals)
+        for line, intervals in zip(line_texts, line_intervals, strict=True)
     ]
 
 

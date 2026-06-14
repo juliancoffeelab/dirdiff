@@ -10,6 +10,9 @@ tscheck:
 mypy:
 	.venv/bin/mypy .
 
+ruff:
+	.venv/bin/ruff check
+
 format:
 	.venv/bin/ruff format
 	npm --prefix frontend run format

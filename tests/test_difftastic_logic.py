@@ -1,7 +1,4 @@
-from dirdiff.diff import (
-    _difftastic_engine_warning,
-    _difftastic_rows_from_json,
-)
+from dirdiff.diff import _difftastic_engine_warning, _difftastic_rows_from_json
 
 
 def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:

@@ -35,7 +35,7 @@ def _changed_tokens_for_ranges(
     tokens: list[dict[str, Any]] = []
     cursor = 0
     for raw_start, raw_end in sorted(ranges):
-        start = max(cursor, max(0, min(raw_start, len(line))))
+        start = max(cursor, 0, min(raw_start, len(line)))
         end = max(start, min(raw_end, len(line)))
         if start > cursor:
             text = line[cursor:start]
@@ -73,7 +73,7 @@ def _changed_tokens_for_ranges_with_statuses(
     tokens: list[dict[str, Any]] = []
     cursor = 0
     for index, (raw_start, raw_end) in enumerate(sorted(ranges)):
-        start = max(cursor, max(0, min(raw_start, len(line))))
+        start = max(cursor, 0, min(raw_start, len(line)))
         end = max(start, min(raw_end, len(line)))
         if start > cursor:
             text = line[cursor:start]
@@ -189,7 +189,7 @@ def _remove_line_ranges(line: str, ranges: list[tuple[int, int]]) -> str:
     pieces: list[str] = []
     cursor = 0
     for raw_start, raw_end in sorted(ranges):
-        start = max(cursor, max(0, min(raw_start, len(line))))
+        start = max(cursor, 0, min(raw_start, len(line)))
         end = max(start, min(raw_end, len(line)))
         if start > cursor:
             pieces.append(line[cursor:start])

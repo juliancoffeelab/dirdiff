@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dirdiff.sources import TextDiffError
 
-
 LOGGER = logging.getLogger(__name__)
 
 ModeParam = Literal[
@@ -116,7 +115,7 @@ class DiffRowResponse(ApiModel):
     left_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
     right_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
     count: int | None = None
-    foldedRows: list["DiffRowResponse"] = Field(default_factory=list)
+    foldedRows: list[DiffRowResponse] = Field(default_factory=list)
     label: str | None = None
 
 

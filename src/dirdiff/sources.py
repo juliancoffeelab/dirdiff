@@ -6,7 +6,6 @@ from difflib import SequenceMatcher, unified_diff
 from pathlib import Path, PurePosixPath
 from typing import Literal, Protocol
 
-
 BuiltinSideName = Literal["head", "index", "worktree"]
 SideName = str
 BUILTIN_SIDES = frozenset({"head", "index", "worktree"})
@@ -80,6 +79,7 @@ def _count_changed_line_stats(
                 for left_line, right_line in zip(
                     left_lines[i1:i2],
                     right_lines[j1:j2],
+                    strict=True,
                 )
                 if left_line != right_line
             )
@@ -165,7 +165,7 @@ class GitBackend:
         cwd: Path | None = None,
         *,
         repo_root: Path | None = None,
-    ) -> "GitBackend":
+    ) -> GitBackend:
         working_dir = (cwd or Path.cwd()).resolve()
         if repo_root is not None:
             return cls(Path(repo_root).expanduser().resolve(), cwd=working_dir)
@@ -735,7 +735,7 @@ class PresetBackend:
         cwd: Path | None = None,
         *,
         presets_root: Path | None = None,
-    ) -> "PresetBackend":
+    ) -> PresetBackend:
         working_dir = (cwd or Path.cwd()).resolve()
         root = presets_root or working_dir / "tests" / "presets" / "difftastic"
         return cls(root, cwd=working_dir)

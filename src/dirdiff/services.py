@@ -36,7 +36,6 @@ from dirdiff.textdiff import (
     _plain_line_rows_for_side,
 )
 
-
 ENABLE_PERF_LOGS = os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
 LARGE_CHANGED_LINES_LAZY_THRESHOLD = 1000
 GENERATED_FILES = frozenset(

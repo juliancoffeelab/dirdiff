@@ -13,8 +13,8 @@ from dirdiff.cli import (
     RuntimeConfig,
     build_defaults,
     choose_port_pair,
-    ensure_port_available,
     create_app_from_runtime_config,
+    ensure_port_available,
     load_runtime_config,
     store_runtime_config,
 )
@@ -26,7 +26,6 @@ from dirdiff.diff import (
     TextVersion,
 )
 from dirdiff.server import TextFileDiffResponse, create_app
-
 
 SUMMARY = {
     "changed_files": 1,
