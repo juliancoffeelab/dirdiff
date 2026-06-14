@@ -56,6 +56,7 @@ exclude = ["tests/presets/"]
 python_version = 3.14
 warn_unused_configs = true
 check_untyped_defs = true
+strict = true
 
 [tool.ruff]
 line-length = 80

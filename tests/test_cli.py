@@ -50,7 +50,7 @@ TEXT_SUMMARY = {
 }
 
 
-def default_bootstrap() -> dict:
+def default_bootstrap() -> dict[str, Any]:
     return {
         "engine": "dirdiff",
         "mode": "files",
@@ -98,7 +98,7 @@ class FakeDiffService:
 
     def build_repo_manifest(
         self, *, left: str, right: str, show_untracked: bool = False
-    ) -> dict:
+    ) -> dict[str, Any]:
         return {
             "display_name": "Repository diff",
             "mode": "repo",
@@ -124,7 +124,7 @@ class FakeDiffService:
         display_name: str | None = None,
         change_type: str | None = None,
         file_kind: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         kind = (
             {"type": "untracked"}
             if file_kind == "untracked"
@@ -220,7 +220,7 @@ class FakeEngineService(FakeDiffService):
         cwd: Path | None = None,
         *,
         row_status: str,
-        engine_warning: dict | None = None,
+        engine_warning: dict[str, str] | None = None,
     ) -> None:
         super().__init__(cwd)
         self.row_status = row_status
@@ -236,7 +236,7 @@ class FakeEngineService(FakeDiffService):
         display_name: str | None = None,
         change_type: str | None = None,
         file_kind: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         payload = super().build_git_diff_paths(
             left_path=left_path,
             right_path=right_path,
@@ -300,7 +300,9 @@ def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
     )
 
 
-def test_runtime_config_round_trips_through_environment(monkeypatch) -> None:
+def test_runtime_config_round_trips_through_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv(RUNTIME_CONFIG_ENV, raising=False)
     config = RuntimeConfig(
         left="HEAD~1",
@@ -332,7 +334,7 @@ def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
 
 def test_create_app_from_runtime_config_uses_stored_repo_root(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     discovered_repo_root: Path | None = None
 

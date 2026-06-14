@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
@@ -23,28 +24,32 @@ class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
 
     def serialize(
         self,
-        data,
+        data: Any,
         *,
-        exclude=None,
-        include=None,
-        matcher=None,
+        exclude: Any = None,
+        include: Any = None,
+        matcher: Any = None,
     ) -> str:
         return json.dumps(data, indent=2) + "\n"
 
     def matches(
         self,
         *,
-        serialized_data,
-        snapshot_data,
+        serialized_data: str,
+        snapshot_data: str,
     ) -> bool:
-        return json.loads(serialized_data) == json.loads(snapshot_data)
+        serialized_json: object = json.loads(serialized_data)
+        snapshot_json: object = json.loads(snapshot_data)
+        return serialized_json == snapshot_json
 
     @classmethod
-    def dirname(cls, *, test_location) -> str:
+    def dirname(cls, *, test_location: Any) -> str:
         return str(GOLDEN_ROOT)
 
     @classmethod
-    def get_snapshot_name(cls, *, test_location, index=0) -> str:
+    def get_snapshot_name(
+        cls, *, test_location: Any, index: int | str = 0
+    ) -> str:
         if isinstance(index, str):
             return index
         return super().get_snapshot_name(
@@ -61,7 +66,7 @@ def _preset_dirs() -> list[Path]:
 
 
 @pytest.fixture
-def snapshot_json(snapshot):
+def snapshot_json(snapshot: Any) -> Any:
     return snapshot.with_defaults(
         extension_class=DifftasticGoldenSnapshotExtension
     )
@@ -72,7 +77,7 @@ def snapshot_json(snapshot):
 )
 def test_difftastic_preset_rows_match_golden(
     preset_dir: Path,
-    snapshot_json,
+    snapshot_json: Any,
 ) -> None:
     old_files = sorted(preset_dir.glob("old.*"))
     new_files = sorted(preset_dir.glob("new.*"))
