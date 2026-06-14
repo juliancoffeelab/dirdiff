@@ -1,6 +1,10 @@
 import json
 
-from dirdiff.diff import _difftastic_rows_from_json, build_loaded_diff
+from dirdiff.diff import (
+    _difftastic_engine_warning,
+    _difftastic_rows_from_json,
+    build_loaded_diff,
+)
 
 
 def test_counts_whitespace_only_changes_as_modified() -> None:
@@ -21,6 +25,16 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
     assert diff["summary"]["modified_lines"] == 1
     assert diff["rows"][0]["status"] == "equal"
     assert diff["rows"][0]["left_tokens"]
+
+
+def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
+    assert _difftastic_engine_warning(
+        {"language": "Text (exceeded DFT_GRAPH_LIMIT)"}
+    ) == {
+        "type": "difftastic_graph_limit",
+        "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
+    }
+    assert _difftastic_engine_warning({"language": "TypeScript"}) is None
 
 
 def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
@@ -1067,6 +1081,154 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "right_no": 6,
             "left_text": '        payload["left_path"] = normalized_left',
             "right_text": '        payload["left_path"] = normalized_left',
+        },
+    ]
+
+
+def test_difftastic_rows_keep_moved_show_wrapper_lines_as_replacements() -> None:
+    rows = _difftastic_rows_from_json(
+        {
+            "aligned_lines": [
+                [0, 0],
+                [1, 1],
+                [2, None],
+                [3, None],
+                [4, None],
+                [5, 2],
+                [6, 3],
+                [7, 4],
+                [8, 5],
+            ],
+            "chunks": [
+                [
+                    {
+                        "lhs": {
+                            "line_number": 3,
+                            "changes": [
+                                {"start": 16, "end": 24},
+                                {"start": 24, "end": 25},
+                                {"start": 25, "end": 26},
+                                {"start": 26, "end": 27},
+                                {"start": 27, "end": 42},
+                                {"start": 43, "end": 47},
+                                {"start": 47, "end": 48},
+                                {"start": 48, "end": 49},
+                                {"start": 49, "end": 54},
+                                {"start": 54, "end": 55},
+                                {"start": 55, "end": 59},
+                                {"start": 59, "end": 60},
+                                {"start": 61, "end": 63},
+                                {"start": 63, "end": 64},
+                            ],
+                        },
+                    },
+                ]
+            ],
+        },
+        left_text=(
+            '        <Show when={props.file.render_kind !== "notebook"}>\n'
+            "              <Show\n"
+            "                when={canRenderRows()}\n"
+            "                fallback={<FilePlaceholder file={props.file} />}\n"
+            "              >\n"
+            "                <Show\n"
+            "                  when={shouldRenderRichBody()}\n"
+            "                  fallback={<PlainSplitFileDiff file={props.file} />}\n"
+            "                >\n"
+        ),
+        right_text=(
+            '        <Show when={props.file.render_kind !== "notebook"}>\n'
+            "              <Show\n"
+            "                <Show\n"
+            "                  when={shouldRenderRichBody()}\n"
+            "                  fallback={<PlainSplitFileDiff file={props.file} />}\n"
+            "                >\n"
+        ),
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": '        <Show when={props.file.render_kind !== "notebook"}>',
+            "right_text": '        <Show when={props.file.render_kind !== "notebook"}>',
+        },
+        {
+            "status": "equal",
+            "left_no": 2,
+            "right_no": 2,
+            "left_text": "              <Show",
+            "right_text": "              <Show",
+        },
+        {
+            "status": "replace",
+            "left_no": 3,
+            "right_no": None,
+            "left_text": "                when={canRenderRows()}",
+            "right_text": "",
+        },
+        {
+            "status": "delete",
+            "left_no": 4,
+            "right_no": None,
+            "left_text": "                fallback={<FilePlaceholder file={props.file} />}",
+            "right_text": "",
+            "left_tokens": [
+                {"text": "                ", "status": "unchanged", "is_ws": True},
+                {"text": "fallback", "status": "delete", "is_ws": False},
+                {"text": "=", "status": "delete", "is_ws": False},
+                {"text": "{", "status": "delete", "is_ws": False},
+                {"text": "<", "status": "delete", "is_ws": False},
+                {"text": "FilePlaceholder", "status": "delete", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "file", "status": "delete", "is_ws": False},
+                {"text": "=", "status": "delete", "is_ws": False},
+                {"text": "{", "status": "delete", "is_ws": False},
+                {"text": "props", "status": "delete", "is_ws": False},
+                {"text": ".", "status": "delete", "is_ws": False},
+                {"text": "file", "status": "delete", "is_ws": False},
+                {"text": "}", "status": "delete", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "/", "status": "delete", "is_ws": False},
+                {"text": ">", "status": "delete", "is_ws": False},
+                {"text": "}", "status": "delete", "is_ws": False},
+            ],
+        },
+        {
+            "status": "replace",
+            "left_no": 5,
+            "right_no": None,
+            "left_text": "              >",
+            "right_text": "",
+        },
+        {
+            "status": "equal",
+            "left_no": 6,
+            "right_no": 3,
+            "left_text": "                <Show",
+            "right_text": "                <Show",
+        },
+        {
+            "status": "equal",
+            "left_no": 7,
+            "right_no": 4,
+            "left_text": "                  when={shouldRenderRichBody()}",
+            "right_text": "                  when={shouldRenderRichBody()}",
+        },
+        {
+            "status": "equal",
+            "left_no": 8,
+            "right_no": 5,
+            "left_text": "                  fallback={<PlainSplitFileDiff file={props.file} />}",
+            "right_text": "                  fallback={<PlainSplitFileDiff file={props.file} />}",
+        },
+        {
+            "status": "equal",
+            "left_no": 9,
+            "right_no": 6,
+            "left_text": "                >",
+            "right_text": "                >",
         },
     ]
 

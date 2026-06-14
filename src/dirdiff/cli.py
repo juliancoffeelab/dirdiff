@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import json
 import logging
 import os
@@ -218,22 +217,43 @@ def create_app_from_runtime_config() -> Any:
     )
 
 
-def choose_port(requested_port: int) -> int:
-    last_error: OSError | None = None
+def ensure_port_available(port: int, *, label: str) -> None:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("127.0.0.1", port))
+    except OSError as exc:
+        raise SystemExit(
+            f"{label} port {port} is already in use. "
+            "Stop the existing dirdiff process or pass an explicit port."
+        ) from exc
 
-    for port in range(requested_port, requested_port + PORT_FALLBACK_ATTEMPTS):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                probe.bind(("127.0.0.1", port))
-            return port
-        except OSError as exc:
-            if exc.errno != errno.EADDRINUSE:
-                raise
-            last_error = exc
 
-    assert last_error is not None
-    raise last_error
+def port_available(port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+
+
+def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
+    for offset in range(PORT_FALLBACK_ATTEMPTS):
+        next_backend_port = backend_port + offset
+        next_frontend_port = frontend_port + offset
+        if (
+            next_backend_port != next_frontend_port
+            and port_available(next_backend_port)
+            and port_available(next_frontend_port)
+        ):
+            return next_backend_port, next_frontend_port
+
+    raise SystemExit(
+        "Could not find an available backend/frontend port pair. "
+        "Stop an existing dirdiff process or pass explicit ports."
+    )
 
 
 def main() -> None:
@@ -251,25 +271,27 @@ def main() -> None:
         review_branch=config.review_branch,
     )
 
-    actual_port = choose_port(args.port)
     use_frontend_dev = not args.no_frontend_dev
-    actual_frontend_port = (
-        choose_port(args.frontend_port) if use_frontend_dev else args.frontend_port
-    )
-    if use_frontend_dev and actual_frontend_port == actual_port:
-        actual_frontend_port = choose_port(actual_port + 1)
+    if use_frontend_dev:
+        actual_port, actual_frontend_port = choose_port_pair(
+            args.port,
+            args.frontend_port,
+        )
+    else:
+        ensure_port_available(args.port, label="Backend")
+        actual_port = args.port
+        actual_frontend_port = args.frontend_port
+
     backend_url = _build_url(actual_port, defaults)
     url = (
         _build_url(actual_frontend_port, defaults) if use_frontend_dev else backend_url
     )
-    if actual_port != args.port:
+    if use_frontend_dev and (
+        actual_port != args.port or actual_frontend_port != args.frontend_port
+    ):
         print(
-            f"Port {args.port} is in use; using {actual_port} instead.",
-            file=sys.stderr,
-        )
-    if use_frontend_dev and actual_frontend_port != args.frontend_port:
-        print(
-            f"Frontend port {args.frontend_port} is in use; using {actual_frontend_port} instead.",
+            "Requested ports are in use; "
+            f"using backend {actual_port} and frontend {actual_frontend_port}.",
             file=sys.stderr,
         )
 

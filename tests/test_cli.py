@@ -3,19 +3,22 @@ from __future__ import annotations
 import socket
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from dirdiff.cli import (
     RUNTIME_CONFIG_ENV,
     RuntimeConfig,
     build_defaults,
-    choose_port,
+    choose_port_pair,
+    ensure_port_available,
     create_app_from_runtime_config,
     load_runtime_config,
     store_runtime_config,
 )
 from dirdiff.diff import GitRepository, RepoDiffPath, TextVersion
-from dirdiff.server import create_app
+from dirdiff.server import TextFileDiffResponse, create_app
 
 
 SUMMARY = {
@@ -174,9 +177,16 @@ class FakeGitRepository(FakeDiffService):
 
 
 class FakeEngineService(FakeDiffService):
-    def __init__(self, cwd: Path | None = None, *, row_status: str) -> None:
+    def __init__(
+        self,
+        cwd: Path | None = None,
+        *,
+        row_status: str,
+        engine_warning: dict | None = None,
+    ) -> None:
         super().__init__(cwd)
         self.row_status = row_status
+        self.engine_warning = engine_warning
 
     def build_git_diff_paths(
         self,
@@ -199,10 +209,12 @@ class FakeEngineService(FakeDiffService):
             file_kind=file_kind,
         )
         payload["rows"][0]["status"] = self.row_status
+        if self.engine_warning is not None:
+            payload["engine_warning"] = self.engine_warning
         return payload
 
 
-def test_choose_port_uses_next_port_when_requested_port_is_busy() -> None:
+def test_ensure_port_available_rejects_busy_port() -> None:
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     occupied.bind(("127.0.0.1", 0))
@@ -210,11 +222,44 @@ def test_choose_port_uses_next_port_when_requested_port_is_busy() -> None:
     requested_port = occupied.getsockname()[1]
 
     try:
-        actual_port = choose_port(requested_port)
+        try:
+            ensure_port_available(requested_port, label="Backend")
+        except SystemExit as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("Expected occupied port to be rejected")
     finally:
         occupied.close()
 
-    assert actual_port > requested_port
+    assert f"Backend port {requested_port} is already in use." in message
+
+
+def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
+    occupied_backend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied_frontend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied_backend.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    occupied_frontend.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    occupied_backend.bind(("127.0.0.1", 0))
+    requested_backend_port = occupied_backend.getsockname()[1]
+    occupied_frontend.bind(("127.0.0.1", 0))
+    requested_frontend_port = occupied_frontend.getsockname()[1]
+    occupied_backend.listen()
+    occupied_frontend.listen()
+
+    try:
+        actual_backend_port, actual_frontend_port = choose_port_pair(
+            requested_backend_port,
+            requested_frontend_port,
+        )
+    finally:
+        occupied_backend.close()
+        occupied_frontend.close()
+
+    assert actual_backend_port > requested_backend_port
+    assert actual_frontend_port > requested_frontend_port
+    assert actual_backend_port - requested_backend_port == (
+        actual_frontend_port - requested_frontend_port
+    )
 
 
 def test_runtime_config_round_trips_through_environment(monkeypatch) -> None:
@@ -428,3 +473,58 @@ def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["rows"][0]["status"] == "insert"
+
+
+def test_file_diff_endpoint_preserves_engine_warning(tmp_path: Path) -> None:
+    service = FakeDiffService(tmp_path)
+    difftastic_service = FakeEngineService(
+        tmp_path,
+        row_status="insert",
+        engine_warning={
+            "type": "difftastic_graph_limit",
+            "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
+        },
+    )
+    defaults = default_bootstrap()
+    client = TestClient(
+        create_app(
+            service,
+            defaults,
+            services={"difftastic": difftastic_service},
+        )
+    )
+
+    response = client.get(
+        "/api/file-diff",
+        params={
+            "engine": "difftastic",
+            "left": "head",
+            "right": "worktree",
+            "left_path": "alpha.txt",
+            "right_path": "alpha.txt",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["engine_warning"] == {
+        "type": "difftastic_graph_limit",
+        "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
+    }
+
+
+def test_file_diff_response_schema_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        TextFileDiffResponse.model_validate(
+            {
+                "display_name": "alpha.txt",
+                "mode": "git",
+                "left_label": "head",
+                "right_label": "worktree",
+                "summary": TEXT_SUMMARY,
+                "rows": [],
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "alpha.txt",
+                "right_path": "alpha.txt",
+                "random_backend_surprise": True,
+            }
+        )

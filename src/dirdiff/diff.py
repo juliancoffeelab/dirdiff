@@ -1817,6 +1817,16 @@ def _difftastic_aligned_lines(value: Any) -> list[DifftasticAlignedLine]:
     return aligned
 
 
+def _difftastic_engine_warning(diff_json: dict[str, Any]) -> dict[str, str] | None:
+    language = diff_json.get("language")
+    if isinstance(language, str) and "exceeded DFT_GRAPH_LIMIT" in language:
+        return {
+            "type": "difftastic_graph_limit",
+            "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
+        }
+    return None
+
+
 def _difftastic_line_anchor_bounds(
     aligned_lines: list[DifftasticAlignedLine],
     row_index: int,
@@ -2255,7 +2265,11 @@ def _difftastic_rows_from_json(
                 status="delete",
             )
             row = {
-                "status": _difftastic_row_status_from_tokens(left_tokens),
+                "status": (
+                    _difftastic_row_status_from_tokens(left_tokens)
+                    if left_tokens
+                    else "replace"
+                ),
                 "left_no": left_index + 1,
                 "right_no": None,
                 "left_text": left_lines[left_index],
@@ -3702,6 +3716,7 @@ class DifftasticDiffService(TextDiffService):
 
         left_text = left_version.text or ""
         right_text = right_version.text or ""
+        engine_warning: dict[str, str] | None = None
         if left_version.exists and right_version.exists:
             diff_json = self._run_difftastic_json(
                 left_text=left_text,
@@ -3709,6 +3724,7 @@ class DifftasticDiffService(TextDiffService):
                 left_path_hint=normalized_left,
                 right_path_hint=normalized_right,
             )
+            engine_warning = _difftastic_engine_warning(diff_json)
             rows = _difftastic_rows_from_json(
                 diff_json,
                 left_text=left_text,
@@ -3750,6 +3766,8 @@ class DifftasticDiffService(TextDiffService):
             "left_path": normalized_left,
             "right_path": normalized_right,
         }
+        if engine_warning is not None:
+            payload["engine_warning"] = engine_warning
         payload["default_expanded"] = _default_expanded_for_payload(payload)
         if "render_mode" in rows_payload:
             payload["render_mode"] = rows_payload["render_mode"]

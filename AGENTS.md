@@ -7,6 +7,10 @@
 - Run the app with `uv --no-cache run dirdiff ...`; prefer `uv --no-cache run dirdiff --headless` for local verification so Vite serves the frontend.
 - Keep in mind that user runs it as `dirdiff` via installed tool with `uv tool install -e .`
 
+# Important rules
+Never. Ever. Do. Fallbacks. If you want to use anything like `or` chain, `??`, or anything like that.
+Dont do that. If you need, really need, ask the user first.
+
 # Linting & Quality
 - Run `make format` afterwards
 - For user-visible frontend/rendering changes, verify in the browser against a local app session.

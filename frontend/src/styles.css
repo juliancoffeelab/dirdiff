@@ -793,6 +793,15 @@ h1 {
   line-height: 1;
 }
 
+.file-card-engine-warning {
+  background: #fff2c9;
+  color: #7b4a0c;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .file-stats {
   display: flex;
   flex-wrap: wrap;

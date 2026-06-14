@@ -138,6 +138,11 @@ export type LazyReason =
   | "untracked"
   | "pure_renamed";
 
+export type EngineWarning = {
+  type: "difftastic_graph_limit";
+  message: string;
+};
+
 export type FileEntry = {
   display_name?: string;
   mode?: "git";
@@ -152,6 +157,7 @@ export type FileEntry = {
   removed_lines?: number | null;
   rows?: DiffRow[];
   fold_hints?: FoldHint[];
+  engine_warning?: EngineWarning;
   lazy?: LazyReason | null;
   default_expanded?: boolean;
   render_kind?: "notebook";

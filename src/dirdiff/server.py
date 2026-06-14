@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from dirdiff.diff import TextDiffError, TextDiffService
 
@@ -22,29 +22,40 @@ LazyReason = (
 RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
 
 
-class ErrorResponse(BaseModel):
+class ApiModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        revalidate_instances="always",
+        validate_assignment=True,
+        validate_default=True,
+        allow_inf_nan=False,
+    )
+
+
+class ErrorResponse(ApiModel):
     error: str
 
 
-class SyntaxSpanResponse(BaseModel):
+class SyntaxSpanResponse(ApiModel):
     start: int
     end: int
     classes: list[str]
 
 
-class InlineTokenResponse(BaseModel):
+class InlineTokenResponse(ApiModel):
     text: str
     is_ws: bool
     status: Literal["unchanged", "replace", "insert", "delete"]
 
 
-class FoldHintResponse(BaseModel):
+class FoldHintResponse(ApiModel):
     start_row: int
     end_row: int
     label: str
 
 
-class DiffRowResponse(BaseModel):
+class DiffRowResponse(ApiModel):
     status: RowStatus
     left_no: int | None = None
     right_no: int | None = None
@@ -59,7 +70,7 @@ class DiffRowResponse(BaseModel):
     label: str | None = None
 
 
-class TextDiffSummaryResponse(BaseModel):
+class TextDiffSummaryResponse(ApiModel):
     changed_lines: int
     modified_lines: int
     added_lines: int
@@ -76,7 +87,7 @@ class NotebookDiffSummaryResponse(TextDiffSummaryResponse):
     notebook_metadata_changed: bool
 
 
-class RepoDiffSummaryResponse(BaseModel):
+class RepoDiffSummaryResponse(ApiModel):
     changed_files: int
     added_files: int
     removed_files: int
@@ -92,19 +103,24 @@ class RepoDiffSummaryResponse(BaseModel):
     modified_cells: int | None = None
 
 
-class GitFileKindResponse(BaseModel):
+class GitFileKindResponse(ApiModel):
     type: Literal["git"]
     status: GitFileStatus
 
 
-class UntrackedFileKindResponse(BaseModel):
+class UntrackedFileKindResponse(ApiModel):
     type: Literal["untracked"]
 
 
 FileKindResponse = GitFileKindResponse | UntrackedFileKindResponse
 
 
-class TextFileDiffResponse(BaseModel):
+class EngineWarningResponse(ApiModel):
+    type: Literal["difftastic_graph_limit"]
+    message: str
+
+
+class TextFileDiffResponse(ApiModel):
     display_name: str
     mode: Literal["git"]
     left_label: str
@@ -119,9 +135,10 @@ class TextFileDiffResponse(BaseModel):
     render_mode: Literal["plain"] | None = None
     truncated_rows: int | None = None
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
+    engine_warning: EngineWarningResponse | None = None
 
 
-class NotebookCellDiffResponse(BaseModel):
+class NotebookCellDiffResponse(ApiModel):
     kind: Literal["added", "removed", "modified"]
     cell_type: str
     cell_id: str | None = None
@@ -161,7 +178,7 @@ class NotebookCellDiffResponse(BaseModel):
     outputs_truncated_rows: int | None = None
 
 
-class NotebookFileDiffResponse(BaseModel):
+class NotebookFileDiffResponse(ApiModel):
     display_name: str
     mode: Literal["git"]
     render_kind: Literal["notebook"]
@@ -179,14 +196,14 @@ class NotebookFileDiffResponse(BaseModel):
     default_expanded: bool = True
 
 
-class RepoFileEntryResponse(BaseModel):
+class RepoFileEntryResponse(ApiModel):
     file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
     lazy: LazyReason = None
 
 
-class NotebookSectionDiffResponse(BaseModel):
+class NotebookSectionDiffResponse(ApiModel):
     section: str
     cell_key: str | None = None
     left_index: int | None = None
@@ -199,7 +216,7 @@ class NotebookSectionDiffResponse(BaseModel):
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
 
 
-class RepoDiffResponse(BaseModel):
+class RepoDiffResponse(ApiModel):
     display_name: str
     mode: Literal["repo"]
     left_label: str

@@ -1,4 +1,6 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
+import type { DiffRow, FileEntry } from "./api";
+import { fileElementId, fileEntryIsHydrated, fileKey } from "./model";
 
 type HunkNavigationOptions = {
   afterReconcile?: () => void;
@@ -12,8 +14,87 @@ type HunkNavigationOptions = {
 const SCROLL_FOLLOW_INTERVAL_MS = 100;
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 150;
 const READING_LINE_RATIO = 0.5;
+const RICH_PRELOAD_FILE_RADIUS = 2;
 
 type HunkAnchor = HTMLElement | null;
+
+export function fileIdForHunkAnchor(anchor: HTMLElement): string | null {
+  return anchor.closest<HTMLElement>(".file-card")?.id ?? null;
+}
+
+export function richPreloadFileIdsForAnchor(
+  anchor: HTMLElement,
+  files: FileEntry[],
+): string[] {
+  return richPreloadFileIdsForFileId(fileIdForHunkAnchor(anchor), files);
+}
+
+export function richPreloadFileIdsForFileId(
+  activeFileId: string | null,
+  files: FileEntry[],
+): string[] {
+  const changedFileIds = files
+    .filter(fileCanHaveDomHunks)
+    .map((file) => fileElementId(fileKey(file)));
+  if (!changedFileIds.length) {
+    return [];
+  }
+
+  const forced = new Set<string>();
+  forced.add(changedFileIds[0]);
+  forced.add(changedFileIds[changedFileIds.length - 1]);
+
+  const activeIndex =
+    activeFileId === null ? -1 : changedFileIds.indexOf(activeFileId);
+  if (activeIndex !== -1) {
+    const start = Math.max(0, activeIndex - RICH_PRELOAD_FILE_RADIUS);
+    const end = Math.min(
+      changedFileIds.length - 1,
+      activeIndex + RICH_PRELOAD_FILE_RADIUS,
+    );
+    for (let index = start; index <= end; index += 1) {
+      forced.add(changedFileIds[index]);
+    }
+  }
+
+  return [...forced];
+}
+
+function fileCanHaveDomHunks(file: FileEntry): boolean {
+  return (
+    fileEntryIsHydrated(file) &&
+    file.render_kind !== "notebook" &&
+    (file.rows?.length ?? 0) > 0 &&
+    fileHasChangedRows(file)
+  );
+}
+
+function fileHasChangedRows(file: FileEntry): boolean {
+  return (file.rows ?? []).some((row) => isChangedDiffRowStatus(row.status));
+}
+
+function isChangedDiffRowStatus(status: DiffRow["status"]): boolean {
+  return status === "replace" || status === "insert" || status === "delete";
+}
+
+export function shouldIgnoreGlobalHotkeyEvent(event: KeyboardEvent): boolean {
+  if (
+    event.defaultPrevented ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  ) {
+    return true;
+  }
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return (
+    target.isContentEditable ||
+    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+  );
+}
 
 function hunkAnchorElements(root: ParentNode | undefined): HTMLElement[] {
   return [...(root ?? document).querySelectorAll<HTMLElement>(".hunk-anchor")];
