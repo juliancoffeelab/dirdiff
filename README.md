@@ -1,68 +1,33 @@
 # dirdiff
 
-Standalone browser-based diff viewer for real-world files.
+Local browser diff viewer for large, but most importantly pleasant code reviews.
+I was tired of looking at Github/Gitlab UI, so here is my attempt to show how
+much they suck.
 
-It keeps the strongest part of the notebook diff tool from `DRAISS`:
-a line-oriented, side-by-side view with inline token highlighting.
+## Features
 
-What it supports:
+- Handles large PRs: roughly 30k changed lines and 300 changed files.
+- Supports three diff engines: simple custom algorith over sequence matching,
+plain Git-style diffs, and difftastic (structural diffs based on tree-sitter).
+- Uses tree-sitter for syntax highlighting and semantic folds, to collapse
+intelligently and not just hide random lines.
+- Works with Git and supports plain diff, custom refs and branch review.
+- As a bonus, works with jupyter notebooks too.
 
-- It renders `.ipynb` files as notebook-aware diffs with cell source,
-  metadata, and outputs.
-- It renders supported text formats with syntax-aware line diffs and structural
-  folding.
-- It falls back to whole-file text diffs for anything it does not understand
-  structurally.
-- It can compare a repo-relative path across Git sides like `head`, `index`,
-  `worktree`, or a custom ref.
-- It can also compare any two filesystem paths directly, even outside Git.
-- It auto-collapses unchanged structural regions like functions, methods, and
-  multiline containers using tree-sitter fold hints.
-- Markdown diffs fold only unchanged section bodies under headings; the heading
-  line stays visible and non-heading Markdown stays expanded.
-
-## Install
+## Dev Install
 
 ```bash
-cd ~/Workspace/lab/dirdiff
-uv sync
-```
-
-## Run
-
-Whole-repo diff for the current Git repo:
-
-```bash
-uv run dirdiff
-```
-
-Branch review against `master` or your detected default branch:
-
-```bash
-uv run dirdiff --branch feature/my-change --base-branch master
-```
-
-Headless local server for tests or Playwright checks:
-
-```bash
-uv run dirdiff --headless
-```
-
-If you want a globally available CLI:
-
-```bash
+npm --prefix frontend install
 uv tool install -e .
 ```
 
-## Development Workflow
-
-This project uses:
-
-- `uv` for project environments, locking, and running commands
-- `hatchling` as the build backend
-
-## Test
+Then run it from a Git repo:
 
 ```bash
-uv run pytest
+dirdiff
 ```
+
+(Also has some CLI options, feel free to explore them.)
+
+We use uvicorn and vite with every dev option enabled, so hot-reloading fully
+works. If it doesn't that's a bug.
