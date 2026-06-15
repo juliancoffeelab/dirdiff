@@ -11,18 +11,13 @@ import threading
 import webbrowser
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 from urllib.parse import quote, urlencode
 
 import uvicorn
+from fastapi import FastAPI
 
-from dirdiff.server import DiffServiceProtocol, create_app
-from dirdiff.services import (
-    DifftasticDiffService,
-    GitDiffService,
-    TextDiffService,
-)
-from dirdiff.sources import GitBackend, PresetBackend
+from dirdiff.repo_registry import RepoMarkStore
+from dirdiff.server import create_app
 
 DEFAULT_PORT = 5052
 DEFAULT_FRONTEND_PORT = 5173
@@ -32,11 +27,11 @@ RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    left: str = "index"
+    db_path: str
+    left: str = "head"
     right: str = "worktree"
     base_branch: str | None = None
     review_branch: str | None = None
-    repo_root: str | None = None
     presets_root: str | None = None
 
 
@@ -50,11 +45,28 @@ def configure_logging() -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    if len(sys.argv) > 1 and sys.argv[1] == "mark":
+        parser = argparse.ArgumentParser(
+            description="Mark a repository for the dirdiff repo registry."
+        )
+        parser.add_argument("command")
+        parser.add_argument("repo_path", help="Repository path to mark.")
+        parser.add_argument(
+            "--name",
+            help="Display name for the marked repo (defaults to the last path part).",
+        )
+        parser.add_argument(
+            "--db-path",
+            required=True,
+            help="SQLite database path for marked repos.",
+        )
+        return parser.parse_args()
+
     parser = argparse.ArgumentParser(
         description="Standalone diff viewer for generic text files."
     )
     parser.add_argument(
-        "--left", default="index", help="Left diff side or Git ref"
+        "--left", default="head", help="Left diff side or Git ref"
     )
     parser.add_argument(
         "--right", default="worktree", help="Right diff side or Git ref"
@@ -70,8 +82,9 @@ def parse_args() -> argparse.Namespace:
         help="Branch to review against the merge-base with the base branch",
     )
     parser.add_argument(
-        "--repo-root",
-        help="Optional Git repo root to use for repo-backed diffs",
+        "--db-path",
+        required=True,
+        help="SQLite database path containing marked repos.",
     )
     parser.add_argument(
         "--presets-root",
@@ -107,19 +120,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_url(port: int, defaults: dict[str, Any]) -> str:
+def _build_url(port: int, config: RuntimeConfig) -> str:
+    mode = "against-head"
+    if config.review_branch is not None:
+        mode = "branch-review"
+    elif config.left != "head" or config.right != "worktree":
+        mode = "refs"
     query = {
         key: value
-        for key, value in defaults.items()
+        for key, value in {
+            "mode": mode,
+            "left": config.left,
+            "right": config.right,
+            "base_branch": config.base_branch,
+            "review_branch": config.review_branch,
+        }.items()
         if value
-        and key
-        in {
-            "mode",
-            "left",
-            "right",
-            "base_branch",
-            "review_branch",
-        }
     }
     return f"http://127.0.0.1:{port}/?{urlencode(query, quote_via=quote)}"
 
@@ -152,44 +168,13 @@ def _start_frontend_dev_server(
     )
 
 
-def build_defaults(
-    service: DiffServiceProtocol,
-    *,
-    left: str = "index",
-    right: str = "worktree",
-    base_branch: str | None = None,
-    review_branch: str | None = None,
-) -> dict[str, Any]:
-    default_base_branch = service.default_base_branch()
-    preferred_review_branch = service.preferred_review_branch(
-        base_branch=default_base_branch
-    )
-    ref_choices = service.list_ref_choices()
-    initial_mode = "files"
-    if review_branch:
-        initial_mode = "branch-review"
-    elif left != "index" or right != "worktree":
-        initial_mode = "refs"
-
-    return {
-        "engine": "dirdiff",
-        "mode": initial_mode,
-        "left": left,
-        "right": right,
-        "base_branch": base_branch or default_base_branch,
-        "review_branch": review_branch or preferred_review_branch,
-        "ref_choices": ref_choices,
-        "repo_available": bool(service.repo_root),
-    }
-
-
 def runtime_config_from_args(args: argparse.Namespace) -> RuntimeConfig:
     return RuntimeConfig(
+        db_path=args.db_path,
         left=args.left,
         right=args.right,
         base_branch=args.base_branch,
         review_branch=args.review_branch,
-        repo_root=args.repo_root,
         presets_root=args.presets_root,
     )
 
@@ -201,43 +186,35 @@ def store_runtime_config(config: RuntimeConfig) -> None:
 def load_runtime_config() -> RuntimeConfig:
     payload = os.environ.get(RUNTIME_CONFIG_ENV)
     if not payload:
-        return RuntimeConfig()
+        raise SystemExit("--db-path is required.")
     return RuntimeConfig(**json.loads(payload))
 
 
-def create_app_from_runtime_config() -> Any:
+def create_app_from_runtime_config() -> FastAPI:
     config = load_runtime_config()
-    repo_root = (
-        Path(config.repo_root).expanduser() if config.repo_root else None
-    )
-    repo = GitBackend.discover(repo_root=repo_root)
-    presets_root = (
-        Path(config.presets_root).expanduser() if config.presets_root else None
-    )
-    preset_repo = PresetBackend.discover(presets_root=presets_root)
-    service = TextDiffService(repo)
-    git_service = GitDiffService(repo)
-    difftastic_service = DifftasticDiffService(repo)
-    preset_service = TextDiffService(preset_repo)
-    preset_git_service = GitDiffService(preset_repo)
-    preset_difftastic_service = DifftasticDiffService(preset_repo)
-    defaults = build_defaults(
-        service,
-        left=config.left,
-        right=config.right,
-        base_branch=config.base_branch,
-        review_branch=config.review_branch,
-    )
-    return create_app(
-        service,
-        defaults,
-        services={"git": git_service, "difftastic": difftastic_service},
-        preset_services={
-            "dirdiff": preset_service,
-            "git": preset_git_service,
-            "difftastic": preset_difftastic_service,
-        },
-    )
+    store = RepoMarkStore.open(Path(config.db_path))
+    marks = store.list()
+    if len(marks) == 0:
+        raise SystemExit(
+            "No marked repos. Run: dirdiff mark /path/to/repo "
+            "--db-path /path/to/db.sqlite"
+        )
+    return create_app(store, presets_root=config.presets_root)
+
+
+def handle_mark_command(args: argparse.Namespace) -> None:
+    store = RepoMarkStore.open(Path(args.db_path))
+    repo_path = Path(args.repo_path).expanduser()
+    if args.name is None:
+        display_name = repo_path.name
+        if not display_name:
+            raise SystemExit(
+                f"Cannot derive a repo name from path: {repo_path}"
+            )
+    else:
+        display_name = args.name
+    mark = store.new_mark(path=repo_path, name=display_name)
+    print(f"Marked repo {mark.id}: {mark.path}", file=sys.stderr)
 
 
 def ensure_port_available(port: int, *, label: str) -> None:
@@ -282,20 +259,16 @@ def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
 def main() -> None:
     configure_logging()
     args = parse_args()
+    if getattr(args, "command", None) == "mark":
+        handle_mark_command(args)
+        return
     config = runtime_config_from_args(args)
-    repo_root = (
-        Path(config.repo_root).expanduser() if config.repo_root else None
-    )
-    repo = GitBackend.discover(repo_root=repo_root)
-    service = TextDiffService(repo)
-    defaults = build_defaults(
-        service,
-        left=config.left,
-        right=config.right,
-        base_branch=config.base_branch,
-        review_branch=config.review_branch,
-    )
-
+    marks = RepoMarkStore.open(Path(config.db_path)).list()
+    if len(marks) == 0:
+        raise SystemExit(
+            "No marked repos. Run: dirdiff mark /path/to/repo "
+            "--db-path /path/to/db.sqlite"
+        )
     use_frontend_dev = not args.no_frontend_dev
     if use_frontend_dev:
         actual_port, actual_frontend_port = choose_port_pair(
@@ -307,9 +280,9 @@ def main() -> None:
         actual_port = args.port
         actual_frontend_port = args.frontend_port
 
-    backend_url = _build_url(actual_port, defaults)
+    backend_url = _build_url(actual_port, config)
     url = (
-        _build_url(actual_frontend_port, defaults)
+        _build_url(actual_frontend_port, config)
         if use_frontend_dev
         else backend_url
     )

@@ -3,9 +3,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from dirdiff.cli import build_defaults
-from dirdiff.diff import GitBackend, TextDiffService
+from dirdiff.repo_registry import RepoMarkStore
 from dirdiff.server import create_app
+
+
+def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
+    store = RepoMarkStore.open(repo_path / ".dirdiff-test.sqlite")
+    mark = store.new_mark(path=repo_path, name=repo_path.name)
+    return TestClient(create_app(store)), mark.id
 
 
 def test_file_diff_endpoint_returns_full_generated_file_rows(
@@ -45,11 +50,18 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     )
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
-    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    defaults = build_defaults(service)
-    client = TestClient(create_app(service, defaults))
+    client, repo_id = create_repo_client(tmp_path)
 
-    repo_response = client.get("/api/diff")
+    repo_response = client.get(
+        "/api/diff",
+        params={
+            "repo_id": repo_id,
+            "engine": "dirdiff",
+            "mode": "files",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
     repo_entry = repo_response.json()["files"][0]
     assert repo_entry == {
         "lazy": "generated",
@@ -61,6 +73,8 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     response = client.get(
         "/api/file-diff",
         params={
+            "repo_id": repo_id,
+            "engine": "dirdiff",
             "mode": "files",
             "left": "index",
             "right": "worktree",
@@ -115,11 +129,18 @@ def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(
     )
     deleted_file.unlink()
 
-    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    defaults = build_defaults(service)
-    client = TestClient(create_app(service, defaults))
+    client, repo_id = create_repo_client(tmp_path)
 
-    response = client.get("/api/diff")
+    response = client.get(
+        "/api/diff",
+        params={
+            "repo_id": repo_id,
+            "engine": "dirdiff",
+            "mode": "files",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
     payload = response.json()
 
     assert response.status_code == 200

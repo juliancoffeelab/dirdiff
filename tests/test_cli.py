@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import socket
-from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,34 +9,13 @@ from pydantic import ValidationError
 from dirdiff.cli import (
     RUNTIME_CONFIG_ENV,
     RuntimeConfig,
-    build_defaults,
     choose_port_pair,
-    create_app_from_runtime_config,
     ensure_port_available,
     load_runtime_config,
     store_runtime_config,
 )
-from dirdiff.diff import (
-    GitBackend,
-    PresetBackend,
-    RepoDiffPath,
-    TextDiffService,
-    TextVersion,
-)
+from dirdiff.repo_registry import RepoMarkRecord, RepoMarkStoreProtocol
 from dirdiff.server import TextFileDiffResponse, create_app
-
-SUMMARY = {
-    "changed_files": 1,
-    "added_files": 0,
-    "removed_files": 0,
-    "updated_files": 1,
-    "changed_lines": 1,
-    "modified_lines": 1,
-    "added_lines": 0,
-    "removed_lines": 0,
-    "skipped_files": 0,
-}
-
 
 TEXT_SUMMARY = {
     "changed_lines": 1,
@@ -50,206 +27,21 @@ TEXT_SUMMARY = {
 }
 
 
-def default_bootstrap() -> dict[str, Any]:
-    return {
-        "engine": "dirdiff",
-        "mode": "files",
-        "left": "index",
-        "right": "worktree",
-        "base_branch": "master",
-        "review_branch": "feature",
-        "ref_choices": {
-            "builtins": ["head", "index", "worktree"],
-            "locals": ["feature", "master"],
-            "remotes": [],
-            "remote_names": [],
-        },
-        "repo_available": True,
-    }
-
-
-class FakeDiffService:
-    def __init__(self, cwd: Path | None = None) -> None:
-        self.cwd = cwd or Path.cwd()
-        self.repo_root = self.cwd
-
-    def default_base_branch(self) -> str:
-        return "master"
-
-    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
-        return "feature"
-
-    def default_remote_name(self) -> str | None:
-        return None
-
-    def branch_upstream_name(self, branch: str | None) -> str | None:
-        return None
-
-    def list_ref_choices(self) -> dict[str, list[str]]:
-        return {
-            "builtins": ["head", "index", "worktree"],
-            "locals": ["feature", "master"],
-            "remotes": [],
-            "remote_names": [],
-        }
-
-    def normalize_side(self, side: str) -> str:
-        return side
-
-    def build_repo_manifest(
-        self, *, left: str, right: str, show_untracked: bool = False
-    ) -> dict[str, Any]:
-        return {
-            "display_name": "Repository diff",
-            "mode": "repo",
-            "left_label": left,
-            "right_label": right,
-            "summary": SUMMARY,
-            "files": [
-                {
-                    "file_kind": {"type": "git", "status": "modified"},
-                    "left_path": "alpha.txt",
-                    "right_path": "alpha.txt",
-                }
-            ],
-        }
-
-    def build_git_diff_paths(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        display_name: str | None = None,
-        change_type: str | None = None,
-        file_kind: str | None = None,
-    ) -> dict[str, Any]:
-        kind = (
-            {"type": "untracked"}
-            if file_kind == "untracked"
-            else {
-                "type": "git",
-                "status": {
-                    "add": "added",
-                    "delete": "deleted",
-                    "rename": "renamed",
-                    "copy": "copied",
-                }.get(change_type or "modify", "modified"),
-            }
+class FakeRepoMarkStore(RepoMarkStoreProtocol):
+    def list(self) -> tuple[RepoMarkRecord, ...]:
+        return (
+            RepoMarkRecord(
+                id=1,
+                path="/tmp/repo",
+                name="repo",
+                marked_at="2026-01-01T00:00:00+00:00",
+            ),
         )
-        return {
-            "display_name": display_name
-            or left_path
-            or right_path
-            or "alpha.txt",
-            "mode": "git",
-            "left_label": left,
-            "right_label": right,
-            "summary": TEXT_SUMMARY,
-            "rows": [
-                {
-                    "status": "replace",
-                    "left_no": 1,
-                    "right_no": 1,
-                    "left_text": "one",
-                    "right_text": "two",
-                }
-            ],
-            "file_kind": kind,
-            "left_path": left_path,
-            "right_path": right_path,
-            "lazy": None,
-            "fold_hints": [],
-        }
 
-    def build_notebook_section_diff(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        section: str | None,
-        cell_key: str | None = None,
-    ) -> dict[str, Any]:
-        return {
-            "display_name": left_path or right_path or "notebook.ipynb",
-            "mode": "notebook-section",
-            "left_label": left,
-            "right_label": right,
-            "summary": TEXT_SUMMARY,
-            "rows": [],
-            "left_path": left_path,
-            "right_path": right_path,
-            "section": section,
-            "cell_key": cell_key,
-            "fold_hints": [],
-        }
-
-    def resolve_branch_diff_sides(
-        self, *, base_branch: str, branch: str
-    ) -> tuple[str, str]:
-        return f"merge-base({base_branch},{branch})", branch
-
-
-class FakeGitBackend(FakeDiffService):
-    def list_repo_diff_paths(
-        self, *, left: str, right: str, show_untracked: bool = False
-    ) -> list[RepoDiffPath]:
-        return [
-            RepoDiffPath(
-                left_path="alpha.txt",
-                right_path="alpha.txt",
-                display_name="alpha.txt",
-                change_type="modify",
-            )
-        ]
-
-    def normalize_repo_path(self, raw_path: str) -> str:
-        return raw_path
-
-    def load_version(self, path: str, side: str) -> TextVersion:
-        text = "one\n" if side == "index" else "two\n"
-        return TextVersion(label=side, exists=True, text=text)
-
-
-class FakeEngineService(FakeDiffService):
-    def __init__(
-        self,
-        cwd: Path | None = None,
-        *,
-        row_status: str,
-        engine_warning: dict[str, str] | None = None,
-    ) -> None:
-        super().__init__(cwd)
-        self.row_status = row_status
-        self.engine_warning = engine_warning
-
-    def build_git_diff_paths(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        display_name: str | None = None,
-        change_type: str | None = None,
-        file_kind: str | None = None,
-    ) -> dict[str, Any]:
-        payload = super().build_git_diff_paths(
-            left_path=left_path,
-            right_path=right_path,
-            left=left,
-            right=right,
-            display_name=display_name,
-            change_type=change_type,
-            file_kind=file_kind,
-        )
-        payload["rows"][0]["status"] = self.row_status
-        if self.engine_warning is not None:
-            payload["engine_warning"] = self.engine_warning
-        return payload
+    def get(self, repo_id: int) -> RepoMarkRecord | None:
+        if repo_id == 1:
+            return self.list()[0]
+        return None
 
 
 def test_ensure_port_available_rejects_busy_port() -> None:
@@ -305,11 +97,11 @@ def test_runtime_config_round_trips_through_environment(
 ) -> None:
     monkeypatch.delenv(RUNTIME_CONFIG_ENV, raising=False)
     config = RuntimeConfig(
+        db_path="/tmp/dirdiff.sqlite",
         left="HEAD~1",
         right="HEAD",
         base_branch="origin/main",
         review_branch="origin/feature",
-        repo_root="/tmp/repo",
     )
 
     store_runtime_config(config)
@@ -317,199 +109,8 @@ def test_runtime_config_round_trips_through_environment(
     assert load_runtime_config() == config
 
 
-def test_build_defaults_keeps_branch_review_available_without_defaulting_to_it(
-    tmp_path: Path,
-) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = build_defaults(service)
-
-    assert defaults["mode"] == "files"
-    assert defaults["base_branch"] == "master"
-    assert defaults["review_branch"] == "feature"
-    assert defaults["ref_choices"]["locals"] == ["feature", "master"]
-    assert defaults["ref_choices"]["builtins"] == ["head", "index", "worktree"]
-    assert defaults["ref_choices"]["remotes"] == []
-    assert defaults["ref_choices"]["remote_names"] == []
-
-
-def test_create_app_from_runtime_config_uses_stored_repo_root(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    discovered_repo_root: Path | None = None
-
-    def discover(
-        *, repo_root: Path | None = None, cwd: Path | None = None
-    ) -> FakeGitBackend:
-        nonlocal discovered_repo_root
-        discovered_repo_root = repo_root
-        return FakeGitBackend(repo_root or cwd or tmp_path)
-
-    monkeypatch.setattr(GitBackend, "discover", staticmethod(discover))
-    store_runtime_config(
-        RuntimeConfig(
-            repo_root=str(tmp_path),
-        )
-    )
-
-    client = TestClient(create_app_from_runtime_config())
-    response = client.get("/api/diff")
-    payload = response.json()
-
-    assert response.status_code == 200
-    assert discovered_repo_root == tmp_path
-    assert payload["mode"] == "repo"
-
-
-def test_preset_backend_lists_all_presets_and_loads_file_diff(
-    tmp_path: Path,
-) -> None:
-    first_preset_dir = tmp_path / "example"
-    first_preset_dir.mkdir()
-    (first_preset_dir / "old.py").write_text(
-        "def value():\n    return 1\n", encoding="utf-8"
-    )
-    (first_preset_dir / "new.py").write_text(
-        "def value():\n    return 2\n", encoding="utf-8"
-    )
-    second_preset_dir = tmp_path / "second"
-    second_preset_dir.mkdir()
-    (second_preset_dir / "old.ts").write_text(
-        "export const value = 1;\n", encoding="utf-8"
-    )
-    (second_preset_dir / "new.ts").write_text(
-        "export const value = 2;\n", encoding="utf-8"
-    )
-    backend = PresetBackend(tmp_path)
-    service = TextDiffService(backend)
-    defaults = default_bootstrap()
-    defaults["mode"] = "preset"
-    defaults["left"] = "presets"
-    defaults["right"] = "new"
-    client = TestClient(create_app(service, defaults))
-
-    manifest_response = client.get(
-        "/api/diff",
-        params={"mode": "preset", "engine": "dirdiff"},
-    )
-    manifest = manifest_response.json()
-
-    assert manifest_response.status_code == 200
-    assert manifest == {
-        "display_name": "Preset diffs",
-        "mode": "repo",
-        "left_label": "old",
-        "right_label": "new",
-        "summary": {
-            "changed_files": 2,
-            "added_files": 0,
-            "removed_files": 0,
-            "updated_files": 2,
-            "changed_lines": 2,
-            "modified_lines": 2,
-            "added_lines": 0,
-            "removed_lines": 0,
-            "skipped_files": 0,
-        },
-        "files": [
-            {
-                "file_kind": {"type": "git", "status": "modified"},
-                "left_path": "example/old.py",
-                "right_path": "example/new.py",
-            },
-            {
-                "file_kind": {"type": "git", "status": "modified"},
-                "left_path": "second/old.ts",
-                "right_path": "second/new.ts",
-            },
-        ],
-    }
-
-    file_response = client.get(
-        "/api/file-diff",
-        params={
-            "mode": "preset",
-            "engine": "dirdiff",
-            "left_path": "example/old.py",
-            "right_path": "example/new.py",
-        },
-    )
-    file_payload = file_response.json()
-
-    assert file_response.status_code == 200
-    assert file_payload["left_label"] == "old"
-    assert file_payload["right_label"] == "new"
-    assert file_payload["rows"] == [
-        {
-            "status": "equal",
-            "left_no": 1,
-            "right_no": 1,
-            "left_text": "def value():",
-            "right_text": "def value():",
-            "left_tokens": [],
-            "right_tokens": [],
-            "left_syntax": [
-                {"start": 0, "end": 3, "classes": ["ts-keyword"]},
-                {"start": 4, "end": 9, "classes": ["ts-function"]},
-            ],
-            "right_syntax": [
-                {"start": 0, "end": 3, "classes": ["ts-keyword"]},
-                {"start": 4, "end": 9, "classes": ["ts-function"]},
-            ],
-            "count": None,
-            "foldedRows": [],
-            "label": None,
-        },
-        {
-            "status": "replace",
-            "left_no": 2,
-            "right_no": 2,
-            "left_text": "    return 1",
-            "right_text": "    return 2",
-            "left_tokens": [
-                {"text": "    ", "is_ws": True, "status": "unchanged"},
-                {"text": "return", "is_ws": False, "status": "unchanged"},
-                {"text": " ", "is_ws": True, "status": "unchanged"},
-                {"text": "1", "is_ws": False, "status": "replace"},
-            ],
-            "right_tokens": [
-                {"text": "    ", "is_ws": True, "status": "unchanged"},
-                {"text": "return", "is_ws": False, "status": "unchanged"},
-                {"text": " ", "is_ws": True, "status": "unchanged"},
-                {"text": "2", "is_ws": False, "status": "replace"},
-            ],
-            "left_syntax": [
-                {"start": 4, "end": 10, "classes": ["ts-keyword"]},
-                {"start": 11, "end": 12, "classes": ["ts-number"]},
-            ],
-            "right_syntax": [
-                {"start": 4, "end": 10, "classes": ["ts-keyword"]},
-                {"start": 11, "end": 12, "classes": ["ts-number"]},
-            ],
-            "count": None,
-            "foldedRows": [],
-            "label": None,
-        },
-    ]
-
-
-def test_defaults_endpoint_returns_frontend_bootstrap_state(
-    tmp_path: Path,
-) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults))
-
-    response = client.get("/api/defaults")
-
-    assert response.status_code == 200
-    assert response.json() == defaults
-
-
-def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults))
+def test_root_explains_vite_frontend_is_required() -> None:
+    client = TestClient(create_app(FakeRepoMarkStore()))
 
     response = client.get("/")
 
@@ -518,66 +119,8 @@ def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
     assert "--no-frontend-dev" in response.text
 
 
-def test_build_defaults_uses_local_branch_review_refs_by_default(
-    tmp_path: Path,
-) -> None:
-    class RemoteFakeDiffService(FakeDiffService):
-        def default_remote_name(self) -> str | None:
-            return "origin"
-
-        def branch_upstream_name(self, branch: str | None) -> str | None:
-            return f"origin/{branch}" if branch else None
-
-    service = RemoteFakeDiffService(tmp_path)
-    defaults = build_defaults(service)
-
-    assert defaults["base_branch"] == "master"
-    assert defaults["review_branch"] == "feature"
-
-
-def test_diff_endpoint_returns_repo_manifest(tmp_path: Path) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults))
-    response = client.get(
-        "/api/diff",
-        params={"mode": "files", "left": "index", "right": "worktree"},
-    )
-    payload = response.json()
-
-    assert response.status_code == 200
-    assert payload["files"][0] == {
-        "file_kind": {"type": "git", "status": "modified"},
-        "left_path": "alpha.txt",
-        "right_path": "alpha.txt",
-    }
-    assert payload["summary"]["changed_files"] == 1
-
-
-def test_diff_endpoint_supports_compare_refs_mode(tmp_path: Path) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults))
-    response = client.get(
-        "/api/diff",
-        params={"mode": "refs", "left": "HEAD~1", "right": "HEAD"},
-    )
-    payload = response.json()
-
-    assert response.status_code == 200
-    assert payload["left_label"] == "HEAD~1"
-    assert payload["right_label"] == "HEAD"
-    assert payload["files"][0] == {
-        "file_kind": {"type": "git", "status": "modified"},
-        "left_path": "alpha.txt",
-        "right_path": "alpha.txt",
-    }
-
-
-def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults))
+def test_fastapi_docs_are_enabled() -> None:
+    client = TestClient(create_app(FakeRepoMarkStore()))
 
     response = client.get("/docs")
 
@@ -585,10 +128,8 @@ def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
     assert "Swagger UI" in response.text
 
 
-def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
-    service = FakeDiffService(tmp_path)
-    defaults = default_bootstrap()
-    client = TestClient(create_app(service, defaults))
+def test_openapi_exposes_diff_models() -> None:
+    client = TestClient(create_app(FakeRepoMarkStore()))
 
     response = client.get("/openapi.json")
     spec = response.json()
@@ -599,88 +140,15 @@ def test_openapi_exposes_diff_models(tmp_path: Path) -> None:
     assert "TextFileDiffResponse" in spec["components"]["schemas"]
     assert "NotebookSectionDiffResponse" in spec["components"]["schemas"]
     diff_params = spec["paths"]["/api/diff"]["get"]["parameters"]
-    assert (
-        next(param for param in diff_params if param["name"] == "mode")[
-            "schema"
-        ]["default"]
-        == "files"
-    )
-    assert (
-        next(param for param in diff_params if param["name"] == "left")[
-            "schema"
-        ]["default"]
-        == "index"
-    )
-    assert (
-        next(param for param in diff_params if param["name"] == "right")[
-            "schema"
-        ]["default"]
-        == "worktree"
-    )
-
-
-def test_file_diff_endpoint_routes_to_requested_engine(tmp_path: Path) -> None:
-    service = FakeEngineService(tmp_path, row_status="replace")
-    git_service = FakeEngineService(tmp_path, row_status="delete")
-    difftastic_service = FakeEngineService(tmp_path, row_status="insert")
-    defaults = default_bootstrap()
-    client = TestClient(
-        create_app(
-            service,
-            defaults,
-            services={"git": git_service, "difftastic": difftastic_service},
-        )
-    )
-
-    response = client.get(
-        "/api/file-diff",
-        params={
-            "engine": "difftastic",
-            "left": "head",
-            "right": "worktree",
-            "left_path": "alpha.txt",
-            "right_path": "alpha.txt",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["rows"][0]["status"] == "insert"
-
-
-def test_file_diff_endpoint_preserves_engine_warning(tmp_path: Path) -> None:
-    service = FakeDiffService(tmp_path)
-    difftastic_service = FakeEngineService(
-        tmp_path,
-        row_status="insert",
-        engine_warning={
-            "type": "difftastic_graph_limit",
-            "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
-        },
-    )
-    defaults = default_bootstrap()
-    client = TestClient(
-        create_app(
-            service,
-            defaults,
-            services={"difftastic": difftastic_service},
-        )
-    )
-
-    response = client.get(
-        "/api/file-diff",
-        params={
-            "engine": "difftastic",
-            "left": "head",
-            "right": "worktree",
-            "left_path": "alpha.txt",
-            "right_path": "alpha.txt",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["engine_warning"] == {
-        "type": "difftastic_graph_limit",
-        "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
+    required_names = {
+        param["name"] for param in diff_params if param["required"]
+    }
+    assert required_names >= {
+        "repo_id",
+        "engine",
+        "mode",
+        "left",
+        "right",
     }
 
 

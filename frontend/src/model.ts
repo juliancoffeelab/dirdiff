@@ -7,6 +7,7 @@ import type {
   FileKind,
   NotebookSummary,
   RefChoices,
+  RepoId,
   Summary,
 } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
@@ -191,12 +192,14 @@ export function buildRequest(
   controls: ControlsState,
   refChoices: RefChoices,
   engine: DiffEngine,
+  repoId: RepoId,
 ): DiffRequest | string {
   if (controls.mode === "refs") {
     if (!controls.left.trim() || !controls.right.trim()) {
       return "Enter both refs to compare them.";
     }
     return {
+      repo_id: repoId,
       engine,
       mode: controls.mode,
       left: controls.left.trim(),
@@ -209,6 +212,7 @@ export function buildRequest(
 
   if (controls.mode === "preset") {
     return {
+      repo_id: repoId,
       engine,
       mode: controls.mode,
       left: "presets",
@@ -233,6 +237,7 @@ export function buildRequest(
       return "Pick a branch to compare against the base branch.";
     }
     return {
+      repo_id: repoId,
       engine,
       mode: controls.mode,
       left: "",
@@ -255,6 +260,7 @@ export function buildRequest(
 
   const [left, right] = modeSides[controls.mode];
   return {
+    repo_id: repoId,
     engine,
     mode: controls.mode,
     left,
@@ -267,6 +273,7 @@ export function buildRequest(
 
 function requestQuery(request: DiffRequest): URLSearchParams {
   const params = new URLSearchParams();
+  params.set("repo_id", String(request.repo_id));
   params.set("engine", request.engine);
   params.set("mode", request.mode);
   if (request.left) {
@@ -590,6 +597,7 @@ function hashedElementId(prefix: string, value: string): string {
 export function fileDiffQueryKey(request: DiffRequest, entry: FileEntry) {
   return [
     "file-diff",
+    request.repo_id,
     request.engine,
     request.mode,
     request.left,

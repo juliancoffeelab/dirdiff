@@ -320,6 +320,7 @@ function notebookSectionQueryKey(
 ) {
   return [
     "notebook-section",
+    request.repo_id,
     request.engine,
     request.mode,
     request.left,

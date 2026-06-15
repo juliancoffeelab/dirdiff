@@ -15,7 +15,10 @@ from dirdiff.diff import (
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"
-BROKEN_PRESET_NAMES: set[str] = set()
+BROKEN_PRESET_NAMES: set[str] = {
+    "build-request-repo-id-argument-breaks-alignment",
+    "create-app-runtime-config-collapses-service-block",
+}
 
 
 class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):

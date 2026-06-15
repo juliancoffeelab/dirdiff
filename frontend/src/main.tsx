@@ -1,4 +1,5 @@
 import {
+  For,
   Show,
   batch,
   createEffect,
@@ -17,9 +18,12 @@ import {
   fetchDefaults,
   fetchDiff,
   fetchFileDiff,
+  fetchRepos,
   type DiffEngine,
   type DiffRequest,
   type FileEntry,
+  type RepoId,
+  type RepoMark,
   type Summary,
 } from "./api";
 import { type DiffViewMode } from "./DiffGrid";
@@ -87,12 +91,26 @@ function stringArraysEqual(left: string[], right: string[]): boolean {
 }
 
 function App() {
-  const defaults = createQuery(() => ({
-    queryKey: ["defaults"],
-    queryFn: fetchDefaults,
+  const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
+  const [selectedRepoId, setSelectedRepoId] = createSignal<RepoId | null>(null);
+  const [repoSelectionError, setRepoSelectionError] = createSignal("");
+  const repos = createQuery(() => ({
+    queryKey: ["repos"],
+    queryFn: fetchRepos,
     staleTime: 0,
   }));
-  const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
+  const defaults = createQuery(() => ({
+    queryKey: ["defaults", selectedRepoId()],
+    queryFn: () => {
+      const repoId = selectedRepoId();
+      if (repoId === null) {
+        throw new Error("repo_id is required.");
+      }
+      return fetchDefaults(repoId);
+    },
+    enabled: selectedRepoId() !== null,
+    staleTime: 0,
+  }));
   const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>(
     initialDiffViewMode(),
   );
@@ -160,6 +178,31 @@ function App() {
         (fileOrder()[fileKey(rightFile)] ?? 0),
     ),
   );
+  const selectedRepo = createMemo(() => {
+    const repoId = selectedRepoId();
+    const repoList = repos.data;
+    if (repoId === null) {
+      return null;
+    }
+    if (!repoList) {
+      return null;
+    }
+    const repo = repoList.find((candidate) => candidate.id === repoId);
+    if (!repo) {
+      return null;
+    }
+    return repo;
+  });
+  const repoPickerRepos = createMemo(() => {
+    const repoList = repos.data;
+    if (!repoList) {
+      return null;
+    }
+    if (selectedRepoId() !== null) {
+      return null;
+    }
+    return repoList;
+  });
   createEffect(() => {
     if (forcedRichFileIds().length > 0) {
       return;
@@ -243,6 +286,44 @@ function App() {
       setStatusText(nextStatusText);
     });
   };
+
+  createEffect(() => {
+    const repoList = repos.data;
+    if (!repoList) {
+      return;
+    }
+    const rawRepoId = new URLSearchParams(window.location.search).get(
+      "repo_id",
+    );
+    if (rawRepoId === null) {
+      setSelectedRepoId(null);
+      setRepoSelectionError("");
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return;
+    }
+    const parsedRepoId = Number(rawRepoId);
+    if (!Number.isInteger(parsedRepoId)) {
+      setSelectedRepoId(null);
+      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return;
+    }
+    if (parsedRepoId <= 0) {
+      setSelectedRepoId(null);
+      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return;
+    }
+    const repo = repoList.find((candidate) => candidate.id === parsedRepoId);
+    if (!repo) {
+      setSelectedRepoId(null);
+      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return;
+    }
+    setSelectedRepoId(parsedRepoId);
+    setRepoSelectionError("");
+  });
 
   async function loadDiff(
     activeRequest: DiffRequest,
@@ -427,7 +508,14 @@ function App() {
 
   createEffect(() => {
     const value = defaults.data;
-    if (!value || initialized) {
+    const repoId = selectedRepoId();
+    if (!value) {
+      return;
+    }
+    if (repoId === null) {
+      return;
+    }
+    if (initialized) {
       return;
     }
     initialized = true;
@@ -435,7 +523,12 @@ function App() {
     const nextControls = initialControls(value);
     setEngine(nextEngine);
     setControls(nextControls);
-    const nextRequest = buildRequest(nextControls, refChoices(), nextEngine);
+    const nextRequest = buildRequest(
+      nextControls,
+      refChoices(),
+      nextEngine,
+      repoId,
+    );
     if (typeof nextRequest === "string") {
       setStatus("error");
       setStatusText(nextRequest);
@@ -660,11 +753,18 @@ function App() {
     nextControls: ControlsState,
     selectedEngine: DiffEngine = engine(),
   ) => {
+    const repoId = selectedRepoId();
+    if (repoId === null) {
+      setRequest(null);
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return;
+    }
     setControls(nextControls);
     const nextRequest = buildRequest(
       nextControls,
       refChoices(),
       selectedEngine,
+      repoId,
     );
     if (typeof nextRequest === "string") {
       setRequest(null);
@@ -688,6 +788,24 @@ function App() {
     if (currentControls) {
       loadControls(currentControls, nextEngine);
     }
+  };
+
+  const selectRepo = (repo: RepoMark) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("repo_id", String(repo.id));
+    history.replaceState(
+      {},
+      "",
+      `/?${params.toString()}${window.location.hash}`,
+    );
+    initialized = false;
+    batch(() => {
+      setSelectedRepoId(repo.id);
+      setRepoSelectionError("");
+      setControls(null);
+      setRequest(null);
+      resetDiffState("idle", "Preparing diff...");
+    });
   };
 
   const scrollTop = () => {
@@ -766,6 +884,9 @@ function App() {
         <div class="app-title-block">
           <div class="app-title-row">
             <h1>dirdiff</h1>
+            <Show when={selectedRepo()}>
+              {(repo) => <span class="repo-context">{repo().name}</span>}
+            </Show>
             <div class="header-actions">
               <EngineSelect engine={engine()} onEngineChange={loadEngine} />
               <DiffViewSelect
@@ -778,8 +899,12 @@ function App() {
         <SummaryView summary={summary()} />
       </header>
 
-      <Show when={defaults.isPending}>
+      <Show when={selectedRepoId() !== null && defaults.isPending}>
         <p class="status">Loading defaults...</p>
+      </Show>
+
+      <Show when={repos.isPending}>
+        <p class="status">Loading marked repos...</p>
       </Show>
 
       <Show when={defaults.error}>
@@ -788,7 +913,23 @@ function App() {
         </section>
       </Show>
 
-      <Show when={controls()}>
+      <Show when={repos.error}>
+        <section class="notice error">
+          Failed to load marked repos: {String(repos.error)}
+        </section>
+      </Show>
+
+      <Show when={repoPickerRepos()}>
+        {(repoList) => (
+          <RepoPicker
+            repos={repoList()}
+            error={repoSelectionError()}
+            onSelect={selectRepo}
+          />
+        )}
+      </Show>
+
+      <Show when={selectedRepoId() !== null && controls()}>
         {(value) => (
           <>
             <Controls
@@ -893,6 +1034,38 @@ function DiffViewSelect(props: {
         <option value="inline">{diffViewLabels.inline}</option>
       </select>
     </label>
+  );
+}
+
+function RepoPicker(props: {
+  repos: RepoMark[];
+  error: string;
+  onSelect: (repo: RepoMark) => void;
+}) {
+  return (
+    <section class="repo-picker" aria-label="Marked repositories">
+      <div class="repo-picker-heading">
+        <h2>Choose a repo</h2>
+        <p>Select a marked repository before loading repo-backed diffs.</p>
+      </div>
+      <Show when={props.error}>
+        <p class="repo-picker-error">{props.error}</p>
+      </Show>
+      <div class="repo-list">
+        <For each={props.repos}>
+          {(repo) => (
+            <button
+              type="button"
+              class="repo-option"
+              onClick={() => props.onSelect(repo)}
+            >
+              <span class="repo-option-name">{repo.name}</span>
+              <span class="repo-option-path">{repo.path}</span>
+            </button>
+          )}
+        </For>
+      </div>
+    </section>
   );
 }
 

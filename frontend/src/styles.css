@@ -66,6 +66,22 @@ h1 {
   margin-right: 2px;
 }
 
+.repo-context {
+  min-height: var(--header-control-height);
+  display: inline-flex;
+  align-items: center;
+  max-width: 240px;
+  overflow: hidden;
+  border: 1px solid #d8d0c2;
+  background: #fffdf8;
+  color: #24231f;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .header-actions {
   display: contents;
 }
@@ -320,6 +336,80 @@ h1 {
   border: 1px solid #ded8cc;
   background: #fffdf8;
   padding: 12px;
+}
+
+.repo-picker {
+  max-width: 760px;
+  margin: 48px auto 0;
+  border-top: 1px solid #24231f;
+  padding-top: 18px;
+}
+
+.repo-picker-heading {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 18px;
+  align-items: baseline;
+  margin-bottom: 16px;
+}
+
+.repo-picker h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.repo-picker p {
+  margin: 0;
+  color: #625f58;
+}
+
+.repo-picker-error {
+  margin-bottom: 12px;
+  color: #8e1f1f;
+  font-weight: 700;
+}
+
+.repo-list {
+  display: grid;
+  gap: 8px;
+}
+
+.repo-option {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid #d8d0c2;
+  background: #fffdf8;
+  color: #24231f;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.repo-option:hover,
+.repo-option:focus-visible {
+  border-color: #24231f;
+  outline: 0;
+}
+
+.repo-option-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-option-path {
+  min-width: 0;
+  overflow: hidden;
+  color: #625f58;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .summary-group > strong {
@@ -1646,8 +1736,10 @@ h1 {
   }
 
   .engine-select,
+  .repo-context,
   .summary-group {
     width: 100%;
+    max-width: none;
   }
 
   .summary-group-files,
@@ -1662,6 +1754,11 @@ h1 {
   }
 
   .controls {
+    grid-template-columns: 1fr;
+  }
+
+  .repo-picker-heading,
+  .repo-option {
     grid-template-columns: 1fr;
   }
 

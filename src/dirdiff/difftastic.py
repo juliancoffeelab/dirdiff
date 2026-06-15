@@ -12,6 +12,8 @@ from typing import Any, Literal
 from dirdiff.sources import TextDiffError
 from dirdiff.textdiff import _paired_line_row
 
+DFT_GRAPH_LIMIT = "10000000"
+
 
 def _difftastic_changed_token_parts(text: str) -> list[str]:
     if not text:
@@ -1247,7 +1249,11 @@ def run_difftastic_json(
         left_path.write_text(left_text, encoding="utf-8")
         right_path.write_text(right_text, encoding="utf-8")
 
-        env = {**os.environ, "DFT_UNSTABLE": "yes"}
+        env = {
+            **os.environ,
+            "DFT_GRAPH_LIMIT": DFT_GRAPH_LIMIT,
+            "DFT_UNSTABLE": "yes",
+        }
         try:
             result = subprocess.run(
                 [

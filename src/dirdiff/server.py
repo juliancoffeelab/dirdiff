@@ -1,14 +1,27 @@
 import logging
-from collections.abc import Mapping
+from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from dirdiff.sources import TextDiffError
+from dirdiff.services import (
+    DifftasticDiffService,
+    GitDiffService,
+    TextDiffService,
+)
+from dirdiff.sources import (
+    GitBackend,
+    PatchBackend,
+    PresetBackend,
+    TextDiffError,
+)
+
+if TYPE_CHECKING:
+    from dirdiff.repo_registry import RepoMarkStoreProtocol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +97,13 @@ class ApiModel(BaseModel):
 
 class ErrorResponse(ApiModel):
     error: str
+
+
+class RepoMarkResponse(ApiModel):
+    id: int
+    path: str
+    name: str
+    marked_at: datetime
 
 
 class SyntaxSpanResponse(ApiModel):
@@ -289,28 +309,40 @@ def selected_branches(
     return base_branch, review_branch
 
 
+def service_for_backend(
+    engine: EngineParam, backend: PatchBackend
+) -> DiffServiceProtocol:
+    if engine == "dirdiff":
+        return TextDiffService(backend)
+    if engine == "git":
+        return GitDiffService(backend)
+    if engine == "difftastic":
+        return DifftasticDiffService(backend)
+    raise TextDiffError(f"Unknown diff engine: {engine}")
+
+
 def create_app(
-    service: DiffServiceProtocol,
-    defaults: dict[str, Any],
-    *,
-    services: Mapping[str, DiffServiceProtocol] | None = None,
-    preset_services: Mapping[str, DiffServiceProtocol] | None = None,
+    db: RepoMarkStoreProtocol, *, presets_root: str | None = None
 ) -> FastAPI:
     app = FastAPI()
-    diff_services = {"dirdiff": service, **(services or {})}
-    preset_diff_services = {
-        "dirdiff": service,
-        **(preset_services or {}),
-    }
 
-    def selected_service(
-        engine: EngineParam, *, mode: ModeParam
+    def service_for_request(
+        engine: EngineParam, *, mode: ModeParam, repo_id: int
     ) -> DiffServiceProtocol:
         if mode == "preset":
-            return preset_diff_services.get(
-                engine, preset_diff_services["dirdiff"]
-            )
-        return diff_services.get(engine, service)
+            if presets_root is not None:
+                preset_backend = PresetBackend.discover(
+                    presets_root=Path(presets_root)
+                )
+            else:
+                preset_backend = PresetBackend.discover()
+            return service_for_backend(engine, preset_backend)
+
+        mark = db.get(repo_id)
+        if mark is None:
+            raise TextDiffError(f"Invalid repo_id: {repo_id}")
+        backend = GitBackend.discover(repo_root=Path(mark.path))
+        return service_for_backend(engine, backend)
 
     @app.get("/", response_class=HTMLResponse)
     def serve_frontend_missing() -> HTMLResponse:
@@ -364,9 +396,42 @@ def create_app(
             status_code=503,
         )
 
-    @app.get("/api/defaults")
-    def serve_defaults() -> dict[str, Any]:
-        return defaults
+    @app.get("/api/defaults", response_model=None)
+    def serve_defaults(
+        repo_id: int = Query(
+            description="Marked repo id. Required for repo-backed defaults.",
+        ),
+    ) -> dict[str, Any] | JSONResponse:
+        mark = db.get(repo_id)
+        if mark is None:
+            return JSONResponse(
+                {"error": f"Invalid repo_id: {repo_id}"},
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+        backend = GitBackend.discover(repo_root=Path(mark.path))
+        service = TextDiffService(backend)
+        default_base_branch = service.default_base_branch()
+        preferred_review_branch = service.preferred_review_branch(
+            base_branch=default_base_branch
+        )
+
+        return {
+            "engine": "dirdiff",
+            "mode": "files",
+            "left": "index",
+            "right": "worktree",
+            "base_branch": default_base_branch,
+            "review_branch": preferred_review_branch,
+            "ref_choices": service.list_ref_choices(),
+            "repo_available": bool(service.repo_root),
+        }
+
+    @app.get("/api/repos", response_model=list[RepoMarkResponse])
+    def serve_repos() -> list[RepoMarkResponse]:
+        return [
+            RepoMarkResponse.model_validate(mark, from_attributes=True)
+            for mark in db.list()
+        ]
 
     @app.get(
         "/api/diff",
@@ -380,28 +445,23 @@ def create_app(
         summary="Load a repository diff",
     )
     def serve_diff(
-        engine: EngineParam = Query(
-            default=defaults["engine"], description="Diff engine."
+        repo_id: int = Query(
+            description="Marked repo id. Required for repo-backed modes.",
         ),
-        mode: ModeParam = Query(
-            default=defaults["mode"], description="UI diff mode."
-        ),
-        left: str = Query(
-            default=defaults["left"], description="Left ref or diff side."
-        ),
-        right: str = Query(
-            default=defaults["right"], description="Right ref or diff side."
-        ),
+        engine: EngineParam = Query(description="Diff engine."),
+        mode: ModeParam = Query(description="UI diff mode."),
+        left: str = Query(description="Left ref or diff side."),
+        right: str = Query(description="Right ref or diff side."),
         base_branch: str | None = Query(
-            default=defaults.get("base_branch"),
+            default=None,
             description="Base branch for branch-review mode.",
         ),
         review_branch: str | None = Query(
-            default=defaults.get("review_branch"),
+            default=None,
             description="Branch being reviewed in branch-review mode.",
         ),
         preset: str | None = Query(
-            default=defaults.get("preset"),
+            default=None,
             description="Preset name for preset mode.",
         ),
         show_untracked: bool = Query(
@@ -414,8 +474,10 @@ def create_app(
             base_branch=base_branch,
             review_branch=review_branch,
         )
-        diff_service = selected_service(engine, mode=mode)
         try:
+            diff_service = service_for_request(
+                engine, mode=mode, repo_id=repo_id
+            )
             if mode == "preset":
                 preset_name = (
                     preset.strip() if preset and preset.strip() else "presets"
@@ -478,28 +540,23 @@ def create_app(
         summary="Load a single file diff",
     )
     def serve_file_diff(
-        engine: EngineParam = Query(
-            default=defaults["engine"], description="Diff engine."
+        repo_id: int = Query(
+            description="Marked repo id. Required for repo-backed modes.",
         ),
-        mode: ModeParam = Query(
-            default=defaults["mode"], description="UI diff mode."
-        ),
-        left: str = Query(
-            default=defaults["left"], description="Left ref or diff side."
-        ),
-        right: str = Query(
-            default=defaults["right"], description="Right ref or diff side."
-        ),
+        engine: EngineParam = Query(description="Diff engine."),
+        mode: ModeParam = Query(description="UI diff mode."),
+        left: str = Query(description="Left ref or diff side."),
+        right: str = Query(description="Right ref or diff side."),
         base_branch: str | None = Query(
-            default=defaults.get("base_branch"),
+            default=None,
             description="Base branch for branch-review mode.",
         ),
         review_branch: str | None = Query(
-            default=defaults.get("review_branch"),
+            default=None,
             description="Branch being reviewed in branch-review mode.",
         ),
         preset: str | None = Query(
-            default=defaults.get("preset"),
+            default=None,
             description="Preset name for preset mode.",
         ),
         left_path: str | None = Query(
@@ -523,9 +580,11 @@ def create_app(
             base_branch=base_branch,
             review_branch=review_branch,
         )
-        diff_service = selected_service(engine, mode=mode)
 
         try:
+            diff_service = service_for_request(
+                engine, mode=mode, repo_id=repo_id
+            )
             if mode == "preset":
                 preset_name = (
                     preset.strip() if preset and preset.strip() else "presets"
@@ -603,28 +662,23 @@ def create_app(
         summary="Load notebook metadata or output rows for a specific cell",
     )
     def serve_notebook_section(
-        engine: EngineParam = Query(
-            default=defaults["engine"], description="Diff engine."
+        repo_id: int = Query(
+            description="Marked repo id. Required for repo-backed modes.",
         ),
-        mode: ModeParam = Query(
-            default=defaults["mode"], description="UI diff mode."
-        ),
-        left: str = Query(
-            default=defaults["left"], description="Left ref or diff side."
-        ),
-        right: str = Query(
-            default=defaults["right"], description="Right ref or diff side."
-        ),
+        engine: EngineParam = Query(description="Diff engine."),
+        mode: ModeParam = Query(description="UI diff mode."),
+        left: str = Query(description="Left ref or diff side."),
+        right: str = Query(description="Right ref or diff side."),
         base_branch: str | None = Query(
-            default=defaults.get("base_branch"),
+            default=None,
             description="Base branch for branch-review mode.",
         ),
         review_branch: str | None = Query(
-            default=defaults.get("review_branch"),
+            default=None,
             description="Branch being reviewed in branch-review mode.",
         ),
         preset: str | None = Query(
-            default=defaults.get("preset"),
+            default=None,
             description="Preset name for preset mode.",
         ),
         section: str | None = Query(
@@ -646,9 +700,11 @@ def create_app(
             base_branch=base_branch,
             review_branch=review_branch,
         )
-        diff_service = selected_service(engine, mode=mode)
 
         try:
+            diff_service = service_for_request(
+                engine, mode=mode, repo_id=repo_id
+            )
             if mode == "preset":
                 preset_name = (
                     preset.strip() if preset and preset.strip() else "presets"

@@ -16,3 +16,6 @@ ruff:
 format:
 	.venv/bin/ruff format
 	npm --prefix frontend run format
+
+reinstall:
+	uv tool install -e . --reinstall

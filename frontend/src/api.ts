@@ -6,6 +6,14 @@ export type DiffMode =
   | "branch-review"
   | "preset";
 export type DiffEngine = "dirdiff" | "git" | "difftastic";
+export type RepoId = number;
+
+export type RepoMark = {
+  id: RepoId;
+  path: string;
+  name: string;
+  marked_at: string;
+};
 
 export type RefChoices = {
   builtins: string[];
@@ -26,6 +34,7 @@ export type Defaults = {
 };
 
 export type DiffRequest = {
+  repo_id: RepoId;
   engine: DiffEngine;
   mode: DiffMode;
   left: string;
@@ -224,16 +233,30 @@ export type NotebookSection = {
   fold_hints: FoldHint[];
 };
 
-export async function fetchDefaults(): Promise<Defaults> {
-  const response = await fetch("/api/defaults");
+export async function fetchDefaults(repoId: RepoId): Promise<Defaults> {
+  const params = new URLSearchParams({ repo_id: String(repoId) });
+  const response = await fetch(`/api/defaults?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to load defaults: ${response.status}`);
   }
   return (await response.json()) as Defaults;
 }
 
+export async function fetchRepos(): Promise<RepoMark[]> {
+  const response = await fetch("/api/repos");
+  const payload = await response.json();
+  if (!response.ok) {
+    if (typeof payload.error === "string") {
+      throw new Error(payload.error);
+    }
+    throw new Error("Failed to load marked repos.");
+  }
+  return payload as RepoMark[];
+}
+
 function diffRequestParams(request: DiffRequest): URLSearchParams {
   const params = new URLSearchParams();
+  params.set("repo_id", String(request.repo_id));
   params.set("engine", request.engine);
   params.set("mode", request.mode === "against-head" ? "files" : request.mode);
   if (request.left) {
