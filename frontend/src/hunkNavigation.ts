@@ -113,7 +113,7 @@ function selectCurrentHunk(options: {
 }): HTMLElement | null {
   const anchors = hunkAnchors(options.root);
   const anchorElements = hunkAnchorElements(options.root);
-  if (!anchors.length) {
+  if (anchors.length === 0) {
     return null;
   }
   const selected = anchors[clamp(options.index, 0, anchors.length - 1)];
@@ -121,7 +121,7 @@ function selectCurrentHunk(options: {
     anchor.classList.remove("active-hunk");
     anchor.removeAttribute("aria-current");
   }
-  if (!selected) {
+  if (selected === null) {
     return null;
   }
   selected.classList.add("active-hunk");
@@ -148,12 +148,12 @@ function nextSelectableIndex(
   startIndex: number,
   direction: 1 | -1,
 ): number | null {
-  if (!anchors.some(Boolean)) {
+  if (!anchors.some((anchor) => anchor !== null)) {
     return null;
   }
   let index = wrapIndex(startIndex, anchors.length);
   for (let steps = 0; steps < anchors.length; steps += 1) {
-    if (anchors[index]) {
+    if (anchors[index] !== null) {
       return index;
     }
     index = wrapIndex(index + direction, anchors.length);
@@ -221,7 +221,7 @@ export function createHunkNavigation(
     let nextDistance = Number.POSITIVE_INFINITY;
 
     currentAnchors.forEach((anchor, index) => {
-      if (!anchor) {
+      if (anchor === null) {
         return;
       }
       const distance = Math.abs(
@@ -246,14 +246,14 @@ export function createHunkNavigation(
     reconcileTimer = window.setTimeout(() => {
       reconcileTimer = null;
       const currentAnchors = anchors();
-      if (!currentAnchors.length) {
+      if (currentAnchors.length === 0) {
         setCurrentIndex(0);
         options.afterReconcile?.();
         return;
       }
 
-      const activeIndex = currentAnchors.findIndex((anchor) =>
-        anchor?.classList.contains("active-hunk"),
+      const activeIndex = currentAnchors.findIndex(
+        (anchor) => anchor?.classList.contains("active-hunk") === true,
       );
       const nextIndex =
         activeIndex === -1

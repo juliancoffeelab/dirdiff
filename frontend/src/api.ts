@@ -22,15 +22,10 @@ export type RefChoices = {
   remote_names: string[];
 };
 
-export type Defaults = {
-  engine: DiffEngine;
-  mode: DiffMode;
-  left: string;
-  right: string;
-  base_branch: string | null;
-  review_branch: string | null;
+export type RepoRefs = {
+  default_base_branch: string | null;
+  preferred_review_branch: string | null;
   ref_choices: RefChoices;
-  repo_available: boolean;
 };
 
 export type DiffRequest = {
@@ -70,6 +65,15 @@ export type RepoPayload = {
 
 export type RepoDiffPayload = RepoPayload & {
   files: FileEntry[];
+};
+
+type RawFileEntry = Omit<FileEntry, "left_path" | "right_path"> & {
+  left_path?: string | null;
+  right_path?: string | null;
+};
+
+type RawRepoDiffPayload = Omit<RepoDiffPayload, "files"> & {
+  files: RawFileEntry[];
 };
 
 export type FileSummary = {
@@ -180,6 +184,25 @@ export type FileEntry = {
   cells?: NotebookCellEntry[];
 };
 
+function normalizeFileEntry(entry: RawFileEntry): FileEntry {
+  const leftPath = entry.left_path === undefined ? null : entry.left_path;
+  const rightPath = entry.right_path === undefined ? null : entry.right_path;
+  return {
+    ...entry,
+    left_path: leftPath,
+    right_path: rightPath,
+  };
+}
+
+function normalizeRepoDiffPayload(
+  payload: RawRepoDiffPayload,
+): RepoDiffPayload {
+  return {
+    ...payload,
+    files: payload.files.map(normalizeFileEntry),
+  };
+}
+
 export type NotebookCellEntry = {
   kind: "added" | "removed" | "modified";
   cell_type: string;
@@ -233,13 +256,13 @@ export type NotebookSection = {
   fold_hints: FoldHint[];
 };
 
-export async function fetchDefaults(repoId: RepoId): Promise<Defaults> {
+export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
   const params = new URLSearchParams({ repo_id: String(repoId) });
-  const response = await fetch(`/api/defaults?${params.toString()}`);
+  const response = await fetch(`/api/repo-refs?${params.toString()}`);
   if (!response.ok) {
-    throw new Error(`Failed to load defaults: ${response.status}`);
+    throw new Error(`Failed to load repo refs: ${response.status}`);
   }
-  return (await response.json()) as Defaults;
+  return (await response.json()) as RepoRefs;
 }
 
 export async function fetchRepos(): Promise<RepoMark[]> {
@@ -259,16 +282,16 @@ function diffRequestParams(request: DiffRequest): URLSearchParams {
   params.set("repo_id", String(request.repo_id));
   params.set("engine", request.engine);
   params.set("mode", request.mode === "against-head" ? "files" : request.mode);
-  if (request.left) {
+  if (request.left.length > 0) {
     params.set("left", request.left);
   }
-  if (request.right) {
+  if (request.right.length > 0) {
     params.set("right", request.right);
   }
-  if (request.base_branch) {
+  if (request.base_branch !== null && request.base_branch.length > 0) {
     params.set("base_branch", request.base_branch);
   }
-  if (request.review_branch) {
+  if (request.review_branch !== null && request.review_branch.length > 0) {
     params.set("review_branch", request.review_branch);
   }
   if (request.show_untracked) {
@@ -285,34 +308,37 @@ export async function fetchDiff(
   const response = await fetch(`/api/diff?${params.toString()}`, { signal });
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.error || "Failed to load diff.");
+    throw new Error(errorMessage(payload, "Failed to load diff."));
   }
-  return payload as RepoDiffPayload;
+  return normalizeRepoDiffPayload(payload as RawRepoDiffPayload);
 }
 
 export async function fetchFileDiff(
   request: DiffRequest,
   entry: FileEntry,
+  signal?: AbortSignal,
 ): Promise<FileEntry> {
   const params = diffRequestParams(request);
-  if (entry.left_path) {
+  if (entry.left_path !== null && entry.left_path.length > 0) {
     params.set("left_path", entry.left_path);
   }
-  if (entry.right_path) {
+  if (entry.right_path !== null && entry.right_path.length > 0) {
     params.set("right_path", entry.right_path);
   }
-  if (entry.display_name) {
+  if (entry.display_name !== undefined && entry.display_name.length > 0) {
     params.set("display_name", entry.display_name);
   }
   params.set("change_type", changeTypeForFileKind(entry.file_kind));
   params.set("file_kind", entry.file_kind.type);
 
-  const response = await fetch(`/api/file-diff?${params.toString()}`);
+  const response = await fetch(`/api/file-diff?${params.toString()}`, {
+    signal,
+  });
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.error || "Failed to load file diff.");
+    throw new Error(errorMessage(payload, "Failed to load file diff."));
   }
-  return payload as FileEntry;
+  return normalizeFileEntry(payload as RawFileEntry);
 }
 
 function changeTypeForFileKind(fileKind: FileKind): GitChangeType {
@@ -338,23 +364,40 @@ export async function fetchNotebookSection(
   request: DiffRequest,
   entry: FileEntry,
   options: { section: string; cellKey?: string | null },
+  signal?: AbortSignal,
 ): Promise<NotebookSection> {
   const params = diffRequestParams(request);
-  if (entry.left_path) {
+  if (entry.left_path !== null && entry.left_path.length > 0) {
     params.set("left_path", entry.left_path);
   }
-  if (entry.right_path) {
+  if (entry.right_path !== null && entry.right_path.length > 0) {
     params.set("right_path", entry.right_path);
   }
   params.set("section", options.section);
-  if (options.cellKey) {
+  if (options.cellKey !== null && options.cellKey !== undefined) {
     params.set("cell_key", options.cellKey);
   }
 
-  const response = await fetch(`/api/notebook-section?${params.toString()}`);
+  const response = await fetch(`/api/notebook-section?${params.toString()}`, {
+    signal,
+  });
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.error || "Failed to load notebook section.");
+    throw new Error(errorMessage(payload, "Failed to load notebook section."));
   }
   return payload as NotebookSection;
+}
+
+function errorMessage(payload: unknown, fallback: string): string {
+  if (typeof payload !== "object" || payload === null) {
+    return fallback;
+  }
+  if (!("error" in payload)) {
+    return fallback;
+  }
+  const error = payload.error;
+  if (typeof error !== "string" || error.length === 0) {
+    return fallback;
+  }
+  return error;
 }

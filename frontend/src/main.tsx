@@ -15,15 +15,17 @@ import {
   createQuery,
 } from "@tanstack/solid-query";
 import {
-  fetchDefaults,
   fetchDiff,
   fetchFileDiff,
+  fetchRepoRefs,
   fetchRepos,
   type DiffEngine,
   type DiffRequest,
   type FileEntry,
+  type RepoDiffPayload,
   type RepoId,
   type RepoMark,
+  type RepoRefs,
   type Summary,
 } from "./api";
 import { type DiffViewMode } from "./DiffGrid";
@@ -46,13 +48,15 @@ import {
   setLinePinInHash,
 } from "./linePins";
 import {
+  type BranchSource,
   type ControlsState,
   type FileGroup,
   type LinePin,
+  type LoadedDiff,
   type LoadState,
   addHydratedNotebookSummary,
   appQuery,
-  buildRequest,
+  branchReviewRef,
   directoryElementId,
   emptySummary,
   engineLabels,
@@ -90,35 +94,51 @@ function stringArraysEqual(left: string[], right: string[]): boolean {
   return left.every((value, index) => value === right[index]);
 }
 
+function diffRequestParts(request: DiffRequest) {
+  return [
+    request.repo_id,
+    request.engine,
+    request.mode,
+    request.left,
+    request.right,
+    request.base_branch,
+    request.review_branch,
+    request.show_untracked,
+  ] as const;
+}
+
+function diffRequestIdentity(request: DiffRequest): string {
+  return JSON.stringify(diffRequestParts(request));
+}
+
+function diffRequestQueryKey(request: DiffRequest) {
+  return ["diff", diffRequestIdentity(request)] as const;
+}
+
+type DiffQueryPayload = {
+  request: DiffRequest;
+  requestIdentity: string;
+  payload: RepoDiffPayload;
+};
+
 function App() {
   const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
   const [selectedRepoId, setSelectedRepoId] = createSignal<RepoId | null>(null);
   const [repoSelectionError, setRepoSelectionError] = createSignal("");
-  const repos = createQuery(() => ({
-    queryKey: ["repos"],
-    queryFn: fetchRepos,
-    staleTime: 0,
-  }));
-  const defaults = createQuery(() => ({
-    queryKey: ["defaults", selectedRepoId()],
-    queryFn: () => {
-      const repoId = selectedRepoId();
-      if (repoId === null) {
-        throw new Error("repo_id is required.");
-      }
-      return fetchDefaults(repoId);
-    },
-    enabled: selectedRepoId() !== null,
-    staleTime: 0,
-  }));
+  const [repoList, setRepoList] = createSignal<RepoMark[] | null>(null);
+  const [reposPending, setReposPending] = createSignal(true);
+  const [reposError, setReposError] = createSignal<unknown>(null);
+  const [repoRefs, setRepoRefs] = createSignal<RepoRefs | null>(null);
+  const [repoRefsPending, setRepoRefsPending] = createSignal(false);
+  const [repoRefsError, setRepoRefsError] = createSignal<unknown>(null);
   const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>(
     initialDiffViewMode(),
   );
   const [controls, setControls] = createSignal<ControlsState | null>(null);
-  const [request, setRequest] = createSignal<DiffRequest | null>(null);
-  const [files, setFiles] = createSignal<FileEntry[]>([]);
-  const [lazyFiles, setLazyFiles] = createSignal<FileEntry[]>([]);
-  const [fileOrder, setFileOrder] = createSignal<Record<string, number>>({});
+  const [activeRequest, setActiveRequest] = createSignal<DiffRequest | null>(
+    null,
+  );
+  const [loadedDiff, setLoadedDiff] = createSignal<LoadedDiff | null>(null);
   const [directoryExpansion, setDirectoryExpansion] = createSignal<
     Record<string, boolean>
   >({});
@@ -129,7 +149,6 @@ function App() {
     {},
   );
   const [fileErrors, setFileErrors] = createSignal<Record<string, string>>({});
-  const [summary, setSummary] = createSignal<Summary>(emptySummary);
   const [linePin, setLinePin] = createSignal<LinePin | null>(
     getLinePinFromHash(),
   );
@@ -147,10 +166,7 @@ function App() {
   const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
   let appRoot: HTMLElement | undefined;
   let appHeader: HTMLElement | undefined;
-  let initialized = false;
   let restoredLinePinKey = "";
-  let requestVersion = 0;
-  const currentRequestVersion = () => requestVersion;
   const setForcedRichPreloadIds = (nextIds: string[]) => {
     setForcedRichFileIds((currentIds) =>
       stringArraysEqual(currentIds, nextIds) ? currentIds : nextIds,
@@ -171,37 +187,26 @@ function App() {
       return currentIds.filter((currentId) => currentId !== fileId);
     });
   };
-  const displayFiles = createMemo(() =>
-    [...files(), ...lazyFiles()].sort(
+  const displayFiles = createMemo(() => {
+    const diff = loadedDiff();
+    if (diff === null) {
+      return [];
+    }
+    return [...diff.files, ...diff.lazyFiles].sort(
       (leftFile, rightFile) =>
-        (fileOrder()[fileKey(leftFile)] ?? 0) -
-        (fileOrder()[fileKey(rightFile)] ?? 0),
-    ),
-  );
-  const selectedRepo = createMemo(() => {
-    const repoId = selectedRepoId();
-    const repoList = repos.data;
-    if (repoId === null) {
-      return null;
-    }
-    if (!repoList) {
-      return null;
-    }
-    const repo = repoList.find((candidate) => candidate.id === repoId);
-    if (!repo) {
-      return null;
-    }
-    return repo;
+        (diff.fileOrder[fileKey(leftFile)] ?? 0) -
+        (diff.fileOrder[fileKey(rightFile)] ?? 0),
+    );
   });
   const repoPickerRepos = createMemo(() => {
-    const repoList = repos.data;
-    if (!repoList) {
+    const repos = repoList();
+    if (repos === null) {
       return null;
     }
     if (selectedRepoId() !== null) {
       return null;
     }
-    return repoList;
+    return repos;
   });
   createEffect(() => {
     if (forcedRichFileIds().length > 0) {
@@ -211,7 +216,7 @@ function App() {
   });
   const hunkNav = createHunkNavigation(() => appRoot, {
     afterReconcile: () => {
-      if (!appRoot) {
+      if (appRoot === undefined) {
         return;
       }
       restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
@@ -219,7 +224,7 @@ function App() {
       });
     },
     onSelectionChange: ({ selected }) => {
-      if (!selected) {
+      if (selected === null) {
         setActiveHunkFileId(null);
         return;
       }
@@ -231,7 +236,7 @@ function App() {
   });
 
   hunkNav.reconcileWhen([
-    files,
+    displayFiles,
     directoryExpansion,
     fileExpansion,
     loadingFiles,
@@ -241,7 +246,7 @@ function App() {
   hunkNav.followScroll();
 
   onMount(() => {
-    if (!appRoot || !appHeader) {
+    if (appRoot === undefined || appHeader === undefined) {
       return;
     }
 
@@ -263,17 +268,15 @@ function App() {
   });
 
   const refChoices = () => {
-    const value = defaults.data;
-    if (!value) {
-      throw new Error("Ref choices require loaded defaults.");
+    const value = repoRefs();
+    if (value === null) {
+      throw new Error("Ref choices require loaded repo refs.");
     }
     return value.ref_choices;
   };
   const resetDiffState = (nextStatus: LoadState, nextStatusText: string) => {
     batch(() => {
-      setFiles([]);
-      setLazyFiles([]);
-      setFileOrder({});
+      setLoadedDiff(null);
       setDirectoryExpansion({});
       setFileExpansion({});
       setLoadingFiles({});
@@ -281,107 +284,119 @@ function App() {
       setForcedRichFileIds([]);
       setActiveHunkFileId(null);
       setVirtualizedFileIds([]);
-      setSummary(emptySummary);
       setStatus(nextStatus);
       setStatusText(nextStatusText);
     });
   };
+  const updateLoadedDiff = (updater: (current: LoadedDiff) => LoadedDiff) => {
+    setLoadedDiff((current) => (current === null ? current : updater(current)));
+  };
+  const activeRequestIdentity = (): string | null => {
+    const request = activeRequest();
+    if (request === null) {
+      return null;
+    }
+    return diffRequestIdentity(request);
+  };
+  const requestIsActive = (requestIdentity: string): boolean =>
+    activeRequestIdentity() === requestIdentity;
 
-  createEffect(() => {
-    const repoList = repos.data;
-    if (!repoList) {
-      return;
+  const diffQuery = createQuery(() => {
+    const request = activeRequest();
+    if (request === null) {
+      return {
+        queryKey: ["diff", "idle"] as const,
+        queryFn: async (): Promise<DiffQueryPayload> => {
+          throw new Error("Diff request is not active.");
+        },
+        enabled: false,
+      };
     }
-    const rawRepoId = new URLSearchParams(window.location.search).get(
-      "repo_id",
-    );
-    if (rawRepoId === null) {
-      setSelectedRepoId(null);
-      setRepoSelectionError("");
-      resetDiffState("idle", "Choose a repo to load a diff.");
-      return;
-    }
-    const parsedRepoId = Number(rawRepoId);
-    if (!Number.isInteger(parsedRepoId)) {
-      setSelectedRepoId(null);
-      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
-      resetDiffState("idle", "Choose a repo to load a diff.");
-      return;
-    }
-    if (parsedRepoId <= 0) {
-      setSelectedRepoId(null);
-      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
-      resetDiffState("idle", "Choose a repo to load a diff.");
-      return;
-    }
-    const repo = repoList.find((candidate) => candidate.id === parsedRepoId);
-    if (!repo) {
-      setSelectedRepoId(null);
-      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
-      resetDiffState("idle", "Choose a repo to load a diff.");
-      return;
-    }
-    setSelectedRepoId(parsedRepoId);
-    setRepoSelectionError("");
+    const requestIdentity = diffRequestIdentity(request);
+    return {
+      queryKey: diffRequestQueryKey(request),
+      queryFn: async ({ signal }): Promise<DiffQueryPayload> => ({
+        request,
+        requestIdentity,
+        payload: await fetchDiff(request, signal),
+      }),
+      staleTime: 0,
+    };
   });
 
-  async function loadDiff(
-    activeRequest: DiffRequest,
-    signal: AbortSignal,
-    version: number,
-  ) {
-    try {
-      const payload = await fetchDiff(activeRequest, signal);
-      if (version !== requestVersion) {
-        return;
-      }
-      const order = Object.fromEntries(
-        payload.files.map((entry, index) => [fileKey(entry), index]),
-      );
-      const lazyManifestFiles = payload.files.filter((entry) => entry.lazy);
-      const baseStatus = statusLabel(
-        activeRequest,
-        payload.left_label,
-        payload.right_label,
-      );
-      batch(() => {
-        setLazyFiles(lazyManifestFiles);
-        setFileOrder(order);
-        setSummary(payload.summary);
-        setStatusText(
-          loadedStatusLabel(baseStatus, lazyManifestFiles.length, 0),
-        );
-      });
-      void hydrateManifestFiles(
-        activeRequest,
-        payload.files,
-        version,
-        baseStatus,
-        lazyManifestFiles.length,
-      );
-    } catch (error) {
-      if (signal.aborted || version !== requestVersion) {
-        return;
-      }
-      batch(() => {
-        setStatus("error");
-        setStatusText(
-          error instanceof Error ? error.message : "Failed to load diff.",
-        );
-      });
+  let appliedDiffIdentity = "";
+  createEffect(() => {
+    const result = diffQuery.data;
+    if (result === undefined) {
+      return;
     }
+    if (!requestIsActive(result.requestIdentity)) {
+      return;
+    }
+    if (appliedDiffIdentity === result.requestIdentity) {
+      return;
+    }
+    appliedDiffIdentity = result.requestIdentity;
+    applyDiffPayload(result);
+  });
+
+  createEffect(() => {
+    const error = diffQuery.error;
+    if (!diffQuery.isError || error === null) {
+      return;
+    }
+    const requestIdentity = activeRequestIdentity();
+    if (requestIdentity === null) {
+      return;
+    }
+    batch(() => {
+      setStatus("error");
+      setStatusText(
+        error instanceof Error ? error.message : "Failed to load diff.",
+      );
+    });
+  });
+
+  function applyDiffPayload(result: DiffQueryPayload) {
+    const { request, requestIdentity, payload } = result;
+    const order = Object.fromEntries(
+      payload.files.map((entry, index) => [fileKey(entry), index]),
+    );
+    const lazyManifestFiles = payload.files.filter((entry) => entry.lazy);
+    const baseStatus = statusLabel(
+      request,
+      payload.left_label,
+      payload.right_label,
+    );
+    batch(() => {
+      setLoadedDiff({
+        request,
+        files: [],
+        lazyFiles: lazyManifestFiles,
+        fileOrder: order,
+        summary: payload.summary,
+      });
+      setStatusText(loadedStatusLabel(baseStatus, lazyManifestFiles.length, 0));
+    });
+    void hydrateManifestFiles(
+      request,
+      requestIdentity,
+      payload.files,
+      baseStatus,
+      lazyManifestFiles.length,
+    );
   }
 
   async function hydrateManifestFiles(
-    activeRequest: DiffRequest,
+    request: DiffRequest,
+    requestIdentity: string,
     manifestFiles: FileEntry[],
-    version: number,
     baseStatus: string,
     initialLoadedFiles: number,
   ) {
     const pendingFiles = manifestFiles.filter((entry) => !entry.lazy);
     if (pendingFiles.length === 0) {
-      if (version === requestVersion) {
+      if (requestIsActive(requestIdentity)) {
         setStatus("done");
         setStatusText(baseStatus);
       }
@@ -396,18 +411,18 @@ function App() {
       { length: Math.min(4, pendingFiles.length) },
       async (_, workerIndex) => {
         for (let index = workerIndex; index < pendingFiles.length; index += 4) {
-          if (version !== requestVersion) {
+          if (!requestIsActive(requestIdentity)) {
             return;
           }
           const entry = pendingFiles[index];
           const key = fileKey(entry);
           try {
             const hydrated = await queryClient.fetchQuery({
-              queryKey: fileDiffQueryKey(activeRequest, entry),
-              queryFn: () => fetchFileDiff(activeRequest, entry),
+              queryKey: fileDiffQueryKey(request, entry),
+              queryFn: ({ signal }) => fetchFileDiff(request, entry, signal),
               staleTime: 0,
             });
-            if (version !== requestVersion) {
+            if (!requestIsActive(requestIdentity)) {
               return;
             }
             const nextEntry = {
@@ -421,14 +436,24 @@ function App() {
               pin !== null && fileMatchesLinePin(nextEntry, pin);
             loadedFiles += 1;
             batch(() => {
-              setFiles((current) => {
-                const withoutCurrent = current.filter(
+              setLoadedDiff((current) => {
+                if (current === null) {
+                  return current;
+                }
+                const withoutCurrent = current.files.filter(
                   (file) => fileKey(file) !== nextKey,
                 );
-                return sortFilesByOrder(
-                  [...withoutCurrent, nextEntry],
-                  fileOrder(),
-                );
+                return {
+                  ...current,
+                  files: sortFilesByOrder(
+                    [...withoutCurrent, nextEntry],
+                    current.fileOrder,
+                  ),
+                  summary: addHydratedNotebookSummary(
+                    current.summary,
+                    nextEntry,
+                  ),
+                };
               });
               setDirectoryExpansion((current) => {
                 const directory = entryDirectoryLabel(nextEntry);
@@ -449,29 +474,32 @@ function App() {
                   nextKey,
                 ),
               );
-              setSummary((current) =>
-                addHydratedNotebookSummary(current, nextEntry),
-              );
               setStatusText(
                 loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
               );
             });
           } catch (error) {
-            if (version !== requestVersion) {
+            if (!requestIsActive(requestIdentity)) {
               return;
             }
             hasFailure = true;
             loadedFiles += 1;
             failedDetailFiles += 1;
             batch(() => {
-              setFiles((current) => {
-                const withoutCurrent = current.filter(
+              setLoadedDiff((current) => {
+                if (current === null) {
+                  return current;
+                }
+                const withoutCurrent = current.files.filter(
                   (file) => fileKey(file) !== key,
                 );
-                return sortFilesByOrder(
-                  [...withoutCurrent, entry],
-                  fileOrder(),
-                );
+                return {
+                  ...current,
+                  files: sortFilesByOrder(
+                    [...withoutCurrent, entry],
+                    current.fileOrder,
+                  ),
+                };
               });
               setDirectoryExpansion((current) => {
                 const directory = entryDirectoryLabel(entry);
@@ -498,7 +526,7 @@ function App() {
       },
     );
     await Promise.all(workers);
-    if (version === requestVersion) {
+    if (requestIsActive(requestIdentity)) {
       setStatus(hasFailure ? "error" : "done");
       if (!hasFailure) {
         setStatusText(baseStatus);
@@ -506,61 +534,35 @@ function App() {
     }
   }
 
-  createEffect(() => {
-    const value = defaults.data;
-    const repoId = selectedRepoId();
-    if (!value) {
-      return;
-    }
-    if (repoId === null) {
-      return;
-    }
-    if (initialized) {
-      return;
-    }
-    initialized = true;
-    const nextEngine = initialEngine(value);
-    const nextControls = initialControls(value);
-    setEngine(nextEngine);
-    setControls(nextControls);
-    const nextRequest = buildRequest(
-      nextControls,
-      refChoices(),
-      nextEngine,
-      repoId,
-    );
-    if (typeof nextRequest === "string") {
-      setStatus("error");
-      setStatusText(nextRequest);
-      return;
-    }
-    setRequest(nextRequest);
-  });
-
-  createEffect(() => {
-    const activeRequest = request();
-    if (!activeRequest) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const version = ++requestVersion;
-    resetDiffState("loading", "Loading diff...");
-    void loadDiff(activeRequest, controller.signal, version);
-    onCleanup(() => controller.abort());
-  });
-
-  createEffect(() => {
-    const activeRequest = request();
-    if (!activeRequest) {
-      return;
-    }
+  const replaceUrlForRequest = (
+    request: DiffRequest,
+    viewMode = diffViewMode(),
+  ) => {
     history.replaceState(
       {},
       "",
-      `/?${appQuery(activeRequest, diffViewMode()).toString()}${window.location.hash}`,
+      `/?${appQuery(request, viewMode).toString()}${window.location.hash}`,
     );
-  });
+  };
+
+  const clearActiveRequest = () => {
+    void queryClient.cancelQueries({ queryKey: ["diff"] });
+    void queryClient.cancelQueries({ queryKey: ["file-diff"] });
+    void queryClient.cancelQueries({ queryKey: ["notebook-section"] });
+    setActiveRequest(null);
+  };
+
+  const startDiff = (request: DiffRequest) => {
+    setActiveRequest(null);
+    void queryClient.cancelQueries({ queryKey: ["diff"] });
+    void queryClient.cancelQueries({ queryKey: ["file-diff"] });
+    void queryClient.cancelQueries({ queryKey: ["notebook-section"] });
+    queryClient.removeQueries({ queryKey: diffRequestQueryKey(request) });
+    replaceUrlForRequest(request);
+    appliedDiffIdentity = "";
+    resetDiffState("loading", "Loading diff...");
+    setActiveRequest(request);
+  };
 
   const toggleDiffViewMode = () => {
     setDiffViewMode((mode) => (mode === "split" ? "inline" : "split"));
@@ -622,7 +624,7 @@ function App() {
     }
     if (event.code === "KeyR") {
       event.preventDefault();
-      reloadControls();
+      reloadDiff();
       return;
     }
     if (event.code === "KeyD") {
@@ -647,7 +649,7 @@ function App() {
     appRoot
       ?.querySelector<HTMLElement>(".diff-grid[data-diff-selection-side]")
       ?.removeAttribute("data-diff-selection-side");
-    if (!grid || !side) {
+    if (grid === null || side === null) {
       return;
     }
     grid.dataset.diffSelectionSide = side;
@@ -655,17 +657,21 @@ function App() {
 
   const onPointerDown = (event: PointerEvent) => {
     const target = event.target;
-    if (!(target instanceof Element) || !appRoot?.contains(target)) {
+    if (
+      !(target instanceof Element) ||
+      appRoot === undefined ||
+      !appRoot.contains(target)
+    ) {
       setDiffSelectionSide(null, null);
       return;
     }
     const side = target.closest(".diff-side.side-left, .diff-side.side-right");
-    if (!side || !appRoot.contains(side)) {
+    if (side === null || !appRoot.contains(side)) {
       setDiffSelectionSide(null, null);
       return;
     }
     const grid = side.closest<HTMLElement>(".diff-grid");
-    if (!grid || !appRoot.contains(grid)) {
+    if (grid === null || !appRoot.contains(grid)) {
       setDiffSelectionSide(null, null);
       return;
     }
@@ -677,22 +683,22 @@ function App() {
 
   const onLinePinClick = (event: MouseEvent) => {
     const target = event.target;
-    if (!(target instanceof Element) || target.closest("button")) {
+    if (!(target instanceof Element) || target.closest("button") !== null) {
       return;
     }
     const lineNo = target.closest<HTMLElement>(".line-no[data-line-pin-line]");
-    if (!lineNo || !appRoot?.contains(lineNo)) {
+    if (lineNo === null || appRoot === undefined || !appRoot.contains(lineNo)) {
       return;
     }
     const pin = linePinFromElement(lineNo);
-    if (!pin) {
+    if (pin === null) {
       return;
     }
     const pinKey = JSON.stringify(pin);
     const row = lineNo.closest<HTMLElement>(".diff-row");
     if (
       restoredLinePinKey === pinKey &&
-      row?.classList.contains("pinned-line")
+      row?.classList.contains("pinned-line") === true
     ) {
       restoredLinePinKey = "";
       clearLinePinInHash();
@@ -707,8 +713,8 @@ function App() {
   };
 
   const openPinnedFile = (pin: LinePin) => {
-    const file = files().find((entry) => fileMatchesLinePin(entry, pin));
-    if (!file) {
+    const file = displayFiles().find((entry) => fileMatchesLinePin(entry, pin));
+    if (file === undefined) {
       return;
     }
     const directory = entryDirectoryLabel(file);
@@ -726,12 +732,12 @@ function App() {
   };
 
   const onHashChange = () => {
-    if (!appRoot) {
+    if (appRoot === undefined) {
       return;
     }
     const pin = getLinePinFromHash();
     setLinePin(pin);
-    if (pin) {
+    if (pin !== null) {
       openPinnedFile(pin);
     }
     restorePinnedLine(appRoot, restoredLinePinKey, (pinKey) => {
@@ -749,63 +755,296 @@ function App() {
     setDiffSelectionSide(null, null);
   });
 
-  const loadControls = (
-    nextControls: ControlsState,
-    selectedEngine: DiffEngine = engine(),
-  ) => {
+  const selectedRepoIdOrIdle = (): RepoId | null => {
     const repoId = selectedRepoId();
     if (repoId === null) {
-      setRequest(null);
+      clearActiveRequest();
       resetDiffState("idle", "Choose a repo to load a diff.");
-      return;
+      return null;
     }
-    setControls(nextControls);
-    const nextRequest = buildRequest(
-      nextControls,
-      refChoices(),
-      selectedEngine,
-      repoId,
-    );
-    if (typeof nextRequest === "string") {
-      setRequest(null);
-      resetDiffState("error", nextRequest);
-      return;
-    }
-    setRequest(nextRequest);
+    return repoId;
   };
 
-  const reloadControls = () => {
-    const currentControls = controls();
-    if (!currentControls) {
+  const failLoad = (message: string) => {
+    clearActiveRequest();
+    resetDiffState("error", message);
+  };
+
+  const loadAgainstHead = (selectedEngine: DiffEngine = engine()) => {
+    const repoId = selectedRepoIdOrIdle();
+    if (repoId === null) {
       return;
     }
-    loadControls(currentControls);
+    setControls((current) =>
+      current === null ? current : { ...current, mode: "against-head" },
+    );
+    startDiff({
+      repo_id: repoId,
+      engine: selectedEngine,
+      mode: "against-head",
+      left: "head",
+      right: "worktree",
+      base_branch: null,
+      review_branch: null,
+      show_untracked: true,
+    });
+  };
+
+  const loadPreset = (selectedEngine: DiffEngine = engine()) => {
+    const repoId = selectedRepoIdOrIdle();
+    if (repoId === null) {
+      return;
+    }
+    setControls((current) =>
+      current === null ? current : { ...current, mode: "preset" },
+    );
+    startDiff({
+      repo_id: repoId,
+      engine: selectedEngine,
+      mode: "preset",
+      left: "presets",
+      right: "new",
+      base_branch: null,
+      review_branch: null,
+      show_untracked: false,
+    });
+  };
+
+  const loadRefs = (
+    left: string,
+    right: string,
+    selectedEngine: DiffEngine = engine(),
+  ) => {
+    const repoId = selectedRepoIdOrIdle();
+    if (repoId === null) {
+      return;
+    }
+    const trimmedLeft = left.trim();
+    const trimmedRight = right.trim();
+    setControls((current) =>
+      current === null ? current : { ...current, mode: "refs", left, right },
+    );
+    if (trimmedLeft.length === 0 || trimmedRight.length === 0) {
+      failLoad("Enter both refs to compare them.");
+      return;
+    }
+    startDiff({
+      repo_id: repoId,
+      engine: selectedEngine,
+      mode: "refs",
+      left: trimmedLeft,
+      right: trimmedRight,
+      base_branch: null,
+      review_branch: null,
+      show_untracked: false,
+    });
+  };
+
+  const loadBranchReview = (
+    baseSource: BranchSource,
+    baseRemote: string,
+    baseBranch: string,
+    branchSource: BranchSource,
+    branchRemote: string,
+    reviewBranch: string,
+    selectedEngine: DiffEngine = engine(),
+  ) => {
+    const repoId = selectedRepoIdOrIdle();
+    if (repoId === null) {
+      return;
+    }
+    const choices = refChoices();
+    setControls((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            mode: "branch-review",
+            baseSource,
+            baseRemote,
+            baseBranch,
+            branchSource,
+            branchRemote,
+            reviewBranch,
+          },
+    );
+    if (baseSource === "remote" && !baseRemote.trim()) {
+      failLoad("Pick a base remote.");
+      return;
+    }
+    if (!baseBranch.trim()) {
+      failLoad("Pick a base branch.");
+      return;
+    }
+    if (branchSource === "remote" && !branchRemote.trim()) {
+      failLoad("Pick a branch remote.");
+      return;
+    }
+    if (!reviewBranch.trim()) {
+      failLoad("Pick a branch to compare against the base branch.");
+      return;
+    }
+    startDiff({
+      repo_id: repoId,
+      engine: selectedEngine,
+      mode: "branch-review",
+      left: "",
+      right: "",
+      base_branch: branchReviewRef(
+        baseSource,
+        baseRemote,
+        baseBranch,
+        choices.remote_names,
+      ),
+      review_branch: branchReviewRef(
+        branchSource,
+        branchRemote,
+        reviewBranch,
+        choices.remote_names,
+      ),
+      show_untracked: false,
+    });
+  };
+
+  const reloadDiff = () => {
+    const request = activeRequest();
+    if (request === null) {
+      return;
+    }
+    startDiff(request);
   };
 
   const loadEngine = (nextEngine: DiffEngine) => {
     setEngine(nextEngine);
-    const currentControls = controls();
-    if (currentControls) {
-      loadControls(currentControls, nextEngine);
+    const request = activeRequest();
+    if (request !== null) {
+      startDiff({ ...request, engine: nextEngine });
     }
   };
 
+  async function initializeRepo(repoId: RepoId) {
+    setRepoRefs(null);
+    setRepoRefsError(null);
+    setRepoRefsPending(true);
+    resetDiffState("idle", "Loading refs...");
+    try {
+      const refs = await fetchRepoRefs(repoId);
+      if (selectedRepoId() !== repoId) {
+        return;
+      }
+      const nextEngine = initialEngine();
+      const nextControls = initialControls(refs);
+      batch(() => {
+        setRepoRefs(refs);
+        setEngine(nextEngine);
+        setControls(nextControls);
+        setRepoRefsPending(false);
+      });
+      if (nextControls.mode === "refs") {
+        loadRefs(nextControls.left, nextControls.right, nextEngine);
+      } else if (nextControls.mode === "branch-review") {
+        loadBranchReview(
+          nextControls.baseSource,
+          nextControls.baseRemote,
+          nextControls.baseBranch,
+          nextControls.branchSource,
+          nextControls.branchRemote,
+          nextControls.reviewBranch,
+          nextEngine,
+        );
+      } else if (nextControls.mode === "preset") {
+        loadPreset(nextEngine);
+      } else {
+        loadAgainstHead(nextEngine);
+      }
+    } catch (error) {
+      if (selectedRepoId() !== repoId) {
+        return;
+      }
+      batch(() => {
+        setRepoRefsError(error);
+        setRepoRefsPending(false);
+        clearActiveRequest();
+        resetDiffState(
+          "error",
+          error instanceof Error ? error.message : "Failed to load repo refs.",
+        );
+      });
+    }
+  }
+
+  function repoIdFromUrl(availableRepos: RepoMark[]): RepoId | null {
+    const rawRepoId = new URLSearchParams(window.location.search).get(
+      "repo_id",
+    );
+    if (rawRepoId === null) {
+      setSelectedRepoId(null);
+      setRepoSelectionError("");
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return null;
+    }
+    const parsedRepoId = Number(rawRepoId);
+    if (!Number.isInteger(parsedRepoId) || parsedRepoId <= 0) {
+      setSelectedRepoId(null);
+      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return null;
+    }
+    const repo = availableRepos.find(
+      (candidate) => candidate.id === parsedRepoId,
+    );
+    if (repo === undefined) {
+      setSelectedRepoId(null);
+      setRepoSelectionError(`Invalid repo_id: ${rawRepoId}`);
+      resetDiffState("idle", "Choose a repo to load a diff.");
+      return null;
+    }
+    setSelectedRepoId(parsedRepoId);
+    setRepoSelectionError("");
+    return parsedRepoId;
+  }
+
+  async function loadReposFromUrl() {
+    setReposPending(true);
+    setReposError(null);
+    try {
+      const availableRepos = await fetchRepos();
+      setRepoList(availableRepos);
+      setReposPending(false);
+      const repoId = repoIdFromUrl(availableRepos);
+      if (repoId !== null) {
+        await initializeRepo(repoId);
+      }
+    } catch (error) {
+      batch(() => {
+        setReposError(error);
+        setReposPending(false);
+      });
+      return;
+    }
+  }
+
+  onMount(() => {
+    void loadReposFromUrl();
+  });
+
   const selectRepo = (repo: RepoMark) => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams();
     params.set("repo_id", String(repo.id));
     history.replaceState(
       {},
       "",
       `/?${params.toString()}${window.location.hash}`,
     );
-    initialized = false;
     batch(() => {
       setSelectedRepoId(repo.id);
       setRepoSelectionError("");
       setControls(null);
-      setRequest(null);
+      setRepoRefs(null);
+      clearActiveRequest();
       resetDiffState("idle", "Preparing diff...");
     });
+    void initializeRepo(repo.id);
   };
 
   const scrollTop = () => {
@@ -830,7 +1069,7 @@ function App() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const card = document.getElementById(fileId);
-        if (!card) {
+        if (card === null) {
           throw new Error(
             `Could not find file card for ${fileDisplayName(file)}.`,
           );
@@ -839,7 +1078,7 @@ function App() {
           card.querySelector<HTMLElement>(
             ".diff-row.hunk-anchor:not(.virtual-hunk-anchor)",
           ) ?? document.getElementById(fileBodyAnchorElementId(key));
-        if (!target) {
+        if (target === null) {
           throw new Error(
             `Could not find file scroll target for ${fileDisplayName(file)}.`,
           );
@@ -865,13 +1104,13 @@ function App() {
     });
     requestAnimationFrame(() => {
       const target = document.getElementById(directoryElementId(group.label));
-      if (!target) {
+      if (target === null) {
         throw new Error(`Could not find directory group for ${group.label}.`);
       }
       const header = target.querySelector<HTMLElement>(
         ".directory-group-header",
       );
-      if (!header) {
+      if (header === null) {
         throw new Error(`Could not find directory header for ${group.label}.`);
       }
       header.scrollIntoView({ block: "start", behavior: "instant" });
@@ -884,38 +1123,50 @@ function App() {
         <div class="app-title-block">
           <div class="app-title-row">
             <h1>dirdiff</h1>
-            <Show when={selectedRepo()}>
-              {(repo) => <span class="repo-context">{repo().name}</span>}
+            <Show when={repoList()}>
+              {(repos) => (
+                <RepoSelect
+                  repos={repos()}
+                  selectedRepoId={selectedRepoId()}
+                  onRepoChange={selectRepo}
+                />
+              )}
             </Show>
             <div class="header-actions">
               <EngineSelect engine={engine()} onEngineChange={loadEngine} />
               <DiffViewSelect
                 viewMode={diffViewMode()}
-                onViewModeChange={setDiffViewMode}
+                onViewModeChange={(viewMode) => {
+                  setDiffViewMode(viewMode);
+                  const request = activeRequest();
+                  if (request !== null) {
+                    replaceUrlForRequest(request, viewMode);
+                  }
+                }}
               />
             </div>
           </div>
         </div>
-        <SummaryView summary={summary()} />
+        <SummaryView summary={loadedDiff()?.summary ?? emptySummary} />
       </header>
 
-      <Show when={selectedRepoId() !== null && defaults.isPending}>
-        <p class="status">Loading defaults...</p>
+      <Show when={selectedRepoId() !== null && repoRefsPending()}>
+        <p class="status">Loading refs...</p>
       </Show>
 
-      <Show when={repos.isPending}>
+      <Show when={reposPending()}>
         <p class="status">Loading marked repos...</p>
       </Show>
 
-      <Show when={defaults.error}>
+      <Show when={repoRefsError()}>
         <section class="notice error">
-          Failed to load defaults: {String(defaults.error)}
+          Failed to load refs: {String(repoRefsError())}
         </section>
       </Show>
 
-      <Show when={repos.error}>
+      <Show when={reposError()}>
         <section class="notice error">
-          Failed to load marked repos: {String(repos.error)}
+          Failed to load marked repos: {String(reposError())}
         </section>
       </Show>
 
@@ -935,14 +1186,16 @@ function App() {
             <Controls
               controls={value()}
               refChoices={refChoices()}
-              onLoad={loadControls}
+              onAgainstHead={loadAgainstHead}
+              onPreset={loadPreset}
+              onRefs={loadRefs}
+              onBranchReview={loadBranchReview}
             />
             <p class={`status ${status()}`}>{statusText()}</p>
             <FileList
               files={displayFiles()}
-              request={request()}
-              requestVersion={currentRequestVersion}
-              fileOrder={fileOrder()}
+              loadedDiff={loadedDiff()}
+              activeRequestIdentity={activeRequestIdentity}
               directoryExpansion={directoryExpansion()}
               fileExpansion={fileExpansion()}
               loadingFiles={loadingFiles()}
@@ -955,9 +1208,7 @@ function App() {
               setFileExpansion={setFileExpansion}
               setLoadingFiles={setLoadingFiles}
               setFileErrors={setFileErrors}
-              setFiles={setFiles}
-              setLazyFiles={setLazyFiles}
-              setSummary={setSummary}
+              updateLoadedDiff={updateLoadedDiff}
               onSetAllExpanded={setAllFilesExpanded}
             />
             <FileTreeSidebar
@@ -1011,6 +1262,49 @@ function EngineSelect(props: {
         <option value="dirdiff">{engineLabels.dirdiff}</option>
         <option value="git">{engineLabels.git}</option>
         <option value="difftastic">{engineLabels.difftastic}</option>
+      </select>
+    </label>
+  );
+}
+
+function RepoSelect(props: {
+  repos: RepoMark[];
+  selectedRepoId: RepoId | null;
+  onRepoChange: (repo: RepoMark) => void;
+}) {
+  const handleRepoChange = (select: HTMLSelectElement) => {
+    const nextRepoId = Number(select.value);
+    if (!Number.isInteger(nextRepoId)) {
+      return;
+    }
+    const repo = props.repos.find((candidate) => candidate.id === nextRepoId);
+    if (repo === undefined) {
+      return;
+    }
+    if (repo.id === props.selectedRepoId) {
+      select.blur();
+      return;
+    }
+    props.onRepoChange(repo);
+    select.blur();
+  };
+
+  return (
+    <label class="engine-select repo-select">
+      <span>Repo</span>
+      <select
+        aria-label="Repo"
+        value={
+          props.selectedRepoId === null ? "" : String(props.selectedRepoId)
+        }
+        onChange={(event) => handleRepoChange(event.currentTarget)}
+      >
+        <option value="" disabled>
+          Choose repo
+        </option>
+        <For each={props.repos}>
+          {(repo) => <option value={repo.id}>{repo.name}</option>}
+        </For>
       </select>
     </label>
   );

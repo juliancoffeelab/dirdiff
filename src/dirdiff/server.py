@@ -400,10 +400,10 @@ def create_app(
             status_code=503,
         )
 
-    @app.get("/api/defaults", response_model=None)
-    def serve_defaults(
+    @app.get("/api/repo-refs", response_model=None)
+    def serve_repo_refs(
         repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed defaults.",
+            description="Marked repo id. Required for repo-backed refs.",
         ),
     ) -> dict[str, Any] | JSONResponse:
         mark = db.get(repo_id)
@@ -418,16 +418,10 @@ def create_app(
         preferred_review_branch = service.preferred_review_branch(
             base_branch=default_base_branch
         )
-
         return {
-            "engine": "dirdiff",
-            "mode": "files",
-            "left": "index",
-            "right": "worktree",
-            "base_branch": default_base_branch,
-            "review_branch": preferred_review_branch,
+            "default_base_branch": default_base_branch,
+            "preferred_review_branch": preferred_review_branch,
             "ref_choices": service.list_ref_choices(),
-            "repo_available": bool(service.repo_root),
         }
 
     @app.get("/api/repos", response_model=list[RepoMarkResponse])

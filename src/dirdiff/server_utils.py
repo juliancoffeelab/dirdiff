@@ -53,7 +53,7 @@ def start_frontend_dev_server(
     env["VITE_DIRDIFF_BACKEND_ORIGIN"] = f"http://127.0.0.1:{backend_port}"
     return subprocess.Popen(
         [
-            "npm",
+            "bun",
             "run",
             "dev",
             "--",
@@ -113,8 +113,7 @@ def require_marked_repos(db_path: Path) -> None:
     if db_path == DEFAULT_DB_PATH:
         raise SystemExit("No marked repos. Run: dirdiff mark /path/to/repo")
     raise SystemExit(
-        "No marked repos. Run: "
-        f"dirdiff mark /path/to/repo --db-path {db_path}"
+        f"No marked repos. Run: dirdiff mark /path/to/repo --db-path {db_path}"
     )
 
 

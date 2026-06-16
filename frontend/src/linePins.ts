@@ -5,17 +5,17 @@ const linePinHashKey = "pin";
 export function getLinePinFromHash(): LinePin | null {
   const params = new URLSearchParams(window.location.hash.slice(1));
   const rawPin = params.get(linePinHashKey);
-  if (!rawPin) {
+  if (rawPin === null || rawPin.length === 0) {
     return null;
   }
   try {
     const pin = JSON.parse(rawPin) as Partial<LinePin>;
     if (
-      pin &&
+      pin !== null &&
       typeof pin.file === "string" &&
       (pin.side === "left" || pin.side === "right") &&
       typeof pin.line === "string" &&
-      pin.line
+      pin.line.length > 0
     ) {
       return {
         file: pin.file,
@@ -54,7 +54,13 @@ export function linePinFromElement(lineNo: HTMLElement): LinePin | null {
   const file = lineNo.dataset.linePinFile;
   const side = lineNo.dataset.linePinSide;
   const line = lineNo.dataset.linePinLine;
-  if (!file || (side !== "left" && side !== "right") || !line) {
+  if (
+    file === undefined ||
+    file.length === 0 ||
+    (side !== "left" && side !== "right") ||
+    line === undefined ||
+    line.length === 0
+  ) {
     return null;
   }
   return { file, side, line };
@@ -88,19 +94,22 @@ export function restorePinnedLine(
   setRestoredLinePinKey: (pinKey: string) => void,
 ) {
   const pin = getLinePinFromHash();
-  if (!pin) {
+  if (pin === null) {
     highlightPinnedLine(root, null);
     setRestoredLinePinKey("");
     return;
   }
   const pinKey = JSON.stringify(pin);
   const lineNo = findPinnedLine(root, pin);
-  if (!lineNo) {
+  if (lineNo === null) {
     highlightPinnedLine(root, null);
     return;
   }
   const row = lineNo.closest<HTMLElement>(".diff-row");
-  if (restoredLinePinKey === pinKey && row?.classList.contains("pinned-line")) {
+  if (
+    restoredLinePinKey === pinKey &&
+    row?.classList.contains("pinned-line") === true
+  ) {
     return;
   }
   setRestoredLinePinKey(pinKey);

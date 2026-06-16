@@ -7,13 +7,14 @@ import {
   onCleanup,
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import type { DiffRequest, DiffRow, FileEntry, Summary } from "./api";
+import type { DiffRow, FileEntry } from "./api";
 import { fetchFileDiff } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import { NotebookFile } from "./NotebookViews";
 import {
   type FileGroup,
   type LinePin,
+  type LoadedDiff,
   addHydratedNotebookSummary,
   directoryElementId,
   expansionValue,
@@ -36,11 +37,10 @@ import {
 type ExpansionSetter = (
   updater: (current: Record<string, boolean>) => Record<string, boolean>,
 ) => void;
-type FilesSetter = (updater: (current: FileEntry[]) => FileEntry[]) => void;
-type SummarySetter = (updater: (current: Summary) => Summary) => void;
 type StringMapSetter = (
   updater: (current: Record<string, string>) => Record<string, string>,
 ) => void;
+type LoadedDiffSetter = (updater: (current: LoadedDiff) => LoadedDiff) => void;
 
 function VisibilityIndicator(props: {
   size: "small" | "large";
@@ -58,7 +58,7 @@ function VisibilityIndicator(props: {
       }}
       aria-hidden="true"
     >
-      {props.virtualized ? "V" : ""}
+      {props.virtualized === true ? "V" : ""}
     </span>
   );
 }
@@ -75,9 +75,8 @@ function TreeLineStats(props: { stats: import("./model").LineStats }) {
 
 export function FileList(props: {
   files: FileEntry[];
-  request: DiffRequest | null;
-  requestVersion: () => number;
-  fileOrder: Record<string, number>;
+  loadedDiff: LoadedDiff | null;
+  activeRequestIdentity: () => string | null;
   diffViewMode: DiffViewMode;
   directoryExpansion: Record<string, boolean>;
   fileExpansion: Record<string, boolean>;
@@ -90,16 +89,14 @@ export function FileList(props: {
   setFileExpansion: ExpansionSetter;
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
-  setFiles: FilesSetter;
-  setLazyFiles: FilesSetter;
-  setSummary: SummarySetter;
+  updateLoadedDiff: LoadedDiffSetter;
   onSetAllExpanded: (expanded: boolean) => void;
 }) {
   const groupsByLabel = createMemo(() => groupFilesByLabel(props.files));
   const groupLabels = createMemo(() => [...groupsByLabel().keys()]);
   const groupForLabel = (label: string) => {
     const group = groupsByLabel().get(label);
-    if (!group) {
+    if (group === undefined) {
       throw new Error(`Could not find directory group ${label}.`);
     }
     return group;
@@ -138,11 +135,10 @@ export function FileList(props: {
             {(label) => (
               <DirectoryGroup
                 group={() => groupForLabel(label)}
-                request={props.request}
-                requestVersion={props.requestVersion}
+                loadedDiff={props.loadedDiff}
+                activeRequestIdentity={props.activeRequestIdentity}
                 expanded={props.directoryExpansion[label] ?? true}
                 fileExpansion={props.fileExpansion}
-                fileOrder={props.fileOrder}
                 loadingFiles={props.loadingFiles}
                 fileErrors={props.fileErrors}
                 linePin={props.linePin}
@@ -160,9 +156,7 @@ export function FileList(props: {
                 }
                 setLoadingFiles={props.setLoadingFiles}
                 setFileErrors={props.setFileErrors}
-                setFiles={props.setFiles}
-                setLazyFiles={props.setLazyFiles}
-                setSummary={props.setSummary}
+                updateLoadedDiff={props.updateLoadedDiff}
               />
             )}
           </For>
@@ -174,12 +168,11 @@ export function FileList(props: {
 
 function DirectoryGroup(props: {
   group: () => FileGroup;
-  request: DiffRequest | null;
-  requestVersion: () => number;
+  loadedDiff: LoadedDiff | null;
+  activeRequestIdentity: () => string | null;
   diffViewMode: DiffViewMode;
   expanded: boolean;
   fileExpansion: Record<string, boolean>;
-  fileOrder: Record<string, number>;
   loadingFiles: Record<string, boolean>;
   fileErrors: Record<string, string>;
   linePin: LinePin | null;
@@ -189,9 +182,7 @@ function DirectoryGroup(props: {
   setFileExpanded: (key: string, expanded: boolean) => void;
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
-  setFiles: FilesSetter;
-  setLazyFiles: FilesSetter;
-  setSummary: SummarySetter;
+  updateLoadedDiff: LoadedDiffSetter;
 }) {
   const group = () => props.group();
 
@@ -223,8 +214,8 @@ function DirectoryGroup(props: {
               return (
                 <FileCard
                   file={file}
-                  request={props.request}
-                  requestVersion={props.requestVersion}
+                  loadedDiff={props.loadedDiff}
+                  activeRequestIdentity={props.activeRequestIdentity}
                   expanded={
                     props.fileExpansion[key] ?? file.default_expanded ?? false
                   }
@@ -234,15 +225,12 @@ function DirectoryGroup(props: {
                   forcedRichFileIds={props.forcedRichFileIds}
                   onFileVirtualizedChange={props.onFileVirtualizedChange}
                   diffViewMode={props.diffViewMode}
-                  fileOrder={props.fileOrder}
                   setExpanded={(expanded) =>
                     props.setFileExpanded(key, expanded)
                   }
                   setLoadingFiles={props.setLoadingFiles}
                   setFileErrors={props.setFileErrors}
-                  setFiles={props.setFiles}
-                  setLazyFiles={props.setLazyFiles}
-                  setSummary={props.setSummary}
+                  updateLoadedDiff={props.updateLoadedDiff}
                 />
               );
             }}
@@ -441,10 +429,9 @@ export function FileTreeSidebar(props: {
 
 function FileCard(props: {
   file: FileEntry;
-  request: DiffRequest | null;
-  requestVersion: () => number;
+  loadedDiff: LoadedDiff | null;
+  activeRequestIdentity: () => string | null;
   diffViewMode: DiffViewMode;
-  fileOrder: Record<string, number>;
   expanded: boolean;
   loading: boolean;
   error: string;
@@ -454,9 +441,7 @@ function FileCard(props: {
   setExpanded: (expanded: boolean) => void;
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
-  setFiles: FilesSetter;
-  setLazyFiles: FilesSetter;
-  setSummary: SummarySetter;
+  updateLoadedDiff: LoadedDiffSetter;
 }) {
   const queryClient = useQueryClient();
   let bodyViewport: HTMLDivElement | undefined;
@@ -523,7 +508,7 @@ function FileCard(props: {
   createEffect(() => {
     props.expanded;
     props.file;
-    if (!bodyViewport || !props.expanded || !canVirtualizeBody()) {
+    if (bodyViewport === undefined || !props.expanded || !canVirtualizeBody()) {
       setNearViewport(false);
       return;
     }
@@ -542,10 +527,15 @@ function FileCard(props: {
 
   const expand = async () => {
     props.setExpanded(true);
-    const activeRequest = props.request;
-    const activeVersion = props.requestVersion();
+    const activeDiff = props.loadedDiff;
+    const requestIdentity = props.activeRequestIdentity();
     const activeKey = key();
-    if (!needsHydration() || !activeRequest || props.loading) {
+    if (
+      !needsHydration() ||
+      activeDiff === null ||
+      requestIdentity === null ||
+      props.loading
+    ) {
       return;
     }
     props.setLoadingFiles((current) => ({
@@ -555,32 +545,34 @@ function FileCard(props: {
     props.setFileErrors((current) => ({ ...current, [activeKey]: "" }));
     try {
       const hydrated = await queryClient.fetchQuery({
-        queryKey: fileDiffQueryKey(activeRequest, props.file),
-        queryFn: () => fetchFileDiff(activeRequest, props.file),
+        queryKey: fileDiffQueryKey(activeDiff.request, props.file),
+        queryFn: ({ signal }) =>
+          fetchFileDiff(activeDiff.request, props.file, signal),
         staleTime: 0,
       });
-      if (props.requestVersion() !== activeVersion) {
+      if (props.activeRequestIdentity() !== requestIdentity) {
         return;
       }
       const nextEntry = { ...props.file, ...hydrated, lazy: null };
       const nextKey = fileKey(nextEntry);
-      props.setFiles((current) => {
-        const withoutCurrent = current.filter(
+      props.updateLoadedDiff((current) => {
+        const withoutCurrent = current.files.filter(
           (entry) => fileKey(entry) !== nextKey,
         );
-        return sortFilesByOrder(
-          [...withoutCurrent, nextEntry],
-          props.fileOrder,
-        );
+        return {
+          ...current,
+          files: sortFilesByOrder(
+            [...withoutCurrent, nextEntry],
+            current.fileOrder,
+          ),
+          lazyFiles: current.lazyFiles.filter(
+            (entry) => fileKey(entry) !== activeKey,
+          ),
+          summary: addHydratedNotebookSummary(current.summary, nextEntry),
+        };
       });
-      props.setLazyFiles((current) =>
-        current.filter((entry) => fileKey(entry) !== activeKey),
-      );
-      props.setSummary((current) =>
-        addHydratedNotebookSummary(current, nextEntry),
-      );
     } catch (error) {
-      if (props.requestVersion() !== activeVersion) {
+      if (props.activeRequestIdentity() !== requestIdentity) {
         return;
       }
       props.setFileErrors((current) => ({
@@ -589,7 +581,7 @@ function FileCard(props: {
           error instanceof Error ? error.message : "Failed to load file diff.",
       }));
     } finally {
-      if (props.requestVersion() !== activeVersion) {
+      if (props.activeRequestIdentity() !== requestIdentity) {
         return;
       }
       props.setLoadingFiles((current) => ({
@@ -679,7 +671,7 @@ function FileCard(props: {
             <Show when={props.file.render_kind === "notebook"}>
               <NotebookFile
                 file={props.file}
-                request={props.request}
+                request={props.loadedDiff?.request ?? null}
                 diffViewMode={props.diffViewMode}
               />
             </Show>
@@ -692,7 +684,9 @@ function FileCard(props: {
                   <DiffGrid
                     file={props.file}
                     viewMode={props.diffViewMode}
-                    semanticReplaceRows={props.request?.engine === "difftastic"}
+                    semanticReplaceRows={
+                      props.loadedDiff?.request.engine === "difftastic"
+                    }
                   />
                 </Show>
               </Show>

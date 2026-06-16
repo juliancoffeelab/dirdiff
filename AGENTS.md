@@ -16,7 +16,7 @@
 - Run `make format` afterwards
 - For user-visible frontend/rendering changes, verify in the browser against a local app session.
 - For ordinary frontend TypeScript verification, use `make tscheck`.
-- Do not rebuild or commit generated frontend bundles for ordinary UI iteration; the app uses Vite by default. Only run `npm --prefix frontend run build` when explicitly requested by the user.
+- Do not rebuild or commit generated frontend bundles for ordinary UI iteration; the app uses Vite by default. Only run `bun run --cwd frontend build` when explicitly requested by the user.
 - Keep console entry points in `pyproject.toml`.
 
 # Testing

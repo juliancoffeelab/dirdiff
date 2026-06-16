@@ -1,5 +1,4 @@
 import type {
-  Defaults,
   DiffEngine,
   DiffMode,
   DiffRequest,
@@ -7,7 +6,7 @@ import type {
   FileKind,
   NotebookSummary,
   RefChoices,
-  RepoId,
+  RepoRefs,
   Summary,
 } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
@@ -24,6 +23,14 @@ export type ControlsState = {
   branchSource: BranchSource;
   branchRemote: string;
   reviewBranch: string;
+};
+
+export type LoadedDiff = {
+  request: DiffRequest;
+  files: FileEntry[];
+  lazyFiles: FileEntry[];
+  fileOrder: Record<string, number>;
+  summary: Summary;
 };
 
 export type AutocompleteGroup = [string, string[]];
@@ -123,26 +130,37 @@ function normalizeTopLevelMode(
   return inferMode(left, right, baseBranch, reviewBranch);
 }
 
-export function initialControls(defaults: Defaults): ControlsState {
+export function initialControls(repoRefs: RepoRefs): ControlsState {
   const search = new URLSearchParams(window.location.search);
-  const remoteNames = defaults.ref_choices.remote_names || [];
-  const left = search.get("left") || defaults.left || "index";
-  const right = search.get("right") || defaults.right || "worktree";
-  const baseBranchRef = search.get("base_branch") || defaults.base_branch || "";
-  const reviewBranchRef =
-    search.get("review_branch") || defaults.review_branch || "";
+  const remoteNames = repoRefs.ref_choices.remote_names;
+  const left = searchValue(search, "left", "head");
+  const right = searchValue(search, "right", "worktree");
+  const baseBranchRef = searchValue(
+    search,
+    "base_branch",
+    nullableStringValue(repoRefs.default_base_branch, ""),
+  );
+  const reviewBranchRef = searchValue(
+    search,
+    "review_branch",
+    nullableStringValue(repoRefs.preferred_review_branch, ""),
+  );
   const baseBranchParts = splitRemoteQualifiedRef(baseBranchRef, remoteNames);
   const reviewBranchParts = splitRemoteQualifiedRef(
     reviewBranchRef,
     remoteNames,
   );
-  const mode = normalizeTopLevelMode(
-    (search.get("mode") as DiffMode | null) || defaults.mode || null,
-    left,
-    right,
-    baseBranchParts.value,
-    reviewBranchParts.value,
-  );
+  const requestedMode = search.get("mode") as DiffMode | null;
+  const mode =
+    requestedMode === null
+      ? "against-head"
+      : normalizeTopLevelMode(
+          requestedMode,
+          left,
+          right,
+          baseBranchParts.value,
+          reviewBranchParts.value,
+        );
 
   if (mode in modeSides) {
     const [modeLeft, modeRight] = modeSides[mode as keyof typeof modeSides];
@@ -172,12 +190,34 @@ export function initialControls(defaults: Defaults): ControlsState {
   };
 }
 
-export function initialEngine(defaults: Defaults): DiffEngine {
+function searchValue(
+  search: URLSearchParams,
+  name: string,
+  fallback: string,
+): string {
+  const value = search.get(name);
+  if (value !== null && value.length > 0) {
+    return value;
+  }
+  return fallback;
+}
+
+function nullableStringValue(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  if (value !== null && value !== undefined && value.length > 0) {
+    return value;
+  }
+  return fallback;
+}
+
+export function initialEngine(): DiffEngine {
   const engine = new URLSearchParams(window.location.search).get("engine");
   if (engine === "git" || engine === "dirdiff" || engine === "difftastic") {
     return engine;
   }
-  return defaults.engine || "dirdiff";
+  return "dirdiff";
 }
 
 export function initialDiffViewMode(): DiffViewMode {
@@ -188,104 +228,21 @@ export function initialDiffViewMode(): DiffViewMode {
   return "inline";
 }
 
-export function buildRequest(
-  controls: ControlsState,
-  refChoices: RefChoices,
-  engine: DiffEngine,
-  repoId: RepoId,
-): DiffRequest | string {
-  if (controls.mode === "refs") {
-    if (!controls.left.trim() || !controls.right.trim()) {
-      return "Enter both refs to compare them.";
-    }
-    return {
-      repo_id: repoId,
-      engine,
-      mode: controls.mode,
-      left: controls.left.trim(),
-      right: controls.right.trim(),
-      base_branch: null,
-      review_branch: null,
-      show_untracked: false,
-    };
-  }
-
-  if (controls.mode === "preset") {
-    return {
-      repo_id: repoId,
-      engine,
-      mode: controls.mode,
-      left: "presets",
-      right: "new",
-      base_branch: null,
-      review_branch: null,
-      show_untracked: false,
-    };
-  }
-
-  if (controls.mode === "branch-review") {
-    if (controls.baseSource === "remote" && !controls.baseRemote.trim()) {
-      return "Pick a base remote.";
-    }
-    if (!controls.baseBranch.trim()) {
-      return "Pick a base branch.";
-    }
-    if (controls.branchSource === "remote" && !controls.branchRemote.trim()) {
-      return "Pick a branch remote.";
-    }
-    if (!controls.reviewBranch.trim()) {
-      return "Pick a branch to compare against the base branch.";
-    }
-    return {
-      repo_id: repoId,
-      engine,
-      mode: controls.mode,
-      left: "",
-      right: "",
-      base_branch: branchReviewRef(
-        controls.baseSource,
-        controls.baseRemote,
-        controls.baseBranch,
-        refChoices.remote_names,
-      ),
-      review_branch: branchReviewRef(
-        controls.branchSource,
-        controls.branchRemote,
-        controls.reviewBranch,
-        refChoices.remote_names,
-      ),
-      show_untracked: false,
-    };
-  }
-
-  const [left, right] = modeSides[controls.mode];
-  return {
-    repo_id: repoId,
-    engine,
-    mode: controls.mode,
-    left,
-    right,
-    base_branch: null,
-    review_branch: null,
-    show_untracked: controls.mode === "against-head",
-  };
-}
-
 function requestQuery(request: DiffRequest): URLSearchParams {
   const params = new URLSearchParams();
   params.set("repo_id", String(request.repo_id));
   params.set("engine", request.engine);
   params.set("mode", request.mode);
-  if (request.left) {
+  if (request.left.length > 0) {
     params.set("left", request.left);
   }
-  if (request.right) {
+  if (request.right.length > 0) {
     params.set("right", request.right);
   }
-  if (request.base_branch) {
+  if (request.base_branch !== null && request.base_branch.length > 0) {
     params.set("base_branch", request.base_branch);
   }
-  if (request.review_branch) {
+  if (request.review_branch !== null && request.review_branch.length > 0) {
     params.set("review_branch", request.review_branch);
   }
   if (request.show_untracked) {
@@ -323,7 +280,7 @@ export function statusLabel(
   if (request.mode === "preset") {
     return "Preset diffs";
   }
-  return `${leftLabel || request.left} vs ${rightLabel || request.right}`;
+  return `${nullableStringValue(leftLabel, request.left)} vs ${nullableStringValue(rightLabel, request.right)}`;
 }
 
 export function loadedStatusLabel(
@@ -375,17 +332,17 @@ export function fileDisplayName(entry: FileEntry): string {
 export function fileBasename(entry: FileEntry): string {
   const path = fileTreePath(entry);
   const basename = path.split("/").at(-1);
-  if (!basename) {
+  if (basename === undefined || basename.length === 0) {
     throw new Error(`Could not derive file basename from ${path}.`);
   }
   return basename;
 }
 
 function fileTreePath(entry: FileEntry): string {
-  if (entry.right_path) {
+  if (entry.right_path !== null && entry.right_path.length > 0) {
     return entry.right_path;
   }
-  if (entry.left_path) {
+  if (entry.left_path !== null && entry.left_path.length > 0) {
     return entry.left_path;
   }
   throw new Error("File entry is missing paths.");
@@ -421,7 +378,7 @@ function unknownLineStats(): LineStats {
 }
 
 export function fileLineStats(entry: FileEntry): LineStats {
-  if (entry.summary) {
+  if (entry.summary !== undefined) {
     return {
       added: entry.summary.added_lines,
       modified: entry.summary.modified_lines,
@@ -429,7 +386,7 @@ export function fileLineStats(entry: FileEntry): LineStats {
     };
   }
   if (
-    entry.lazy &&
+    entry.lazy !== undefined &&
     typeof entry.added_lines === "number" &&
     typeof entry.removed_lines === "number"
   ) {
@@ -455,7 +412,7 @@ export function addHydratedNotebookSummary(
   entry: FileEntry,
 ): Summary {
   const entrySummary = entry.summary;
-  if (!entrySummary || !("changed_cells" in entrySummary)) {
+  if (entrySummary === undefined || !("changed_cells" in entrySummary)) {
     return current;
   }
   const notebookSummary = entrySummary as NotebookSummary;
@@ -490,7 +447,7 @@ function fileKindKey(fileKind: FileKind): string {
 export function isNotebookSummary(
   summary: FileEntry["summary"],
 ): summary is NotebookSummary {
-  return Boolean(summary && "changed_cells" in summary);
+  return summary !== undefined && "changed_cells" in summary;
 }
 
 function splitRemoteQualifiedRef(
@@ -541,7 +498,7 @@ function qualifyRemoteRef(
   return `${normalizedRemote}/${normalizedRef}`;
 }
 
-function branchReviewRef(
+export function branchReviewRef(
   source: BranchSource,
   remote: string,
   branch: string,
@@ -554,13 +511,20 @@ function branchReviewRef(
 }
 
 export function entryDirectoryLabel(entry: FileEntry): string {
-  return entryDirectoryPath(entry) || "root files";
+  const directory = entryDirectoryPath(entry);
+  if (directory.length > 0) {
+    return directory;
+  }
+  return "root files";
 }
 
 export function fileKey(entry: FileEntry): string {
-  const leftPath = entry.left_path || "";
-  const rightPath = entry.right_path || "";
-  const displayName = leftPath || rightPath ? "" : entry.display_name || "";
+  const leftPath = nullableStringValue(entry.left_path, "");
+  const rightPath = nullableStringValue(entry.right_path, "");
+  const displayName =
+    leftPath.length > 0 || rightPath.length > 0
+      ? ""
+      : nullableStringValue(entry.display_name, "");
   return `${leftPath}\u0000${rightPath}\u0000${displayName}\u0000${fileKindKey(entry.file_kind)}`;
 }
 
@@ -617,7 +581,7 @@ export function groupFilesByLabel(files: FileEntry[]): Map<string, FileGroup> {
   for (const file of files) {
     const label = entryDirectoryLabel(file);
     const groupFiles = groups.get(label);
-    if (groupFiles) {
+    if (groupFiles !== undefined) {
       groupFiles.push(file);
     } else {
       groups.set(label, [file]);

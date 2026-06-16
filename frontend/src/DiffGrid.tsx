@@ -38,13 +38,13 @@ export function DiffGrid(props: {
     >
       {props.viewMode === "inline" ? (
         <InlineHeader
-          leftLabel={props.file.left_label || "left"}
-          rightLabel={props.file.right_label || "right"}
+          leftLabel={labelOrDefault(props.file.left_label, "left")}
+          rightLabel={labelOrDefault(props.file.right_label, "right")}
         />
       ) : (
         <SplitHeader
-          leftLabel={props.file.left_label || "left"}
-          rightLabel={props.file.right_label || "right"}
+          leftLabel={labelOrDefault(props.file.left_label, "left")}
+          rightLabel={labelOrDefault(props.file.right_label, "right")}
         />
       )}
       <ImperativeDiffLines
@@ -116,15 +116,15 @@ function ImperativeDiffLines(props: {
     );
     const fileLabel = fileDisplayLabel(props.file);
     const fragment =
-      props.viewMode === "inline" && props.semanticReplaceRows
+      props.viewMode === "inline" && props.semanticReplaceRows === true
         ? renderSemanticInlineRowsDom(rows, fileLabel, expandedFolds)
         : props.viewMode === "inline"
           ? renderInlineRowsDom(rows, fileLabel, expandedFolds)
           : renderSplitRowsDom(
               rows,
               fileLabel,
-              props.file.left_label || "left",
-              props.file.right_label || "right",
+              labelOrDefault(props.file.left_label, "left"),
+              labelOrDefault(props.file.right_label, "right"),
               expandedFolds,
             );
     root.replaceChildren(fragment);
@@ -136,9 +136,26 @@ function ImperativeDiffLines(props: {
 }
 
 function fileDisplayLabel(file: FileEntry): string {
-  return (
-    file.display_name || file.right_path || file.left_path || "(unknown file)"
-  );
+  if (file.display_name !== undefined && file.display_name.length > 0) {
+    return file.display_name;
+  }
+  if (file.right_path !== null && file.right_path.length > 0) {
+    return file.right_path;
+  }
+  if (file.left_path !== null && file.left_path.length > 0) {
+    return file.left_path;
+  }
+  return "(unknown file)";
+}
+
+function labelOrDefault(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  if (value !== null && value !== undefined && value.length > 0) {
+    return value;
+  }
+  return fallback;
 }
 
 function renderSplitRowsDom(
@@ -257,7 +274,7 @@ function renderSplitFoldDom(
     if (expanded) {
       const fragment = document.createDocumentFragment();
       const firstRow = row.foldedRows[0];
-      if (firstRow) {
+      if (firstRow !== undefined) {
         fragment.append(
           renderSplitDiffRowDom(
             {
@@ -328,7 +345,7 @@ function renderInlineFoldDom(
         rightNo: null,
       };
       const firstRow = row.foldedRows[0];
-      if (firstRow) {
+      if (firstRow !== undefined) {
         const renderDiffRows = semanticReplaceRows
           ? renderSemanticInlineDiffRowsDom
           : renderInlineDiffRowsDom;
@@ -396,7 +413,7 @@ function renderSplitDiffRowDom(
   const element = document.createElement("div");
   element.className = diffRowClass(row.status, row, foldToggle);
   element.dataset.rowIndex = String(rowIndex);
-  if (foldToggle) {
+  if (foldToggle !== undefined) {
     element.title = "Collapse folded rows";
     element.addEventListener("click", foldToggle.onToggle);
   }
@@ -610,7 +627,7 @@ function renderInlineDiffRowDom(props: {
     "inline-diff-row",
   );
   element.dataset.rowIndex = String(props.rowIndex);
-  if (props.foldToggle) {
+  if (props.foldToggle !== undefined) {
     element.title = "Collapse folded rows";
     element.addEventListener("click", props.foldToggle.onToggle);
   }
@@ -645,7 +662,7 @@ function inlineDisplayLineNo(
   side: Side,
   state?: InlineLineNumberState,
 ): number | null {
-  if (!state || lineNo === null) {
+  if (state === undefined || lineNo === null) {
     return lineNo;
   }
   const previousLineNo = side === "left" ? state.leftNo : state.rightNo;
@@ -664,19 +681,19 @@ function diffRowClass(
   extraClass = "",
 ): string {
   const classes = ["diff-row"];
-  if (extraClass) {
+  if (extraClass.length > 0) {
     classes.push(extraClass);
   }
   classes.push(status);
-  if (row.isHunkAnchor) {
+  if (row.isHunkAnchor === true) {
     classes.push("hunk-anchor");
   }
   if (isChangedRowStatus(status) && isWhitespaceOnlyChange(row)) {
     classes.push("whitespace-only-change");
   }
-  if (foldToggle) {
+  if (foldToggle !== undefined) {
     classes.push("fold-toggle-row");
-    if (foldToggle.expanded) {
+    if (foldToggle.expanded === true) {
       classes.push("fold-expanded");
     }
   }
@@ -749,7 +766,7 @@ function createLineNumberDom(
     element.dataset.linePinLine = String(pinLineNo);
     element.title = "Pin line";
   }
-  if (foldToggle) {
+  if (foldToggle !== undefined) {
     element.append(createFoldToggleButtonDom(foldToggle));
   }
   element.append(lineNo === null ? "" : String(lineNo));

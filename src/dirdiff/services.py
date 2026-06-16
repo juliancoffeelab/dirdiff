@@ -44,7 +44,7 @@ GENERATED_FILES = frozenset(
         "composer.lock",
         "flake.lock",
         "go.sum",
-        "package-lock.json",
+        "bun.lock",
         "pdm.lock",
         "pipfile.lock",
         "pnpm-lock.yaml",

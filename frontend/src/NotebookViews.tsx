@@ -25,10 +25,10 @@ export function NotebookFile(props: {
     <div class="notebook-file">
       <div class="notebook-summary">
         <span class="badge badge-neutral">
-          {summary()?.left_exists ? "left exists" : "left missing"}
+          {summary()?.left_exists === true ? "left exists" : "left missing"}
         </span>
         <span class="badge badge-neutral">
-          {summary()?.right_exists ? "right exists" : "right missing"}
+          {summary()?.right_exists === true ? "right exists" : "right missing"}
         </span>
         <span class="badge badge-neutral">
           {changedCells()} changed cell{changedCells() === 1 ? "" : "s"}
@@ -179,7 +179,8 @@ function NotebookDetails(props: {
   const [section, setSection] = createSignal<NotebookSection | null>(null);
 
   const load = async () => {
-    if (!props.request || section() || loading()) {
+    const request = props.request;
+    if (request === null || section() !== null || loading()) {
       return;
     }
     setOpen(true);
@@ -188,16 +189,21 @@ function NotebookDetails(props: {
     try {
       const payload = await queryClient.fetchQuery({
         queryKey: notebookSectionQueryKey(
-          props.request,
+          request,
           props.file,
           props.section,
           props.cellKey ?? null,
         ),
-        queryFn: () =>
-          fetchNotebookSection(props.request!, props.file, {
-            section: props.section,
-            cellKey: props.cellKey,
-          }),
+        queryFn: ({ signal }) =>
+          fetchNotebookSection(
+            request,
+            props.file,
+            {
+              section: props.section,
+              cellKey: props.cellKey,
+            },
+            signal,
+          ),
         staleTime: 0,
       });
       setSection(payload);
@@ -296,7 +302,7 @@ function notebookSectionSummary(
   if (details.renderMode === "plain") {
     parts.push("plain render");
   }
-  if (details.truncatedRows) {
+  if (details.truncatedRows !== null && details.truncatedRows !== undefined) {
     parts.push(`truncated ${details.truncatedRows}`);
   }
   return parts.join(" · ");

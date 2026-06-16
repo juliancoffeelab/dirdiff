@@ -1,11 +1,14 @@
 checkFormatJs:
-	npm --prefix frontend run format:check
+	bun run --cwd frontend format:check
 
 checkFormatPython:
 	.venv/bin/ruff format --check
 
 tscheck:
-	npm --prefix frontend run typecheck
+	bun run --cwd frontend typecheck
+
+eslint:
+	bun run --cwd frontend lint
 
 mypy:
 	.venv/bin/mypy .
@@ -18,7 +21,7 @@ cram:
 
 format:
 	.venv/bin/ruff format
-	npm --prefix frontend run format
+	bun run --cwd frontend format
 
 reinstall:
 	uv tool install -e . --reinstall

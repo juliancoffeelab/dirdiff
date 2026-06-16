@@ -66,22 +66,6 @@ h1 {
   margin-right: 2px;
 }
 
-.repo-context {
-  min-height: var(--header-control-height);
-  display: inline-flex;
-  align-items: center;
-  max-width: 240px;
-  overflow: hidden;
-  border: 1px solid #d8d0c2;
-  background: #fffdf8;
-  color: #24231f;
-  padding: 0 8px;
-  font-size: 13px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .header-actions {
   display: contents;
 }
@@ -116,6 +100,19 @@ h1 {
   font-weight: 700;
   line-height: 1;
   outline: 0;
+}
+
+.repo-select {
+  max-width: min(320px, 40vw);
+}
+
+.repo-select select {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .controls,
@@ -1736,7 +1733,7 @@ h1 {
   }
 
   .engine-select,
-  .repo-context,
+  .repo-select,
   .summary-group {
     width: 100%;
     max-width: none;

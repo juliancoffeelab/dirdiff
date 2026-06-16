@@ -17,7 +17,7 @@ intelligently and not just hide random lines.
 ## Dev Install
 
 ```bash
-npm --prefix frontend install
+bun install --cwd frontend
 uv tool install -e .
 ```
 

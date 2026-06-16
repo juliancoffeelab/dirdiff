@@ -26,7 +26,17 @@ const builtinRefDescriptions: Record<string, string> = {
 export function Controls(props: {
   controls: ControlsState;
   refChoices: RefChoices;
-  onLoad: (controls: ControlsState) => void;
+  onAgainstHead: () => void;
+  onPreset: () => void;
+  onRefs: (left: string, right: string) => void;
+  onBranchReview: (
+    baseSource: BranchSource,
+    baseRemote: string,
+    baseBranch: string,
+    branchSource: BranchSource,
+    branchRemote: string,
+    reviewBranch: string,
+  ) => void;
 }) {
   const [draft, setDraft] = createSignal<ControlsState>(props.controls);
   createEffect(() => setDraft(props.controls));
@@ -35,9 +45,32 @@ export function Controls(props: {
     setDraft((current) => ({ ...current, ...patch }));
   };
 
+  const loadDraft = (value: ControlsState) => {
+    if (value.mode === "refs") {
+      props.onRefs(value.left, value.right);
+      return;
+    }
+    if (value.mode === "branch-review") {
+      props.onBranchReview(
+        value.baseSource,
+        value.baseRemote,
+        value.baseBranch,
+        value.branchSource,
+        value.branchRemote,
+        value.reviewBranch,
+      );
+      return;
+    }
+    if (value.mode === "preset") {
+      props.onPreset();
+      return;
+    }
+    props.onAgainstHead();
+  };
+
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
-    props.onLoad(draft());
+    loadDraft(draft());
   };
 
   return (
@@ -53,7 +86,7 @@ export function Controls(props: {
               onClick={() => {
                 const nextDraft = { ...draft(), mode };
                 setDraft(nextDraft);
-                props.onLoad(nextDraft);
+                loadDraft(nextDraft);
               }}
             >
               {modeLabels[mode]}
@@ -94,13 +127,13 @@ export function Controls(props: {
           label="Base remote"
           source={draft().baseSource}
           remote={draft().baseRemote}
-          remoteChoices={props.refChoices.remote_names || []}
+          remoteChoices={props.refChoices.remote_names}
           onSource={(baseSource) =>
             updateDraft({
               baseSource,
               baseRemote:
-                baseSource === "remote" && !draft().baseRemote
-                  ? (props.refChoices.remote_names || [])[0] || ""
+                baseSource === "remote" && draft().baseRemote.length === 0
+                  ? firstRemoteName(props.refChoices)
                   : draft().baseRemote,
             })
           }
@@ -123,13 +156,13 @@ export function Controls(props: {
           label="Branch remote"
           source={draft().branchSource}
           remote={draft().branchRemote}
-          remoteChoices={props.refChoices.remote_names || []}
+          remoteChoices={props.refChoices.remote_names}
           onSource={(branchSource) =>
             updateDraft({
               branchSource,
               branchRemote:
-                branchSource === "remote" && !draft().branchRemote
-                  ? (props.refChoices.remote_names || [])[0] || ""
+                branchSource === "remote" && draft().branchRemote.length === 0
+                  ? firstRemoteName(props.refChoices)
                   : draft().branchRemote,
             })
           }
@@ -177,7 +210,7 @@ function BranchSourceField(props: {
   });
 
   onMount(() => {
-    if (!input) {
+    if (input === undefined) {
       return;
     }
     const open = () => setFocused(true);
@@ -191,7 +224,7 @@ function BranchSourceField(props: {
 
   onCleanup(() => {
     const timer = blurTimer();
-    if (timer) {
+    if (timer !== undefined) {
       clearTimeout(timer);
     }
   });
@@ -202,7 +235,7 @@ function BranchSourceField(props: {
 
   const keepOpen = () => {
     const timer = blurTimer();
-    if (timer) {
+    if (timer !== undefined) {
       clearTimeout(timer);
       setBlurTimer(undefined);
     }
@@ -298,7 +331,7 @@ function AutocompleteField(props: {
   const groups = createMemo(() => (focused() ? props.groups(query()) : []));
 
   onMount(() => {
-    if (!input) {
+    if (input === undefined) {
       return;
     }
     const open = () => {
@@ -315,7 +348,7 @@ function AutocompleteField(props: {
 
   onCleanup(() => {
     const timer = blurTimer();
-    if (timer) {
+    if (timer !== undefined) {
       clearTimeout(timer);
     }
   });
@@ -331,7 +364,7 @@ function AutocompleteField(props: {
 
   const keepOpen = () => {
     const timer = blurTimer();
-    if (timer) {
+    if (timer !== undefined) {
       clearTimeout(timer);
       setBlurTimer(undefined);
     }
@@ -426,8 +459,8 @@ function filterRefChoices(
 ): AutocompleteGroup[] {
   const filtered: AutocompleteGroup[] = [];
   for (const section of sections) {
-    const values = filterValues(refChoices[section] || [], query);
-    if (values.length) {
+    const values = filterValues(refChoices[section], query);
+    if (values.length > 0) {
       filtered.push([section, values]);
     }
   }
@@ -447,7 +480,7 @@ function filterBranchChoices(
     listRemoteBranchChoices(refChoices, remoteName),
     query,
   );
-  return values.length ? [["remote_branches", values]] : [];
+  return values.length > 0 ? [["remote_branches", values]] : [];
 }
 
 function listRemoteBranchChoices(
@@ -455,18 +488,26 @@ function listRemoteBranchChoices(
   remoteName: string,
 ): string[] {
   const normalizedRemote = remoteName.trim();
-  if (!normalizedRemote) {
+  if (normalizedRemote.length === 0) {
     return [];
   }
   const prefix = `${normalizedRemote}/`;
   return [
     ...new Set(
-      (refChoices.remotes || [])
+      refChoices.remotes
         .filter((value) => value.startsWith(prefix))
         .map((value) => value.slice(prefix.length))
-        .filter(Boolean),
+        .filter((value) => value.length > 0),
     ),
   ].sort();
+}
+
+function firstRemoteName(refChoices: RefChoices): string {
+  const first = refChoices.remote_names[0];
+  if (first === undefined) {
+    return "";
+  }
+  return first;
 }
 
 function autocompleteOptionDescription(section: string, value: string): string {
