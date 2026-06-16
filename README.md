@@ -31,3 +31,8 @@ dirdiff
 
 We use uvicorn and vite with every dev option enabled, so hot-reloading fully
 works. If it doesn't that's a bug.
+
+## Third-party fixes
+
+Additional fixes that have not yet landed upstream may be available in
+[juliancoffeelab/difftastic](https://github.com/juliancoffeelab/difftastic).

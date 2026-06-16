@@ -102,23 +102,12 @@
     ]
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 4,
     "left_text": "",
     "right_text": "        \"right\": done,",
-    "right_tokens": [
-      {
-        "text": "        \"right\": done",
-        "status": "unchanged",
-        "is_ws": false
-      },
-      {
-        "text": ",",
-        "status": "insert",
-        "is_ws": false
-      }
-    ]
+    "right_tokens": []
   },
   {
     "status": "equal",

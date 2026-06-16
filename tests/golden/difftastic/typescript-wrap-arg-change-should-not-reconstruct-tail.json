@@ -49,23 +49,12 @@
     ]
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 3,
     "left_text": "",
     "right_text": "  baz,",
-    "right_tokens": [
-      {
-        "text": "  baz",
-        "status": "unchanged",
-        "is_ws": false
-      },
-      {
-        "text": ",",
-        "status": "insert",
-        "is_ws": false
-      }
-    ]
+    "right_tokens": []
   },
   {
     "status": "equal",

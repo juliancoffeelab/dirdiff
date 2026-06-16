@@ -136,6 +136,42 @@ def _difftastic_row_status_from_tokens(
     return "equal"
 
 
+def _difftastic_semantic_words(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
+        if word
+    }
+
+
+def _difftastic_unchanged_semantic_words(
+    tokens: list[dict[str, Any]],
+) -> set[str]:
+    words: set[str] = set()
+    for token in tokens:
+        if token.get("status") != "unchanged":
+            continue
+        token_text = token.get("text")
+        if not isinstance(token_text, str):
+            continue
+        words.update(_difftastic_semantic_words(token_text))
+    return words
+
+
+def _difftastic_changed_semantic_words(
+    tokens: list[dict[str, Any]],
+) -> set[str]:
+    words: set[str] = set()
+    for token in tokens:
+        if token.get("status") == "unchanged":
+            continue
+        token_text = token.get("text")
+        if not isinstance(token_text, str):
+            continue
+        words.update(_difftastic_semantic_words(token_text))
+    return words
+
+
 def _difftastic_changed_ranges_by_line(
     diff_json: dict[str, Any],
     *,
@@ -895,13 +931,11 @@ def _repair_shifted_difftastic_replacements(
     while index < len(rows):
         row = rows[index]
         next_row = rows[index + 1] if index + 1 < len(rows) else None
-        if (
-            next_row is not None
-            and row.get("status") == "replace"
-            and next_row.get("status") == "replace"
-        ):
-            if row.get("right_text") and row.get("right_text") == next_row.get(
-                "left_text"
+        if next_row is not None and row.get("status") == "replace":
+            if (
+                next_row.get("status") == "replace"
+                and row.get("right_text")
+                and row.get("right_text") == next_row.get("left_text")
             ):
                 repaired.append(_delete_only_row(row))
                 repaired.append(
@@ -910,8 +944,10 @@ def _repair_shifted_difftastic_replacements(
                 repaired.append(_insert_only_row(next_row))
                 index += 2
                 continue
-            if row.get("left_text") and row.get("left_text") == next_row.get(
-                "right_text"
+            if (
+                next_row.get("status") == "replace"
+                and row.get("left_text")
+                and row.get("left_text") == next_row.get("right_text")
             ):
                 repaired.append(_insert_only_row(row))
                 repaired.append(
@@ -920,9 +956,103 @@ def _repair_shifted_difftastic_replacements(
                 repaired.append(_delete_only_row(next_row))
                 index += 2
                 continue
+            if (
+                next_row.get("status") == "delete"
+                and row.get("right_text")
+                and row.get("right_text") == next_row.get("left_text")
+            ):
+                repaired.append(_delete_only_row(row))
+                repaired.append(
+                    _equal_row_from_crossed_replacements(next_row, row)
+                )
+                index += 2
+                continue
+            if (
+                next_row.get("status") == "insert"
+                and row.get("left_text")
+                and row.get("left_text") == next_row.get("right_text")
+            ):
+                repaired.append(_insert_only_row(row))
+                repaired.append(
+                    _equal_row_from_crossed_replacements(row, next_row)
+                )
+                index += 2
+                continue
         repaired.append(row)
         index += 1
     return repaired
+
+
+def _is_left_only_row(row: dict[str, Any]) -> bool:
+    return row.get("left_no") is not None and row.get("right_no") is None
+
+
+def _is_right_only_row(row: dict[str, Any]) -> bool:
+    return row.get("left_no") is None and row.get("right_no") is not None
+
+
+def _one_sided_row_tokens(row: dict[str, Any]) -> list[dict[str, Any]]:
+    if _is_left_only_row(row):
+        return row.get("left_tokens", [])
+    if _is_right_only_row(row):
+        return row.get("right_tokens", [])
+    return []
+
+
+def _one_sided_replace_should_use_side_status(
+    rows: list[dict[str, Any]], index: int
+) -> bool:
+    row = rows[index]
+    if row.get("status") != "replace":
+        return False
+
+    if not _is_left_only_row(row):
+        return False
+
+    has_deleted_neighbor = False
+    for neighbor_index in range(max(0, index - 2), min(len(rows), index + 3)):
+        if neighbor_index == index:
+            continue
+        neighbor = rows[neighbor_index]
+        if not _is_left_only_row(neighbor):
+            continue
+
+        neighbor_status = neighbor.get("status")
+        if neighbor_status in {"delete", "insert"}:
+            has_deleted_neighbor = True
+            break
+        if neighbor_status == "replace" and not _one_sided_row_tokens(neighbor):
+            has_deleted_neighbor = True
+            break
+    if not has_deleted_neighbor:
+        return False
+
+    row_tokens = _one_sided_row_tokens(row)
+    if not row_tokens:
+        return True
+
+    return len(_difftastic_changed_semantic_words(row_tokens)) > len(
+        _difftastic_unchanged_semantic_words(row_tokens)
+    )
+
+
+def _normalize_one_sided_difftastic_replacements(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized = [dict(row) for row in rows]
+    while True:
+        changed = False
+        next_rows: list[dict[str, Any]] = []
+        for index, row in enumerate(normalized):
+            next_row = dict(row)
+            if _one_sided_replace_should_use_side_status(normalized, index):
+                if next_row.get("status") != "delete":
+                    next_row["status"] = "delete"
+                    changed = True
+            next_rows.append(next_row)
+        if not changed:
+            return next_rows
+        normalized = next_rows
 
 
 def _difftastic_rows_from_json(
@@ -1349,7 +1479,9 @@ def _difftastic_rows_from_json(
         )
         used_right.add(right_index)
 
-    return _repair_shifted_difftastic_replacements(rows)
+    return _normalize_one_sided_difftastic_replacements(
+        _repair_shifted_difftastic_replacements(rows)
+    )
 
 
 def run_difftastic_json(

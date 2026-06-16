@@ -1,44 +1,44 @@
 [
   {
+    "status": "equal",
     "left_no": 1,
-    "left_text": "export type InlineToken = {",
     "right_no": 1,
-    "right_text": "export type InlineToken = {",
-    "status": "equal"
+    "left_text": "export type InlineToken = {",
+    "right_text": "export type InlineToken = {"
   },
   {
+    "status": "equal",
     "left_no": 2,
-    "left_text": "  text: string;",
     "right_no": 2,
-    "right_text": "  text: string;",
-    "status": "equal"
+    "left_text": "  text: string;",
+    "right_text": "  text: string;"
   },
   {
+    "status": "delete",
     "left_no": 3,
-    "left_text": "  changed: boolean;",
     "right_no": null,
-    "right_text": "",
-    "status": "delete"
+    "left_text": "  changed: boolean;",
+    "right_text": ""
   },
   {
+    "status": "equal",
     "left_no": 4,
-    "left_text": "  is_ws: boolean;",
     "right_no": 3,
-    "right_text": "  is_ws: boolean;",
-    "status": "equal"
+    "left_text": "  is_ws: boolean;",
+    "right_text": "  is_ws: boolean;"
   },
   {
+    "status": "insert",
     "left_no": null,
-    "left_text": "",
     "right_no": 4,
-    "right_text": "  status: \"unchanged\" | \"replace\" | \"insert\" | \"delete\";",
-    "status": "insert"
+    "left_text": "",
+    "right_text": "  status: \"unchanged\" | \"replace\" | \"insert\" | \"delete\";"
   },
   {
+    "status": "equal",
     "left_no": 5,
-    "left_text": "};",
     "right_no": 5,
-    "right_text": "};",
-    "status": "equal"
+    "left_text": "};",
+    "right_text": "};"
   }
 ]

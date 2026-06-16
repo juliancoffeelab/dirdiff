@@ -10,6 +10,26 @@ from dirdiff.diff import (
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 
 
+def _preset_rows(preset_name: str) -> list[dict[str, object]]:
+    preset_dir = PRESETS_ROOT / preset_name
+    old_path = next(preset_dir.glob("old.*"))
+    new_path = next(preset_dir.glob("new.*"))
+    old_text = old_path.read_text()
+    new_text = new_path.read_text()
+    service = DifftasticDiffService(PresetBackend(PRESETS_ROOT))
+    diff_json = service._run_difftastic_json(
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    return _difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
+
+
 def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
     assert _difftastic_engine_warning(
         {"language": "Text (exceeded DFT_GRAPH_LIMIT)"}
@@ -2855,3 +2875,77 @@ def test_difftastic_rows_pair_one_sided_lhs_token_delete_with_matching_rhs_line(
         {"text": ",", "status": "delete", "is_ws": False},
     ]
     assert rows[6]["left_text"] == '} from "./api";'
+
+
+def test_difftastic_rows_mark_runtime_config_service_tail_as_deleted() -> None:
+    rows = _preset_rows("create-app-runtime-config-collapses-service-block")
+
+    deleted_tail = [
+        row
+        for row in rows
+        if row.get("left_no") in {29, 30, 31, 32, 33, 34, 35, 36, 37}
+        and row.get("left_text")
+        in {
+            "        service,",
+            "        defaults,",
+            '        services={"git": git_service, "difftastic": difftastic_service},',
+            "        preset_services={",
+            '            "dirdiff": preset_service,',
+            '            "git": preset_git_service,',
+            '            "difftastic": preset_difftastic_service,',
+            "        },",
+            "    )",
+        }
+    ]
+
+    assert [row["status"] for row in deleted_tail] == [
+        "delete",
+        "delete",
+        "delete",
+        "delete",
+        "delete",
+        "delete",
+        "delete",
+        "delete",
+        "delete",
+    ]
+    assert all(row["right_no"] is None for row in deleted_tail)
+    assert all(row["right_text"] == "" for row in deleted_tail)
+
+
+def test_difftastic_rows_keep_shared_path_residue_unchanged_in_deleted_block() -> (
+    None
+):
+    rows = _preset_rows("create-app-runtime-config-collapses-service-block")
+
+    paired_path_row = next(
+        row
+        for row in rows
+        if row["right_text"] == "    repo_path = Path(args.repo_path)"
+    )
+    deleted_path_row = next(
+        row
+        for row in rows
+        if row["left_text"]
+        == "        Path(config.presets_root).expanduser() if config.presets_root else None"
+    )
+
+    assert paired_path_row["status"] == "replace"
+    assert paired_path_row["left_text"] == "    presets_root = ("
+    assert deleted_path_row["status"] == "delete"
+    assert any(
+        token["status"] == "unchanged" and "Path(" in token["text"]
+        for token in deleted_path_row["left_tokens"]
+    )
+    assert any(
+        token["status"] == "unchanged" and "Path(" in token["text"]
+        for token in paired_path_row["right_tokens"]
+    )
+    assert all(
+        token["status"] in {"unchanged", "delete"}
+        for token in deleted_path_row["left_tokens"]
+    )
+    assert all(
+        token["status"] in {"unchanged", "replace", "insert"}
+        for token in paired_path_row["right_tokens"]
+    )

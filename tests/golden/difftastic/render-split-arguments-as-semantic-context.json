@@ -126,13 +126,8 @@
         "is_ws": false
       },
       {
-        "text": "}",
+        "text": "},",
         "status": "unchanged",
-        "is_ws": false
-      },
-      {
-        "text": ",",
-        "status": "insert",
         "is_ws": false
       }
     ]
