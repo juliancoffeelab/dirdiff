@@ -1,38 +1,21 @@
 from __future__ import annotations
 
-import argparse
-import json
 import logging
 import os
-import socket
-import subprocess
-import sys
-import threading
-import webbrowser
-from dataclasses import asdict, dataclass
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from typing import Annotated
 
-import uvicorn
-from fastapi import FastAPI
+import typer
 
-from dirdiff.repo_registry import RepoMarkStore
-from dirdiff.server import create_app
+from dirdiff import marker_utils, server_utils
+from dirdiff.runtime import DEFAULT_DB_PATH, RuntimeConfig
 
-DEFAULT_PORT = 5052
-DEFAULT_FRONTEND_PORT = 5173
-PORT_FALLBACK_ATTEMPTS = 20
-RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
-
-
-@dataclass(frozen=True)
-class RuntimeConfig:
-    db_path: str
-    left: str = "head"
-    right: str = "worktree"
-    base_branch: str | None = None
-    review_branch: str | None = None
-    presets_root: str | None = None
+cli_app = typer.Typer(
+    no_args_is_help=False,
+    add_completion=False,
+    rich_markup_mode=None,
+    help="Open the dirdiff browser UI.",
+)
 
 
 def configure_logging() -> None:
@@ -44,290 +27,157 @@ def configure_logging() -> None:
     )
 
 
-def parse_args() -> argparse.Namespace:
-    if len(sys.argv) > 1 and sys.argv[1] == "mark":
-        parser = argparse.ArgumentParser(
-            description="Mark a repository for the dirdiff repo registry."
-        )
-        parser.add_argument("command")
-        parser.add_argument("repo_path", help="Repository path to mark.")
-        parser.add_argument(
-            "--name",
-            help="Display name for the marked repo (defaults to the last path part).",
-        )
-        parser.add_argument(
-            "--db-path",
-            required=True,
-            help="SQLite database path for marked repos.",
-        )
-        return parser.parse_args()
-
-    parser = argparse.ArgumentParser(
-        description="Standalone diff viewer for generic text files."
+@cli_app.callback(invoke_without_command=True)
+def start(
+    ctx: typer.Context,
+    db_path: Annotated[
+        Path | None,
+        typer.Option(help="Repo registry database path."),
+    ] = None,
+    presets_root: Annotated[
+        str | None,
+        typer.Option(help="Preset directory."),
+    ] = None,
+    port: Annotated[
+        int,
+        typer.Option(help="Local web server port."),
+    ] = server_utils.DEFAULT_PORT,
+    headless: Annotated[
+        bool,
+        typer.Option(
+            "--headless",
+            help="Do not open the browser.",
+        ),
+    ] = False,
+    frontend_port: Annotated[
+        int,
+        typer.Option(help="Browser UI dev server port."),
+    ] = server_utils.DEFAULT_FRONTEND_PORT,
+    no_frontend_dev: Annotated[
+        bool,
+        typer.Option(
+            "--no-frontend-dev",
+            help="Run the backend only.",
+        ),
+    ] = False,
+) -> None:
+    resolved_db_path = (
+        DEFAULT_DB_PATH if db_path is None else db_path.expanduser()
     )
-    parser.add_argument(
-        "--left", default="head", help="Left diff side or Git ref"
+    ctx.obj = server_utils.AppOptions(
+        db_path=resolved_db_path,
+        presets_root=presets_root,
+        port=port,
+        frontend_port=frontend_port,
+        headless=headless,
+        no_frontend_dev=no_frontend_dev,
     )
-    parser.add_argument(
-        "--right", default="worktree", help="Right diff side or Git ref"
+    if ctx.invoked_subcommand is not None:
+        return
+    configure_logging()
+    config = RuntimeConfig(
+        db_path=str(resolved_db_path),
+        presets_root=presets_root,
     )
-    parser.add_argument(
-        "--base-branch",
-        help="Base branch for branch-review mode (defaults to master/main when available)",
-    )
-    parser.add_argument(
-        "--review-branch",
-        "--branch",
-        dest="review_branch",
-        help="Branch to review against the merge-base with the base branch",
-    )
-    parser.add_argument(
-        "--db-path",
-        required=True,
-        help="SQLite database path containing marked repos.",
-    )
-    parser.add_argument(
-        "--presets-root",
-        help="Directory containing preset folders with old.* and new.* files.",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=DEFAULT_PORT,
-        help=f"Local web server port (default: {DEFAULT_PORT})",
-    )
-    parser.add_argument(
-        "--no-open-browser",
-        action="store_true",
-        help="Do not automatically open the browser on startup.",
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Start the local server without opening a browser tab.",
-    )
-    parser.add_argument(
-        "--frontend-port",
-        type=int,
-        default=DEFAULT_FRONTEND_PORT,
-        help=f"Vite frontend dev server port (default: {DEFAULT_FRONTEND_PORT})",
-    )
-    parser.add_argument(
-        "--no-frontend-dev",
-        action="store_true",
-        help="Do not start Vite; serve only the backend API and diagnostic page.",
-    )
-    return parser.parse_args()
-
-
-def _build_url(port: int, config: RuntimeConfig) -> str:
-    mode = "against-head"
-    if config.review_branch is not None:
-        mode = "branch-review"
-    elif config.left != "head" or config.right != "worktree":
-        mode = "refs"
-    query = {
-        key: value
-        for key, value in {
-            "mode": mode,
-            "left": config.left,
-            "right": config.right,
-            "base_branch": config.base_branch,
-            "review_branch": config.review_branch,
-        }.items()
-        if value
-    }
-    return f"http://127.0.0.1:{port}/?{urlencode(query, quote_via=quote)}"
-
-
-def _frontend_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "frontend"
-
-
-def _start_frontend_dev_server(
-    *,
-    backend_port: int,
-    frontend_port: int,
-) -> subprocess.Popen[bytes]:
-    env = os.environ.copy()
-    env["VITE_DIRDIFF_BACKEND_ORIGIN"] = f"http://127.0.0.1:{backend_port}"
-    return subprocess.Popen(
-        [
-            "npm",
-            "run",
-            "dev",
-            "--",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(frontend_port),
-            "--strictPort",
-        ],
-        cwd=_frontend_dir(),
-        env=env,
+    server_utils.run_app(
+        config=config,
+        port=port,
+        frontend_port=frontend_port,
+        headless=headless,
+        no_frontend_dev=no_frontend_dev,
     )
 
 
-def runtime_config_from_args(args: argparse.Namespace) -> RuntimeConfig:
-    return RuntimeConfig(
-        db_path=args.db_path,
-        left=args.left,
-        right=args.right,
-        base_branch=args.base_branch,
-        review_branch=args.review_branch,
-        presets_root=args.presets_root,
+@cli_app.command()
+def refs(
+    ctx: typer.Context,
+    left: Annotated[
+        str,
+        typer.Argument(help="Left Git ref or diff side."),
+    ] = "head",
+    right: Annotated[
+        str,
+        typer.Argument(help="Right Git ref or diff side."),
+    ] = "worktree",
+) -> None:
+    configure_logging()
+    options = ctx.obj
+    assert isinstance(options, server_utils.AppOptions), "app options missing"
+    config = RuntimeConfig(
+        db_path=str(options.db_path),
+        mode="refs",
+        left=left,
+        right=right,
+        presets_root=options.presets_root,
+    )
+    server_utils.run_app(
+        config=config,
+        port=options.port,
+        frontend_port=options.frontend_port,
+        headless=options.headless,
+        no_frontend_dev=options.no_frontend_dev,
     )
 
 
-def store_runtime_config(config: RuntimeConfig) -> None:
-    os.environ[RUNTIME_CONFIG_ENV] = json.dumps(asdict(config))
-
-
-def load_runtime_config() -> RuntimeConfig:
-    payload = os.environ.get(RUNTIME_CONFIG_ENV)
-    if not payload:
-        raise SystemExit("--db-path is required.")
-    return RuntimeConfig(**json.loads(payload))
-
-
-def create_app_from_runtime_config() -> FastAPI:
-    config = load_runtime_config()
-    store = RepoMarkStore.open(Path(config.db_path))
-    marks = store.list()
-    if len(marks) == 0:
-        raise SystemExit(
-            "No marked repos. Run: dirdiff mark /path/to/repo "
-            "--db-path /path/to/db.sqlite"
-        )
-    return create_app(store, presets_root=config.presets_root)
-
-
-def handle_mark_command(args: argparse.Namespace) -> None:
-    store = RepoMarkStore.open(Path(args.db_path))
-    repo_path = Path(args.repo_path).expanduser()
-    if args.name is None:
-        display_name = repo_path.name
-        if not display_name:
-            raise SystemExit(
-                f"Cannot derive a repo name from path: {repo_path}"
-            )
-    else:
-        display_name = args.name
-    mark = store.new_mark(path=repo_path, name=display_name)
-    print(f"Marked repo {mark.id}: {mark.path}", file=sys.stderr)
-
-
-def ensure_port_available(port: int, *, label: str) -> None:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            probe.bind(("127.0.0.1", port))
-    except OSError as exc:
-        raise SystemExit(
-            f"{label} port {port} is already in use. "
-            "Stop the existing dirdiff process or pass an explicit port."
-        ) from exc
-
-
-def port_available(port: int) -> bool:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            probe.bind(("127.0.0.1", port))
-        return True
-    except OSError:
-        return False
-
-
-def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
-    for offset in range(PORT_FALLBACK_ATTEMPTS):
-        next_backend_port = backend_port + offset
-        next_frontend_port = frontend_port + offset
-        if (
-            next_backend_port != next_frontend_port
-            and port_available(next_backend_port)
-            and port_available(next_frontend_port)
-        ):
-            return next_backend_port, next_frontend_port
-
-    raise SystemExit(
-        "Could not find an available backend/frontend port pair. "
-        "Stop an existing dirdiff process or pass explicit ports."
+@cli_app.command()
+def branch(
+    ctx: typer.Context,
+    base_branch: Annotated[
+        str,
+        typer.Argument(help="Base branch."),
+    ],
+    review_branch: Annotated[
+        str,
+        typer.Argument(help="Review branch."),
+    ],
+) -> None:
+    configure_logging()
+    options = ctx.obj
+    assert isinstance(options, server_utils.AppOptions), "app options missing"
+    config = RuntimeConfig(
+        db_path=str(options.db_path),
+        mode="branch-review",
+        base_branch=base_branch,
+        review_branch=review_branch,
+        presets_root=options.presets_root,
     )
+    server_utils.run_app(
+        config=config,
+        port=options.port,
+        frontend_port=options.frontend_port,
+        headless=options.headless,
+        no_frontend_dev=options.no_frontend_dev,
+    )
+
+
+@cli_app.command()
+def mark(
+    path: Annotated[
+        Path,
+        typer.Option("--path", help="Repository path."),
+    ] = Path("."),
+    name: Annotated[
+        str | None,
+        typer.Option(help="Display name. If omitted, uses the last path part."),
+    ] = None,
+    db_path: Annotated[
+        Path | None,
+        typer.Option(help="Repo registry database path."),
+    ] = None,
+    list_marks: Annotated[
+        bool,
+        typer.Option(
+            "--list",
+            help="Print marked repositories.",
+        ),
+    ] = False,
+) -> None:
+    configure_logging()
+    if list_marks:
+        marker_utils.print_marked_repos(db_path=db_path)
+        return
+    marker_utils.mark_repo(repo_path=path, name=name, db_path=db_path)
 
 
 def main() -> None:
-    configure_logging()
-    args = parse_args()
-    if getattr(args, "command", None) == "mark":
-        handle_mark_command(args)
-        return
-    config = runtime_config_from_args(args)
-    marks = RepoMarkStore.open(Path(config.db_path)).list()
-    if len(marks) == 0:
-        raise SystemExit(
-            "No marked repos. Run: dirdiff mark /path/to/repo "
-            "--db-path /path/to/db.sqlite"
-        )
-    use_frontend_dev = not args.no_frontend_dev
-    if use_frontend_dev:
-        actual_port, actual_frontend_port = choose_port_pair(
-            args.port,
-            args.frontend_port,
-        )
-    else:
-        ensure_port_available(args.port, label="Backend")
-        actual_port = args.port
-        actual_frontend_port = args.frontend_port
-
-    backend_url = _build_url(actual_port, config)
-    url = (
-        _build_url(actual_frontend_port, config)
-        if use_frontend_dev
-        else backend_url
-    )
-    if use_frontend_dev and (
-        actual_port != args.port or actual_frontend_port != args.frontend_port
-    ):
-        print(
-            "Requested ports are in use; "
-            f"using backend {actual_port} and frontend {actual_frontend_port}.",
-            file=sys.stderr,
-        )
-
-    frontend_process: subprocess.Popen[bytes] | None = None
-    if use_frontend_dev:
-        try:
-            frontend_process = _start_frontend_dev_server(
-                backend_port=actual_port,
-                frontend_port=actual_frontend_port,
-            )
-        except FileNotFoundError:
-            print(
-                "Could not start the Vite frontend dev server. Opening the backend diagnostic page instead.",
-                file=sys.stderr,
-            )
-            url = backend_url
-
-    print(f"dirdiff: {url}", file=sys.stderr)
-
-    if not (args.no_open_browser or args.headless):
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
-
-    store_runtime_config(config)
-
-    try:
-        uvicorn.run(
-            "dirdiff.cli:create_app_from_runtime_config",
-            host="127.0.0.1",
-            port=actual_port,
-            factory=True,
-            reload=True,
-            reload_dirs=[str(Path(__file__).resolve().parent)],
-            reload_includes=["*.py", "*.html", "*.js", "*.css"],
-            log_config=None,
-            access_log=False,
-        )
-    finally:
-        if frontend_process is not None:
-            frontend_process.terminate()
+    cli_app()

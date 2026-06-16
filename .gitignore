@@ -10,4 +10,8 @@ frontend/.vite
 
 # docs
 todo.md
+findings.md
 report/
+
+# editor
+.nvim

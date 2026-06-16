@@ -106,6 +106,7 @@ class RepoMarkStore(RepoMarkStoreProtocol):
         """
 
         expanded_path = db_path.expanduser()
+        expanded_path.parent.mkdir(parents=True, exist_ok=True)
         store = cls(create_engine(f"sqlite:///{expanded_path}"))
         store.bootstrap()
         return store

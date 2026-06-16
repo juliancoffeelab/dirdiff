@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -8,6 +10,8 @@ from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from dirdiff.repo_registry import RepoMarkStore
+from dirdiff.runtime import RUNTIME_CONFIG_ENV, RuntimeConfig
 from dirdiff.services import (
     DifftasticDiffService,
     GitDiffService,
@@ -450,8 +454,12 @@ def create_app(
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
-        left: str = Query(description="Left ref or diff side."),
-        right: str = Query(description="Right ref or diff side."),
+        left: str | None = Query(
+            default=None, description="Left ref or diff side."
+        ),
+        right: str | None = Query(
+            default=None, description="Right ref or diff side."
+        ),
         base_branch: str | None = Query(
             default=None,
             description="Base branch for branch-review mode.",
@@ -490,7 +498,14 @@ def create_app(
                 payload["display_name"] = "Preset diffs"
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
-            elif mode == "branch-review" and selected_review_branch:
+            elif mode == "branch-review":
+                if (
+                    selected_review_branch is None
+                    or not selected_review_branch.strip()
+                ):
+                    raise TextDiffError(
+                        "review_branch is required for branch-review mode."
+                    )
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
                         service=diff_service,
@@ -509,6 +524,10 @@ def create_app(
                 payload["left_label"] = left_label
                 payload["right_label"] = normalized_branch
             else:
+                if left is None or not left.strip():
+                    raise TextDiffError("left is required for this diff mode.")
+                if right is None or not right.strip():
+                    raise TextDiffError("right is required for this diff mode.")
                 normalized_left = diff_service.normalize_side(left)
                 normalized_right = diff_service.normalize_side(right)
                 payload = diff_service.build_repo_manifest(
@@ -545,8 +564,12 @@ def create_app(
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
-        left: str = Query(description="Left ref or diff side."),
-        right: str = Query(description="Right ref or diff side."),
+        left: str | None = Query(
+            default=None, description="Left ref or diff side."
+        ),
+        right: str | None = Query(
+            default=None, description="Right ref or diff side."
+        ),
         base_branch: str | None = Query(
             default=None,
             description="Base branch for branch-review mode.",
@@ -600,11 +623,14 @@ def create_app(
                 )
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
-            elif (
-                mode == "branch-review"
-                and selected_review_branch
-                and selected_review_branch.strip()
-            ):
+            elif mode == "branch-review":
+                if (
+                    selected_review_branch is None
+                    or not selected_review_branch.strip()
+                ):
+                    raise TextDiffError(
+                        "review_branch is required for branch-review mode."
+                    )
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
                         service=diff_service,
@@ -627,6 +653,10 @@ def create_app(
                 payload["left_label"] = left_label
                 payload["right_label"] = normalized_branch
             else:
+                if left is None or not left.strip():
+                    raise TextDiffError("left is required for this diff mode.")
+                if right is None or not right.strip():
+                    raise TextDiffError("right is required for this diff mode.")
                 payload = diff_service.build_git_diff_paths(
                     left_path=left_path,
                     right_path=right_path,
@@ -667,8 +697,12 @@ def create_app(
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
-        left: str = Query(description="Left ref or diff side."),
-        right: str = Query(description="Right ref or diff side."),
+        left: str | None = Query(
+            default=None, description="Left ref or diff side."
+        ),
+        right: str | None = Query(
+            default=None, description="Right ref or diff side."
+        ),
         base_branch: str | None = Query(
             default=None,
             description="Base branch for branch-review mode.",
@@ -719,11 +753,14 @@ def create_app(
                 )
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
-            elif (
-                mode == "branch-review"
-                and selected_review_branch
-                and selected_review_branch.strip()
-            ):
+            elif mode == "branch-review":
+                if (
+                    selected_review_branch is None
+                    or not selected_review_branch.strip()
+                ):
+                    raise TextDiffError(
+                        "review_branch is required for branch-review mode."
+                    )
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
                         service=diff_service,
@@ -744,6 +781,10 @@ def create_app(
                 )
                 payload["right_label"] = normalized_branch
             else:
+                if left is None or not left.strip():
+                    raise TextDiffError("left is required for this diff mode.")
+                if right is None or not right.strip():
+                    raise TextDiffError("right is required for this diff mode.")
                 payload = diff_service.build_notebook_section_diff(
                     left_path=left_path,
                     right_path=right_path,
@@ -767,6 +808,16 @@ def create_app(
         return NotebookSectionDiffResponse.model_validate(payload)
 
     return app
+
+
+def uvicorn_entrypoint() -> FastAPI:
+    payload = os.environ.get(RUNTIME_CONFIG_ENV)
+    assert payload is not None, "dirdiff runtime config missing"
+    config = RuntimeConfig(**json.loads(payload))
+    store = RepoMarkStore.open(Path(config.db_path))
+    marks = store.list()
+    assert marks, "dirdiff runtime config has no marked repos"
+    return create_app(store, presets_root=config.presets_root)
 
 
 def _resolve_branch_review_refs(

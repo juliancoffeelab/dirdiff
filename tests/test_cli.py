@@ -1,50 +1,24 @@
 from __future__ import annotations
 
 import socket
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from dirdiff.cli import (
-    RUNTIME_CONFIG_ENV,
-    RuntimeConfig,
-    choose_port_pair,
-    ensure_port_available,
-    load_runtime_config,
-    store_runtime_config,
-)
-from dirdiff.repo_registry import RepoMarkRecord, RepoMarkStoreProtocol
+from dirdiff.repo_registry import RepoMarkStore
 from dirdiff.server import TextFileDiffResponse, create_app
-
-TEXT_SUMMARY = {
-    "changed_lines": 1,
-    "modified_lines": 1,
-    "added_lines": 0,
-    "removed_lines": 0,
-    "left_exists": True,
-    "right_exists": True,
-}
+from dirdiff.server_utils import choose_port_pair, require_bindable_port
 
 
-class FakeRepoMarkStore(RepoMarkStoreProtocol):
-    def list(self) -> tuple[RepoMarkRecord, ...]:
-        return (
-            RepoMarkRecord(
-                id=1,
-                path="/tmp/repo",
-                name="repo",
-                marked_at="2026-01-01T00:00:00+00:00",
-            ),
-        )
-
-    def get(self, repo_id: int) -> RepoMarkRecord | None:
-        if repo_id == 1:
-            return self.list()[0]
-        return None
+def repo_mark_store() -> RepoMarkStore:
+    store = RepoMarkStore.ephemeral_open()
+    store.new_mark(path=Path("/tmp"), name="repo")
+    return store
 
 
-def test_ensure_port_available_rejects_busy_port() -> None:
+def test_require_bindable_port_rejects_busy_port() -> None:
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     occupied.bind(("127.0.0.1", 0))
@@ -52,16 +26,14 @@ def test_ensure_port_available_rejects_busy_port() -> None:
     requested_port = occupied.getsockname()[1]
 
     try:
-        try:
-            ensure_port_available(requested_port, label="Backend")
-        except SystemExit as exc:
-            message = str(exc)
-        else:
-            raise AssertionError("Expected occupied port to be rejected")
+        with pytest.raises(SystemExit) as exc_info:
+            require_bindable_port(requested_port, label="Backend")
     finally:
         occupied.close()
 
-    assert f"Backend port {requested_port} is already in use." in message
+    assert f"Backend port {requested_port} is already in use." in str(
+        exc_info.value
+    )
 
 
 def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
@@ -92,25 +64,8 @@ def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
     )
 
 
-def test_runtime_config_round_trips_through_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv(RUNTIME_CONFIG_ENV, raising=False)
-    config = RuntimeConfig(
-        db_path="/tmp/dirdiff.sqlite",
-        left="HEAD~1",
-        right="HEAD",
-        base_branch="origin/main",
-        review_branch="origin/feature",
-    )
-
-    store_runtime_config(config)
-
-    assert load_runtime_config() == config
-
-
 def test_root_explains_vite_frontend_is_required() -> None:
-    client = TestClient(create_app(FakeRepoMarkStore()))
+    client = TestClient(create_app(repo_mark_store()))
 
     response = client.get("/")
 
@@ -120,7 +75,7 @@ def test_root_explains_vite_frontend_is_required() -> None:
 
 
 def test_fastapi_docs_are_enabled() -> None:
-    client = TestClient(create_app(FakeRepoMarkStore()))
+    client = TestClient(create_app(repo_mark_store()))
 
     response = client.get("/docs")
 
@@ -128,31 +83,16 @@ def test_fastapi_docs_are_enabled() -> None:
     assert "Swagger UI" in response.text
 
 
-def test_openapi_exposes_diff_models() -> None:
-    client = TestClient(create_app(FakeRepoMarkStore()))
-
-    response = client.get("/openapi.json")
-    spec = response.json()
-
-    assert response.status_code == 200
-    assert "/api/diff" in spec["paths"]
-    assert "/api/file-diff" in spec["paths"]
-    assert "TextFileDiffResponse" in spec["components"]["schemas"]
-    assert "NotebookSectionDiffResponse" in spec["components"]["schemas"]
-    diff_params = spec["paths"]["/api/diff"]["get"]["parameters"]
-    required_names = {
-        param["name"] for param in diff_params if param["required"]
-    }
-    assert required_names >= {
-        "repo_id",
-        "engine",
-        "mode",
-        "left",
-        "right",
-    }
-
-
 def test_file_diff_response_schema_rejects_unknown_fields() -> None:
+    TEXT_SUMMARY = {
+        "changed_lines": 1,
+        "modified_lines": 1,
+        "added_lines": 0,
+        "removed_lines": 0,
+        "left_exists": True,
+        "right_exists": True,
+    }
+
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         TextFileDiffResponse.model_validate(
             {

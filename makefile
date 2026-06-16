@@ -13,6 +13,9 @@ mypy:
 ruff:
 	.venv/bin/ruff check
 
+cram:
+	uv --no-cache run cram tests/cli-cram/*.t
+
 format:
 	.venv/bin/ruff format
 	npm --prefix frontend run format
