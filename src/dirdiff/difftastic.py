@@ -497,6 +497,28 @@ def _difftastic_split_residual_items(text: str) -> list[str]:
     return items
 
 
+def _difftastic_coalesce_trailing_syntax_items(
+    items: list[str],
+) -> list[str]:
+    if not items:
+        return []
+
+    trailing_syntax: list[str] = []
+    cursor = len(items)
+    while cursor > 0:
+        item = items[cursor - 1]
+        item_tokens = _difftastic_fragment_tokens(item)
+        if not _difftastic_tokens_are_syntax(item_tokens):
+            break
+        trailing_syntax.append(item)
+        cursor -= 1
+
+    if not trailing_syntax:
+        return items
+
+    return items[:cursor] + ["".join(reversed(trailing_syntax))]
+
+
 def _difftastic_plan_right_only_residual_window(
     *,
     aligned_lines: list[DifftasticAlignedLine],
@@ -524,34 +546,78 @@ def _difftastic_plan_right_only_residual_window(
         if not lower_bound <= fragment.source_index < upper_bound:
             continue
 
-        items = _difftastic_split_residual_items(fragment.text)
-        if len(items) != len(right_indexes):
-            continue
-
-        matches_window = True
-        for item, right_index in zip(items, right_indexes, strict=True):
-            ranges = right_ranges.get(right_index, [])
-            if ranges:
-                continue
-            candidate = _remove_line_ranges(
-                right_lines[right_index], ranges
-            ).strip()
-            if _difftastic_line_item_key(
-                candidate
-            ) != _difftastic_line_item_key(item):
-                matches_window = False
-                break
-
-        if not matches_window:
-            continue
-
-        return {
-            right_index: (
-                fragment.source_index,
-                f"{_difftastic_leading_whitespace(right_lines[right_index])}{item}",
+        items = _difftastic_coalesce_trailing_syntax_items(
+            _difftastic_split_residual_items(fragment.text)
+        )
+        item_keys = [_difftastic_line_item_key(item) for item in items]
+        row_candidates = [
+            (
+                right_index,
+                _difftastic_line_item_key(
+                    _remove_line_ranges(
+                        right_lines[right_index],
+                        right_ranges.get(right_index, []),
+                    )
+                ),
+                bool(right_ranges.get(right_index, [])),
             )
-            for item, right_index in zip(items, right_indexes, strict=True)
-        }
+            for right_index in right_indexes
+        ]
+
+        def match_window(
+            row_position: int,
+            item_position: int,
+        ) -> dict[int, tuple[int, str]] | None:
+            if item_position == len(items):
+                for _, candidate_key, has_ranges in row_candidates[
+                    row_position:
+                ]:
+                    if candidate_key and not has_ranges:
+                        return None
+                return {}
+
+            if row_position == len(row_candidates):
+                return None
+
+            right_index, candidate_key, has_ranges = row_candidates[
+                row_position
+            ]
+            item = items[item_position]
+            item_key = item_keys[item_position]
+
+            if candidate_key == item_key:
+                remainder = match_window(row_position + 1, item_position + 1)
+                if remainder is not None:
+                    return {
+                        right_index: (
+                            fragment.source_index,
+                            f"{_difftastic_leading_whitespace(right_lines[right_index])}{item}",
+                        ),
+                        **remainder,
+                    }
+
+            if has_ranges:
+                remainder = match_window(row_position + 1, item_position)
+                if remainder is not None:
+                    return remainder
+
+                remainder = match_window(row_position + 1, item_position + 1)
+                if remainder is not None:
+                    return {
+                        right_index: (
+                            fragment.source_index,
+                            f"{_difftastic_leading_whitespace(right_lines[right_index])}{item}",
+                        ),
+                        **remainder,
+                    }
+
+            return None
+
+        mappings = match_window(0, 0)
+        if mappings is None:
+            continue
+
+        return mappings
 
     return None
 

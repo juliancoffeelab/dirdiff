@@ -1,4 +1,13 @@
-from dirdiff.diff import _difftastic_engine_warning, _difftastic_rows_from_json
+from pathlib import Path
+
+from dirdiff.diff import (
+    DifftasticDiffService,
+    PresetBackend,
+    _difftastic_engine_warning,
+    _difftastic_rows_from_json,
+)
+
+PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 
 
 def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
@@ -130,6 +139,311 @@ def test_difftastic_rows_render_split_arguments_as_semantic_context() -> None:
     assert rows[4]["right_no"] == 5
     assert rows[4]["left_text"] == "    )"
     assert rows[4]["right_text"] == "    )"
+
+
+def test_difftastic_rows_keep_build_request_arguments_aligned_when_repo_id_is_added() -> (
+    None
+):
+    preset_dir = (
+        PRESETS_ROOT / "build-request-repo-id-argument-breaks-alignment"
+    )
+    old_path = preset_dir / "old.tsx"
+    new_path = preset_dir / "new.tsx"
+    old_text = old_path.read_text()
+    new_text = new_path.read_text()
+    service = DifftasticDiffService(PresetBackend(PRESETS_ROOT))
+
+    diff_json = service._run_difftastic_json(
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    rows = _difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "type ControlsState = { mode: string };",
+            "right_text": "type ControlsState = { mode: string };",
+        },
+        {
+            "status": "equal",
+            "left_no": 2,
+            "right_no": 2,
+            "left_text": "type RefChoices = { builtins: string[] };",
+            "right_text": "type RefChoices = { builtins: string[] };",
+        },
+        {
+            "status": "equal",
+            "left_no": 3,
+            "right_no": 3,
+            "left_text": 'type DiffEngine = "dirdiff" | "git" | "difftastic";',
+            "right_text": 'type DiffEngine = "dirdiff" | "git" | "difftastic";',
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 4,
+            "left_text": "",
+            "right_text": "type RepoId = number;",
+            "right_tokens": [
+                {"text": "type", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "RepoId", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "=", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "number", "status": "insert", "is_ws": False},
+                {"text": ";", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "equal",
+            "left_no": 4,
+            "right_no": 5,
+            "left_text": "",
+            "right_text": "",
+        },
+        {
+            "status": "equal",
+            "left_no": 5,
+            "right_no": 6,
+            "left_text": "declare function setEngine(engine: DiffEngine): void;",
+            "right_text": "declare function setEngine(engine: DiffEngine): void;",
+        },
+        {
+            "status": "equal",
+            "left_no": 6,
+            "right_no": 7,
+            "left_text": "declare function setControls(controls: ControlsState): void;",
+            "right_text": "declare function setControls(controls: ControlsState): void;",
+        },
+        {
+            "status": "equal",
+            "left_no": 7,
+            "right_no": 8,
+            "left_text": "declare function refChoices(): RefChoices;",
+            "right_text": "declare function refChoices(): RefChoices;",
+        },
+        {
+            "status": "equal",
+            "left_no": 8,
+            "right_no": 9,
+            "left_text": "declare function buildRequest(",
+            "right_text": "declare function buildRequest(",
+        },
+        {
+            "status": "equal",
+            "left_no": 9,
+            "right_no": 10,
+            "left_text": "  controls: ControlsState,",
+            "right_text": "  controls: ControlsState,",
+        },
+        {
+            "status": "equal",
+            "left_no": 10,
+            "right_no": 11,
+            "left_text": "  choices: RefChoices,",
+            "right_text": "  choices: RefChoices,",
+        },
+        {
+            "status": "equal",
+            "left_no": 11,
+            "right_no": 12,
+            "left_text": "  engine: DiffEngine,",
+            "right_text": "  engine: DiffEngine,",
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 13,
+            "left_text": "",
+            "right_text": "  repoId: RepoId,",
+            "right_tokens": [
+                {"text": "  ", "status": "unchanged", "is_ws": True},
+                {"text": "repoId", "status": "insert", "is_ws": False},
+                {"text": ":", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "RepoId", "status": "insert", "is_ws": False},
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "equal",
+            "left_no": 12,
+            "right_no": 14,
+            "left_text": "): string | object;",
+            "right_text": "): string | object;",
+        },
+        {
+            "status": "equal",
+            "left_no": 13,
+            "right_no": 15,
+            "left_text": 'declare function setStatus(status: "error"): void;',
+            "right_text": 'declare function setStatus(status: "error"): void;',
+        },
+        {
+            "status": "equal",
+            "left_no": 14,
+            "right_no": 16,
+            "left_text": "",
+            "right_text": "",
+        },
+        {
+            "status": "equal",
+            "left_no": 15,
+            "right_no": 17,
+            "left_text": "export function loadControls(",
+            "right_text": "export function loadControls(",
+        },
+        {
+            "status": "equal",
+            "left_no": 16,
+            "right_no": 18,
+            "left_text": "  nextControls: ControlsState,",
+            "right_text": "  nextControls: ControlsState,",
+        },
+        {
+            "status": "equal",
+            "left_no": 17,
+            "right_no": 19,
+            "left_text": "  nextEngine: DiffEngine,",
+            "right_text": "  nextEngine: DiffEngine,",
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 20,
+            "left_text": "",
+            "right_text": "  repoId: RepoId,",
+            "right_tokens": [
+                {"text": "  ", "status": "unchanged", "is_ws": True},
+                {"text": "repoId", "status": "insert", "is_ws": False},
+                {"text": ":", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "RepoId", "status": "insert", "is_ws": False},
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "equal",
+            "left_no": 18,
+            "right_no": 21,
+            "left_text": ") {",
+            "right_text": ") {",
+        },
+        {
+            "status": "equal",
+            "left_no": 19,
+            "right_no": 22,
+            "left_text": "  setEngine(nextEngine);",
+            "right_text": "  setEngine(nextEngine);",
+        },
+        {
+            "status": "equal",
+            "left_no": 20,
+            "right_no": 23,
+            "left_text": "  setControls(nextControls);",
+            "right_text": "  setControls(nextControls);",
+        },
+        {
+            "status": "equal",
+            "left_no": 21,
+            "right_no": 24,
+            "left_text": "  const nextRequest = buildRequest(",
+            "right_text": "  const nextRequest = buildRequest(",
+        },
+        {
+            "status": "equal",
+            "left_no": 21,
+            "right_no": 25,
+            "left_text": "    nextControls,",
+            "right_text": "    nextControls,",
+        },
+        {
+            "status": "equal",
+            "left_no": 21,
+            "right_no": 26,
+            "left_text": "    refChoices(),",
+            "right_text": "    refChoices(),",
+        },
+        {
+            "status": "replace",
+            "left_no": 21,
+            "right_no": 27,
+            "left_text": "    nextEngine",
+            "right_text": "    nextEngine,",
+            "right_tokens": [
+                {
+                    "text": "    nextEngine",
+                    "status": "unchanged",
+                    "is_ws": False,
+                },
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "insert",
+            "left_no": None,
+            "right_no": 28,
+            "left_text": "",
+            "right_text": "    repoId,",
+            "right_tokens": [
+                {"text": "    ", "status": "unchanged", "is_ws": True},
+                {"text": "repoId", "status": "insert", "is_ws": False},
+                {"text": ",", "status": "insert", "is_ws": False},
+            ],
+        },
+        {
+            "status": "equal",
+            "left_no": 21,
+            "right_no": 29,
+            "left_text": "  );",
+            "right_text": "  );",
+        },
+        {
+            "status": "equal",
+            "left_no": 22,
+            "right_no": 30,
+            "left_text": "",
+            "right_text": "",
+        },
+        {
+            "status": "equal",
+            "left_no": 23,
+            "right_no": 31,
+            "left_text": '  if (typeof nextRequest === "string") {',
+            "right_text": '  if (typeof nextRequest === "string") {',
+        },
+        {
+            "status": "equal",
+            "left_no": 24,
+            "right_no": 32,
+            "left_text": '    setStatus("error");',
+            "right_text": '    setStatus("error");',
+        },
+        {
+            "status": "equal",
+            "left_no": 25,
+            "right_no": 33,
+            "left_text": "  }",
+            "right_text": "  }",
+        },
+        {
+            "status": "equal",
+            "left_no": 26,
+            "right_no": 34,
+            "left_text": "}",
+            "right_text": "}",
+        },
+    ]
 
 
 def test_difftastic_rows_clip_old_tail_for_one_sided_paired_insert() -> None:
