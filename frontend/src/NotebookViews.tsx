@@ -1,7 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type {
-  DiffRequest,
+  DiffParams,
   DiffRow,
   FileEntry,
   FoldHint,
@@ -14,7 +14,7 @@ import { notebookCells, notebookSummary } from "./model";
 
 export function NotebookFile(props: {
   file: FileEntry;
-  request: DiffRequest;
+  diffParams: DiffParams;
   diffViewMode: DiffViewMode;
 }) {
   const summary = () => notebookSummary(props.file);
@@ -41,7 +41,7 @@ export function NotebookFile(props: {
       <Show when={summary().notebook_metadata_changed}>
         <NotebookDetails
           file={props.file}
-          request={props.request}
+          diffParams={props.diffParams}
           title={notebookSectionSummary("Notebook metadata diff", {
             renderMode: notebookMetadataRenderMode(props.file),
             truncatedRows: notebookMetadataTruncatedRows(props.file),
@@ -66,7 +66,7 @@ export function NotebookFile(props: {
             {(cell) => (
               <NotebookCell
                 file={props.file}
-                request={props.request}
+                diffParams={props.diffParams}
                 cell={cell}
                 diffViewMode={props.diffViewMode}
               />
@@ -80,7 +80,7 @@ export function NotebookFile(props: {
 
 function NotebookCell(props: {
   file: FileEntry;
-  request: DiffRequest;
+  diffParams: DiffParams;
   cell: NotebookCellEntry;
   diffViewMode: DiffViewMode;
 }) {
@@ -130,7 +130,7 @@ function NotebookCell(props: {
       <Show when={cell().metadata_changed}>
         <NotebookDetails
           file={props.file}
-          request={props.request}
+          diffParams={props.diffParams}
           title={notebookSectionSummary("Cell metadata diff", {
             renderMode: cell().metadata_render_mode,
             truncatedRows: truncatedRowsValue(cell().metadata_truncated_rows),
@@ -146,7 +146,7 @@ function NotebookCell(props: {
       <Show when={cell().outputs_changed}>
         <NotebookDetails
           file={props.file}
-          request={props.request}
+          diffParams={props.diffParams}
           title={notebookSectionSummary("Cell outputs diff", {
             renderMode: cell().outputs_render_mode,
             truncatedRows: truncatedRowsValue(cell().outputs_truncated_rows),
@@ -164,7 +164,7 @@ function NotebookCell(props: {
 
 function NotebookDetails(props: {
   file: FileEntry;
-  request: DiffRequest;
+  diffParams: DiffParams;
   title: string;
   section: string;
   cellKey?: string;
@@ -179,7 +179,7 @@ function NotebookDetails(props: {
   const [section, setSection] = createSignal<NotebookSection | null>(null);
 
   const load = async () => {
-    const request = props.request;
+    const diffParams = props.diffParams;
     if (section() !== null || loading()) {
       return;
     }
@@ -189,14 +189,14 @@ function NotebookDetails(props: {
     try {
       const payload = await queryClient.fetchQuery({
         queryKey: notebookSectionQueryKey(
-          request,
+          diffParams,
           props.file,
           props.section,
           notebookSectionCellKey(props.cellKey),
         ),
         queryFn: ({ signal }) =>
           fetchNotebookSection(
-            request,
+            diffParams,
             props.file,
             {
               section: props.section,
@@ -393,21 +393,21 @@ function notebookCellKindBadgeClass(kind: NotebookCellEntry["kind"]): string {
 }
 
 function notebookSectionQueryKey(
-  request: DiffRequest,
+  diffParams: DiffParams,
   entry: FileEntry,
   section: string,
   cellKey: string | null,
 ) {
   return [
     "notebook-section",
-    request.repo_id,
-    request.engine,
-    request.mode,
-    request.left,
-    request.right,
-    request.base_branch,
-    request.review_branch,
-    request.show_untracked,
+    diffParams.repo_id,
+    diffParams.engine,
+    diffParams.mode,
+    diffParams.left,
+    diffParams.right,
+    diffParams.base_branch,
+    diffParams.review_branch,
+    diffParams.show_untracked,
     entry.left_path,
     entry.right_path,
     section,

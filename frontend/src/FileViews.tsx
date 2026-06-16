@@ -7,6 +7,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
+import { isCancelledError } from "@tanstack/query-core";
 import type { DiffRow, FileEntry } from "./api";
 import { fetchFileDiff } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
@@ -19,7 +20,6 @@ import {
   defaultFileExpansion,
   directoryElementId,
   expansionValue,
-  fileBasename,
   fileBodyAnchorElementId,
   fileDiffQueryKey,
   fileDisplayName,
@@ -78,7 +78,7 @@ function TreeLineStats(props: { stats: import("./model").LineStats }) {
 export function FileList(props: {
   files: FileEntry[];
   loadedDiff: LoadedDiff | null;
-  activeRequestIdentity: () => string | null;
+  currentParamsIdentity: () => string | null;
   diffViewMode: DiffViewMode;
   directoryExpansion: Record<string, boolean>;
   fileExpansion: Record<string, boolean>;
@@ -138,7 +138,7 @@ export function FileList(props: {
               <DirectoryGroup
                 group={() => groupForLabel(label)}
                 loadedDiff={props.loadedDiff}
-                activeRequestIdentity={props.activeRequestIdentity}
+                currentParamsIdentity={props.currentParamsIdentity}
                 expanded={expansionValue(props.directoryExpansion, label, true)}
                 fileExpansion={props.fileExpansion}
                 loadingFiles={props.loadingFiles}
@@ -171,7 +171,7 @@ export function FileList(props: {
 function DirectoryGroup(props: {
   group: () => FileGroup;
   loadedDiff: LoadedDiff | null;
-  activeRequestIdentity: () => string | null;
+  currentParamsIdentity: () => string | null;
   diffViewMode: DiffViewMode;
   expanded: boolean;
   fileExpansion: Record<string, boolean>;
@@ -217,7 +217,7 @@ function DirectoryGroup(props: {
                 <FileCard
                   file={file}
                   loadedDiff={props.loadedDiff}
-                  activeRequestIdentity={props.activeRequestIdentity}
+                  currentParamsIdentity={props.currentParamsIdentity}
                   expanded={expansionValue(
                     props.fileExpansion,
                     key,
@@ -395,7 +395,7 @@ export function FileTreeSidebar(props: {
                               onClick={() => props.onScrollToFile(file)}
                             >
                               <span class="file-tree-file-name">
-                                {fileBasename(file)}
+                                {fileDisplayName(file)}
                               </span>
                               <TreeLineStats stats={fileLineStats(file)} />
                             </button>
@@ -434,7 +434,7 @@ export function FileTreeSidebar(props: {
 function FileCard(props: {
   file: FileEntry;
   loadedDiff: LoadedDiff | null;
-  activeRequestIdentity: () => string | null;
+  currentParamsIdentity: () => string | null;
   diffViewMode: DiffViewMode;
   expanded: boolean;
   loading: boolean;
@@ -541,12 +541,12 @@ function FileCard(props: {
   const expand = async () => {
     props.setExpanded(true);
     const activeDiff = props.loadedDiff;
-    const requestIdentity = props.activeRequestIdentity();
+    const paramsIdentity = props.currentParamsIdentity();
     const activeKey = key();
     if (
       !needsHydration() ||
       activeDiff === null ||
-      requestIdentity === null ||
+      paramsIdentity === null ||
       props.loading
     ) {
       return;
@@ -558,12 +558,12 @@ function FileCard(props: {
     props.setFileErrors((current) => ({ ...current, [activeKey]: "" }));
     try {
       const hydrated = await queryClient.fetchQuery({
-        queryKey: fileDiffQueryKey(activeDiff.request, props.file),
+        queryKey: fileDiffQueryKey(activeDiff.params, props.file),
         queryFn: ({ signal }) =>
-          fetchFileDiff(activeDiff.request, props.file, signal),
+          fetchFileDiff(activeDiff.params, props.file, signal),
         staleTime: 0,
       });
-      if (props.activeRequestIdentity() !== requestIdentity) {
+      if (props.currentParamsIdentity() !== paramsIdentity) {
         return;
       }
       const nextEntry = { ...props.file, ...hydrated, lazy: null };
@@ -585,7 +585,10 @@ function FileCard(props: {
         };
       });
     } catch (error) {
-      if (props.activeRequestIdentity() !== requestIdentity) {
+      if (props.currentParamsIdentity() !== paramsIdentity) {
+        return;
+      }
+      if (isCancelledError(error)) {
         return;
       }
       props.setFileErrors((current) => ({
@@ -594,7 +597,7 @@ function FileCard(props: {
           error instanceof Error ? error.message : "Failed to load file diff.",
       }));
     } finally {
-      if (props.activeRequestIdentity() !== requestIdentity) {
+      if (props.currentParamsIdentity() !== paramsIdentity) {
         return;
       }
       props.setLoadingFiles((current) => ({
@@ -683,7 +686,7 @@ function FileCard(props: {
             <Show when={props.file.render_kind === "notebook"}>
               <NotebookFile
                 file={props.file}
-                request={loadedRequest(props.loadedDiff)}
+                diffParams={loadedParams(props.loadedDiff)}
                 diffViewMode={props.diffViewMode}
               />
             </Show>
@@ -859,18 +862,18 @@ function engineWarningMessage(file: FileEntry): string {
   return warning.message;
 }
 
-function loadedRequest(loadedDiff: LoadedDiff | null): LoadedDiff["request"] {
+function loadedParams(loadedDiff: LoadedDiff | null): LoadedDiff["params"] {
   if (loadedDiff === null) {
     throw new Error("Loaded diff is required to render a notebook file.");
   }
-  return loadedDiff.request;
+  return loadedDiff.params;
 }
 
 function loadedEngineIsDifftastic(loadedDiff: LoadedDiff | null): boolean {
   if (loadedDiff === null) {
     throw new Error("Loaded diff is required to render a text file.");
   }
-  return loadedDiff.request.engine === "difftastic";
+  return loadedDiff.params.engine === "difftastic";
 }
 
 function foldRowLabel(row: DiffRow): string {

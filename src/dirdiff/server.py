@@ -64,6 +64,10 @@ class DiffServiceProtocol(Protocol):
         self, *, left: str, right: str, show_untracked: bool = False
     ) -> dict[str, Any]: ...
 
+    def build_lazy_info(
+        self, *, left: str, right: str, show_untracked: bool = False
+    ) -> dict[str, Any]: ...
+
     def build_git_diff_paths(
         self,
         *,
@@ -276,6 +280,14 @@ class RepoFileEntryResponse(ApiModel):
     lazy: LazyReason = None
 
 
+class LazyInfoFileResponse(ApiModel):
+    file_kind: FileKindResponse
+    left_path: str | None = None
+    right_path: str | None = None
+    display_name: str
+    summary: TextDiffSummaryResponse
+
+
 class NotebookSectionDiffResponse(ApiModel):
     section: str
     cell_key: str | None = None
@@ -289,13 +301,17 @@ class NotebookSectionDiffResponse(ApiModel):
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
 
 
-class RepoDiffResponse(ApiModel):
+class RepoManifestResponse(ApiModel):
     display_name: str
     mode: Literal["repo"]
     left_label: str
     right_label: str
     summary: RepoDiffSummaryResponse
     files: list[RepoFileEntryResponse]
+
+
+class LazyInfoResponse(ApiModel):
+    files: list[LazyInfoFileResponse]
 
 
 DiffRowResponse.model_rebuild()
@@ -432,15 +448,15 @@ def create_app(
         ]
 
     @app.get(
-        "/api/diff",
-        response_model=RepoDiffResponse,
+        "/api/manifest",
+        response_model=RepoManifestResponse,
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
         },
-        summary="Load a repository diff",
+        summary="Load a repository diff manifest",
     )
-    def serve_diff(
+    def serve_manifest(
         repo_id: int = Query(
             description="Marked repo id. Required for repo-backed modes.",
         ),
@@ -468,7 +484,7 @@ def create_app(
             default=False,
             description="Include untracked worktree files when supported by the selected mode.",
         ),
-    ) -> RepoDiffResponse | JSONResponse:
+    ) -> RepoManifestResponse | JSONResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
             base_branch=base_branch,
@@ -533,13 +549,113 @@ def create_app(
                 status_code=HTTPStatus.BAD_REQUEST,
             )
         except Exception as exc:
-            LOGGER.exception("Diff request crashed: %s", exc)
+            LOGGER.exception("Manifest request crashed: %s", exc)
             return JSONResponse(
                 {"error": "Internal server error."},
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
-        return RepoDiffResponse.model_validate(payload)
+        return RepoManifestResponse.model_validate(payload)
+
+    @app.get(
+        "/api/lazy-info",
+        response_model=LazyInfoResponse,
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+        },
+        summary="Load repository lazy file metadata",
+    )
+    def serve_lazy_info(
+        repo_id: int = Query(
+            description="Marked repo id. Required for repo-backed modes.",
+        ),
+        engine: EngineParam = Query(description="Diff engine."),
+        mode: ModeParam = Query(description="UI diff mode."),
+        left: str | None = Query(
+            default=None, description="Left ref or diff side."
+        ),
+        right: str | None = Query(
+            default=None, description="Right ref or diff side."
+        ),
+        base_branch: str | None = Query(
+            default=None,
+            description="Base branch for branch-review mode.",
+        ),
+        review_branch: str | None = Query(
+            default=None,
+            description="Branch being reviewed in branch-review mode.",
+        ),
+        preset: str | None = Query(
+            default=None,
+            description="Preset name for preset mode.",
+        ),
+        show_untracked: bool = Query(
+            default=False,
+            description="Include untracked worktree files when supported by the selected mode.",
+        ),
+    ) -> LazyInfoResponse | JSONResponse:
+        selected_base_branch, selected_review_branch = selected_branches(
+            mode=mode,
+            base_branch=base_branch,
+            review_branch=review_branch,
+        )
+        try:
+            diff_service = service_for_request(
+                engine, mode=mode, repo_id=repo_id
+            )
+            if mode == "preset":
+                preset_name = (
+                    preset.strip() if preset and preset.strip() else "presets"
+                )
+                payload = diff_service.build_lazy_info(
+                    left=preset_name,
+                    right="new",
+                    show_untracked=False,
+                )
+            elif mode == "branch-review":
+                if (
+                    selected_review_branch is None
+                    or not selected_review_branch.strip()
+                ):
+                    raise TextDiffError(
+                        "review_branch is required for branch-review mode."
+                    )
+                _, merge_base, normalized_branch = _resolve_branch_review_refs(
+                    service=diff_service,
+                    base_branch=selected_base_branch,
+                    branch=selected_review_branch,
+                )
+                payload = diff_service.build_lazy_info(
+                    left=merge_base,
+                    right=normalized_branch,
+                    show_untracked=False,
+                )
+            else:
+                if left is None or not left.strip():
+                    raise TextDiffError("left is required for this diff mode.")
+                if right is None or not right.strip():
+                    raise TextDiffError("right is required for this diff mode.")
+                normalized_left = diff_service.normalize_side(left)
+                normalized_right = diff_service.normalize_side(right)
+                payload = diff_service.build_lazy_info(
+                    left=normalized_left,
+                    right=normalized_right,
+                    show_untracked=show_untracked,
+                )
+        except TextDiffError as exc:
+            return JSONResponse(
+                {"error": str(exc)},
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+        except Exception as exc:
+            LOGGER.exception("Lazy info request crashed: %s", exc)
+            return JSONResponse(
+                {"error": "Internal server error."},
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+
+        return LazyInfoResponse.model_validate(payload)
 
     @app.get(
         "/api/file-diff",

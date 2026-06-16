@@ -53,7 +53,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     client, repo_id = create_repo_client(tmp_path)
 
     repo_response = client.get(
-        "/api/diff",
+        "/api/manifest",
         params={
             "repo_id": repo_id,
             "engine": "dirdiff",
@@ -92,7 +92,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     assert payload["rows"]
 
 
-def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(
+def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
     tmp_path: Path,
 ) -> None:
     subprocess.run(
@@ -132,7 +132,7 @@ def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(
     client, repo_id = create_repo_client(tmp_path)
 
     response = client.get(
-        "/api/diff",
+        "/api/manifest",
         params={
             "repo_id": repo_id,
             "engine": "dirdiff",

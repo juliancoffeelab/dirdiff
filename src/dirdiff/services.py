@@ -152,6 +152,16 @@ def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     return payload
 
 
+def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    return {
+        "left_path": entry.left_path,
+        "right_path": entry.right_path,
+        "file_kind": _file_kind_for_repo_entry(entry),
+        "display_name": entry.display_name,
+        "summary": _summary_for_repo_path(entry),
+    }
+
+
 def _summary_for_repo_path(entry: RepoDiffPath) -> dict[str, int | bool]:
     raw_added = entry.added_lines or 0
     raw_removed = entry.removed_lines or 0
@@ -569,6 +579,28 @@ class TextDiffService:
             "summary": summary,
             "files": files,
         }
+
+    def build_lazy_info(
+        self,
+        *,
+        left: str,
+        right: str,
+        show_untracked: bool = False,
+    ) -> dict[str, Any]:
+        normalized_left = self.normalize_side(left)
+        normalized_right = self.normalize_side(right)
+        paths = self.list_repo_diff_paths(
+            left=normalized_left,
+            right=normalized_right,
+            show_untracked=show_untracked,
+        )
+        files: list[dict[str, Any]] = []
+
+        for entry in paths:
+            if _should_lazy_load_repo_entry(entry):
+                files.append(_to_lazy_info_file_entry(entry))
+
+        return {"files": files}
 
 
 class GitDiffService(TextDiffService):

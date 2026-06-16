@@ -343,14 +343,18 @@ h1 {
   display: grid;
   gap: 8px;
   width: min(420px, calc(100vw - 36px));
-  pointer-events: none;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
 }
 
 .toast {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
+  max-height: min(380px, calc(100vh - 56px));
   border: 1px solid #24231f;
   background: #fffdf8;
   box-shadow: 0 10px 24px rgb(36 35 31 / 16%);
@@ -364,6 +368,7 @@ h1 {
 
 .toast-copy {
   min-width: 0;
+  overflow: auto;
 }
 
 .toast-copy strong {
@@ -374,15 +379,50 @@ h1 {
   text-transform: uppercase;
 }
 
-.toast-copy p {
-  margin: 5px 0 0;
+.toast-message,
+.render-error-message {
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid #ded8cc;
+  background: #fbfaf7;
   color: #24231f;
-  font-size: 13px;
-  line-height: 1.35;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+.toast-message {
+  max-height: 180px;
+}
+
+.toast-details {
+  margin-top: 8px;
+}
+
+.toast-details summary {
+  cursor: pointer;
+  color: #6a665d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.toast-details pre {
+  max-height: 180px;
+  margin: 6px 0 0;
+  overflow: auto;
+  border: 1px solid #ded8cc;
+  background: #fbfaf7;
+  color: #24231f;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
 .toast-dismiss {
+  align-self: end;
   min-width: 28px;
   min-height: 28px;
   border: 1px solid #d8d0c2;
@@ -411,9 +451,26 @@ h1 {
   margin-bottom: 8px;
 }
 
-.app-crash-notice p {
-  margin: 0;
-  overflow-wrap: anywhere;
+.error-traceback {
+  margin-top: 12px;
+}
+
+.error-traceback summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.error-traceback pre {
+  max-height: 320px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid #ded8cc;
+  background: #fbfaf7;
+  color: #24231f;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 .app-crash-notice button {
@@ -422,6 +479,24 @@ h1 {
   background: #fffdf8;
   color: #8e1f1f;
   padding: 7px 10px;
+  font-weight: 700;
+}
+
+.recoverable-error-notice {
+  margin: 16px 0;
+}
+
+.recoverable-error-notice strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.recoverable-error-notice button {
+  margin-top: 10px;
+  border: 1px solid #8e1f1f;
+  background: #fffdf8;
+  color: #8e1f1f;
+  padding: 6px 10px;
   font-weight: 700;
 }
 

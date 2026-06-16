@@ -78,7 +78,7 @@ export function createDiffUiState() {
     if (diff === null) {
       return [];
     }
-    return [...diff.files, ...diff.lazyFiles].sort(
+    return [...diff.files].sort(
       (leftFile, rightFile) =>
         fileOrderIndex(diff.fileOrder, leftFile) -
         fileOrderIndex(diff.fileOrder, rightFile),

@@ -62,7 +62,7 @@ type DiffNavigationOptions = {
  * state: keyboard shortcuts, pointer selection, hash-based line pins, sticky
  * header measurement, scroll following, and file-tree scroll targets.
  *
- * It does not own diff data or request state. Instead it receives accessors and
+ * It does not own diff data or params state. Instead it receives accessors and
  * explicit actions from UI/diff primitives, then returns the navigation state
  * and commands needed by App and HUD components.
  */

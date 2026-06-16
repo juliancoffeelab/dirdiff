@@ -38,7 +38,7 @@ const RepoRefsSchema = z.strictObject({
 });
 export type RepoRefs = z.infer<typeof RepoRefsSchema>;
 
-export type DiffRequest = {
+export type DiffParams = {
   repo_id: RepoId;
   engine: DiffEngine;
   mode: DiffMode;
@@ -74,8 +74,20 @@ export type RepoPayload = {
   summary: Summary;
 };
 
-export type RepoDiffPayload = RepoPayload & {
+export type RepoManifestPayload = RepoPayload & {
   files: FileEntry[];
+};
+
+export type LazyInfoFile = {
+  file_kind: FileKind;
+  left_path: string | null;
+  right_path: string | null;
+  display_name: string;
+  summary: FileSummary;
+};
+
+export type LazyInfoPayload = {
+  files: LazyInfoFile[];
 };
 
 const FileSummarySchema = z.strictObject({
@@ -261,6 +273,14 @@ const RepoFileEntrySchema = z.strictObject({
   lazy: LazyReasonSchema.nullable(),
 });
 
+const LazyInfoFileSchema = z.strictObject({
+  file_kind: FileKindSchema,
+  left_path: z.string().nullable(),
+  right_path: z.string().nullable(),
+  display_name: z.string(),
+  summary: FileSummarySchema,
+});
+
 const TextFileDiffResponseSchema = z.strictObject({
   display_name: z.string(),
   mode: z.literal("git"),
@@ -343,13 +363,17 @@ const FileDiffResponseSchema = z.union([
   TextFileDiffResponseSchema,
 ]);
 
-const RepoDiffPayloadSchema = z.strictObject({
+const RepoManifestPayloadSchema = z.strictObject({
   display_name: z.string(),
   mode: z.literal("repo"),
   left_label: z.string(),
   right_label: z.string(),
   summary: SummarySchema,
   files: z.array(RepoFileEntrySchema),
+});
+
+const LazyInfoPayloadSchema = z.strictObject({
+  files: z.array(LazyInfoFileSchema),
 });
 
 const NotebookSectionSchema = z.strictObject({
@@ -392,47 +416,66 @@ export async function fetchRepos(): Promise<RepoMark[]> {
   return z.array(RepoMarkSchema).parse(await response.json());
 }
 
-function diffRequestParams(request: DiffRequest): URLSearchParams {
+function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("repo_id", String(request.repo_id));
-  params.set("engine", request.engine);
-  params.set("mode", request.mode);
-  if (request.left.length > 0) {
-    params.set("left", request.left);
+  params.set("repo_id", String(diffParams.repo_id));
+  params.set("engine", diffParams.engine);
+  params.set("mode", diffParams.mode);
+  if (diffParams.left.length > 0) {
+    params.set("left", diffParams.left);
   }
-  if (request.right.length > 0) {
-    params.set("right", request.right);
+  if (diffParams.right.length > 0) {
+    params.set("right", diffParams.right);
   }
-  if (request.base_branch !== null && request.base_branch.length > 0) {
-    params.set("base_branch", request.base_branch);
+  if (diffParams.base_branch !== null && diffParams.base_branch.length > 0) {
+    params.set("base_branch", diffParams.base_branch);
   }
-  if (request.review_branch !== null && request.review_branch.length > 0) {
-    params.set("review_branch", request.review_branch);
+  if (
+    diffParams.review_branch !== null &&
+    diffParams.review_branch.length > 0
+  ) {
+    params.set("review_branch", diffParams.review_branch);
   }
-  if (request.show_untracked) {
+  if (diffParams.show_untracked) {
     params.set("show_untracked", "true");
   }
   return params;
 }
 
-export async function fetchDiff(
-  request: DiffRequest,
+export async function fetchManifest(
+  diffParams: DiffParams,
   signal?: AbortSignal,
-): Promise<RepoDiffPayload> {
-  const params = diffRequestParams(request);
-  const response = await fetch(`/api/diff?${params.toString()}`, { signal });
+): Promise<RepoManifestPayload> {
+  const params = diffParamsQueryParams(diffParams);
+  const response = await fetch(`/api/manifest?${params.toString()}`, {
+    signal,
+  });
   if (!response.ok) {
     return parseErrorResponse(response);
   }
-  return RepoDiffPayloadSchema.parse(await response.json());
+  return RepoManifestPayloadSchema.parse(await response.json());
+}
+
+export async function fetchLazyInfo(
+  diffParams: DiffParams,
+  signal?: AbortSignal,
+): Promise<LazyInfoPayload> {
+  const params = diffParamsQueryParams(diffParams);
+  const response = await fetch(`/api/lazy-info?${params.toString()}`, {
+    signal,
+  });
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+  return LazyInfoPayloadSchema.parse(await response.json());
 }
 
 export async function fetchFileDiff(
-  request: DiffRequest,
+  diffParams: DiffParams,
   entry: FileEntry,
   signal?: AbortSignal,
 ): Promise<FileEntry> {
-  const params = diffRequestParams(request);
+  const params = diffParamsQueryParams(diffParams);
   if (entry.left_path !== null && entry.left_path.length > 0) {
     params.set("left_path", entry.left_path);
   }
@@ -479,12 +522,12 @@ function unsupportedGitStatus(status: never): never {
 }
 
 export async function fetchNotebookSection(
-  request: DiffRequest,
+  diffParams: DiffParams,
   entry: FileEntry,
   options: { section: string; cellKey?: string | null },
   signal?: AbortSignal,
 ): Promise<NotebookSection> {
-  const params = diffRequestParams(request);
+  const params = diffParamsQueryParams(diffParams);
   if (entry.left_path !== null && entry.left_path.length > 0) {
     params.set("left_path", entry.left_path);
   }

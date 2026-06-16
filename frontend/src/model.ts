@@ -1,7 +1,7 @@
 import type {
   DiffEngine,
   DiffMode,
-  DiffRequest,
+  DiffParams,
   DiffRow,
   FileEntry,
   FileKind,
@@ -28,7 +28,7 @@ export type ControlsState = {
 };
 
 export type LoadedDiff = {
-  request: DiffRequest;
+  params: DiffParams;
   files: FileEntry[];
   lazyFiles: FileEntry[];
   fileOrder: Record<string, number>;
@@ -230,59 +230,62 @@ export function initialDiffViewMode(): DiffViewMode {
   return "inline";
 }
 
-function requestQuery(request: DiffRequest): URLSearchParams {
+function paramsQuery(diffParams: DiffParams): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("repo_id", String(request.repo_id));
-  params.set("engine", request.engine);
-  params.set("mode", request.mode);
-  if (request.left.length > 0) {
-    params.set("left", request.left);
+  params.set("repo_id", String(diffParams.repo_id));
+  params.set("engine", diffParams.engine);
+  params.set("mode", diffParams.mode);
+  if (diffParams.left.length > 0) {
+    params.set("left", diffParams.left);
   }
-  if (request.right.length > 0) {
-    params.set("right", request.right);
+  if (diffParams.right.length > 0) {
+    params.set("right", diffParams.right);
   }
-  if (request.base_branch !== null && request.base_branch.length > 0) {
-    params.set("base_branch", request.base_branch);
+  if (diffParams.base_branch !== null && diffParams.base_branch.length > 0) {
+    params.set("base_branch", diffParams.base_branch);
   }
-  if (request.review_branch !== null && request.review_branch.length > 0) {
-    params.set("review_branch", request.review_branch);
+  if (
+    diffParams.review_branch !== null &&
+    diffParams.review_branch.length > 0
+  ) {
+    params.set("review_branch", diffParams.review_branch);
   }
-  if (request.show_untracked) {
+  if (diffParams.show_untracked) {
     params.set("show_untracked", "true");
   }
   return params;
 }
 
 export function appQuery(
-  request: DiffRequest,
+  diffParams: DiffParams,
   viewMode: DiffViewMode,
 ): URLSearchParams {
-  const params = requestQuery(request);
+  const params = paramsQuery(diffParams);
   params.set("view", viewMode);
   return params;
 }
 
 export function statusLabel(
-  request: DiffRequest,
+  diffParams: DiffParams,
   leftLabel?: string,
   rightLabel?: string,
 ): string {
-  if (request.mode === "files") {
+  if (diffParams.mode === "files") {
     return "Unstaged changes in working tree";
   }
-  if (request.mode === "staged") {
+  if (diffParams.mode === "staged") {
     return "Staged changes ready to commit";
   }
-  if (request.mode === "head") {
+  if (diffParams.mode === "head") {
     return "Working tree vs HEAD";
   }
-  if (request.mode === "branch-review") {
-    return `${request.review_branch} vs ${request.base_branch}`;
+  if (diffParams.mode === "branch-review") {
+    return `${diffParams.review_branch} vs ${diffParams.base_branch}`;
   }
-  if (request.mode === "preset") {
+  if (diffParams.mode === "preset") {
     return "Preset diffs";
   }
-  return `${nullableStringValue(leftLabel, request.left)} vs ${nullableStringValue(rightLabel, request.right)}`;
+  return `${nullableStringValue(leftLabel, diffParams.left)} vs ${nullableStringValue(rightLabel, diffParams.right)}`;
 }
 
 export function loadedStatusLabel(
@@ -331,16 +334,7 @@ export function fileDisplayName(entry: FileEntry): string {
   if (entry.display_name !== undefined && entry.display_name.length > 0) {
     return entry.display_name;
   }
-  return fileTreePath(entry);
-}
-
-export function fileBasename(entry: FileEntry): string {
-  const path = fileTreePath(entry);
-  const basename = path.split("/").at(-1);
-  if (basename === undefined || basename.length === 0) {
-    throw new Error(`Could not derive file basename from ${path}.`);
-  }
-  return basename;
+  throw new Error("File entry is missing display_name.");
 }
 
 function fileTreePath(entry: FileEntry): string {
@@ -628,17 +622,17 @@ function hashedElementId(prefix: string, value: string): string {
   return `${prefix}-${(hash >>> 0).toString(36)}`;
 }
 
-export function fileDiffQueryKey(request: DiffRequest, entry: FileEntry) {
+export function fileDiffQueryKey(diffParams: DiffParams, entry: FileEntry) {
   return [
     "file-diff",
-    request.repo_id,
-    request.engine,
-    request.mode,
-    request.left,
-    request.right,
-    request.base_branch,
-    request.review_branch,
-    request.show_untracked,
+    diffParams.repo_id,
+    diffParams.engine,
+    diffParams.mode,
+    diffParams.left,
+    diffParams.right,
+    diffParams.base_branch,
+    diffParams.review_branch,
+    diffParams.show_untracked,
     entry.left_path,
     entry.right_path,
     entry.display_name,

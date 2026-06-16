@@ -15,7 +15,7 @@ import { type ControlsState, initialControls, initialEngine } from "../model";
  *
  * Repo initialization stops at this value on purpose. Starting the diff is a
  * cross-domain workflow owned by App, because it combines repo refs, controls,
- * diff request state, and URL state.
+ * diff params state, and URL state.
  */
 export type InitialRepoDiff = {
   controls: ControlsState;

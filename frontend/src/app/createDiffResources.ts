@@ -6,12 +6,15 @@ import {
   type Setter,
 } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
+import { isCancelledError } from "@tanstack/query-core";
 import {
-  fetchDiff,
+  fetchLazyInfo,
+  fetchManifest,
   fetchFileDiff,
   type DiffEngine,
-  type DiffRequest,
+  type DiffParams,
   type FileEntry,
+  type LazyInfoFile,
   type RefChoices,
   type RepoId,
 } from "../api";
@@ -36,15 +39,17 @@ import {
 import { getLinePinFromHash } from "../linePins";
 import { queryClient } from "../queryClient";
 import {
-  type DiffQueryPayload,
-  diffRequestIdentity,
-  diffRequestQueryKey,
-} from "./diffRequest";
+  type LazyInfoQueryPayload,
+  type ManifestQueryPayload,
+  diffParamsIdentity,
+  lazyInfoParamsQueryKey,
+  manifestParamsQueryKey,
+} from "./diffParams";
 
 /**
  * Collaborators supplied by App and UI state.
  *
- * Diff resources own the request/query lifecycle, but progressive hydration has
+ * Diff resources own the params/query lifecycle, but progressive hydration has
  * to update visible diff state and expansion state as files arrive. Those
  * writes are intentionally passed in here instead of hiding a second copy of UI
  * state inside this primitive.
@@ -63,21 +68,21 @@ type DiffResourcesOptions = {
 };
 
 /**
- * Owns committed diff requests and their render-as-you-load lifecycle.
+ * Owns committed diff params and their render-as-you-load lifecycle.
  *
  * The public actions in this primitive are the only supported way to start,
- * reload, cancel, or retarget a diff. They build complete DiffRequest objects,
- * keep the URL in sync with the active request, cancel stale Solid Query work,
+ * reload, cancel, or retarget a diff. They build complete DiffParams objects,
+ * keep the URL in sync with the current params, cancel stale Solid Query work,
  * and hydrate manifest files progressively through the shared queryClient.
  *
  * Draft form controls and repo initialization live outside this primitive. UI
  * expansion and loaded-diff storage are also external, but this primitive writes
- * through the supplied setters while applying query results so that request
+ * through the supplied setters while applying query results so that params
  * identity checks remain colocated with the async work.
  */
 export function createDiffResources(options: DiffResourcesOptions) {
   const [engine, setEngine] = createSignal<DiffEngine>("dirdiff");
-  const [activeRequest, setActiveRequest] = createSignal<DiffRequest | null>(
+  const [currentParams, setCurrentParams] = createSignal<DiffParams | null>(
     null,
   );
   const [loadingFiles, setLoadingFiles] = createSignal<Record<string, boolean>>(
@@ -86,35 +91,35 @@ export function createDiffResources(options: DiffResourcesOptions) {
   const [fileErrors, setFileErrors] = createSignal<Record<string, string>>({});
   const [status, setStatus] = createSignal<LoadState>("idle");
   const [statusText, setStatusText] = createSignal("Preparing diff...");
-  let appliedDiffIdentity = "";
-  let toastedDiffErrorIdentity = "";
+  let appliedManifestIdentity = "";
+  let toastedManifestErrorIdentity = "";
 
-  const activeRequestIdentity = (): string | null => {
-    const request = activeRequest();
-    if (request === null) {
+  const currentParamsIdentity = (): string | null => {
+    const diffParams = currentParams();
+    if (diffParams === null) {
       return null;
     }
-    return diffRequestIdentity(request);
+    return diffParamsIdentity(diffParams);
   };
 
-  const requestIsActive = (requestIdentity: string): boolean =>
-    activeRequestIdentity() === requestIdentity;
+  const paramsAreCurrent = (paramsIdentity: string): boolean =>
+    currentParamsIdentity() === paramsIdentity;
 
-  const replaceUrlForRequest = (
-    request: DiffRequest,
+  const replaceUrlForParams = (
+    diffParams: DiffParams,
     viewMode = options.diffViewMode(),
   ) => {
     history.replaceState(
       {},
       "",
-      `/?${appQuery(request, viewMode).toString()}${window.location.hash}`,
+      `/?${appQuery(diffParams, viewMode).toString()}${window.location.hash}`,
     );
   };
 
-  const replaceUrlForActiveRequest = (viewMode: DiffViewMode) => {
-    const request = activeRequest();
-    if (request !== null) {
-      replaceUrlForRequest(request, viewMode);
+  const replaceUrlForCurrentParams = (viewMode: DiffViewMode) => {
+    const diffParams = currentParams();
+    if (diffParams !== null) {
+      replaceUrlForParams(diffParams, viewMode);
     }
   };
 
@@ -129,60 +134,66 @@ export function createDiffResources(options: DiffResourcesOptions) {
     });
   };
 
-  const clearActiveRequest = () => {
-    void queryClient.cancelQueries({ queryKey: ["diff"] });
+  const clearCurrentParams = () => {
+    void queryClient.cancelQueries({ queryKey: ["manifest"] });
+    void queryClient.cancelQueries({ queryKey: ["lazy-info"] });
     void queryClient.cancelQueries({ queryKey: ["file-diff"] });
     void queryClient.cancelQueries({ queryKey: ["notebook-section"] });
-    setActiveRequest(null);
+    setCurrentParams(null);
   };
 
   const failLoad = (message: string) => {
-    clearActiveRequest();
+    clearCurrentParams();
     resetDiffState("error", message);
   };
 
-  const startDiff = (request: DiffRequest) => {
-    setActiveRequest(null);
-    void queryClient.cancelQueries({ queryKey: ["diff"] });
+  const startDiff = (diffParams: DiffParams) => {
+    setCurrentParams(null);
+    void queryClient.cancelQueries({ queryKey: ["manifest"] });
+    void queryClient.cancelQueries({ queryKey: ["lazy-info"] });
     void queryClient.cancelQueries({ queryKey: ["file-diff"] });
     void queryClient.cancelQueries({ queryKey: ["notebook-section"] });
-    queryClient.removeQueries({ queryKey: diffRequestQueryKey(request) });
-    replaceUrlForRequest(request);
-    appliedDiffIdentity = "";
-    toastedDiffErrorIdentity = "";
+    queryClient.removeQueries({ queryKey: manifestParamsQueryKey(diffParams) });
+    queryClient.removeQueries({ queryKey: lazyInfoParamsQueryKey(diffParams) });
+    replaceUrlForParams(diffParams);
+    appliedManifestIdentity = "";
+    toastedManifestErrorIdentity = "";
     resetDiffState("loading", "Loading diff...");
-    setActiveRequest(request);
+    setCurrentParams(diffParams);
   };
 
   const selectedRepoIdOrIdle = (): RepoId | null => {
     const repoId = options.selectedRepoId();
     if (repoId === null) {
-      clearActiveRequest();
+      clearCurrentParams();
       resetDiffState("idle", "Choose a repo to load a diff.");
       return null;
     }
     return repoId;
   };
 
-  const diffQuery = createQuery(() => {
-    const request = activeRequest();
-    if (request === null) {
+  const manifestQuery = createQuery(() => {
+    const diffParams = currentParams();
+    if (diffParams === null) {
       return {
-        queryKey: ["diff", "idle"] as const,
-        queryFn: async (): Promise<DiffQueryPayload> => {
-          throw new Error("Diff request is not active.");
+        queryKey: ["manifest", "idle"] as const,
+        queryFn: async (): Promise<ManifestQueryPayload> => {
+          throw new Error("Manifest params are not active.");
         },
         enabled: false,
       };
     }
-    const requestIdentity = diffRequestIdentity(request);
+    const paramsIdentity = diffParamsIdentity(diffParams);
     return {
-      queryKey: diffRequestQueryKey(request),
-      queryFn: async ({ signal }): Promise<DiffQueryPayload> => ({
-        request,
-        requestIdentity,
-        payload: await fetchDiff(request, signal),
-      }),
+      queryKey: manifestParamsQueryKey(diffParams),
+      queryFn: async ({ signal }): Promise<ManifestQueryPayload> => {
+        const payload = await fetchManifest(diffParams, signal);
+        return {
+          diffParams,
+          paramsIdentity,
+          payload,
+        };
+      },
       staleTime: 0,
     };
   });
@@ -191,37 +202,37 @@ export function createDiffResources(options: DiffResourcesOptions) {
    * Bridge Solid Query server state into the progressive LoadedDiff model.
    *
    * This is intentionally the narrow effect boundary for successful diff loads:
-   * ignore stale query results, apply each committed request once, then let
+   * ignore stale query results, apply each committed params set once, then let
    * hydrateManifestFiles stream file details.
    */
   createEffect(() => {
-    const result = diffQuery.data;
+    const result = manifestQuery.data;
     if (result === undefined) {
       return;
     }
-    if (!requestIsActive(result.requestIdentity)) {
+    if (!paramsAreCurrent(result.paramsIdentity)) {
       return;
     }
-    if (appliedDiffIdentity === result.requestIdentity) {
+    if (appliedManifestIdentity === result.paramsIdentity) {
       return;
     }
-    appliedDiffIdentity = result.requestIdentity;
-    applyDiffPayload(result);
+    appliedManifestIdentity = result.paramsIdentity;
+    applyManifestPayload(result);
   });
 
   /**
    * Bridge Solid Query errors into the status surface.
    *
-   * Query cancellation and stale requests are filtered by activeRequestIdentity;
-   * visible errors only belong to the currently active request.
+   * Query cancellation and stale params are filtered by currentParamsIdentity;
+   * visible errors only belong to the currently active params.
    */
   createEffect(() => {
-    const error = diffQuery.error;
-    if (!diffQuery.isError || error === null) {
+    const error = manifestQuery.error;
+    if (!manifestQuery.isError || error === null) {
       return;
     }
-    const requestIdentity = activeRequestIdentity();
-    if (requestIdentity === null) {
+    const paramsIdentity = currentParamsIdentity();
+    if (paramsIdentity === null) {
       return;
     }
     batch(() => {
@@ -233,52 +244,154 @@ export function createDiffResources(options: DiffResourcesOptions) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to load diff.";
     console.error(`Failed to load diff: ${errorMessage}`);
-    if (toastedDiffErrorIdentity !== requestIdentity) {
-      toastedDiffErrorIdentity = requestIdentity;
+    if (toastedManifestErrorIdentity !== paramsIdentity) {
+      toastedManifestErrorIdentity = paramsIdentity;
       options.addErrorToast("Failed to load diff", error);
     }
   });
 
-  function applyDiffPayload(result: DiffQueryPayload) {
-    const { request, requestIdentity, payload } = result;
+  function applyManifestPayload(result: ManifestQueryPayload) {
+    const { diffParams, paramsIdentity, payload } = result;
     const order = Object.fromEntries(
       payload.files.map((entry, index) => [fileKey(entry), index]),
     );
     const lazyManifestFiles = payload.files.filter((entry) => entry.lazy);
     const baseStatus = statusLabel(
-      request,
+      diffParams,
       payload.left_label,
       payload.right_label,
     );
     batch(() => {
       options.setLoadedDiff({
-        request,
+        params: diffParams,
         files: [],
         lazyFiles: lazyManifestFiles,
         fileOrder: order,
         summary: payload.summary,
       });
-      setStatusText(loadedStatusLabel(baseStatus, lazyManifestFiles.length, 0));
+      setStatusText(loadedStatusLabel(baseStatus, 0, 0));
     });
     void hydrateManifestFiles(
-      request,
-      requestIdentity,
+      diffParams,
+      paramsIdentity,
       payload.files,
       baseStatus,
-      lazyManifestFiles.length,
+      0,
     );
+    void hydrateLazyInfo(diffParams, paramsIdentity, lazyManifestFiles, order);
+  }
+
+  function mergeLazyInfoFiles(
+    manifestFiles: FileEntry[],
+    lazyInfoFiles: LazyInfoFile[],
+    order: Record<string, number>,
+  ): FileEntry[] {
+    const manifestKeys = new Set(manifestFiles.map((entry) => fileKey(entry)));
+    const lazyInfoKeys = new Set<string>();
+    const lazyInfoEntries = new Map<string, LazyInfoFile>();
+    for (const file of lazyInfoFiles) {
+      if (file.display_name.length === 0) {
+        throw new Error("Lazy info returned an empty display_name.");
+      }
+      const key = fileKey(file);
+      if (!manifestKeys.has(key)) {
+        throw new Error(
+          `Lazy info returned file missing from manifest: ${key}.`,
+        );
+      }
+      if (order[key] === undefined) {
+        throw new Error(`Lazy info returned file missing from order: ${key}.`);
+      }
+      if (lazyInfoKeys.has(key)) {
+        throw new Error(`Lazy info returned duplicate file: ${key}.`);
+      }
+      lazyInfoKeys.add(key);
+      lazyInfoEntries.set(key, file);
+    }
+    for (const key of manifestKeys) {
+      if (!lazyInfoKeys.has(key)) {
+        throw new Error(`Lazy info is missing file from manifest: ${key}.`);
+      }
+    }
+    return manifestFiles.map((entry) => {
+      const key = fileKey(entry);
+      const lazyInfoEntry = lazyInfoEntries.get(key);
+      if (lazyInfoEntry === undefined) {
+        throw new Error(`Lazy info is missing file from manifest: ${key}.`);
+      }
+      return { ...entry, ...lazyInfoEntry };
+    });
+  }
+
+  async function hydrateLazyInfo(
+    diffParams: DiffParams,
+    paramsIdentity: string,
+    manifestFiles: FileEntry[],
+    order: Record<string, number>,
+  ) {
+    if (manifestFiles.length === 0) {
+      return;
+    }
+    try {
+      const result = await queryClient.fetchQuery({
+        queryKey: lazyInfoParamsQueryKey(diffParams),
+        queryFn: async ({ signal }): Promise<LazyInfoQueryPayload> => ({
+          diffParams,
+          paramsIdentity,
+          payload: await fetchLazyInfo(diffParams, signal),
+        }),
+        staleTime: 0,
+      });
+      if (!paramsAreCurrent(result.paramsIdentity)) {
+        return;
+      }
+      const mergedFiles = mergeLazyInfoFiles(
+        manifestFiles,
+        result.payload.files,
+        order,
+      );
+      options.setLoadedDiff((current) => {
+        if (current === null) {
+          return current;
+        }
+        const lazyKeys = new Set(manifestFiles.map((entry) => fileKey(entry)));
+        const existingFiles = current.files.filter(
+          (entry) => !lazyKeys.has(fileKey(entry)),
+        );
+        return {
+          ...current,
+          files: sortFilesByOrder(
+            [...existingFiles, ...mergedFiles],
+            current.fileOrder,
+          ),
+        };
+      });
+    } catch (error) {
+      if (!paramsAreCurrent(paramsIdentity)) {
+        return;
+      }
+      if (isCancelledError(error)) {
+        return;
+      }
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Failed to load lazy file info.";
+      console.error(`Failed to load lazy file info: ${errorMessage}`);
+      options.addErrorToast("Failed to load lazy file info", error);
+    }
   }
 
   async function hydrateManifestFiles(
-    request: DiffRequest,
-    requestIdentity: string,
+    diffParams: DiffParams,
+    paramsIdentity: string,
     manifestFiles: FileEntry[],
     baseStatus: string,
     initialLoadedFiles: number,
   ) {
     const pendingFiles = manifestFiles.filter((entry) => !entry.lazy);
     if (pendingFiles.length === 0) {
-      if (requestIsActive(requestIdentity)) {
+      if (paramsAreCurrent(paramsIdentity)) {
         setStatus("done");
         setStatusText(baseStatus);
       }
@@ -294,18 +407,18 @@ export function createDiffResources(options: DiffResourcesOptions) {
       { length: Math.min(4, pendingFiles.length) },
       async (_, workerIndex) => {
         for (let index = workerIndex; index < pendingFiles.length; index += 4) {
-          if (!requestIsActive(requestIdentity)) {
+          if (!paramsAreCurrent(paramsIdentity)) {
             return;
           }
           const entry = pendingFiles[index];
           const key = fileKey(entry);
           try {
             const hydrated = await queryClient.fetchQuery({
-              queryKey: fileDiffQueryKey(request, entry),
-              queryFn: ({ signal }) => fetchFileDiff(request, entry, signal),
+              queryKey: fileDiffQueryKey(diffParams, entry),
+              queryFn: ({ signal }) => fetchFileDiff(diffParams, entry, signal),
               staleTime: 0,
             });
-            if (!requestIsActive(requestIdentity)) {
+            if (!paramsAreCurrent(paramsIdentity)) {
               return;
             }
             const nextEntry = {
@@ -362,35 +475,16 @@ export function createDiffResources(options: DiffResourcesOptions) {
               );
             });
           } catch (error) {
-            if (!requestIsActive(requestIdentity)) {
+            if (!paramsAreCurrent(paramsIdentity)) {
               return;
+            }
+            if (isCancelledError(error)) {
+              continue;
             }
             hasFailure = true;
             loadedFiles += 1;
             failedDetailFiles += 1;
             batch(() => {
-              options.setLoadedDiff((current) => {
-                if (current === null) {
-                  return current;
-                }
-                const withoutCurrent = current.files.filter(
-                  (file) => fileKey(file) !== key,
-                );
-                return {
-                  ...current,
-                  files: sortFilesByOrder(
-                    [...withoutCurrent, entry],
-                    current.fileOrder,
-                  ),
-                };
-              });
-              options.setDirectoryExpansion((current) => {
-                const directory = entryDirectoryLabel(entry);
-                if (Object.hasOwn(current, directory)) {
-                  return current;
-                }
-                return { ...current, [directory]: true };
-              });
               options.setFileExpansion((current) => ({
                 ...current,
                 [key]: true,
@@ -421,7 +515,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       },
     );
     await Promise.all(workers);
-    if (requestIsActive(requestIdentity)) {
+    if (paramsAreCurrent(paramsIdentity)) {
       setStatus(hasFailure ? "error" : "done");
       if (!hasFailure) {
         setStatusText(baseStatus);
@@ -590,25 +684,25 @@ export function createDiffResources(options: DiffResourcesOptions) {
   };
 
   const reloadDiff = () => {
-    const request = activeRequest();
-    if (request === null) {
+    const diffParams = currentParams();
+    if (diffParams === null) {
       return;
     }
-    startDiff(request);
+    startDiff(diffParams);
   };
 
   const loadEngine = (nextEngine: DiffEngine) => {
     setEngine(nextEngine);
-    const request = activeRequest();
-    if (request !== null) {
-      startDiff({ ...request, engine: nextEngine });
+    const diffParams = currentParams();
+    if (diffParams !== null) {
+      startDiff({ ...diffParams, engine: nextEngine });
     }
   };
 
   return {
     engine,
-    activeRequest,
-    activeRequestIdentity,
+    currentParams,
+    currentParamsIdentity,
     loadingFiles,
     setLoadingFiles,
     fileErrors,
@@ -616,7 +710,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     status,
     statusText,
     resetDiffState,
-    clearActiveRequest,
+    clearCurrentParams,
     loadAgainstHead,
     loadPreset,
     loadRefs,
@@ -624,7 +718,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     loadInitialControls,
     reloadDiff,
     loadEngine,
-    replaceUrlForActiveRequest,
+    replaceUrlForCurrentParams,
   };
 }
 
