@@ -504,6 +504,9 @@ function FileCard(props: {
     fileEntryIsHydrated(props.file) &&
     props.file.render_kind !== "notebook" &&
     (props.file.rows?.length ?? 0) > 0;
+  const hasEngineWarning = () =>
+    props.file.engine_warning !== null &&
+    props.file.engine_warning !== undefined;
 
   createEffect(() => {
     props.expanded;
@@ -625,7 +628,7 @@ function FileCard(props: {
             <span class="file-card-status">
               {fileKindStatus(props.file.file_kind)}
             </span>
-            <Show when={props.file.engine_warning !== undefined}>
+            <Show when={hasEngineWarning()}>
               <span
                 class="file-card-engine-warning"
                 title={props.file.engine_warning!.message}

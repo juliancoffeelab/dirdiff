@@ -50,19 +50,19 @@ const modeSides: Record<
 > = {
   files: ["index", "worktree"],
   staged: ["head", "index"],
-  "against-head": ["head", "worktree"],
+  head: ["head", "worktree"],
 };
 
 export const modeLabels: Record<DiffMode, string> = {
   files: "Diff files",
   staged: "Diff staged",
-  "against-head": "Diff against HEAD",
+  head: "Diff against HEAD",
   refs: "Compare refs",
   "branch-review": "Branch review",
   preset: "Preset",
 };
 export const topLevelModes: DiffMode[] = [
-  "against-head",
+  "head",
   "refs",
   "branch-review",
   "preset",
@@ -106,7 +106,7 @@ function inferMode(
   if (baseBranch || reviewBranch) {
     return "branch-review";
   }
-  return left === "head" && right === "worktree" ? "against-head" : "refs";
+  return left === "head" && right === "worktree" ? "head" : "refs";
 }
 
 function normalizeTopLevelMode(
@@ -119,13 +119,13 @@ function normalizeTopLevelMode(
   if (
     mode === "refs" ||
     mode === "branch-review" ||
-    mode === "against-head" ||
+    mode === "head" ||
     mode === "preset"
   ) {
     return mode;
   }
   if (mode === "files" || mode === "staged") {
-    return "against-head";
+    return "head";
   }
   return inferMode(left, right, baseBranch, reviewBranch);
 }
@@ -153,7 +153,7 @@ export function initialControls(repoRefs: RepoRefs): ControlsState {
   const requestedMode = search.get("mode") as DiffMode | null;
   const mode =
     requestedMode === null
-      ? "against-head"
+      ? "head"
       : normalizeTopLevelMode(
           requestedMode,
           left,
@@ -271,7 +271,7 @@ export function statusLabel(
   if (request.mode === "staged") {
     return "Staged changes ready to commit";
   }
-  if (request.mode === "against-head") {
+  if (request.mode === "head") {
     return "Working tree vs HEAD";
   }
   if (request.mode === "branch-review") {

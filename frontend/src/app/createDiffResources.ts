@@ -227,6 +227,9 @@ export function createDiffResources(options: DiffResourcesOptions) {
         error instanceof Error ? error.message : "Failed to load diff.",
       );
     });
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to load diff.";
+    console.error(`Failed to load diff: ${errorMessage}`);
   });
 
   function applyDiffPayload(result: DiffQueryPayload) {
@@ -396,6 +399,11 @@ export function createDiffResources(options: DiffResourcesOptions) {
                 loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
               );
             });
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+            console.error(
+              `Failed to hydrate file diff for ${fileKey(entry)}: ${errorMessage}`,
+            );
           }
         }
       },
@@ -415,12 +423,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
       return;
     }
     options.setControls((current) =>
-      current === null ? current : { ...current, mode: "against-head" },
+      current === null ? current : { ...current, mode: "head" },
     );
     startDiff({
       repo_id: repoId,
       engine: selectedEngine,
-      mode: "against-head",
+      mode: "head",
       left: "head",
       right: "worktree",
       base_branch: null,

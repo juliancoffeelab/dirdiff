@@ -1,7 +1,7 @@
 export type DiffMode =
   | "files"
   | "staged"
-  | "against-head"
+  | "head"
   | "refs"
   | "branch-review"
   | "preset";
@@ -281,7 +281,7 @@ function diffRequestParams(request: DiffRequest): URLSearchParams {
   const params = new URLSearchParams();
   params.set("repo_id", String(request.repo_id));
   params.set("engine", request.engine);
-  params.set("mode", request.mode === "against-head" ? "files" : request.mode);
+  params.set("mode", request.mode);
   if (request.left.length > 0) {
     params.set("left", request.left);
   }

@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "build": "bun run typecheck && vite build",
+    "typecheck": "bun run typecheck:src && bun run typecheck:tools",
+    "typecheck:src": "tsc --noEmit -p tsconfig.json",
+    "typecheck:tools": "tsc --noEmit -p tsconfig.tools.json",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" eslint.config.ts \"eslint-rules/**/*.mjs\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
@@ -20,6 +22,7 @@
   "devDependencies": {
     "@eslint/js": "9.39.2",
     "eslint": "9.39.2",
+    "jiti": "^2.7.0",
     "prettier": "^3.8.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "8.50.0"

@@ -1,5 +1,6 @@
-import ts from "typescript";
+// @ts-nocheck
 
+import ts from "typescript";
 function isBooleanType(type, checker) {
   const normalized = checker.getBaseTypeOfLiteralType(type);
   if ((normalized.flags & ts.TypeFlags.BooleanLike) !== 0) {

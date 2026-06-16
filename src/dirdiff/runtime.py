@@ -13,7 +13,7 @@ DEFAULT_DB_PATH = (
 @dataclass(frozen=True)
 class RuntimeConfig:
     db_path: str
-    mode: Literal["against-head", "refs", "branch-review"] = "against-head"
+    mode: Literal["head", "refs", "branch-review"] = "head"
     left: str = "head"
     right: str = "worktree"
     base_branch: str | None = None

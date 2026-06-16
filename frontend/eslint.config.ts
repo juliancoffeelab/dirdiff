@@ -1,7 +1,14 @@
+import { defineConfig } from "eslint/config";
+import type { Rule } from "eslint";
 import tseslint from "typescript-eslint";
 import showWhenBooleanRule from "./eslint-rules/show-when-boolean.mjs";
 
-export default tseslint.config(
+const configRootDir = new URL(".", import.meta.url).pathname;
+const localRules = {
+  "show-when-boolean": showWhenBooleanRule as Rule.RuleModule,
+};
+
+export default defineConfig(
   {
     ignores: ["dist/**", "node_modules/**", ".vite/**"],
   },
@@ -11,15 +18,13 @@ export default tseslint.config(
       parser: tseslint.parser,
       parserOptions: {
         projectService: true,
-        tsconfigRootDir: import.meta.dirname,
+        tsconfigRootDir: configRootDir,
       },
     },
     plugins: {
       "@typescript-eslint": tseslint.plugin,
       local: {
-        rules: {
-          "show-when-boolean": showWhenBooleanRule,
-        },
+        rules: localRules,
       },
     },
     rules: {
@@ -36,6 +41,22 @@ export default tseslint.config(
         },
       ],
       "local/show-when-boolean": "error",
+    },
+  },
+  {
+    files: ["eslint.config.ts", "eslint-rules/**/*.mjs"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        project: "./tsconfig.tools.json",
+        tsconfigRootDir: configRootDir,
+      },
+    },
+    plugins: {
+      "@typescript-eslint": tseslint.plugin,
+    },
+    rules: {
+      "@typescript-eslint/no-deprecated": "error",
     },
   },
 );
