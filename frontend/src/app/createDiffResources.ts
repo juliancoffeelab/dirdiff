@@ -59,6 +59,7 @@ type DiffResourcesOptions = {
   setDirectoryExpansion: Setter<Record<string, boolean>>;
   setFileExpansion: Setter<Record<string, boolean>>;
   refChoices: () => RefChoices;
+  addErrorToast: (title: string, error: unknown) => void;
 };
 
 /**
@@ -86,6 +87,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
   const [status, setStatus] = createSignal<LoadState>("idle");
   const [statusText, setStatusText] = createSignal("Preparing diff...");
   let appliedDiffIdentity = "";
+  let toastedDiffErrorIdentity = "";
 
   const activeRequestIdentity = (): string | null => {
     const request = activeRequest();
@@ -147,6 +149,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     queryClient.removeQueries({ queryKey: diffRequestQueryKey(request) });
     replaceUrlForRequest(request);
     appliedDiffIdentity = "";
+    toastedDiffErrorIdentity = "";
     resetDiffState("loading", "Loading diff...");
     setActiveRequest(request);
   };
@@ -230,6 +233,10 @@ export function createDiffResources(options: DiffResourcesOptions) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to load diff.";
     console.error(`Failed to load diff: ${errorMessage}`);
+    if (toastedDiffErrorIdentity !== requestIdentity) {
+      toastedDiffErrorIdentity = requestIdentity;
+      options.addErrorToast("Failed to load diff", error);
+    }
   });
 
   function applyDiffPayload(result: DiffQueryPayload) {
@@ -279,6 +286,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     }
     const pin = getLinePinFromHash();
     let hasFailure = false;
+    let toastedHydrationFailure = false;
     let loadedFiles = initialLoadedFiles;
     let failedDetailFiles = 0;
 
@@ -404,6 +412,10 @@ export function createDiffResources(options: DiffResourcesOptions) {
             console.error(
               `Failed to hydrate file diff for ${fileKey(entry)}: ${errorMessage}`,
             );
+            if (!toastedHydrationFailure) {
+              toastedHydrationFailure = true;
+              options.addErrorToast("Failed to load file diff", error);
+            }
           }
         }
       },

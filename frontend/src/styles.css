@@ -335,6 +335,96 @@ h1 {
   padding: 12px;
 }
 
+.toast-viewport {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  border: 1px solid #24231f;
+  background: #fffdf8;
+  box-shadow: 0 10px 24px rgb(36 35 31 / 16%);
+  padding: 12px;
+  pointer-events: auto;
+}
+
+.toast-error {
+  border-color: #8e1f1f;
+}
+
+.toast-copy {
+  min-width: 0;
+}
+
+.toast-copy strong {
+  display: block;
+  color: #8e1f1f;
+  font-size: 12px;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.toast-copy p {
+  margin: 5px 0 0;
+  color: #24231f;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid #d8d0c2;
+  background: #fbfaf7;
+  color: #24231f;
+  font-weight: 700;
+}
+
+.toast-dismiss:hover,
+.toast-dismiss:focus-visible {
+  border-color: #8e1f1f;
+  color: #8e1f1f;
+}
+
+.app-crash {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+
+.app-crash-notice {
+  width: min(560px, 100%);
+}
+
+.app-crash-notice h1 {
+  margin-bottom: 8px;
+}
+
+.app-crash-notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-crash-notice button {
+  margin-top: 14px;
+  border: 1px solid #8e1f1f;
+  background: #fffdf8;
+  color: #8e1f1f;
+  padding: 7px 10px;
+  font-weight: 700;
+}
+
 .repo-picker {
   max-width: 760px;
   margin: 48px auto 0;

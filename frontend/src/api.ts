@@ -1,32 +1,42 @@
-export type DiffMode =
-  | "files"
-  | "staged"
-  | "head"
-  | "refs"
-  | "branch-review"
-  | "preset";
-export type DiffEngine = "dirdiff" | "git" | "difftastic";
+import { z } from "zod";
+
+export const DiffModeSchema = z.enum([
+  "files",
+  "staged",
+  "head",
+  "refs",
+  "branch-review",
+  "preset",
+]);
+export type DiffMode = z.infer<typeof DiffModeSchema>;
+
+export const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic"]);
+export type DiffEngine = z.infer<typeof DiffEngineSchema>;
+
 export type RepoId = number;
 
-export type RepoMark = {
-  id: RepoId;
-  path: string;
-  name: string;
-  marked_at: string;
-};
+const RepoMarkSchema = z.strictObject({
+  id: z.number().int(),
+  path: z.string(),
+  name: z.string(),
+  marked_at: z.string(),
+});
+export type RepoMark = z.infer<typeof RepoMarkSchema>;
 
-export type RefChoices = {
-  builtins: string[];
-  locals: string[];
-  remotes: string[];
-  remote_names: string[];
-};
+const RefChoicesSchema = z.strictObject({
+  builtins: z.array(z.string()),
+  locals: z.array(z.string()),
+  remotes: z.array(z.string()),
+  remote_names: z.array(z.string()),
+});
+export type RefChoices = z.infer<typeof RefChoicesSchema>;
 
-export type RepoRefs = {
-  default_base_branch: string | null;
-  preferred_review_branch: string | null;
-  ref_choices: RefChoices;
-};
+const RepoRefsSchema = z.strictObject({
+  default_base_branch: z.string().nullable(),
+  preferred_review_branch: z.string().nullable(),
+  ref_choices: RefChoicesSchema,
+});
+export type RepoRefs = z.infer<typeof RepoRefsSchema>;
 
 export type DiffRequest = {
   repo_id: RepoId;
@@ -39,21 +49,22 @@ export type DiffRequest = {
   show_untracked: boolean;
 };
 
-export type Summary = {
-  changed_files: number;
-  added_files: number;
-  removed_files: number;
-  updated_files: number;
-  changed_lines: number;
-  modified_lines: number;
-  added_lines: number;
-  removed_lines: number;
-  skipped_files: number;
-  changed_cells?: number;
-  added_cells?: number;
-  removed_cells?: number;
-  modified_cells?: number;
-};
+const SummarySchema = z.strictObject({
+  changed_files: z.number().int(),
+  added_files: z.number().int(),
+  removed_files: z.number().int(),
+  updated_files: z.number().int(),
+  changed_lines: z.number().int(),
+  modified_lines: z.number().int(),
+  added_lines: z.number().int(),
+  removed_lines: z.number().int(),
+  skipped_files: z.number().int(),
+  changed_cells: z.number().int().nullable().optional(),
+  added_cells: z.number().int().nullable().optional(),
+  removed_cells: z.number().int().nullable().optional(),
+  modified_cells: z.number().int().nullable().optional(),
+});
+export type Summary = z.infer<typeof SummarySchema>;
 
 export type RepoPayload = {
   display_name: string;
@@ -67,51 +78,48 @@ export type RepoDiffPayload = RepoPayload & {
   files: FileEntry[];
 };
 
-type RawFileEntry = Omit<FileEntry, "left_path" | "right_path"> & {
-  left_path?: string | null;
-  right_path?: string | null;
-};
+const FileSummarySchema = z.strictObject({
+  changed_lines: z.number().int(),
+  modified_lines: z.number().int(),
+  added_lines: z.number().int(),
+  removed_lines: z.number().int(),
+  left_exists: z.boolean(),
+  right_exists: z.boolean(),
+});
+export type FileSummary = z.infer<typeof FileSummarySchema>;
 
-type RawRepoDiffPayload = Omit<RepoDiffPayload, "files"> & {
-  files: RawFileEntry[];
-};
+const NotebookSummarySchema = FileSummarySchema.extend({
+  changed_cells: z.number().int(),
+  added_cells: z.number().int(),
+  removed_cells: z.number().int(),
+  modified_cells: z.number().int(),
+  notebook_metadata_changed: z.boolean(),
+});
+export type NotebookSummary = z.infer<typeof NotebookSummarySchema>;
 
-export type FileSummary = {
-  changed_lines: number;
-  modified_lines: number;
-  added_lines: number;
-  removed_lines: number;
-  left_exists: boolean;
-  right_exists: boolean;
-};
+export const RowStatusSchema = z.enum([
+  "equal",
+  "replace",
+  "insert",
+  "delete",
+  "fold",
+  "elided",
+]);
+export type RowStatus = z.infer<typeof RowStatusSchema>;
 
-export type NotebookSummary = FileSummary & {
-  changed_cells: number;
-  added_cells: number;
-  removed_cells: number;
-  modified_cells: number;
-  notebook_metadata_changed: boolean;
-};
+const InlineTokenSchema = z.strictObject({
+  text: z.string(),
+  is_ws: z.boolean(),
+  status: z.enum(["unchanged", "replace", "insert", "delete"]),
+});
+export type InlineToken = z.infer<typeof InlineTokenSchema>;
 
-export type RowStatus =
-  | "equal"
-  | "replace"
-  | "insert"
-  | "delete"
-  | "fold"
-  | "elided";
-
-export type InlineToken = {
-  text: string;
-  is_ws: boolean;
-  status: "unchanged" | "replace" | "insert" | "delete";
-};
-
-export type SyntaxSpan = {
-  start: number;
-  end: number;
-  classes: string[];
-};
+const SyntaxSpanSchema = z.strictObject({
+  start: z.number().int(),
+  end: z.number().int(),
+  classes: z.array(z.string()),
+});
+export type SyntaxSpan = z.infer<typeof SyntaxSpanSchema>;
 
 export type DiffRow = {
   status: RowStatus;
@@ -128,153 +136,260 @@ export type DiffRow = {
   label?: string | null;
 };
 
-export type FoldHint = {
-  start_row: number;
-  end_row: number;
-  label: string;
+const DiffRowCommonSchema = {
+  left_no: z.number().int().nullable(),
+  right_no: z.number().int().nullable(),
+  left_text: z.string().nullable(),
+  right_text: z.string().nullable(),
+  left_tokens: z.array(InlineTokenSchema),
+  right_tokens: z.array(InlineTokenSchema),
+  left_syntax: z.array(SyntaxSpanSchema),
+  right_syntax: z.array(SyntaxSpanSchema),
+  count: z.number().int().nullable().optional(),
+  label: z.string().nullable().optional(),
 };
+
+const DiffRowSchema: z.ZodType<DiffRow> = z.lazy(() =>
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      status: z.literal("equal"),
+      ...DiffRowCommonSchema,
+      foldedRows: z.array(DiffRowSchema).optional(),
+    }),
+    z.strictObject({
+      status: z.literal("replace"),
+      ...DiffRowCommonSchema,
+      foldedRows: z.array(DiffRowSchema).optional(),
+    }),
+    z.strictObject({
+      status: z.literal("insert"),
+      ...DiffRowCommonSchema,
+      foldedRows: z.array(DiffRowSchema).optional(),
+    }),
+    z.strictObject({
+      status: z.literal("delete"),
+      ...DiffRowCommonSchema,
+      foldedRows: z.array(DiffRowSchema).optional(),
+    }),
+    z.strictObject({
+      status: z.literal("fold"),
+      ...DiffRowCommonSchema,
+      count: z.number().int(),
+      foldedRows: z.array(DiffRowSchema),
+    }),
+    z.strictObject({
+      status: z.literal("elided"),
+      ...DiffRowCommonSchema,
+      count: z.number().int(),
+      label: z.string(),
+      foldedRows: z.array(DiffRowSchema).optional(),
+    }),
+  ]),
+);
+
+const FoldHintSchema = z.strictObject({
+  start_row: z.number().int(),
+  end_row: z.number().int(),
+  label: z.string(),
+});
+export type FoldHint = z.infer<typeof FoldHintSchema>;
 
 export type GitChangeType = "modify" | "add" | "delete" | "rename" | "copy";
 
-export type FileKind =
-  | {
-      type: "git";
-      status: "modified" | "added" | "deleted" | "renamed" | "copied";
-    }
-  | {
-      type: "untracked";
-    };
+const GitFileKindSchema = z.strictObject({
+  type: z.literal("git"),
+  status: z.enum(["modified", "added", "deleted", "renamed", "copied"]),
+});
+const UntrackedFileKindSchema = z.strictObject({
+  type: z.literal("untracked"),
+});
+const FileKindSchema = z.discriminatedUnion("type", [
+  GitFileKindSchema,
+  UntrackedFileKindSchema,
+]);
+export type FileKind = z.infer<typeof FileKindSchema>;
 
-export type LazyReason =
-  | "too_big"
-  | "generated"
-  | "deleted"
-  | "untracked"
-  | "pure_renamed";
+const LazyReasonSchema = z.enum([
+  "too_big",
+  "generated",
+  "deleted",
+  "untracked",
+  "pure_renamed",
+]);
+export type LazyReason = z.infer<typeof LazyReasonSchema>;
 
-export type EngineWarning = {
-  type: "difftastic_graph_limit";
-  message: string;
-};
+const EngineWarningSchema = z.strictObject({
+  type: z.literal("difftastic_graph_limit"),
+  message: z.string(),
+});
+export type EngineWarning = z.infer<typeof EngineWarningSchema>;
 
-export type FileEntry = {
-  display_name?: string;
-  mode?: "git";
-  left_label?: string;
-  right_label?: string;
-  summary?: FileSummary | NotebookSummary;
-  file_kind: FileKind;
-  left_path: string | null;
-  right_path: string | null;
-  changed_lines?: number | null;
-  added_lines?: number | null;
-  removed_lines?: number | null;
-  rows?: DiffRow[];
-  fold_hints?: FoldHint[];
-  engine_warning?: EngineWarning;
-  lazy?: LazyReason | null;
-  default_expanded?: boolean;
-  render_kind?: "notebook";
-  notebook_metadata_rows?: DiffRow[];
-  notebook_metadata_changed_lines?: number;
-  notebook_metadata_hunk_count?: number;
-  notebook_metadata_lazy?: boolean;
-  notebook_metadata_render_mode?: "plain" | null;
-  notebook_metadata_truncated_rows?: number;
-  cells?: NotebookCellEntry[];
-};
+const FileEntrySchema = z.strictObject({
+  display_name: z.string().optional(),
+  mode: z.literal("git").optional(),
+  left_label: z.string().optional(),
+  right_label: z.string().optional(),
+  summary: z.union([NotebookSummarySchema, FileSummarySchema]).optional(),
+  file_kind: FileKindSchema,
+  left_path: z.string().nullable(),
+  right_path: z.string().nullable(),
+  changed_lines: z.number().int().nullable().optional(),
+  added_lines: z.number().int().nullable().optional(),
+  removed_lines: z.number().int().nullable().optional(),
+  rows: z.array(DiffRowSchema).optional(),
+  fold_hints: z.array(FoldHintSchema).optional(),
+  engine_warning: EngineWarningSchema.nullable().optional(),
+  lazy: LazyReasonSchema.nullable().optional(),
+  default_expanded: z.boolean().optional(),
+  render_kind: z.literal("notebook").optional(),
+  render_mode: z.literal("plain").nullable().optional(),
+  truncated_rows: z.number().int().nullable().optional(),
+  notebook_metadata_rows: z.array(DiffRowSchema).optional(),
+  notebook_metadata_changed_lines: z.number().int().optional(),
+  notebook_metadata_hunk_count: z.number().int().optional(),
+  notebook_metadata_lazy: z.boolean().optional(),
+  notebook_metadata_render_mode: z.literal("plain").nullable().optional(),
+  notebook_metadata_truncated_rows: z.number().int().optional(),
+  cells: z.array(z.lazy(() => NotebookCellEntrySchema)).optional(),
+});
+export type FileEntry = z.infer<typeof FileEntrySchema>;
 
-function normalizeFileEntry(entry: RawFileEntry): FileEntry {
-  const leftPath = entry.left_path === undefined ? null : entry.left_path;
-  const rightPath = entry.right_path === undefined ? null : entry.right_path;
-  return {
-    ...entry,
-    left_path: leftPath,
-    right_path: rightPath,
-  };
+const RepoFileEntrySchema = z.strictObject({
+  file_kind: FileKindSchema,
+  left_path: z.string().nullable(),
+  right_path: z.string().nullable(),
+  lazy: LazyReasonSchema.nullable(),
+});
+
+const TextFileDiffResponseSchema = z.strictObject({
+  display_name: z.string(),
+  mode: z.literal("git"),
+  left_label: z.string(),
+  right_label: z.string(),
+  summary: FileSummarySchema,
+  rows: z.array(DiffRowSchema),
+  file_kind: FileKindSchema,
+  left_path: z.string().nullable(),
+  right_path: z.string().nullable(),
+  lazy: LazyReasonSchema.nullable(),
+  default_expanded: z.boolean(),
+  render_mode: z.literal("plain").nullable(),
+  truncated_rows: z.number().int().nullable(),
+  fold_hints: z.array(FoldHintSchema),
+  engine_warning: EngineWarningSchema.nullable(),
+});
+
+const NotebookCellEntrySchema = z.strictObject({
+  kind: z.enum(["added", "removed", "modified"]),
+  cell_type: z.string(),
+  cell_id: z.string().nullable(),
+  cell_key: z.string(),
+  left_index: z.number().int().nullable(),
+  right_index: z.number().int().nullable(),
+  left_id: z.string().nullable(),
+  right_id: z.string().nullable(),
+  source_changed: z.boolean(),
+  metadata_changed: z.boolean(),
+  outputs_changed: z.boolean(),
+  source_rows: z.array(DiffRowSchema),
+  source_changed_lines: z.number().int(),
+  source_modified_lines: z.number().int(),
+  source_added_lines: z.number().int(),
+  source_removed_lines: z.number().int(),
+  source_fold_hints: z.array(FoldHintSchema),
+  metadata_rows: z.array(DiffRowSchema),
+  outputs_rows: z.array(DiffRowSchema),
+  metadata_changed_lines: z.number().int(),
+  metadata_modified_lines: z.number().int(),
+  metadata_added_lines: z.number().int(),
+  metadata_removed_lines: z.number().int(),
+  metadata_hunk_count: z.number().int(),
+  metadata_lazy: z.boolean(),
+  outputs_changed_lines: z.number().int(),
+  outputs_modified_lines: z.number().int(),
+  outputs_added_lines: z.number().int(),
+  outputs_removed_lines: z.number().int(),
+  outputs_hunk_count: z.number().int(),
+  outputs_lazy: z.boolean(),
+  source_render_mode: z.literal("plain").nullable(),
+  source_truncated_rows: z.number().int().nullable(),
+  metadata_render_mode: z.literal("plain").nullable(),
+  metadata_truncated_rows: z.number().int().nullable(),
+  outputs_render_mode: z.literal("plain").nullable(),
+  outputs_truncated_rows: z.number().int().nullable(),
+});
+export type NotebookCellEntry = z.infer<typeof NotebookCellEntrySchema>;
+
+const NotebookFileDiffResponseSchema = z.strictObject({
+  display_name: z.string(),
+  mode: z.literal("git"),
+  render_kind: z.literal("notebook"),
+  left_label: z.string(),
+  right_label: z.string(),
+  summary: NotebookSummarySchema,
+  notebook_metadata_rows: z.array(DiffRowSchema),
+  notebook_metadata_changed_lines: z.number().int(),
+  notebook_metadata_hunk_count: z.number().int(),
+  notebook_metadata_lazy: z.boolean(),
+  cells: z.array(NotebookCellEntrySchema),
+  file_kind: FileKindSchema,
+  left_path: z.string().nullable(),
+  right_path: z.string().nullable(),
+  default_expanded: z.boolean(),
+});
+
+const FileDiffResponseSchema = z.union([
+  NotebookFileDiffResponseSchema,
+  TextFileDiffResponseSchema,
+]);
+
+const RepoDiffPayloadSchema = z.strictObject({
+  display_name: z.string(),
+  mode: z.literal("repo"),
+  left_label: z.string(),
+  right_label: z.string(),
+  summary: SummarySchema,
+  files: z.array(RepoFileEntrySchema),
+});
+
+const NotebookSectionSchema = z.strictObject({
+  section: z.string(),
+  cell_key: z.string().nullable(),
+  left_index: z.number().int().nullable(),
+  right_index: z.number().int().nullable(),
+  left_label: z.string(),
+  right_label: z.string(),
+  rows: z.array(DiffRowSchema),
+  render_mode: z.literal("plain").nullable(),
+  truncated_rows: z.number().int(),
+  fold_hints: z.array(FoldHintSchema),
+});
+export type NotebookSection = z.infer<typeof NotebookSectionSchema>;
+
+const ErrorResponseSchema = z.strictObject({
+  error: z.string(),
+});
+
+async function parseErrorResponse(response: Response): Promise<never> {
+  const payload = await response.json();
+  throw new Error(ErrorResponseSchema.parse(payload).error);
 }
-
-function normalizeRepoDiffPayload(
-  payload: RawRepoDiffPayload,
-): RepoDiffPayload {
-  return {
-    ...payload,
-    files: payload.files.map(normalizeFileEntry),
-  };
-}
-
-export type NotebookCellEntry = {
-  kind: "added" | "removed" | "modified";
-  cell_type: string;
-  cell_id: string | null;
-  cell_key: string;
-  left_index: number | null;
-  right_index: number | null;
-  left_id: string | null;
-  right_id: string | null;
-  source_changed: boolean;
-  metadata_changed: boolean;
-  outputs_changed: boolean;
-  source_rows: DiffRow[];
-  source_changed_lines: number;
-  source_modified_lines: number;
-  source_added_lines: number;
-  source_removed_lines: number;
-  source_fold_hints: FoldHint[];
-  metadata_rows: DiffRow[];
-  outputs_rows: DiffRow[];
-  metadata_changed_lines: number;
-  metadata_modified_lines: number;
-  metadata_added_lines: number;
-  metadata_removed_lines: number;
-  metadata_hunk_count: number;
-  metadata_lazy: boolean;
-  outputs_changed_lines: number;
-  outputs_modified_lines: number;
-  outputs_added_lines: number;
-  outputs_removed_lines: number;
-  outputs_hunk_count: number;
-  outputs_lazy: boolean;
-  source_render_mode: "plain" | null;
-  source_truncated_rows: number | null;
-  metadata_render_mode: "plain" | null;
-  metadata_truncated_rows: number | null;
-  outputs_render_mode: "plain" | null;
-  outputs_truncated_rows: number | null;
-};
-
-export type NotebookSection = {
-  section: string;
-  cell_key: string | null;
-  left_index: number | null;
-  right_index: number | null;
-  left_label: string;
-  right_label: string;
-  rows: DiffRow[];
-  render_mode: "plain" | null;
-  truncated_rows: number;
-  fold_hints: FoldHint[];
-};
 
 export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
   const params = new URLSearchParams({ repo_id: String(repoId) });
   const response = await fetch(`/api/repo-refs?${params.toString()}`);
   if (!response.ok) {
-    throw new Error(`Failed to load repo refs: ${response.status}`);
+    return parseErrorResponse(response);
   }
-  return (await response.json()) as RepoRefs;
+  return RepoRefsSchema.parse(await response.json());
 }
 
 export async function fetchRepos(): Promise<RepoMark[]> {
   const response = await fetch("/api/repos");
-  const payload = await response.json();
   if (!response.ok) {
-    if (typeof payload.error === "string") {
-      throw new Error(payload.error);
-    }
-    throw new Error("Failed to load marked repos.");
+    return parseErrorResponse(response);
   }
-  return payload as RepoMark[];
+  return z.array(RepoMarkSchema).parse(await response.json());
 }
 
 function diffRequestParams(request: DiffRequest): URLSearchParams {
@@ -306,11 +421,10 @@ export async function fetchDiff(
 ): Promise<RepoDiffPayload> {
   const params = diffRequestParams(request);
   const response = await fetch(`/api/diff?${params.toString()}`, { signal });
-  const payload = await response.json();
   if (!response.ok) {
-    throw new Error(errorMessage(payload, "Failed to load diff."));
+    return parseErrorResponse(response);
   }
-  return normalizeRepoDiffPayload(payload as RawRepoDiffPayload);
+  return RepoDiffPayloadSchema.parse(await response.json());
 }
 
 export async function fetchFileDiff(
@@ -334,11 +448,10 @@ export async function fetchFileDiff(
   const response = await fetch(`/api/file-diff?${params.toString()}`, {
     signal,
   });
-  const payload = await response.json();
   if (!response.ok) {
-    throw new Error(errorMessage(payload, "Failed to load file diff."));
+    return parseErrorResponse(response);
   }
-  return normalizeFileEntry(payload as RawFileEntry);
+  return FileDiffResponseSchema.parse(await response.json());
 }
 
 function changeTypeForFileKind(fileKind: FileKind): GitChangeType {
@@ -355,9 +468,14 @@ function changeTypeForFileKind(fileKind: FileKind): GitChangeType {
     case "copied":
       return "copy";
     case "modified":
-    default:
       return "modify";
+    default:
+      return unsupportedGitStatus(fileKind.status);
   }
+}
+
+function unsupportedGitStatus(status: never): never {
+  throw new Error(`Unsupported git file status: ${String(status)}.`);
 }
 
 export async function fetchNotebookSection(
@@ -381,23 +499,8 @@ export async function fetchNotebookSection(
   const response = await fetch(`/api/notebook-section?${params.toString()}`, {
     signal,
   });
-  const payload = await response.json();
   if (!response.ok) {
-    throw new Error(errorMessage(payload, "Failed to load notebook section."));
+    return parseErrorResponse(response);
   }
-  return payload as NotebookSection;
-}
-
-function errorMessage(payload: unknown, fallback: string): string {
-  if (typeof payload !== "object" || payload === null) {
-    return fallback;
-  }
-  if (!("error" in payload)) {
-    return fallback;
-  }
-  const error = payload.error;
-  if (typeof error !== "string" || error.length === 0) {
-    return fallback;
-  }
-  return error;
+  return NotebookSectionSchema.parse(await response.json());
 }

@@ -11,6 +11,7 @@ import {
   type LoadedDiff,
   entryDirectoryLabel,
   fileKey,
+  fileOrderIndex,
   groupFilesByLabel,
 } from "../model";
 import { richPreloadFileIdsForFileId } from "../hunkNavigation";
@@ -20,14 +21,6 @@ function stringArraysEqual(left: string[], right: string[]): boolean {
     return false;
   }
   return left.every((value, index) => value === right[index]);
-}
-
-function fileOrderIndex(diff: LoadedDiff, file: FileEntry): number {
-  const index = diff.fileOrder[fileKey(file)];
-  if (index === undefined) {
-    throw new Error(`Missing file order for ${fileKey(file)}.`);
-  }
-  return index;
 }
 
 /**
@@ -87,7 +80,8 @@ export function createDiffUiState() {
     }
     return [...diff.files, ...diff.lazyFiles].sort(
       (leftFile, rightFile) =>
-        fileOrderIndex(diff, leftFile) - fileOrderIndex(diff, rightFile),
+        fileOrderIndex(diff.fileOrder, leftFile) -
+        fileOrderIndex(diff.fileOrder, rightFile),
     );
   });
 

@@ -19,6 +19,11 @@ ruff:
 cram:
 	uv --no-cache run cram tests/cli-cram/*.t
 
+pytest:
+	uv --no-cache run pytest
+
+fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint pytest cram
+
 format:
 	.venv/bin/ruff format
 	bun run --cwd frontend format

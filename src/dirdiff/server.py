@@ -434,8 +434,6 @@ def create_app(
     @app.get(
         "/api/diff",
         response_model=RepoDiffResponse,
-        response_model_exclude_defaults=True,
-        response_model_exclude_none=True,
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},

@@ -2,8 +2,10 @@ import type {
   DiffEngine,
   DiffMode,
   DiffRequest,
+  DiffRow,
   FileEntry,
   FileKind,
+  FoldHint,
   NotebookSummary,
   RefChoices,
   RepoRefs,
@@ -103,13 +105,13 @@ function inferMode(
   baseBranch: string,
   reviewBranch: string,
 ): DiffMode {
-  if (baseBranch || reviewBranch) {
+  if (baseBranch.length > 0 || reviewBranch.length > 0) {
     return "branch-review";
   }
   return left === "head" && right === "worktree" ? "head" : "refs";
 }
 
-function normalizeTopLevelMode(
+function resolveTopLevelMode(
   mode: DiffMode | null,
   left: string,
   right: string,
@@ -154,7 +156,7 @@ export function initialControls(repoRefs: RepoRefs): ControlsState {
   const mode =
     requestedMode === null
       ? "head"
-      : normalizeTopLevelMode(
+      : resolveTopLevelMode(
           requestedMode,
           left,
           right,
@@ -315,7 +317,7 @@ export function nextFileExpansion(
   }
   return {
     ...current,
-    [newFileKey]: newFile.default_expanded ?? false,
+    [newFileKey]: defaultFileExpansion(newFile),
   };
 }
 
@@ -326,7 +328,10 @@ function entryDirectoryPath(entry: FileEntry): string {
 }
 
 export function fileDisplayName(entry: FileEntry): string {
-  return entry.display_name ?? fileTreePath(entry);
+  if (entry.display_name !== undefined && entry.display_name.length > 0) {
+    return entry.display_name;
+  }
+  return fileTreePath(entry);
 }
 
 export function fileBasename(entry: FileEntry): string {
@@ -407,6 +412,42 @@ export function fileEntryIsHydrated(entry: FileEntry): boolean {
   return entry.render_kind === "notebook" || entry.rows !== undefined;
 }
 
+export function fileRows(entry: FileEntry): DiffRow[] {
+  if (entry.rows === undefined) {
+    throw new Error(`${fileDisplayName(entry)} is missing diff rows.`);
+  }
+  return entry.rows;
+}
+
+export function fileFoldHints(entry: FileEntry): FoldHint[] {
+  if (entry.fold_hints === undefined) {
+    return [];
+  }
+  return entry.fold_hints;
+}
+
+export function defaultFileExpansion(entry: FileEntry): boolean {
+  if (entry.default_expanded === undefined) {
+    return false;
+  }
+  return entry.default_expanded;
+}
+
+export function notebookSummary(entry: FileEntry): NotebookSummary {
+  const summary = entry.summary;
+  if (summary === undefined || !("changed_cells" in summary)) {
+    throw new Error(`${fileDisplayName(entry)} is missing notebook summary.`);
+  }
+  return summary;
+}
+
+export function notebookCells(entry: FileEntry) {
+  if (entry.cells === undefined) {
+    throw new Error(`${fileDisplayName(entry)} is missing notebook cells.`);
+  }
+  return entry.cells;
+}
+
 export function addHydratedNotebookSummary(
   current: Summary,
   entry: FileEntry,
@@ -418,12 +459,30 @@ export function addHydratedNotebookSummary(
   const notebookSummary = entrySummary as NotebookSummary;
   return {
     ...current,
-    changed_cells: (current.changed_cells ?? 0) + notebookSummary.changed_cells,
-    added_cells: (current.added_cells ?? 0) + notebookSummary.added_cells,
+    changed_cells:
+      requiredNotebookSummaryCount(current, "changed_cells") +
+      notebookSummary.changed_cells,
+    added_cells:
+      requiredNotebookSummaryCount(current, "added_cells") +
+      notebookSummary.added_cells,
     modified_cells:
-      (current.modified_cells ?? 0) + notebookSummary.modified_cells,
-    removed_cells: (current.removed_cells ?? 0) + notebookSummary.removed_cells,
+      requiredNotebookSummaryCount(current, "modified_cells") +
+      notebookSummary.modified_cells,
+    removed_cells:
+      requiredNotebookSummaryCount(current, "removed_cells") +
+      notebookSummary.removed_cells,
   };
+}
+
+function requiredNotebookSummaryCount(
+  summary: Summary,
+  key: "changed_cells" | "added_cells" | "modified_cells" | "removed_cells",
+): number {
+  const value = summary[key];
+  if (typeof value !== "number") {
+    throw new Error(`Summary is missing ${key}.`);
+  }
+  return value;
 }
 
 export function groupLineStats(group: FileGroup): LineStats {
@@ -454,21 +513,21 @@ function splitRemoteQualifiedRef(
   ref: string,
   remoteNames: string[],
 ): { remote: string; value: string } {
-  const normalizedRef = (ref || "").trim();
+  const trimmedRef = ref.trim();
   for (const remoteName of [...remoteNames].sort(
     (left, right) => right.length - left.length,
   )) {
     const prefix = `${remoteName}/`;
-    if (normalizedRef.startsWith(prefix)) {
+    if (trimmedRef.startsWith(prefix)) {
       return {
         remote: remoteName,
-        value: normalizedRef.slice(prefix.length),
+        value: trimmedRef.slice(prefix.length),
       };
     }
   }
   return {
     remote: "",
-    value: normalizedRef,
+    value: trimmedRef,
   };
 }
 
@@ -477,25 +536,25 @@ function qualifyRemoteRef(
   ref: string,
   remoteNames: string[],
 ): string {
-  const normalizedRemote = (remote || "").trim();
-  const normalizedRef = (ref || "").trim();
-  if (!normalizedRemote || !normalizedRef) {
-    return normalizedRef;
+  const trimmedRemote = remote.trim();
+  const trimmedRef = ref.trim();
+  if (trimmedRemote.length === 0 || trimmedRef.length === 0) {
+    return trimmedRef;
   }
   if (
-    normalizedRef.startsWith("refs/") ||
-    builtinSides.has(normalizedRef) ||
-    /^[0-9a-f]{7,40}$/i.test(normalizedRef) ||
-    normalizedRef.includes(":") ||
-    normalizedRef.includes("^") ||
-    normalizedRef.includes("~") ||
+    trimmedRef.startsWith("refs/") ||
+    builtinSides.has(trimmedRef) ||
+    /^[0-9a-f]{7,40}$/i.test(trimmedRef) ||
+    trimmedRef.includes(":") ||
+    trimmedRef.includes("^") ||
+    trimmedRef.includes("~") ||
     remoteNames.some(
-      (name) => normalizedRef === name || normalizedRef.startsWith(`${name}/`),
+      (name) => trimmedRef === name || trimmedRef.startsWith(`${name}/`),
     )
   ) {
-    return normalizedRef;
+    return trimmedRef;
   }
-  return `${normalizedRemote}/${normalizedRef}`;
+  return `${trimmedRemote}/${trimmedRef}`;
 }
 
 export function branchReviewRef(
@@ -534,8 +593,19 @@ export function sortFilesByOrder(
 ): FileEntry[] {
   return [...files].sort(
     (leftFile, rightFile) =>
-      (order[fileKey(leftFile)] ?? 0) - (order[fileKey(rightFile)] ?? 0),
+      fileOrderIndex(order, leftFile) - fileOrderIndex(order, rightFile),
   );
+}
+
+export function fileOrderIndex(
+  order: Record<string, number>,
+  file: FileEntry,
+): number {
+  const index = order[fileKey(file)];
+  if (index === undefined) {
+    throw new Error(`Missing file order for ${fileKey(file)}.`);
+  }
+  return index;
 }
 
 export function fileElementId(key: string): string {

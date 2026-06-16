@@ -147,5 +147,6 @@ def test_repo_diff_endpoint_returns_minimal_deleted_file_entry(
     assert payload["files"][0] == {
         "lazy": "deleted",
         "left_path": "alpha.txt",
+        "right_path": None,
         "file_kind": {"type": "git", "status": "deleted"},
     }

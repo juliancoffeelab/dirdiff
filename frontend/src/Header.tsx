@@ -21,7 +21,7 @@ export function Header(props: {
           <h1>dirdiff</h1>
           <Show when={props.repos !== null}>
             <RepoSelect
-              repos={props.repos!}
+              repos={loadedRepos(props.repos)}
               selectedRepoId={props.selectedRepoId}
               onRepoChange={props.onRepoChange}
             />
@@ -61,7 +61,9 @@ function EngineSelect(props: {
           ) {
             props.onEngineChange(nextEngine);
             event.currentTarget.blur();
+            return;
           }
+          throw new Error(`Unsupported diff engine: ${nextEngine}.`);
         }}
       >
         <option value="dirdiff">{engineLabels.dirdiff}</option>
@@ -80,11 +82,11 @@ function RepoSelect(props: {
   const handleRepoChange = (select: HTMLSelectElement) => {
     const nextRepoId = Number(select.value);
     if (!Number.isInteger(nextRepoId)) {
-      return;
+      throw new Error(`Invalid repo id selected: ${select.value}.`);
     }
     const repo = props.repos.find((candidate) => candidate.id === nextRepoId);
     if (repo === undefined) {
-      return;
+      throw new Error(`Unknown repo id selected: ${nextRepoId}.`);
     }
     if (repo.id === props.selectedRepoId) {
       select.blur();
@@ -125,7 +127,11 @@ function DiffViewSelect(props: {
       <select
         value={props.viewMode}
         onChange={(event) => {
-          props.onViewModeChange(event.currentTarget.value as DiffViewMode);
+          const nextViewMode = event.currentTarget.value;
+          if (nextViewMode !== "split" && nextViewMode !== "inline") {
+            throw new Error(`Unsupported diff view mode: ${nextViewMode}.`);
+          }
+          props.onViewModeChange(nextViewMode);
           event.currentTarget.blur();
         }}
       >
@@ -157,13 +163,31 @@ function SummaryView(props: { summary: Summary }) {
       <Show when={hasNotebookCells()}>
         <SummaryMetric
           label="Cells"
-          added={props.summary.added_cells ?? 0}
-          changed={props.summary.modified_cells ?? 0}
-          removed={props.summary.removed_cells ?? 0}
+          added={summaryCellMetric(props.summary, "added_cells")}
+          changed={summaryCellMetric(props.summary, "modified_cells")}
+          removed={summaryCellMetric(props.summary, "removed_cells")}
         />
       </Show>
     </section>
   );
+}
+
+function loadedRepos(repos: RepoMark[] | null): RepoMark[] {
+  if (repos === null) {
+    throw new Error("Repo select rendered before repos loaded.");
+  }
+  return repos;
+}
+
+function summaryCellMetric(
+  summary: Summary,
+  key: "added_cells" | "modified_cells" | "removed_cells",
+): number {
+  const value = summary[key];
+  if (typeof value !== "number") {
+    throw new Error(`Summary is missing ${key}.`);
+  }
+  return value;
 }
 
 function SummaryMetric(props: {

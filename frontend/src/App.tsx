@@ -14,6 +14,7 @@ import {
   createRepoResources,
 } from "./app/createRepoResources";
 import { type ControlsState, emptySummary, initialDiffViewMode } from "./model";
+import { useToasts } from "./Toasts";
 import "./styles.css";
 
 export function App() {
@@ -23,6 +24,7 @@ export function App() {
   const [controls, setControls] = createSignal<ControlsState | null>(null);
   let appRoot: HTMLElement | undefined;
   let appHeader: HTMLElement | undefined;
+  const { addErrorToast } = useToasts();
 
   const repo = createRepoResources();
   const ui = createDiffUiState();
@@ -36,6 +38,7 @@ export function App() {
     setDirectoryExpansion: ui.setDirectoryExpansion,
     setFileExpansion: ui.setFileExpansion,
     refChoices: repo.refChoices,
+    addErrorToast,
   });
 
   const setViewMode = (viewMode: DiffViewMode) => {
@@ -100,6 +103,7 @@ export function App() {
         loadInitialDiff(initial);
       }
     } catch (error) {
+      addErrorToast("Failed to load repo refs", error);
       batch(() => {
         diff.clearActiveRequest();
         diff.resetDiffState(

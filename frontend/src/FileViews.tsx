@@ -16,6 +16,7 @@ import {
   type LinePin,
   type LoadedDiff,
   addHydratedNotebookSummary,
+  defaultFileExpansion,
   directoryElementId,
   expansionValue,
   fileBasename,
@@ -28,6 +29,7 @@ import {
   fileKindStatus,
   fileLineStats,
   fileMatchesLinePin,
+  fileRows,
   formatLineStat,
   groupFilesByLabel,
   groupLineStats,
@@ -54,7 +56,7 @@ function VisibilityIndicator(props: {
         large: props.size === "large",
         small: props.size === "small",
         visible: props.visible,
-        virtualized: props.virtualized ?? false,
+        virtualized: props.virtualized === true,
       }}
       aria-hidden="true"
     >
@@ -137,7 +139,7 @@ export function FileList(props: {
                 group={() => groupForLabel(label)}
                 loadedDiff={props.loadedDiff}
                 activeRequestIdentity={props.activeRequestIdentity}
-                expanded={props.directoryExpansion[label] ?? true}
+                expanded={expansionValue(props.directoryExpansion, label, true)}
                 fileExpansion={props.fileExpansion}
                 loadingFiles={props.loadingFiles}
                 fileErrors={props.fileErrors}
@@ -216,11 +218,13 @@ function DirectoryGroup(props: {
                   file={file}
                   loadedDiff={props.loadedDiff}
                   activeRequestIdentity={props.activeRequestIdentity}
-                  expanded={
-                    props.fileExpansion[key] ?? file.default_expanded ?? false
-                  }
-                  loading={props.loadingFiles[key] ?? false}
-                  error={props.fileErrors[key] ?? ""}
+                  expanded={expansionValue(
+                    props.fileExpansion,
+                    key,
+                    defaultFileExpansion(file),
+                  )}
+                  loading={fileIsLoading(props.loadingFiles, key)}
+                  error={fileError(props.fileErrors, key)}
                   linePin={props.linePin}
                   forcedRichFileIds={props.forcedRichFileIds}
                   onFileVirtualizedChange={props.onFileVirtualizedChange}
@@ -264,7 +268,7 @@ export function FileTreeSidebar(props: {
     expansionValue(
       props.fileExpansion,
       fileKey(file),
-      file.default_expanded ?? false,
+      defaultFileExpansion(file),
     );
 
   const setDirectoryExpanded = (group: FileGroup, expanded: boolean) => {
@@ -481,7 +485,7 @@ function FileCard(props: {
       case "pure_renamed":
         return "Load renamed file diff";
       default:
-        return "Load diff";
+        return unsupportedLazyReason(props.file.lazy);
     }
   };
   const lazyMeta = () => {
@@ -497,13 +501,13 @@ function FileCard(props: {
       case "pure_renamed":
         return `${displayName()} was renamed without content changes. Click to fetch and open it.`;
       default:
-        return `${displayName()} is folded by default. Click to fetch and open it.`;
+        return unsupportedLazyReason(props.file.lazy);
     }
   };
   const canRenderRows = () =>
     fileEntryIsHydrated(props.file) &&
     props.file.render_kind !== "notebook" &&
-    (props.file.rows?.length ?? 0) > 0;
+    fileRows(props.file).length > 0;
   const hasEngineWarning = () =>
     props.file.engine_warning !== null &&
     props.file.engine_warning !== undefined;
@@ -521,7 +525,13 @@ function FileCard(props: {
     }
 
     const observer = new IntersectionObserver(
-      ([entry]) => setNearViewport(entry?.isIntersecting ?? false),
+      (entries) => {
+        const entry = entries[0];
+        if (entry === undefined) {
+          throw new Error("Intersection observer did not provide an entry.");
+        }
+        setNearViewport(entry.isIntersecting);
+      },
       { rootMargin: "1500px 0px" },
     );
     observer.observe(bodyViewport);
@@ -631,7 +641,7 @@ function FileCard(props: {
             <Show when={hasEngineWarning()}>
               <span
                 class="file-card-engine-warning"
-                title={props.file.engine_warning!.message}
+                title={engineWarningMessage(props.file)}
               >
                 Difftastic failed: text fallback
               </span>
@@ -673,7 +683,7 @@ function FileCard(props: {
             <Show when={props.file.render_kind === "notebook"}>
               <NotebookFile
                 file={props.file}
-                request={props.loadedDiff?.request ?? null}
+                request={loadedRequest(props.loadedDiff)}
                 diffViewMode={props.diffViewMode}
               />
             </Show>
@@ -686,9 +696,9 @@ function FileCard(props: {
                   <DiffGrid
                     file={props.file}
                     viewMode={props.diffViewMode}
-                    semanticReplaceRows={
-                      props.loadedDiff?.request.engine === "difftastic"
-                    }
+                    semanticReplaceRows={loadedEngineIsDifftastic(
+                      props.loadedDiff,
+                    )}
                   />
                 </Show>
               </Show>
@@ -725,8 +735,8 @@ function FileCard(props: {
 }
 
 function PlainSplitFileDiff(props: { file: FileEntry }) {
-  const text = () => plainSplitText(props.file.rows ?? []);
-  const hunkAnchors = () => virtualHunkAnchors(props.file.rows ?? []);
+  const text = () => plainSplitText(fileRows(props.file));
+  const hunkAnchors = () => virtualHunkAnchors(fileRows(props.file));
 
   return (
     <div class="plain-split-diff" aria-label="Virtualized plain split diff">
@@ -746,7 +756,7 @@ function PlainSplitFileDiff(props: { file: FileEntry }) {
 }
 
 function HunkSkipAnchors(props: { file: FileEntry }) {
-  const hunkAnchors = () => virtualHunkAnchors(props.file.rows ?? []);
+  const hunkAnchors = () => virtualHunkAnchors(fileRows(props.file));
 
   return (
     <div class="hunk-skip-anchors" aria-hidden="true">
@@ -779,8 +789,8 @@ function fileCanHaveDomHunks(file: FileEntry): boolean {
   return (
     fileEntryIsHydrated(file) &&
     file.render_kind !== "notebook" &&
-    (file.rows?.length ?? 0) > 0 &&
-    (file.rows ?? []).some((row) => isChangedDiffRowStatus(row.status))
+    fileRows(file).length > 0 &&
+    fileRows(file).some((row) => isChangedDiffRowStatus(row.status))
   );
 }
 
@@ -813,7 +823,73 @@ function plainSplitText(rows: DiffRow[]): { left: string; right: string } {
 
 function plainSideText(row: DiffRow, side: "left" | "right"): string {
   if (row.status === "fold") {
-    return row.label ?? `... ${row.count ?? 0} lines`;
+    return foldRowLabel(row);
   }
-  return (side === "left" ? row.left_text : row.right_text) ?? "";
+  if (row.status === "elided") {
+    return elidedRowLabel(row);
+  }
+  const text = side === "left" ? row.left_text : row.right_text;
+  if (text === null) {
+    return "";
+  }
+  return text;
+}
+
+function fileIsLoading(loadingFiles: Record<string, boolean>, key: string) {
+  const loading = loadingFiles[key];
+  if (loading === undefined) {
+    return false;
+  }
+  return loading;
+}
+
+function fileError(fileErrors: Record<string, string>, key: string) {
+  const error = fileErrors[key];
+  if (error === undefined) {
+    return "";
+  }
+  return error;
+}
+
+function engineWarningMessage(file: FileEntry): string {
+  const warning = file.engine_warning;
+  if (warning === null || warning === undefined) {
+    throw new Error(`${fileDisplayName(file)} is missing engine warning.`);
+  }
+  return warning.message;
+}
+
+function loadedRequest(loadedDiff: LoadedDiff | null): LoadedDiff["request"] {
+  if (loadedDiff === null) {
+    throw new Error("Loaded diff is required to render a notebook file.");
+  }
+  return loadedDiff.request;
+}
+
+function loadedEngineIsDifftastic(loadedDiff: LoadedDiff | null): boolean {
+  if (loadedDiff === null) {
+    throw new Error("Loaded diff is required to render a text file.");
+  }
+  return loadedDiff.request.engine === "difftastic";
+}
+
+function foldRowLabel(row: DiffRow): string {
+  if (typeof row.label === "string" && row.label.length > 0) {
+    return row.label;
+  }
+  if (typeof row.count !== "number") {
+    throw new Error("Fold row is missing count.");
+  }
+  return `... ${row.count} lines`;
+}
+
+function elidedRowLabel(row: DiffRow): string {
+  if (typeof row.label !== "string" || row.label.length === 0) {
+    throw new Error("Elided row is missing label.");
+  }
+  return row.label;
+}
+
+function unsupportedLazyReason(value: unknown): never {
+  throw new Error(`Unsupported lazy reason: ${String(value)}.`);
 }

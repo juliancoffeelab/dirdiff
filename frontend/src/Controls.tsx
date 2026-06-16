@@ -292,7 +292,7 @@ function BranchSourceField(props: {
             {([section, values]) => (
               <div class="autocomplete-section">
                 <div class="autocomplete-section-label">
-                  {refSectionLabels[section] || section}
+                  {autocompleteSectionLabel(section)}
                 </div>
                 <For each={values}>
                   {(value) => (
@@ -404,7 +404,7 @@ function AutocompleteField(props: {
             {([section, values]) => (
               <div class="autocomplete-section">
                 <div class="autocomplete-section-label">
-                  {refSectionLabels[section] || section}
+                  {autocompleteSectionLabel(section)}
                 </div>
                 <For each={values}>
                   {(value) => {
@@ -514,5 +514,16 @@ function autocompleteOptionDescription(section: string, value: string): string {
   if (section !== "builtins") {
     return "";
   }
-  return builtinRefDescriptions[value] || "";
+  const description = builtinRefDescriptions[value];
+  if (description === undefined) {
+    throw new Error(`Missing description for built-in ref ${value}.`);
+  }
+  return description;
+}
+
+function autocompleteSectionLabel(section: string): string {
+  if (!Object.hasOwn(refSectionLabels, section)) {
+    throw new Error(`Missing label for autocomplete section ${section}.`);
+  }
+  return refSectionLabels[section];
 }

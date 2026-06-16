@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
 import type { DiffRow, FileEntry } from "./api";
-import { fileElementId, fileEntryIsHydrated, fileKey } from "./model";
+import { fileElementId, fileEntryIsHydrated, fileKey, fileRows } from "./model";
 
 type HunkNavigationOptions = {
   afterReconcile?: () => void;
@@ -19,7 +19,11 @@ const RICH_PRELOAD_FILE_RADIUS = 2;
 type HunkAnchor = HTMLElement | null;
 
 export function fileIdForHunkAnchor(anchor: HTMLElement): string | null {
-  return anchor.closest<HTMLElement>(".file-card")?.id ?? null;
+  const fileCard = anchor.closest<HTMLElement>(".file-card");
+  if (fileCard === null) {
+    return null;
+  }
+  return fileCard.id;
 }
 
 export function richPreloadFileIdsForAnchor(
@@ -64,13 +68,13 @@ function fileCanHaveDomHunks(file: FileEntry): boolean {
   return (
     fileEntryIsHydrated(file) &&
     file.render_kind !== "notebook" &&
-    (file.rows?.length ?? 0) > 0 &&
+    fileRows(file).length > 0 &&
     fileHasChangedRows(file)
   );
 }
 
 function fileHasChangedRows(file: FileEntry): boolean {
-  return (file.rows ?? []).some((row) => isChangedDiffRowStatus(row.status));
+  return fileRows(file).some((row) => isChangedDiffRowStatus(row.status));
 }
 
 function isChangedDiffRowStatus(status: DiffRow["status"]): boolean {
@@ -97,7 +101,16 @@ export function shouldIgnoreGlobalHotkeyEvent(event: KeyboardEvent): boolean {
 }
 
 function hunkAnchorElements(root: ParentNode | undefined): HTMLElement[] {
-  return [...(root ?? document).querySelectorAll<HTMLElement>(".hunk-anchor")];
+  return [
+    ...hunkAnchorRoot(root).querySelectorAll<HTMLElement>(".hunk-anchor"),
+  ];
+}
+
+function hunkAnchorRoot(root: ParentNode | undefined): ParentNode {
+  if (root === undefined) {
+    return document;
+  }
+  return root;
 }
 
 function hunkAnchors(root: ParentNode | undefined): HunkAnchor[] {

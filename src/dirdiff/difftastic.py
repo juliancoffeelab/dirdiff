@@ -516,7 +516,103 @@ def _difftastic_coalesce_trailing_syntax_items(
     if not trailing_syntax:
         return items
 
-    return items[:cursor] + ["".join(reversed(trailing_syntax))]
+    return [*items[:cursor], "".join(reversed(trailing_syntax))]
+
+
+def _difftastic_residual_mapping(
+    *,
+    right_index: int,
+    source_index: int,
+    right_lines: list[str],
+    item: str,
+    remainder: dict[int, tuple[int, str]],
+) -> dict[int, tuple[int, str]]:
+    return {
+        right_index: (
+            source_index,
+            f"{_difftastic_leading_whitespace(right_lines[right_index])}{item}",
+        ),
+        **remainder,
+    }
+
+
+def _difftastic_match_right_only_residual_window(
+    *,
+    items: list[str],
+    item_keys: list[str],
+    row_candidates: list[tuple[int, str, bool]],
+    source_index: int,
+    right_lines: list[str],
+    row_position: int,
+    item_position: int,
+) -> dict[int, tuple[int, str]] | None:
+    if item_position == len(items):
+        has_unmatched_key = any(
+            candidate_key and not has_ranges
+            for _, candidate_key, has_ranges in row_candidates[row_position:]
+        )
+        if has_unmatched_key:
+            return None
+        return {}
+
+    if row_position == len(row_candidates):
+        return None
+
+    right_index, candidate_key, has_ranges = row_candidates[row_position]
+    item = items[item_position]
+    item_key = item_keys[item_position]
+    matched: dict[int, tuple[int, str]] | None = None
+
+    if candidate_key == item_key:
+        remainder = _difftastic_match_right_only_residual_window(
+            items=items,
+            item_keys=item_keys,
+            row_candidates=row_candidates,
+            source_index=source_index,
+            right_lines=right_lines,
+            row_position=row_position + 1,
+            item_position=item_position + 1,
+        )
+        if remainder is not None:
+            matched = _difftastic_residual_mapping(
+                right_index=right_index,
+                source_index=source_index,
+                right_lines=right_lines,
+                item=item,
+                remainder=remainder,
+            )
+
+    if matched is None and has_ranges:
+        matched = _difftastic_match_right_only_residual_window(
+            items=items,
+            item_keys=item_keys,
+            row_candidates=row_candidates,
+            source_index=source_index,
+            right_lines=right_lines,
+            row_position=row_position + 1,
+            item_position=item_position,
+        )
+
+    if matched is None and has_ranges:
+        remainder = _difftastic_match_right_only_residual_window(
+            items=items,
+            item_keys=item_keys,
+            row_candidates=row_candidates,
+            source_index=source_index,
+            right_lines=right_lines,
+            row_position=row_position + 1,
+            item_position=item_position + 1,
+        )
+        if remainder is not None:
+            matched = _difftastic_residual_mapping(
+                right_index=right_index,
+                source_index=source_index,
+                right_lines=right_lines,
+                item=item,
+                remainder=remainder,
+            )
+
+    return matched
 
 
 def _difftastic_plan_right_only_residual_window(
@@ -564,56 +660,15 @@ def _difftastic_plan_right_only_residual_window(
             for right_index in right_indexes
         ]
 
-        def match_window(
-            row_position: int,
-            item_position: int,
-        ) -> dict[int, tuple[int, str]] | None:
-            if item_position == len(items):
-                for _, candidate_key, has_ranges in row_candidates[
-                    row_position:
-                ]:
-                    if candidate_key and not has_ranges:
-                        return None
-                return {}
-
-            if row_position == len(row_candidates):
-                return None
-
-            right_index, candidate_key, has_ranges = row_candidates[
-                row_position
-            ]
-            item = items[item_position]
-            item_key = item_keys[item_position]
-
-            if candidate_key == item_key:
-                remainder = match_window(row_position + 1, item_position + 1)
-                if remainder is not None:
-                    return {
-                        right_index: (
-                            fragment.source_index,
-                            f"{_difftastic_leading_whitespace(right_lines[right_index])}{item}",
-                        ),
-                        **remainder,
-                    }
-
-            if has_ranges:
-                remainder = match_window(row_position + 1, item_position)
-                if remainder is not None:
-                    return remainder
-
-                remainder = match_window(row_position + 1, item_position + 1)
-                if remainder is not None:
-                    return {
-                        right_index: (
-                            fragment.source_index,
-                            f"{_difftastic_leading_whitespace(right_lines[right_index])}{item}",
-                        ),
-                        **remainder,
-                    }
-
-            return None
-
-        mappings = match_window(0, 0)
+        mappings = _difftastic_match_right_only_residual_window(
+            items=items,
+            item_keys=item_keys,
+            row_candidates=row_candidates,
+            source_index=fragment.source_index,
+            right_lines=right_lines,
+            row_position=0,
+            item_position=0,
+        )
         if mappings is None:
             continue
 

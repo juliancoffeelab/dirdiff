@@ -7,6 +7,7 @@ import type {
   SyntaxSpan,
 } from "./api";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
+import { fileDisplayName, fileFoldHints, fileRows } from "./model";
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -38,13 +39,13 @@ export function DiffGrid(props: {
     >
       {props.viewMode === "inline" ? (
         <InlineHeader
-          leftLabel={labelOrDefault(props.file.left_label, "left")}
-          rightLabel={labelOrDefault(props.file.right_label, "right")}
+          leftLabel={sideLabel(props.file, "left")}
+          rightLabel={sideLabel(props.file, "right")}
         />
       ) : (
         <SplitHeader
-          leftLabel={labelOrDefault(props.file.left_label, "left")}
-          rightLabel={labelOrDefault(props.file.right_label, "right")}
+          leftLabel={sideLabel(props.file, "left")}
+          rightLabel={sideLabel(props.file, "right")}
         />
       )}
       <ImperativeDiffLines
@@ -112,9 +113,9 @@ function ImperativeDiffLines(props: {
     }
 
     const rows = markHunkAnchors(
-      addFoldRows(props.file.rows ?? [], props.file.fold_hints),
+      addFoldRows(fileRows(props.file), fileFoldHints(props.file)),
     );
-    const fileLabel = fileDisplayLabel(props.file);
+    const fileLabel = fileDisplayName(props.file);
     const fragment =
       props.viewMode === "inline" && props.semanticReplaceRows === true
         ? renderSemanticInlineRowsDom(rows, fileLabel, expandedFolds)
@@ -123,8 +124,8 @@ function ImperativeDiffLines(props: {
           : renderSplitRowsDom(
               rows,
               fileLabel,
-              labelOrDefault(props.file.left_label, "left"),
-              labelOrDefault(props.file.right_label, "right"),
+              sideLabel(props.file, "left"),
+              sideLabel(props.file, "right"),
               expandedFolds,
             );
     root.replaceChildren(fragment);
@@ -135,27 +136,12 @@ function ImperativeDiffLines(props: {
   return <div ref={root} class="diff-lines" />;
 }
 
-function fileDisplayLabel(file: FileEntry): string {
-  if (file.display_name !== undefined && file.display_name.length > 0) {
-    return file.display_name;
-  }
-  if (file.right_path !== null && file.right_path.length > 0) {
-    return file.right_path;
-  }
-  if (file.left_path !== null && file.left_path.length > 0) {
-    return file.left_path;
-  }
-  return "(unknown file)";
-}
-
-function labelOrDefault(
-  value: string | null | undefined,
-  fallback: string,
-): string {
+function sideLabel(file: FileEntry, side: Side): string {
+  const value = side === "left" ? file.left_label : file.right_label;
   if (value !== null && value !== undefined && value.length > 0) {
     return value;
   }
-  return fallback;
+  throw new Error(`${fileDisplayName(file)} is missing ${side} label.`);
 }
 
 function renderSplitRowsDom(
@@ -178,6 +164,10 @@ function renderSplitRowsDom(
           expandedFolds,
         ),
       );
+      return;
+    }
+    if (row.status === "elided") {
+      fragment.append(renderSplitElidedRowDom(row, leftLabel, rightLabel));
       return;
     }
     fragment.append(renderSplitDiffRowDom(row, index, fileLabel));
@@ -431,13 +421,11 @@ function renderInlineDiffRowsDom(
   foldToggle?: FoldToggle,
   lineNumberState?: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
-  const rightText = row.right_text ?? "";
-  const leftText = row.left_text ?? "";
-  const sharedText = rightText || leftText;
-  const sharedTokens =
-    (row.right_tokens?.length ? row.right_tokens : row.left_tokens) ?? [];
-  const sharedSyntax =
-    (row.right_syntax?.length ? row.right_syntax : row.left_syntax) ?? [];
+  const rightText = sideText(row, "right");
+  const leftText = sideText(row, "left");
+  const sharedText = sharedSideText(leftText, rightText);
+  const sharedTokens = sharedSideTokens(row);
+  const sharedSyntax = sharedSideSyntax(row);
 
   switch (row.status) {
     case "equal":
@@ -462,8 +450,8 @@ function renderInlineDiffRowsDom(
         leftNo: row.left_no,
         rightNo: null,
         text: leftText,
-        tokens: row.left_tokens ?? [],
-        syntax: row.left_syntax ?? [],
+        tokens: row.left_tokens,
+        syntax: row.left_syntax,
         rowIndex,
         fileLabel,
         sourceRow: row,
@@ -477,8 +465,8 @@ function renderInlineDiffRowsDom(
         leftNo: null,
         rightNo: row.right_no,
         text: rightText,
-        tokens: row.right_tokens ?? [],
-        syntax: row.right_syntax ?? [],
+        tokens: row.right_tokens,
+        syntax: row.right_syntax,
         rowIndex,
         fileLabel,
         sourceRow: row,
@@ -497,8 +485,8 @@ function renderInlineDiffRowsDom(
             leftNo: row.left_no,
             rightNo: null,
             text: leftText,
-            tokens: row.left_tokens ?? [],
-            syntax: row.left_syntax ?? [],
+            tokens: row.left_tokens,
+            syntax: row.left_syntax,
             rowIndex,
             fileLabel,
             sourceRow: row,
@@ -516,8 +504,8 @@ function renderInlineDiffRowsDom(
             leftNo: null,
             rightNo: row.right_no,
             text: rightText,
-            tokens: row.right_tokens ?? [],
-            syntax: row.right_syntax ?? [],
+            tokens: row.right_tokens,
+            syntax: row.right_syntax,
             rowIndex,
             fileLabel,
             sourceRow: { ...row, isHunkAnchor: !hasLeftSide },
@@ -529,22 +517,47 @@ function renderInlineDiffRowsDom(
       }
       return fragment;
     }
-    default:
+    case "elided":
       return renderInlineDiffRowDom({
         status: "equal",
         marker: " ",
-        leftNo: row.left_no,
-        rightNo: row.right_no,
-        text: sharedText,
-        tokens: sharedTokens,
-        syntax: sharedSyntax,
+        leftNo: null,
+        rightNo: null,
+        text: elidedLabel(row),
+        tokens: [],
+        syntax: [],
         rowIndex,
         fileLabel,
         sourceRow: row,
         foldToggle,
         lineNumberState,
       });
+    case "fold":
+      throw new Error("Fold rows must be rendered by the fold renderer.");
+    default:
+      throwUnhandledRowStatus(row.status);
   }
+}
+
+function sharedSideText(leftText: string, rightText: string): string {
+  if (rightText.length > 0) {
+    return rightText;
+  }
+  return leftText;
+}
+
+function sharedSideTokens(row: DiffRow): InlineToken[] {
+  if (row.right_tokens.length > 0) {
+    return row.right_tokens;
+  }
+  return row.left_tokens;
+}
+
+function sharedSideSyntax(row: DiffRow): SyntaxSpan[] {
+  if (row.right_syntax.length > 0) {
+    return row.right_syntax;
+  }
+  return row.left_syntax;
 }
 
 function inlineSideExists(lineNo: number | null, text: string): boolean {
@@ -568,15 +581,15 @@ function renderSemanticInlineDiffRowsDom(
     );
   }
 
-  const rightText = row.right_text ?? "";
+  const rightText = sideText(row, "right");
   return renderInlineDiffRowDom({
     status: "replace",
     marker: " ",
     leftNo: row.left_no,
     rightNo: row.right_no,
     text: rightText,
-    tokens: row.right_tokens ?? [],
-    syntax: row.right_syntax ?? [],
+    tokens: row.right_tokens,
+    syntax: row.right_syntax,
     rowIndex,
     fileLabel,
     sourceRow: row,
@@ -589,8 +602,8 @@ function canCollapseSemanticInlineRow(row: DiffRow): boolean {
   if (row.status !== "replace") {
     return false;
   }
-  const leftTokens = row.left_tokens ?? [];
-  const rightTokens = row.right_tokens ?? [];
+  const leftTokens = row.left_tokens;
+  const rightTokens = row.right_tokens;
   const oldSideHasChanges = leftTokens.some(
     (token) => token.status !== "unchanged",
   );
@@ -651,10 +664,20 @@ function renderInlineDiffRowDom(props: {
       props.text,
       props.tokens,
       props.syntax,
-      props.tokenRowStatus ?? props.status,
+      inlineTokenRowStatus(props),
     ),
   );
   return element;
+}
+
+function inlineTokenRowStatus(props: {
+  status: InlineRowStatus;
+  tokenRowStatus?: InlineRowStatus;
+}): InlineRowStatus {
+  if (props.tokenRowStatus === undefined) {
+    return props.status;
+  }
+  return props.tokenRowStatus;
 }
 
 function inlineDisplayLineNo(
@@ -707,9 +730,9 @@ function createDiffSideDom(
   foldToggle?: FoldToggle,
 ): HTMLElement {
   const lineNo = side === "left" ? row.left_no : row.right_no;
-  const text = (side === "left" ? row.left_text : row.right_text) ?? "";
-  const tokens = (side === "left" ? row.left_tokens : row.right_tokens) ?? [];
-  const syntax = (side === "left" ? row.left_syntax : row.right_syntax) ?? [];
+  const text = sideText(row, side);
+  const tokens = side === "left" ? row.left_tokens : row.right_tokens;
+  const syntax = side === "left" ? row.left_syntax : row.right_syntax;
   const element = document.createElement("div");
   element.className = `diff-side side-${side}${
     lineNo === null && text === "" ? " empty-side" : ""
@@ -719,6 +742,54 @@ function createDiffSideDom(
     createLineCodeDom(text, tokens, syntax, row.status),
   );
   return element;
+}
+
+function renderSplitElidedRowDom(
+  row: DiffRow,
+  leftLabel: string,
+  rightLabel: string,
+): HTMLElement {
+  const element = document.createElement("div");
+  element.className = "diff-row elided";
+  element.append(
+    createFoldSideDom(
+      requiredRowCount(row, "elided"),
+      elidedLabel(row),
+      leftLabel,
+    ),
+    createFoldSideDom(
+      requiredRowCount(row, "elided"),
+      elidedLabel(row),
+      rightLabel,
+    ),
+  );
+  return element;
+}
+
+function sideText(row: DiffRow, side: Side): string {
+  const text = side === "left" ? row.left_text : row.right_text;
+  if (text === null) {
+    return "";
+  }
+  return text;
+}
+
+function requiredRowCount(row: DiffRow, status: string): number {
+  if (typeof row.count !== "number") {
+    throw new Error(`${status} row is missing count.`);
+  }
+  return row.count;
+}
+
+function elidedLabel(row: DiffRow): string {
+  if (typeof row.label !== "string" || row.label.length === 0) {
+    throw new Error("Elided row is missing label.");
+  }
+  return row.label;
+}
+
+function throwUnhandledRowStatus(status: never): never {
+  throw new Error(`Unhandled diff row status: ${String(status)}.`);
 }
 
 function createFoldSideDom(
@@ -748,7 +819,10 @@ function foldLineText(count: number): string {
 
 function foldLabel(row: FoldRow): string {
   const lineText = foldLineText(row.count);
-  return row.label ? `... ${lineText} in ${row.label}` : `... ${lineText}`;
+  if (row.label.length > 0) {
+    return `... ${lineText} in ${row.label}`;
+  }
+  return `... ${lineText}`;
 }
 
 function createLineNumberDom(
@@ -894,8 +968,8 @@ function markHunkAnchors(rows: RenderRow[]): HunkRenderRow[] {
 }
 
 function isWhitespaceOnlyChange(row: DiffRow): boolean {
-  const leftTokens = row.left_tokens ?? [];
-  const rightTokens = row.right_tokens ?? [];
+  const leftTokens = row.left_tokens;
+  const rightTokens = row.right_tokens;
   const changedTokens = [...leftTokens, ...rightTokens].filter(
     (token) => token.status !== "unchanged",
   );
@@ -972,12 +1046,18 @@ function decoratedParts(
     const classes = syntaxClasses.length
       ? ["ts-token", ...new Set(syntaxClasses)]
       : [];
+    const status = token === undefined ? "unchanged" : token.status;
+    const isWhitespace =
+      token === undefined
+        ? /^\s+$/.test(text.slice(start, end))
+        : token.isWhitespace;
+    const leading = token === undefined ? false : token.leading;
     parts.push({
       text: text.slice(start, end),
       classes,
-      status: token?.status ?? "unchanged",
-      isWhitespace: token?.isWhitespace ?? /^\s+$/.test(text.slice(start, end)),
-      leading: token?.leading ?? false,
+      status,
+      isWhitespace,
+      leading,
     });
   }
   return parts;

@@ -2,49 +2,49 @@ import { For, Show, createSignal } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type {
   DiffRequest,
+  DiffRow,
   FileEntry,
+  FoldHint,
   NotebookCellEntry,
   NotebookSection,
 } from "./api";
 import { fetchNotebookSection } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
-import { isNotebookSummary } from "./model";
+import { notebookCells, notebookSummary } from "./model";
 
 export function NotebookFile(props: {
   file: FileEntry;
-  request: DiffRequest | null;
+  request: DiffRequest;
   diffViewMode: DiffViewMode;
 }) {
-  const notebookSummary = () =>
-    isNotebookSummary(props.file.summary) ? props.file.summary : null;
-  const summary = () => props.file.summary;
-  const changedCells = () => notebookSummary()?.changed_cells ?? 0;
-  const cells = () => props.file.cells ?? [];
+  const summary = () => notebookSummary(props.file);
+  const cells = () => notebookCells(props.file);
 
   return (
     <div class="notebook-file">
       <div class="notebook-summary">
         <span class="badge badge-neutral">
-          {summary()?.left_exists === true ? "left exists" : "left missing"}
+          {summary().left_exists ? "left exists" : "left missing"}
         </span>
         <span class="badge badge-neutral">
-          {summary()?.right_exists === true ? "right exists" : "right missing"}
+          {summary().right_exists ? "right exists" : "right missing"}
         </span>
         <span class="badge badge-neutral">
-          {changedCells()} changed cell{changedCells() === 1 ? "" : "s"}
+          {summary().changed_cells} changed cell
+          {summary().changed_cells === 1 ? "" : "s"}
         </span>
-        <Show when={notebookSummary()?.notebook_metadata_changed === true}>
+        <Show when={summary().notebook_metadata_changed}>
           <span class="badge badge-neutral">notebook metadata changed</span>
         </Show>
       </div>
 
-      <Show when={notebookSummary()?.notebook_metadata_changed === true}>
+      <Show when={summary().notebook_metadata_changed}>
         <NotebookDetails
           file={props.file}
           request={props.request}
           title={notebookSectionSummary("Notebook metadata diff", {
-            renderMode: props.file.notebook_metadata_render_mode ?? null,
-            truncatedRows: props.file.notebook_metadata_truncated_rows ?? 0,
+            renderMode: notebookMetadataRenderMode(props.file),
+            truncatedRows: notebookMetadataTruncatedRows(props.file),
           })}
           section="notebook-metadata"
           leftLabel="Left notebook metadata"
@@ -80,13 +80,13 @@ export function NotebookFile(props: {
 
 function NotebookCell(props: {
   file: FileEntry;
-  request: DiffRequest | null;
+  request: DiffRequest;
   cell: NotebookCellEntry;
   diffViewMode: DiffViewMode;
 }) {
   const cell = () => props.cell;
-  const leftIndex = () => cell().left_index ?? "—";
-  const rightIndex = () => cell().right_index ?? "—";
+  const leftIndex = () => notebookCellIndex(cell().left_index);
+  const rightIndex = () => notebookCellIndex(cell().right_index);
 
   return (
     <article class="notebook-cell-card">
@@ -96,8 +96,8 @@ function NotebookCell(props: {
             {cell().kind.toUpperCase()} {cell().cell_type} cell
           </h3>
           <p>
-            Cell ID: {cell().cell_id ?? "missing"} · left #{leftIndex()} · right
-            #{rightIndex()}
+            Cell ID: {notebookCellId(cell())} · left #{leftIndex()} · right #
+            {rightIndex()}
           </p>
         </div>
         <div class="badge-row">
@@ -123,7 +123,7 @@ function NotebookCell(props: {
         leftLabel="Left source"
         rightLabel="Right source"
         renderMode={cell().source_render_mode}
-        truncatedRows={cell().source_truncated_rows ?? 0}
+        truncatedRows={truncatedRowsValue(cell().source_truncated_rows)}
         diffViewMode={props.diffViewMode}
       />
 
@@ -133,7 +133,7 @@ function NotebookCell(props: {
           request={props.request}
           title={notebookSectionSummary("Cell metadata diff", {
             renderMode: cell().metadata_render_mode,
-            truncatedRows: cell().metadata_truncated_rows ?? 0,
+            truncatedRows: truncatedRowsValue(cell().metadata_truncated_rows),
           })}
           section="cell-metadata"
           cellKey={cell().cell_key}
@@ -149,7 +149,7 @@ function NotebookCell(props: {
           request={props.request}
           title={notebookSectionSummary("Cell outputs diff", {
             renderMode: cell().outputs_render_mode,
-            truncatedRows: cell().outputs_truncated_rows ?? 0,
+            truncatedRows: truncatedRowsValue(cell().outputs_truncated_rows),
           })}
           section="cell-outputs"
           cellKey={cell().cell_key}
@@ -164,7 +164,7 @@ function NotebookCell(props: {
 
 function NotebookDetails(props: {
   file: FileEntry;
-  request: DiffRequest | null;
+  request: DiffRequest;
   title: string;
   section: string;
   cellKey?: string;
@@ -180,7 +180,7 @@ function NotebookDetails(props: {
 
   const load = async () => {
     const request = props.request;
-    if (request === null || section() !== null || loading()) {
+    if (section() !== null || loading()) {
       return;
     }
     setOpen(true);
@@ -192,7 +192,7 @@ function NotebookDetails(props: {
           request,
           props.file,
           props.section,
-          props.cellKey ?? null,
+          notebookSectionCellKey(props.cellKey),
         ),
         queryFn: ({ signal }) =>
           fetchNotebookSection(
@@ -218,6 +218,14 @@ function NotebookDetails(props: {
     }
   };
 
+  const loadedSection = () => {
+    const current = section();
+    if (current === null) {
+      throw new Error("Notebook section is not loaded.");
+    }
+    return current;
+  };
+
   return (
     <details
       class="notebook-details"
@@ -239,12 +247,12 @@ function NotebookDetails(props: {
       </Show>
       <Show when={section() !== null}>
         <NotebookSectionView
-          rows={section()!.rows}
-          foldHints={section()!.fold_hints}
+          rows={loadedSection().rows}
+          foldHints={loadedSection().fold_hints}
           leftLabel={props.leftLabel}
           rightLabel={props.rightLabel}
-          renderMode={section()!.render_mode}
-          truncatedRows={section()!.truncated_rows}
+          renderMode={loadedSection().render_mode}
+          truncatedRows={loadedSection().truncated_rows}
           diffViewMode={props.diffViewMode}
         />
       </Show>
@@ -254,8 +262,8 @@ function NotebookDetails(props: {
 
 function NotebookSectionView(props: {
   heading?: string;
-  rows: FileEntry["rows"];
-  foldHints: FileEntry["fold_hints"];
+  rows: DiffRow[];
+  foldHints: FoldHint[];
   leftLabel: string;
   rightLabel: string;
   renderMode?: "plain" | null;
@@ -263,13 +271,14 @@ function NotebookSectionView(props: {
   diffViewMode: DiffViewMode;
 }) {
   const file = (): FileEntry => ({
+    display_name: notebookSectionDisplayName(props),
     file_kind: { type: "git", status: "modified" },
     left_path: null,
     right_path: null,
     left_label: props.leftLabel,
     right_label: props.rightLabel,
-    rows: props.rows ?? [],
-    fold_hints: props.foldHints ?? [],
+    rows: props.rows,
+    fold_hints: props.foldHints,
     default_expanded: true,
   });
 
@@ -289,14 +298,74 @@ function NotebookSectionView(props: {
       >
         <p class="notebook-section-note">
           {props.renderMode === "plain" ? "plain render" : ""}
-          {props.renderMode === "plain" && (props.truncatedRows ?? 0)
+          {props.renderMode === "plain" && truncatedRows(props) > 0
             ? " · "
             : ""}
-          {(props.truncatedRows ?? 0) ? `truncated ${props.truncatedRows}` : ""}
+          {truncatedRows(props) > 0 ? `truncated ${truncatedRows(props)}` : ""}
         </p>
       </Show>
     </section>
   );
+}
+
+function notebookSectionDisplayName(props: {
+  heading?: string;
+  leftLabel: string;
+  rightLabel: string;
+}): string {
+  if (props.heading !== undefined && props.heading.length > 0) {
+    return props.heading;
+  }
+  return `${props.leftLabel} vs ${props.rightLabel}`;
+}
+
+function notebookMetadataRenderMode(file: FileEntry): "plain" | null {
+  if (file.notebook_metadata_render_mode === undefined) {
+    return null;
+  }
+  return file.notebook_metadata_render_mode;
+}
+
+function notebookMetadataTruncatedRows(file: FileEntry): number {
+  if (file.notebook_metadata_truncated_rows === undefined) {
+    return 0;
+  }
+  return file.notebook_metadata_truncated_rows;
+}
+
+function notebookCellIndex(index: number | null): string {
+  if (index === null) {
+    return "—";
+  }
+  return String(index);
+}
+
+function notebookCellId(cell: NotebookCellEntry): string {
+  if (cell.cell_id === null) {
+    return "missing";
+  }
+  return cell.cell_id;
+}
+
+function truncatedRowsValue(rows: number | null): number {
+  if (rows === null) {
+    return 0;
+  }
+  return rows;
+}
+
+function notebookSectionCellKey(cellKey: string | undefined): string | null {
+  if (cellKey === undefined) {
+    return null;
+  }
+  return cellKey;
+}
+
+function truncatedRows(props: { truncatedRows?: number | null }): number {
+  if (props.truncatedRows === null || props.truncatedRows === undefined) {
+    return 0;
+  }
+  return props.truncatedRows;
 }
 
 function notebookSectionSummary(
