@@ -424,7 +424,7 @@ function AutocompleteField(props: {
                         }}
                       >
                         <span class="autocomplete-option-label">{value}</span>
-                        <Show when={description}>
+                        <Show when={description !== ""}>
                           <span class="autocomplete-option-description">
                             {description}
                           </span>

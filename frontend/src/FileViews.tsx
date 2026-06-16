@@ -625,15 +625,13 @@ function FileCard(props: {
             <span class="file-card-status">
               {fileKindStatus(props.file.file_kind)}
             </span>
-            <Show when={props.file.engine_warning}>
-              {(warning) => (
-                <span
-                  class="file-card-engine-warning"
-                  title={warning().message}
-                >
-                  Difftastic failed: text fallback
-                </span>
-              )}
+            <Show when={props.file.engine_warning !== undefined}>
+              <span
+                class="file-card-engine-warning"
+                title={props.file.engine_warning!.message}
+              >
+                Difftastic failed: text fallback
+              </span>
             </Show>
           </span>
         </span>
@@ -657,17 +655,18 @@ function FileCard(props: {
       </Show>
       <Show
         when={
-          props.expanded && (!needsHydration() || props.loading || props.error)
+          props.expanded &&
+          (!needsHydration() || props.loading || props.error !== "")
         }
       >
         <div ref={bodyViewport} class="file-card-body">
           <Show when={props.loading}>
             <p class="file-placeholder">Loading file diff...</p>
           </Show>
-          <Show when={props.error}>
+          <Show when={props.error !== ""}>
             <p class="file-placeholder error-text">{props.error}</p>
           </Show>
-          <Show when={!props.loading && !props.error}>
+          <Show when={!props.loading && props.error === ""}>
             <Show when={props.file.render_kind === "notebook"}>
               <NotebookFile
                 file={props.file}
@@ -694,7 +693,14 @@ function FileCard(props: {
           </Show>
         </div>
       </Show>
-      <Show when={needsHydration() && props.file.lazy && !props.loading}>
+      <Show
+        when={
+          needsHydration() &&
+          props.file.lazy !== null &&
+          props.file.lazy !== undefined &&
+          !props.loading
+        }
+      >
         <button
           type="button"
           class="file-lazy-load-toggle"

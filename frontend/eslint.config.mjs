@@ -1,4 +1,5 @@
 import tseslint from "typescript-eslint";
+import showWhenBooleanRule from "./eslint-rules/show-when-boolean.mjs";
 
 export default tseslint.config(
   {
@@ -15,6 +16,11 @@ export default tseslint.config(
     },
     plugins: {
       "@typescript-eslint": tseslint.plugin,
+      local: {
+        rules: {
+          "show-when-boolean": showWhenBooleanRule,
+        },
+      },
     },
     rules: {
       "@typescript-eslint/strict-boolean-expressions": [
@@ -29,6 +35,7 @@ export default tseslint.config(
           allowRuleToRunWithoutStrictNullChecksIKnowWhatIAmDoing: false,
         },
       ],
+      "local/show-when-boolean": "error",
     },
   },
 );

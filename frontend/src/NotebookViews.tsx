@@ -33,12 +33,12 @@ export function NotebookFile(props: {
         <span class="badge badge-neutral">
           {changedCells()} changed cell{changedCells() === 1 ? "" : "s"}
         </span>
-        <Show when={notebookSummary()?.notebook_metadata_changed}>
+        <Show when={notebookSummary()?.notebook_metadata_changed === true}>
           <span class="badge badge-neutral">notebook metadata changed</span>
         </Show>
       </div>
 
-      <Show when={notebookSummary()?.notebook_metadata_changed}>
+      <Show when={notebookSummary()?.notebook_metadata_changed === true}>
         <NotebookDetails
           file={props.file}
           request={props.request}
@@ -234,21 +234,19 @@ function NotebookDetails(props: {
       <Show when={loading()}>
         <p class="notebook-details-message">Loading...</p>
       </Show>
-      <Show when={error()}>
+      <Show when={error() !== ""}>
         <p class="file-placeholder error-text">{error()}</p>
       </Show>
-      <Show when={section()}>
-        {(payload) => (
-          <NotebookSectionView
-            rows={payload().rows}
-            foldHints={payload().fold_hints}
-            leftLabel={props.leftLabel}
-            rightLabel={props.rightLabel}
-            renderMode={payload().render_mode}
-            truncatedRows={payload().truncated_rows}
-            diffViewMode={props.diffViewMode}
-          />
-        )}
+      <Show when={section() !== null}>
+        <NotebookSectionView
+          rows={section()!.rows}
+          foldHints={section()!.fold_hints}
+          leftLabel={props.leftLabel}
+          rightLabel={props.rightLabel}
+          renderMode={section()!.render_mode}
+          truncatedRows={section()!.truncated_rows}
+          diffViewMode={props.diffViewMode}
+        />
       </Show>
     </details>
   );
@@ -277,11 +275,18 @@ function NotebookSectionView(props: {
 
   return (
     <section class="notebook-section">
-      <Show when={props.heading}>
+      <Show when={props.heading !== undefined && props.heading !== ""}>
         <p class="notebook-section-heading">{props.heading}</p>
       </Show>
       <DiffGrid file={file()} viewMode={props.diffViewMode} />
-      <Show when={props.renderMode === "plain" || (props.truncatedRows ?? 0)}>
+      <Show
+        when={
+          props.renderMode === "plain" ||
+          (props.truncatedRows !== null &&
+            props.truncatedRows !== undefined &&
+            props.truncatedRows > 0)
+        }
+      >
         <p class="notebook-section-note">
           {props.renderMode === "plain" ? "plain render" : ""}
           {props.renderMode === "plain" && (props.truncatedRows ?? 0)
