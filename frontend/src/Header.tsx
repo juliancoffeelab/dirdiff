@@ -1,7 +1,8 @@
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import type { DiffEngine, RepoId, RepoMark, Summary } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
 import { diffViewLabels, engineLabels } from "./model";
+import { Select } from "./Select";
 
 export function Header(props: {
   repos: RepoMark[] | null;
@@ -48,29 +49,28 @@ function EngineSelect(props: {
   onEngineChange: (engine: DiffEngine) => void;
 }) {
   return (
-    <label class="engine-select">
-      <span>Engine</span>
-      <select
-        value={props.engine}
-        onChange={(event) => {
-          const nextEngine = event.currentTarget.value as DiffEngine;
-          if (
-            nextEngine === "dirdiff" ||
-            nextEngine === "git" ||
-            nextEngine === "difftastic"
-          ) {
-            props.onEngineChange(nextEngine);
-            event.currentTarget.blur();
-            return;
-          }
-          throw new Error(`Unsupported diff engine: ${nextEngine}.`);
-        }}
-      >
-        <option value="dirdiff">{engineLabels.dirdiff}</option>
-        <option value="git">{engineLabels.git}</option>
-        <option value="difftastic">{engineLabels.difftastic}</option>
-      </select>
-    </label>
+    <Select
+      class="header-engine-select"
+      label="Engine"
+      valueLabel={engineLabels[props.engine]}
+      options={[
+        { value: "dirdiff", label: engineLabels.dirdiff },
+        { value: "git", label: engineLabels.git },
+        { value: "difftastic", label: engineLabels.difftastic },
+      ]}
+      selectedValue={props.engine}
+      onChange={(nextEngine) => {
+        if (
+          nextEngine === "dirdiff" ||
+          nextEngine === "git" ||
+          nextEngine === "difftastic"
+        ) {
+          props.onEngineChange(nextEngine);
+          return;
+        }
+        throw new Error(`Unsupported diff engine: ${nextEngine}.`);
+      }}
+    />
   );
 }
 
@@ -79,41 +79,48 @@ function RepoSelect(props: {
   selectedRepoId: RepoId | null;
   onRepoChange: (repo: RepoMark) => void;
 }) {
-  const handleRepoChange = (select: HTMLSelectElement) => {
-    const nextRepoId = Number(select.value);
+  const handleRepoChange = (nextRepoIdRaw: string) => {
+    const nextRepoId = Number(nextRepoIdRaw);
     if (!Number.isInteger(nextRepoId)) {
-      throw new Error(`Invalid repo id selected: ${select.value}.`);
+      throw new Error(`Invalid repo id selected: ${nextRepoIdRaw}.`);
     }
     const repo = props.repos.find((candidate) => candidate.id === nextRepoId);
     if (repo === undefined) {
       throw new Error(`Unknown repo id selected: ${nextRepoId}.`);
     }
     if (repo.id === props.selectedRepoId) {
-      select.blur();
       return;
     }
     props.onRepoChange(repo);
-    select.blur();
+  };
+
+  const selectedRepoName = () => {
+    if (props.selectedRepoId === null) {
+      return "Choose repo";
+    }
+    const repo = props.repos.find(
+      (candidate) => candidate.id === props.selectedRepoId,
+    );
+    if (repo === undefined) {
+      throw new Error(`Unknown selected repo id: ${props.selectedRepoId}.`);
+    }
+    return repo.name;
   };
 
   return (
-    <label class="engine-select repo-select">
-      <span>Repo</span>
-      <select
-        aria-label="Repo"
-        value={
-          props.selectedRepoId === null ? "" : String(props.selectedRepoId)
-        }
-        onChange={(event) => handleRepoChange(event.currentTarget)}
-      >
-        <option value="" disabled>
-          Choose repo
-        </option>
-        <For each={props.repos}>
-          {(repo) => <option value={repo.id}>{repo.name}</option>}
-        </For>
-      </select>
-    </label>
+    <Select
+      class="header-engine-select repo-select"
+      label="Repo"
+      valueLabel={selectedRepoName()}
+      options={props.repos.map((repo) => ({
+        value: String(repo.id),
+        label: repo.name,
+      }))}
+      selectedValue={
+        props.selectedRepoId === null ? "" : String(props.selectedRepoId)
+      }
+      onChange={handleRepoChange}
+    />
   );
 }
 
@@ -122,23 +129,22 @@ function DiffViewSelect(props: {
   onViewModeChange: (viewMode: DiffViewMode) => void;
 }) {
   return (
-    <label class="engine-select">
-      <span>View</span>
-      <select
-        value={props.viewMode}
-        onChange={(event) => {
-          const nextViewMode = event.currentTarget.value;
-          if (nextViewMode !== "split" && nextViewMode !== "inline") {
-            throw new Error(`Unsupported diff view mode: ${nextViewMode}.`);
-          }
-          props.onViewModeChange(nextViewMode);
-          event.currentTarget.blur();
-        }}
-      >
-        <option value="split">{diffViewLabels.split}</option>
-        <option value="inline">{diffViewLabels.inline}</option>
-      </select>
-    </label>
+    <Select
+      class="header-engine-select view-select"
+      label="View"
+      valueLabel={diffViewLabels[props.viewMode]}
+      options={[
+        { value: "split", label: diffViewLabels.split },
+        { value: "inline", label: diffViewLabels.inline },
+      ]}
+      selectedValue={props.viewMode}
+      onChange={(nextViewMode) => {
+        if (nextViewMode !== "split" && nextViewMode !== "inline") {
+          throw new Error(`Unsupported diff view mode: ${nextViewMode}.`);
+        }
+        props.onViewModeChange(nextViewMode);
+      }}
+    />
   );
 }
 
