@@ -194,8 +194,10 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     }
   };
 
-  window.addEventListener("keydown", onKeyDown);
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  onMount(() => {
+    document.addEventListener("keydown", onKeyDown);
+    onCleanup(() => document.removeEventListener("keydown", onKeyDown));
+  });
 
   const setDiffSelectionSide = (
     grid: HTMLElement | null,
