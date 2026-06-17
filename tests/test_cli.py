@@ -7,13 +7,15 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from dirdiff.repo_registry import RepoMarkStore
+from dirdiff.db.base import open_ephemeral_engine
+from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.server import TextFileDiffResponse, create_app
 from dirdiff.server_utils import choose_port_pair, require_bindable_port
 
 
 def repo_mark_store() -> RepoMarkStore:
-    store = RepoMarkStore.ephemeral_open()
+    engine = open_ephemeral_engine()
+    store = RepoMarkStore(engine)
     store.new_mark(path=Path("/tmp"), name="repo")
     return store
 

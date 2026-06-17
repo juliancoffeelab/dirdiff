@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
+from dirdiff.db.base import open_sqlite_engine
+from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.runtime import DEFAULT_DB_PATH, RUNTIME_CONFIG_ENV, RuntimeConfig
 
 DEFAULT_PORT = 5052
@@ -105,9 +107,8 @@ def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
 
 
 def require_marked_repos(db_path: Path) -> None:
-    from dirdiff.repo_registry import RepoMarkStore  # noqa: PLC0415
-
-    marks = RepoMarkStore.open(db_path).list()
+    engine = open_sqlite_engine(db_path)
+    marks = RepoMarkStore(engine).list()
     if len(marks) > 0:
         return
     if db_path == DEFAULT_DB_PATH:
@@ -179,8 +180,6 @@ def run_uvicorn(*, config: RuntimeConfig, port: int) -> None:
         reload=True,
         reload_dirs=[str(Path(__file__).resolve().parent)],
         reload_includes=["*.py", "*.html", "*.js", "*.css"],
-        log_config=None,
-        access_log=False,
     )
 
 

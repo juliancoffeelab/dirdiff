@@ -7,7 +7,8 @@ from typing import NoReturn
 
 from sqlalchemy.exc import IntegrityError
 
-from dirdiff.repo_registry import RepoMarkStore
+from dirdiff.db.base import open_sqlite_engine
+from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.runtime import DEFAULT_DB_PATH
 
 
@@ -33,7 +34,8 @@ def duplicate_repo_path_error(repo_path: Path, exc: IntegrityError) -> NoReturn:
 def mark_repo(
     *, repo_path: Path, name: str | None, db_path: Path | None
 ) -> None:
-    store = RepoMarkStore.open(db_path_or_default(db_path))
+    engine = open_sqlite_engine(db_path_or_default(db_path))
+    store = RepoMarkStore(engine)
     expanded_repo_path = absolute_repo_path(repo_path)
     if name is None:
         display_name = expanded_repo_path.name
@@ -51,7 +53,8 @@ def mark_repo(
 
 
 def print_marked_repos(*, db_path: Path | None) -> None:
-    store = RepoMarkStore.open(db_path_or_default(db_path))
+    engine = open_sqlite_engine(db_path_or_default(db_path))
+    store = RepoMarkStore(engine)
     marks = store.list()
     if len(marks) == 0:
         print("No marked repos.")

@@ -4,26 +4,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, override
 
-from sqlalchemy import (
-    DateTime,
-    Engine,
-    ForeignKey,
-    String,
-    create_engine,
-    insert,
-    select,
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import DateTime, Engine, ForeignKey, String, insert, select
+from sqlalchemy.orm import Mapped, Session, mapped_column
+
+from dirdiff.db.base import TableBase
 
 
-class RepoRegistryBase(DeclarativeBase):
-    pass
-
-
-class RepoMark(RepoRegistryBase):
+class RepoMark(TableBase):
     """
     Operational repository mark table.
 
@@ -37,7 +25,7 @@ class RepoMark(RepoRegistryBase):
     path: Mapped[str] = mapped_column(String, unique=True, nullable=False)
 
 
-class RepoMarkMeta(RepoRegistryBase):
+class RepoMarkMeta(TableBase):
     """
     Display metadata for a marked repository.
 
@@ -71,19 +59,7 @@ class RepoMarkRecord:
     marked_at: datetime
 
 
-class RepoMarkStoreProtocol(Protocol):
-    """
-    Read protocol consumed by the app layer.
-
-    This keeps tests able to provide a small in-memory registry.
-    """
-
-    def list(self) -> Sequence[RepoMarkRecord]: ...
-
-    def get(self, repo_id: int) -> RepoMarkRecord | None: ...
-
-
-class RepoMarkStore(RepoMarkStoreProtocol):
+class RepoMarkStore:
     """
     SQLite-backed repository registry.
 
@@ -98,43 +74,6 @@ class RepoMarkStore(RepoMarkStoreProtocol):
         """
 
         self.engine: Engine = engine
-
-    @classmethod
-    def open(cls, db_path: Path) -> RepoMarkStore:
-        """
-        Open a registry store for a SQLite path.
-        """
-
-        expanded_path = db_path.expanduser()
-        expanded_path.parent.mkdir(parents=True, exist_ok=True)
-        store = cls(create_engine(f"sqlite:///{expanded_path}"))
-        store.bootstrap()
-        return store
-
-    @classmethod
-    def ephemeral_open(cls) -> RepoMarkStore:
-        """
-        Open an in-memory registry store (for tests).
-        """
-
-        store = cls(
-            create_engine(
-                "sqlite://",
-                connect_args={"check_same_thread": False},
-                poolclass=StaticPool,
-            )
-        )
-        store.bootstrap()
-        return store
-
-    def bootstrap(self) -> None:
-        """
-        Ensure the registry tables exist in the configured database.
-
-        This is called once by `open`.
-        """
-
-        RepoRegistryBase.metadata.create_all(self.engine)
 
     def new_mark(self, path: Path, name: str) -> RepoMarkRecord:
         """
@@ -159,11 +98,13 @@ class RepoMarkStore(RepoMarkStoreProtocol):
                     marked_at=marked_at,
                 )
             )
-        saved_mark = self.get(repo_id)
-        assert saved_mark is not None, "marked repo missing"
-        return saved_mark
+            return RepoMarkRecord(
+                id=repo_id,
+                path=str(path),
+                name=display_name,
+                marked_at=marked_at,
+            )
 
-    @override
     def list(self) -> Sequence[RepoMarkRecord]:
         """
         Return all marked repositories.
@@ -200,7 +141,6 @@ class RepoMarkStore(RepoMarkStoreProtocol):
                 for repo_id, path, name, marked_at in rows
             )
 
-    @override
     def get(self, repo_id: int) -> RepoMarkRecord | None:
         """
         Return one marked repository by synthetic id.
@@ -225,8 +165,10 @@ class RepoMarkStore(RepoMarkStoreProtocol):
                     .where(RepoMark.id == repo_id)
                 )
                 .tuples()
-                .one()
+                .one_or_none()
             )
+            if res is None:
+                return None
             return RepoMarkRecord(
                 id=res[0],
                 path=res[1],

@@ -4,13 +4,15 @@ import os
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any, Literal, Protocol
 
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from dirdiff.repo_registry import RepoMarkStore
+from dirdiff.db.base import open_sqlite_engine
+from dirdiff.db.repo_registry import RepoMarkStore
+from dirdiff.db.user_profile import UserProfileStore
 from dirdiff.runtime import RUNTIME_CONFIG_ENV, RuntimeConfig
 from dirdiff.services import (
     DifftasticDiffService,
@@ -23,9 +25,6 @@ from dirdiff.sources import (
     PresetBackend,
     TextDiffError,
 )
-
-if TYPE_CHECKING:
-    from dirdiff.repo_registry import RepoMarkStoreProtocol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -112,6 +111,15 @@ class RepoMarkResponse(ApiModel):
     path: str
     name: str
     marked_at: datetime
+
+
+class UserProfileResponse(ApiModel):
+    id: int | None
+    username: str | None
+
+
+class UserProfileUpdateRequest(ApiModel):
+    username: str
 
 
 class SyntaxSpanResponse(ApiModel):
@@ -342,8 +350,14 @@ def service_for_backend(
 
 
 def create_app(
-    db: RepoMarkStoreProtocol, *, presets_root: str | None = None
+    db: RepoMarkStore,
+    user_profile_store: UserProfileStore | None = None,
+    *,
+    presets_root: str | None = None,
 ) -> FastAPI:
+    if user_profile_store is None:
+        user_profile_store = UserProfileStore(db.engine)
+
     app = FastAPI()
 
     def service_for_request(
@@ -416,17 +430,17 @@ def create_app(
             status_code=503,
         )
 
-    @app.get("/api/repo-refs", response_model=None)
+    @app.get("/api/repo-refs")
     def serve_repo_refs(
         repo_id: int = Query(
             description="Marked repo id. Required for repo-backed refs.",
         ),
-    ) -> dict[str, Any] | JSONResponse:
+    ) -> dict[str, Any]:
         mark = db.get(repo_id)
         if mark is None:
-            return JSONResponse(
-                {"error": f"Invalid repo_id: {repo_id}"},
+            raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
+                detail=f"Invalid repo_id: {repo_id}",
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
         service = TextDiffService(backend)
@@ -440,16 +454,67 @@ def create_app(
             "ref_choices": service.list_ref_choices(),
         }
 
-    @app.get("/api/repos", response_model=list[RepoMarkResponse])
+    @app.get("/api/repos")
     def serve_repos() -> list[RepoMarkResponse]:
         return [
             RepoMarkResponse.model_validate(mark, from_attributes=True)
             for mark in db.list()
         ]
 
+    @app.post(
+        "/api/user-profile",
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+        },
+        summary="Create persisted user profile data",
+    )
+    def create_user_profile(
+        request: UserProfileUpdateRequest,
+    ) -> UserProfileResponse:
+        try:
+            return UserProfileResponse.model_validate(
+                user_profile_store.create(request.username),
+                from_attributes=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+    @app.patch(
+        "/api/user-profile/{profile_id}",
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
+        },
+        summary="Update persisted user profile data",
+    )
+    def update_user_profile(
+        profile_id: int,
+        request: UserProfileUpdateRequest,
+    ) -> UserProfileResponse:
+        try:
+            profile = user_profile_store.update_username(
+                profile_id, request.username
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        if profile is None:
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=f"User profile not found: {profile_id}.",
+            )
+        return UserProfileResponse.model_validate(
+            profile,
+            from_attributes=True,
+        )
+
     @app.get(
         "/api/manifest",
-        response_model=RepoManifestResponse,
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
@@ -484,7 +549,7 @@ def create_app(
             default=False,
             description="Include untracked worktree files when supported by the selected mode.",
         ),
-    ) -> RepoManifestResponse | JSONResponse:
+    ) -> RepoManifestResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
             base_branch=base_branch,
@@ -544,22 +609,21 @@ def create_app(
                     show_untracked=show_untracked,
                 )
         except TextDiffError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
+            raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-            )
+                detail=str(exc),
+            ) from exc
         except Exception as exc:
             LOGGER.exception("Manifest request crashed: %s", exc)
-            return JSONResponse(
-                {"error": "Internal server error."},
+            raise HTTPException(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+                detail="Internal server error.",
+            ) from exc
 
         return RepoManifestResponse.model_validate(payload)
 
     @app.get(
         "/api/lazy-info",
-        response_model=LazyInfoResponse,
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
@@ -594,7 +658,7 @@ def create_app(
             default=False,
             description="Include untracked worktree files when supported by the selected mode.",
         ),
-    ) -> LazyInfoResponse | JSONResponse:
+    ) -> LazyInfoResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
             base_branch=base_branch,
@@ -644,22 +708,21 @@ def create_app(
                     show_untracked=show_untracked,
                 )
         except TextDiffError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
+            raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-            )
+                detail=str(exc),
+            ) from exc
         except Exception as exc:
             LOGGER.exception("Lazy info request crashed: %s", exc)
-            return JSONResponse(
-                {"error": "Internal server error."},
+            raise HTTPException(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+                detail="Internal server error.",
+            ) from exc
 
         return LazyInfoResponse.model_validate(payload)
 
     @app.get(
         "/api/file-diff",
-        response_model=TextFileDiffResponse | NotebookFileDiffResponse,
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
@@ -705,7 +768,7 @@ def create_app(
         file_kind: Literal["git", "untracked"] = Query(
             default="git", description="File kind from the repo manifest."
         ),
-    ) -> TextFileDiffResponse | NotebookFileDiffResponse | JSONResponse:
+    ) -> TextFileDiffResponse | NotebookFileDiffResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
             base_branch=base_branch,
@@ -775,16 +838,16 @@ def create_app(
                     file_kind=file_kind,
                 )
         except TextDiffError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
+            raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-            )
+                detail=str(exc),
+            ) from exc
         except Exception as exc:
             LOGGER.exception("File diff request crashed: %s", exc)
-            return JSONResponse(
-                {"error": "Internal server error."},
+            raise HTTPException(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+                detail="Internal server error.",
+            ) from exc
 
         if payload.get("render_kind") == "notebook":
             return NotebookFileDiffResponse.model_validate(payload)
@@ -792,7 +855,6 @@ def create_app(
 
     @app.get(
         "/api/notebook-section",
-        response_model=NotebookSectionDiffResponse,
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
@@ -836,7 +898,7 @@ def create_app(
         right_path: str | None = Query(
             default=None, description="Repo-relative path on the right side."
         ),
-    ) -> NotebookSectionDiffResponse | JSONResponse:
+    ) -> NotebookSectionDiffResponse:
         selected_base_branch, selected_review_branch = selected_branches(
             mode=mode,
             base_branch=base_branch,
@@ -902,16 +964,16 @@ def create_app(
                     cell_key=cell_key,
                 )
         except TextDiffError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
+            raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-            )
+                detail=str(exc),
+            ) from exc
         except Exception as exc:
             LOGGER.exception("Notebook section diff request crashed: %s", exc)
-            return JSONResponse(
-                {"error": "Internal server error."},
+            raise HTTPException(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+                detail="Internal server error.",
+            ) from exc
 
         return NotebookSectionDiffResponse.model_validate(payload)
 
@@ -922,10 +984,16 @@ def uvicorn_entrypoint() -> FastAPI:
     payload = os.environ.get(RUNTIME_CONFIG_ENV)
     assert payload is not None, "dirdiff runtime config missing"
     config = RuntimeConfig(**json.loads(payload))
-    store = RepoMarkStore.open(Path(config.db_path))
-    marks = store.list()
+    engine = open_sqlite_engine(Path(config.db_path))
+    repo_store = RepoMarkStore(engine)
+    user_profile_store = UserProfileStore(engine)
+    marks = repo_store.list()
     assert marks, "dirdiff runtime config has no marked repos"
-    return create_app(store, presets_root=config.presets_root)
+    return create_app(
+        repo_store,
+        user_profile_store,
+        presets_root=config.presets_root,
+    )
 
 
 def _resolve_branch_review_refs(

@@ -26,7 +26,7 @@ export function App() {
   let appHeader: HTMLElement | undefined;
   const { addErrorToast } = useToasts();
 
-  const repo = createRepoResources();
+  const repo = createRepoResources({ addErrorToast });
   const ui = createDiffUiState();
   const diff = createDiffResources({
     selectedRepoId: repo.selectedRepoId,

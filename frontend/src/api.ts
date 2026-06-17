@@ -394,14 +394,103 @@ const ErrorResponseSchema = z.strictObject({
   error: z.string(),
 });
 
+const HttpExceptionResponseSchema = z.strictObject({
+  detail: z.string(),
+});
+
+const REQUEST_TIMEOUT_MS = 8000;
+
 async function parseErrorResponse(response: Response): Promise<never> {
-  const payload = await response.json();
-  throw new Error(ErrorResponseSchema.parse(payload).error);
+  const bodyText = await response.text();
+  if (bodyText.length > 0) {
+    try {
+      const payload = JSON.parse(bodyText);
+      const parsedError = ErrorResponseSchema.safeParse(payload);
+      if (parsedError.success) {
+        throw new Error(parsedError.data.error);
+      }
+      const parsedDetail = HttpExceptionResponseSchema.safeParse(payload);
+      if (parsedDetail.success) {
+        throw new Error(parsedDetail.data.detail);
+      }
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) {
+        throw error;
+      }
+    }
+    throw new Error(bodyText);
+  }
+  throw new Error(
+    `Request failed with status ${response.status} ${response.statusText}.`,
+  );
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function createRequestSignal(upstreamSignal: AbortSignal | null | undefined): {
+  signal: AbortSignal;
+  cancelTimeout: () => void;
+  timedOut: () => boolean;
+} {
+  const controller = new AbortController();
+  let didTimeout = false;
+  const abortFromUpstream = () => {
+    controller.abort(upstreamSignal?.reason);
+  };
+  if (upstreamSignal != null) {
+    if (upstreamSignal.aborted) {
+      controller.abort(upstreamSignal.reason);
+    } else {
+      upstreamSignal.addEventListener("abort", abortFromUpstream, {
+        once: true,
+      });
+    }
+  }
+  const timeoutId = window.setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  return {
+    signal: controller.signal,
+    cancelTimeout: () => {
+      window.clearTimeout(timeoutId);
+      if (upstreamSignal != null) {
+        upstreamSignal.removeEventListener("abort", abortFromUpstream);
+      }
+    },
+    timedOut: () => didTimeout,
+  };
+}
+
+async function fetchJsonResponse(
+  input: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const { signal, cancelTimeout, timedOut } = createRequestSignal(init?.signal);
+  try {
+    return await fetch(input, { ...init, signal });
+  } catch (error) {
+    if (timedOut()) {
+      throw new Error(`Request timed out before response: ${input}`);
+    }
+    if (isAbortError(error)) {
+      throw error;
+    }
+    throw new Error(`Request failed before response: ${input}`, {
+      cause: error,
+    });
+  } finally {
+    cancelTimeout();
+  }
 }
 
 export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
   const params = new URLSearchParams({ repo_id: String(repoId) });
-  const response = await fetch(`/api/repo-refs?${params.toString()}`);
+  const response = await fetchJsonResponse(
+    `/api/repo-refs?${params.toString()}`,
+  );
   if (!response.ok) {
     return parseErrorResponse(response);
   }
@@ -409,7 +498,7 @@ export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
 }
 
 export async function fetchRepos(): Promise<RepoMark[]> {
-  const response = await fetch("/api/repos");
+  const response = await fetchJsonResponse("/api/repos");
   if (!response.ok) {
     return parseErrorResponse(response);
   }
@@ -447,9 +536,12 @@ export async function fetchManifest(
   signal?: AbortSignal,
 ): Promise<RepoManifestPayload> {
   const params = diffParamsQueryParams(diffParams);
-  const response = await fetch(`/api/manifest?${params.toString()}`, {
-    signal,
-  });
+  const response = await fetchJsonResponse(
+    `/api/manifest?${params.toString()}`,
+    {
+      signal,
+    },
+  );
   if (!response.ok) {
     return parseErrorResponse(response);
   }
@@ -461,9 +553,12 @@ export async function fetchLazyInfo(
   signal?: AbortSignal,
 ): Promise<LazyInfoPayload> {
   const params = diffParamsQueryParams(diffParams);
-  const response = await fetch(`/api/lazy-info?${params.toString()}`, {
-    signal,
-  });
+  const response = await fetchJsonResponse(
+    `/api/lazy-info?${params.toString()}`,
+    {
+      signal,
+    },
+  );
   if (!response.ok) {
     return parseErrorResponse(response);
   }
@@ -488,9 +583,12 @@ export async function fetchFileDiff(
   params.set("change_type", changeTypeForFileKind(entry.file_kind));
   params.set("file_kind", entry.file_kind.type);
 
-  const response = await fetch(`/api/file-diff?${params.toString()}`, {
-    signal,
-  });
+  const response = await fetchJsonResponse(
+    `/api/file-diff?${params.toString()}`,
+    {
+      signal,
+    },
+  );
   if (!response.ok) {
     return parseErrorResponse(response);
   }
@@ -539,9 +637,12 @@ export async function fetchNotebookSection(
     params.set("cell_key", options.cellKey);
   }
 
-  const response = await fetch(`/api/notebook-section?${params.toString()}`, {
-    signal,
-  });
+  const response = await fetchJsonResponse(
+    `/api/notebook-section?${params.toString()}`,
+    {
+      signal,
+    },
+  );
   if (!response.ok) {
     return parseErrorResponse(response);
   }

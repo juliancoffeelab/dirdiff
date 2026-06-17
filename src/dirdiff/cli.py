@@ -25,6 +25,9 @@ def configure_logging() -> None:
         else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 
 
 @cli_app.callback(invoke_without_command=True)

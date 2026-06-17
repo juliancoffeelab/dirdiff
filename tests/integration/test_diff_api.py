@@ -3,14 +3,18 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from dirdiff.repo_registry import RepoMarkStore
+from dirdiff.db.base import open_sqlite_engine
+from dirdiff.db.repo_registry import RepoMarkStore
+from dirdiff.db.user_profile import UserProfileStore
 from dirdiff.server import create_app
 
 
 def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
-    store = RepoMarkStore.open(repo_path / ".dirdiff-test.sqlite")
-    mark = store.new_mark(path=repo_path, name=repo_path.name)
-    return TestClient(create_app(store)), mark.id
+    engine = open_sqlite_engine(repo_path / ".dirdiff-test.sqlite")
+    repo_marks = RepoMarkStore(engine)
+    user_profile = UserProfileStore(engine)
+    mark = repo_marks.new_mark(path=repo_path, name=repo_path.name)
+    return TestClient(create_app(repo_marks, user_profile)), mark.id
 
 
 def test_file_diff_endpoint_returns_full_generated_file_rows(

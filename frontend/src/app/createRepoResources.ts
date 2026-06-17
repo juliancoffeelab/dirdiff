@@ -22,6 +22,10 @@ export type InitialRepoDiff = {
   engine: DiffEngine;
 };
 
+type RepoResourcesOptions = {
+  addErrorToast: (title: string, error: unknown) => void;
+};
+
 /**
  * Owns repository discovery and repo-local ref metadata.
  *
@@ -33,7 +37,7 @@ export type InitialRepoDiff = {
  * initializeRepo returns the initial controls/engine that App can hand to the
  * diff primitive.
  */
-export function createRepoResources() {
+export function createRepoResources(options: RepoResourcesOptions) {
   const [selectedRepoId, setSelectedRepoId] = createSignal<RepoId | null>(null);
   const [repoSelectionError, setRepoSelectionError] = createSignal("");
   const [repoList, setRepoList] = createSignal<RepoMark[] | null>(null);
@@ -103,6 +107,7 @@ export function createRepoResources() {
         setReposError(error);
         setReposPending(false);
       });
+      options.addErrorToast("Failed to load marked repos", error);
       return null;
     }
   }
