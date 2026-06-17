@@ -1,27 +1,12 @@
 import { createEffect } from "solid-js";
 import type {
   DiffRow,
-  FileEntry,
+  FoldHint,
   InlineToken,
   RowStatus,
   SyntaxSpan,
 } from "./api";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
-import { fileDisplayName } from "./fileUtils";
-
-function fileRows(entry: FileEntry): DiffRow[] {
-  if (entry.rows === undefined) {
-    throw new Error(`${fileDisplayName(entry)} is missing diff rows.`);
-  }
-  return entry.rows;
-}
-
-function fileFoldHints(entry: FileEntry) {
-  if (entry.fold_hints === undefined) {
-    return [];
-  }
-  return entry.fold_hints;
-}
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -39,7 +24,11 @@ type InlineRowStatus = "equal" | "delete" | "insert" | "replace";
 export type DiffViewMode = "split" | "inline";
 
 export function DiffGrid(props: {
-  file: FileEntry;
+  displayName: string;
+  leftLabel: string;
+  rightLabel: string;
+  rows: DiffRow[];
+  foldHints: FoldHint[];
   viewMode: DiffViewMode;
   semanticReplaceRows?: boolean;
 }) {
@@ -53,17 +42,21 @@ export function DiffGrid(props: {
     >
       {props.viewMode === "inline" ? (
         <InlineHeader
-          leftLabel={sideLabel(props.file, "left")}
-          rightLabel={sideLabel(props.file, "right")}
+          leftLabel={props.leftLabel}
+          rightLabel={props.rightLabel}
         />
       ) : (
         <SplitHeader
-          leftLabel={sideLabel(props.file, "left")}
-          rightLabel={sideLabel(props.file, "right")}
+          leftLabel={props.leftLabel}
+          rightLabel={props.rightLabel}
         />
       )}
       <ImperativeDiffLines
-        file={props.file}
+        displayName={props.displayName}
+        rows={props.rows}
+        foldHints={props.foldHints}
+        leftLabel={props.leftLabel}
+        rightLabel={props.rightLabel}
         viewMode={props.viewMode}
         semanticReplaceRows={props.semanticReplaceRows}
       />
@@ -104,32 +97,46 @@ type InlineLineNumberState = {
 };
 
 function ImperativeDiffLines(props: {
-  file: FileEntry;
+  displayName: string;
+  rows: DiffRow[];
+  foldHints: FoldHint[];
+  leftLabel: string;
+  rightLabel: string;
   viewMode: DiffViewMode;
   semanticReplaceRows?: boolean;
 }) {
   let root!: HTMLDivElement;
   const expandedFolds = new Set<number>();
-  let previousFile: FileEntry | undefined;
+  let previousDisplayName: string | undefined;
+  let previousRows: DiffRow[] | undefined;
+  let previousFoldHints: FoldHint[] | undefined;
+  let previousLeftLabel: string | undefined;
+  let previousRightLabel: string | undefined;
   let previousViewMode: DiffViewMode | undefined;
   let previousSemanticReplaceRows: boolean | undefined;
 
   const render = () => {
     if (
-      props.file !== previousFile ||
+      props.displayName !== previousDisplayName ||
+      props.rows !== previousRows ||
+      props.foldHints !== previousFoldHints ||
+      props.leftLabel !== previousLeftLabel ||
+      props.rightLabel !== previousRightLabel ||
       props.viewMode !== previousViewMode ||
       props.semanticReplaceRows !== previousSemanticReplaceRows
     ) {
       expandedFolds.clear();
-      previousFile = props.file;
+      previousDisplayName = props.displayName;
+      previousRows = props.rows;
+      previousFoldHints = props.foldHints;
+      previousLeftLabel = props.leftLabel;
+      previousRightLabel = props.rightLabel;
       previousViewMode = props.viewMode;
       previousSemanticReplaceRows = props.semanticReplaceRows;
     }
 
-    const rows = markHunkAnchors(
-      addFoldRows(fileRows(props.file), fileFoldHints(props.file)),
-    );
-    const fileLabel = fileDisplayName(props.file);
+    const rows = markHunkAnchors(addFoldRows(props.rows, props.foldHints));
+    const fileLabel = props.displayName;
     const fragment =
       props.viewMode === "inline" && props.semanticReplaceRows === true
         ? renderSemanticInlineRowsDom(rows, fileLabel, expandedFolds)
@@ -138,8 +145,8 @@ function ImperativeDiffLines(props: {
           : renderSplitRowsDom(
               rows,
               fileLabel,
-              sideLabel(props.file, "left"),
-              sideLabel(props.file, "right"),
+              props.leftLabel,
+              props.rightLabel,
               expandedFolds,
             );
     root.replaceChildren(fragment);
@@ -148,14 +155,6 @@ function ImperativeDiffLines(props: {
   createEffect(render);
 
   return <div ref={root} class="diff-lines" />;
-}
-
-function sideLabel(file: FileEntry, side: Side): string {
-  const value = side === "left" ? file.left_label : file.right_label;
-  if (value !== null && value !== undefined && value.length > 0) {
-    return value;
-  }
-  throw new Error(`${fileDisplayName(file)} is missing ${side} label.`);
 }
 
 function renderSplitRowsDom(

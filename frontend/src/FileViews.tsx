@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { isCancelledError } from "@tanstack/query-core";
-import type { DiffRow, FileEntry, FileKind } from "./api";
+import type { DiffRow, FileEntry, FileKind, FoldHint } from "./api";
 import { fetchFileDiff } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import { NotebookFile } from "./NotebookViews";
@@ -777,7 +777,11 @@ function FileCard(props: {
                   fallback={<PlainSplitFileDiff file={props.file} />}
                 >
                   <DiffGrid
-                    file={props.file}
+                    displayName={displayName()}
+                    leftLabel={requiredSideLabel(props.file, "left")}
+                    rightLabel={requiredSideLabel(props.file, "right")}
+                    rows={fileRows(props.file)}
+                    foldHints={fileFoldHints(props.file)}
                     viewMode={props.diffViewMode}
                     semanticReplaceRows={loadedEngineIsDifftastic(
                       props.loadedDiff,
@@ -836,6 +840,21 @@ function PlainSplitFileDiff(props: { file: FileEntry }) {
       <pre>{text().right}</pre>
     </div>
   );
+}
+
+function fileFoldHints(file: FileEntry): FoldHint[] {
+  if (file.fold_hints === undefined) {
+    throw new Error(`${fileDisplayName(file)} is missing fold hints.`);
+  }
+  return file.fold_hints;
+}
+
+function requiredSideLabel(file: FileEntry, side: "left" | "right"): string {
+  const value = side === "left" ? file.left_label : file.right_label;
+  if (value !== undefined && value.length > 0) {
+    return value;
+  }
+  throw new Error(`${fileDisplayName(file)} is missing ${side} label.`);
 }
 
 function HunkSkipAnchors(props: { file: FileEntry }) {

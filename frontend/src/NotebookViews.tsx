@@ -286,24 +286,19 @@ function NotebookSectionView(props: {
   truncatedRows?: number | null;
   diffViewMode: DiffViewMode;
 }) {
-  const file = (): FileEntry => ({
-    display_name: notebookSectionDisplayName(props),
-    file_kind: { type: "git", status: "modified" },
-    left_path: null,
-    right_path: null,
-    left_label: props.leftLabel,
-    right_label: props.rightLabel,
-    rows: props.rows,
-    fold_hints: props.foldHints,
-    default_expanded: true,
-  });
-
   return (
     <section class="notebook-section">
       <Show when={props.heading !== undefined && props.heading !== ""}>
         <p class="notebook-section-heading">{props.heading}</p>
       </Show>
-      <DiffGrid file={file()} viewMode={props.diffViewMode} />
+      <DiffGrid
+        displayName={notebookSectionDisplayName(props)}
+        leftLabel={props.leftLabel}
+        rightLabel={props.rightLabel}
+        rows={props.rows}
+        foldHints={props.foldHints}
+        viewMode={props.diffViewMode}
+      />
       <Show
         when={
           props.renderMode === "plain" ||
