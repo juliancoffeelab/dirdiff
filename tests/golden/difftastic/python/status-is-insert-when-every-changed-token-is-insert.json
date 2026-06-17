@@ -1,23 +1,23 @@
 [
   {
+    "status": "equal",
     "left_no": 1,
-    "left_text": "value = arg",
     "right_no": 1,
-    "right_text": "value = arg",
-    "status": "equal"
+    "left_text": "value = arg",
+    "right_text": "value = arg"
   },
   {
+    "status": "insert",
     "left_no": null,
-    "left_text": "",
     "right_no": 2,
+    "left_text": "",
     "right_text": "new_value",
     "right_tokens": [
       {
-        "is_ws": false,
+        "text": "new_value",
         "status": "insert",
-        "text": "new_value"
+        "is_ws": false
       }
-    ],
-    "status": "insert"
+    ]
   }
 ]

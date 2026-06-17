@@ -8,15 +8,30 @@ import type { DiffParams, LazyInfoPayload, RepoManifestPayload } from "../api";
  * pins, and loading progress must not participate in this identity.
  */
 function diffParamsParts(diffParams: DiffParams) {
+  if (diffParams.mode === "preset") {
+    return [
+      diffParams.repo_id,
+      diffParams.engine,
+      diffParams.mode,
+      diffParams.preset,
+    ] as const;
+  }
+  if (diffParams.mode === "branch-review") {
+    return [
+      diffParams.repo_id,
+      diffParams.engine,
+      diffParams.mode,
+      diffParams.base_branch,
+      diffParams.review_branch,
+    ] as const;
+  }
   return [
     diffParams.repo_id,
     diffParams.engine,
     diffParams.mode,
     diffParams.left,
     diffParams.right,
-    diffParams.base_branch,
-    diffParams.review_branch,
-    diffParams.show_untracked,
+    diffParams.mode === "head",
   ] as const;
 }
 

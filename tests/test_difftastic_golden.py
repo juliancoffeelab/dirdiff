@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
 from dirdiff.diff import (
@@ -16,7 +17,10 @@ from dirdiff.diff import (
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"
 BROKEN_PRESET_NAMES: set[str] = {
-    "create-app-runtime-config-collapses-service-block",
+    "python/create-app-runtime-config-collapses-service-block",
+}
+BROKEN_PRESET_GROUPS: set[str] = {
+    "borked",
 }
 
 
@@ -32,7 +36,7 @@ class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
         include: Any = None,
         matcher: Any = None,
     ) -> str:
-        return json.dumps(data, indent=2) + "\n"
+        return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
     def matches(
         self,
@@ -58,12 +62,31 @@ class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
             test_location=test_location, index=index
         )
 
+    @classmethod
+    def get_location(cls, *, test_location: Any, index: int | str) -> str:
+        if isinstance(index, str):
+            return str(GOLDEN_ROOT / f"{index}.{cls.file_extension}")
+        return super().get_location(test_location=test_location, index=index)
+
+    def read_snapshot_collection(self, *, snapshot_location: str) -> Any:
+        snapshot_path = Path(snapshot_location)
+        snapshot_name = snapshot_path.relative_to(GOLDEN_ROOT).as_posix()
+        suffix = f".{self.file_extension}"
+        if snapshot_name.endswith(suffix):
+            snapshot_name = snapshot_name[: -len(suffix)]
+
+        snapshot_collection = SnapshotCollection(location=snapshot_location)
+        snapshot_collection.add(Snapshot(name=snapshot_name))
+        return snapshot_collection
+
 
 def _preset_dirs() -> list[Path]:
     return [
         path
-        for path in sorted(PRESETS_ROOT.iterdir())
-        if path.is_dir() and path.name not in BROKEN_PRESET_NAMES
+        for path in sorted(PRESETS_ROOT.glob("*/*"))
+        if path.is_dir()
+        and path.relative_to(PRESETS_ROOT).parts[0] not in BROKEN_PRESET_GROUPS
+        and path.relative_to(PRESETS_ROOT).as_posix() not in BROKEN_PRESET_NAMES
     ]
 
 
@@ -74,9 +97,7 @@ def snapshot_json(snapshot: Any) -> Any:
     )
 
 
-@pytest.mark.parametrize(
-    "preset_dir", _preset_dirs(), ids=lambda path: path.name
-)
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
 def test_difftastic_preset_rows_match_golden(
     preset_dir: Path,
     snapshot_json: Any,
@@ -103,4 +124,7 @@ def test_difftastic_preset_rows_match_golden(
         right_text=new_text,
     )
 
-    assert snapshot_json(name=preset_dir.name) == rows
+    assert (
+        snapshot_json(name=preset_dir.relative_to(PRESETS_ROOT).as_posix())
+        == rows
+    )

@@ -7,10 +7,12 @@ import type {
   FileKind,
   FoldHint,
   NotebookSummary,
+  PresetCatalog,
   RefChoices,
   RepoRefs,
   Summary,
 } from "./api";
+import { diffParamsQueryParams } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
 
 export type LoadState = "idle" | "loading" | "done" | "error";
@@ -19,6 +21,7 @@ export type ControlsState = {
   mode: DiffMode;
   left: string;
   right: string;
+  preset: string;
   baseSource: BranchSource;
   baseRemote: string;
   baseBranch: string;
@@ -132,7 +135,10 @@ function resolveTopLevelMode(
   return inferMode(left, right, baseBranch, reviewBranch);
 }
 
-export function initialControls(repoRefs: RepoRefs): ControlsState {
+export function initialControls(
+  repoRefs: RepoRefs,
+  presetCatalog: PresetCatalog,
+): ControlsState {
   const search = new URLSearchParams(window.location.search);
   const remoteNames = repoRefs.ref_choices.remote_names;
   const left = searchValue(search, "left", "head");
@@ -153,6 +159,8 @@ export function initialControls(repoRefs: RepoRefs): ControlsState {
     remoteNames,
   );
   const requestedMode = search.get("mode") as DiffMode | null;
+  const defaultPreset = presetCatalog.default_preset;
+  const preset = searchValue(search, "preset", defaultPreset);
   const mode =
     requestedMode === null
       ? "head"
@@ -170,6 +178,7 @@ export function initialControls(repoRefs: RepoRefs): ControlsState {
       mode,
       left: modeLeft,
       right: modeRight,
+      preset,
       baseSource: baseBranchParts.remote ? "remote" : "local",
       baseRemote: baseBranchParts.remote,
       baseBranch: baseBranchParts.value,
@@ -183,6 +192,7 @@ export function initialControls(repoRefs: RepoRefs): ControlsState {
     mode,
     left,
     right,
+    preset,
     baseSource: baseBranchParts.remote ? "remote" : "local",
     baseRemote: baseBranchParts.remote,
     baseBranch: baseBranchParts.value,
@@ -230,37 +240,11 @@ export function initialDiffViewMode(): DiffViewMode {
   return "inline";
 }
 
-function paramsQuery(diffParams: DiffParams): URLSearchParams {
-  const params = new URLSearchParams();
-  params.set("repo_id", String(diffParams.repo_id));
-  params.set("engine", diffParams.engine);
-  params.set("mode", diffParams.mode);
-  if (diffParams.left.length > 0) {
-    params.set("left", diffParams.left);
-  }
-  if (diffParams.right.length > 0) {
-    params.set("right", diffParams.right);
-  }
-  if (diffParams.base_branch !== null && diffParams.base_branch.length > 0) {
-    params.set("base_branch", diffParams.base_branch);
-  }
-  if (
-    diffParams.review_branch !== null &&
-    diffParams.review_branch.length > 0
-  ) {
-    params.set("review_branch", diffParams.review_branch);
-  }
-  if (diffParams.show_untracked) {
-    params.set("show_untracked", "true");
-  }
-  return params;
-}
-
 export function appQuery(
   diffParams: DiffParams,
   viewMode: DiffViewMode,
 ): URLSearchParams {
-  const params = paramsQuery(diffParams);
+  const params = diffParamsQueryParams(diffParams);
   params.set("view", viewMode);
   return params;
 }
@@ -270,12 +254,6 @@ export function statusLabel(
   leftLabel?: string,
   rightLabel?: string,
 ): string {
-  if (diffParams.mode === "files") {
-    return "Unstaged changes in working tree";
-  }
-  if (diffParams.mode === "staged") {
-    return "Staged changes ready to commit";
-  }
   if (diffParams.mode === "head") {
     return "Working tree vs HEAD";
   }
@@ -283,7 +261,7 @@ export function statusLabel(
     return `${diffParams.review_branch} vs ${diffParams.base_branch}`;
   }
   if (diffParams.mode === "preset") {
-    return "Preset diffs";
+    return `Preset ${diffParams.preset}`;
   }
   return `${nullableStringValue(leftLabel, diffParams.left)} vs ${nullableStringValue(rightLabel, diffParams.right)}`;
 }
@@ -623,16 +601,22 @@ function hashedElementId(prefix: string, value: string): string {
 }
 
 export function fileDiffQueryKey(diffParams: DiffParams, entry: FileEntry) {
+  const diffIdentityParts =
+    diffParams.mode === "preset"
+      ? [diffParams.mode, diffParams.preset]
+      : diffParams.mode === "branch-review"
+        ? [diffParams.mode, diffParams.base_branch, diffParams.review_branch]
+        : [
+            diffParams.mode,
+            diffParams.left,
+            diffParams.right,
+            diffParams.mode === "head",
+          ];
   return [
     "file-diff",
     diffParams.repo_id,
     diffParams.engine,
-    diffParams.mode,
-    diffParams.left,
-    diffParams.right,
-    diffParams.base_branch,
-    diffParams.review_branch,
-    diffParams.show_untracked,
+    ...diffIdentityParts,
     entry.left_path,
     entry.right_path,
     entry.display_name,

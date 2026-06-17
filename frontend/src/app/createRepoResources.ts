@@ -1,8 +1,10 @@
 import { batch, createMemo, createSignal } from "solid-js";
 import {
+  fetchPresets,
   fetchRepoRefs,
   fetchRepos,
   type DiffEngine,
+  type PresetCatalog,
   type RefChoices,
   type RepoId,
   type RepoMark,
@@ -44,6 +46,9 @@ export function createRepoResources(options: RepoResourcesOptions) {
   const [reposPending, setReposPending] = createSignal(true);
   const [reposError, setReposError] = createSignal<unknown>(null);
   const [repoRefs, setRepoRefs] = createSignal<RepoRefs | null>(null);
+  const [presetCatalog, setPresetCatalog] = createSignal<PresetCatalog | null>(
+    null,
+  );
   const [repoRefsPending, setRepoRefsPending] = createSignal(false);
   const [repoRefsError, setRepoRefsError] = createSignal<unknown>(null);
 
@@ -116,17 +121,22 @@ export function createRepoResources(options: RepoResourcesOptions) {
     repoId: RepoId,
   ): Promise<InitialRepoDiff | null> {
     setRepoRefs(null);
+    setPresetCatalog(null);
     setRepoRefsError(null);
     setRepoRefsPending(true);
     try {
-      const refs = await fetchRepoRefs(repoId);
+      const [refs, presets] = await Promise.all([
+        fetchRepoRefs(repoId),
+        fetchPresets(),
+      ]);
       if (selectedRepoId() !== repoId) {
         return null;
       }
       const engine = initialEngine();
-      const controls = initialControls(refs);
+      const controls = initialControls(refs, presets);
       batch(() => {
         setRepoRefs(refs);
+        setPresetCatalog(presets);
         setRepoRefsPending(false);
       });
       return { controls, engine };
@@ -154,6 +164,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
       setSelectedRepoId(repo.id);
       setRepoSelectionError("");
       setRepoRefs(null);
+      setPresetCatalog(null);
     });
   };
 
@@ -164,6 +175,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     reposPending,
     reposError,
     repoRefs,
+    presetCatalog,
     repoRefsPending,
     repoRefsError,
     repoPickerRepos,

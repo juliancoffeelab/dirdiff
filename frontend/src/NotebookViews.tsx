@@ -398,16 +398,22 @@ function notebookSectionQueryKey(
   section: string,
   cellKey: string | null,
 ) {
+  const diffIdentityParts =
+    diffParams.mode === "preset"
+      ? [diffParams.mode, diffParams.preset]
+      : diffParams.mode === "branch-review"
+        ? [diffParams.mode, diffParams.base_branch, diffParams.review_branch]
+        : [
+            diffParams.mode,
+            diffParams.left,
+            diffParams.right,
+            diffParams.mode === "head",
+          ];
   return [
     "notebook-section",
     diffParams.repo_id,
     diffParams.engine,
-    diffParams.mode,
-    diffParams.left,
-    diffParams.right,
-    diffParams.base_branch,
-    diffParams.review_branch,
-    diffParams.show_untracked,
+    ...diffIdentityParts,
     entry.left_path,
     entry.right_path,
     section,

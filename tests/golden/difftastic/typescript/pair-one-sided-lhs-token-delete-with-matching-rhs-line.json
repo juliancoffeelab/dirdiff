@@ -1,0 +1,64 @@
+[
+  {
+    "status": "equal",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "import { createEffect } from \"solid-js\";",
+    "right_text": "import { createEffect } from \"solid-js\";"
+  },
+  {
+    "status": "equal",
+    "left_no": 2,
+    "right_no": 2,
+    "left_text": "import type {",
+    "right_text": "import type {"
+  },
+  {
+    "status": "equal",
+    "left_no": 3,
+    "right_no": 3,
+    "left_text": "  DiffRow,",
+    "right_text": "  DiffRow,"
+  },
+  {
+    "status": "equal",
+    "left_no": 4,
+    "right_no": 4,
+    "left_text": "  FileEntry,",
+    "right_text": "  FileEntry,"
+  },
+  {
+    "status": "equal",
+    "left_no": 5,
+    "right_no": 5,
+    "left_text": "  InlineToken,",
+    "right_text": "  InlineToken,"
+  },
+  {
+    "status": "replace",
+    "left_no": 6,
+    "right_no": 6,
+    "left_text": "  SyntaxSpan,",
+    "right_text": "  SyntaxSpan",
+    "left_tokens": [
+      {
+        "text": "  SyntaxSpan",
+        "status": "unchanged",
+        "is_ws": false
+      },
+      {
+        "text": ",",
+        "status": "delete",
+        "is_ws": false
+      }
+    ],
+    "right_tokens": []
+  },
+  {
+    "status": "equal",
+    "left_no": 7,
+    "right_no": 7,
+    "left_text": "} from \"./api\";",
+    "right_text": "} from \"./api\";"
+  }
+]

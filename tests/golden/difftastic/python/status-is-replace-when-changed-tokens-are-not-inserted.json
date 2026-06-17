@@ -1,33 +1,33 @@
 [
   {
+    "status": "replace",
     "left_no": 1,
+    "right_no": 1,
     "left_text": "value = old",
+    "right_text": "value = new",
     "left_tokens": [
       {
-        "is_ws": false,
+        "text": "value = ",
         "status": "unchanged",
-        "text": "value = "
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": "old",
         "status": "replace",
-        "text": "old"
+        "is_ws": false
       }
     ],
-    "right_no": 1,
-    "right_text": "value = new",
     "right_tokens": [
       {
-        "is_ws": false,
+        "text": "value = ",
         "status": "unchanged",
-        "text": "value = "
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": "new",
         "status": "replace",
-        "text": "new"
+        "is_ws": false
       }
-    ],
-    "status": "replace"
+    ]
   }
 ]

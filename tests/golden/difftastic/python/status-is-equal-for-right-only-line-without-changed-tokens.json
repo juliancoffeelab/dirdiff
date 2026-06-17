@@ -1,43 +1,43 @@
 [
   {
+    "status": "equal",
     "left_no": 1,
-    "left_text": "value = arg",
     "right_no": 1,
-    "right_text": "value = arg",
-    "status": "equal"
+    "left_text": "value = arg",
+    "right_text": "value = arg"
   },
   {
+    "status": "insert",
     "left_no": null,
-    "left_text": "",
     "right_no": 2,
+    "left_text": "",
     "right_text": "value = arg",
     "right_tokens": [
       {
-        "is_ws": false,
+        "text": "value",
         "status": "insert",
-        "text": "value"
+        "is_ws": false
       },
       {
-        "is_ws": true,
+        "text": " ",
         "status": "unchanged",
-        "text": " "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "=",
         "status": "insert",
-        "text": "="
+        "is_ws": false
       },
       {
-        "is_ws": true,
+        "text": " ",
         "status": "unchanged",
-        "text": " "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "arg",
         "status": "insert",
-        "text": "arg"
+        "is_ws": false
       }
-    ],
-    "status": "insert"
+    ]
   }
 ]

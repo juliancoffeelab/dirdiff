@@ -122,6 +122,16 @@ class UserProfileUpdateRequest(ApiModel):
     username: str
 
 
+class PresetGroupResponse(ApiModel):
+    name: str
+    display_name: str
+
+
+class PresetCatalogResponse(ApiModel):
+    default_preset: str
+    groups: list[PresetGroupResponse]
+
+
 class SyntaxSpanResponse(ApiModel):
     start: int
     end: int
@@ -454,6 +464,40 @@ def create_app(
             "ref_choices": service.list_ref_choices(),
         }
 
+    @app.get(
+        "/api/presets",
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+        },
+        summary="Load grouped preset metadata",
+    )
+    def serve_presets() -> PresetCatalogResponse:
+        try:
+            if presets_root is not None:
+                preset_backend = PresetBackend.discover(
+                    presets_root=Path(presets_root)
+                )
+            else:
+                preset_backend = PresetBackend.discover()
+            return PresetCatalogResponse.model_validate(
+                {
+                    "default_preset": preset_backend.default_preset_name(),
+                    "groups": preset_backend.list_preset_groups(),
+                }
+            )
+        except TextDiffError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            LOGGER.exception("Preset catalog request crashed: %s", exc)
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail="Internal server error.",
+            ) from exc
+
     @app.get("/api/repos")
     def serve_repos() -> list[RepoMarkResponse]:
         return [
@@ -560,15 +604,15 @@ def create_app(
                 engine, mode=mode, repo_id=repo_id
             )
             if mode == "preset":
-                preset_name = (
-                    preset.strip() if preset and preset.strip() else "presets"
-                )
+                if preset is None or not preset.strip():
+                    raise TextDiffError("preset is required for preset mode.")
+                preset_name = diff_service.normalize_side(preset)
                 payload = diff_service.build_repo_manifest(
                     left=preset_name,
                     right="new",
                     show_untracked=False,
                 )
-                payload["display_name"] = "Preset diffs"
+                payload["display_name"] = preset_name
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
             elif mode == "branch-review":
@@ -669,9 +713,9 @@ def create_app(
                 engine, mode=mode, repo_id=repo_id
             )
             if mode == "preset":
-                preset_name = (
-                    preset.strip() if preset and preset.strip() else "presets"
-                )
+                if preset is None or not preset.strip():
+                    raise TextDiffError("preset is required for preset mode.")
+                preset_name = diff_service.normalize_side(preset)
                 payload = diff_service.build_lazy_info(
                     left=preset_name,
                     right="new",
@@ -780,9 +824,9 @@ def create_app(
                 engine, mode=mode, repo_id=repo_id
             )
             if mode == "preset":
-                preset_name = (
-                    preset.strip() if preset and preset.strip() else "presets"
-                )
+                if preset is None or not preset.strip():
+                    raise TextDiffError("preset is required for preset mode.")
+                preset_name = diff_service.normalize_side(preset)
                 payload = diff_service.build_git_diff_paths(
                     left_path=left_path,
                     right_path=right_path,
@@ -910,9 +954,9 @@ def create_app(
                 engine, mode=mode, repo_id=repo_id
             )
             if mode == "preset":
-                preset_name = (
-                    preset.strip() if preset and preset.strip() else "presets"
-                )
+                if preset is None or not preset.strip():
+                    raise TextDiffError("preset is required for preset mode.")
+                preset_name = diff_service.normalize_side(preset)
                 payload = diff_service.build_notebook_section_diff(
                     left_path=left_path,
                     right_path=right_path,

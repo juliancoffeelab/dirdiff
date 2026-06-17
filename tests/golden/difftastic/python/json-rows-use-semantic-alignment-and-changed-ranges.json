@@ -1,124 +1,124 @@
 [
   {
+    "status": "equal",
     "left_no": 1,
-    "left_text": "def alpha():",
     "right_no": 1,
-    "right_text": "def alpha():",
-    "status": "equal"
+    "left_text": "def alpha():",
+    "right_text": "def alpha():"
   },
   {
+    "status": "replace",
     "left_no": 2,
+    "right_no": 2,
     "left_text": "    return 1",
+    "right_text": "    return 2",
     "left_tokens": [
       {
-        "is_ws": false,
+        "text": "    return ",
         "status": "unchanged",
-        "text": "    return "
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": "1",
         "status": "replace",
-        "text": "1"
+        "is_ws": false
       }
     ],
-    "right_no": 2,
-    "right_text": "    return 2",
     "right_tokens": [
       {
-        "is_ws": false,
+        "text": "    return ",
         "status": "unchanged",
-        "text": "    return "
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": "2",
         "status": "replace",
-        "text": "2"
+        "is_ws": false
       }
-    ],
-    "status": "replace"
+    ]
   },
   {
+    "status": "equal",
     "left_no": null,
-    "left_text": "",
     "right_no": 3,
+    "left_text": "",
     "right_text": "",
-    "right_tokens": [],
-    "status": "equal"
+    "right_tokens": []
   },
   {
+    "status": "equal",
     "left_no": null,
-    "left_text": "",
     "right_no": 4,
+    "left_text": "",
     "right_text": "",
-    "right_tokens": [],
-    "status": "equal"
+    "right_tokens": []
   },
   {
+    "status": "insert",
     "left_no": null,
-    "left_text": "",
     "right_no": 5,
+    "left_text": "",
     "right_text": "def beta():",
     "right_tokens": [
       {
-        "is_ws": false,
+        "text": "def",
         "status": "insert",
-        "text": "def"
+        "is_ws": false
       },
       {
-        "is_ws": true,
+        "text": " ",
         "status": "unchanged",
-        "text": " "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "beta",
         "status": "insert",
-        "text": "beta"
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": "(",
         "status": "insert",
-        "text": "("
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": ")",
         "status": "insert",
-        "text": ")"
+        "is_ws": false
       },
       {
-        "is_ws": false,
+        "text": ":",
         "status": "insert",
-        "text": ":"
+        "is_ws": false
       }
-    ],
-    "status": "insert"
+    ]
   },
   {
+    "status": "insert",
     "left_no": null,
-    "left_text": "",
     "right_no": 6,
+    "left_text": "",
     "right_text": "    return 3",
     "right_tokens": [
       {
-        "is_ws": true,
+        "text": "    ",
         "status": "unchanged",
-        "text": "    "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "return",
         "status": "insert",
-        "text": "return"
+        "is_ws": false
       },
       {
-        "is_ws": true,
+        "text": " ",
         "status": "unchanged",
-        "text": " "
+        "is_ws": true
       },
       {
-        "is_ws": false,
+        "text": "3",
         "status": "insert",
-        "text": "3"
+        "is_ws": false
       }
-    ],
-    "status": "insert"
+    ]
   }
 ]

@@ -7,7 +7,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import type { RefChoices } from "./api";
+import type { PresetCatalog, RefChoices } from "./api";
 import {
   type AutocompleteGroup,
   type BranchSource,
@@ -26,8 +26,9 @@ const builtinRefDescriptions: Record<string, string> = {
 export function Controls(props: {
   controls: ControlsState;
   refChoices: RefChoices;
+  presetCatalog: PresetCatalog;
   onAgainstHead: () => void;
-  onPreset: () => void;
+  onPreset: (preset: string) => void;
   onRefs: (left: string, right: string) => void;
   onBranchReview: (
     baseSource: BranchSource,
@@ -62,7 +63,7 @@ export function Controls(props: {
       return;
     }
     if (value.mode === "preset") {
-      props.onPreset();
+      props.onPreset(value.preset);
       return;
     }
     props.onAgainstHead();
@@ -181,6 +182,28 @@ export function Controls(props: {
           }
           onValue={(reviewBranch) => updateDraft({ reviewBranch })}
         />
+      </Show>
+
+      <Show when={draft().mode === "preset"}>
+        <fieldset class="mode-tabs preset-tabs">
+          <legend>Language</legend>
+          <For each={props.presetCatalog.groups}>
+            {(group) => (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextDraft = { ...draft(), preset: group.name };
+                  setDraft(nextDraft);
+                  loadDraft(nextDraft);
+                }}
+                classList={{ "is-active": draft().preset === group.name }}
+                aria-pressed={draft().preset === group.name}
+              >
+                {group.display_name}
+              </button>
+            )}
+          </For>
+        </fieldset>
       </Show>
 
       <button class="load-button" type="submit">

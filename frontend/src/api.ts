@@ -44,16 +44,52 @@ const RepoRefsSchema = z.strictObject({
 });
 export type RepoRefs = z.infer<typeof RepoRefsSchema>;
 
-export type DiffParams = {
+const PresetGroupSchema = z.strictObject({
+  name: z.string(),
+  display_name: z.string(),
+});
+export type PresetGroup = z.infer<typeof PresetGroupSchema>;
+
+const PresetCatalogSchema = z.strictObject({
+  default_preset: z.string(),
+  groups: z.array(PresetGroupSchema),
+});
+export type PresetCatalog = z.infer<typeof PresetCatalogSchema>;
+
+type DiffParamsBase = {
   repo_id: RepoId;
   engine: DiffEngine;
-  mode: DiffMode;
+};
+
+export type HeadDiffParams = DiffParamsBase & {
+  mode: "head";
+  left: "head";
+  right: "worktree";
+  show_untracked: true;
+};
+
+export type RefsDiffParams = DiffParamsBase & {
+  mode: "refs";
   left: string;
   right: string;
-  base_branch: string | null;
-  review_branch: string | null;
-  show_untracked: boolean;
 };
+
+export type BranchReviewDiffParams = DiffParamsBase & {
+  mode: "branch-review";
+  base_branch: string;
+  review_branch: string;
+};
+
+export type PresetDiffParams = DiffParamsBase & {
+  mode: "preset";
+  preset: string;
+};
+
+export type DiffParams =
+  | HeadDiffParams
+  | RefsDiffParams
+  | BranchReviewDiffParams
+  | PresetDiffParams;
 
 const SummarySchema = z.strictObject({
   changed_files: z.number().int(),
@@ -503,6 +539,14 @@ export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
   return RepoRefsSchema.parse(await response.json());
 }
 
+export async function fetchPresets(): Promise<PresetCatalog> {
+  const response = await fetchJsonResponse("/api/presets");
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+  return PresetCatalogSchema.parse(await response.json());
+}
+
 export async function fetchRepos(): Promise<RepoMark[]> {
   const response = await fetchJsonResponse("/api/repos");
   if (!response.ok) {
@@ -544,27 +588,23 @@ export async function updateUserProfile(
   return UserProfileSchema.parse(await response.json());
 }
 
-function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {
+export function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {
   const params = new URLSearchParams();
   params.set("repo_id", String(diffParams.repo_id));
   params.set("engine", diffParams.engine);
   params.set("mode", diffParams.mode);
-  if (diffParams.left.length > 0) {
-    params.set("left", diffParams.left);
+  if (diffParams.mode === "preset") {
+    params.set("preset", diffParams.preset);
+    return params;
   }
-  if (diffParams.right.length > 0) {
-    params.set("right", diffParams.right);
-  }
-  if (diffParams.base_branch !== null && diffParams.base_branch.length > 0) {
+  if (diffParams.mode === "branch-review") {
     params.set("base_branch", diffParams.base_branch);
-  }
-  if (
-    diffParams.review_branch !== null &&
-    diffParams.review_branch.length > 0
-  ) {
     params.set("review_branch", diffParams.review_branch);
+    return params;
   }
-  if (diffParams.show_untracked) {
+  params.set("left", diffParams.left);
+  params.set("right", diffParams.right);
+  if (diffParams.mode === "head") {
     params.set("show_untracked", "true");
   }
   return params;

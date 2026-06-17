@@ -11,11 +11,15 @@ import {
   fetchLazyInfo,
   fetchManifest,
   fetchFileDiff,
+  type BranchReviewDiffParams,
   type DiffEngine,
   type DiffParams,
   type FileEntry,
+  type HeadDiffParams,
   type LazyInfoFile,
+  type PresetDiffParams,
   type RefChoices,
+  type RefsDiffParams,
   type RepoId,
 } from "../api";
 import type { DiffViewMode } from "../DiffGrid";
@@ -531,36 +535,41 @@ export function createDiffResources(options: DiffResourcesOptions) {
     options.setControls((current) =>
       current === null ? current : { ...current, mode: "head" },
     );
-    startDiff({
+    const diffParams: HeadDiffParams = {
       repo_id: repoId,
       engine: selectedEngine,
       mode: "head",
       left: "head",
       right: "worktree",
-      base_branch: null,
-      review_branch: null,
       show_untracked: true,
-    });
+    };
+    startDiff(diffParams);
   };
 
-  const loadPreset = (selectedEngine: DiffEngine = engine()) => {
+  const loadPreset = (
+    preset: string,
+    selectedEngine: DiffEngine = engine(),
+  ) => {
     const repoId = selectedRepoIdOrIdle();
     if (repoId === null) {
       return;
     }
     options.setControls((current) =>
-      current === null ? current : { ...current, mode: "preset" },
+      current === null
+        ? current
+        : {
+            ...current,
+            mode: "preset",
+            preset,
+          },
     );
-    startDiff({
+    const diffParams: PresetDiffParams = {
       repo_id: repoId,
       engine: selectedEngine,
       mode: "preset",
-      left: "presets",
-      right: "new",
-      base_branch: null,
-      review_branch: null,
-      show_untracked: false,
-    });
+      preset,
+    };
+    startDiff(diffParams);
   };
 
   const loadRefs = (
@@ -581,16 +590,14 @@ export function createDiffResources(options: DiffResourcesOptions) {
       failLoad("Enter both refs to compare them.");
       return;
     }
-    startDiff({
+    const diffParams: RefsDiffParams = {
       repo_id: repoId,
       engine: selectedEngine,
       mode: "refs",
       left: trimmedLeft,
       right: trimmedRight,
-      base_branch: null,
-      review_branch: null,
-      show_untracked: false,
-    });
+    };
+    startDiff(diffParams);
   };
 
   const loadBranchReview = (
@@ -637,12 +644,10 @@ export function createDiffResources(options: DiffResourcesOptions) {
       failLoad("Pick a branch to compare against the base branch.");
       return;
     }
-    startDiff({
+    const diffParams: BranchReviewDiffParams = {
       repo_id: repoId,
       engine: selectedEngine,
       mode: "branch-review",
-      left: "",
-      right: "",
       base_branch: branchReviewRef(
         baseSource,
         baseRemote,
@@ -655,8 +660,8 @@ export function createDiffResources(options: DiffResourcesOptions) {
         reviewBranch,
         choices.remote_names,
       ),
-      show_untracked: false,
-    });
+    };
+    startDiff(diffParams);
   };
 
   const loadInitialControls = (
@@ -677,7 +682,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
         nextEngine,
       );
     } else if (nextControls.mode === "preset") {
-      loadPreset(nextEngine);
+      loadPreset(nextControls.preset, nextEngine);
     } else {
       loadAgainstHead(nextEngine);
     }
@@ -695,7 +700,11 @@ export function createDiffResources(options: DiffResourcesOptions) {
     setEngine(nextEngine);
     const diffParams = currentParams();
     if (diffParams !== null) {
-      startDiff({ ...diffParams, engine: nextEngine });
+      const nextDiffParams: DiffParams = {
+        ...diffParams,
+        engine: nextEngine,
+      };
+      startDiff(nextDiffParams);
     }
   };
 

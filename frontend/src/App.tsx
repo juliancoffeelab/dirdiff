@@ -179,11 +179,18 @@ export function App() {
         />
       </Show>
 
-      <Show when={repo.selectedRepoId() !== null && controls() !== null}>
+      <Show
+        when={
+          repo.selectedRepoId() !== null &&
+          controls() !== null &&
+          repo.presetCatalog() !== null
+        }
+      >
         <>
           <Controls
             controls={controls()!}
             refChoices={repo.refChoices()}
+            presetCatalog={repo.presetCatalog()!}
             onAgainstHead={diff.loadAgainstHead}
             onPreset={diff.loadPreset}
             onRefs={diff.loadRefs}
