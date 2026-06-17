@@ -727,7 +727,7 @@
       },
       {
         "text": "\"change_type\"",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
@@ -737,12 +737,12 @@
       },
       {
         "text": ".",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
         "text": "change_type",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
@@ -759,7 +759,7 @@
       },
       {
         "text": "\"file_kind\"",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {
@@ -769,12 +769,12 @@
       },
       {
         "text": "_file_kind_for_repo_entry",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {
         "text": "(",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {

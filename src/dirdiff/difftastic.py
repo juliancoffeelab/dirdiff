@@ -136,6 +136,36 @@ def _difftastic_row_status_from_tokens(
     return "equal"
 
 
+def _normalize_difftastic_replace_tokens_in_mixed_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        left_tokens = row.get("left_tokens", [])
+        right_tokens = row.get("right_tokens", [])
+        all_tokens = [*left_tokens, *right_tokens]
+        token_statuses = {token.get("status") for token in all_tokens}
+        has_side_status_tokens = bool({"insert", "delete"} & token_statuses)
+        if not (has_side_status_tokens and "replace" in token_statuses):
+            normalized.append(row)
+            continue
+
+        next_row = dict(row)
+        for side in ("left_tokens", "right_tokens"):
+            side_tokens = row.get(side, [])
+            replacement_status = "delete" if side == "left_tokens" else "insert"
+            next_row[side] = [
+                (
+                    {**token, "status": replacement_status}
+                    if token.get("status") == "replace"
+                    else token
+                )
+                for token in side_tokens
+            ]
+        normalized.append(next_row)
+    return normalized
+
+
 def _difftastic_semantic_words(text: str) -> set[str]:
     return {
         word
@@ -923,6 +953,64 @@ def _equal_row_from_crossed_replacements(
     }
 
 
+def _replacement_row_from_shifted_delete_continuation(
+    replace_row: dict[str, Any],
+    delete_row: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "replace",
+        "left_no": delete_row.get("left_no"),
+        "right_no": replace_row.get("right_no"),
+        "left_text": delete_row.get("left_text", ""),
+        "right_text": replace_row.get("right_text", ""),
+        "left_tokens": delete_row.get("left_tokens", []),
+        "right_tokens": replace_row.get("right_tokens", []),
+    }
+
+
+def _left_delete_tokens_from_replace_row(
+    tokens: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        (
+            {**token, "status": "delete"}
+            if token.get("status") == "replace"
+            else token
+        )
+        for token in tokens
+    ]
+
+
+def _replace_row_needs_following_delete_continuation(
+    replace_row: dict[str, Any],
+    delete_row: dict[str, Any],
+) -> bool:
+    if replace_row.get("status") != "replace":
+        return False
+    if delete_row.get("status") != "delete":
+        return False
+    if (
+        replace_row.get("left_no") is None
+        or replace_row.get("right_no") is None
+    ):
+        return False
+    if delete_row.get("left_no") != replace_row.get("left_no") + 1:
+        return False
+
+    replace_right_tokens = replace_row.get("right_tokens", [])
+    delete_left_tokens = delete_row.get("left_tokens", [])
+    if not replace_right_tokens or not delete_left_tokens:
+        return False
+
+    shared_words = _difftastic_unchanged_semantic_words(
+        replace_right_tokens
+    ) & _difftastic_unchanged_semantic_words(delete_left_tokens)
+    if not shared_words:
+        return False
+
+    return bool(_difftastic_changed_semantic_words(delete_left_tokens))
+
+
 def _repair_shifted_difftastic_replacements(
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -978,6 +1066,40 @@ def _repair_shifted_difftastic_replacements(
                 )
                 index += 2
                 continue
+        repaired.append(row)
+        index += 1
+    return repaired
+
+
+def _repair_replace_rows_with_delete_continuations(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    repaired: list[dict[str, Any]] = []
+    index = 0
+    while index < len(rows):
+        row = rows[index]
+        next_row = rows[index + 1] if index + 1 < len(rows) else None
+        if (
+            next_row is not None
+            and _replace_row_needs_following_delete_continuation(row, next_row)
+        ):
+            repaired.append(
+                {
+                    "status": "delete",
+                    "left_no": row.get("left_no"),
+                    "right_no": None,
+                    "left_text": row.get("left_text", ""),
+                    "right_text": "",
+                    "left_tokens": _left_delete_tokens_from_replace_row(
+                        row.get("left_tokens", [])
+                    ),
+                }
+            )
+            repaired.append(
+                _replacement_row_from_shifted_delete_continuation(row, next_row)
+            )
+            index += 2
+            continue
         repaired.append(row)
         index += 1
     return repaired
@@ -1479,8 +1601,12 @@ def _difftastic_rows_from_json(
         )
         used_right.add(right_index)
 
-    return _normalize_one_sided_difftastic_replacements(
-        _repair_shifted_difftastic_replacements(rows)
+    return _normalize_difftastic_replace_tokens_in_mixed_rows(
+        _repair_replace_rows_with_delete_continuations(
+            _normalize_one_sided_difftastic_replacements(
+                _repair_shifted_difftastic_replacements(rows)
+            )
+        )
     )
 
 

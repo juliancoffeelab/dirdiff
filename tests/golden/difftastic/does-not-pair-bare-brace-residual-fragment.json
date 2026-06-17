@@ -476,7 +476,7 @@
       },
       {
         "text": "cursor",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
@@ -493,7 +493,7 @@
       },
       {
         "text": "for",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {
@@ -716,22 +716,22 @@
       },
       {
         "text": "clamp",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
         "text": "(",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
         "text": "span",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
         "text": ".",
-        "status": "replace",
+        "status": "delete",
         "is_ws": false
       },
       {
@@ -798,22 +798,22 @@
       },
       {
         "text": "sortedBoundaries",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {
         "text": "[",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {
         "text": "index",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {
         "text": "]",
-        "status": "replace",
+        "status": "insert",
         "is_ws": false
       },
       {

@@ -2063,7 +2063,7 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
                     "status": "unchanged",
                     "is_ws": False,
                 },
-                {"text": '"change_type"', "status": "replace", "is_ws": False},
+                {"text": '"change_type"', "status": "delete", "is_ws": False},
                 {
                     "text": "] = change_type",
                     "status": "unchanged",
@@ -2076,7 +2076,7 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
                     "status": "unchanged",
                     "is_ws": False,
                 },
-                {"text": '"file_kind"', "status": "replace", "is_ws": False},
+                {"text": '"file_kind"', "status": "insert", "is_ws": False},
                 {"text": "] = ", "status": "unchanged", "is_ws": False},
                 {
                     "text": "_file_kind_for_change_type",
@@ -2747,7 +2747,7 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
                     "status": "unchanged",
                     "is_ws": False,
                 },
-                {"text": '"change_type"', "status": "replace", "is_ws": False},
+                {"text": '"change_type"', "status": "delete", "is_ws": False},
                 {
                     "text": "] = change_type",
                     "status": "unchanged",
@@ -2760,7 +2760,7 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
                     "status": "unchanged",
                     "is_ws": False,
                 },
-                {"text": '"file_kind"', "status": "replace", "is_ws": False},
+                {"text": '"file_kind"', "status": "insert", "is_ws": False},
                 {"text": "] = ", "status": "unchanged", "is_ws": False},
                 {
                     "text": "_file_kind_for_change_type",
@@ -2918,34 +2918,55 @@ def test_difftastic_rows_keep_shared_path_residue_unchanged_in_deleted_block() -
 ):
     rows = _preset_rows("create-app-runtime-config-collapses-service-block")
 
+    deleted_header_row = next(
+        row for row in rows if row["left_text"] == "    presets_root = ("
+    )
     paired_path_row = next(
         row
         for row in rows
         if row["right_text"] == "    repo_path = Path(args.repo_path)"
     )
-    deleted_path_row = next(
-        row
-        for row in rows
-        if row["left_text"]
+
+    assert deleted_header_row["status"] == "delete"
+    assert deleted_header_row["right_no"] is None
+    assert deleted_header_row["left_tokens"] == [
+        {"text": "    ", "status": "unchanged", "is_ws": True},
+        {"text": "presets_root", "status": "delete", "is_ws": False},
+        {"text": " = ", "status": "unchanged", "is_ws": False},
+        {"text": "(", "status": "delete", "is_ws": False},
+    ]
+    assert paired_path_row["status"] == "replace"
+    assert (
+        paired_path_row["left_text"]
         == "        Path(config.presets_root).expanduser() if config.presets_root else None"
     )
-
-    assert paired_path_row["status"] == "replace"
-    assert paired_path_row["left_text"] == "    presets_root = ("
-    assert deleted_path_row["status"] == "delete"
-    assert any(
-        token["status"] == "unchanged" and "Path(" in token["text"]
-        for token in deleted_path_row["left_tokens"]
-    )
-    assert any(
-        token["status"] == "unchanged" and "Path(" in token["text"]
-        for token in paired_path_row["right_tokens"]
-    )
-    assert all(
-        token["status"] in {"unchanged", "delete"}
-        for token in deleted_path_row["left_tokens"]
-    )
-    assert all(
-        token["status"] in {"unchanged", "replace", "insert"}
-        for token in paired_path_row["right_tokens"]
-    )
+    assert paired_path_row["left_tokens"] == [
+        {"text": "        Path(", "status": "unchanged", "is_ws": False},
+        {"text": "config", "status": "delete", "is_ws": False},
+        {"text": ".", "status": "unchanged", "is_ws": False},
+        {"text": "presets_root", "status": "delete", "is_ws": False},
+        {"text": ")", "status": "unchanged", "is_ws": False},
+        {"text": ".", "status": "delete", "is_ws": False},
+        {"text": "expanduser", "status": "delete", "is_ws": False},
+        {"text": "(", "status": "delete", "is_ws": False},
+        {"text": ")", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "if", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "config", "status": "delete", "is_ws": False},
+        {"text": ".", "status": "delete", "is_ws": False},
+        {"text": "presets_root", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "else", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "None", "status": "delete", "is_ws": False},
+    ]
+    assert paired_path_row["right_tokens"] == [
+        {"text": "    ", "status": "unchanged", "is_ws": True},
+        {"text": "repo_path", "status": "insert", "is_ws": False},
+        {"text": " = Path(", "status": "unchanged", "is_ws": False},
+        {"text": "args", "status": "insert", "is_ws": False},
+        {"text": ".", "status": "unchanged", "is_ws": False},
+        {"text": "repo_path", "status": "insert", "is_ws": False},
+        {"text": ")", "status": "unchanged", "is_ws": False},
+    ]
