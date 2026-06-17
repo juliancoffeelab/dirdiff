@@ -32,7 +32,21 @@ dirdiff
 We use uvicorn and vite with every dev option enabled, so hot-reloading fully
 works. If it doesn't that's a bug.
 
+## Marks
+
+We also support marking feature, so you can mark any repo and have it globally
+available:
+
+```bash
+dirdiff mark
+```
+
+The database is in `$HOME/.local/share/dirdiff`, we don't do support platform
+specific placements like xdg-directories (yet?).
+
+
 ## Third-party fixes
 
 Additional fixes that have not yet landed upstream may be available in
 [juliancoffeelab/difftastic](https://github.com/juliancoffeelab/difftastic).
+I've found a crash during testing, and there you can find a workaround.
