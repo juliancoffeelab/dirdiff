@@ -23,6 +23,12 @@ const RepoMarkSchema = z.strictObject({
 });
 export type RepoMark = z.infer<typeof RepoMarkSchema>;
 
+const UserProfileSchema = z.strictObject({
+  id: z.number().int().positive(),
+  username: z.string().min(1),
+});
+export type UserProfile = z.infer<typeof UserProfileSchema>;
+
 const RefChoicesSchema = z.strictObject({
   builtins: z.array(z.string()),
   locals: z.array(z.string()),
@@ -503,6 +509,39 @@ export async function fetchRepos(): Promise<RepoMark[]> {
     return parseErrorResponse(response);
   }
   return z.array(RepoMarkSchema).parse(await response.json());
+}
+
+export async function createUserProfile(
+  username: string,
+): Promise<UserProfile> {
+  const response = await fetchJsonResponse("/api/user-profile", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ username }),
+  });
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+  return UserProfileSchema.parse(await response.json());
+}
+
+export async function updateUserProfile(
+  profileId: number,
+  username: string,
+): Promise<UserProfile> {
+  const response = await fetchJsonResponse(`/api/user-profile/${profileId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ username }),
+  });
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+  return UserProfileSchema.parse(await response.json());
 }
 
 function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {

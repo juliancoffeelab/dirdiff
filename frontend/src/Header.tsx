@@ -2,6 +2,7 @@ import { Show } from "solid-js";
 import type { DiffEngine, RepoId, RepoMark, Summary } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
 import { diffViewLabels, engineLabels } from "./model";
+import { Profile } from "./Profile";
 import { Select } from "./Select";
 
 export function Header(props: {
@@ -19,7 +20,10 @@ export function Header(props: {
     <header ref={props.onHeaderMount} class="app-header">
       <div class="app-title-block">
         <div class="app-title-row">
-          <h1>dirdiff</h1>
+          <div class="app-brand">
+            <h1>dirdiff</h1>
+            <Profile />
+          </div>
           <Show when={props.repos !== null}>
             <RepoSelect
               repos={loadedRepos(props.repos)}
