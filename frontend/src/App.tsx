@@ -13,9 +13,17 @@ import {
   type InitialRepoDiff,
   createRepoResources,
 } from "./app/createRepoResources";
-import { type ControlsState, emptySummary, initialDiffViewMode } from "./model";
+import { type ControlsState, emptySummary } from "./fileUtils";
 import { GracefulErrorBoundary, useToasts } from "./Toasts";
 import "./styles.css";
+
+function initialDiffViewMode(): DiffViewMode {
+  const view = new URLSearchParams(window.location.search).get("view");
+  if (view === "split" || view === "inline") {
+    return view;
+  }
+  return "inline";
+}
 
 export function App() {
   const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>(
@@ -236,6 +244,7 @@ export function App() {
           <HunkNav
             debugOpen={navigation.debugMenuOpen()}
             helpOpen={navigation.helpOpen()}
+            hunkPosition={navigation.hunkPosition()}
             onHelpOpenChange={navigation.setHelpOpen}
             onNext={navigation.scrollNext}
             onPrev={navigation.scrollPrev}

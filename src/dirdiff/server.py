@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -15,15 +15,16 @@ from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.db.user_profile import UserProfileStore
 from dirdiff.runtime import RUNTIME_CONFIG_ENV, RuntimeConfig
 from dirdiff.services import (
+    DiffServiceProtocol,
     DifftasticDiffService,
     GitDiffService,
     TextDiffService,
 )
 from dirdiff.sources import (
     GitBackend,
-    PatchBackend,
     PresetBackend,
     TextDiffError,
+    WorkspaceBackend,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -39,56 +40,6 @@ LazyReason = (
     | None
 )
 RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
-
-
-class DiffServiceProtocol(Protocol):
-    @property
-    def repo_root(self) -> Path | None: ...
-
-    def default_base_branch(self) -> str: ...
-
-    def preferred_review_branch(
-        self, *, base_branch: str | None = None
-    ) -> str: ...
-
-    def list_ref_choices(self) -> dict[str, list[str]]: ...
-
-    def normalize_side(self, side: str) -> str: ...
-
-    def resolve_branch_diff_sides(
-        self, *, base_branch: str, branch: str
-    ) -> tuple[str, str]: ...
-
-    def build_repo_manifest(
-        self, *, left: str, right: str, show_untracked: bool = False
-    ) -> dict[str, Any]: ...
-
-    def build_lazy_info(
-        self, *, left: str, right: str, show_untracked: bool = False
-    ) -> dict[str, Any]: ...
-
-    def build_git_diff_paths(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        display_name: str | None = None,
-        change_type: str = "modify",
-        file_kind: str | None = None,
-    ) -> dict[str, Any]: ...
-
-    def build_notebook_section_diff(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        section: str | None,
-        cell_key: str | None = None,
-    ) -> dict[str, Any]: ...
 
 
 class ApiModel(BaseModel):
@@ -348,7 +299,7 @@ def selected_branches(
 
 
 def service_for_backend(
-    engine: EngineParam, backend: PatchBackend
+    engine: EngineParam, backend: WorkspaceBackend
 ) -> DiffServiceProtocol:
     if engine == "dirdiff":
         return TextDiffService(backend)

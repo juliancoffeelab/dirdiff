@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
-import type { DiffRow, FileEntry } from "./api";
-import { fileElementId, fileEntryIsHydrated, fileKey, fileRows } from "./model";
+import type { FileEntry } from "./api";
+import { fileElementId, fileKey } from "./fileUtils";
 
 type HunkNavigationOptions = {
   afterReconcile?: () => void;
@@ -17,6 +17,10 @@ const READING_LINE_RATIO = 0.5;
 const RICH_PRELOAD_FILE_RADIUS = 2;
 
 type HunkAnchor = HTMLElement | null;
+type HunkPosition = {
+  current: number;
+  total: number;
+};
 
 export function fileIdForHunkAnchor(anchor: HTMLElement): string | null {
   const fileCard = anchor.closest<HTMLElement>(".file-card");
@@ -37,48 +41,31 @@ export function richPreloadFileIdsForFileId(
   activeFileId: string | null,
   files: FileEntry[],
 ): string[] {
-  const changedFileIds = files
-    .filter(fileCanHaveDomHunks)
+  const preloadFileIds = files
+    .filter((file) => file.lazy === null)
     .map((file) => fileElementId(fileKey(file)));
-  if (!changedFileIds.length) {
+  if (!preloadFileIds.length) {
     return [];
   }
 
   const forced = new Set<string>();
-  forced.add(changedFileIds[0]);
-  forced.add(changedFileIds[changedFileIds.length - 1]);
+  forced.add(preloadFileIds[0]);
+  forced.add(preloadFileIds[preloadFileIds.length - 1]);
 
   const activeIndex =
-    activeFileId === null ? -1 : changedFileIds.indexOf(activeFileId);
+    activeFileId === null ? -1 : preloadFileIds.indexOf(activeFileId);
   if (activeIndex !== -1) {
     const start = Math.max(0, activeIndex - RICH_PRELOAD_FILE_RADIUS);
     const end = Math.min(
-      changedFileIds.length - 1,
+      preloadFileIds.length - 1,
       activeIndex + RICH_PRELOAD_FILE_RADIUS,
     );
     for (let index = start; index <= end; index += 1) {
-      forced.add(changedFileIds[index]);
+      forced.add(preloadFileIds[index]);
     }
   }
 
   return [...forced];
-}
-
-function fileCanHaveDomHunks(file: FileEntry): boolean {
-  return (
-    fileEntryIsHydrated(file) &&
-    file.render_kind !== "notebook" &&
-    fileRows(file).length > 0 &&
-    fileHasChangedRows(file)
-  );
-}
-
-function fileHasChangedRows(file: FileEntry): boolean {
-  return fileRows(file).some((row) => isChangedDiffRowStatus(row.status));
-}
-
-function isChangedDiffRowStatus(status: DiffRow["status"]): boolean {
-  return status === "replace" || status === "insert" || status === "delete";
 }
 
 export function shouldIgnoreGlobalHotkeyEvent(event: KeyboardEvent): boolean {
@@ -117,6 +104,69 @@ function hunkAnchors(root: ParentNode | undefined): HunkAnchor[] {
   return hunkAnchorElements(root).map((anchor) =>
     anchor.classList.contains("hunk-skip") ? null : anchor,
   );
+}
+
+function anchorDistanceToReadingLine(
+  anchor: HTMLElement,
+  readingLineY: number,
+) {
+  return Math.abs(anchor.getBoundingClientRect().top - readingLineY);
+}
+
+function distanceToVerticalRange(
+  top: number,
+  bottom: number,
+  target: number,
+): number {
+  if (target < top) {
+    return top - target;
+  }
+  if (target > bottom) {
+    return target - bottom;
+  }
+  return 0;
+}
+
+function currentFileIdAtReadingLine(
+  root: ParentNode | undefined,
+  readingLineY: number,
+): string | null {
+  const scope = root ?? document;
+  const fileCardsById = new Map(
+    [...scope.querySelectorAll<HTMLElement>(".file-card")]
+      .filter((card) => card.id.length > 0)
+      .map((card) => [card.id, card]),
+  );
+  if (fileCardsById.size === 0) {
+    return null;
+  }
+
+  const fileCards = [...fileCardsById.values()].filter(
+    (card) => card.querySelector(".hunk-anchor") !== null,
+  );
+  if (fileCards.length === 0) {
+    return null;
+  }
+
+  let nearestCard: HTMLElement | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const card of fileCards) {
+    const rect = card.getBoundingClientRect();
+    const distance = distanceToVerticalRange(
+      rect.top,
+      rect.bottom,
+      readingLineY,
+    );
+    if (distance < nearestDistance) {
+      nearestCard = card;
+      nearestDistance = distance;
+    }
+  }
+
+  if (nearestCard === null || nearestCard.id.length === 0) {
+    return null;
+  }
+  return nearestCard.id;
 }
 
 function selectCurrentHunk(options: {
@@ -179,15 +229,38 @@ export function createHunkNavigation(
   options: HunkNavigationOptions = {},
 ) {
   const [currentIndex, setCurrentIndex] = createSignal(0);
+  const [position, setPosition] = createSignal<HunkPosition>({
+    current: 0,
+    total: 0,
+  });
   let reconcileTimer: number | null = null;
   let scrollFollowTimer: number | null = null;
   let ignoreScrollFollowUntil = 0;
 
   const anchors = () => hunkAnchors(root());
 
+  const syncPosition = (
+    currentAnchors: HunkAnchor[],
+    selectedIndex: number,
+  ) => {
+    const selectableIndices = currentAnchors.flatMap((anchor, index) =>
+      anchor === null ? [] : [index],
+    );
+    if (selectableIndices.length === 0) {
+      setPosition({ current: 0, total: 0 });
+      return;
+    }
+    const ordinal = selectableIndices.indexOf(selectedIndex);
+    setPosition({
+      current: ordinal === -1 ? 0 : ordinal + 1,
+      total: selectableIndices.length,
+    });
+  };
+
   const select = (selectionOptions: { index: number; scroll: boolean }) => {
     const currentAnchors = anchors();
     if (!currentAnchors.length) {
+      setPosition({ current: 0, total: 0 });
       return;
     }
     const index = clamp(selectionOptions.index, 0, currentAnchors.length - 1);
@@ -196,6 +269,7 @@ export function createHunkNavigation(
       scroll: selectionOptions.scroll,
       root: root(),
     });
+    syncPosition(currentAnchors, selected === null ? -1 : index);
     options.onSelectionChange?.({
       anchors: currentAnchors,
       index,
@@ -230,21 +304,31 @@ export function createHunkNavigation(
     }
 
     const readingLineY = window.innerHeight * READING_LINE_RATIO;
-    let nextIndex = currentIndex();
-    let nextDistance = Number.POSITIVE_INFINITY;
+    const fileId = currentFileIdAtReadingLine(root(), readingLineY);
+    if (fileId === null) {
+      return;
+    }
+    const candidateAnchorEntries = currentAnchors.flatMap((anchor, index) =>
+      anchor !== null && fileIdForHunkAnchor(anchor) === fileId
+        ? [{ anchor, index }]
+        : [],
+    );
+    if (candidateAnchorEntries.length === 0) {
+      return;
+    }
 
-    currentAnchors.forEach((anchor, index) => {
-      if (anchor === null) {
-        return;
-      }
-      const distance = Math.abs(
-        anchor.getBoundingClientRect().top - readingLineY,
-      );
+    let nextIndex = candidateAnchorEntries[0].index;
+    let nextDistance = anchorDistanceToReadingLine(
+      candidateAnchorEntries[0].anchor,
+      readingLineY,
+    );
+    for (const { anchor, index } of candidateAnchorEntries.slice(1)) {
+      const distance = anchorDistanceToReadingLine(anchor, readingLineY);
       if (distance < nextDistance) {
         nextIndex = index;
         nextDistance = distance;
       }
-    });
+    }
 
     if (nextIndex === currentIndex()) {
       return;
@@ -261,6 +345,7 @@ export function createHunkNavigation(
       const currentAnchors = anchors();
       if (currentAnchors.length === 0) {
         setCurrentIndex(0);
+        setPosition({ current: 0, total: 0 });
         options.afterReconcile?.();
         return;
       }
@@ -344,6 +429,7 @@ export function createHunkNavigation(
   return {
     followScroll,
     ignoreScrollFollowFor,
+    position,
     reconcileWhen,
     scrollNext: () => scroll(1),
     scrollPrev: () => scroll(-1),

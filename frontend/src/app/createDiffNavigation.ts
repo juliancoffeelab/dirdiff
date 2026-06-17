@@ -32,7 +32,7 @@ import {
   fileElementId,
   fileKey,
   fileMatchesLinePin,
-} from "../model";
+} from "../fileUtils";
 
 type DiffNavigationOptions = {
   appRoot: Accessor<HTMLElement | undefined>;
@@ -369,6 +369,7 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
 
   return {
     linePin,
+    hunkPosition: hunkNav.position,
     debugMenuOpen,
     helpOpen,
     setHelpOpen,

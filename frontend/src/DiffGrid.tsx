@@ -7,7 +7,21 @@ import type {
   SyntaxSpan,
 } from "./api";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
-import { fileDisplayName, fileFoldHints, fileRows } from "./model";
+import { fileDisplayName } from "./fileUtils";
+
+function fileRows(entry: FileEntry): DiffRow[] {
+  if (entry.rows === undefined) {
+    throw new Error(`${fileDisplayName(entry)} is missing diff rows.`);
+  }
+  return entry.rows;
+}
+
+function fileFoldHints(entry: FileEntry) {
+  if (entry.fold_hints === undefined) {
+    return [];
+  }
+  return entry.fold_hints;
+}
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",

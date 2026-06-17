@@ -5,12 +5,28 @@ import type {
   DiffRow,
   FileEntry,
   FoldHint,
+  NotebookSummary,
   NotebookCellEntry,
   NotebookSection,
 } from "./api";
 import { fetchNotebookSection } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
-import { notebookCells, notebookSummary } from "./model";
+import { fileDisplayName } from "./fileUtils";
+
+function notebookSummary(entry: FileEntry): NotebookSummary {
+  const summary = entry.summary;
+  if (summary === undefined || !("changed_cells" in summary)) {
+    throw new Error(`${fileDisplayName(entry)} is missing notebook summary.`);
+  }
+  return summary;
+}
+
+function notebookCells(entry: FileEntry) {
+  if (entry.cells === undefined) {
+    throw new Error(`${fileDisplayName(entry)} is missing notebook cells.`);
+  }
+  return entry.cells;
+}
 
 export function NotebookFile(props: {
   file: FileEntry;

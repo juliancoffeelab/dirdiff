@@ -10,7 +10,165 @@ import {
   type RepoMark,
   type RepoRefs,
 } from "../api";
-import { type ControlsState, initialControls, initialEngine } from "../model";
+import { type ControlsState } from "../fileUtils";
+
+function nullableStringValue(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  if (value !== null && value !== undefined && value.length > 0) {
+    return value;
+  }
+  return fallback;
+}
+
+function searchValue(
+  search: URLSearchParams,
+  name: string,
+  fallback: string,
+): string {
+  const value = search.get(name);
+  if (value !== null && value.length > 0) {
+    return value;
+  }
+  return fallback;
+}
+
+function splitRemoteQualifiedRef(
+  ref: string,
+  remoteNames: string[],
+): { remote: string; value: string } {
+  const trimmedRef = ref.trim();
+  for (const remoteName of [...remoteNames].sort(
+    (left, right) => right.length - left.length,
+  )) {
+    const prefix = `${remoteName}/`;
+    if (trimmedRef.startsWith(prefix)) {
+      return {
+        remote: remoteName,
+        value: trimmedRef.slice(prefix.length),
+      };
+    }
+  }
+  return {
+    remote: "",
+    value: trimmedRef,
+  };
+}
+
+const modeSides = {
+  files: ["index", "worktree"],
+  staged: ["head", "index"],
+  head: ["head", "worktree"],
+} as const;
+
+function inferMode(
+  left: string,
+  right: string,
+  baseBranch: string,
+  reviewBranch: string,
+) {
+  if (baseBranch.length > 0 || reviewBranch.length > 0) {
+    return "branch-review" as const;
+  }
+  return left === "head" && right === "worktree" ? "head" : "refs";
+}
+
+function resolveTopLevelMode(
+  mode: ControlsState["mode"] | null,
+  left: string,
+  right: string,
+  baseBranch: string,
+  reviewBranch: string,
+): ControlsState["mode"] {
+  if (
+    mode === "refs" ||
+    mode === "branch-review" ||
+    mode === "head" ||
+    mode === "preset"
+  ) {
+    return mode;
+  }
+  if (mode === "files" || mode === "staged") {
+    return "head";
+  }
+  return inferMode(left, right, baseBranch, reviewBranch);
+}
+
+function initialControls(
+  repoRefs: RepoRefs,
+  presetCatalog: PresetCatalog,
+): ControlsState {
+  const search = new URLSearchParams(window.location.search);
+  const remoteNames = repoRefs.ref_choices.remote_names;
+  const left = searchValue(search, "left", "head");
+  const right = searchValue(search, "right", "worktree");
+  const baseBranchRef = searchValue(
+    search,
+    "base_branch",
+    nullableStringValue(repoRefs.default_base_branch, ""),
+  );
+  const reviewBranchRef = searchValue(
+    search,
+    "review_branch",
+    nullableStringValue(repoRefs.preferred_review_branch, ""),
+  );
+  const baseBranchParts = splitRemoteQualifiedRef(baseBranchRef, remoteNames);
+  const reviewBranchParts = splitRemoteQualifiedRef(
+    reviewBranchRef,
+    remoteNames,
+  );
+  const requestedMode = search.get("mode") as ControlsState["mode"] | null;
+  const defaultPreset = presetCatalog.default_preset;
+  const preset = searchValue(search, "preset", defaultPreset);
+  const mode =
+    requestedMode === null
+      ? "head"
+      : resolveTopLevelMode(
+          requestedMode,
+          left,
+          right,
+          baseBranchParts.value,
+          reviewBranchParts.value,
+        );
+
+  if (mode in modeSides) {
+    const [modeLeft, modeRight] = modeSides[mode as keyof typeof modeSides];
+    return {
+      mode,
+      left: modeLeft,
+      right: modeRight,
+      preset,
+      baseSource: baseBranchParts.remote ? "remote" : "local",
+      baseRemote: baseBranchParts.remote,
+      baseBranch: baseBranchParts.value,
+      branchSource: reviewBranchParts.remote ? "remote" : "local",
+      branchRemote: reviewBranchParts.remote,
+      reviewBranch: reviewBranchParts.value,
+    };
+  }
+
+  return {
+    mode,
+    left,
+    right,
+    preset,
+    baseSource: baseBranchParts.remote ? "remote" : "local",
+    baseRemote: baseBranchParts.remote,
+    baseBranch: baseBranchParts.value,
+    branchSource: reviewBranchParts.remote ? "remote" : "local",
+    branchRemote: reviewBranchParts.remote,
+    reviewBranch: reviewBranchParts.value,
+  };
+}
+
+function initialEngine(): DiffEngine {
+  const engine = new URLSearchParams(window.location.search).get("engine");
+  if (engine === "git" || engine === "dirdiff" || engine === "difftastic") {
+    return engine;
+  }
+  return "dirdiff";
+}
 
 /**
  * Initial controls and engine inferred after repo refs are available.

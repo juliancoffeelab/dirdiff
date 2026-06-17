@@ -11,10 +11,20 @@ import {
   type LoadedDiff,
   entryDirectoryLabel,
   fileKey,
-  fileOrderIndex,
   groupFilesByLabel,
-} from "../model";
+} from "../fileUtils";
 import { richPreloadFileIdsForFileId } from "../hunkNavigation";
+
+function fileOrderIndex(
+  order: Record<string, number>,
+  file: FileEntry,
+): number {
+  const index = order[fileKey(file)];
+  if (index === undefined) {
+    throw new Error(`Missing file order for ${fileKey(file)}.`);
+  }
+  return index;
+}
 
 function stringArraysEqual(left: string[], right: string[]): boolean {
   if (left.length !== right.length) {

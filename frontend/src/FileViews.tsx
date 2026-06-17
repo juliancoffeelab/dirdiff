@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { isCancelledError } from "@tanstack/query-core";
-import type { DiffRow, FileEntry } from "./api";
+import type { DiffRow, FileEntry, FileKind } from "./api";
 import { fetchFileDiff } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import { NotebookFile } from "./NotebookViews";
@@ -17,24 +17,17 @@ import {
   type LinePin,
   type LoadedDiff,
   addHydratedNotebookSummary,
-  defaultFileExpansion,
   directoryElementId,
-  expansionValue,
   fileBodyAnchorElementId,
   fileDiffQueryKey,
   fileDisplayName,
   fileElementId,
-  fileEntryIsHydrated,
   fileKey,
-  fileKindStatus,
-  fileLineStats,
   fileMatchesLinePin,
   fileRows,
-  formatLineStat,
   groupFilesByLabel,
-  groupLineStats,
   sortFilesByOrder,
-} from "./model";
+} from "./fileUtils";
 
 type ExpansionSetter = (
   updater: (current: Record<string, boolean>) => Record<string, boolean>,
@@ -43,6 +36,93 @@ type StringMapSetter = (
   updater: (current: Record<string, string>) => Record<string, string>,
 ) => void;
 type LoadedDiffSetter = (updater: (current: LoadedDiff) => LoadedDiff) => void;
+type LineStats = {
+  added: number | null;
+  modified: number | null;
+  removed: number | null;
+};
+
+function expansionValue(
+  current: Record<string, boolean>,
+  key: string,
+  defaultValue: boolean,
+): boolean {
+  if (Object.hasOwn(current, key)) {
+    return current[key];
+  }
+  return defaultValue;
+}
+
+function emptyLineStats(): LineStats {
+  return { added: 0, modified: 0, removed: 0 };
+}
+
+function addLineStat(left: number | null, right: number | null): number | null {
+  if (left === null || right === null) {
+    return null;
+  }
+  return left + right;
+}
+
+function addLineStats(left: LineStats, right: LineStats): LineStats {
+  return {
+    added: addLineStat(left.added, right.added),
+    modified: addLineStat(left.modified, right.modified),
+    removed: addLineStat(left.removed, right.removed),
+  };
+}
+
+function unknownLineStats(): LineStats {
+  return { added: null, modified: null, removed: null };
+}
+
+function fileLineStats(entry: FileEntry): LineStats {
+  if (entry.summary !== undefined) {
+    return {
+      added: entry.summary.added_lines,
+      modified: entry.summary.modified_lines,
+      removed: entry.summary.removed_lines,
+    };
+  }
+  if (
+    entry.lazy !== undefined &&
+    typeof entry.added_lines === "number" &&
+    typeof entry.removed_lines === "number"
+  ) {
+    return {
+      added: entry.added_lines,
+      modified: 0,
+      removed: entry.removed_lines,
+    };
+  }
+  return unknownLineStats();
+}
+
+function formatLineStat(value: number | null): string {
+  return value === null ? "?" : String(value);
+}
+
+function fileEntryIsHydrated(entry: FileEntry): boolean {
+  return entry.render_kind === "notebook" || entry.rows !== undefined;
+}
+
+function defaultFileExpansion(entry: FileEntry): boolean {
+  if (entry.default_expanded === undefined) {
+    return false;
+  }
+  return entry.default_expanded;
+}
+
+function groupLineStats(group: FileGroup): LineStats {
+  return group.files.reduce(
+    (total, file) => addLineStats(total, fileLineStats(file)),
+    emptyLineStats(),
+  );
+}
+
+function fileKindStatus(fileKind: FileKind): string {
+  return fileKind.type === "git" ? fileKind.status : "untracked";
+}
 
 function VisibilityIndicator(props: {
   size: "small" | "large";
@@ -65,7 +145,7 @@ function VisibilityIndicator(props: {
   );
 }
 
-function TreeLineStats(props: { stats: import("./model").LineStats }) {
+function TreeLineStats(props: { stats: LineStats }) {
   return (
     <span class="file-tree-line-stats">
       <span class="added">+ {formatLineStat(props.stats.added)}</span>
@@ -786,15 +866,6 @@ function virtualHunkAnchors(rows: DiffRow[]): { rowIndex: number }[] {
     previousChanged = changed;
   });
   return anchors;
-}
-
-function fileCanHaveDomHunks(file: FileEntry): boolean {
-  return (
-    fileEntryIsHydrated(file) &&
-    file.render_kind !== "notebook" &&
-    fileRows(file).length > 0 &&
-    fileRows(file).some((row) => isChangedDiffRowStatus(row.status))
-  );
 }
 
 const VIRTUAL_HUNK_TOP_OFFSET_PX = 10;

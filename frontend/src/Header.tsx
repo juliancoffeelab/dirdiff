@@ -1,7 +1,7 @@
 import { Show } from "solid-js";
 import type { DiffEngine, RepoId, RepoMark, Summary } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
-import { diffViewLabels, engineLabels } from "./model";
+import { diffViewLabels, engineLabels } from "./fileUtils";
 import { Profile } from "./Profile";
 import { Select } from "./Select";
 

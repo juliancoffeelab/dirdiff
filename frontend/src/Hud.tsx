@@ -11,15 +11,20 @@ type DebugMetrics = {
   fps: string;
   nodes: string;
   spans: string;
+  hunks: string;
 };
 
 const emptyDebugMetrics: DebugMetrics = {
   fps: "--",
   nodes: "--",
   spans: "--",
+  hunks: "--/--",
 };
 
-function DebugHud(props: { open: boolean }) {
+function DebugHud(props: {
+  open: boolean;
+  hunkPosition: { current: number; total: number };
+}) {
   const [metrics, setMetrics] = createSignal<DebugMetrics>(emptyDebugMetrics);
   let frame = 0;
   let sampleStartedAt = performance.now();
@@ -30,10 +35,15 @@ function DebugHud(props: { open: boolean }) {
   const formatCount = (value: number) => value.toLocaleString();
 
   const updateMetrics = () => {
+    const hunkPosition = props.hunkPosition;
     setMetrics({
       fps: currentFps ? String(Math.round(currentFps)) : "--",
       nodes: formatCount(document.querySelectorAll("*").length),
       spans: formatCount(document.querySelectorAll("span").length),
+      hunks:
+        hunkPosition.total === 0
+          ? "--/--"
+          : `${hunkPosition.current}/${hunkPosition.total}`,
     });
   };
 
@@ -71,6 +81,7 @@ function DebugHud(props: { open: boolean }) {
         <DebugMetric label="FPS" value={metrics().fps} />
         <DebugMetric label="Nodes" value={metrics().nodes} />
         <DebugMetric label="Spans" value={metrics().spans} />
+        <DebugMetric label="Hunks" value={metrics().hunks} />
       </div>
     </Show>
   );
@@ -88,13 +99,14 @@ function DebugMetric(props: { label: string; value: string }) {
 export function HunkNav(props: {
   debugOpen: boolean;
   helpOpen: boolean;
+  hunkPosition: { current: number; total: number };
   onHelpOpenChange: (open: boolean) => void;
   onNext: () => void;
   onPrev: () => void;
 }) {
   return (
     <div class="hud-stack">
-      <DebugHud open={props.debugOpen} />
+      <DebugHud open={props.debugOpen} hunkPosition={props.hunkPosition} />
       <HelpModal open={props.helpOpen} onOpenChange={props.onHelpOpenChange} />
       <nav class="hunk-nav" aria-label="Hunk navigation">
         <button type="button" onClick={props.onNext} title="Next hunk (n)">

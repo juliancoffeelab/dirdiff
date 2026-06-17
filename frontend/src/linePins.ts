@@ -1,4 +1,4 @@
-import type { LinePin } from "./model";
+import type { LinePin } from "./fileUtils";
 
 const linePinHashKey = "pin";
 

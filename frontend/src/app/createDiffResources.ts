@@ -11,6 +11,7 @@ import {
   fetchLazyInfo,
   fetchManifest,
   fetchFileDiff,
+  diffParamsQueryParams,
   type BranchReviewDiffParams,
   type DiffEngine,
   type DiffParams,
@@ -29,17 +30,12 @@ import {
   type LoadedDiff,
   type LoadState,
   addHydratedNotebookSummary,
-  appQuery,
-  branchReviewRef,
   entryDirectoryLabel,
   fileDiffQueryKey,
   fileKey,
   fileMatchesLinePin,
-  loadedStatusLabel,
-  nextFileExpansion,
   sortFilesByOrder,
-  statusLabel,
-} from "../model";
+} from "../fileUtils";
 import { getLinePinFromHash } from "../linePins";
 import { queryClient } from "../queryClient";
 import {
@@ -49,6 +45,107 @@ import {
   lazyInfoParamsQueryKey,
   manifestParamsQueryKey,
 } from "./diffParams";
+
+const builtinSides = new Set(["head", "index", "worktree"]);
+
+function nullableStringValue(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  if (value !== null && value !== undefined && value.length > 0) {
+    return value;
+  }
+  return fallback;
+}
+
+function appQuery(
+  diffParams: DiffParams,
+  viewMode: DiffViewMode,
+): URLSearchParams {
+  const params = diffParamsQueryParams(diffParams);
+  params.set("view", viewMode);
+  return params;
+}
+
+function statusLabel(
+  diffParams: DiffParams,
+  leftLabel?: string,
+  rightLabel?: string,
+): string {
+  if (diffParams.mode === "head") {
+    return "Working tree vs HEAD";
+  }
+  if (diffParams.mode === "branch-review") {
+    return `${diffParams.review_branch} vs ${diffParams.base_branch}`;
+  }
+  if (diffParams.mode === "preset") {
+    return `Preset ${diffParams.preset}`;
+  }
+  return `${nullableStringValue(leftLabel, diffParams.left)} vs ${nullableStringValue(rightLabel, diffParams.right)}`;
+}
+
+function loadedStatusLabel(
+  baseStatus: string,
+  loadedFiles: number,
+  failedDetailFiles: number,
+): string {
+  const fileWord = loadedFiles === 1 ? "file" : "files";
+  const failureText =
+    failedDetailFiles > 0 ? `, failed details ${failedDetailFiles}` : "";
+  return `${baseStatus} · loaded ${loadedFiles} ${fileWord}${failureText}`;
+}
+
+function qualifyRemoteRef(
+  remote: string,
+  ref: string,
+  remoteNames: string[],
+): string {
+  const trimmedRemote = remote.trim();
+  const trimmedRef = ref.trim();
+  if (trimmedRemote.length === 0 || trimmedRef.length === 0) {
+    return trimmedRef;
+  }
+  if (
+    trimmedRef.startsWith("refs/") ||
+    builtinSides.has(trimmedRef) ||
+    /^[0-9a-f]{7,40}$/i.test(trimmedRef) ||
+    trimmedRef.includes(":") ||
+    trimmedRef.includes("^") ||
+    trimmedRef.includes("~") ||
+    remoteNames.some(
+      (name) => trimmedRef === name || trimmedRef.startsWith(`${name}/`),
+    )
+  ) {
+    return trimmedRef;
+  }
+  return `${trimmedRemote}/${trimmedRef}`;
+}
+
+function branchReviewRef(
+  source: BranchSource,
+  remote: string,
+  branch: string,
+  remoteNames: string[],
+): string {
+  if (source === "local") {
+    return branch.trim();
+  }
+  return qualifyRemoteRef(remote, branch, remoteNames);
+}
+
+function nextFileExpansion(
+  current: Record<string, boolean>,
+  newFile: FileEntry,
+  newFileKey: string,
+): Record<string, boolean> {
+  if (Object.hasOwn(current, newFileKey)) {
+    return current;
+  }
+  return {
+    ...current,
+    [newFileKey]: newFile.default_expanded === true,
+  };
+}
 
 /**
  * Collaborators supplied by App and UI state.

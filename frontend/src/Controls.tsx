@@ -15,7 +15,7 @@ import {
   modeLabels,
   refSectionLabels,
   topLevelModes,
-} from "./model";
+} from "./fileUtils";
 
 const builtinRefDescriptions: Record<string, string> = {
   head: "Current commit on this branch.",
