@@ -113,60 +113,9 @@ function anchorDistanceToReadingLine(
   return Math.abs(anchor.getBoundingClientRect().top - readingLineY);
 }
 
-function distanceToVerticalRange(
-  top: number,
-  bottom: number,
-  target: number,
-): number {
-  if (target < top) {
-    return top - target;
-  }
-  if (target > bottom) {
-    return target - bottom;
-  }
-  return 0;
-}
-
-function currentFileIdAtReadingLine(
-  root: ParentNode | undefined,
-  readingLineY: number,
-): string | null {
-  const scope = root ?? document;
-  const fileCardsById = new Map(
-    [...scope.querySelectorAll<HTMLElement>(".file-card")]
-      .filter((card) => card.id.length > 0)
-      .map((card) => [card.id, card]),
-  );
-  if (fileCardsById.size === 0) {
-    return null;
-  }
-
-  const fileCards = [...fileCardsById.values()].filter(
-    (card) => card.querySelector(".hunk-anchor") !== null,
-  );
-  if (fileCards.length === 0) {
-    return null;
-  }
-
-  let nearestCard: HTMLElement | null = null;
-  let nearestDistance = Number.POSITIVE_INFINITY;
-  for (const card of fileCards) {
-    const rect = card.getBoundingClientRect();
-    const distance = distanceToVerticalRange(
-      rect.top,
-      rect.bottom,
-      readingLineY,
-    );
-    if (distance < nearestDistance) {
-      nearestCard = card;
-      nearestDistance = distance;
-    }
-  }
-
-  if (nearestCard === null || nearestCard.id.length === 0) {
-    return null;
-  }
-  return nearestCard.id;
+function anchorIsVisible(anchor: HTMLElement): boolean {
+  const rect = anchor.getBoundingClientRect();
+  return rect.bottom > 0 && rect.top < window.innerHeight;
 }
 
 function selectCurrentHunk(options: {
@@ -304,14 +253,8 @@ export function createHunkNavigation(
     }
 
     const readingLineY = window.innerHeight * READING_LINE_RATIO;
-    const fileId = currentFileIdAtReadingLine(root(), readingLineY);
-    if (fileId === null) {
-      return;
-    }
     const candidateAnchorEntries = currentAnchors.flatMap((anchor, index) =>
-      anchor !== null && fileIdForHunkAnchor(anchor) === fileId
-        ? [{ anchor, index }]
-        : [],
+      anchor !== null && anchorIsVisible(anchor) ? [{ anchor, index }] : [],
     );
     if (candidateAnchorEntries.length === 0) {
       return;
