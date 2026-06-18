@@ -103,6 +103,78 @@ def _changed_tokens_for_ranges_with_statuses(
     return tokens
 
 
+def _common_prefix_length_from_cursor(
+    left: str,
+    right: str,
+    right_cursor: int,
+) -> int:
+    limit = min(len(left), len(right) - right_cursor)
+    index = 0
+    while index < limit and left[index] == right[right_cursor + index]:
+        index += 1
+    return index
+
+
+def _mark_unmatched_reconstructed_token_tail(
+    tokens: list[dict[str, Any]],
+    *,
+    counterpart_text: str,
+    extra_status: Literal["insert", "delete"],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    counterpart_cursor = 0
+    for index, token in enumerate(tokens):
+        token_text = token.get("text")
+        if not isinstance(token_text, str):
+            normalized.append(token)
+            continue
+        if token.get("status") != "unchanged":
+            normalized.append(token)
+            continue
+        if index != len(tokens) - 1:
+            found_at = counterpart_text.find(token_text, counterpart_cursor)
+            if found_at >= 0:
+                counterpart_cursor = found_at + len(token_text)
+            else:
+                counterpart_cursor += _common_prefix_length_from_cursor(
+                    token_text,
+                    counterpart_text,
+                    counterpart_cursor,
+                )
+            normalized.append(token)
+            continue
+
+        shared_length = _common_prefix_length_from_cursor(
+            token_text,
+            counterpart_text,
+            counterpart_cursor,
+        )
+        if shared_length == len(token_text):
+            normalized.append(token)
+            counterpart_cursor += shared_length
+            continue
+        if shared_length > 0:
+            unchanged_text = token_text[:shared_length]
+            normalized.append(
+                {
+                    **token,
+                    "text": unchanged_text,
+                    "is_ws": unchanged_text.isspace(),
+                }
+            )
+            counterpart_cursor += shared_length
+        extra_text = token_text[shared_length:]
+        normalized.append(
+            {
+                **token,
+                "text": extra_text,
+                "status": extra_status,
+                "is_ws": extra_text.isspace(),
+            }
+        )
+    return normalized
+
+
 def _paired_difftastic_range_statuses(
     *,
     own_ranges: list[tuple[int, int]],
@@ -1479,10 +1551,14 @@ def _difftastic_rows_from_json(
             )
             if right_line_ranges:
                 row["status"] = "replace"
-                row["right_tokens"] = _changed_tokens_for_ranges(
-                    right_lines[right_index],
-                    right_line_ranges,
-                    status="insert",
+                row["right_tokens"] = _mark_unmatched_reconstructed_token_tail(
+                    _changed_tokens_for_ranges(
+                        right_lines[right_index],
+                        right_line_ranges,
+                        status="insert",
+                    ),
+                    counterpart_text=planned_left_text,
+                    extra_status="insert",
                 )
                 row.pop("left_tokens", None)
             rows.append(row)
@@ -1512,10 +1588,14 @@ def _difftastic_rows_from_json(
                     right_index + 1,
                 )
                 row["status"] = "replace"
-                row["right_tokens"] = _changed_tokens_for_ranges(
-                    right_lines[right_index],
-                    right_line_ranges,
-                    status="insert",
+                row["right_tokens"] = _mark_unmatched_reconstructed_token_tail(
+                    _changed_tokens_for_ranges(
+                        right_lines[right_index],
+                        right_line_ranges,
+                        status="insert",
+                    ),
+                    counterpart_text=candidate_left,
+                    extra_status="insert",
                 )
                 row.pop("left_tokens", None)
                 rows.append(row)
@@ -1535,17 +1615,24 @@ def _difftastic_rows_from_json(
                 )
             )
             if reconstructed_left_fragment is not None:
+                collapsed_candidate_left = _collapse_reconstructed_gap_spaces(
+                    candidate_left
+                )
                 row = _paired_line_row(
-                    _collapse_reconstructed_gap_spaces(candidate_left),
+                    collapsed_candidate_left,
                     right_lines[right_index],
                     reconstructed_left_fragment.source_index + 1,
                     right_index + 1,
                 )
                 row["status"] = "replace"
-                row["right_tokens"] = _changed_tokens_for_ranges(
-                    right_lines[right_index],
-                    right_line_ranges,
-                    status="insert",
+                row["right_tokens"] = _mark_unmatched_reconstructed_token_tail(
+                    _changed_tokens_for_ranges(
+                        right_lines[right_index],
+                        right_line_ranges,
+                        status="insert",
+                    ),
+                    counterpart_text=collapsed_candidate_left,
+                    extra_status="insert",
                 )
                 row.pop("left_tokens", None)
                 rows.append(row)
