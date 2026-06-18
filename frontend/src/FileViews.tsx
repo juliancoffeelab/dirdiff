@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { isCancelledError } from "@tanstack/query-core";
-import type { DiffRow, FileEntry, FileKind, FoldHint } from "./api";
+import type { DiffRow, FileEntry, FileKind, FoldHint, LazyReason } from "./api";
 import { fetchFileDiff } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import { NotebookFile } from "./NotebookViews";
@@ -122,6 +122,16 @@ function groupLineStats(group: FileGroup): LineStats {
 
 function fileKindStatus(fileKind: FileKind): string {
   return fileKind.type === "git" ? fileKind.status : "untracked";
+}
+
+function fileTreeLazyReason(file: FileEntry): LazyReason | null {
+  if (file.lazy !== undefined && file.lazy !== null) {
+    return file.lazy;
+  }
+  if (file.lazy_reason !== undefined) {
+    return file.lazy_reason;
+  }
+  return null;
 }
 
 function VisibilityIndicator(props: {
@@ -434,6 +444,7 @@ export function FileTreeSidebar(props: {
                     <For each={group.files}>
                       {(file) => {
                         const virtualized = () => fileIsVirtualized(file);
+                        const lazyReason = () => fileTreeLazyReason(file);
                         return (
                           <div
                             class="file-tree-file"
@@ -444,7 +455,13 @@ export function FileTreeSidebar(props: {
                               added: fileKindStatus(file.file_kind) === "added",
                               removed:
                                 fileKindStatus(file.file_kind) === "deleted",
-                              lazy: Boolean(file.lazy),
+                              renamed:
+                                fileKindStatus(file.file_kind) === "renamed",
+                              untracked:
+                                fileKindStatus(file.file_kind) === "untracked",
+                              lazy: lazyReason() !== null,
+                              "lazy-generated": lazyReason() === "generated",
+                              "lazy-too-big": lazyReason() === "too_big",
                               "active-hunk-file": fileIsActiveHunkFile(file),
                             }}
                             aria-current={
@@ -651,7 +668,16 @@ function FileCard(props: {
       if (props.currentParamsIdentity() !== paramsIdentity) {
         return;
       }
-      const nextEntry = { ...props.file, ...hydrated, lazy: null };
+      const lazyReason = props.file.lazy;
+      if (lazyReason === undefined || lazyReason === null) {
+        throw new Error("Hydrated file did not have a lazy reason.");
+      }
+      const nextEntry = {
+        ...props.file,
+        ...hydrated,
+        lazy: null,
+        lazy_reason: lazyReason,
+      };
       const nextKey = fileKey(nextEntry);
       props.updateLoadedDiff((current) => {
         const withoutCurrent = current.files.filter(

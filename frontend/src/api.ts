@@ -317,6 +317,7 @@ const FileEntrySchema = z.strictObject({
   fold_hints: z.array(FoldHintSchema).optional(),
   engine_warning: EngineWarningSchema.nullable().optional(),
   lazy: LazyReasonSchema.nullable().optional(),
+  lazy_reason: LazyReasonSchema.optional(),
   default_expanded: z.boolean().optional(),
   render_kind: z.literal("notebook").optional(),
   render_mode: z.literal("plain").nullable().optional(),

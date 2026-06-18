@@ -1181,6 +1181,40 @@ h1 {
   content: none;
 }
 
+.file-tree-file.lazy .visibility-indicator.small {
+  border-width: 2px;
+  opacity: 1;
+}
+
+.file-tree-file.added .visibility-indicator.small {
+  color: #146b3b;
+}
+
+.file-tree-file.removed .visibility-indicator.small {
+  color: #c75555;
+}
+
+.file-tree-file.renamed .visibility-indicator.small {
+  color: #5f8ed0;
+}
+
+.file-tree-file.lazy-generated .visibility-indicator.small {
+  color: #cc7a1a;
+}
+
+.file-tree-file.lazy-too-big .visibility-indicator.small {
+  color: #d6a900;
+}
+
+.file-tree-file.untracked .visibility-indicator.small {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 2px,
+    currentColor 2px 4px
+  );
+  color: #8c867c;
+}
+
 .file-tree-directory-target,
 .file-tree-file-target {
   min-width: 0;

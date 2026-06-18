@@ -1,0 +1,19 @@
+.toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.sidebar {
+  width: 240px;
+  padding: 16px;
+}
+
+.content {
+  color: #24231f;
+  line-height: 1.5;
+}
+
+.footer {
+  border-top: 1px solid #ded8cc;
+  padding: 12px;
+}
