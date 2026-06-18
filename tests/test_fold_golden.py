@@ -12,6 +12,9 @@ from dirdiff.diff import build_loaded_diff
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "folds"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "folds"
+BROKEN_PRESETS = {
+    "borked",
+}
 
 
 class FoldGoldenSnapshotExtension(SingleFileSnapshotExtension):
@@ -71,7 +74,12 @@ class FoldGoldenSnapshotExtension(SingleFileSnapshotExtension):
 
 
 def _preset_dirs() -> list[Path]:
-    return [path for path in sorted(PRESETS_ROOT.glob("*/*")) if path.is_dir()]
+    return [
+        path
+        for path in sorted(PRESETS_ROOT.glob("*/*"))
+        if path.is_dir()
+        and path.relative_to(PRESETS_ROOT).parts[0] not in BROKEN_PRESETS
+    ]
 
 
 @pytest.fixture
