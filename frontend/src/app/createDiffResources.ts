@@ -19,6 +19,7 @@ import {
   type HeadDiffParams,
   type LazyInfoFile,
   type PresetDiffParams,
+  type PresetType,
   type RefChoices,
   type RefsDiffParams,
   type RepoId,
@@ -79,7 +80,8 @@ function statusLabel(
     return `${diffParams.review_branch} vs ${diffParams.base_branch}`;
   }
   if (diffParams.mode === "preset") {
-    return `Preset ${diffParams.preset}`;
+    const kind = diffParams.preset_type === "fold" ? "Fold" : "Diff";
+    return `${kind} preset ${diffParams.preset}`;
   }
   return `${nullableStringValue(leftLabel, diffParams.left)} vs ${nullableStringValue(rightLabel, diffParams.right)}`;
 }
@@ -644,6 +646,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
   };
 
   const loadPreset = (
+    presetType: PresetType,
     preset: string,
     selectedEngine: DiffEngine = engine(),
   ) => {
@@ -657,6 +660,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
         : {
             ...current,
             mode: "preset",
+            presetType,
             preset,
           },
     );
@@ -664,6 +668,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       repo_id: repoId,
       engine: selectedEngine,
       mode: "preset",
+      preset_type: presetType,
       preset,
     };
     startDiff(diffParams);
@@ -779,7 +784,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
         nextEngine,
       );
     } else if (nextControls.mode === "preset") {
-      loadPreset(nextControls.preset, nextEngine);
+      loadPreset(nextControls.presetType, nextControls.preset, nextEngine);
     } else {
       loadAgainstHead(nextEngine);
     }

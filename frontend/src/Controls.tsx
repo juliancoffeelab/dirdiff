@@ -7,12 +7,14 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import type { PresetCatalog, RefChoices } from "./api";
+import type { PresetCatalogs, PresetType, RefChoices } from "./api";
 import {
   type AutocompleteGroup,
   type BranchSource,
   type ControlsState,
   modeLabels,
+  presetTypeLabels,
+  presetTypes,
   refSectionLabels,
   topLevelModes,
 } from "./fileUtils";
@@ -30,9 +32,12 @@ const defaultRefsDraft = {
 export function Controls(props: {
   controls: ControlsState;
   refChoices: RefChoices;
-  presetCatalog: PresetCatalog;
+  presetCatalogs: PresetCatalogs | null;
+  presetCatalogsPending: boolean;
+  presetCatalogsError: unknown;
+  onPresetMode: () => Promise<PresetCatalogs | null>;
   onAgainstHead: () => void;
-  onPreset: (preset: string) => void;
+  onPreset: (presetType: PresetType, preset: string) => void;
   onRefs: (left: string, right: string) => void;
   onBranchReview: (
     baseSource: BranchSource,
@@ -48,6 +53,26 @@ export function Controls(props: {
 
   const updateDraft = (patch: Partial<ControlsState>) => {
     setDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const loadDefaultPresetWhenCatalogArrives = async (
+    presetType: PresetType,
+  ) => {
+    const catalogs = await props.onPresetMode();
+    if (catalogs === null) {
+      return;
+    }
+    const currentDraft = draft();
+    if (currentDraft.mode !== "preset") {
+      return;
+    }
+    const nextDraft = {
+      ...currentDraft,
+      presetType,
+      preset: catalogs[presetType].default_preset,
+    };
+    setDraft(nextDraft);
+    loadDraft(nextDraft);
   };
 
   const loadDraft = (value: ControlsState) => {
@@ -67,7 +92,19 @@ export function Controls(props: {
       return;
     }
     if (value.mode === "preset") {
-      props.onPreset(value.preset);
+      const catalogs = props.presetCatalogs;
+      if (catalogs === null) {
+        void loadDefaultPresetWhenCatalogArrives(value.presetType);
+        return;
+      }
+      if (value.preset.length === 0) {
+        props.onPreset(
+          value.presetType,
+          catalogs[value.presetType].default_preset,
+        );
+        return;
+      }
+      props.onPreset(value.presetType, value.preset);
       return;
     }
     props.onAgainstHead();
@@ -89,6 +126,26 @@ export function Controls(props: {
               classList={{ "is-active": draft().mode === mode }}
               aria-pressed={draft().mode === mode}
               onClick={() => {
+                if (mode === "preset") {
+                  const catalogs = props.presetCatalogs;
+                  const nextDraft =
+                    catalogs === null
+                      ? { ...draft(), mode }
+                      : {
+                          ...draft(),
+                          mode,
+                          preset: catalogs[draft().presetType].default_preset,
+                        };
+                  setDraft(nextDraft);
+                  if (catalogs === null) {
+                    void loadDefaultPresetWhenCatalogArrives(
+                      nextDraft.presetType,
+                    );
+                    return;
+                  }
+                  loadDraft(nextDraft);
+                  return;
+                }
                 const nextDraft =
                   mode === "refs"
                     ? { ...draft(), mode, ...defaultRefsDraft }
@@ -192,25 +249,68 @@ export function Controls(props: {
       </Show>
 
       <Show when={draft().mode === "preset"}>
+        <Show when={props.presetCatalogsPending}>
+          <p class="status">Loading presets...</p>
+        </Show>
+        <Show when={props.presetCatalogsError !== null}>
+          <section class="notice error">
+            Failed to load presets: {String(props.presetCatalogsError)}
+          </section>
+        </Show>
         <fieldset class="mode-tabs preset-tabs">
-          <legend>Language</legend>
-          <For each={props.presetCatalog.groups}>
-            {(group) => (
+          <legend>Preset type</legend>
+          <For each={presetTypes}>
+            {(presetType) => (
               <button
                 type="button"
                 onClick={() => {
-                  const nextDraft = { ...draft(), preset: group.name };
+                  const catalogs = props.presetCatalogs;
+                  if (catalogs === null) {
+                    void loadDefaultPresetWhenCatalogArrives(presetType);
+                    return;
+                  }
+                  const catalog = catalogs[presetType];
+                  const nextDraft = {
+                    ...draft(),
+                    presetType,
+                    preset: catalog.default_preset,
+                  };
                   setDraft(nextDraft);
                   loadDraft(nextDraft);
                 }}
-                classList={{ "is-active": draft().preset === group.name }}
-                aria-pressed={draft().preset === group.name}
+                classList={{
+                  "is-active": draft().presetType === presetType,
+                }}
+                aria-pressed={draft().presetType === presetType}
               >
-                {group.display_name}
+                {presetTypeLabels[presetType]}
               </button>
             )}
           </For>
         </fieldset>
+        <Show when={props.presetCatalogs}>
+          {(catalogs) => (
+            <fieldset class="mode-tabs preset-tabs">
+              <legend>Presets</legend>
+              <For each={catalogs()[draft().presetType].groups}>
+                {(group) => (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextDraft = { ...draft(), preset: group.name };
+                      setDraft(nextDraft);
+                      loadDraft(nextDraft);
+                    }}
+                    classList={{ "is-active": draft().preset === group.name }}
+                    aria-pressed={draft().preset === group.name}
+                  >
+                    {group.display_name}
+                  </button>
+                )}
+              </For>
+            </fieldset>
+          )}
+        </Show>
       </Show>
 
       <button class="load-button" type="submit">

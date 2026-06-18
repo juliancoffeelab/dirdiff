@@ -1,0 +1,9 @@
+@media screen {
+  .card {
+    color: red;
+    background: blue;
+  }
+  .badge {
+    color: white;
+  }
+}

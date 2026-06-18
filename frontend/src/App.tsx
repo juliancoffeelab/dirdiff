@@ -127,6 +127,13 @@ export function App() {
     batch(() => {
       setControls(initial.controls);
     });
+    if (initial.controls.mode === "preset") {
+      void repo.loadPresetCatalogs();
+      if (initial.controls.preset.length === 0) {
+        diff.resetDiffState("idle", "Choose a preset to load a diff.");
+        return;
+      }
+    }
     diff.loadInitialControls(initial.controls, initial.engine);
   };
 
@@ -230,18 +237,15 @@ export function App() {
         />
       </Show>
 
-      <Show
-        when={
-          repo.selectedRepoId() !== null &&
-          controls() !== null &&
-          repo.presetCatalog() !== null
-        }
-      >
+      <Show when={repo.selectedRepoId() !== null && controls() !== null}>
         <>
           <Controls
             controls={controls()!}
             refChoices={repo.refChoices()}
-            presetCatalog={repo.presetCatalog()!}
+            presetCatalogs={repo.presetCatalogs()}
+            presetCatalogsPending={repo.presetCatalogsPending()}
+            presetCatalogsError={repo.presetCatalogsError()}
+            onPresetMode={repo.loadPresetCatalogs}
             onAgainstHead={diff.loadAgainstHead}
             onPreset={diff.loadPreset}
             onRefs={diff.loadRefs}

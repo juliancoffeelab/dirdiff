@@ -7,6 +7,7 @@ import type {
   FileKind,
   FoldHint,
   NotebookSummary,
+  PresetType,
   Summary,
 } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
@@ -17,6 +18,7 @@ export type ControlsState = {
   mode: DiffMode;
   left: string;
   right: string;
+  presetType: PresetType;
   preset: string;
   baseSource: BranchSource;
   baseRemote: string;
@@ -53,6 +55,11 @@ export const modeLabels: Record<DiffMode, string> = {
   "branch-review": "Branch review",
   preset: "Preset",
 };
+export const presetTypeLabels: Record<PresetType, string> = {
+  diff: "Diff Presets",
+  fold: "Fold Presets",
+};
+export const presetTypes: PresetType[] = ["diff", "fold"];
 export const topLevelModes: DiffMode[] = [
   "head",
   "refs",
@@ -234,7 +241,7 @@ function hashedElementId(prefix: string, value: string): string {
 export function fileDiffQueryKey(diffParams: DiffParams, entry: FileEntry) {
   const diffIdentityParts =
     diffParams.mode === "preset"
-      ? [diffParams.mode, diffParams.preset]
+      ? [diffParams.mode, diffParams.preset_type, diffParams.preset]
       : diffParams.mode === "branch-review"
         ? [diffParams.mode, diffParams.base_branch, diffParams.review_branch]
         : [

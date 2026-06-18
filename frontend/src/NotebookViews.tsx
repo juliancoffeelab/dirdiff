@@ -411,7 +411,7 @@ function notebookSectionQueryKey(
 ) {
   const diffIdentityParts =
     diffParams.mode === "preset"
-      ? [diffParams.mode, diffParams.preset]
+      ? [diffParams.mode, diffParams.preset_type, diffParams.preset]
       : diffParams.mode === "branch-review"
         ? [diffParams.mode, diffParams.base_branch, diffParams.review_branch]
         : [

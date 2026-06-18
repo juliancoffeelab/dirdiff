@@ -4,7 +4,8 @@ import {
   fetchRepoRefs,
   fetchRepos,
   type DiffEngine,
-  type PresetCatalog,
+  type PresetCatalogs,
+  type PresetType,
   type RefChoices,
   type RepoId,
   type RepoMark,
@@ -96,10 +97,7 @@ function resolveTopLevelMode(
   return inferMode(left, right, baseBranch, reviewBranch);
 }
 
-function initialControls(
-  repoRefs: RepoRefs,
-  presetCatalog: PresetCatalog,
-): ControlsState {
+function initialControls(repoRefs: RepoRefs): ControlsState {
   const search = new URLSearchParams(window.location.search);
   const remoteNames = repoRefs.ref_choices.remote_names;
   const requestedLeft = searchValue(search, "left", "head");
@@ -120,8 +118,10 @@ function initialControls(
     remoteNames,
   );
   const requestedMode = search.get("mode") as ControlsState["mode"] | null;
-  const defaultPreset = presetCatalog.default_preset;
-  const preset = searchValue(search, "preset", defaultPreset);
+  const requestedPresetType = search.get("preset_type");
+  const presetType: PresetType =
+    requestedPresetType === "fold" ? "fold" : "diff";
+  const preset = searchValue(search, "preset", "");
   const mode =
     requestedMode === null
       ? "head"
@@ -143,6 +143,7 @@ function initialControls(
       mode,
       left: modeLeft,
       right: modeRight,
+      presetType,
       preset,
       baseSource: baseBranchParts.remote ? "remote" : "local",
       baseRemote: baseBranchParts.remote,
@@ -157,6 +158,7 @@ function initialControls(
     mode,
     left,
     right,
+    presetType,
     preset,
     baseSource: baseBranchParts.remote ? "remote" : "local",
     baseRemote: baseBranchParts.remote,
@@ -209,11 +211,14 @@ export function createRepoResources(options: RepoResourcesOptions) {
   const [reposPending, setReposPending] = createSignal(true);
   const [reposError, setReposError] = createSignal<unknown>(null);
   const [repoRefs, setRepoRefs] = createSignal<RepoRefs | null>(null);
-  const [presetCatalog, setPresetCatalog] = createSignal<PresetCatalog | null>(
-    null,
-  );
+  const [presetCatalogs, setPresetCatalogs] =
+    createSignal<PresetCatalogs | null>(null);
+  const [presetCatalogsPending, setPresetCatalogsPending] = createSignal(false);
+  const [presetCatalogsError, setPresetCatalogsError] =
+    createSignal<unknown>(null);
   const [repoRefsPending, setRepoRefsPending] = createSignal(false);
   const [repoRefsError, setRepoRefsError] = createSignal<unknown>(null);
+  let presetCatalogsRequest: Promise<PresetCatalogs | null> | null = null;
 
   const repoPickerRepos = createMemo(() => {
     const repos = repoList();
@@ -284,22 +289,17 @@ export function createRepoResources(options: RepoResourcesOptions) {
     repoId: RepoId,
   ): Promise<InitialRepoDiff | null> {
     setRepoRefs(null);
-    setPresetCatalog(null);
     setRepoRefsError(null);
     setRepoRefsPending(true);
     try {
-      const [refs, presets] = await Promise.all([
-        fetchRepoRefs(repoId),
-        fetchPresets(),
-      ]);
+      const refs = await fetchRepoRefs(repoId);
       if (selectedRepoId() !== repoId) {
         return null;
       }
       const engine = initialEngine();
-      const controls = initialControls(refs, presets);
+      const controls = initialControls(refs);
       batch(() => {
         setRepoRefs(refs);
-        setPresetCatalog(presets);
         setRepoRefsPending(false);
       });
       return { controls, engine };
@@ -315,6 +315,40 @@ export function createRepoResources(options: RepoResourcesOptions) {
     }
   }
 
+  async function loadPresetCatalogs(): Promise<PresetCatalogs | null> {
+    const loadedCatalogs = presetCatalogs();
+    if (loadedCatalogs !== null) {
+      return loadedCatalogs;
+    }
+    if (presetCatalogsRequest !== null) {
+      return presetCatalogsRequest;
+    }
+    batch(() => {
+      setPresetCatalogsPending(true);
+      setPresetCatalogsError(null);
+    });
+    presetCatalogsRequest = (async () => {
+      try {
+        const catalogs = await fetchPresets();
+        batch(() => {
+          setPresetCatalogs(catalogs);
+          setPresetCatalogsPending(false);
+        });
+        return catalogs;
+      } catch (error) {
+        batch(() => {
+          setPresetCatalogsError(error);
+          setPresetCatalogsPending(false);
+        });
+        options.addErrorToast("Failed to load presets", error);
+        return null;
+      } finally {
+        presetCatalogsRequest = null;
+      }
+    })();
+    return presetCatalogsRequest;
+  }
+
   const selectRepo = (repo: RepoMark) => {
     const params = new URLSearchParams();
     params.set("repo_id", String(repo.id));
@@ -327,7 +361,10 @@ export function createRepoResources(options: RepoResourcesOptions) {
       setSelectedRepoId(repo.id);
       setRepoSelectionError("");
       setRepoRefs(null);
-      setPresetCatalog(null);
+      setPresetCatalogs(null);
+      presetCatalogsRequest = null;
+      setPresetCatalogsError(null);
+      setPresetCatalogsPending(false);
     });
   };
 
@@ -338,13 +375,16 @@ export function createRepoResources(options: RepoResourcesOptions) {
     reposPending,
     reposError,
     repoRefs,
-    presetCatalog,
+    presetCatalogs,
+    presetCatalogsPending,
+    presetCatalogsError,
     repoRefsPending,
     repoRefsError,
     repoPickerRepos,
     refChoices,
     loadReposFromUrl,
     initializeRepo,
+    loadPresetCatalogs,
     selectRepo,
   };
 }

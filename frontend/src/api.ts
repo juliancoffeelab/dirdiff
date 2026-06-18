@@ -13,6 +13,9 @@ export type DiffMode = z.infer<typeof DiffModeSchema>;
 export const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic"]);
 export type DiffEngine = z.infer<typeof DiffEngineSchema>;
 
+export const PresetTypeSchema = z.enum(["diff", "fold"]);
+export type PresetType = z.infer<typeof PresetTypeSchema>;
+
 export type RepoId = number;
 
 const RepoMarkSchema = z.strictObject({
@@ -62,6 +65,12 @@ const PresetCatalogSchema = z.strictObject({
 });
 export type PresetCatalog = z.infer<typeof PresetCatalogSchema>;
 
+const PresetCatalogsSchema = z.strictObject({
+  diff: PresetCatalogSchema,
+  fold: PresetCatalogSchema,
+});
+export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
+
 type DiffParamsBase = {
   repo_id: RepoId;
   engine: DiffEngine;
@@ -88,6 +97,7 @@ export type BranchReviewDiffParams = DiffParamsBase & {
 
 export type PresetDiffParams = DiffParamsBase & {
   mode: "preset";
+  preset_type: PresetType;
   preset: string;
 };
 
@@ -545,12 +555,12 @@ export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
   return RepoRefsSchema.parse(await response.json());
 }
 
-export async function fetchPresets(): Promise<PresetCatalog> {
+export async function fetchPresets(): Promise<PresetCatalogs> {
   const response = await fetchJsonResponse("/api/presets");
   if (!response.ok) {
     return parseErrorResponse(response);
   }
-  return PresetCatalogSchema.parse(await response.json());
+  return PresetCatalogsSchema.parse(await response.json());
 }
 
 export async function fetchRepos(): Promise<RepoMark[]> {
@@ -628,6 +638,7 @@ export function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {
   params.set("engine", diffParams.engine);
   params.set("mode", diffParams.mode);
   if (diffParams.mode === "preset") {
+    params.set("preset_type", diffParams.preset_type);
     params.set("preset", diffParams.preset);
     return params;
   }

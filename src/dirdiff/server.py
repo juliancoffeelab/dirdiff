@@ -34,6 +34,7 @@ ModeParam = Literal[
     "files", "staged", "head", "refs", "branch-review", "preset"
 ]
 EngineParam = Literal["dirdiff", "git", "difftastic"]
+PresetTypeParam = Literal["diff", "fold"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 GitFileStatus = Literal["modified", "added", "deleted", "renamed", "copied"]
 LazyReason = (
@@ -91,6 +92,11 @@ class PresetGroupResponse(ApiModel):
 class PresetCatalogResponse(ApiModel):
     default_preset: str
     groups: list[PresetGroupResponse]
+
+
+class PresetCatalogsResponse(ApiModel):
+    diff: PresetCatalogResponse
+    fold: PresetCatalogResponse
 
 
 class SyntaxSpanResponse(ApiModel):
@@ -334,17 +340,39 @@ def create_app(
 
     app = FastAPI()
 
+    def preset_backend_for_type(preset_type: PresetTypeParam) -> PresetBackend:
+        if preset_type == "diff":
+            if presets_root is not None:
+                return PresetBackend.discover(presets_root=Path(presets_root))
+            return PresetBackend.discover()
+        return PresetBackend.discover(
+            presets_root=Path.cwd() / "tests" / "presets" / "folds"
+        )
+
+    def preset_catalog_for_type(
+        preset_type: PresetTypeParam,
+    ) -> PresetCatalogResponse:
+        preset_backend = preset_backend_for_type(preset_type)
+        return PresetCatalogResponse.model_validate(
+            {
+                "default_preset": preset_backend.default_preset_name(),
+                "groups": preset_backend.list_preset_groups(),
+            }
+        )
+
     def service_for_request(
-        engine: EngineParam, *, mode: ModeParam, repo_id: int
+        engine: EngineParam,
+        *,
+        mode: ModeParam,
+        repo_id: int,
+        preset_type: PresetTypeParam | None,
     ) -> DiffServiceProtocol:
         if mode == "preset":
-            if presets_root is not None:
-                preset_backend = PresetBackend.discover(
-                    presets_root=Path(presets_root)
-                )
-            else:
-                preset_backend = PresetBackend.discover()
-            return service_for_backend(engine, preset_backend)
+            if preset_type is None:
+                raise TextDiffError("preset_type is required for preset mode.")
+            return service_for_backend(
+                engine, preset_backend_for_type(preset_type)
+            )
 
         mark = db.get(repo_id)
         if mark is None:
@@ -436,18 +464,12 @@ def create_app(
         },
         summary="Load grouped preset metadata",
     )
-    def serve_presets() -> PresetCatalogResponse:
+    def serve_presets() -> PresetCatalogsResponse:
         try:
-            if presets_root is not None:
-                preset_backend = PresetBackend.discover(
-                    presets_root=Path(presets_root)
-                )
-            else:
-                preset_backend = PresetBackend.discover()
-            return PresetCatalogResponse.model_validate(
+            return PresetCatalogsResponse.model_validate(
                 {
-                    "default_preset": preset_backend.default_preset_name(),
-                    "groups": preset_backend.list_preset_groups(),
+                    "diff": preset_catalog_for_type("diff"),
+                    "fold": preset_catalog_for_type("fold"),
                 }
             )
         except TextDiffError as exc:
@@ -587,6 +609,10 @@ def create_app(
             default=None,
             description="Preset name for preset mode.",
         ),
+        preset_type: PresetTypeParam | None = Query(
+            default=None,
+            description="Preset catalog type for preset mode.",
+        ),
         show_untracked: bool = Query(
             default=False,
             description="Include untracked worktree files when supported by the selected mode.",
@@ -599,7 +625,10 @@ def create_app(
         )
         try:
             diff_service = service_for_request(
-                engine, mode=mode, repo_id=repo_id
+                engine,
+                mode=mode,
+                repo_id=repo_id,
+                preset_type=preset_type,
             )
             if mode == "preset":
                 if preset is None or not preset.strip():
@@ -696,6 +725,10 @@ def create_app(
             default=None,
             description="Preset name for preset mode.",
         ),
+        preset_type: PresetTypeParam | None = Query(
+            default=None,
+            description="Preset catalog type for preset mode.",
+        ),
         show_untracked: bool = Query(
             default=False,
             description="Include untracked worktree files when supported by the selected mode.",
@@ -708,7 +741,10 @@ def create_app(
         )
         try:
             diff_service = service_for_request(
-                engine, mode=mode, repo_id=repo_id
+                engine,
+                mode=mode,
+                repo_id=repo_id,
+                preset_type=preset_type,
             )
             if mode == "preset":
                 if preset is None or not preset.strip():
@@ -795,6 +831,10 @@ def create_app(
             default=None,
             description="Preset name for preset mode.",
         ),
+        preset_type: PresetTypeParam | None = Query(
+            default=None,
+            description="Preset catalog type for preset mode.",
+        ),
         left_path: str | None = Query(
             default=None, description="Repo-relative path on the left side."
         ),
@@ -819,7 +859,10 @@ def create_app(
 
         try:
             diff_service = service_for_request(
-                engine, mode=mode, repo_id=repo_id
+                engine,
+                mode=mode,
+                repo_id=repo_id,
+                preset_type=preset_type,
             )
             if mode == "preset":
                 if preset is None or not preset.strip():
@@ -927,6 +970,10 @@ def create_app(
             default=None,
             description="Preset name for preset mode.",
         ),
+        preset_type: PresetTypeParam | None = Query(
+            default=None,
+            description="Preset catalog type for preset mode.",
+        ),
         section: str | None = Query(
             default=None,
             description="Notebook section name, for example `notebook-metadata`, `cell-metadata`, or `cell-outputs`.",
@@ -949,7 +996,10 @@ def create_app(
 
         try:
             diff_service = service_for_request(
-                engine, mode=mode, repo_id=repo_id
+                engine,
+                mode=mode,
+                repo_id=repo_id,
+                preset_type=preset_type,
             )
             if mode == "preset":
                 if preset is None or not preset.strip():

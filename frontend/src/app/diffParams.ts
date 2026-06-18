@@ -13,6 +13,7 @@ function diffParamsParts(diffParams: DiffParams) {
       diffParams.repo_id,
       diffParams.engine,
       diffParams.mode,
+      diffParams.preset_type,
       diffParams.preset,
     ] as const;
   }
