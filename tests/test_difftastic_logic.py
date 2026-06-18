@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from dirdiff.diff import (
@@ -30,6 +31,63 @@ def _preset_rows(preset_name: str) -> list[dict[str, object]]:
     )
 
 
+def _semantic_token_atoms(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
+
+
+def _one_sided_change_side(row: dict[str, object]) -> str | None:
+    if row.get("left_no") is not None and row.get("right_no") is None:
+        return "left"
+    if row.get("left_no") is None and row.get("right_no") is not None:
+        return "right"
+    return None
+
+
+def _pure_unchanged_one_sided_change_texts(
+    rows: list[dict[str, object]],
+) -> list[str]:
+    broken_texts: list[str] = []
+    for row in rows:
+        status = row.get("status")
+        if status != "delete" and status != "insert":
+            continue
+
+        side = _one_sided_change_side(row)
+        if side is None:
+            continue
+
+        tokens = row.get(f"{side}_tokens")
+        if tokens is None:
+            continue
+        assert isinstance(tokens, list)
+
+        meaningful_tokens: list[dict[object, object]] = []
+        for token in tokens:
+            assert isinstance(token, dict)
+            text = token.get("text")
+            assert isinstance(text, str)
+            if _semantic_token_atoms(text):
+                meaningful_tokens.append(token)
+
+        if not meaningful_tokens:
+            continue
+
+        if all(
+            token.get("status") == "unchanged" for token in meaningful_tokens
+        ):
+            row_text = row.get(f"{side}_text")
+            assert isinstance(row_text, str)
+            broken_texts.append(row_text)
+    return broken_texts
+
+
+def _assert_no_pure_unchanged_one_sided_changes(
+    rows: list[dict[str, object]],
+) -> None:
+    broken_texts = _pure_unchanged_one_sided_change_texts(rows)
+    assert not broken_texts, broken_texts
+
+
 def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
     assert _difftastic_engine_warning(
         {"language": "Text (exceeded DFT_GRAPH_LIMIT)"}
@@ -38,6 +96,30 @@ def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
         "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
     }
     assert _difftastic_engine_warning({"language": "TypeScript"}) is None
+
+
+def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sided_change() -> (
+    None
+):
+    rows = _preset_rows("typescript/z-enum-adds-top-level-member")
+
+    _assert_no_pure_unchanged_one_sided_changes(rows)
+
+
+def test_difftastic_filter_expansion_does_not_render_existing_condition_as_one_sided_change() -> (
+    None
+):
+    rows = _preset_rows("typescript/filter-condition-adds-top-level-kind")
+
+    _assert_no_pure_unchanged_one_sided_changes(rows)
+
+
+def test_difftastic_python_literal_expansion_does_not_render_existing_members_as_one_sided_change() -> (
+    None
+):
+    rows = _preset_rows("python/python-literal-adds-top-level-kind")
+
+    _assert_no_pure_unchanged_one_sided_changes(rows)
 
 
 def test_difftastic_json_rows_use_semantic_alignment_and_changed_ranges() -> (

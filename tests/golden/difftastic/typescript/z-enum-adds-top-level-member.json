@@ -1,0 +1,115 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "const FoldHintSchema = z.strictObject({",
+    "right_no": 1,
+    "right_text": "const FoldHintSchema = z.strictObject({",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  start_row: z.number().int(),",
+    "right_no": 2,
+    "right_text": "  start_row: z.number().int(),",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "  end_row: z.number().int(),",
+    "right_no": 3,
+    "right_text": "  end_row: z.number().int(),",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  kind: z.enum([",
+    "right_no": 4,
+    "right_text": "  kind: z.enum([",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "    \"function_like\",",
+    "right_no": 5,
+    "right_text": "    \"function_like\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "    \"class_like\",",
+    "right_no": 6,
+    "right_text": "    \"class_like\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "    \"container\",",
+    "right_no": 7,
+    "right_text": "    \"container\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "    \"section\"",
+    "right_no": 8,
+    "right_text": "    \"section\",",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    \"section\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 9,
+    "right_text": "    \"top_level\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"top_level\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  ]),",
+    "right_no": 10,
+    "right_text": "  ]),",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "  label: z.string(),",
+    "right_no": 11,
+    "right_text": "  label: z.string(),",
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "});",
+    "right_no": 12,
+    "right_text": "});",
+    "status": "equal"
+  }
+]

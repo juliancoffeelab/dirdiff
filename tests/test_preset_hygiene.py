@@ -1,7 +1,8 @@
 """Preset fixture hygiene.
 
-These tests check that each difftastic preset directory is a valid source-file
-fixture: one old file, one new file, matching extensions, and parseable source.
+These tests check that each preset directory is a valid source-file fixture:
+one old file, one new file, matching extensions, parseable source where we have
+cheap parsers, and a standard helper Makefile.
 
 Actual snapshot tests are in ./test_difftastic_golden.py.
 Or if you want unit tests ./test_difftastic_logic.py
@@ -10,15 +11,39 @@ Or if you want unit tests ./test_difftastic_logic.py
 import subprocess
 from pathlib import Path
 
-PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
+PRESETS_ROOT = Path(__file__).parent / "presets"
 REPO_ROOT = Path(__file__).parents[1]
+EXPECTED_PRESET_MAKEFILE = """OLD := $(firstword $(wildcard old.*))
+NEW := $(firstword $(wildcard new.*))
+
+.PHONY: diff full json show
+
+diff:
+\tdifft $(OLD) $(NEW)
+
+full:
+\tdiff $(OLD) $(NEW)
+
+json:
+\t@DFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
+
+show:
+\tbat $(OLD) $(NEW)
+"""
 
 
-def test_difftastic_presets_have_old_and_new_files() -> None:
-    preset_dirs = sorted(
-        path for path in PRESETS_ROOT.glob("*/*") if path.is_dir()
+def _preset_dirs() -> list[Path]:
+    return sorted(
+        path
+        for path in PRESETS_ROOT.glob("*/*/*")
+        if path.is_dir()
+        and list(path.glob("old.*"))
+        and list(path.glob("new.*"))
     )
 
+
+def test_presets_have_old_and_new_files() -> None:
+    preset_dirs = _preset_dirs()
     assert preset_dirs
     for preset_dir in preset_dirs:
         old_files = sorted(preset_dir.glob("old.*"))
@@ -29,12 +54,21 @@ def test_difftastic_presets_have_old_and_new_files() -> None:
         assert old_files[0].suffix == new_files[0].suffix
 
 
-def test_python_difftastic_presets_compile() -> None:
+def test_presets_have_standard_makefiles() -> None:
+    preset_dirs = _preset_dirs()
+    assert preset_dirs
+    for preset_dir in preset_dirs:
+        makefile = preset_dir / "Makefile"
+
+        assert makefile.read_text() == EXPECTED_PRESET_MAKEFILE, preset_dir
+
+
+def test_python_presets_compile() -> None:
     for path in sorted(PRESETS_ROOT.glob("**/*.py")):
         compile(path.read_text(), str(path), "exec")
 
 
-def test_typescript_difftastic_presets_parse() -> None:
+def test_typescript_presets_parse() -> None:
     files = sorted(
         [
             *PRESETS_ROOT.glob("**/*.ts"),

@@ -10,7 +10,7 @@ full:
 	diff $(OLD) $(NEW)
 
 json:
-	DFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
+	@DFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
 
 show:
 	bat $(OLD) $(NEW)

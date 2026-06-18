@@ -1,0 +1,180 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "const parsed = foldHints",
+    "right_no": 1,
+    "right_text": "const parsed = foldHints",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  .filter(",
+    "right_no": 2,
+    "right_text": "  .filter(",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "    (hint) =>",
+    "right_no": 3,
+    "right_text": "    (hint) =>",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "      aggressiveFolds ||",
+    "right_no": 4,
+    "right_text": "      aggressiveFolds ||",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "      hint.kind !== \"class_like\"",
+    "right_no": 5,
+    "right_text": "      (hint.kind !== \"class_like\" && hint.kind !== \"top_level\"),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "hint.kind !== \"class_like\" "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "&"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "&"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "hint"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "kind"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"top_level\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  )",
+    "right_no": 6,
+    "right_text": "  )",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "  .map((hint, index) => parseFoldHint(hint, index, rowCount))",
+    "right_no": 7,
+    "right_text": "  .map((hint, index) => parseFoldHint(hint, index, rowCount))",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  .sort(",
+    "right_no": 8,
+    "right_text": "  .sort(",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "    (left, right) =>",
+    "right_no": 9,
+    "right_text": "    (left, right) =>",
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "      left.startRow - right.startRow || right.endRow - left.endRow,",
+    "right_no": 10,
+    "right_text": "      left.startRow - right.startRow || right.endRow - left.endRow,",
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "  );",
+    "right_no": 11,
+    "right_text": "  );",
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "",
+    "right_no": 12,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "return nestFoldHints(parsed);",
+    "right_no": 13,
+    "right_text": "return nestFoldHints(parsed);",
+    "status": "equal"
+  }
+]

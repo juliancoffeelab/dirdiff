@@ -464,6 +464,8 @@ def _difftastic_fragment_tokens(text: str) -> list[str]:
 
 
 def _difftastic_token_is_syntax(token: str) -> bool:
+    if len(token) >= 2 and token[0] in {'"', "'"} and token[-1] == token[0]:
+        return False
     return not re.fullmatch(r"\w+", token, flags=re.UNICODE)
 
 
@@ -475,6 +477,10 @@ def _difftastic_tokens_are_syntax(tokens: list[str]) -> bool:
 
 def _difftastic_tokens_are_assignment(tokens: list[str]) -> bool:
     return "=" in tokens
+
+
+def _difftastic_semantic_tokens(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
 
 
 def _difftastic_tokens_have_member_access(tokens: list[str]) -> bool:
@@ -674,6 +680,78 @@ def _difftastic_residual_mapping(
     }
 
 
+def _difftastic_semantic_subsequence_start(
+    *,
+    needles: list[str],
+    haystack: list[str],
+    cursor: int,
+) -> int | None:
+    last_start = len(haystack) - len(needles)
+    for start in range(cursor, last_start + 1):
+        if haystack[start : start + len(needles)] == needles:
+            return start
+    return None
+
+
+def _difftastic_contextual_residual_mapping(
+    *,
+    fragment: DifftasticLineFragment,
+    right_indexes: list[int],
+    right_lines: list[str],
+    right_ranges: dict[int, list[tuple[int, int]]],
+) -> dict[int, tuple[int, str]] | None:
+    if "||" not in fragment.text:
+        return None
+
+    fragment_semantics = _difftastic_semantic_tokens(fragment.text)
+    if not fragment_semantics:
+        return None
+
+    cursor = 0
+    mappings: dict[int, tuple[int, str]] = {}
+    for right_index in right_indexes:
+        right_line = right_lines[right_index]
+        candidate_text = _remove_line_ranges(
+            right_line, right_ranges.get(right_index, [])
+        )
+        candidate_key = _difftastic_line_item_key(candidate_text)
+        candidate_semantics = _difftastic_semantic_tokens(candidate_key)
+        if not candidate_semantics:
+            candidate_tokens = _difftastic_fragment_tokens(candidate_key)
+            if (
+                cursor == len(fragment_semantics)
+                and _difftastic_tokens_are_syntax(candidate_tokens)
+                and fragment.text.rstrip().endswith(candidate_key)
+            ):
+                mappings[right_index] = (
+                    fragment.source_index,
+                    f"{_difftastic_leading_whitespace(right_line)}{candidate_key}",
+                )
+            continue
+
+        start = _difftastic_semantic_subsequence_start(
+            needles=candidate_semantics,
+            haystack=fragment_semantics,
+            cursor=cursor,
+        )
+        if start is None:
+            return None
+        if start != cursor:
+            return None
+
+        cursor = start + len(candidate_semantics)
+        mappings[right_index] = (
+            fragment.source_index,
+            f"{_difftastic_leading_whitespace(right_line)}{candidate_key}",
+        )
+
+    if cursor != len(fragment_semantics):
+        return None
+    if not mappings:
+        return None
+    return mappings
+
+
 def _difftastic_match_right_only_residual_window(
     *,
     items: list[str],
@@ -762,7 +840,7 @@ def _difftastic_plan_right_only_residual_window(
     upper_bound: int,
     right_lines: list[str],
     right_ranges: dict[int, list[tuple[int, int]]],
-) -> dict[int, tuple[int, str]] | None:
+) -> tuple[dict[int, tuple[int, str]], DifftasticLineFragment] | None:
     start, end = _difftastic_right_only_window_bounds(aligned_lines, row_index)
     window_pairs = aligned_lines[start : end + 1]
     right_indexes = [
@@ -810,7 +888,24 @@ def _difftastic_plan_right_only_residual_window(
         if mappings is None:
             continue
 
-        return mappings
+        return mappings, fragment
+
+    for fragment in left_fragments:
+        if fragment.kind != "residual":
+            continue
+        if not lower_bound <= fragment.source_index < upper_bound:
+            continue
+
+        mappings = _difftastic_contextual_residual_mapping(
+            fragment=fragment,
+            right_indexes=right_indexes,
+            right_lines=right_lines,
+            right_ranges=right_ranges,
+        )
+        if mappings is None:
+            continue
+
+        return mappings, fragment
 
     return None
 
@@ -1269,11 +1364,14 @@ def _insert_unrendered_residual_fragments(
     fragments: list[DifftasticLineFragment],
     source_lines: list[str],
     side: Literal["left", "right"],
+    used_fragments: set[DifftasticLineFragment] | None = None,
 ) -> list[dict[str, Any]]:
     no_key = "left_no" if side == "left" else "right_no"
     completed = rows
     for fragment in fragments:
         if fragment.kind != "residual":
+            continue
+        if used_fragments is not None and fragment in used_fragments:
             continue
         if not 0 <= fragment.source_index < len(source_lines):
             continue
@@ -1295,6 +1393,67 @@ def _insert_unrendered_residual_fragments(
             *completed[insert_at:],
         ]
     return completed
+
+
+def _unchanged_tokens_for_text(text: str) -> list[dict[str, Any]]:
+    return [
+        {"text": part, "status": "unchanged", "is_ws": part.isspace()}
+        for part in _difftastic_changed_token_parts(text)
+    ]
+
+
+def _normalize_redundant_left_residual_delete_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    completed: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if _is_redundant_left_residual_delete_row(rows, index):
+            left_text = row.get("left_text")
+            assert isinstance(left_text, str)
+            completed.append(
+                {
+                    **row,
+                    "left_tokens": _unchanged_tokens_for_text(left_text),
+                }
+            )
+            continue
+        completed.append(row)
+    return completed
+
+
+def _is_redundant_left_residual_delete_row(
+    rows: list[dict[str, Any]],
+    index: int,
+) -> bool:
+    row = rows[index]
+    if row.get("status") != "delete":
+        return False
+    left_no = row.get("left_no")
+    if not isinstance(left_no, int) or row.get("right_no") is not None:
+        return False
+    if not any(
+        previous.get("left_no") == left_no
+        and previous.get("right_no") is not None
+        for previous in rows[:index]
+    ):
+        return False
+
+    left_text = row.get("left_text")
+    if not isinstance(left_text, str):
+        return False
+    left_words = _difftastic_semantic_words(left_text)
+    if not left_words:
+        return False
+
+    right_words: set[str] = set()
+    for next_row in rows[index + 1 :]:
+        if next_row.get("left_no") is not None:
+            break
+        right_text = next_row.get("right_text")
+        if isinstance(right_text, str):
+            right_words.update(_difftastic_semantic_words(right_text))
+
+    return left_words <= right_words
 
 
 def _split_show_guard_residual(text: str) -> list[str] | None:
@@ -1615,6 +1774,8 @@ def _difftastic_rows_from_json(
     right_fragments: list[DifftasticLineFragment] = []
     used_left_fragments: set[tuple[int, str]] = set()
     used_right_fragments: set[tuple[int, str]] = set()
+    used_left_residual_fragments: set[DifftasticLineFragment] = set()
+    used_right_residual_fragments: set[DifftasticLineFragment] = set()
     planned_left_window_rows: dict[int, tuple[int, str]] = {}
     for aligned_index, pair in enumerate(aligned_lines):
         left_index = pair.left_index
@@ -1882,7 +2043,9 @@ def _difftastic_rows_from_json(
                 right_ranges=right_ranges,
             )
             if planned_window_rows is not None:
-                planned_left_window_rows.update(planned_window_rows)
+                planned_rows, planned_fragment = planned_window_rows
+                planned_left_window_rows.update(planned_rows)
+                used_left_residual_fragments.add(planned_fragment)
         planned_left_row = planned_left_window_rows.get(right_index)
         if planned_left_row is not None:
             planned_source_index, planned_left_text = planned_left_row
@@ -2036,13 +2199,16 @@ def _difftastic_rows_from_json(
         fragments=left_fragments,
         source_lines=left_lines,
         side="left",
+        used_fragments=used_left_residual_fragments,
     )
     rows = _insert_unrendered_residual_fragments(
         rows,
         fragments=right_fragments,
         source_lines=right_lines,
         side="right",
+        used_fragments=used_right_residual_fragments,
     )
+    rows = _normalize_redundant_left_residual_delete_rows(rows)
     rows = _expand_show_guard_residual_rows(rows)
 
     return _normalize_difftastic_replace_tokens_in_mixed_rows(

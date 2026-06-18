@@ -1,0 +1,4027 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "export function AppView() {",
+    "right_no": 1,
+    "right_text": "export function AppView() {",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  return (",
+    "right_no": 2,
+    "right_text": "  return (",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    <>",
+    "right_no": 3,
+    "right_text": "    <>",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "      <p class={`status ${diff.status()}`}>{diff.statusText()}</p>",
+    "right_no": 4,
+    "right_text": "      <p class={`status ${diff.status()}`}>{diff.statusText()}</p>",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "      <Show when={preferences() !== null}>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "preferences"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "null"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 5,
+    "left_text": "      <GracefulErrorBoundary title=\"Could not render diff\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "title"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Could"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "not"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "render"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "right_no": 6,
+    "right_text": "        <GracefulErrorBoundary title=\"Could not render diff\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "title"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Could"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "not"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "render"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "        <FileList",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "FileList"
+      }
+    ],
+    "right_no": 7,
+    "right_text": "          <FileList",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "FileList"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "          files={ui.displayFiles()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "files"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "displayFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 8,
+    "right_text": "            files={ui.displayFiles()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "files"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "displayFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "          loadedDiff={ui.loadedDiff()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 9,
+    "right_text": "            loadedDiff={ui.loadedDiff()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "          currentParamsIdentity={diff.currentParamsIdentity}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "currentParamsIdentity"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "currentParamsIdentity"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 10,
+    "right_text": "            currentParamsIdentity={diff.currentParamsIdentity}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "currentParamsIdentity"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "currentParamsIdentity"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "          directoryExpansion={ui.directoryExpansion()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 11,
+    "right_text": "            directoryExpansion={ui.directoryExpansion()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "          fileExpansion={ui.fileExpansion()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 12,
+    "right_text": "            fileExpansion={ui.fileExpansion()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "          loadingFiles={diff.loadingFiles()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 13,
+    "right_text": "            loadingFiles={diff.loadingFiles()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "          fileErrors={diff.fileErrors()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 14,
+    "right_text": "            fileErrors={diff.fileErrors()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "          linePin={navigation.linePin()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "linePin"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "linePin"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 15,
+    "right_text": "            linePin={navigation.linePin()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "linePin"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "linePin"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "          forcedRichFileIds={ui.forcedRichFileIds()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "forcedRichFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "forcedRichFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 16,
+    "right_text": "            forcedRichFileIds={ui.forcedRichFileIds()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "forcedRichFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "forcedRichFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 17,
+    "right_text": "            aggressiveFolds={preferences()!.aggressive_folds}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "aggressiveFolds"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "preferences"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "aggressive_folds"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 16,
+    "left_text": "          onFileVirtualizedChange={ui.setFileVirtualized}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onFileVirtualizedChange"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileVirtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 18,
+    "right_text": "            onFileVirtualizedChange={ui.setFileVirtualized}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onFileVirtualizedChange"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileVirtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "          diffViewMode={diffViewMode()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diffViewMode"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diffViewMode"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 19,
+    "right_text": "            diffViewMode={diffViewMode()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diffViewMode"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diffViewMode"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 18,
+    "left_text": "          setDirectoryExpansion={ui.setDirectoryExpansion}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 20,
+    "right_text": "            setDirectoryExpansion={ui.setDirectoryExpansion}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "          setFileExpansion={ui.setFileExpansion}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 21,
+    "right_text": "            setFileExpansion={ui.setFileExpansion}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 20,
+    "left_text": "          setLoadingFiles={diff.setLoadingFiles}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setLoadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setLoadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 22,
+    "right_text": "            setLoadingFiles={diff.setLoadingFiles}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setLoadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setLoadingFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "          setFileErrors={diff.setFileErrors}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 23,
+    "right_text": "            setFileErrors={diff.setFileErrors}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "diff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileErrors"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 22,
+    "left_text": "          updateLoadedDiff={ui.updateLoadedDiff}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "updateLoadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "updateLoadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 24,
+    "right_text": "            updateLoadedDiff={ui.updateLoadedDiff}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "updateLoadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "updateLoadedDiff"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 23,
+    "left_text": "          onSetAllExpanded={ui.setAllFilesExpanded}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onSetAllExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setAllFilesExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 25,
+    "right_text": "            onSetAllExpanded={ui.setAllFilesExpanded}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onSetAllExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setAllFilesExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 24,
+    "left_text": "        />",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "right_no": 26,
+    "right_text": "          />",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 25,
+    "left_text": "      </GracefulErrorBoundary>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 27,
+    "right_text": "        </GracefulErrorBoundary>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 26,
+    "left_text": "      <GracefulErrorBoundary title=\"Could not render file tree\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "title"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\"Could not render file tree\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "right_no": 28,
+    "right_text": "        <GracefulErrorBoundary title=\"Could not render file tree\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "title"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\"Could not render file tree\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 27,
+    "left_text": "        <FileTreeSidebar",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "FileTreeSidebar"
+      }
+    ],
+    "right_no": 29,
+    "right_text": "          <FileTreeSidebar",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "FileTreeSidebar"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 28,
+    "left_text": "          files={ui.displayFiles()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "files"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "displayFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 30,
+    "right_text": "            files={ui.displayFiles()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "files"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "displayFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 29,
+    "left_text": "          directoryExpansion={ui.directoryExpansion()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 31,
+    "right_text": "            directoryExpansion={ui.directoryExpansion()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "directoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 30,
+    "left_text": "          fileExpansion={ui.fileExpansion()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 32,
+    "right_text": "            fileExpansion={ui.fileExpansion()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "fileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 31,
+    "left_text": "          activeHunkFileId={ui.activeHunkFileId()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "activeHunkFileId"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "activeHunkFileId"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 33,
+    "right_text": "            activeHunkFileId={ui.activeHunkFileId()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "activeHunkFileId"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "activeHunkFileId"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 32,
+    "left_text": "          virtualizedFileIds={ui.virtualizedFileIds()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "virtualizedFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "virtualizedFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 34,
+    "right_text": "            virtualizedFileIds={ui.virtualizedFileIds()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "virtualizedFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "virtualizedFileIds"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 33,
+    "left_text": "          open={navigation.fileTreeOpen()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "open"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "fileTreeOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 35,
+    "right_text": "            open={navigation.fileTreeOpen()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "open"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "fileTreeOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 34,
+    "left_text": "          onOpenChange={navigation.setFileTreeOpen}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onOpenChange"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setFileTreeOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 36,
+    "right_text": "            onOpenChange={navigation.setFileTreeOpen}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onOpenChange"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setFileTreeOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 35,
+    "left_text": "          setDirectoryExpansion={ui.setDirectoryExpansion}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 37,
+    "right_text": "            setDirectoryExpansion={ui.setDirectoryExpansion}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setDirectoryExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 36,
+    "left_text": "          setFileExpansion={ui.setFileExpansion}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 38,
+    "right_text": "            setFileExpansion={ui.setFileExpansion}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "ui"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setFileExpansion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 37,
+    "left_text": "          onScrollToDirectory={navigation.scrollToDirectory}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onScrollToDirectory"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollToDirectory"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 39,
+    "right_text": "            onScrollToDirectory={navigation.scrollToDirectory}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onScrollToDirectory"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollToDirectory"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 38,
+    "left_text": "          onScrollToFile={navigation.scrollToFile}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onScrollToFile"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollToFile"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 40,
+    "right_text": "            onScrollToFile={navigation.scrollToFile}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onScrollToFile"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollToFile"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 39,
+    "left_text": "        />",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "right_no": 41,
+    "right_text": "          />",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 40,
+    "left_text": "      </GracefulErrorBoundary>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "right_no": 42,
+    "right_text": "        </GracefulErrorBoundary>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "GracefulErrorBoundary"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 41,
+    "left_text": "      <HunkNav",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "HunkNav"
+      }
+    ],
+    "right_no": 43,
+    "right_text": "        <HunkNav",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "HunkNav"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 42,
+    "left_text": "        debugOpen={navigation.debugMenuOpen()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "debugOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "debugMenuOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 44,
+    "right_text": "          debugOpen={navigation.debugMenuOpen()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "debugOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "debugMenuOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 43,
+    "left_text": "        helpOpen={navigation.helpOpen()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "helpOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "helpOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 45,
+    "right_text": "          helpOpen={navigation.helpOpen()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "helpOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "helpOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 44,
+    "left_text": "        hunkPosition={navigation.hunkPosition()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "hunkPosition"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "hunkPosition"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 46,
+    "right_text": "          hunkPosition={navigation.hunkPosition()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "hunkPosition"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "hunkPosition"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 45,
+    "left_text": "        onHelpOpenChange={navigation.setHelpOpen}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onHelpOpenChange"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setHelpOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 47,
+    "right_text": "          onHelpOpenChange={navigation.setHelpOpen}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onHelpOpenChange"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "setHelpOpen"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 46,
+    "left_text": "        onNext={navigation.scrollNext}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onNext"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollNext"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 48,
+    "right_text": "          onNext={navigation.scrollNext}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onNext"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollNext"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 47,
+    "left_text": "        onPrev={navigation.scrollPrev}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onPrev"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollPrev"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 49,
+    "right_text": "          onPrev={navigation.scrollPrev}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "onPrev"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "navigation"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "scrollPrev"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 48,
+    "left_text": "      />",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "right_no": 50,
+    "right_text": "        />",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ">"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 51,
+    "right_text": "      </Show>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 49,
+    "left_text": "    </>",
+    "right_no": 52,
+    "right_text": "    </>",
+    "status": "equal"
+  },
+  {
+    "left_no": 50,
+    "left_text": "  );",
+    "right_no": 53,
+    "right_text": "  );",
+    "status": "equal"
+  },
+  {
+    "left_no": 51,
+    "left_text": "}",
+    "right_no": 54,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

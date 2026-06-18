@@ -137,6 +137,12 @@ def _changed_atoms(tokens: object) -> list[str]:
     return atoms
 
 
+def _meaningful_token_atoms(token: dict[str, Any]) -> list[str]:
+    text = token.get("text")
+    assert isinstance(text, str)
+    return _semantic_atoms(_token_atoms(text))
+
+
 def _semantic_atoms(atoms: list[str]) -> list[str]:
     return [
         atom
@@ -285,10 +291,63 @@ def _assert_unchanged_tokens_exist_on_other_side(
         assert not mismatched_runs, mismatched_runs
 
 
+def _one_sided_change_side(row: dict[str, Any]) -> Side | None:
+    if row.get("left_no") is not None and row.get("right_no") is None:
+        return "left"
+    if row.get("left_no") is None and row.get("right_no") is not None:
+        return "right"
+    return None
+
+
+def _pure_unchanged_one_sided_change_texts(
+    rows: list[dict[str, Any]],
+) -> list[str]:
+    broken_texts: list[str] = []
+    for row in rows:
+        if row.get("status") not in {"delete", "insert"}:
+            continue
+
+        side = _one_sided_change_side(row)
+        if side is None:
+            continue
+
+        tokens = row.get(_side_tokens_key(side))
+        if tokens is None:
+            continue
+        assert isinstance(tokens, list)
+
+        meaningful_tokens = [
+            token
+            for token in tokens
+            if isinstance(token, dict) and _meaningful_token_atoms(token)
+        ]
+        if not meaningful_tokens:
+            continue
+
+        if all(
+            token.get("status") == "unchanged" for token in meaningful_tokens
+        ):
+            text = row.get(_side_text_key(side))
+            assert isinstance(text, str)
+            broken_texts.append(text)
+    return broken_texts
+
+
+def _assert_one_sided_changes_are_not_pure_unchanged_context(
+    rows: list[dict[str, Any]],
+) -> None:
+    broken_texts = _pure_unchanged_one_sided_change_texts(rows)
+    assert not broken_texts, broken_texts
+
+
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
 def test_difftastic_preset_tokens_stay_in_source_order(
     preset_dir: Path,
 ) -> None:
+    """This test verifies that for both old source and new source, the output
+    on the left and on the right has all tokens in full, and in the same order
+    as they were in the original sources.
+    """
     rows, old_text, new_text = _preset_rows(preset_dir)
 
     sides: tuple[tuple[Side, str], ...] = (
@@ -319,6 +378,9 @@ def test_difftastic_preset_tokens_stay_in_source_order(
 def test_difftastic_preset_unchanged_tokens_match_on_both_sides(
     preset_dir: Path,
 ) -> None:
+    """This test verifies that if a token is marked as unchanged on one of the
+    sides, the same token must be marked unchanged on the other side.
+    """
     rows, _, _ = _preset_rows(preset_dir)
 
     _assert_unchanged_tokens_exist_on_other_side(
@@ -331,3 +393,15 @@ def test_difftastic_preset_unchanged_tokens_match_on_both_sides(
         side="right",
         other_side="left",
     )
+
+
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_one_sided_changes_include_changed_tokens(
+    preset_dir: Path,
+) -> None:
+    """This test verifies that one-sided changed rows are not made entirely
+    from meaningful tokens marked unchanged.
+    """
+    rows, _, _ = _preset_rows(preset_dir)
+
+    _assert_one_sided_changes_are_not_pure_unchanged_context(rows)

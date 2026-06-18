@@ -1,0 +1,80 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "RegionKind = Literal[",
+    "right_no": 1,
+    "right_text": "RegionKind = Literal[",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "    \"function_like\",",
+    "right_no": 2,
+    "right_text": "    \"function_like\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "    \"class_like\",",
+    "right_no": 3,
+    "right_text": "    \"class_like\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "    \"container\",",
+    "right_no": 4,
+    "right_text": "    \"container\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "    \"section\"",
+    "right_no": 5,
+    "right_text": "    \"section\",",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    \"section\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "    \"top_level\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"top_level\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 1,
+    "left_text": "]",
+    "right_no": 7,
+    "right_text": "]",
+    "status": "equal"
+  }
+]
