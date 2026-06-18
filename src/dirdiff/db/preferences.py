@@ -16,9 +16,7 @@ class Preferences(TableBase):
     __tablename__ = "preferences"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    aggressive_folds: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
-    )
+    aggressive_folds: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
 
 @dataclass(frozen=True)

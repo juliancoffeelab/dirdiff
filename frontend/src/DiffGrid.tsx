@@ -30,6 +30,7 @@ export function DiffGrid(props: {
   rows: DiffRow[];
   foldHints: FoldHint[];
   viewMode: DiffViewMode;
+  aggressiveFolds: boolean;
   semanticReplaceRows?: boolean;
 }) {
   return (
@@ -58,6 +59,7 @@ export function DiffGrid(props: {
         leftLabel={props.leftLabel}
         rightLabel={props.rightLabel}
         viewMode={props.viewMode}
+        aggressiveFolds={props.aggressiveFolds}
         semanticReplaceRows={props.semanticReplaceRows}
       />
     </div>
@@ -103,6 +105,7 @@ function ImperativeDiffLines(props: {
   leftLabel: string;
   rightLabel: string;
   viewMode: DiffViewMode;
+  aggressiveFolds: boolean;
   semanticReplaceRows?: boolean;
 }) {
   let root!: HTMLDivElement;
@@ -113,6 +116,7 @@ function ImperativeDiffLines(props: {
   let previousLeftLabel: string | undefined;
   let previousRightLabel: string | undefined;
   let previousViewMode: DiffViewMode | undefined;
+  let previousAggressiveFolds: boolean | undefined;
   let previousSemanticReplaceRows: boolean | undefined;
 
   const render = () => {
@@ -123,6 +127,7 @@ function ImperativeDiffLines(props: {
       props.leftLabel !== previousLeftLabel ||
       props.rightLabel !== previousRightLabel ||
       props.viewMode !== previousViewMode ||
+      props.aggressiveFolds !== previousAggressiveFolds ||
       props.semanticReplaceRows !== previousSemanticReplaceRows
     ) {
       expandedFolds.clear();
@@ -132,10 +137,13 @@ function ImperativeDiffLines(props: {
       previousLeftLabel = props.leftLabel;
       previousRightLabel = props.rightLabel;
       previousViewMode = props.viewMode;
+      previousAggressiveFolds = props.aggressiveFolds;
       previousSemanticReplaceRows = props.semanticReplaceRows;
     }
 
-    const rows = markHunkAnchors(addFoldRows(props.rows, props.foldHints));
+    const rows = markHunkAnchors(
+      addFoldRows(props.rows, props.foldHints, props.aggressiveFolds),
+    );
     const fileLabel = props.displayName;
     const fragment =
       props.viewMode === "inline" && props.semanticReplaceRows === true

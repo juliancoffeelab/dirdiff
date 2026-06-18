@@ -32,6 +32,7 @@ export function NotebookFile(props: {
   file: FileEntry;
   diffParams: DiffParams;
   diffViewMode: DiffViewMode;
+  aggressiveFolds: boolean;
 }) {
   const summary = () => notebookSummary(props.file);
   const cells = () => notebookCells(props.file);
@@ -66,6 +67,7 @@ export function NotebookFile(props: {
           leftLabel="Left notebook metadata"
           rightLabel="Right notebook metadata"
           diffViewMode={props.diffViewMode}
+          aggressiveFolds={props.aggressiveFolds}
         />
       </Show>
 
@@ -85,6 +87,7 @@ export function NotebookFile(props: {
                 diffParams={props.diffParams}
                 cell={cell}
                 diffViewMode={props.diffViewMode}
+                aggressiveFolds={props.aggressiveFolds}
               />
             )}
           </For>
@@ -99,6 +102,7 @@ function NotebookCell(props: {
   diffParams: DiffParams;
   cell: NotebookCellEntry;
   diffViewMode: DiffViewMode;
+  aggressiveFolds: boolean;
 }) {
   const cell = () => props.cell;
   const leftIndex = () => notebookCellIndex(cell().left_index);
@@ -141,6 +145,7 @@ function NotebookCell(props: {
         renderMode={cell().source_render_mode}
         truncatedRows={truncatedRowsValue(cell().source_truncated_rows)}
         diffViewMode={props.diffViewMode}
+        aggressiveFolds={props.aggressiveFolds}
       />
 
       <Show when={cell().metadata_changed}>
@@ -156,6 +161,7 @@ function NotebookCell(props: {
           leftLabel="Left metadata"
           rightLabel="Right metadata"
           diffViewMode={props.diffViewMode}
+          aggressiveFolds={props.aggressiveFolds}
         />
       </Show>
 
@@ -172,6 +178,7 @@ function NotebookCell(props: {
           leftLabel="Left outputs"
           rightLabel="Right outputs"
           diffViewMode={props.diffViewMode}
+          aggressiveFolds={props.aggressiveFolds}
         />
       </Show>
     </article>
@@ -187,6 +194,7 @@ function NotebookDetails(props: {
   leftLabel: string;
   rightLabel: string;
   diffViewMode: DiffViewMode;
+  aggressiveFolds: boolean;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = createSignal(false);
@@ -270,6 +278,7 @@ function NotebookDetails(props: {
           renderMode={loadedSection().render_mode}
           truncatedRows={loadedSection().truncated_rows}
           diffViewMode={props.diffViewMode}
+          aggressiveFolds={props.aggressiveFolds}
         />
       </Show>
     </details>
@@ -285,6 +294,7 @@ function NotebookSectionView(props: {
   renderMode?: "plain" | null;
   truncatedRows?: number | null;
   diffViewMode: DiffViewMode;
+  aggressiveFolds: boolean;
 }) {
   return (
     <section class="notebook-section">
@@ -298,6 +308,7 @@ function NotebookSectionView(props: {
         rows={props.rows}
         foldHints={props.foldHints}
         viewMode={props.diffViewMode}
+        aggressiveFolds={props.aggressiveFolds}
       />
       <Show
         when={

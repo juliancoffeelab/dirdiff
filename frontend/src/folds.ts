@@ -22,6 +22,7 @@ export type RenderRow = DiffRow | FoldRow;
 export function parseFoldHints(
   foldHints: FoldHint[] | undefined,
   rowCount: number,
+  aggressiveFolds: boolean,
 ): NormalizedFoldHint[] {
   if (foldHints === undefined || foldHints.length === 0) {
     return [];
@@ -31,6 +32,7 @@ export function parseFoldHints(
   }
 
   const parsed = foldHints
+    .filter((hint) => aggressiveFolds || hint.kind !== "class_like")
     .map((hint, index) => parseFoldHint(hint, index, rowCount))
     .sort(
       (left, right) =>
@@ -103,8 +105,9 @@ function nestFoldHints(hints: NormalizedFoldHint[]): NormalizedFoldHint[] {
 export function addFoldRows(
   rows: DiffRow[],
   foldHints: FoldHint[] | undefined,
+  aggressiveFolds: boolean,
 ): RenderRow[] {
-  const parsed = parseFoldHints(foldHints, rows.length);
+  const parsed = parseFoldHints(foldHints, rows.length, aggressiveFolds);
   if (!parsed.length) {
     return rows;
   }

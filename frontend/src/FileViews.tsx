@@ -166,6 +166,7 @@ export function FileList(props: {
   fileErrors: Record<string, string>;
   linePin: LinePin | null;
   forcedRichFileIds: string[];
+  aggressiveFolds: boolean;
   onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
   setDirectoryExpansion: ExpansionSetter;
   setFileExpansion: ExpansionSetter;
@@ -225,6 +226,7 @@ export function FileList(props: {
                 fileErrors={props.fileErrors}
                 linePin={props.linePin}
                 forcedRichFileIds={props.forcedRichFileIds}
+                aggressiveFolds={props.aggressiveFolds}
                 onFileVirtualizedChange={props.onFileVirtualizedChange}
                 diffViewMode={props.diffViewMode}
                 setExpanded={(expanded) =>
@@ -259,6 +261,7 @@ function DirectoryGroup(props: {
   fileErrors: Record<string, string>;
   linePin: LinePin | null;
   forcedRichFileIds: string[];
+  aggressiveFolds: boolean;
   onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
   setExpanded: (expanded: boolean) => void;
   setFileExpanded: (key: string, expanded: boolean) => void;
@@ -307,6 +310,7 @@ function DirectoryGroup(props: {
                   error={fileError(props.fileErrors, key)}
                   linePin={props.linePin}
                   forcedRichFileIds={props.forcedRichFileIds}
+                  aggressiveFolds={props.aggressiveFolds}
                   onFileVirtualizedChange={props.onFileVirtualizedChange}
                   diffViewMode={props.diffViewMode}
                   setExpanded={(expanded) =>
@@ -521,6 +525,7 @@ function FileCard(props: {
   error: string;
   linePin: LinePin | null;
   forcedRichFileIds: string[];
+  aggressiveFolds: boolean;
   onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
   setExpanded: (expanded: boolean) => void;
   setLoadingFiles: ExpansionSetter;
@@ -768,6 +773,7 @@ function FileCard(props: {
                 file={props.file}
                 diffParams={loadedParams(props.loadedDiff)}
                 diffViewMode={props.diffViewMode}
+                aggressiveFolds={props.aggressiveFolds}
               />
             </Show>
             <Show when={props.file.render_kind !== "notebook"}>
@@ -783,6 +789,7 @@ function FileCard(props: {
                     rows={fileRows(props.file)}
                     foldHints={fileFoldHints(props.file)}
                     viewMode={props.diffViewMode}
+                    aggressiveFolds={props.aggressiveFolds}
                     semanticReplaceRows={loadedEngineIsDifftastic(
                       props.loadedDiff,
                     )}
