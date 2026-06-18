@@ -17,11 +17,17 @@ def test_fold_hints_include_unchanged_top_level_function_body() -> None:
 
     assert diff["fold_hints"] == [
         {
+            "start_row": 0,
+            "end_row": 3,
+            "kind": "top_level",
+            "label": "1 unchanged declaration",
+        },
+        {
             "start_row": 1,
             "end_row": 3,
             "kind": "function_like",
             "label": "def helper():",
-        }
+        },
     ]
 
 
@@ -66,11 +72,17 @@ def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
 
     assert diff["fold_hints"] == [
         {
+            "start_row": 0,
+            "end_row": 4,
+            "kind": "top_level",
+            "label": "1 unchanged declaration",
+        },
+        {
             "start_row": 1,
             "end_row": 4,
             "kind": "container",
             "label": "CONFIG = {",
-        }
+        },
     ]
 
 
@@ -103,6 +115,12 @@ def test_unchanged_top_level_class_folds_class_and_methods() -> None:
     )
 
     assert diff["fold_hints"] == [
+        {
+            "start_row": 0,
+            "end_row": 6,
+            "kind": "top_level",
+            "label": "1 unchanged declaration",
+        },
         {
             "start_row": 1,
             "end_row": 6,
@@ -196,6 +214,12 @@ def test_javascript_classes_fold_class_and_methods() -> None:
     )
 
     assert diff["fold_hints"] == [
+        {
+            "start_row": 0,
+            "end_row": 5,
+            "kind": "top_level",
+            "label": "1 unchanged declaration",
+        },
         {
             "start_row": 1,
             "end_row": 5,
@@ -321,6 +345,12 @@ def test_rust_impl_blocks_fold_impl_and_methods() -> None:
     )
 
     assert diff["fold_hints"] == [
+        {
+            "start_row": 0,
+            "end_row": 5,
+            "kind": "top_level",
+            "label": "1 unchanged declaration",
+        },
         {
             "start_row": 1,
             "end_row": 5,

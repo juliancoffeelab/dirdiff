@@ -32,7 +32,11 @@ export function parseFoldHints(
   }
 
   const parsed = foldHints
-    .filter((hint) => aggressiveFolds || hint.kind !== "class_like")
+    .filter(
+      (hint) =>
+        aggressiveFolds ||
+        (hint.kind !== "class_like" && hint.kind !== "top_level"),
+    )
     .map((hint, index) => parseFoldHint(hint, index, rowCount))
     .sort(
       (left, right) =>

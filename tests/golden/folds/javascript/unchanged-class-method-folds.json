@@ -1,6 +1,12 @@
 [
   {
     "end_row": 5,
+    "kind": "top_level",
+    "label": "1 unchanged declaration",
+    "start_row": 0
+  },
+  {
+    "end_row": 5,
     "kind": "class_like",
     "label": "class Example {",
     "start_row": 1

@@ -1,6 +1,12 @@
 [
   {
     "end_row": 4,
+    "kind": "top_level",
+    "label": "1 unchanged declaration",
+    "start_row": 0
+  },
+  {
+    "end_row": 4,
     "kind": "function_like",
     "label": "const unchanged = () => {",
     "start_row": 1

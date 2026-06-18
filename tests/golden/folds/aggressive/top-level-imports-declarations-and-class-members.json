@@ -1,0 +1,50 @@
+[
+  {
+    "end_row": 3,
+    "kind": "top_level",
+    "label": "3 unchanged imports",
+    "start_row": 0
+  },
+  {
+    "end_row": 18,
+    "kind": "top_level",
+    "label": "5 unchanged declarations",
+    "start_row": 4
+  },
+  {
+    "end_row": 14,
+    "kind": "function_like",
+    "label": "function untouchedOne() {",
+    "start_row": 12
+  },
+  {
+    "end_row": 18,
+    "kind": "function_like",
+    "label": "function untouchedTwo() {",
+    "start_row": 16
+  },
+  {
+    "end_row": 23,
+    "kind": "function_like",
+    "label": "renderHeader() {",
+    "start_row": 21
+  },
+  {
+    "end_row": 31,
+    "kind": "function_like",
+    "label": "renderFooter() {",
+    "start_row": 29
+  },
+  {
+    "end_row": 36,
+    "kind": "top_level",
+    "label": "1 unchanged declaration",
+    "start_row": 33
+  },
+  {
+    "end_row": 36,
+    "kind": "function_like",
+    "label": "function untouchedTail() {",
+    "start_row": 34
+  }
+]

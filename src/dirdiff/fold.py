@@ -8,7 +8,13 @@ from typing import Any, Literal
 
 from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
-RegionKind = Literal["function_like", "class_like", "container", "section"]
+RegionKind = Literal[
+    "function_like",
+    "class_like",
+    "container",
+    "section",
+    "top_level",
+]
 StartMode = Literal["node_start", "next_line"]
 FoldHint = dict[str, int | str]
 
@@ -43,6 +49,45 @@ class FoldCandidate:
     context_start_byte: int
     context_end_byte: int
     parent: FoldCandidate | None = None
+
+
+@dataclass(frozen=True)
+class TopLevelItem:
+    start_row: int
+    end_row: int
+    start_byte: int
+    end_byte: int
+    label_kind: str
+
+
+TOP_LEVEL_NODE_KINDS: dict[str, str] = {
+    "abstract_class_declaration": "declaration",
+    "class_declaration": "declaration",
+    "class_definition": "declaration",
+    "const_item": "declaration",
+    "decorated_definition": "declaration",
+    "enum_item": "declaration",
+    "expression_statement": "declaration",
+    "function_declaration": "declaration",
+    "function_definition": "declaration",
+    "function_item": "declaration",
+    "future_import_statement": "import",
+    "generator_function_declaration": "declaration",
+    "impl_item": "declaration",
+    "import_from_statement": "import",
+    "import_statement": "import",
+    "interface_declaration": "declaration",
+    "let_declaration": "declaration",
+    "lexical_declaration": "declaration",
+    "method_definition": "declaration",
+    "static_item": "declaration",
+    "struct_item": "declaration",
+    "trait_item": "declaration",
+    "type_alias_declaration": "declaration",
+    "type_item": "declaration",
+    "use_declaration": "import",
+    "variable_declaration": "declaration",
+}
 
 
 FOLD_LANGUAGE_SPECS: tuple[FoldLanguageSpec, ...] = (
@@ -220,7 +265,16 @@ def fold_hints_for_path(
 
             for candidate in root_candidates:
                 _collect_hints(candidate, candidates, rows, hints)
-            hints.sort(key=_fold_hint_sort_key)
+        hints.extend(
+            _collect_top_level_hints(
+                tree.root_node,
+                source_bytes,
+                right_line_to_row,
+                rows,
+                hints,
+            )
+        )
+        hints.sort(key=_fold_hint_sort_key)
     return hints
 
 
@@ -477,6 +531,126 @@ def _candidate_to_hint(
     }
 
 
+def _collect_top_level_hints(
+    root_node: Node,
+    source_bytes: bytes,
+    right_line_to_row: dict[int, int],
+    rows: list[dict[str, Any]],
+    existing_hints: list[FoldHint],
+) -> list[FoldHint]:
+    items = _collect_top_level_items(
+        root_node,
+        source_bytes,
+        right_line_to_row,
+    )
+    if not items:
+        return []
+
+    existing_ranges = {
+        (int(hint["start_row"]), int(hint["end_row"]))
+        for hint in existing_hints
+    }
+    hints: list[FoldHint] = []
+    run: list[TopLevelItem] = []
+
+    for item in items:
+        if not _rows_are_unchanged(rows[item.start_row : item.end_row]):
+            _append_top_level_run_hint(run, rows, existing_ranges, hints)
+            run = []
+            continue
+        if run and run[-1].label_kind != item.label_kind:
+            _append_top_level_run_hint(run, rows, existing_ranges, hints)
+            run = []
+        run.append(item)
+
+    _append_top_level_run_hint(run, rows, existing_ranges, hints)
+    return hints
+
+
+def _collect_top_level_items(
+    root_node: Node,
+    source_bytes: bytes,
+    right_line_to_row: dict[int, int],
+) -> list[TopLevelItem]:
+    items: list[TopLevelItem] = []
+    for child in root_node.children:
+        classified = _classify_top_level_node(child)
+        if classified is None:
+            continue
+        node, label_kind = classified
+        start_line, end_line = _node_line_span(node, source_bytes)
+        row_span = _lines_to_row_span(
+            right_line_to_row,
+            start_line,
+            end_line,
+        )
+        if row_span is None:
+            continue
+        items.append(
+            TopLevelItem(
+                start_row=row_span[0],
+                end_row=row_span[1],
+                start_byte=node.start_byte,
+                end_byte=node.end_byte,
+                label_kind=label_kind,
+            )
+        )
+    return items
+
+
+def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
+    if node.type == "export_statement":
+        return node, "declaration"
+    label_kind = _top_level_label_kind(node)
+    if label_kind is None:
+        return None
+    return node, label_kind
+
+
+def _top_level_label_kind(node: Node) -> str | None:
+    return TOP_LEVEL_NODE_KINDS.get(node.type)
+
+
+def _append_top_level_run_hint(
+    run: list[TopLevelItem],
+    rows: list[dict[str, Any]],
+    existing_ranges: set[tuple[int, int]],
+    hints: list[FoldHint],
+) -> None:
+    if not run:
+        return
+    start_row = run[0].start_row
+    end_row = run[-1].end_row
+    if end_row - start_row < 1:
+        return
+    if len(run) == 1 and (start_row, end_row) in existing_ranges:
+        return
+    if not _rows_are_unchanged(rows[start_row:end_row]):
+        return
+    hints.append(
+        {
+            "start_row": start_row,
+            "end_row": end_row,
+            "kind": "top_level",
+            "label": _top_level_run_label(run),
+        }
+    )
+
+
+def _top_level_run_label(run: list[TopLevelItem]) -> str:
+    if all(item.label_kind == "import" for item in run):
+        return _plural_label(len(run), "unchanged import")
+    if len({item.label_kind for item in run}) == 1:
+        label_kind = run[0].label_kind
+        return _plural_label(len(run), f"unchanged {label_kind}")
+    return _plural_label(len(run), "unchanged top-level declaration")
+
+
+def _plural_label(count: int, noun: str) -> str:
+    suffix = "" if count == 1 else "s"
+    return f"{count} {noun}{suffix}"
+
+
 def _fold_hint_sort_key(hint: FoldHint) -> tuple[int, int]:
     return int(hint["start_row"]), int(hint["end_row"])
 
@@ -505,7 +679,11 @@ def _region_is_unchanged(
     span = rows[candidate.context_start_row : candidate.context_end_row]
     if candidate.rule.region_kind == "section":
         span = _trim_markdown_section_trailing_blank_rows(span)
-    return bool(span) and all(not _row_has_any_change(row) for row in span)
+    return _rows_are_unchanged(span)
+
+
+def _rows_are_unchanged(rows: list[dict[str, Any]]) -> bool:
+    return bool(rows) and all(not _row_has_any_change(row) for row in rows)
 
 
 def _trim_markdown_section_trailing_blank_rows(
