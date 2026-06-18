@@ -1057,16 +1057,15 @@ def _replace_row_needs_following_delete_continuation(
     replace_row: dict[str, Any],
     delete_row: dict[str, Any],
 ) -> bool:
-    if replace_row.get("status") != "replace":
-        return False
-    if delete_row.get("status") != "delete":
-        return False
-    if (
-        replace_row.get("left_no") is None
-        or replace_row.get("right_no") is None
-    ):
-        return False
-    if delete_row.get("left_no") != replace_row.get("left_no") + 1:
+    left_no = replace_row.get("left_no")
+    basic_shape_matches = (
+        replace_row.get("status") == "replace"
+        and delete_row.get("status") == "delete"
+        and left_no is not None
+        and replace_row.get("right_no") is not None
+        and delete_row.get("left_no") == left_no + 1
+    )
+    if not basic_shape_matches:
         return False
 
     replace_right_tokens = replace_row.get("right_tokens", [])
@@ -1187,10 +1186,352 @@ def _is_right_only_row(row: dict[str, Any]) -> bool:
 
 def _one_sided_row_tokens(row: dict[str, Any]) -> list[dict[str, Any]]:
     if _is_left_only_row(row):
-        return row.get("left_tokens", [])
+        left_tokens = row.get("left_tokens", [])
+        assert isinstance(left_tokens, list)
+        return left_tokens
     if _is_right_only_row(row):
-        return row.get("right_tokens", [])
+        right_tokens = row.get("right_tokens", [])
+        assert isinstance(right_tokens, list)
+        return right_tokens
     return []
+
+
+def _difftastic_tokens_are_subsequence(
+    needles: list[str],
+    haystack: list[str],
+) -> bool:
+    cursor = 0
+    for needle in needles:
+        for index in range(cursor, len(haystack)):
+            if haystack[index] == needle:
+                cursor = index + 1
+                break
+        else:
+            return False
+    return True
+
+
+def _difftastic_source_line_is_rendered(
+    rows: list[dict[str, Any]],
+    *,
+    source_line: str,
+    source_index: int,
+    side: Literal["left", "right"],
+) -> bool:
+    no_key = "left_no" if side == "left" else "right_no"
+    text_key = "left_text" if side == "left" else "right_text"
+    rendered_text = "".join(
+        row.get(text_key, "")
+        for row in rows
+        if row.get(no_key) == source_index + 1
+    )
+    return _difftastic_tokens_are_subsequence(
+        _difftastic_fragment_tokens(source_line),
+        _difftastic_fragment_tokens(rendered_text),
+    )
+
+
+def _one_sided_fragment_row(
+    fragment: DifftasticLineFragment,
+    *,
+    side: Literal["left", "right"],
+) -> dict[str, Any]:
+    status: Literal["delete", "insert"] = (
+        "delete" if side == "left" else "insert"
+    )
+    tokens = _changed_tokens_for_ranges(
+        fragment.text,
+        [(0, len(fragment.text))],
+        status=status,
+    )
+    if side == "left":
+        return {
+            "status": status,
+            "left_no": fragment.source_index + 1,
+            "right_no": None,
+            "left_text": fragment.text,
+            "right_text": "",
+            "left_tokens": tokens,
+        }
+    return {
+        "status": status,
+        "left_no": None,
+        "right_no": fragment.source_index + 1,
+        "left_text": "",
+        "right_text": fragment.text,
+        "right_tokens": tokens,
+    }
+
+
+def _insert_unrendered_residual_fragments(
+    rows: list[dict[str, Any]],
+    *,
+    fragments: list[DifftasticLineFragment],
+    source_lines: list[str],
+    side: Literal["left", "right"],
+) -> list[dict[str, Any]]:
+    no_key = "left_no" if side == "left" else "right_no"
+    completed = rows
+    for fragment in fragments:
+        if fragment.kind != "residual":
+            continue
+        if not 0 <= fragment.source_index < len(source_lines):
+            continue
+        if _difftastic_source_line_is_rendered(
+            completed,
+            source_line=source_lines[fragment.source_index],
+            source_index=fragment.source_index,
+            side=side,
+        ):
+            continue
+
+        insert_at = len(completed)
+        for index, row in enumerate(completed):
+            if row.get(no_key) == fragment.source_index + 1:
+                insert_at = index + 1
+        completed = [
+            *completed[:insert_at],
+            _one_sided_fragment_row(fragment, side=side),
+            *completed[insert_at:],
+        ]
+    return completed
+
+
+def _split_show_guard_residual(text: str) -> list[str] | None:
+    stripped = text.strip()
+    if not stripped.startswith("when={") or not stripped.endswith("}>"):
+        return None
+
+    body = stripped[len("when={") : -len("}>")]
+    clauses: list[str] = []
+    current: list[str] = []
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char == "(":
+            paren_depth += 1
+        elif char == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif char == "[":
+            bracket_depth += 1
+        elif char == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif char == "{":
+            brace_depth += 1
+        elif char == "}":
+            brace_depth = max(0, brace_depth - 1)
+
+        if (
+            char == "&"
+            and index + 1 < len(body)
+            and body[index + 1] == "&"
+            and paren_depth == bracket_depth == brace_depth == 0
+        ):
+            clause = "".join(current).strip()
+            if clause:
+                clauses.append(clause)
+            current.clear()
+            index += 2
+            continue
+
+        current.append(char)
+        index += 1
+
+    clause = "".join(current).strip()
+    if clause:
+        clauses.append(clause)
+    if not clauses:
+        return None
+
+    return ["when={", *clauses, "}", ">"]
+
+
+def _show_guard_condition_key(text: str) -> str:
+    return text.strip().removesuffix("&&").strip()
+
+
+def _show_guard_generated_text(
+    *,
+    other_text: str,
+    residual_parts: list[str],
+    clause_index: int,
+) -> tuple[str | None, int]:
+    stripped = other_text.strip()
+    leading = _difftastic_leading_whitespace(other_text)
+    if stripped == "when={" and residual_parts[0] == "when={":
+        return f"{leading}when={{", clause_index
+    if stripped in {"}", ">"}:
+        if stripped in residual_parts:
+            return f"{leading}{stripped}", clause_index
+        return None, clause_index
+
+    if clause_index >= len(residual_parts) - 2:
+        return None, clause_index
+
+    clause = residual_parts[clause_index]
+    if _show_guard_condition_key(stripped) != clause:
+        return None, clause_index
+
+    suffix = " &&" if clause_index < len(residual_parts) - 3 else ""
+    return f"{leading}{clause}{suffix}", clause_index + 1
+
+
+def _tail_changed_ranges(longer: str, shorter: str) -> list[tuple[int, int]]:
+    shared_length = _common_prefix_length(longer, shorter)
+    if shared_length == len(longer):
+        return []
+    return [(shared_length, len(longer))]
+
+
+def _paired_show_guard_residual_row(
+    *,
+    residual_row: dict[str, Any],
+    other_row: dict[str, Any],
+    residual_side: Literal["left", "right"],
+    generated_text: str,
+) -> dict[str, Any]:
+    other_side: Literal["left", "right"] = (
+        "right" if residual_side == "left" else "left"
+    )
+    left_text = (
+        generated_text
+        if residual_side == "left"
+        else other_row.get("left_text", "")
+    )
+    right_text = (
+        generated_text
+        if residual_side == "right"
+        else other_row.get("right_text", "")
+    )
+    left_no = (
+        residual_row.get("left_no")
+        if residual_side == "left"
+        else other_row.get("left_no")
+    )
+    right_no = (
+        residual_row.get("right_no")
+        if residual_side == "right"
+        else other_row.get("right_no")
+    )
+    assert isinstance(left_text, str)
+    assert isinstance(right_text, str)
+    assert isinstance(left_no, int)
+    assert isinstance(right_no, int)
+    row = _paired_line_row(
+        left_text,
+        right_text,
+        left_no,
+        right_no,
+    )
+    if left_text == right_text:
+        return row
+
+    row["status"] = "replace"
+    if len(left_text) > len(right_text):
+        row["left_tokens"] = _changed_tokens_for_ranges(
+            left_text,
+            _tail_changed_ranges(left_text, right_text),
+            status="delete",
+        )
+        row.pop("right_tokens", None)
+    else:
+        row["right_tokens"] = _changed_tokens_for_ranges(
+            right_text,
+            _tail_changed_ranges(right_text, left_text),
+            status="insert",
+        )
+        row.pop("left_tokens", None)
+    if other_side == "left" and other_row.get("left_tokens"):
+        row["left_tokens"] = other_row["left_tokens"]
+    if other_side == "right" and other_row.get("right_tokens"):
+        row["right_tokens"] = other_row["right_tokens"]
+    return row
+
+
+def _expand_show_guard_residual_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    expanded: list[dict[str, Any]] = []
+    index = 0
+    while index < len(rows):
+        row = rows[index]
+        if _is_left_only_row(row):
+            residual_side: Literal["left", "right"] = "left"
+            text = row.get("left_text", "")
+        elif _is_right_only_row(row):
+            residual_side = "right"
+            text = row.get("right_text", "")
+        else:
+            expanded.append(row)
+            index += 1
+            continue
+
+        residual_parts = _split_show_guard_residual(text)
+        if residual_parts is None:
+            expanded.append(row)
+            index += 1
+            continue
+
+        other_side: Literal["left", "right"] = (
+            "right" if residual_side == "left" else "left"
+        )
+        other_text_key = f"{other_side}_text"
+        other_no_key = f"{other_side}_no"
+        first_other_row = rows[index + 1] if index + 1 < len(rows) else None
+        if (
+            first_other_row is None
+            or first_other_row.get(other_no_key) is None
+            or first_other_row.get(other_text_key, "").strip() != "when={"
+        ):
+            expanded.append(row)
+            index += 1
+            continue
+
+        block_end = index + 1
+        while block_end < len(rows):
+            block_row = rows[block_end]
+            if block_row.get(other_no_key) is None:
+                break
+            if (
+                block_row.get(
+                    "left_no" if residual_side == "left" else "right_no"
+                )
+                is not None
+            ):
+                break
+            stripped = block_row.get(other_text_key, "").strip()
+            block_end += 1
+            if stripped == ">":
+                break
+
+        if block_end == index + 1:
+            expanded.append(row)
+            index += 1
+            continue
+
+        clause_index = 1
+        for other_row in rows[index + 1 : block_end]:
+            generated_text, clause_index = _show_guard_generated_text(
+                other_text=other_row.get(other_text_key, ""),
+                residual_parts=residual_parts,
+                clause_index=clause_index,
+            )
+            if generated_text is None:
+                expanded.append(other_row)
+                continue
+            expanded.append(
+                _paired_show_guard_residual_row(
+                    residual_row=row,
+                    other_row=other_row,
+                    residual_side=residual_side,
+                    generated_text=generated_text,
+                )
+            )
+        index = block_end
+    return expanded
 
 
 def _one_sided_replace_should_use_side_status(
@@ -1239,10 +1580,12 @@ def _normalize_one_sided_difftastic_replacements(
         next_rows: list[dict[str, Any]] = []
         for index, row in enumerate(normalized):
             next_row = dict(row)
-            if _one_sided_replace_should_use_side_status(normalized, index):
-                if next_row.get("status") != "delete":
-                    next_row["status"] = "delete"
-                    changed = True
+            if (
+                _one_sided_replace_should_use_side_status(normalized, index)
+                and next_row.get("status") != "delete"
+            ):
+                next_row["status"] = "delete"
+                changed = True
             next_rows.append(next_row)
         if not changed:
             return next_rows
@@ -1687,6 +2030,20 @@ def _difftastic_rows_from_json(
             }
         )
         used_right.add(right_index)
+
+    rows = _insert_unrendered_residual_fragments(
+        rows,
+        fragments=left_fragments,
+        source_lines=left_lines,
+        side="left",
+    )
+    rows = _insert_unrendered_residual_fragments(
+        rows,
+        fragments=right_fragments,
+        source_lines=right_lines,
+        side="right",
+    )
+    rows = _expand_show_guard_residual_rows(rows)
 
     return _normalize_difftastic_replace_tokens_in_mixed_rows(
         _repair_replace_rows_with_delete_continuations(

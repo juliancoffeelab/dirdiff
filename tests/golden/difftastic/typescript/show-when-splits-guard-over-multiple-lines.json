@@ -1,0 +1,242 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "import { Show } from \"solid-js\";",
+    "right_no": 1,
+    "right_text": "import { Show } from \"solid-js\";",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "type Repo = {",
+    "right_no": 3,
+    "right_text": "type Repo = {",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  selectedRepoId(): number | null;",
+    "right_no": 4,
+    "right_text": "  selectedRepoId(): number | null;",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "  presetCatalog(): object | null;",
+    "right_no": 5,
+    "right_text": "  presetCatalog(): object | null;",
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "};",
+    "right_no": 6,
+    "right_text": "};",
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "",
+    "right_no": 7,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "declare const repo: Repo;",
+    "right_no": 8,
+    "right_text": "declare const repo: Repo;",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "declare const controls: () => object | null;",
+    "right_no": 9,
+    "right_text": "declare const controls: () => object | null;",
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "",
+    "right_no": 10,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "export function Example() {",
+    "right_no": 11,
+    "right_text": "export function Example() {",
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "  return (",
+    "right_no": 12,
+    "right_text": "  return (",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    <Show",
+    "right_no": 13,
+    "right_text": "    <Show",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "      when={",
+    "right_no": 14,
+    "right_text": "      when={",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "        repo.selectedRepoId() !== null &&",
+    "right_no": 15,
+    "right_text": "        repo.selectedRepoId() !== null &&",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "        controls() !== null",
+    "right_no": 16,
+    "right_text": "        controls() !== null &&",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        controls() !== null "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "&"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "&"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 17,
+    "right_text": "        repo.presetCatalog() !== null",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetCatalog"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "null"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 13,
+    "left_text": "      }",
+    "right_no": 18,
+    "right_text": "      }",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    >",
+    "right_no": 19,
+    "right_text": "    >",
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "      <>ok</>",
+    "right_no": 20,
+    "right_text": "      <>ok</>",
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "    </Show>",
+    "right_no": 21,
+    "right_text": "    </Show>",
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "  );",
+    "right_no": 22,
+    "right_text": "  );",
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "}",
+    "right_no": 23,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

@@ -27,8 +27,10 @@ export function Select(props: {
       if (!(target instanceof Node)) {
         return;
       }
-      if (root?.contains(target)) {
-        return;
+      if (root !== undefined) {
+        if (root.contains(target)) {
+          return;
+        }
       }
       setOpen(false);
     };

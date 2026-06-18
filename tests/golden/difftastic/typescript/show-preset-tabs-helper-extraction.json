@@ -1,0 +1,4412 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "function PresetControls(props) {",
+    "right_no": 1,
+    "right_text": "function PresetControls(props) {",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  return (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    <Show when={draft().mode === \"preset\"}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "mode"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"preset\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": 2,
+    "right_text": "  const renderPresetTabs = () => {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "renderPresetTabs"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 4,
+    "left_text": "      <Show when={props.presetCatalogsPending}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "props."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetCatalogsPending"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": 3,
+    "right_text": "    const catalogs = props.presetCatalogs;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "catalogs"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = props."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetCatalogs"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 5,
+    "left_text": "        <p class=\"status\">Loading presets...</p>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "p"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"status\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Loading"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presets"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "p"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 6,
+    "left_text": "      </Show>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 7,
+    "left_text": "      <Show when={props.presetCatalogsError !== null}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetCatalogsError"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " null"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": 4,
+    "right_text": "    if (catalogs === null) {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "if"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "catalogs"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " null"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " {"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 8,
+    "left_text": "        <section class=\"notice error\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "section"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"notice error\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": 5,
+    "right_text": "      return null;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "null"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 9,
+    "left_text": "          Failed to load presets: {String(props.presetCatalogsError)}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Failed"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "to"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "load"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presets"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "String"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetCatalogsError"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 6,
+    "right_text": "    }",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": 10,
+    "left_text": "        </section>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "section"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 11,
+    "left_text": "      </Show>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 12,
+    "left_text": "      <fieldset class=\"mode-tabs preset-tabs\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"mode-tabs preset-tabs\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 13,
+    "left_text": "        <legend>Preset type</legend>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Preset"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 14,
+    "left_text": "        <For each={presetTypes}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "For"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "each"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetTypes"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 15,
+    "left_text": "          {(presetType) => (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetType"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 16,
+    "left_text": "            <button type=\"button\">{presetTypeLabels[presetType]}</button>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "button"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"button\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetTypeLabels"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetType"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 17,
+    "left_text": "          )}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 18,
+    "left_text": "        </For>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 19,
+    "left_text": "      </fieldset>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 20,
+    "left_text": "      <Show when={props.presetCatalogs}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presetCatalogs"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 21,
+    "left_text": "        {(catalogs) => (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "catalogs"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " ("
+      }
+    ],
+    "right_no": 7,
+    "right_text": "    return (",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " ("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 22,
+    "left_text": "          <fieldset class=\"mode-tabs preset-tabs\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "mode"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tabs"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tabs"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "right_no": 8,
+    "right_text": "      <fieldset class=\"mode-tabs preset-tabs\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "mode"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tabs"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tabs"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 23,
+    "left_text": "            <legend>Presets</legend>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Presets"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 9,
+    "right_text": "        <legend>Presets</legend>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Presets"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 24,
+    "left_text": "            <For each={catalogs()[draft().presetType].groups}>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            <For each={catalogs"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "[draft().presetType].groups}>"
+      }
+    ],
+    "right_no": 10,
+    "right_text": "        <For each={catalogs[draft().presetType].groups}>",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": 25,
+    "left_text": "              {(group) => (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "right_no": 11,
+    "right_text": "          {(group) => (",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 26,
+    "left_text": "                <button",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "right_no": 12,
+    "right_text": "            <button",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 27,
+    "left_text": "                  type=\"button\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 13,
+    "right_text": "              type=\"button\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 28,
+    "left_text": "                  onClick={() => {",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      }
+    ],
+    "right_no": 14,
+    "right_text": "              onClick={() => {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 29,
+    "left_text": "                    const nextDraft = { ...draft(), preset: group.name };",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "nextDraft"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "..."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "(),"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "};"
+      }
+    ],
+    "right_no": 15,
+    "right_text": "                const nextDraft = { ...draft(), preset: group.name };",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "nextDraft"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "..."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "(),"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "};"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 30,
+    "left_text": "                    setDraft(nextDraft);",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "nextDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "right_no": 16,
+    "right_text": "                setDraft(nextDraft);",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "nextDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 31,
+    "left_text": "                    loadDraft(nextDraft);",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "nextDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "right_no": 17,
+    "right_text": "                loadDraft(nextDraft);",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "loadDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "nextDraft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 32,
+    "left_text": "                  }}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "right_no": 18,
+    "right_text": "              }}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 33,
+    "left_text": "                  classList={{ \"is-active\": draft().preset === group.name }}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "classList"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "is"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "active"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "right_no": 19,
+    "right_text": "              classList={{ \"is-active\": draft().preset === group.name }}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "classList"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "is"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "active"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 34,
+    "left_text": "                  aria-pressed={draft().preset === group.name}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "pressed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 20,
+    "right_text": "              aria-pressed={draft().preset === group.name}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "pressed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "preset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 35,
+    "left_text": "                >",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 21,
+    "right_text": "            >",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 36,
+    "left_text": "                  {group.display_name}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 22,
+    "right_text": "              {group.display_name}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 37,
+    "left_text": "                </button>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 23,
+    "right_text": "            </button>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 38,
+    "left_text": "              )}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 24,
+    "right_text": "          )}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 39,
+    "left_text": "            </For>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 25,
+    "right_text": "        </For>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 40,
+    "left_text": "          </fieldset>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 26,
+    "right_text": "      </fieldset>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 41,
+    "left_text": "        )}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        )"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      }
+    ],
+    "right_no": 27,
+    "right_text": "    );",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    )"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 42,
+    "left_text": "      </Show>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 43,
+    "left_text": "    </Show>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 44,
+    "left_text": "  );",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "right_no": 28,
+    "right_text": "  };",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 29,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 30,
+    "right_text": "  return (",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 31,
+    "right_text": "    <Show when={draft().mode === \"preset\"}>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "draft"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "mode"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"preset\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 32,
+    "right_text": "      <Show when={props.presetCatalogsPending}>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetCatalogsPending"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 33,
+    "right_text": "        <p class=\"status\">Loading presets...</p>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "p"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"status\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Loading"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presets"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "p"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 34,
+    "right_text": "      </Show>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 35,
+    "right_text": "      <Show when={props.presetCatalogsError !== null}>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetCatalogsError"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "null"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 36,
+    "right_text": "        <section class=\"notice error\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "section"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"notice error\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 37,
+    "right_text": "          Failed to load presets: {String(props.presetCatalogsError)}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Failed"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "to"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "load"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presets"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "String"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetCatalogsError"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 38,
+    "right_text": "        </section>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "section"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 39,
+    "right_text": "      </Show>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 40,
+    "right_text": "      <fieldset class=\"mode-tabs preset-tabs\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"mode-tabs preset-tabs\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 41,
+    "right_text": "        <legend>Preset type</legend>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Preset"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "legend"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 42,
+    "right_text": "        <For each={presetTypes}>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "For"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "each"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetTypes"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 43,
+    "right_text": "          {(presetType) => (",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetType"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 44,
+    "right_text": "            <button type=\"button\">{presetTypeLabels[presetType]}</button>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "button"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"button\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetTypeLabels"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presetType"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 45,
+    "right_text": "          )}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 46,
+    "right_text": "        </For>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 47,
+    "right_text": "      </fieldset>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "fieldset"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 48,
+    "right_text": "      {renderPresetTabs()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "renderPresetTabs"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 49,
+    "right_text": "    </Show>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 50,
+    "right_text": "  );",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 45,
+    "left_text": "}",
+    "right_no": 51,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

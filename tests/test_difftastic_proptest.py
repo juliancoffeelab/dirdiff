@@ -124,20 +124,165 @@ def _unchanged_atoms(tokens: object) -> list[str]:
     return atoms
 
 
+def _changed_atoms(tokens: object) -> list[str]:
+    assert isinstance(tokens, list)
+    atoms: list[str] = []
+    for token in tokens:
+        assert isinstance(token, dict)
+        if token.get("status") == "unchanged":
+            continue
+        text = token.get("text")
+        assert isinstance(text, str)
+        atoms.extend(_token_atoms(text))
+    return atoms
+
+
+def _semantic_atoms(atoms: list[str]) -> list[str]:
+    return [
+        atom
+        for atom in atoms
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", atom)
+    ]
+
+
+def _token_semantic_runs(
+    tokens: object, *, status: Literal["changed", "unchanged"]
+) -> list[list[str]]:
+    assert isinstance(tokens, list)
+    runs: list[list[str]] = []
+    for token in tokens:
+        assert isinstance(token, dict)
+        is_unchanged = token.get("status") == "unchanged"
+        if status == "unchanged" and not is_unchanged:
+            continue
+        if status == "changed" and is_unchanged:
+            continue
+        text = token.get("text")
+        assert isinstance(text, str)
+        atoms = _semantic_atoms(_token_atoms(text))
+        if len(atoms) >= 2:
+            runs.append(atoms)
+    return runs
+
+
+def _row_marked_unchanged_atoms(row: dict[str, Any], side: Side) -> list[str]:
+    tokens = row.get(_side_tokens_key(side))
+    if tokens is None:
+        return []
+    return _unchanged_atoms(tokens)
+
+
+def _row_marked_changed_atoms(row: dict[str, Any], side: Side) -> list[str]:
+    tokens = row.get(_side_tokens_key(side))
+    if tokens is None:
+        return []
+    return _changed_atoms(tokens)
+
+
+def _row_marked_unchanged_runs(
+    row: dict[str, Any], side: Side
+) -> list[list[str]]:
+    tokens = row.get(_side_tokens_key(side))
+    if tokens is None:
+        return []
+    return _token_semantic_runs(tokens, status="unchanged")
+
+
+def _row_marked_changed_runs(
+    row: dict[str, Any], side: Side
+) -> list[list[str]]:
+    tokens = row.get(_side_tokens_key(side))
+    if tokens is None:
+        return []
+    return _token_semantic_runs(tokens, status="changed")
+
+
+def _row_is_changed_group_member(row: dict[str, Any]) -> bool:
+    if row.get("status") != "equal":
+        return True
+    if row.get("left_tokens") or row.get("right_tokens"):
+        return True
+    return row.get("left_no") is None or row.get("right_no") is None
+
+
+def _changed_row_groups(
+    rows: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for row in rows:
+        if _row_is_changed_group_member(row):
+            current.append(row)
+            continue
+        if current:
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _marked_unchanged_atoms_in_group(
+    group: list[dict[str, Any]], side: Side
+) -> list[str]:
+    atoms: list[str] = []
+    for row in group:
+        atoms.extend(_row_marked_unchanged_atoms(row, side))
+    return atoms
+
+
+def _marked_unchanged_runs_in_group(
+    group: list[dict[str, Any]], side: Side
+) -> list[list[str]]:
+    runs: list[list[str]] = []
+    for row in group:
+        runs.extend(_row_marked_unchanged_runs(row, side))
+    return runs
+
+
+def _marked_changed_atoms_in_group(
+    group: list[dict[str, Any]], side: Side
+) -> list[str]:
+    atoms: list[str] = []
+    for row in group:
+        atoms.extend(_row_marked_changed_atoms(row, side))
+    return atoms
+
+
+def _run_is_contiguous_subsequence(
+    *, needles: list[str], haystack: list[str]
+) -> bool:
+    if len(needles) > len(haystack):
+        return False
+    last_start = len(haystack) - len(needles)
+    return any(
+        haystack[start : start + len(needles)] == needles
+        for start in range(last_start + 1)
+    )
+
+
+def _mismatched_unchanged_runs(
+    group: list[dict[str, Any]], side: Side, other_side: Side
+) -> list[str]:
+    changed_atoms = _semantic_atoms(
+        _marked_changed_atoms_in_group(group, other_side)
+    )
+    return [
+        " ".join(run)
+        for run in _marked_unchanged_runs_in_group(group, side)
+        if _run_is_contiguous_subsequence(needles=run, haystack=changed_atoms)
+    ]
+
+
 def _assert_unchanged_tokens_exist_on_other_side(
     *,
     rows: list[dict[str, Any]],
     side: Side,
     other_side: Side,
 ) -> None:
-    other_atoms = _token_atoms(_side_rendered_text(rows, side=other_side))
-    tokens_key = _side_tokens_key(side)
-
-    for row in rows:
-        unchanged_atoms = _unchanged_atoms(row.get(tokens_key, []))
-        if not unchanged_atoms:
-            continue
-        _assert_subsequence(needles=unchanged_atoms, haystack=other_atoms)
+    for group in _changed_row_groups(rows):
+        mismatched_runs = _mismatched_unchanged_runs(group, side, other_side)
+        assert not mismatched_runs, mismatched_runs
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
@@ -146,7 +291,11 @@ def test_difftastic_preset_tokens_stay_in_source_order(
 ) -> None:
     rows, old_text, new_text = _preset_rows(preset_dir)
 
-    for side, source_text in (("left", old_text), ("right", new_text)):
+    sides: tuple[tuple[Side, str], ...] = (
+        ("left", old_text),
+        ("right", new_text),
+    )
+    for side, source_text in sides:
         text_key = _side_text_key(side)
         tokens_key = _side_tokens_key(side)
         for row in rows:

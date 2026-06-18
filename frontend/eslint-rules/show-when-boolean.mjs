@@ -24,6 +24,15 @@ function isWhenAttribute(attribute) {
   );
 }
 
+function hasFunctionChild(node) {
+  return node.children.some(
+    (child) =>
+      child.type === "JSXExpressionContainer" &&
+      (child.expression.type === "ArrowFunctionExpression" ||
+        child.expression.type === "FunctionExpression"),
+  );
+}
+
 const showWhenBooleanRule = {
   meta: {
     type: "problem",
@@ -71,7 +80,7 @@ const showWhenBooleanRule = {
         const tsNode = services.esTreeNodeToTSNodeMap.get(expression);
         const type = checker.getTypeAtLocation(tsNode);
 
-        if (isBooleanType(type, checker)) {
+        if (isBooleanType(type, checker) || hasFunctionChild(node.parent)) {
           return;
         }
 

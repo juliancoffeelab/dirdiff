@@ -52,8 +52,10 @@ export function Profile(props: {
       if (!(target instanceof Node)) {
         return;
       }
-      if (root?.contains(target)) {
-        return;
+      if (root !== undefined) {
+        if (root.contains(target)) {
+          return;
+        }
       }
       stopEditing();
       setOpen(false);
