@@ -61,6 +61,7 @@ const modeSides = {
   staged: ["head", "index"],
   head: ["head", "worktree"],
 } as const;
+const defaultRefsSides = ["head~1", "head"] as const;
 
 function inferMode(
   left: string,
@@ -101,8 +102,8 @@ function initialControls(
 ): ControlsState {
   const search = new URLSearchParams(window.location.search);
   const remoteNames = repoRefs.ref_choices.remote_names;
-  const left = searchValue(search, "left", "head");
-  const right = searchValue(search, "right", "worktree");
+  const requestedLeft = searchValue(search, "left", "head");
+  const requestedRight = searchValue(search, "right", "worktree");
   const baseBranchRef = searchValue(
     search,
     "base_branch",
@@ -126,11 +127,15 @@ function initialControls(
       ? "head"
       : resolveTopLevelMode(
           requestedMode,
-          left,
-          right,
+          requestedLeft,
+          requestedRight,
           baseBranchParts.value,
           reviewBranchParts.value,
         );
+  const [defaultLeft, defaultRight] =
+    mode === "refs" ? defaultRefsSides : modeSides.head;
+  const left = searchValue(search, "left", defaultLeft);
+  const right = searchValue(search, "right", defaultRight);
 
   if (mode in modeSides) {
     const [modeLeft, modeRight] = modeSides[mode as keyof typeof modeSides];

@@ -22,6 +22,10 @@ const builtinRefDescriptions: Record<string, string> = {
   index: "Staged snapshot, what the next commit would include.",
   worktree: "Files on disk, including unstaged changes.",
 };
+const defaultRefsDraft = {
+  left: "head~1",
+  right: "head",
+} as const;
 
 export function Controls(props: {
   controls: ControlsState;
@@ -85,7 +89,10 @@ export function Controls(props: {
               classList={{ "is-active": draft().mode === mode }}
               aria-pressed={draft().mode === mode}
               onClick={() => {
-                const nextDraft = { ...draft(), mode };
+                const nextDraft =
+                  mode === "refs"
+                    ? { ...draft(), mode, ...defaultRefsDraft }
+                    : { ...draft(), mode };
                 setDraft(nextDraft);
                 loadDraft(nextDraft);
               }}

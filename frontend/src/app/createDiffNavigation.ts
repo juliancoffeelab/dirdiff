@@ -12,6 +12,7 @@ import {
   createHunkNavigation,
   fileIdForHunkAnchor,
   richPreloadFileIdsForAnchor,
+  richPreloadFileIdsForFileId,
   shouldIgnoreGlobalHotkeyEvent,
 } from "../hunkNavigation";
 import {
@@ -42,6 +43,7 @@ type DiffNavigationOptions = {
   fileExpansion: Accessor<Record<string, boolean>>;
   loadingFiles: Accessor<Record<string, boolean>>;
   forcedRichFileIds: Accessor<string[]>;
+  virtualizedFileIds: Accessor<string[]>;
   diffViewMode: Accessor<DiffViewMode>;
   setDirectoryExpansion: Setter<Record<string, boolean>>;
   setFileExpansion: Setter<Record<string, boolean>>;
@@ -54,6 +56,156 @@ type DiffNavigationOptions = {
   openFileExpansion: (file: FileEntry) => void;
   openDirectoryExpansion: (group: FileGroup) => void;
 };
+
+type FileTreeNavigationOptions = {
+  displayFiles: Accessor<FileEntry[]>;
+  virtualizedFileIds: Accessor<string[]>;
+  forceRichFileId: (fileId: string) => void;
+  openFileExpansion: (file: FileEntry) => void;
+  openDirectoryExpansion: (group: FileGroup) => void;
+};
+
+function createFileTreeNavigation(options: FileTreeNavigationOptions) {
+  const targetIsVisible = (target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    return rect.bottom > 0 && rect.top < window.innerHeight;
+  };
+
+  const scrollToFile = (file: FileEntry) => {
+    const key = fileKey(file);
+    const fileId = fileElementId(key);
+    const preloadFileIds = richPreloadFileIdsForFileId(
+      fileId,
+      options.displayFiles(),
+    );
+    options.openFileExpansion(file);
+    for (const preloadFileId of preloadFileIds) {
+      options.forceRichFileId(preloadFileId);
+    }
+
+    const resolvedTarget = (card: HTMLElement) => {
+      const rowTarget = card.querySelector<HTMLElement>(
+        ".diff-row.hunk-anchor:not(.virtual-hunk-anchor)",
+      );
+      if (rowTarget !== null) {
+        return rowTarget;
+      }
+      const bodyTarget = document.getElementById(fileBodyAnchorElementId(key));
+      if (bodyTarget !== null) {
+        return bodyTarget;
+      }
+      throw new Error(
+        `Could not find file scroll target for ${fileDisplayName(file)}.`,
+      );
+    };
+
+    const scrollWhenReady = (attempt: number, visibleFrames: number) => {
+      requestAnimationFrame(() => {
+        const pendingVirtualizedIds = preloadFileIds.filter((preloadFileId) =>
+          options.virtualizedFileIds().includes(preloadFileId),
+        );
+        const card = document.getElementById(fileId);
+        if (card === null || pendingVirtualizedIds.length > 0) {
+          if (attempt >= 120) {
+            throw new Error(
+              `File tree jump did not stabilize for ${fileDisplayName(file)}.`,
+            );
+          }
+          scrollWhenReady(attempt + 1, 0);
+          return;
+        }
+
+        requestAnimationFrame(() => {
+          const settledPendingVirtualizedIds = preloadFileIds.filter(
+            (preloadFileId) =>
+              options.virtualizedFileIds().includes(preloadFileId),
+          );
+          if (settledPendingVirtualizedIds.length > 0) {
+            if (attempt >= 120) {
+              throw new Error(
+                `File tree jump did not stabilize for ${fileDisplayName(file)}.`,
+              );
+            }
+            scrollWhenReady(attempt + 1, 0);
+            return;
+          }
+          if (card === null) {
+            throw new Error(
+              `Could not find file card for ${fileDisplayName(file)}.`,
+            );
+          }
+
+          const target = resolvedTarget(card);
+          target.scrollIntoView({ block: "center", behavior: "instant" });
+          const nextVisibleFrames = targetIsVisible(target)
+            ? visibleFrames + 1
+            : 0;
+          if (nextVisibleFrames < 2) {
+            if (attempt >= 120) {
+              throw new Error(
+                `File tree jump did not stabilize for ${fileDisplayName(file)}.`,
+              );
+            }
+            scrollWhenReady(attempt + 1, nextVisibleFrames);
+            return;
+          }
+
+          card.classList.remove("file-card-flash");
+          void card.offsetWidth;
+          card.classList.add("file-card-flash");
+        });
+      });
+    };
+
+    scrollWhenReady(0, 0);
+  };
+
+  const scrollToDirectory = (group: FileGroup) => {
+    options.openDirectoryExpansion(group);
+    const scrollWhenReady = (attempt: number, visibleFrames: number) => {
+      requestAnimationFrame(() => {
+        const target = document.getElementById(directoryElementId(group.label));
+        if (target === null) {
+          if (attempt >= 120) {
+            throw new Error(
+              `Directory tree jump did not stabilize for ${group.label}.`,
+            );
+          }
+          scrollWhenReady(attempt + 1, 0);
+          return;
+        }
+        const header = target.querySelector<HTMLElement>(
+          ".directory-group-header",
+        );
+        if (header === null) {
+          throw new Error(
+            `Could not find directory header for ${group.label}.`,
+          );
+        }
+        header.scrollIntoView({ block: "start", behavior: "instant" });
+        const nextVisibleFrames = targetIsVisible(header)
+          ? visibleFrames + 1
+          : 0;
+        if (nextVisibleFrames < 2) {
+          if (attempt >= 120) {
+            throw new Error(
+              `Directory tree jump did not stabilize for ${group.label}.`,
+            );
+          }
+          scrollWhenReady(attempt + 1, nextVisibleFrames);
+          return;
+        }
+      });
+    };
+
+    scrollWhenReady(0, 0);
+  };
+
+  return {
+    scrollToFile,
+    scrollToDirectory,
+  };
+}
 
 /**
  * Owns browser/DOM-facing diff navigation behavior.
@@ -73,6 +225,7 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
   const [debugMenuOpen, setDebugMenuOpen] = createSignal(false);
   const [helpOpen, setHelpOpen] = createSignal(false);
   const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
+  const fileTreeNavigation = createFileTreeNavigation(options);
   let restoredLinePinKey = "";
   const hunkNav = createHunkNavigation(options.appRoot, {
     afterReconcile: () => {
@@ -318,55 +471,6 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     setDiffSelectionSide(null, null);
   });
 
-  const scrollToFile = (file: FileEntry) => {
-    const key = fileKey(file);
-    const fileId = fileElementId(key);
-    options.openFileExpansion(file);
-    options.forceRichFileId(fileId);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const card = document.getElementById(fileId);
-        if (card === null) {
-          throw new Error(
-            `Could not find file card for ${fileDisplayName(file)}.`,
-          );
-        }
-        let target = card.querySelector<HTMLElement>(
-          ".diff-row.hunk-anchor:not(.virtual-hunk-anchor)",
-        );
-        if (target === null) {
-          target = document.getElementById(fileBodyAnchorElementId(key));
-        }
-        if (target === null) {
-          throw new Error(
-            `Could not find file scroll target for ${fileDisplayName(file)}.`,
-          );
-        }
-        target.scrollIntoView({ block: "center", behavior: "instant" });
-        card.classList.remove("file-card-flash");
-        void card.offsetWidth;
-        card.classList.add("file-card-flash");
-      });
-    });
-  };
-
-  const scrollToDirectory = (group: FileGroup) => {
-    options.openDirectoryExpansion(group);
-    requestAnimationFrame(() => {
-      const target = document.getElementById(directoryElementId(group.label));
-      if (target === null) {
-        throw new Error(`Could not find directory group for ${group.label}.`);
-      }
-      const header = target.querySelector<HTMLElement>(
-        ".directory-group-header",
-      );
-      if (header === null) {
-        throw new Error(`Could not find directory header for ${group.label}.`);
-      }
-      header.scrollIntoView({ block: "start", behavior: "instant" });
-    });
-  };
-
   return {
     linePin,
     hunkPosition: hunkNav.position,
@@ -377,7 +481,7 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     setFileTreeOpen,
     scrollNext: hunkNav.scrollNext,
     scrollPrev: hunkNav.scrollPrev,
-    scrollToFile,
-    scrollToDirectory,
+    scrollToFile: fileTreeNavigation.scrollToFile,
+    scrollToDirectory: fileTreeNavigation.scrollToDirectory,
   };
 }

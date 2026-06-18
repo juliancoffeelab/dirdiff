@@ -109,6 +109,7 @@ export function App() {
     fileExpansion: ui.fileExpansion,
     loadingFiles: diff.loadingFiles,
     forcedRichFileIds: ui.forcedRichFileIds,
+    virtualizedFileIds: ui.virtualizedFileIds,
     diffViewMode,
     setDirectoryExpansion: ui.setDirectoryExpansion,
     setFileExpansion: ui.setFileExpansion,
