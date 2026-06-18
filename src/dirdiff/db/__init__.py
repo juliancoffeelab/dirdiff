@@ -4,6 +4,10 @@ from dirdiff.db.base import (
     open_ephemeral_engine,
     open_sqlite_engine,
 )
+from dirdiff.db.preferences import (
+    PreferencesRecord,
+    PreferencesStore,
+)
 from dirdiff.db.repo_registry import (
     RepoMarkRecord,
     RepoMarkStore,
@@ -14,6 +18,8 @@ from dirdiff.db.user_profile import (
 )
 
 __all__ = [
+    "PreferencesRecord",
+    "PreferencesStore",
     "RepoMarkRecord",
     "RepoMarkStore",
     "TableBase",

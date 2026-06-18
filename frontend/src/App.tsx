@@ -1,5 +1,10 @@
 import { Show, batch, createSignal, onMount } from "solid-js";
-import type { RepoId, RepoMark } from "./api";
+import {
+  fetchPreferences,
+  type Preferences,
+  type RepoId,
+  type RepoMark,
+} from "./api";
 import type { DiffViewMode } from "./DiffGrid";
 import { Header } from "./Header";
 import { Controls } from "./Controls";
@@ -30,6 +35,11 @@ export function App() {
     initialDiffViewMode(),
   );
   const [controls, setControls] = createSignal<ControlsState | null>(null);
+  const [preferences, setPreferences] = createSignal<Preferences | null>(null);
+  const [preferencesPending, setPreferencesPending] = createSignal(true);
+  const [preferencesError, setPreferencesError] = createSignal<string | null>(
+    null,
+  );
   let appRoot: HTMLElement | undefined;
   let appHeader: HTMLElement | undefined;
   const { addErrorToast } = useToasts();
@@ -73,6 +83,22 @@ export function App() {
       return emptySummary;
     }
     return loadedDiff.summary;
+  };
+
+  const loadPreferences = async () => {
+    setPreferencesPending(true);
+    try {
+      const loadedPreferences = await fetchPreferences();
+      setPreferences(loadedPreferences);
+      setPreferencesError(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to load preferences.";
+      setPreferencesError(message);
+      addErrorToast("Failed to load preferences", error);
+    } finally {
+      setPreferencesPending(false);
+    }
   };
 
   const navigation = createDiffNavigation({
@@ -133,6 +159,7 @@ export function App() {
   };
 
   onMount(() => {
+    void loadPreferences();
     void (async () => {
       const repoId = await repo.loadReposFromUrl();
       if (repoId === null) {
@@ -146,6 +173,11 @@ export function App() {
   return (
     <main ref={appRoot} class="app-shell">
       <Header
+        preferences={preferences()}
+        preferencesPending={preferencesPending()}
+        preferencesError={preferencesError()}
+        onPreferencesSaved={setPreferences}
+        onReloadPreferences={loadPreferences}
         repos={repo.repoList()}
         selectedRepoId={repo.selectedRepoId()}
         engine={diff.engine()}
@@ -167,6 +199,10 @@ export function App() {
         <p class="status">Loading marked repos...</p>
       </Show>
 
+      <Show when={preferencesPending()}>
+        <p class="status">Loading preferences...</p>
+      </Show>
+
       <Show when={repo.repoRefsError() !== null}>
         <section class="notice error">
           Failed to load refs: {String(repo.repoRefsError())}
@@ -176,6 +212,12 @@ export function App() {
       <Show when={repo.reposError() !== null}>
         <section class="notice error">
           Failed to load marked repos: {String(repo.reposError())}
+        </section>
+      </Show>
+
+      <Show when={preferencesError() !== null}>
+        <section class="notice error">
+          Failed to load preferences: {preferencesError()}
         </section>
       </Show>
 

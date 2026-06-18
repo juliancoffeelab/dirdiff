@@ -265,6 +265,90 @@ h1 {
   color: #24231f;
 }
 
+.profile-preferences-modal {
+  width: min(460px, calc(100vw - 40px));
+}
+
+.profile-preferences-form {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-preferences-message {
+  margin: 0;
+  color: #625f58;
+  line-height: 1.45;
+}
+
+.profile-preferences-error-block {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-checkbox-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #ded8cc;
+  background: #fbfaf7;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.profile-checkbox-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.profile-checkbox-copy strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.profile-checkbox-copy span {
+  color: #625f58;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.profile-checkbox-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+}
+
+.profile-checkbox-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.profile-checkbox-input:disabled {
+  cursor: default;
+}
+
+.profile-checkbox-input:focus-visible + .profile-checkbox-indicator {
+  border-color: #24231f;
+  box-shadow: 0 0 0 2px #ece6d8;
+  opacity: 1;
+}
+
+.profile-checkbox-indicator {
+  pointer-events: none;
+}
+
+.profile-preferences-actions {
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
 .header-actions {
   display: flex;
   flex: 0 0 auto;

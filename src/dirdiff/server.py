@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from dirdiff.db.base import open_sqlite_engine
+from dirdiff.db.preferences import PreferencesStore
 from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.db.user_profile import UserProfileStore
 from dirdiff.runtime import RUNTIME_CONFIG_ENV, RuntimeConfig
@@ -71,6 +72,15 @@ class UserProfileResponse(ApiModel):
 
 class UserProfileUpdateRequest(ApiModel):
     username: str
+
+
+class PreferencesResponse(ApiModel):
+    id: int
+    aggressive_folds: bool
+
+
+class PreferencesUpdateRequest(ApiModel):
+    aggressive_folds: bool
 
 
 class PresetGroupResponse(ApiModel):
@@ -313,11 +323,14 @@ def service_for_backend(
 def create_app(
     db: RepoMarkStore,
     user_profile_store: UserProfileStore | None = None,
+    preferences_store: PreferencesStore | None = None,
     *,
     presets_root: str | None = None,
 ) -> FastAPI:
     if user_profile_store is None:
         user_profile_store = UserProfileStore(db.engine)
+    if preferences_store is None:
+        preferences_store = PreferencesStore(db.engine)
 
     app = FastAPI()
 
@@ -505,6 +518,40 @@ def create_app(
             )
         return UserProfileResponse.model_validate(
             profile,
+            from_attributes=True,
+        )
+
+    @app.get(
+        "/api/preferences",
+        summary="Load persisted global preferences",
+    )
+    def serve_preferences() -> PreferencesResponse:
+        return PreferencesResponse.model_validate(
+            preferences_store.get_or_create(),
+            from_attributes=True,
+        )
+
+    @app.patch(
+        "/api/preferences/{preferences_id}",
+        responses={
+            HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
+        },
+        summary="Update persisted global preferences",
+    )
+    def update_preferences(
+        preferences_id: int,
+        request: PreferencesUpdateRequest,
+    ) -> PreferencesResponse:
+        preferences = preferences_store.update_aggressive_folds(
+            preferences_id, request.aggressive_folds
+        )
+        if preferences is None:
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=f"Preferences not found: {preferences_id}.",
+            )
+        return PreferencesResponse.model_validate(
+            preferences,
             from_attributes=True,
         )
 
@@ -982,11 +1029,13 @@ def uvicorn_entrypoint() -> FastAPI:
     engine = open_sqlite_engine(Path(config.db_path))
     repo_store = RepoMarkStore(engine)
     user_profile_store = UserProfileStore(engine)
+    preferences_store = PreferencesStore(engine)
     marks = repo_store.list()
     assert marks, "dirdiff runtime config has no marked repos"
     return create_app(
         repo_store,
         user_profile_store,
+        preferences_store,
         presets_root=config.presets_root,
     )
 

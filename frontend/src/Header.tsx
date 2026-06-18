@@ -1,16 +1,21 @@
 import { Show } from "solid-js";
-import type { DiffEngine, RepoId, RepoMark, Summary } from "./api";
+import type { DiffEngine, Preferences, RepoId, RepoMark, Summary } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
 import { diffViewLabels, engineLabels } from "./fileUtils";
 import { Profile } from "./Profile";
 import { Select } from "./Select";
 
 export function Header(props: {
+  preferences: Preferences | null;
+  preferencesPending: boolean;
+  preferencesError: string | null;
   repos: RepoMark[] | null;
   selectedRepoId: RepoId | null;
   engine: DiffEngine;
   viewMode: DiffViewMode;
   summary: Summary;
+  onPreferencesSaved: (preferences: Preferences) => void;
+  onReloadPreferences: () => Promise<void> | void;
   onHeaderMount: (element: HTMLElement) => void;
   onRepoChange: (repo: RepoMark) => void;
   onEngineChange: (engine: DiffEngine) => void;
@@ -22,7 +27,13 @@ export function Header(props: {
         <div class="app-title-row">
           <div class="app-brand">
             <h1>dirdiff</h1>
-            <Profile />
+            <Profile
+              preferences={props.preferences}
+              preferencesPending={props.preferencesPending}
+              preferencesError={props.preferencesError}
+              onPreferencesSaved={props.onPreferencesSaved}
+              onReloadPreferences={props.onReloadPreferences}
+            />
           </div>
           <Show when={props.repos !== null}>
             <RepoSelect
