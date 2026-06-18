@@ -118,6 +118,17 @@ function anchorIsVisible(anchor: HTMLElement): boolean {
   return rect.bottom > 0 && rect.top < window.innerHeight;
 }
 
+function currentSelectableAnchor(
+  anchors: HunkAnchor[],
+  index: number,
+): HTMLElement | null {
+  const anchor = anchors[clamp(index, 0, anchors.length - 1)];
+  if (anchor === null || anchor === undefined) {
+    return null;
+  }
+  return anchor;
+}
+
 function selectCurrentHunk(options: {
   index: number;
   scroll: boolean;
@@ -316,6 +327,16 @@ export function createHunkNavigation(
       throw new Error(
         "Hunk navigation requested with no mounted hunk anchors.",
       );
+    }
+
+    const currentAnchor = currentSelectableAnchor(
+      currentAnchors,
+      currentIndex(),
+    );
+    if (currentAnchor !== null && !anchorIsVisible(currentAnchor)) {
+      ignoreScrollFollowFor(PROGRAMMATIC_SCROLL_IGNORE_MS);
+      select({ index: currentIndex(), scroll: true });
+      return;
     }
 
     const nextIndex = nextSelectableIndex(
