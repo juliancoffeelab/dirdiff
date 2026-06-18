@@ -1,6 +1,7 @@
 [
   {
     "end_row": 4,
+    "kind": "container",
     "label": "[tool.x]",
     "start_row": 1
   }

@@ -1,6 +1,7 @@
 [
   {
     "end_row": 3,
+    "kind": "function_like",
     "label": "def helper():",
     "start_row": 1
   }

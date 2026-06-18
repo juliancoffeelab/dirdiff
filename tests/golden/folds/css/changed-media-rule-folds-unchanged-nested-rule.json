@@ -1,6 +1,7 @@
 [
   {
     "end_row": 5,
+    "kind": "container",
     "label": ".card {",
     "start_row": 2
   }

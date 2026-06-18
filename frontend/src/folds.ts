@@ -3,13 +3,17 @@ import type { DiffRow, FoldHint } from "./api";
 type NormalizedFoldHint = {
   startRow: number;
   endRow: number;
+  kind: FoldHint["kind"];
   label: string;
+  children: NormalizedFoldHint[];
 };
 
 export type FoldRow = {
   status: "fold";
+  startRow: number;
   count: number;
-  foldedRows: DiffRow[];
+  foldedRows: RenderRow[];
+  kind: FoldHint["kind"];
   label: string;
 };
 
@@ -26,19 +30,14 @@ export function parseFoldHints(
     throw new Error("Fold hints must be an array.");
   }
 
-  const parsed = foldHints.map((hint, index) =>
-    parseFoldHint(hint, index, rowCount),
-  );
+  const parsed = foldHints
+    .map((hint, index) => parseFoldHint(hint, index, rowCount))
+    .sort(
+      (left, right) =>
+        left.startRow - right.startRow || right.endRow - left.endRow,
+    );
 
-  let previousEnd = 0;
-  parsed.forEach((hint, index) => {
-    if (hint.startRow < previousEnd) {
-      throw new Error(`Fold hint ${index} is out of order or overlaps.`);
-    }
-    previousEnd = hint.endRow;
-  });
-
-  return parsed;
+  return nestFoldHints(parsed);
 }
 
 function parseFoldHint(
@@ -67,8 +66,38 @@ function parseFoldHint(
   return {
     startRow: hint.start_row,
     endRow: hint.end_row,
+    kind: hint.kind,
     label: hint.label,
+    children: [],
   };
+}
+
+function nestFoldHints(hints: NormalizedFoldHint[]): NormalizedFoldHint[] {
+  const roots: NormalizedFoldHint[] = [];
+  const stack: NormalizedFoldHint[] = [];
+
+  hints.forEach((hint, index) => {
+    while (stack.length > 0) {
+      const parent = stack[stack.length - 1];
+      if (parent === undefined || hint.startRow < parent.endRow) {
+        break;
+      }
+      stack.pop();
+    }
+
+    const parent = stack[stack.length - 1];
+    if (parent === undefined) {
+      roots.push(hint);
+    } else if (hint.endRow <= parent.endRow) {
+      parent.children.push(hint);
+    } else {
+      throw new Error(`Fold hint ${index} crosses another fold hint.`);
+    }
+
+    stack.push(hint);
+  });
+
+  return roots;
 }
 
 export function addFoldRows(
@@ -80,22 +109,38 @@ export function addFoldRows(
     return rows;
   }
 
-  const result: RenderRow[] = [];
-  let cursor = 0;
+  return addFoldRowsInRange(rows, parsed, 0, rows.length);
+}
 
-  for (const hint of parsed) {
+function addFoldRowsInRange(
+  rows: DiffRow[],
+  foldHints: NormalizedFoldHint[],
+  startRow: number,
+  endRow: number,
+): RenderRow[] {
+  const result: RenderRow[] = [];
+  let cursor = startRow;
+
+  for (const hint of foldHints) {
     result.push(...rows.slice(cursor, hint.startRow));
-    const foldedRows = rows.slice(hint.startRow, hint.endRow);
+    const foldedRows = addFoldRowsInRange(
+      rows,
+      hint.children,
+      hint.startRow,
+      hint.endRow,
+    );
     result.push({
       status: "fold",
-      count: foldedRows.length,
+      startRow: hint.startRow,
+      count: hint.endRow - hint.startRow,
       foldedRows,
+      kind: hint.kind,
       label: hint.label,
     });
     cursor = hint.endRow;
   }
 
-  result.push(...rows.slice(cursor));
+  result.push(...rows.slice(cursor, endRow));
   return result;
 }
 

@@ -19,6 +19,7 @@ def test_fold_hints_include_unchanged_top_level_function_body() -> None:
         {
             "start_row": 1,
             "end_row": 3,
+            "kind": "function_like",
             "label": "def helper():",
         }
     ]
@@ -67,12 +68,13 @@ def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
         {
             "start_row": 1,
             "end_row": 4,
+            "kind": "container",
             "label": "CONFIG = {",
         }
     ]
 
 
-def test_unchanged_top_level_class_folds_methods_but_not_whole_class() -> None:
+def test_unchanged_top_level_class_folds_class_and_methods() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
         mode="files",
@@ -102,13 +104,21 @@ def test_unchanged_top_level_class_folds_methods_but_not_whole_class() -> None:
 
     assert diff["fold_hints"] == [
         {
+            "start_row": 1,
+            "end_row": 6,
+            "kind": "class_like",
+            "label": "class Example:",
+        },
+        {
             "start_row": 2,
             "end_row": 3,
+            "kind": "function_like",
             "label": "def a(self):",
         },
         {
             "start_row": 5,
             "end_row": 6,
+            "kind": "function_like",
             "label": "def b(self):",
         },
     ]
@@ -144,6 +154,7 @@ def test_changed_class_still_folds_only_unchanged_methods() -> None:
         {
             "start_row": 2,
             "end_row": 3,
+            "kind": "function_like",
             "label": "def a(self):",
         }
     ]
@@ -166,7 +177,7 @@ def test_whitespace_only_changes_block_folding() -> None:
     assert diff.get("fold_hints", []) == []
 
 
-def test_javascript_classes_fold_unchanged_methods_only() -> None:
+def test_javascript_classes_fold_class_and_methods() -> None:
     diff = build_loaded_diff(
         display_name="demo.js",
         mode="files",
@@ -186,10 +197,17 @@ def test_javascript_classes_fold_unchanged_methods_only() -> None:
 
     assert diff["fold_hints"] == [
         {
+            "start_row": 1,
+            "end_row": 5,
+            "kind": "class_like",
+            "label": "class Example {",
+        },
+        {
             "start_row": 2,
             "end_row": 4,
+            "kind": "function_like",
             "label": "a() {",
-        }
+        },
     ]
 
 
@@ -227,6 +245,7 @@ def test_css_unchanged_top_level_rule_folds_declarations() -> None:
         {
             "start_row": 1,
             "end_row": 4,
+            "kind": "container",
             "label": ".card {",
         }
     ]
@@ -267,12 +286,13 @@ def test_changed_css_media_rule_still_folds_unchanged_nested_rule() -> None:
         {
             "start_row": 2,
             "end_row": 5,
+            "kind": "container",
             "label": ".card {",
         }
     ]
 
 
-def test_rust_impl_blocks_fold_unchanged_methods_only() -> None:
+def test_rust_impl_blocks_fold_impl_and_methods() -> None:
     diff = build_loaded_diff(
         display_name="demo.rs",
         mode="files",
@@ -302,10 +322,17 @@ def test_rust_impl_blocks_fold_unchanged_methods_only() -> None:
 
     assert diff["fold_hints"] == [
         {
+            "start_row": 1,
+            "end_row": 5,
+            "kind": "class_like",
+            "label": "impl Thing {",
+        },
+        {
             "start_row": 2,
             "end_row": 4,
+            "kind": "function_like",
             "label": "fn a(&self) {",
-        }
+        },
     ]
 
 
@@ -327,6 +354,7 @@ def test_json_unchanged_nested_top_level_container_folds() -> None:
         {
             "start_row": 2,
             "end_row": 4,
+            "kind": "container",
             "label": '"config": {',
         }
     ]
@@ -350,6 +378,7 @@ def test_yaml_unchanged_nested_top_level_container_folds() -> None:
         {
             "start_row": 1,
             "end_row": 3,
+            "kind": "container",
             "label": "config:",
         }
     ]
@@ -373,6 +402,7 @@ def test_toml_unchanged_top_level_table_folds() -> None:
         {
             "start_row": 1,
             "end_row": 4,
+            "kind": "container",
             "label": "[tool.x]",
         }
     ]
@@ -396,6 +426,7 @@ def test_markdown_unchanged_heading_section_folds_under_heading() -> None:
         {
             "start_row": 1,
             "end_row": 4,
+            "kind": "section",
             "label": "# Intro",
         }
     ]
@@ -421,6 +452,7 @@ def test_markdown_changed_parent_section_allows_unchanged_child_heading_fold() -
         {
             "start_row": 4,
             "end_row": 6,
+            "kind": "section",
             "label": "## Child",
         }
     ]
@@ -446,6 +478,7 @@ def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> (
         {
             "start_row": 1,
             "end_row": 4,
+            "kind": "section",
             "label": "# Intro",
         }
     ]
@@ -471,11 +504,13 @@ def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folde
         {
             "start_row": 1,
             "end_row": 4,
+            "kind": "section",
             "label": "# One",
         },
         {
             "start_row": 8,
             "end_row": 11,
+            "kind": "section",
             "label": "# Two",
         },
     ]

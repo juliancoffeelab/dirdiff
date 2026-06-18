@@ -163,27 +163,31 @@ function renderSplitRowsDom(
   leftLabel: string,
   rightLabel: string,
   expandedFolds: Set<number>,
+  startRow = 0,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
-  rows.forEach((row, index) => {
+  let cursor = startRow;
+  rows.forEach((row) => {
+    const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
       fragment.append(
         renderSplitFoldDom(
           row,
-          index,
+          rowIndex,
           fileLabel,
           leftLabel,
           rightLabel,
           expandedFolds,
         ),
       );
-      return;
-    }
-    if (row.status === "elided") {
+      cursor += row.count;
+    } else if (row.status === "elided") {
       fragment.append(renderSplitElidedRowDom(row, leftLabel, rightLabel));
-      return;
+      cursor += 1;
+    } else {
+      fragment.append(renderSplitDiffRowDom(row, rowIndex, fileLabel));
+      cursor += 1;
     }
-    fragment.append(renderSplitDiffRowDom(row, index, fileLabel));
   });
   return fragment;
 }
@@ -192,30 +196,35 @@ function renderInlineRowsDom(
   rows: HunkRenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
+  startRow = 0,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
   const lineNumberState: InlineLineNumberState = {
     leftNo: null,
     rightNo: null,
   };
-  rows.forEach((row, index) => {
+  let cursor = startRow;
+  rows.forEach((row) => {
+    const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
       fragment.append(
-        renderInlineFoldDom(row, index, fileLabel, expandedFolds),
+        renderInlineFoldDom(row, rowIndex, fileLabel, expandedFolds),
       );
       lineNumberState.leftNo = null;
       lineNumberState.rightNo = null;
-      return;
+      cursor += row.count;
+    } else {
+      fragment.append(
+        renderInlineDiffRowsDom(
+          row,
+          rowIndex,
+          fileLabel,
+          undefined,
+          lineNumberState,
+        ),
+      );
+      cursor += 1;
     }
-    fragment.append(
-      renderInlineDiffRowsDom(
-        row,
-        index,
-        fileLabel,
-        undefined,
-        lineNumberState,
-      ),
-    );
   });
   return fragment;
 }
@@ -224,30 +233,35 @@ function renderSemanticInlineRowsDom(
   rows: HunkRenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
+  startRow = 0,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
   const lineNumberState: InlineLineNumberState = {
     leftNo: null,
     rightNo: null,
   };
-  rows.forEach((row, index) => {
+  let cursor = startRow;
+  rows.forEach((row) => {
+    const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
       fragment.append(
-        renderInlineFoldDom(row, index, fileLabel, expandedFolds, true),
+        renderInlineFoldDom(row, rowIndex, fileLabel, expandedFolds, true),
       );
       lineNumberState.leftNo = null;
       lineNumberState.rightNo = null;
-      return;
+      cursor += row.count;
+    } else {
+      fragment.append(
+        renderSemanticInlineDiffRowsDom(
+          row,
+          rowIndex,
+          fileLabel,
+          undefined,
+          lineNumberState,
+        ),
+      );
+      cursor += 1;
     }
-    fragment.append(
-      renderSemanticInlineDiffRowsDom(
-        row,
-        index,
-        fileLabel,
-        undefined,
-        lineNumberState,
-      ),
-    );
   });
   return fragment;
 }
@@ -275,30 +289,15 @@ function renderSplitFoldDom(
   const renderFold = () => {
     const expanded = expandedFolds.has(rowIndex);
     if (expanded) {
-      const fragment = document.createDocumentFragment();
-      const firstRow = row.foldedRows[0];
-      if (firstRow !== undefined) {
-        fragment.append(
-          renderSplitDiffRowDom(
-            {
-              ...firstRow,
-              isHunkAnchor: isChangedRowStatus(firstRow.status),
-            },
-            rowIndex,
-            fileLabel,
-            { expanded: true, onToggle: toggle },
-          ),
-        );
-      }
-      row.foldedRows.slice(1).forEach((foldedRow, foldedIndex) => {
-        fragment.append(
-          renderSplitDiffRowDom(
-            foldedRow,
-            rowIndex + foldedIndex + 1,
-            fileLabel,
-          ),
-        );
-      });
+      const fragment = renderSplitRowsDom(
+        markHunkAnchors(row.foldedRows),
+        fileLabel,
+        leftLabel,
+        rightLabel,
+        expandedFolds,
+        row.startRow,
+      );
+      attachExpandedFoldToggle(fragment, toggle);
       wrapper.replaceChildren(fragment);
       return;
     }
@@ -342,43 +341,17 @@ function renderInlineFoldDom(
   const renderFold = () => {
     const expanded = expandedFolds.has(rowIndex);
     if (expanded) {
-      const fragment = document.createDocumentFragment();
-      const lineNumberState: InlineLineNumberState = {
-        leftNo: null,
-        rightNo: null,
-      };
-      const firstRow = row.foldedRows[0];
-      if (firstRow !== undefined) {
-        const renderDiffRows = semanticReplaceRows
-          ? renderSemanticInlineDiffRowsDom
-          : renderInlineDiffRowsDom;
-        fragment.append(
-          renderDiffRows(
-            {
-              ...firstRow,
-              isHunkAnchor: isChangedRowStatus(firstRow.status),
-            },
-            rowIndex,
-            fileLabel,
-            { expanded: true, onToggle: toggle },
-            lineNumberState,
-          ),
-        );
-      }
-      const renderDiffRows = semanticReplaceRows
-        ? renderSemanticInlineDiffRowsDom
-        : renderInlineDiffRowsDom;
-      row.foldedRows.slice(1).forEach((foldedRow, foldedIndex) => {
-        fragment.append(
-          renderDiffRows(
-            foldedRow,
-            rowIndex + foldedIndex + 1,
-            fileLabel,
-            undefined,
-            lineNumberState,
-          ),
-        );
-      });
+      const rows = markHunkAnchors(row.foldedRows);
+      const fragment =
+        semanticReplaceRows === true
+          ? renderSemanticInlineRowsDom(
+              rows,
+              fileLabel,
+              expandedFolds,
+              row.startRow,
+            )
+          : renderInlineRowsDom(rows, fileLabel, expandedFolds, row.startRow);
+      attachExpandedFoldToggle(fragment, toggle);
       wrapper.replaceChildren(fragment);
       return;
     }
@@ -406,6 +379,26 @@ function renderInlineFoldDom(
 }
 
 type FoldToggle = { expanded: boolean; onToggle: () => void };
+
+function attachExpandedFoldToggle(
+  fragment: DocumentFragment,
+  onToggle: () => void,
+) {
+  const row = fragment.querySelector(
+    ".diff-row:not(.fold-bar):not(.inline-fold-bar):not(.elided)",
+  );
+  if (!(row instanceof HTMLElement)) {
+    return;
+  }
+  row.classList.add("fold-toggle-row", "fold-expanded");
+  row.title = "Collapse folded rows";
+  row.addEventListener("click", onToggle);
+
+  const lineNumber = row.querySelector(".line-no");
+  if (lineNumber instanceof HTMLElement) {
+    lineNumber.prepend(createFoldToggleButtonDom({ expanded: true, onToggle }));
+  }
+}
 
 function renderSplitDiffRowDom(
   row: DiffRow & { isHunkAnchor?: boolean },

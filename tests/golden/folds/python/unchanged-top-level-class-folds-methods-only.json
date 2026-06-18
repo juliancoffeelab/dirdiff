@@ -1,11 +1,19 @@
 [
   {
+    "end_row": 6,
+    "kind": "class_like",
+    "label": "class Example:",
+    "start_row": 1
+  },
+  {
     "end_row": 3,
+    "kind": "function_like",
     "label": "def a(self):",
     "start_row": 2
   },
   {
     "end_row": 6,
+    "kind": "function_like",
     "label": "def b(self):",
     "start_row": 5
   }

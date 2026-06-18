@@ -1,6 +1,7 @@
 [
   {
     "end_row": 3,
+    "kind": "container",
     "label": "config:",
     "start_row": 1
   }

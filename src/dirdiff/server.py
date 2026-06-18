@@ -114,6 +114,7 @@ class InlineTokenResponse(ApiModel):
 class FoldHintResponse(ApiModel):
     start_row: int
     end_row: int
+    kind: Literal["function_like", "class_like", "container", "section"]
     label: str
 
 

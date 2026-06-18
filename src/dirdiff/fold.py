@@ -419,6 +419,10 @@ def _collect_hints(
     hints: list[FoldHint],
 ) -> None:
     if candidate.rule.region_kind == "class_like":
+        if _region_is_unchanged(candidate, rows):
+            hint = _candidate_to_hint(candidate, rows)
+            if hint is not None:
+                hints.append(hint)
         for child in _child_candidates(candidate, all_candidates):
             if child.rule.region_kind in {"function_like", "class_like"}:
                 _collect_hints(child, all_candidates, rows, hints)
@@ -468,6 +472,7 @@ def _candidate_to_hint(
     return {
         "start_row": candidate.hidden_start_row,
         "end_row": candidate.hidden_end_row,
+        "kind": candidate.rule.region_kind,
         "label": label,
     }
 

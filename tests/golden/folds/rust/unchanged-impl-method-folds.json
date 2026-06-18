@@ -1,6 +1,13 @@
 [
   {
+    "end_row": 5,
+    "kind": "class_like",
+    "label": "impl Thing {",
+    "start_row": 1
+  },
+  {
     "end_row": 4,
+    "kind": "function_like",
     "label": "fn a(&self) {",
     "start_row": 2
   }

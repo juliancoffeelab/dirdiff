@@ -1,6 +1,7 @@
 [
   {
     "end_row": 6,
+    "kind": "section",
     "label": "## Child",
     "start_row": 4
   }

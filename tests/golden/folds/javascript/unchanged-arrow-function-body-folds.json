@@ -1,6 +1,7 @@
 [
   {
     "end_row": 4,
+    "kind": "function_like",
     "label": "const unchanged = () => {",
     "start_row": 1
   }

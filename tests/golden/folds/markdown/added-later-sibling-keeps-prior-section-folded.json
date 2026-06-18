@@ -1,6 +1,7 @@
 [
   {
     "end_row": 4,
+    "kind": "section",
     "label": "# Intro",
     "start_row": 1
   }

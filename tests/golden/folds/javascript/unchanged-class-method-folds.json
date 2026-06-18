@@ -1,6 +1,13 @@
 [
   {
+    "end_row": 5,
+    "kind": "class_like",
+    "label": "class Example {",
+    "start_row": 1
+  },
+  {
     "end_row": 4,
+    "kind": "function_like",
     "label": "a() {",
     "start_row": 2
   }

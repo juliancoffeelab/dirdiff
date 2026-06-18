@@ -20,9 +20,27 @@ cram:
 	uv --no-cache run cram tests/cli-cram/*.t
 
 pytest:
+	# default subset
 	uv --no-cache run pytest
 
-fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint pytest cram
+gitpytest:
+	# run all test, including git marks
+	uv --no-cache run pytest -m 'git or not git'
+
+snapshot:
+	uv --no-cache run pytest \
+		tests/test_difftastic_golden.py \
+		tests/test_fold_golden.py
+
+resnapshot:
+	uv --no-cache run pytest \
+		tests/test_difftastic_golden.py \
+		tests/test_fold_golden.py \
+		--snapshot-update
+
+fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint 
+
+fulltest: gitpytest cram
 
 format:
 	.venv/bin/ruff format

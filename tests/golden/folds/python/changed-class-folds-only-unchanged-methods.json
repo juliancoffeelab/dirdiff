@@ -1,6 +1,7 @@
 [
   {
     "end_row": 3,
+    "kind": "function_like",
     "label": "def a(self):",
     "start_row": 2
   }
