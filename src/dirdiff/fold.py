@@ -566,6 +566,11 @@ def _collect_top_level_hints(
             _append_top_level_run_hint(run, rows, existing_ranges, hints)
             run = []
             continue
+        if run and _rows_have_any_change(
+            rows[run[-1].end_row : item.start_row]
+        ):
+            _append_top_level_run_hint(run, rows, existing_ranges, hints)
+            run = []
         if run and run[-1].label_kind != item.label_kind:
             _append_top_level_run_hint(run, rows, existing_ranges, hints)
             run = []
@@ -580,6 +585,13 @@ def _collect_top_level_items(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
 ) -> list[TopLevelItem]:
+    if root_node.type == "document":
+        return _collect_json_top_level_items(
+            root_node,
+            source_bytes,
+            right_line_to_row,
+        )
+
     items: list[TopLevelItem] = []
     for child in root_node.children:
         classified = _classify_top_level_node(child)
@@ -604,6 +616,63 @@ def _collect_top_level_items(
             )
         )
     return items
+
+
+def _collect_json_top_level_items(
+    root_node: Node,
+    source_bytes: bytes,
+    right_line_to_row: dict[int, int],
+) -> list[TopLevelItem]:
+    containers = [
+        child
+        for child in root_node.children
+        if child.is_named and child.type in {"object", "array"}
+    ]
+    if len(containers) != 1:
+        return []
+
+    top_container = containers[0]
+    items: list[TopLevelItem] = []
+    for child in top_container.children:
+        if not child.is_named:
+            continue
+        label_kind = _json_top_level_label_kind(child)
+        if label_kind is None:
+            continue
+        start_line, end_line = _node_line_span(child, source_bytes)
+        row_span = _lines_to_row_span(
+            right_line_to_row,
+            start_line,
+            end_line,
+        )
+        if row_span is None:
+            continue
+        items.append(
+            TopLevelItem(
+                start_row=row_span[0],
+                end_row=row_span[1],
+                start_byte=child.start_byte,
+                end_byte=child.end_byte,
+                label_kind=label_kind,
+            )
+        )
+    return items
+
+
+def _json_top_level_label_kind(node: Node) -> str | None:
+    if node.type == "pair":
+        return "property"
+    if node.type in {
+        "object",
+        "array",
+        "string",
+        "number",
+        "true",
+        "false",
+        "null",
+    }:
+        return "item"
+    return None
 
 
 def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
@@ -655,8 +724,11 @@ def _top_level_run_label(run: list[TopLevelItem]) -> str:
 
 
 def _plural_label(count: int, noun: str) -> str:
-    suffix = "" if count == 1 else "s"
-    return f"{count} {noun}{suffix}"
+    if count == 1:
+        return f"{count} {noun}"
+    if noun.endswith("property"):
+        return f"{count} {noun.removesuffix('property')}properties"
+    return f"{count} {noun}s"
 
 
 def _fold_hint_sort_key(hint: FoldHint) -> tuple[int, int]:
@@ -692,6 +764,10 @@ def _region_is_unchanged(
 
 def _rows_are_unchanged(rows: list[dict[str, Any]]) -> bool:
     return bool(rows) and all(not _row_has_any_change(row) for row in rows)
+
+
+def _rows_have_any_change(rows: list[dict[str, Any]]) -> bool:
+    return any(_row_has_any_change(row) for row in rows)
 
 
 def _trim_markdown_section_trailing_blank_rows(

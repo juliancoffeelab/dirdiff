@@ -1,0 +1,20 @@
+[
+  {
+    "end_row": 9,
+    "kind": "top_level",
+    "label": "2 unchanged properties",
+    "start_row": 1
+  },
+  {
+    "end_row": 5,
+    "kind": "container",
+    "label": "\"config\": {",
+    "start_row": 2
+  },
+  {
+    "end_row": 9,
+    "kind": "container",
+    "label": "\"navigation\": {",
+    "start_row": 6
+  }
+]

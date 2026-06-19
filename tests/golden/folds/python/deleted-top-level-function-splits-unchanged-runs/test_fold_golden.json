@@ -1,0 +1,38 @@
+[
+  {
+    "end_row": 7,
+    "kind": "top_level",
+    "label": "2 unchanged declarations",
+    "start_row": 0
+  },
+  {
+    "end_row": 3,
+    "kind": "function_like",
+    "label": "def before_one():",
+    "start_row": 1
+  },
+  {
+    "end_row": 7,
+    "kind": "function_like",
+    "label": "def before_two():",
+    "start_row": 5
+  },
+  {
+    "end_row": 19,
+    "kind": "top_level",
+    "label": "2 unchanged declarations",
+    "start_row": 12
+  },
+  {
+    "end_row": 15,
+    "kind": "function_like",
+    "label": "def after_one():",
+    "start_row": 13
+  },
+  {
+    "end_row": 19,
+    "kind": "function_like",
+    "label": "def after_two():",
+    "start_row": 17
+  }
+]

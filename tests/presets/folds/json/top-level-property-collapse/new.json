@@ -1,0 +1,11 @@
+{
+  "config": {
+    "theme": "dark",
+    "density": "compact"
+  },
+  "navigation": {
+    "mode": "stacked",
+    "shortcuts": true
+  },
+  "version": 2
+}

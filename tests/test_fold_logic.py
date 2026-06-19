@@ -56,6 +56,91 @@ def test_changed_top_level_function_does_not_fold_descendants() -> None:
     assert diff.get("fold_hints", []) == []
 
 
+def test_deleted_top_level_function_splits_surrounding_unchanged_runs() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.py",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=(
+            "def before_one():\n"
+            "    alpha = 1\n"
+            "    return alpha\n\n"
+            "def before_two():\n"
+            "    beta = 2\n"
+            "    return beta\n\n"
+            "def deleted_helper():\n"
+            "    gamma = 3\n"
+            "    return gamma\n\n"
+            "def after_one():\n"
+            "    delta = 4\n"
+            "    return delta\n\n"
+            "def after_two():\n"
+            "    epsilon = 5\n"
+            "    return epsilon\n\n"
+            "sentinel = 'left'\n"
+        ),
+        right_text=(
+            "def before_one():\n"
+            "    alpha = 1\n"
+            "    return alpha\n\n"
+            "def before_two():\n"
+            "    beta = 2\n"
+            "    return beta\n\n"
+            "def after_one():\n"
+            "    delta = 4\n"
+            "    return delta\n\n"
+            "def after_two():\n"
+            "    epsilon = 5\n"
+            "    return epsilon\n\n"
+            "sentinel = 'right'\n"
+        ),
+        left_path_hint="demo.py",
+        right_path_hint="demo.py",
+    )
+
+    assert diff["fold_hints"] == [
+        {
+            "start_row": 0,
+            "end_row": 7,
+            "kind": "top_level",
+            "label": "2 unchanged declarations",
+        },
+        {
+            "start_row": 1,
+            "end_row": 3,
+            "kind": "function_like",
+            "label": "def before_one():",
+        },
+        {
+            "start_row": 5,
+            "end_row": 7,
+            "kind": "function_like",
+            "label": "def before_two():",
+        },
+        {
+            "start_row": 12,
+            "end_row": 19,
+            "kind": "top_level",
+            "label": "2 unchanged declarations",
+        },
+        {
+            "start_row": 13,
+            "end_row": 15,
+            "kind": "function_like",
+            "label": "def after_one():",
+        },
+        {
+            "start_row": 17,
+            "end_row": 19,
+            "kind": "function_like",
+            "label": "def after_two():",
+        },
+    ]
+
+
 def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
@@ -496,7 +581,9 @@ def test_rust_impl_blocks_fold_impl_and_methods() -> None:
     ]
 
 
-def test_json_unchanged_nested_top_level_container_folds() -> None:
+def test_json_unchanged_top_level_property_folds_with_nested_container() -> (
+    None
+):
     diff = build_loaded_diff(
         display_name="demo.json",
         mode="files",
@@ -512,11 +599,17 @@ def test_json_unchanged_nested_top_level_container_folds() -> None:
 
     assert diff["fold_hints"] == [
         {
+            "start_row": 1,
+            "end_row": 4,
+            "kind": "top_level",
+            "label": "1 unchanged property",
+        },
+        {
             "start_row": 2,
             "end_row": 4,
             "kind": "container",
             "label": '"config": {',
-        }
+        },
     ]
 
 

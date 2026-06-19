@@ -1,6 +1,12 @@
 [
   {
     "end_row": 4,
+    "kind": "top_level",
+    "label": "1 unchanged property",
+    "start_row": 1
+  },
+  {
+    "end_row": 4,
     "kind": "container",
     "label": "\"config\": {",
     "start_row": 2
