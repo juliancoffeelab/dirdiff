@@ -1,0 +1,32 @@
+[
+  {
+    "end_row": 9,
+    "kind": "top_level",
+    "label": "2 unchanged declarations",
+    "start_row": 0
+  },
+  {
+    "end_row": 4,
+    "kind": "container",
+    "label": ".toolbar {",
+    "start_row": 1
+  },
+  {
+    "end_row": 9,
+    "kind": "container",
+    "label": ".sidebar {",
+    "start_row": 6
+  },
+  {
+    "end_row": 19,
+    "kind": "top_level",
+    "label": "1 unchanged declaration",
+    "start_row": 15
+  },
+  {
+    "end_row": 19,
+    "kind": "container",
+    "label": ".footer {",
+    "start_row": 16
+  }
+]
