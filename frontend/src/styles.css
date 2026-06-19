@@ -2284,7 +2284,7 @@ h1 {
 
 .hud-stack {
   position: fixed;
-  right: 52px;
+  right: 24px;
   bottom: 22px;
   z-index: 30;
   display: grid;

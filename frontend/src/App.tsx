@@ -52,7 +52,11 @@ export function App() {
     setControls,
     diffViewMode,
     resetViewState: ui.resetViewState,
-    setLoadedDiff: ui.setLoadedDiff,
+    clearLoadedDiff: ui.clearLoadedDiff,
+    applyManifest: ui.applyManifest,
+    upsertFile: ui.upsertFile,
+    upsertFiles: ui.upsertFiles,
+    currentHydratedLazyKeys: ui.currentHydratedLazyKeys,
     setDirectoryExpansion: ui.setDirectoryExpansion,
     setFileExpansion: ui.setFileExpansion,
     refChoices: repo.refChoices,
@@ -126,11 +130,10 @@ export function App() {
     appRoot: () => appRoot,
     appHeader: () => appHeader,
     displayFiles: ui.displayFiles,
-    directoryExpansion: ui.directoryExpansion,
-    fileExpansion: ui.fileExpansion,
-    loadingFiles: diff.loadingFiles,
-    forcedRichFileIds: ui.forcedRichFileIds,
-    virtualizedFileIds: ui.virtualizedFileIds,
+    isFileVirtualized: ui.isFileVirtualized,
+    layoutRevision: ui.layoutRevision,
+    virtualizationRevision: ui.virtualizationRevision,
+    loadingRevision: diff.loadingRevision,
     diffViewMode,
     setDirectoryExpansion: ui.setDirectoryExpansion,
     setFileExpansion: ui.setFileExpansion,
@@ -313,10 +316,11 @@ export function App() {
               <GracefulErrorBoundary title="Could not render file tree">
                 <FileTreeSidebar
                   files={ui.displayFiles()}
-                  directoryExpansion={ui.directoryExpansion()}
-                  fileExpansion={ui.fileExpansion()}
+                  directoryExpansion={ui.directoryExpansion}
+                  fileExpansion={ui.fileExpansion}
                   activeHunkFileId={ui.activeHunkFileId()}
-                  virtualizedFileIds={ui.virtualizedFileIds()}
+                  isActiveHunkFileId={ui.isActiveHunkFileId}
+                  isFileVirtualized={ui.isFileVirtualized}
                   viewMode={diffViewMode()}
                   open={navigation.fileTreeOpen()}
                   onOpenChange={navigation.setFileTreeOpen}
@@ -329,22 +333,18 @@ export function App() {
               <GracefulErrorBoundary title="Could not render diff">
                 <FileList
                   files={ui.displayFiles()}
-                  loadedDiff={ui.loadedDiff()}
-                  currentParamsIdentity={diff.currentParamsIdentity}
-                  directoryExpansion={ui.directoryExpansion()}
-                  fileExpansion={ui.fileExpansion()}
-                  loadingFiles={diff.loadingFiles()}
-                  fileErrors={diff.fileErrors()}
+                  directoryExpansion={ui.directoryExpansion}
+                  fileExpansion={ui.fileExpansion}
+                  loadingFiles={diff.loadingFiles}
+                  fileErrors={diff.fileErrors}
                   linePin={navigation.linePin()}
-                  forcedRichFileIds={ui.forcedRichFileIds()}
+                  isForcedRichFileId={ui.isForcedRichFileId}
                   aggressiveFolds={preferences()!.aggressive_folds}
                   onFileVirtualizedChange={ui.setFileVirtualized}
+                  onHydrateFile={diff.hydrateFile}
                   diffViewMode={diffViewMode()}
                   setDirectoryExpansion={ui.setDirectoryExpansion}
                   setFileExpansion={ui.setFileExpansion}
-                  setLoadingFiles={diff.setLoadingFiles}
-                  setFileErrors={diff.setFileErrors}
-                  updateLoadedDiff={ui.updateLoadedDiff}
                 />
               </GracefulErrorBoundary>
             </div>

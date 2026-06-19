@@ -11,7 +11,7 @@ import type { FileEntry } from "../api";
 import {
   createHunkNavigation,
   fileIdForHunkAnchor,
-  richPreloadFileIdsForAnchor,
+  richPreloadFileIdsForHunkSelection,
   richPreloadFileIdsForFileId,
   shouldIgnoreGlobalHotkeyEvent,
 } from "../hunkNavigation";
@@ -39,14 +39,13 @@ type DiffNavigationOptions = {
   appRoot: Accessor<HTMLElement | undefined>;
   appHeader: Accessor<HTMLElement | undefined>;
   displayFiles: Accessor<FileEntry[]>;
-  directoryExpansion: Accessor<Record<string, boolean>>;
-  fileExpansion: Accessor<Record<string, boolean>>;
-  loadingFiles: Accessor<Record<string, boolean>>;
-  forcedRichFileIds: Accessor<string[]>;
-  virtualizedFileIds: Accessor<string[]>;
+  isFileVirtualized: (fileId: string) => boolean;
+  layoutRevision: Accessor<number>;
+  virtualizationRevision: Accessor<number>;
+  loadingRevision: Accessor<number>;
   diffViewMode: Accessor<DiffViewMode>;
-  setDirectoryExpansion: Setter<Record<string, boolean>>;
-  setFileExpansion: Setter<Record<string, boolean>>;
+  setDirectoryExpansion: ExpansionSetter;
+  setFileExpansion: ExpansionSetter;
   setForcedRichPreloadIds: (ids: string[]) => void;
   forceRichFileId: (fileId: string) => void;
   setActiveHunkFileId: Setter<string | null>;
@@ -59,11 +58,15 @@ type DiffNavigationOptions = {
 
 type FileTreeNavigationOptions = {
   displayFiles: Accessor<FileEntry[]>;
-  virtualizedFileIds: Accessor<string[]>;
+  isFileVirtualized: (fileId: string) => boolean;
   forceRichFileId: (fileId: string) => void;
   openFileExpansion: (file: FileEntry) => void;
   openDirectoryExpansion: (group: FileGroup) => void;
 };
+
+type ExpansionSetter = (
+  updater: (current: Record<string, boolean>) => Record<string, boolean>,
+) => void;
 
 function createFileTreeNavigation(options: FileTreeNavigationOptions) {
   const targetIsVisible = (target: HTMLElement) => {
@@ -102,7 +105,7 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
     const scrollWhenReady = (attempt: number, visibleFrames: number) => {
       requestAnimationFrame(() => {
         const pendingVirtualizedIds = preloadFileIds.filter((preloadFileId) =>
-          options.virtualizedFileIds().includes(preloadFileId),
+          options.isFileVirtualized(preloadFileId),
         );
         const card = document.getElementById(fileId);
         if (card === null || pendingVirtualizedIds.length > 0) {
@@ -117,8 +120,7 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
 
         requestAnimationFrame(() => {
           const settledPendingVirtualizedIds = preloadFileIds.filter(
-            (preloadFileId) =>
-              options.virtualizedFileIds().includes(preloadFileId),
+            (preloadFileId) => options.isFileVirtualized(preloadFileId),
           );
           if (settledPendingVirtualizedIds.length > 0) {
             if (attempt >= 120) {
@@ -225,7 +227,13 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
   const [debugMenuOpen, setDebugMenuOpen] = createSignal(false);
   const [helpOpen, setHelpOpen] = createSignal(false);
   const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
-  const fileTreeNavigation = createFileTreeNavigation(options);
+  const fileTreeNavigation = createFileTreeNavigation({
+    displayFiles: options.displayFiles,
+    isFileVirtualized: options.isFileVirtualized,
+    forceRichFileId: options.forceRichFileId,
+    openFileExpansion: options.openFileExpansion,
+    openDirectoryExpansion: options.openDirectoryExpansion,
+  });
   let restoredLinePinKey = "";
   const hunkNav = createHunkNavigation(options.appRoot, {
     afterReconcile: () => {
@@ -237,24 +245,27 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
         restoredLinePinKey = pinKey;
       });
     },
-    onSelectionChange: ({ selected }) => {
+    onSelectionChange: ({ anchors, index, selected }) => {
       if (selected === null) {
         options.setActiveHunkFileId(null);
         return;
       }
       options.setActiveHunkFileId(fileIdForHunkAnchor(selected));
       options.setForcedRichPreloadIds(
-        richPreloadFileIdsForAnchor(selected, options.displayFiles()),
+        richPreloadFileIdsForHunkSelection(
+          anchors,
+          index,
+          options.displayFiles(),
+        ),
       );
     },
   });
 
   hunkNav.reconcileWhen([
     options.displayFiles,
-    options.directoryExpansion,
-    options.fileExpansion,
-    options.loadingFiles,
-    options.forcedRichFileIds,
+    options.layoutRevision,
+    options.virtualizationRevision,
+    options.loadingRevision,
     options.diffViewMode,
   ]);
   hunkNav.followScroll();

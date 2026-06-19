@@ -1,11 +1,5 @@
-import {
-  batch,
-  createEffect,
-  createSignal,
-  type Accessor,
-  type Setter,
-} from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
+import { batch, createSignal, type Accessor, type Setter } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { isCancelledError } from "@tanstack/query-core";
 import {
   fetchLazyInfo,
@@ -30,20 +24,17 @@ import type { DiffViewMode } from "../DiffGrid";
 import {
   type BranchSource,
   type ControlsState,
-  type LoadedDiff,
   type LoadState,
-  addHydratedNotebookSummary,
+  type RenderedFileEntry,
   entryDirectoryLabel,
   fileDiffQueryKey,
   fileKey,
   fileMatchesLinePin,
-  sortFilesByOrder,
 } from "../fileUtils";
 import { getLinePinFromHash } from "../linePins";
 import { queryClient } from "../queryClient";
 import {
   type LazyInfoQueryPayload,
-  type ManifestQueryPayload,
   diffParamsIdentity,
   lazyInfoParamsQueryKey,
   manifestParamsQueryKey,
@@ -51,6 +42,7 @@ import {
 
 const builtinSides = new Set(["head", "index", "worktree"]);
 const SLOW_FILE_DIFF_MS = REQUEST_TIMEOUT_MS;
+const MANUAL_FILE_DIFF_TIMEOUT_MS = 60_000;
 
 function nullableStringValue(
   value: string | null | undefined,
@@ -121,6 +113,35 @@ function manifestDisplayName(entry: ManifestEntry): string {
   return "(unknown)";
 }
 
+function lazyOriginalReasonForHydration(
+  file: RenderedFileEntry,
+): ManifestEntry["lazy"] {
+  if (file.originalLazyReason !== null) {
+    return file.originalLazyReason;
+  }
+  const lazy = file.lazy;
+  if (lazy === undefined) {
+    throw new Error("Hydrated file did not have a lazy reason.");
+  }
+  if (lazy === null) {
+    return null;
+  }
+  if (typeof lazy === "string") {
+    return lazy;
+  }
+  return lazy.original;
+}
+
+function shouldHydrateManifestEntry(
+  entry: ManifestEntry,
+  hydratedLazyKeys: Set<string>,
+): boolean {
+  if (entry.lazy === null) {
+    return true;
+  }
+  return hydratedLazyKeys.has(fileKey(entry));
+}
+
 function qualifyRemoteRef(
   remote: string,
   ref: string,
@@ -173,6 +194,26 @@ function nextFileExpansion(
   };
 }
 
+function booleanMapSnapshot(map: BooleanMap): Record<string, boolean> {
+  const snapshot: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(map)) {
+    if (value !== undefined) {
+      snapshot[key] = value;
+    }
+  }
+  return snapshot;
+}
+
+function stringMapSnapshot(map: StringMap): Record<string, string> {
+  const snapshot: Record<string, string> = {};
+  for (const [key, value] of Object.entries(map)) {
+    if (value !== undefined) {
+      snapshot[key] = value;
+    }
+  }
+  return snapshot;
+}
+
 /**
  * Collaborators supplied by App and UI state.
  *
@@ -187,12 +228,37 @@ type DiffResourcesOptions = {
   setControls: Setter<ControlsState | null>;
   diffViewMode: Accessor<DiffViewMode>;
   resetViewState: () => void;
-  setLoadedDiff: Setter<LoadedDiff | null>;
-  setDirectoryExpansion: Setter<Record<string, boolean>>;
-  setFileExpansion: Setter<Record<string, boolean>>;
+  clearLoadedDiff: () => void;
+  applyManifest: (
+    diffParams: DiffParams,
+    loadId: number,
+    payload: Awaited<ReturnType<typeof fetchManifest>>,
+    mode: "replace" | "reconcile",
+  ) => void;
+  upsertFile: (
+    entry: FileEntry,
+    sourceParams: DiffParams,
+    sourceLoadId: number,
+    originalLazyReason: ManifestEntry["lazy"],
+  ) => void;
+  upsertFiles: (
+    entries: FileEntry[],
+    sourceParams: DiffParams,
+    sourceLoadId: number,
+    originalLazyReasonByKey: Record<string, ManifestEntry["lazy"]>,
+  ) => void;
+  currentHydratedLazyKeys: () => string[];
+  setDirectoryExpansion: ExpansionSetter;
+  setFileExpansion: ExpansionSetter;
   refChoices: () => RefChoices;
   addErrorToast: (title: string, error: unknown) => void;
 };
+
+type ExpansionSetter = (
+  updater: (current: Record<string, boolean>) => Record<string, boolean>,
+) => void;
+type BooleanMap = Record<string, boolean | undefined>;
+type StringMap = Record<string, string | undefined>;
 
 /**
  * Owns committed diff params and their render-as-you-load lifecycle.
@@ -212,14 +278,49 @@ export function createDiffResources(options: DiffResourcesOptions) {
   const [currentParams, setCurrentParams] = createSignal<DiffParams | null>(
     null,
   );
-  const [loadingFiles, setLoadingFiles] = createSignal<Record<string, boolean>>(
-    {},
-  );
-  const [fileErrors, setFileErrors] = createSignal<Record<string, string>>({});
+  const [fileState, setFileState] = createStore<{
+    loadingFiles: BooleanMap;
+    fileErrors: StringMap;
+  }>({
+    loadingFiles: {},
+    fileErrors: {},
+  });
+  const [loadingRevision, setLoadingRevision] = createSignal(0);
   const [status, setStatus] = createSignal<LoadState>("idle");
   const [statusText, setStatusText] = createSignal("Preparing diff...");
-  let appliedManifestIdentity = "";
   let toastedManifestErrorIdentity = "";
+  let activeLoadId = 0;
+
+  const nextLoadId = (): number => {
+    activeLoadId += 1;
+    return activeLoadId;
+  };
+
+  const loadIsCurrent = (loadId: number): boolean => activeLoadId === loadId;
+
+  const bumpLoadingRevision = () => {
+    setLoadingRevision((current) => current + 1);
+  };
+
+  const setLoadingFiles: ExpansionSetter = (updater) => {
+    const next = updater(booleanMapSnapshot(fileState.loadingFiles));
+    setFileState("loadingFiles", reconcile(next));
+    bumpLoadingRevision();
+  };
+
+  const setFileErrors = (
+    updater: (current: Record<string, string>) => Record<string, string>,
+  ) => {
+    const next = updater(stringMapSnapshot(fileState.fileErrors));
+    setFileState("fileErrors", reconcile(next));
+    bumpLoadingRevision();
+  };
+
+  const resetFileState = () => {
+    setFileState("loadingFiles", reconcile({}));
+    setFileState("fileErrors", reconcile({}));
+    bumpLoadingRevision();
+  };
 
   const currentParamsIdentity = (): string | null => {
     const diffParams = currentParams();
@@ -228,9 +329,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
     }
     return diffParamsIdentity(diffParams);
   };
-
-  const paramsAreCurrent = (paramsIdentity: string): boolean =>
-    currentParamsIdentity() === paramsIdentity;
 
   const replaceUrlForParams = (
     diffParams: DiffParams,
@@ -252,16 +350,16 @@ export function createDiffResources(options: DiffResourcesOptions) {
 
   const resetDiffState = (nextStatus: LoadState, nextStatusText: string) => {
     batch(() => {
-      options.setLoadedDiff(null);
+      options.clearLoadedDiff();
       options.resetViewState();
-      setLoadingFiles({});
-      setFileErrors({});
+      resetFileState();
       setStatus(nextStatus);
       setStatusText(nextStatusText);
     });
   };
 
   const clearCurrentParams = () => {
+    nextLoadId();
     void queryClient.cancelQueries({ queryKey: ["manifest"] });
     void queryClient.cancelQueries({ queryKey: ["lazy-info"] });
     void queryClient.cancelQueries({ queryKey: ["file-diff"] });
@@ -274,19 +372,41 @@ export function createDiffResources(options: DiffResourcesOptions) {
     resetDiffState("error", message);
   };
 
-  const startDiff = (diffParams: DiffParams) => {
-    setCurrentParams(null);
+  const cancelActiveDiffQueries = () => {
     void queryClient.cancelQueries({ queryKey: ["manifest"] });
     void queryClient.cancelQueries({ queryKey: ["lazy-info"] });
     void queryClient.cancelQueries({ queryKey: ["file-diff"] });
     void queryClient.cancelQueries({ queryKey: ["notebook-section"] });
+  };
+
+  const startDiff = (diffParams: DiffParams) => {
+    const loadId = nextLoadId();
+    setCurrentParams(null);
+    cancelActiveDiffQueries();
     queryClient.removeQueries({ queryKey: manifestParamsQueryKey(diffParams) });
     queryClient.removeQueries({ queryKey: lazyInfoParamsQueryKey(diffParams) });
     replaceUrlForParams(diffParams);
-    appliedManifestIdentity = "";
     toastedManifestErrorIdentity = "";
     resetDiffState("loading", "Loading diff...");
     setCurrentParams(diffParams);
+    void loadDiff(diffParams, loadId, "replace", []);
+  };
+
+  const refreshDiff = (diffParams: DiffParams, nextStatusText: string) => {
+    const loadId = nextLoadId();
+    const hydratedLazyKeys = options.currentHydratedLazyKeys();
+    cancelActiveDiffQueries();
+    queryClient.removeQueries({ queryKey: manifestParamsQueryKey(diffParams) });
+    queryClient.removeQueries({ queryKey: lazyInfoParamsQueryKey(diffParams) });
+    replaceUrlForParams(diffParams);
+    toastedManifestErrorIdentity = "";
+    batch(() => {
+      setCurrentParams(diffParams);
+      resetFileState();
+      setStatus("loading");
+      setStatusText(nextStatusText);
+    });
+    void loadDiff(diffParams, loadId, "reconcile", hydratedLazyKeys);
   };
 
   const selectedRepoIdOrIdle = (): RepoId | null => {
@@ -299,116 +419,96 @@ export function createDiffResources(options: DiffResourcesOptions) {
     return repoId;
   };
 
-  const manifestQuery = createQuery(() => {
-    const diffParams = currentParams();
-    if (diffParams === null) {
-      return {
-        queryKey: ["manifest", "idle"] as const,
-        queryFn: async (): Promise<ManifestQueryPayload> => {
-          throw new Error("Manifest params are not active.");
-        },
-        enabled: false,
-      };
-    }
+  async function loadDiff(
+    diffParams: DiffParams,
+    loadId: number,
+    mode: "replace" | "reconcile",
+    hydratedLazyKeys: string[],
+  ) {
     const paramsIdentity = diffParamsIdentity(diffParams);
-    return {
-      queryKey: manifestParamsQueryKey(diffParams),
-      queryFn: async ({ signal }): Promise<ManifestQueryPayload> => {
-        const payload = await fetchManifest(diffParams, signal);
-        return {
-          diffParams,
-          paramsIdentity,
-          payload,
-        };
-      },
-      retry: false,
-      staleTime: 0,
-    };
-  });
-
-  /**
-   * Bridge Solid Query server state into the progressive LoadedDiff model.
-   *
-   * This is intentionally the narrow effect boundary for successful diff loads:
-   * ignore stale query results, apply each committed params set once, then let
-   * hydrateManifestFiles stream file details.
-   */
-  createEffect(() => {
-    const result = manifestQuery.data;
-    if (result === undefined) {
-      return;
-    }
-    if (!paramsAreCurrent(result.paramsIdentity)) {
-      return;
-    }
-    if (appliedManifestIdentity === result.paramsIdentity) {
-      return;
-    }
-    appliedManifestIdentity = result.paramsIdentity;
-    applyManifestPayload(result);
-  });
-
-  /**
-   * Bridge Solid Query errors into the status surface.
-   *
-   * Query cancellation and stale params are filtered by currentParamsIdentity;
-   * visible errors only belong to the currently active params.
-   */
-  createEffect(() => {
-    const error = manifestQuery.error;
-    if (!manifestQuery.isError || error === null) {
-      return;
-    }
-    const paramsIdentity = currentParamsIdentity();
-    if (paramsIdentity === null) {
-      return;
-    }
-    batch(() => {
-      setStatus("error");
-      setStatusText(
-        error instanceof Error ? error.message : "Failed to load diff.",
+    try {
+      const payload = await queryClient.fetchQuery({
+        queryKey: manifestParamsQueryKey(diffParams),
+        queryFn: async ({ signal }) => fetchManifest(diffParams, signal),
+        retry: false,
+        staleTime: 0,
+      });
+      if (!loadIsCurrent(loadId)) {
+        return;
+      }
+      applyManifestPayload(
+        diffParams,
+        paramsIdentity,
+        loadId,
+        payload,
+        mode,
+        hydratedLazyKeys,
       );
-    });
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to load diff.";
-    console.error(`Failed to load diff: ${errorMessage}`);
-    if (toastedManifestErrorIdentity !== paramsIdentity) {
-      toastedManifestErrorIdentity = paramsIdentity;
-      options.addErrorToast("Failed to load diff", error);
+    } catch (error) {
+      if (!loadIsCurrent(loadId)) {
+        return;
+      }
+      if (isCancelledError(error)) {
+        return;
+      }
+      batch(() => {
+        setStatus("error");
+        setStatusText(
+          error instanceof Error ? error.message : "Failed to load diff.",
+        );
+      });
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to load diff.";
+      console.error(`Failed to load diff: ${errorMessage}`);
+      const toastIdentity = `${paramsIdentity}:${loadId}`;
+      if (toastedManifestErrorIdentity !== toastIdentity) {
+        toastedManifestErrorIdentity = toastIdentity;
+        options.addErrorToast("Failed to load diff", error);
+      }
     }
-  });
+  }
 
-  function applyManifestPayload(result: ManifestQueryPayload) {
-    const { diffParams, paramsIdentity, payload } = result;
+  function applyManifestPayload(
+    diffParams: DiffParams,
+    paramsIdentity: string,
+    loadId: number,
+    payload: Awaited<ReturnType<typeof fetchManifest>>,
+    mode: "replace" | "reconcile",
+    hydratedLazyKeys: string[],
+  ) {
     const order = Object.fromEntries(
       payload.files.map((entry, index) => [fileKey(entry), index]),
     );
-    const lazyManifestFiles = payload.files.filter((entry) => entry.lazy);
+    const lazyManifestFiles = payload.files.filter(
+      (entry) => entry.lazy !== null,
+    );
+    const hydratedLazyKeySet = new Set(hydratedLazyKeys);
     const baseStatus = statusLabel(
       diffParams,
       payload.left_label,
       payload.right_label,
     );
     batch(() => {
-      options.setLoadedDiff({
-        params: diffParams,
-        // Manifest files are not FileEntry values; rendered files are inserted
-        // only after /api/file-diff or /api/lazy-info returns enough data.
-        files: [],
-        lazyFiles: lazyManifestFiles,
-        fileOrder: order,
-        summary: payload.summary,
-      });
+      options.applyManifest(diffParams, loadId, payload, mode);
+      resetFileState();
       setStatusText(loadedStatusLabel(baseStatus, 0, 0));
     });
     void hydrateManifestFiles(
       diffParams,
-      paramsIdentity,
+      loadId,
       payload.files,
       baseStatus,
       0,
+      hydratedLazyKeySet,
     );
-    void hydrateLazyInfo(diffParams, paramsIdentity, lazyManifestFiles, order);
+    void hydrateLazyInfo(
+      diffParams,
+      paramsIdentity,
+      loadId,
+      lazyManifestFiles,
+      order,
+      hydratedLazyKeySet,
+    );
   }
 
   function hydrateLazyFiles(
@@ -468,8 +568,10 @@ export function createDiffResources(options: DiffResourcesOptions) {
   async function hydrateLazyInfo(
     diffParams: DiffParams,
     paramsIdentity: string,
+    loadId: number,
     manifestFiles: ManifestEntry[],
     order: Record<string, number>,
+    hydratedLazyKeys: Set<string>,
   ) {
     if (manifestFiles.length === 0) {
       return;
@@ -484,34 +586,41 @@ export function createDiffResources(options: DiffResourcesOptions) {
         }),
         staleTime: 0,
       });
-      if (!paramsAreCurrent(result.paramsIdentity)) {
+      if (!loadIsCurrent(loadId)) {
         return;
+      }
+      const activeHydratedLazyKeys = new Set(hydratedLazyKeys);
+      for (const key of options.currentHydratedLazyKeys()) {
+        activeHydratedLazyKeys.add(key);
       }
       const mergedFiles = hydrateLazyFiles(
         manifestFiles,
         result.payload.files,
         order,
-      );
-      options.setLoadedDiff((current) => {
-        if (current === null) {
-          return current;
+      ).filter((entry) => !activeHydratedLazyKeys.has(fileKey(entry)));
+      const originalLazyReasonByKey: Record<string, ManifestEntry["lazy"]> = {};
+      for (const file of mergedFiles) {
+        const key = fileKey(file);
+        const lazy = file.lazy;
+        if (lazy === null) {
+          throw new Error(`Lazy placeholder is missing lazy reason: ${key}.`);
         }
-        const lazyKeys = new Set(manifestFiles.map((entry) => fileKey(entry)));
-        const existingFiles = current.files.filter(
-          (entry) => !lazyKeys.has(fileKey(entry)),
-        );
-        return {
-          ...current,
-          // These FileEntry values are constructed from /api/lazy-info, not
-          // from /api/manifest.
-          files: sortFilesByOrder(
-            [...existingFiles, ...mergedFiles],
-            current.fileOrder,
-          ),
-        };
-      });
+        if (lazy === undefined) {
+          throw new Error(`Lazy placeholder is missing lazy reason: ${key}.`);
+        }
+        if (typeof lazy !== "string") {
+          throw new Error(`Lazy placeholder is missing lazy reason: ${key}.`);
+        }
+        originalLazyReasonByKey[key] = lazy;
+      }
+      options.upsertFiles(
+        mergedFiles,
+        diffParams,
+        loadId,
+        originalLazyReasonByKey,
+      );
     } catch (error) {
-      if (!paramsAreCurrent(paramsIdentity)) {
+      if (!loadIsCurrent(loadId)) {
         return;
       }
       if (isCancelledError(error)) {
@@ -528,14 +637,17 @@ export function createDiffResources(options: DiffResourcesOptions) {
 
   async function hydrateManifestFiles(
     diffParams: DiffParams,
-    paramsIdentity: string,
+    loadId: number,
     manifestFiles: ManifestEntry[],
     baseStatus: string,
     initialLoadedFiles: number,
+    hydratedLazyKeys: Set<string>,
   ) {
-    const pendingFiles = manifestFiles.filter((entry) => !entry.lazy);
+    const pendingFiles = manifestFiles.filter((entry) =>
+      shouldHydrateManifestEntry(entry, hydratedLazyKeys),
+    );
     if (pendingFiles.length === 0) {
-      if (paramsAreCurrent(paramsIdentity)) {
+      if (loadIsCurrent(loadId)) {
         setStatus("done");
         setStatusText(baseStatus);
       }
@@ -551,11 +663,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
       { length: Math.min(4, pendingFiles.length) },
       async (_, workerIndex) => {
         for (let index = workerIndex; index < pendingFiles.length; index += 4) {
-          if (!paramsAreCurrent(paramsIdentity)) {
+          if (!loadIsCurrent(loadId)) {
             return;
           }
           const entry = pendingFiles[index];
           const key = fileKey(entry);
+          const originalLazyReason = entry.lazy;
           let slowTimeout: number | null = null;
           let slowInterval: number | null = null;
           const clearSlowStatus = () => {
@@ -572,7 +685,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
             if (diffParams.engine === "difftastic") {
               const startedAt = Date.now();
               const updateSlowStatus = () => {
-                if (!paramsAreCurrent(paramsIdentity)) {
+                if (!loadIsCurrent(loadId)) {
                   clearSlowStatus();
                   return;
                 }
@@ -589,45 +702,38 @@ export function createDiffResources(options: DiffResourcesOptions) {
                 slowInterval = window.setInterval(updateSlowStatus, 1000);
               }, SLOW_FILE_DIFF_MS);
             }
+            const queryKey = fileDiffQueryKey(diffParams, entry);
+            queryClient.removeQueries({ queryKey });
             const hydrated = await queryClient.fetchQuery({
-              queryKey: fileDiffQueryKey(diffParams, entry),
+              queryKey,
               queryFn: ({ signal }) => fetchFileDiff(diffParams, entry, signal),
               retry: false,
               staleTime: 0,
             });
             clearSlowStatus();
-            if (!paramsAreCurrent(paramsIdentity)) {
+            if (!loadIsCurrent(loadId)) {
               return;
             }
             // Hydrated FileEntry construction is allowed only from
             // /api/file-diff. Do not merge in the /api/manifest entry.
-            const nextEntry = hydrated;
+            const nextEntry =
+              originalLazyReason === null
+                ? hydrated
+                : {
+                    ...hydrated,
+                    lazy_reason: originalLazyReason,
+                  };
             const nextKey = fileKey(nextEntry);
             const shouldOpenPinnedFile =
               pin !== null && fileMatchesLinePin(nextEntry, pin);
             loadedFiles += 1;
             batch(() => {
-              options.setLoadedDiff((current) => {
-                if (current === null) {
-                  return current;
-                }
-                const withoutCurrent = current.files.filter(
-                  (file) => fileKey(file) !== nextKey,
-                );
-                return {
-                  ...current,
-                  // Insert only the /api/file-diff FileEntry into the rendered
-                  // file list.
-                  files: sortFilesByOrder(
-                    [...withoutCurrent, nextEntry],
-                    current.fileOrder,
-                  ),
-                  summary: addHydratedNotebookSummary(
-                    current.summary,
-                    nextEntry,
-                  ),
-                };
-              });
+              options.upsertFile(
+                nextEntry,
+                diffParams,
+                loadId,
+                originalLazyReason,
+              );
               options.setDirectoryExpansion((current) => {
                 const directory = entryDirectoryLabel(nextEntry);
                 if (shouldOpenPinnedFile) {
@@ -653,7 +759,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
             });
           } catch (error) {
             clearSlowStatus();
-            if (!paramsAreCurrent(paramsIdentity)) {
+            if (!loadIsCurrent(loadId)) {
               return;
             }
             if (isCancelledError(error)) {
@@ -663,34 +769,22 @@ export function createDiffResources(options: DiffResourcesOptions) {
             loadedFiles += 1;
             failedDetailFiles += 1;
             batch(() => {
-              options.setLoadedDiff((current) => {
-                if (current === null) {
-                  return current;
-                }
-                const failedEntry: FileEntry = {
-                  file_kind: entry.file_kind,
-                  left_path: entry.left_path,
-                  right_path: entry.right_path,
-                  display_name: manifestDisplayName(entry),
-                  lazy: {
-                    type: "error",
-                    original: entry.lazy,
-                  },
-                };
-                const withoutCurrent = current.files.filter(
-                  (file) => fileKey(file) !== key,
-                );
-                return {
-                  ...current,
-                  // Error placeholders are the only renderable FileEntry values
-                  // constructed from /api/manifest; they reuse this manifest
-                  // handle when the user retries /api/file-diff.
-                  files: sortFilesByOrder(
-                    [...withoutCurrent, failedEntry],
-                    current.fileOrder,
-                  ),
-                };
-              });
+              const failedEntry: FileEntry = {
+                file_kind: entry.file_kind,
+                left_path: entry.left_path,
+                right_path: entry.right_path,
+                display_name: manifestDisplayName(entry),
+                lazy: {
+                  type: "error",
+                  original: entry.lazy,
+                },
+              };
+              options.upsertFile(
+                failedEntry,
+                diffParams,
+                loadId,
+                originalLazyReason,
+              );
               options.setFileExpansion((current) => ({
                 ...current,
                 [key]: true,
@@ -721,13 +815,93 @@ export function createDiffResources(options: DiffResourcesOptions) {
       },
     );
     await Promise.all(workers);
-    if (paramsAreCurrent(paramsIdentity)) {
+    if (loadIsCurrent(loadId)) {
       setStatus(hasFailure ? "error" : "done");
       if (!hasFailure) {
         setStatusText(baseStatus);
       }
     }
   }
+
+  const hydrateFile = (file: RenderedFileEntry) => {
+    const diffParams = currentParams();
+    if (diffParams === null) {
+      return;
+    }
+    if (file.sourceLoadId !== activeLoadId) {
+      return;
+    }
+    const loadId = activeLoadId;
+    const key = fileKey(file);
+    const originalLazyReason = lazyOriginalReasonForHydration(file);
+    const lazyFetchEntry: ManifestEntry = {
+      file_kind: file.file_kind,
+      left_path: file.left_path,
+      right_path: file.right_path,
+      lazy: originalLazyReason,
+    };
+    batch(() => {
+      setLoadingFiles((current) => ({
+        ...current,
+        [key]: true,
+      }));
+      setFileErrors((current) => ({
+        ...current,
+        [key]: "",
+      }));
+    });
+    void (async () => {
+      try {
+        const queryKey = fileDiffQueryKey(diffParams, lazyFetchEntry);
+        queryClient.removeQueries({ queryKey });
+        const hydrated = await queryClient.fetchQuery({
+          queryKey,
+          queryFn: ({ signal }) =>
+            fetchFileDiff(
+              diffParams,
+              lazyFetchEntry,
+              signal,
+              MANUAL_FILE_DIFF_TIMEOUT_MS,
+            ),
+          retry: false,
+          staleTime: 0,
+        });
+        if (!loadIsCurrent(loadId)) {
+          return;
+        }
+        const nextEntry =
+          originalLazyReason === null
+            ? hydrated
+            : {
+                ...hydrated,
+                lazy_reason: originalLazyReason,
+              };
+        options.upsertFile(nextEntry, diffParams, loadId, originalLazyReason);
+      } catch (error) {
+        if (!loadIsCurrent(loadId)) {
+          return;
+        }
+        if (isCancelledError(error)) {
+          return;
+        }
+        setFileErrors((current) => ({
+          ...current,
+          [key]:
+            error instanceof Error
+              ? error.message
+              : "Failed to load file diff.",
+        }));
+      } finally {
+        if (!loadIsCurrent(loadId)) {
+          return;
+        }
+        setLoadingFiles((current) => ({
+          ...current,
+          [key]: false,
+        }));
+      }
+    })();
+  };
 
   const loadAgainstHead = (selectedEngine: DiffEngine = engine()) => {
     const repoId = selectedRepoIdOrIdle();
@@ -898,7 +1072,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     if (diffParams === null) {
       return;
     }
-    startDiff(diffParams);
+    refreshDiff(diffParams, "Refreshing diff...");
   };
 
   const loadEngine = (nextEngine: DiffEngine) => {
@@ -909,7 +1083,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
         ...diffParams,
         engine: nextEngine,
       };
-      startDiff(nextDiffParams);
+      refreshDiff(nextDiffParams, "Switching diff engine...");
     }
   };
 
@@ -917,10 +1091,9 @@ export function createDiffResources(options: DiffResourcesOptions) {
     engine,
     currentParams,
     currentParamsIdentity,
-    loadingFiles,
-    setLoadingFiles,
-    fileErrors,
-    setFileErrors,
+    loadingFiles: fileState.loadingFiles,
+    fileErrors: fileState.fileErrors,
+    loadingRevision,
     status,
     statusText,
     resetDiffState,
@@ -930,6 +1103,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     loadRefs,
     loadBranchReview,
     loadInitialControls,
+    hydrateFile,
     reloadDiff,
     loadEngine,
     replaceUrlForCurrentParams,

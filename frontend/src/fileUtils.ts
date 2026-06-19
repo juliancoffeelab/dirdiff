@@ -6,6 +6,7 @@ import type {
   FileEntry,
   FileKind,
   FoldHint,
+  LazyReason,
   ManifestEntry,
   NotebookSummary,
   PresetType,
@@ -32,11 +33,19 @@ export type ControlsState = {
 export type LoadedDiff = {
   params: DiffParams;
   // Rendered file cards are built from FileEntry values only.
-  files: FileEntry[];
+  files: RenderedFileEntry[];
   // ManifestEntry values are only handles for fetching enough file data later.
   lazyFiles: ManifestEntry[];
   fileOrder: Record<string, number>;
   summary: Summary;
+};
+export type RenderedFileEntry = FileEntry & {
+  renderedKey: string;
+  sourceParams: DiffParams;
+  sourceParamsIdentity: string;
+  sourceEngine: DiffEngine;
+  sourceLoadId: number;
+  originalLazyReason: LazyReason | null;
 };
 
 export type AutocompleteGroup = [string, string[]];
@@ -47,7 +56,7 @@ export type LinePin = {
 };
 export type FileGroup = {
   label: string;
-  files: FileEntry[];
+  files: RenderedFileEntry[];
 };
 
 export const modeLabels: Record<DiffMode, string> = {
@@ -136,6 +145,13 @@ export function fileRows(entry: FileEntry): DiffRow[] {
     throw new Error(`${fileDisplayName(entry)} is missing diff rows.`);
   }
   return entry.rows;
+}
+
+export function fileEntryIsHydrated(entry: FileEntry): boolean {
+  if (entry.render_kind === "notebook") {
+    return true;
+  }
+  return entry.rows !== undefined;
 }
 
 export function addHydratedNotebookSummary(
@@ -272,8 +288,10 @@ export function fileDiffQueryKey(
   ] as const;
 }
 
-export function groupFilesByLabel(files: FileEntry[]): Map<string, FileGroup> {
-  const groups = new Map<string, FileEntry[]>();
+export function groupFilesByLabel(
+  files: RenderedFileEntry[],
+): Map<string, FileGroup> {
+  const groups = new Map<string, RenderedFileEntry[]>();
   for (const file of files) {
     const label = entryDirectoryLabel(file);
     const groupFiles = groups.get(label);
