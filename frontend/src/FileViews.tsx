@@ -209,7 +209,6 @@ export function FileList(props: {
   setLoadingFiles: ExpansionSetter;
   setFileErrors: StringMapSetter;
   updateLoadedDiff: LoadedDiffSetter;
-  onSetAllExpanded: (expanded: boolean) => void;
 }) {
   const groupsByLabel = createMemo(() => groupFilesByLabel(props.files));
   const groupLabels = createMemo(() => [...groupsByLabel().keys()]);
@@ -241,14 +240,6 @@ export function FileList(props: {
         when={props.files.length > 0}
         fallback={<p class="empty">No files loaded yet.</p>}
       >
-        <div class="repo-fold-controls">
-          <button type="button" onClick={() => props.onSetAllExpanded(false)}>
-            Fold all
-          </button>
-          <button type="button" onClick={() => props.onSetAllExpanded(true)}>
-            Show all
-          </button>
-        </div>
         <div class="directory-groups">
           <For each={groupLabels()}>
             {(label) => (
@@ -371,6 +362,7 @@ export function FileTreeSidebar(props: {
   fileExpansion: Record<string, boolean>;
   activeHunkFileId: string | null;
   virtualizedFileIds: string[];
+  viewMode: DiffViewMode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   setDirectoryExpansion: ExpansionSetter;
@@ -429,7 +421,13 @@ export function FileTreeSidebar(props: {
 
   return (
     <Show when={props.files.length > 0}>
-      <div class="file-tree-shell" classList={{ open: props.open }}>
+      <div
+        class="file-tree-shell"
+        classList={{
+          open: props.open,
+          "file-tree-shell-inline": props.viewMode === "inline",
+        }}
+      >
         <Show when={props.open}>
           <aside
             id="fileTreeSidebar"
