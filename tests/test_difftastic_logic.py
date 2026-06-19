@@ -2113,7 +2113,8 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
                             "line_number": 1,
                             "changes": [
                                 {"start": 16, "end": 27},
-                                {"start": 31, "end": 58},
+                                {"start": 31, "end": 57},
+                                {"start": 57, "end": 58},
                             ],
                         },
                     },
@@ -2126,7 +2127,12 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
                     {
                         "rhs": {
                             "line_number": 3,
-                            "changes": [{"start": 12, "end": 32}],
+                            "changes": [
+                                {"start": 12, "end": 21},
+                                {"start": 21, "end": 22},
+                                {"start": 22, "end": 31},
+                                {"start": 31, "end": 32},
+                            ],
                         },
                     },
                     {
@@ -2357,8 +2363,7 @@ def test_difftastic_rows_keep_moved_show_wrapper_lines_as_replacements() -> (
                 {"text": "file", "status": "delete", "is_ws": False},
                 {"text": "}", "status": "delete", "is_ws": False},
                 {"text": " ", "status": "unchanged", "is_ws": True},
-                {"text": "/", "status": "delete", "is_ws": False},
-                {"text": ">", "status": "delete", "is_ws": False},
+                {"text": "/>", "status": "delete", "is_ws": False},
                 {"text": "}", "status": "delete", "is_ws": False},
             ],
         },
@@ -2739,7 +2744,12 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
                     {
                         "rhs": {
                             "line_number": 4,
-                            "changes": [{"start": 12, "end": 32}],
+                            "changes": [
+                                {"start": 12, "end": 21},
+                                {"start": 21, "end": 22},
+                                {"start": 22, "end": 31},
+                                {"start": 31, "end": 32},
+                            ],
                         },
                     },
                     {
@@ -2757,7 +2767,8 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
                             "line_number": 2,
                             "changes": [
                                 {"start": 16, "end": 27},
-                                {"start": 31, "end": 58},
+                                {"start": 31, "end": 57},
+                                {"start": 57, "end": 58},
                             ],
                         },
                     },

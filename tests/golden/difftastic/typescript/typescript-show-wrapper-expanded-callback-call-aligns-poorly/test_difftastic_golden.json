@@ -215,52 +215,12 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "No"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
+        "text": "No files loaded yet."
       },
       {
         "is_ws": false,
         "status": "insert",
-        "text": "files"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "loaded"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "yet"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -1956,12 +1916,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,

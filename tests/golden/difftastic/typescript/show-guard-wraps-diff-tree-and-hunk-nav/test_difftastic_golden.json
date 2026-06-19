@@ -91,17 +91,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "!"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
+        "text": "!=="
       },
       {
         "is_ws": true,
@@ -3191,12 +3181,7 @@
       {
         "is_ws": false,
         "status": "replace",
-        "text": "/"
-      },
-      {
-        "is_ws": false,
-        "status": "replace",
-        "text": ">"
+        "text": "/>"
       }
     ],
     "right_no": 41,
@@ -3210,12 +3195,7 @@
       {
         "is_ws": false,
         "status": "replace",
-        "text": "/"
-      },
-      {
-        "is_ws": false,
-        "status": "replace",
-        "text": ">"
+        "text": "/>"
       }
     ],
     "status": "replace"
@@ -3232,12 +3212,7 @@
       {
         "is_ws": false,
         "status": "replace",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "replace",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3261,12 +3236,7 @@
       {
         "is_ws": false,
         "status": "replace",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "replace",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3940,12 +3910,7 @@
       {
         "is_ws": false,
         "status": "replace",
-        "text": "/"
-      },
-      {
-        "is_ws": false,
-        "status": "replace",
-        "text": ">"
+        "text": "/>"
       }
     ],
     "right_no": 50,
@@ -3959,12 +3924,7 @@
       {
         "is_ws": false,
         "status": "replace",
-        "text": "/"
-      },
-      {
-        "is_ws": false,
-        "status": "replace",
-        "text": ">"
+        "text": "/>"
       }
     ],
     "status": "replace"
@@ -3983,12 +3943,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,

@@ -265,12 +265,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "&"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "&"
+        "text": "&&"
       },
       {
         "is_ws": false,
@@ -324,17 +319,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
+        "text": "..."
       },
       {
         "is_ws": false,
@@ -379,12 +364,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ">"
+        "text": "=>"
       },
       {
         "is_ws": true,
@@ -424,17 +404,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
+        "text": "..."
       },
       {
         "is_ws": false,

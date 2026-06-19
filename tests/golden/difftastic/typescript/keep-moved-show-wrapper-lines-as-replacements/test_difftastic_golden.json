@@ -298,12 +298,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "/"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": ">"
+        "text": "/>"
       },
       {
         "is_ws": false,

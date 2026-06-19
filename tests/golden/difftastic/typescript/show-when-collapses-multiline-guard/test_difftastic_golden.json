@@ -116,12 +116,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "&"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "&"
+        "text": "&&"
       }
     ],
     "right_no": 13,
@@ -170,17 +165,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "!"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "="
+        "text": "!=="
       },
       {
         "is_ws": true,

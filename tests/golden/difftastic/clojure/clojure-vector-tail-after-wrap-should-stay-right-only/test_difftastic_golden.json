@@ -11,17 +11,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "foo"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "bar"
+        "text": "foo-bar"
       },
       {
         "is_ws": true,
@@ -73,17 +63,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "foo"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "baz"
+        "text": "foo-baz"
       },
       {
         "is_ws": false,

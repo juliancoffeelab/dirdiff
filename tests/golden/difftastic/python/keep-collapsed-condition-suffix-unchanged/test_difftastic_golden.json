@@ -185,12 +185,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ">"
+        "text": "->"
       },
       {
         "is_ws": true,
@@ -409,12 +404,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ">"
+        "text": "->"
       },
       {
         "is_ws": true,
@@ -571,102 +561,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "entry"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "display_name"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "}"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "has"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "entry"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "changed_lines"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "}"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "changed"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "lines"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "\""
+        "text": "f\"{entry.display_name} has {entry.changed_lines} changed lines\""
       }
     ],
     "status": "insert"
@@ -1110,112 +1005,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "entry"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "display_name"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "}"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "has"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "entry"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "changed_lines"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "}"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "changed"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "lines"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": ","
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "\""
+        "text": "f\"{entry.display_name} has {entry.changed_lines} changed lines, \""
       }
     ],
     "right_no": null,

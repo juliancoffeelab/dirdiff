@@ -100,7 +100,6 @@ type _Side = Literal["left", "right"]
 
 _ATOM_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S")
 _WORD_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
-_EMPTY_CALL_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\(\)")
 _GAP_PAIR_MIN_RATIO = 0.15
 _CONTEXT_PUNCTUATION_LITERALS = (
     "={{",
@@ -229,6 +228,9 @@ class _FragmentMatch:
 
 def _difftastic_engine_warning(
     diff_json: DifftasticJson,
+    *,
+    left_text: str | None = None,
+    right_text: str | None = None,
 ) -> dict[str, str] | None:
     language = diff_json.get("language")
     if isinstance(language, str) and "exceeded DFT_GRAPH_LIMIT" in language:
@@ -1041,35 +1043,9 @@ def _append_changed_token(
     text: str,
     status: DifftasticTokenStatus,
 ) -> None:
-    if status == "unchanged":
-        _append_token(tokens, text=text, status=status)
-        return
-    if not _should_split_changed_text(text):
-        _append_token(tokens, text=text, status=status)
-        return
-
-    cursor = 0
-    for match in _ATOM_PATTERN.finditer(text):
-        if match.start() > cursor:
-            _append_token(
-                tokens,
-                text=text[cursor : match.start()],
-                status=status,
-            )
-        _append_token(tokens, text=match.group(0), status=status)
-        cursor = match.end()
-    if cursor < len(text):
-        _append_token(tokens, text=text[cursor:], status=status)
-
-
-def _should_split_changed_text(text: str) -> bool:
-    if text == "":
-        return False
-    if len(text) >= 2 and text[0] in {"'", '"'} and text[-1] == text[0]:
-        return False
-    if _EMPTY_CALL_PATTERN.fullmatch(text) is not None:
-        return False
-    return _WORD_PATTERN.fullmatch(text) is None
+    # Difftastic's changed spans are the semantic boundary. Preserve that
+    # exact source slice instead of splitting punctuation clusters like `&&`.
+    _append_token(tokens, text=text, status=status)
 
 
 def _row_status(
@@ -2985,5 +2961,9 @@ def build_difftastic_ast(
     )
     return DifftasticAst(
         rows=rows,
-        engine_warning=_difftastic_engine_warning(diff_json),
+        engine_warning=_difftastic_engine_warning(
+            diff_json,
+            left_text=left_text,
+            right_text=right_text,
+        ),
     )

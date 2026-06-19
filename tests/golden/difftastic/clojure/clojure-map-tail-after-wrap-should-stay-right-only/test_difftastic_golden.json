@@ -21,12 +21,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": ":"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "tail"
+        "text": ":tail"
       },
       {
         "is_ws": true,
@@ -78,17 +73,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "thing"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "changed"
+        "text": "thing-changed"
       },
       {
         "is_ws": false,

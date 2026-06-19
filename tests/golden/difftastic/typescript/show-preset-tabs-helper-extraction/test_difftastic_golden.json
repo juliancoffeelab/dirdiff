@@ -107,17 +107,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "="
+        "text": "==="
       },
       {
         "is_ws": true,
@@ -186,12 +176,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ">"
+        "text": "=>"
       },
       {
         "is_ws": true,
@@ -354,42 +339,12 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "Loading"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
+        "text": "Loading presets..."
       },
       {
         "is_ws": false,
         "status": "delete",
-        "text": "presets"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -418,12 +373,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -502,17 +452,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "!"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "="
+        "text": "!=="
       },
       {
         "is_ws": false,
@@ -566,17 +506,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
+        "text": "==="
       },
       {
         "is_ws": false,
@@ -677,54 +607,9 @@
     "left_text": "          Failed to load presets: {String(props.presetCatalogsError)}",
     "left_tokens": [
       {
-        "is_ws": true,
-        "status": "delete",
-        "text": "          "
-      },
-      {
         "is_ws": false,
         "status": "delete",
-        "text": "Failed"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "to"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "load"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "presets"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": ":"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
+        "text": "          Failed to load presets: "
       },
       {
         "is_ws": false,
@@ -784,12 +669,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -818,12 +698,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -916,27 +791,12 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "Preset"
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": " "
+        "text": "Preset type"
       },
       {
         "is_ws": false,
         "status": "delete",
-        "text": "type"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -1049,12 +909,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": ">"
+        "text": "=>"
       },
       {
         "is_ws": true,
@@ -1148,12 +1003,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -1206,12 +1056,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -1240,12 +1085,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -1368,12 +1208,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": ">"
+        "text": "=>"
       },
       {
         "is_ws": false,
@@ -3123,12 +2958,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3157,12 +2987,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3331,17 +3156,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
+        "text": "==="
       },
       {
         "is_ws": true,
@@ -3484,42 +3299,12 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "Loading"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
+        "text": "Loading presets..."
       },
       {
         "is_ws": false,
         "status": "insert",
-        "text": "presets"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3548,12 +3333,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3632,17 +3412,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "!"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
+        "text": "!=="
       },
       {
         "is_ws": true,
@@ -3723,54 +3493,9 @@
     "right_text": "          Failed to load presets: {String(props.presetCatalogsError)}",
     "right_tokens": [
       {
-        "is_ws": true,
-        "status": "insert",
-        "text": "          "
-      },
-      {
         "is_ws": false,
         "status": "insert",
-        "text": "Failed"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "to"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "load"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "presets"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ":"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
+        "text": "          Failed to load presets: "
       },
       {
         "is_ws": false,
@@ -3829,12 +3554,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3863,12 +3583,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -3961,27 +3676,12 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "Preset"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
+        "text": "Preset type"
       },
       {
         "is_ws": false,
         "status": "insert",
-        "text": "type"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -4094,12 +3794,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ">"
+        "text": "=>"
       },
       {
         "is_ws": true,
@@ -4193,12 +3888,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -4251,12 +3941,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -4285,12 +3970,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -4358,12 +4038,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,

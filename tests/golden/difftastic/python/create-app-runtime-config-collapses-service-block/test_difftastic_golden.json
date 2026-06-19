@@ -416,12 +416,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "="
+        "text": "=="
       },
       {
         "is_ws": true,
@@ -718,12 +713,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ">"
+        "text": "->"
       },
       {
         "is_ws": true,
@@ -1688,107 +1678,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "Cannot"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "derive"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "a"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "repo"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "name"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "from"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "path"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ":"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "resolved_path"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "}"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "\""
+        "text": "f\"Cannot derive a repo name from path: {resolved_path}\""
       }
     ],
     "status": "insert"
@@ -1800,14 +1690,9 @@
     "right_text": "            )",
     "right_tokens": [
       {
-        "is_ws": true,
-        "status": "insert",
-        "text": "            "
-      },
-      {
         "is_ws": false,
         "status": "insert",
-        "text": ")"
+        "text": "            )"
       }
     ],
     "status": "insert"
@@ -2498,97 +2383,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "Marked"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "repo"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "mark"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "id"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "}"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ":"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "mark"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "path"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "}"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "\""
+        "text": "f\"Marked repo {mark.id}: {mark.path}\""
       },
       {
         "is_ws": false,

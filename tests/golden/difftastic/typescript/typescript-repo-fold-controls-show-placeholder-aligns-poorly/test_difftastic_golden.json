@@ -376,24 +376,9 @@
     "right_text": "                Fold all",
     "right_tokens": [
       {
-        "is_ws": true,
-        "status": "insert",
-        "text": "                "
-      },
-      {
         "is_ws": false,
         "status": "insert",
-        "text": "Fold"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "all"
+        "text": "                Fold all"
       }
     ],
     "status": "insert"
@@ -412,12 +397,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -498,24 +478,9 @@
     "right_text": "                Show all",
     "right_tokens": [
       {
-        "is_ws": true,
-        "status": "insert",
-        "text": "                "
-      },
-      {
         "is_ws": false,
         "status": "insert",
-        "text": "Show"
-      },
-      {
-        "is_ws": true,
-        "status": "insert",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "all"
+        "text": "                Show all"
       }
     ],
     "status": "insert"
@@ -534,12 +499,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -568,12 +528,7 @@
       {
         "is_ws": false,
         "status": "insert",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "/"
+        "text": "</"
       },
       {
         "is_ws": false,
@@ -609,14 +564,9 @@
     "right_text": "        >",
     "right_tokens": [
       {
-        "is_ws": true,
-        "status": "insert",
-        "text": "        "
-      },
-      {
         "is_ws": false,
         "status": "insert",
-        "text": ">"
+        "text": "        >"
       }
     ],
     "status": "insert"
