@@ -5,13 +5,13 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any
 
-from dirdiff.sources import TextDiffError
-from dirdiff.textdiff import (
+from dirdiff.services.textdiff import (
     _build_rows_payload,
     _canonical_json,
     _count_changed_rows_and_hunks,
     _default_expanded_for_payload,
 )
+from dirdiff.sources import TextDiffError
 
 
 def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:

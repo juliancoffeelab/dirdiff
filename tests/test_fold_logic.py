@@ -1,4 +1,4 @@
-from dirdiff.diff import build_loaded_diff
+from dirdiff.services import build_loaded_diff
 
 
 def test_fold_hints_include_unchanged_top_level_function_body() -> None:

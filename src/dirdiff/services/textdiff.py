@@ -2,11 +2,28 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Any, Literal
 
 from dirdiff.fold import FoldHint, fold_hints_for_path
 from dirdiff.highlight import highlight_lines_for_path
+from dirdiff.services.base import (
+    DiffServiceProtocol,
+    _file_kind_for_change_type,
+    _perf_log,
+    build_lazy_info_for_service,
+    build_repo_manifest_for_service,
+)
+from dirdiff.sources import (
+    RepoDiffPath,
+    SideName,
+    TextDiffError,
+    TextVersion,
+    WorkspaceBackend,
+    _display_name_for_repo_paths,
+)
 
 INLINE_TOKEN_PATTERN = re.compile(r"\w+|\s+|[^\w\s]+", flags=re.UNICODE)
 INLINE_IDENTIFIER_PART_PATTERN = re.compile(
@@ -1071,3 +1088,375 @@ def _row_has_any_change(row: dict[str, Any]) -> bool:
         token.get("status") != "unchanged"
         for token in row.get("left_tokens", []) + row.get("right_tokens", [])
     )
+
+
+def build_loaded_diff(
+    *,
+    display_name: str,
+    mode: str,
+    left_label: str,
+    right_label: str,
+    left_exists: bool,
+    right_exists: bool,
+    left_text: str | None,
+    right_text: str | None,
+    left_path_hint: str | None = None,
+    right_path_hint: str | None = None,
+) -> dict[str, Any]:
+    if _looks_like_notebook_path(right_path_hint) or _looks_like_notebook_path(
+        left_path_hint
+    ):
+        from dirdiff.notebooks import _build_notebook_diff_payload
+
+        notebook_payload = _build_notebook_diff_payload(
+            display_name=display_name,
+            mode=mode,
+            left_label=left_label,
+            right_label=right_label,
+            left_exists=left_exists,
+            right_exists=right_exists,
+            left_text=left_text,
+            right_text=right_text,
+        )
+        if notebook_payload is not None:
+            return notebook_payload
+
+    rows_payload = _build_rows_payload(
+        left_text=left_text or "",
+        right_text=right_text or "",
+        left_path_hint=left_path_hint,
+        right_path_hint=right_path_hint,
+    )
+    payload = {
+        "display_name": display_name,
+        "mode": mode,
+        "left_label": left_label,
+        "right_label": right_label,
+        "summary": {
+            "changed_lines": rows_payload["changed_lines"],
+            "modified_lines": rows_payload["modified_lines"],
+            "added_lines": rows_payload["added_lines"],
+            "removed_lines": rows_payload["removed_lines"],
+            "left_exists": left_exists,
+            "right_exists": right_exists,
+        },
+        "rows": rows_payload["rows"],
+    }
+    payload["default_expanded"] = _default_expanded_for_payload(payload)
+    if "render_mode" in rows_payload:
+        payload["render_mode"] = rows_payload["render_mode"]
+    if "truncated_rows" in rows_payload:
+        payload["truncated_rows"] = rows_payload["truncated_rows"]
+    if "fold_hints" in rows_payload:
+        payload["fold_hints"] = rows_payload["fold_hints"]
+    return payload
+
+
+class TextDiffService(DiffServiceProtocol):
+    def __init__(self, repo: WorkspaceBackend) -> None:
+        self.repo = repo
+
+    @property
+    def repo_root(self) -> Path | None:
+        return self.repo.repo_root
+
+    @property
+    def cwd(self) -> Path:
+        return self.repo.cwd
+
+    def normalize_side(self, raw_side: str) -> SideName:
+        return self.repo.normalize_side(raw_side)
+
+    def discover_default_path(self) -> str:
+        return self.repo.discover_default_path()
+
+    def current_branch_name(self) -> str:
+        return self.repo.current_branch_name()
+
+    def list_branch_names(self) -> list[str]:
+        return self.repo.list_branch_names()
+
+    def list_remote_ref_names(self) -> list[str]:
+        return self.repo.list_remote_ref_names()
+
+    def list_remote_names(self) -> list[str]:
+        return self.repo.list_remote_names()
+
+    def list_ref_choices(self) -> dict[str, list[str]]:
+        return self.repo.list_ref_choices()
+
+    def default_remote_name(self) -> str:
+        return self.repo.default_remote_name()
+
+    def branch_upstream_name(self, branch_name: str) -> str:
+        return self.repo.branch_upstream_name(branch_name)
+
+    def default_base_branch(self) -> str:
+        return self.repo.default_base_branch()
+
+    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
+        return self.repo.preferred_review_branch(base_branch=base_branch)
+
+    def resolve_branch_diff_sides(
+        self,
+        *,
+        base_branch: str,
+        branch: str,
+    ) -> tuple[str, str]:
+        return self.repo.resolve_branch_diff_sides(
+            base_branch=base_branch,
+            branch=branch,
+        )
+
+    def list_repo_diff_paths(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        show_untracked: bool = False,
+    ) -> list[RepoDiffPath]:
+        return self.repo.list_repo_diff_paths(
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )
+
+    def normalize_repo_path(self, raw_path: str) -> str:
+        return self.repo.normalize_repo_path(raw_path)
+
+    def load_version(self, path: str, side: SideName) -> TextVersion:
+        return self.repo.load_version(path, side)
+
+    def build_git_diff_paths(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None = None,
+        change_type: str = "modify",
+        file_kind: str | None = None,
+    ) -> dict[str, Any]:
+        started_at = time.perf_counter()
+        normalized_left = (
+            self.normalize_repo_path(left_path)
+            if left_path is not None
+            else None
+        )
+        normalized_right = (
+            self.normalize_repo_path(right_path)
+            if right_path is not None
+            else None
+        )
+        normalized_left_side = self.normalize_side(left)
+        normalized_right_side = self.normalize_side(right)
+        left_version = (
+            self.load_version(normalized_left, normalized_left_side)
+            if normalized_left is not None
+            else TextVersion(
+                label=normalized_left_side, exists=False, text=None
+            )
+        )
+        right_version = (
+            self.load_version(normalized_right, normalized_right_side)
+            if normalized_right is not None
+            else TextVersion(
+                label=normalized_right_side, exists=False, text=None
+            )
+        )
+
+        if left_version.error:
+            raise TextDiffError(left_version.error)
+        if right_version.error:
+            raise TextDiffError(right_version.error)
+        if not left_version.exists and not right_version.exists:
+            raise TextDiffError("The selected file is missing on both sides.")
+
+        payload = build_loaded_diff(
+            display_name=display_name
+            or _display_name_for_repo_paths(normalized_left, normalized_right),
+            mode="git",
+            left_label=normalized_left_side,
+            right_label=normalized_right_side,
+            left_exists=left_version.exists,
+            right_exists=right_version.exists,
+            left_text=left_version.text,
+            right_text=right_version.text,
+            left_path_hint=normalized_left,
+            right_path_hint=normalized_right,
+        )
+        payload["file_kind"] = _file_kind_for_change_type(
+            change_type,
+            file_kind=file_kind,
+        )
+        payload["left_path"] = normalized_left
+        payload["right_path"] = normalized_right
+        left_text = left_version.text or ""
+        right_text = right_version.text or ""
+        row_groups: list[list[dict[str, Any]]] = []
+        if payload.get("render_kind") == "notebook":
+            if payload.get("notebook_metadata_rows"):
+                row_groups.append(payload["notebook_metadata_rows"])
+            for cell in payload.get("cells", []):
+                row_groups.append(cell.get("source_rows", []))
+                if cell.get("metadata_rows"):
+                    row_groups.append(cell["metadata_rows"])
+                if cell.get("outputs_rows"):
+                    row_groups.append(cell["outputs_rows"])
+        else:
+            row_groups.append(payload["rows"])
+
+        row_count = sum(len(rows) for rows in row_groups)
+        syntax_span_count = sum(
+            len(row.get("left_syntax", ())) + len(row.get("right_syntax", ()))
+            for rows in row_groups
+            for row in rows
+        )
+        token_count = sum(
+            len(row.get("left_tokens", ())) + len(row.get("right_tokens", ()))
+            for rows in row_groups
+            for row in rows
+        )
+        payload_bytes = _payload_size_bytes(payload)
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        _perf_log(
+            "file"
+            f" name={payload['display_name']!r}"
+            f" change={change_type}"
+            f" rows={row_count}"
+            f" left_chars={len(left_text)}"
+            f" right_chars={len(right_text)}"
+            f" syntax_spans={syntax_span_count}"
+            f" diff_tokens={token_count}"
+            f" payload_bytes={payload_bytes}"
+            f" elapsed_ms={elapsed_ms:.1f}"
+        )
+        return payload
+
+    def _load_git_notebook_context(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+    ) -> dict[str, Any]:
+        normalized_left = (
+            self.normalize_repo_path(left_path)
+            if left_path is not None
+            else None
+        )
+        normalized_right = (
+            self.normalize_repo_path(right_path)
+            if right_path is not None
+            else None
+        )
+        normalized_left_side = self.normalize_side(left)
+        normalized_right_side = self.normalize_side(right)
+        left_version = (
+            self.load_version(normalized_left, normalized_left_side)
+            if normalized_left is not None
+            else TextVersion(
+                label=normalized_left_side, exists=False, text=None
+            )
+        )
+        right_version = (
+            self.load_version(normalized_right, normalized_right_side)
+            if normalized_right is not None
+            else TextVersion(
+                label=normalized_right_side, exists=False, text=None
+            )
+        )
+
+        if left_version.error:
+            raise TextDiffError(left_version.error)
+        if right_version.error:
+            raise TextDiffError(right_version.error)
+        if not left_version.exists and not right_version.exists:
+            raise TextDiffError("The selected file is missing on both sides.")
+
+        from dirdiff.notebooks import _normalize_notebook_document
+
+        left_notebook = (
+            _normalize_notebook_document(left_version.text)
+            if left_version.exists
+            else None
+        )
+        right_notebook = (
+            _normalize_notebook_document(right_version.text)
+            if right_version.exists
+            else None
+        )
+        if left_version.exists and left_notebook is None:
+            raise TextDiffError(
+                f"Could not parse notebook on {normalized_left_side}."
+            )
+        if right_version.exists and right_notebook is None:
+            raise TextDiffError(
+                f"Could not parse notebook on {normalized_right_side}."
+            )
+
+        return {
+            "left_path": normalized_left,
+            "right_path": normalized_right,
+            "left_label": normalized_left_side,
+            "right_label": normalized_right_side,
+            "left_notebook": left_notebook,
+            "right_notebook": right_notebook,
+        }
+
+    def build_notebook_section_diff(
+        self,
+        *,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        section: str | None,
+        cell_key: str | None = None,
+    ) -> dict[str, Any]:
+        from dirdiff.notebooks import build_notebook_section_payload
+
+        context = self._load_git_notebook_context(
+            left_path=left_path,
+            right_path=right_path,
+            left=left,
+            right=right,
+        )
+        return build_notebook_section_payload(
+            left_notebook=context["left_notebook"],
+            right_notebook=context["right_notebook"],
+            left_label=context["left_label"],
+            right_label=context["right_label"],
+            section=section,
+            cell_key=cell_key,
+        )
+
+    def build_repo_manifest(
+        self,
+        *,
+        left: str,
+        right: str,
+        show_untracked: bool = False,
+    ) -> dict[str, Any]:
+        return build_repo_manifest_for_service(
+            self,
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )
+
+    def build_lazy_info(
+        self,
+        *,
+        left: str,
+        right: str,
+        show_untracked: bool = False,
+    ) -> dict[str, Any]:
+        return build_lazy_info_for_service(
+            self,
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )

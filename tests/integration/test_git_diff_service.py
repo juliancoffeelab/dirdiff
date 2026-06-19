@@ -2,7 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
-from dirdiff.diff import GitBackend, GitDiffService, TextDiffService
+from dirdiff.services import GitDiffService, TextDiffService
+from dirdiff.sources import GitBackend
 
 
 def test_build_repo_manifest_lists_changed_tracked_files(

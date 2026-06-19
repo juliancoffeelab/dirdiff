@@ -9,10 +9,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from dirdiff.services.textdiff import _paired_line_row
 from dirdiff.sources import TextDiffError
-from dirdiff.textdiff import _paired_line_row
 
 DFT_GRAPH_LIMIT = "10000000"
+
+
+@dataclass(frozen=True)
+class DifftasticAst:
+    rows: list[dict[str, Any]]
+    engine_warning: dict[str, str] | None
 
 
 def _difftastic_changed_token_parts(text: str) -> list[str]:
@@ -2220,7 +2226,7 @@ def _difftastic_rows_from_json(
     )
 
 
-def run_difftastic_json(
+def _run_difftastic_json(
     *,
     left_text: str,
     right_text: str,
@@ -2282,3 +2288,27 @@ def run_difftastic_json(
     if isinstance(parsed, dict):
         return parsed
     raise TextDiffError("Difftastic returned an unexpected JSON payload.")
+
+
+def build_difftastic_ast(
+    *,
+    left_text: str,
+    right_text: str,
+    left_path_hint: str | None,
+    right_path_hint: str | None,
+) -> DifftasticAst:
+    diff_json = _run_difftastic_json(
+        left_text=left_text,
+        right_text=right_text,
+        left_path_hint=left_path_hint,
+        right_path_hint=right_path_hint,
+    )
+    rows = _difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
+    )
+    return DifftasticAst(
+        rows=rows,
+        engine_warning=_difftastic_engine_warning(diff_json),
+    )

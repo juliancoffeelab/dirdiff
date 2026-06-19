@@ -4,11 +4,9 @@ from typing import Any, Literal
 
 import pytest
 
-from dirdiff.diff import (
-    DifftasticDiffService,
-    PresetBackend,
-    _difftastic_rows_from_json,
-)
+from dirdiff.services.difftastic import DifftasticDiffService
+from dirdiff.services.difftastic.logic import _difftastic_rows_from_json
+from dirdiff.sources import PresetBackend
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 Side = Literal["left", "right"]

@@ -8,7 +8,7 @@ import pytest
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
-from dirdiff.diff import build_loaded_diff
+from dirdiff.services import build_loaded_diff
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "folds"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "folds"

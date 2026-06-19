@@ -1,11 +1,13 @@
 import re
 from pathlib import Path
 
-from dirdiff.diff import (
-    DifftasticDiffService,
-    PresetBackend,
+from dirdiff.services.difftastic import DifftasticDiffService
+from dirdiff.services.difftastic.logic import (
     _difftastic_engine_warning,
     _difftastic_rows_from_json,
+)
+from dirdiff.sources import (
+    PresetBackend,
 )
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"

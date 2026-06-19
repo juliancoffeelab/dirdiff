@@ -2,16 +2,28 @@ from __future__ import annotations
 
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 from dirdiff.services.base import (
-    TextDiffService,
+    DiffServiceProtocol,
     _file_kind_for_change_type,
     _perf_log,
+    build_lazy_info_for_service,
+    build_repo_manifest_for_service,
+)
+from dirdiff.services.textdiff import (
+    _build_git_rows_payload,
+    _default_expanded_for_payload,
+    _git_style_line_rows,
+    _parse_git_patch_rows,
+    _payload_size_bytes,
+    _plain_line_rows_for_side,
 )
 from dirdiff.sources import (
     GitBackend,
     PresetBackend,
+    RepoDiffPath,
     SideName,
     TextDiffError,
     TextVersion,
@@ -20,22 +32,112 @@ from dirdiff.sources import (
     _display_name_for_repo_paths,
     git_diff_args_with_direction,
 )
-from dirdiff.textdiff import (
-    _build_git_rows_payload,
-    _default_expanded_for_payload,
-    _git_style_line_rows,
-    _parse_git_patch_rows,
-    _payload_size_bytes,
-    _plain_line_rows_for_side,
-)
 
 
-class GitDiffService(TextDiffService):
+class GitDiffService(DiffServiceProtocol):
     repo: WorkspaceBackend
 
     def __init__(self, repo: WorkspaceBackend) -> None:
-        super().__init__(repo)
         self.repo = repo
+
+    @property
+    def repo_root(self) -> Path | None:
+        return self.repo.repo_root
+
+    @property
+    def cwd(self) -> Path:
+        return self.repo.cwd
+
+    def normalize_side(self, raw_side: str) -> SideName:
+        return self.repo.normalize_side(raw_side)
+
+    def discover_default_path(self) -> str:
+        return self.repo.discover_default_path()
+
+    def current_branch_name(self) -> str:
+        return self.repo.current_branch_name()
+
+    def list_branch_names(self) -> list[str]:
+        return self.repo.list_branch_names()
+
+    def list_remote_ref_names(self) -> list[str]:
+        return self.repo.list_remote_ref_names()
+
+    def list_remote_names(self) -> list[str]:
+        return self.repo.list_remote_names()
+
+    def list_ref_choices(self) -> dict[str, list[str]]:
+        return self.repo.list_ref_choices()
+
+    def default_remote_name(self) -> str:
+        return self.repo.default_remote_name()
+
+    def branch_upstream_name(self, branch_name: str) -> str:
+        return self.repo.branch_upstream_name(branch_name)
+
+    def default_base_branch(self) -> str:
+        return self.repo.default_base_branch()
+
+    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
+        return self.repo.preferred_review_branch(base_branch=base_branch)
+
+    def resolve_branch_diff_sides(
+        self,
+        *,
+        base_branch: str,
+        branch: str,
+    ) -> tuple[str, str]:
+        return self.repo.resolve_branch_diff_sides(
+            base_branch=base_branch,
+            branch=branch,
+        )
+
+    def list_repo_diff_paths(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        show_untracked: bool = False,
+    ) -> list[RepoDiffPath]:
+        return self.repo.list_repo_diff_paths(
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )
+
+    def normalize_repo_path(self, raw_path: str) -> str:
+        return self.repo.normalize_repo_path(raw_path)
+
+    def load_version(self, path: str, side: SideName) -> TextVersion:
+        return self.repo.load_version(path, side)
+
+    def build_repo_manifest(
+        self,
+        *,
+        left: str,
+        right: str,
+        show_untracked: bool = False,
+    ) -> dict[str, Any]:
+        return build_repo_manifest_for_service(
+            self,
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )
+
+    def build_lazy_info(
+        self,
+        *,
+        left: str,
+        right: str,
+        show_untracked: bool = False,
+    ) -> dict[str, Any]:
+        return build_lazy_info_for_service(
+            self,
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )
 
     def _load_repo_git_patch(
         self,

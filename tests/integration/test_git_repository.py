@@ -1,7 +1,8 @@
 import subprocess
 from pathlib import Path
 
-from dirdiff.diff import GitBackend, TextDiffService
+from dirdiff.services import TextDiffService
+from dirdiff.sources import GitBackend
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
