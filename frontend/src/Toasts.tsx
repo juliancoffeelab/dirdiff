@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 
 type ToastTone = "error";
+type ErrorReason = "timeout" | "other";
 
 type Toast = {
   id: number;
@@ -28,29 +29,43 @@ type ToastContextValue = {
 };
 
 const ToastContext = createContext<ToastContextValue>();
+const TIMEOUT_TOAST_TTL_MS = 10_000;
 
 let nextToastId = 1;
 
 export function ToastProvider(props: { children: JSX.Element }) {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
+  const expiryTimers = new Map<number, number>();
 
   const dismissToast = (id: number) => {
+    const timerId = expiryTimers.get(id);
+    if (timerId !== undefined) {
+      window.clearTimeout(timerId);
+      expiryTimers.delete(id);
+    }
     setToasts((current) => current.filter((toast) => toast.id !== id));
   };
 
   const addErrorToast = (title: string, error: unknown) => {
     const id = nextToastId;
     nextToastId += 1;
+    const message = errorPrimary(error);
     setToasts((current) => [
       ...current,
       {
         id,
         tone: "error",
         title,
-        message: errorPrimary(error),
+        message,
         details: errorDetails(error),
       },
     ]);
+    if (errorReason(error) === "timeout") {
+      const timerId = window.setTimeout(() => {
+        dismissToast(id);
+      }, TIMEOUT_TOAST_TTL_MS);
+      expiryTimers.set(id, timerId);
+    }
   };
 
   onMount(() => {
@@ -67,6 +82,10 @@ export function ToastProvider(props: { children: JSX.Element }) {
     onCleanup(() => {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
+      for (const timerId of expiryTimers.values()) {
+        window.clearTimeout(timerId);
+      }
+      expiryTimers.clear();
     });
   });
 
@@ -237,6 +256,20 @@ function errorDetails(error: unknown): string | null {
     return null;
   }
   return null;
+}
+
+function errorReason(error: unknown): ErrorReason {
+  if (typeof error !== "object" || error === null) {
+    return "other";
+  }
+  if (!("error_reason" in error)) {
+    return "other";
+  }
+  const reason = error.error_reason;
+  if (reason === "timeout") {
+    return "timeout";
+  }
+  return "other";
 }
 
 function zodIssues(error: unknown): ZodIssueLike[] | null {

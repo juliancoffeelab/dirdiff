@@ -1,0 +1,67 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "(render {",
+    "right_no": 1,
+    "right_text": "(render {",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "  :on-click handle-click!",
+    "right_no": 2,
+    "right_text": "  :on-click handle-click!",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "  :on-submit user/submit-form!",
+    "right_no": 3,
+    "right_text": "  :on-submit (comp audit user/submit-form!)",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  :on-submit "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "comp"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "audit"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " user/submit-form!"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 1,
+    "left_text": "})",
+    "right_no": 4,
+    "right_text": "})",
+    "status": "equal"
+  }
+]

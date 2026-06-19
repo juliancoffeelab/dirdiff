@@ -1,0 +1,67 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "return compute(foo.bar, baz);",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "return compute(foo."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "bar"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", baz);"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "return compute(",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "  foo.barWrapped,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  foo."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "barWrapped"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "  baz,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": ");",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]

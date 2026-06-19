@@ -101,6 +101,27 @@ export function App() {
     }
   };
 
+  const reloadDiff = async () => {
+    const diffParams = diff.currentParams();
+    const paramsIdentity = diff.currentParamsIdentity();
+    if (
+      diffParams !== null &&
+      paramsIdentity !== null &&
+      diffParams.mode === "preset"
+    ) {
+      try {
+        await repo.reloadPresetCatalogs();
+      } catch {
+        diff.resetDiffState("error", "Failed to reload presets.");
+        return;
+      }
+      if (diff.currentParamsIdentity() !== paramsIdentity) {
+        return;
+      }
+    }
+    diff.reloadDiff();
+  };
+
   const navigation = createDiffNavigation({
     appRoot: () => appRoot,
     appHeader: () => appHeader,
@@ -116,7 +137,7 @@ export function App() {
     setForcedRichPreloadIds: ui.setForcedRichPreloadIds,
     forceRichFileId: ui.forceRichFileId,
     setActiveHunkFileId: ui.setActiveHunkFileId,
-    reloadDiff: diff.reloadDiff,
+    reloadDiff,
     toggleDiffViewMode,
     setAllFilesExpanded: ui.setAllFilesExpanded,
     openFileExpansion: ui.openFileExpansion,

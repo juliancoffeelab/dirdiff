@@ -193,12 +193,15 @@ def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    # /api/lazy-info must contain enough data for the frontend to construct a
+    # lazy placeholder FileEntry without copying fields from /api/manifest.
     return {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
         "file_kind": _file_kind_for_repo_entry(entry),
         "display_name": entry.display_name,
         "summary": _summary_for_repo_path(entry),
+        "lazy": _lazy_reason_for_repo_entry(entry),
     }
 
 

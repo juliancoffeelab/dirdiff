@@ -1,0 +1,429 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "def build_rows_payload(**kwargs):",
+    "right_no": 1,
+    "right_text": "def build_rows_payload(**kwargs):",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "    return kwargs",
+    "right_no": 2,
+    "right_text": "    return kwargs",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "def _file_kind_for_change_type(change_type, *, file_kind=None):",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "def"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "_file_kind_for_change_type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "change_type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "*"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "None"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "    return {\"type\": \"git\", \"status\": file_kind or change_type}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"type\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"git\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"status\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "or"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "change_type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 3,
+    "left_text": "",
+    "right_no": 7,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "",
+    "right_no": 8,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "def build_payload(normalized_right, change_type, normalized_left):",
+    "left_tokens": [],
+    "right_no": 9,
+    "right_text": "def build_payload(normalized_right, change_type, file_kind, normalized_left):",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def build_payload(normalized_right, change_type, "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " normalized_left):"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 6,
+    "left_text": "    payload = build_rows_payload(",
+    "right_no": 10,
+    "right_text": "    payload = build_rows_payload(",
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "        left_path_hint=\"left.py\",",
+    "right_no": 11,
+    "right_text": "        left_path_hint=\"left.py\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "        right_path_hint=normalized_right,",
+    "right_no": 12,
+    "right_text": "        right_path_hint=normalized_right,",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "    )",
+    "right_no": 13,
+    "right_text": "    )",
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "    payload[\"change_type\"] = change_type",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    payload["
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"change_type\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "] = change_type"
+      }
+    ],
+    "right_no": 14,
+    "right_text": "    payload[\"file_kind\"] = _file_kind_for_change_type(",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    payload["
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"file_kind\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "] = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "_file_kind_for_change_type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 15,
+    "right_text": "        change_type,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        change_type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 16,
+    "right_text": "        file_kind=file_kind,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 17,
+    "right_text": "    )",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 11,
+    "left_text": "    payload[\"left_path\"] = normalized_left",
+    "right_no": 18,
+    "right_text": "    payload[\"left_path\"] = normalized_left",
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "    return payload",
+    "right_no": 19,
+    "right_text": "    return payload",
+    "status": "equal"
+  }
+]

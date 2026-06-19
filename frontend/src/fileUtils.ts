@@ -6,6 +6,7 @@ import type {
   FileEntry,
   FileKind,
   FoldHint,
+  ManifestEntry,
   NotebookSummary,
   PresetType,
   Summary,
@@ -30,8 +31,10 @@ export type ControlsState = {
 
 export type LoadedDiff = {
   params: DiffParams;
+  // Rendered file cards are built from FileEntry values only.
   files: FileEntry[];
-  lazyFiles: FileEntry[];
+  // ManifestEntry values are only handles for fetching enough file data later.
+  lazyFiles: ManifestEntry[];
   fileOrder: Record<string, number>;
   summary: Summary;
 };
@@ -238,7 +241,14 @@ function hashedElementId(prefix: string, value: string): string {
   return `${prefix}-${(hash >>> 0).toString(36)}`;
 }
 
-export function fileDiffQueryKey(diffParams: DiffParams, entry: FileEntry) {
+export function fileDiffQueryKey(
+  diffParams: DiffParams,
+  entry: FileEntry | ManifestEntry,
+) {
+  let displayName: string | undefined;
+  if ("display_name" in entry) {
+    displayName = entry.display_name;
+  }
   const diffIdentityParts =
     diffParams.mode === "preset"
       ? [diffParams.mode, diffParams.preset_type, diffParams.preset]
@@ -257,7 +267,7 @@ export function fileDiffQueryKey(diffParams: DiffParams, entry: FileEntry) {
     ...diffIdentityParts,
     entry.left_path,
     entry.right_path,
-    entry.display_name,
+    displayName,
     fileKindKey(entry.file_kind),
   ] as const;
 }

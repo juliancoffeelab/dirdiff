@@ -50,7 +50,7 @@ type DiffNavigationOptions = {
   setForcedRichPreloadIds: (ids: string[]) => void;
   forceRichFileId: (fileId: string) => void;
   setActiveHunkFileId: Setter<string | null>;
-  reloadDiff: () => void;
+  reloadDiff: () => void | Promise<void>;
   toggleDiffViewMode: () => void;
   setAllFilesExpanded: (expanded: boolean) => void;
   openFileExpansion: (file: FileEntry) => void;
@@ -332,7 +332,7 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     }
     if (event.code === "KeyR") {
       event.preventDefault();
-      options.reloadDiff();
+      void options.reloadDiff();
       return;
     }
     if (event.code === "KeyD") {

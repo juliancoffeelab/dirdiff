@@ -1,0 +1,57 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "(render {",
+    "right_no": 1,
+    "right_text": "(render {",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "  :left foo-bar",
+    "right_no": 2,
+    "right_text": "  :left (wrap foo-bar)",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  :left "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "wrap"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " foo-bar"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 1,
+    "left_text": "  :right baz",
+    "right_no": 3,
+    "right_text": "  :right baz",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "})",
+    "right_no": 4,
+    "right_text": "})",
+    "status": "equal"
+  }
+]

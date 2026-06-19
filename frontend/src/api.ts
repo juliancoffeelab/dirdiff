@@ -132,8 +132,18 @@ export type RepoPayload = {
   summary: Summary;
 };
 
+// ManifestEntry is a handle for follow-up file APIs such as /api/file-diff and
+// /api/lazy-info. It is not rendered directly; on /api/file-diff failure the
+// client may copy this handle into an explicit error placeholder FileEntry.
+export type ManifestEntry = {
+  file_kind: FileKind;
+  left_path: string | null;
+  right_path: string | null;
+  lazy: LazyReason | null;
+};
+
 export type RepoManifestPayload = RepoPayload & {
-  files: FileEntry[];
+  files: ManifestEntry[];
 };
 
 export type LazyInfoFile = {
@@ -142,6 +152,7 @@ export type LazyInfoFile = {
   right_path: string | null;
   display_name: string;
   summary: FileSummary;
+  lazy: LazyReason | null;
 };
 
 export type LazyInfoPayload = {
@@ -294,6 +305,12 @@ const LazyReasonSchema = z.enum([
   "pure_renamed",
 ]);
 export type LazyReason = z.infer<typeof LazyReasonSchema>;
+const LazyErrorSchema = z.strictObject({
+  type: z.literal("error"),
+  original: LazyReasonSchema.nullable(),
+});
+const LazyStateSchema = z.union([LazyReasonSchema, LazyErrorSchema]);
+export type LazyState = z.infer<typeof LazyStateSchema>;
 
 const EngineWarningSchema = z.strictObject({
   type: z.literal("difftastic_graph_limit"),
@@ -301,6 +318,10 @@ const EngineWarningSchema = z.strictObject({
 });
 export type EngineWarning = z.infer<typeof EngineWarningSchema>;
 
+// FileEntry is the renderable file-card/tree entry. It must come from
+// /api/file-diff, from /api/lazy-info for lazy placeholders, or from
+// /api/manifest only as a client-side error placeholder after /api/file-diff
+// fails for that exact manifest entry.
 const FileEntrySchema = z.strictObject({
   display_name: z.string().optional(),
   mode: z.literal("git").optional(),
@@ -316,7 +337,7 @@ const FileEntrySchema = z.strictObject({
   rows: z.array(DiffRowSchema).optional(),
   fold_hints: z.array(FoldHintSchema).optional(),
   engine_warning: EngineWarningSchema.nullable().optional(),
-  lazy: LazyReasonSchema.nullable().optional(),
+  lazy: LazyStateSchema.nullable().optional(),
   lazy_reason: LazyReasonSchema.optional(),
   default_expanded: z.boolean().optional(),
   render_kind: z.literal("notebook").optional(),
@@ -332,19 +353,26 @@ const FileEntrySchema = z.strictObject({
 });
 export type FileEntry = z.infer<typeof FileEntrySchema>;
 
-const RepoFileEntrySchema = z.strictObject({
+// /api/manifest supplies ManifestEntry handles for follow-up fetches. It does
+// not contain enough data for normal renderable FileEntry values; the client
+// may only copy it into an explicit error placeholder after /api/file-diff
+// fails.
+const ManifestEntrySchema = z.strictObject({
   file_kind: FileKindSchema,
   left_path: z.string().nullable(),
   right_path: z.string().nullable(),
   lazy: LazyReasonSchema.nullable(),
 });
 
+// /api/lazy-info must contain every field needed for a lazy placeholder
+// FileEntry, including the lazy reason used by the file tree/card state.
 const LazyInfoFileSchema = z.strictObject({
   file_kind: FileKindSchema,
   left_path: z.string().nullable(),
   right_path: z.string().nullable(),
   display_name: z.string(),
   summary: FileSummarySchema,
+  lazy: LazyReasonSchema.nullable(),
 });
 
 const TextFileDiffResponseSchema = z.strictObject({
@@ -424,6 +452,8 @@ const NotebookFileDiffResponseSchema = z.strictObject({
   default_expanded: z.boolean(),
 });
 
+// /api/file-diff is the only source for fully hydrated renderable FileEntry
+// values.
 const FileDiffResponseSchema = z.union([
   NotebookFileDiffResponseSchema,
   TextFileDiffResponseSchema,
@@ -435,7 +465,7 @@ const RepoManifestPayloadSchema = z.strictObject({
   left_label: z.string(),
   right_label: z.string(),
   summary: SummarySchema,
-  files: z.array(RepoFileEntrySchema),
+  files: z.array(ManifestEntrySchema),
 });
 
 const LazyInfoPayloadSchema = z.strictObject({
@@ -464,7 +494,28 @@ const HttpExceptionResponseSchema = z.strictObject({
   detail: z.string(),
 });
 
-const REQUEST_TIMEOUT_MS = 8000;
+export const REQUEST_TIMEOUT_MS = 8_000;
+const DIFFTASTIC_FILE_DIFF_TIMEOUT_MS = 20_000;
+
+type FetchJsonInit = RequestInit & {
+  timeoutMs?: number;
+};
+
+type RequestErrorReason = "timeout" | "other";
+
+class RequestError extends Error {
+  readonly error_reason: RequestErrorReason;
+
+  constructor(
+    errorReason: RequestErrorReason,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "RequestError";
+    this.error_reason = errorReason;
+  }
+}
 
 async function parseErrorResponse(response: Response): Promise<never> {
   const bodyText = await response.text();
@@ -473,20 +524,21 @@ async function parseErrorResponse(response: Response): Promise<never> {
       const payload = JSON.parse(bodyText);
       const parsedError = ErrorResponseSchema.safeParse(payload);
       if (parsedError.success) {
-        throw new Error(parsedError.data.error);
+        throw new RequestError("other", parsedError.data.error);
       }
       const parsedDetail = HttpExceptionResponseSchema.safeParse(payload);
       if (parsedDetail.success) {
-        throw new Error(parsedDetail.data.detail);
+        throw new RequestError("other", parsedDetail.data.detail);
       }
     } catch (error) {
       if (!(error instanceof SyntaxError)) {
         throw error;
       }
     }
-    throw new Error(bodyText);
+    throw new RequestError("other", bodyText);
   }
-  throw new Error(
+  throw new RequestError(
+    "other",
     `Request failed with status ${response.status} ${response.statusText}.`,
   );
 }
@@ -495,7 +547,18 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-function createRequestSignal(upstreamSignal: AbortSignal | null | undefined): {
+function requestErrorLabel(input: string): string {
+  const queryStart = input.indexOf("?");
+  if (queryStart >= 0) {
+    return input.slice(0, queryStart);
+  }
+  return input;
+}
+
+function createRequestSignal(
+  upstreamSignal: AbortSignal | null | undefined,
+  timeoutMs: number,
+): {
   signal: AbortSignal;
   cancelTimeout: () => void;
   timedOut: () => boolean;
@@ -517,7 +580,7 @@ function createRequestSignal(upstreamSignal: AbortSignal | null | undefined): {
   const timeoutId = window.setTimeout(() => {
     didTimeout = true;
     controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
   return {
     signal: controller.signal,
     cancelTimeout: () => {
@@ -532,21 +595,45 @@ function createRequestSignal(upstreamSignal: AbortSignal | null | undefined): {
 
 async function fetchJsonResponse(
   input: string,
-  init?: RequestInit,
+  init?: FetchJsonInit,
 ): Promise<Response> {
-  const { signal, cancelTimeout, timedOut } = createRequestSignal(init?.signal);
+  let timeoutMs = REQUEST_TIMEOUT_MS;
+  let requestInit: RequestInit | undefined;
+  if (init !== undefined) {
+    const { timeoutMs: requestedTimeoutMs, ...rest } = init;
+    if (requestedTimeoutMs !== undefined) {
+      timeoutMs = requestedTimeoutMs;
+    }
+    requestInit = rest;
+  }
+  const upstreamSignal =
+    requestInit === undefined ? undefined : requestInit.signal;
+  const { signal, cancelTimeout, timedOut } = createRequestSignal(
+    upstreamSignal,
+    timeoutMs,
+  );
   try {
-    return await fetch(input, { ...init, signal });
+    const initWithSignal =
+      requestInit === undefined ? { signal } : { ...requestInit, signal };
+    return await fetch(input, initWithSignal);
   } catch (error) {
+    const label = requestErrorLabel(input);
     if (timedOut()) {
-      throw new Error(`Request timed out before response: ${input}`);
+      throw new RequestError(
+        "timeout",
+        `Request timed out before response: ${label}`,
+      );
     }
     if (isAbortError(error)) {
       throw error;
     }
-    throw new Error(`Request failed before response: ${input}`, {
-      cause: error,
-    });
+    throw new RequestError(
+      "other",
+      `Request failed before response: ${label}`,
+      {
+        cause: error,
+      },
+    );
   } finally {
     cancelTimeout();
   }
@@ -694,13 +781,16 @@ export async function fetchLazyInfo(
   if (!response.ok) {
     return parseErrorResponse(response);
   }
+  // /api/lazy-info must contain enough data for lazy placeholder FileEntry
+  // construction; callers must not fill gaps from /api/manifest.
   return LazyInfoPayloadSchema.parse(await response.json());
 }
 
 export async function fetchFileDiff(
   diffParams: DiffParams,
-  entry: FileEntry,
+  entry: ManifestEntry,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<FileEntry> {
   const params = diffParamsQueryParams(diffParams);
   if (entry.left_path !== null && entry.left_path.length > 0) {
@@ -709,21 +799,28 @@ export async function fetchFileDiff(
   if (entry.right_path !== null && entry.right_path.length > 0) {
     params.set("right_path", entry.right_path);
   }
-  if (entry.display_name !== undefined && entry.display_name.length > 0) {
-    params.set("display_name", entry.display_name);
-  }
   params.set("change_type", changeTypeForFileKind(entry.file_kind));
   params.set("file_kind", entry.file_kind.type);
+
+  let requestTimeoutMs = REQUEST_TIMEOUT_MS;
+  if (diffParams.engine === "difftastic") {
+    requestTimeoutMs = DIFFTASTIC_FILE_DIFF_TIMEOUT_MS;
+  }
+  if (timeoutMs !== undefined) {
+    requestTimeoutMs = timeoutMs;
+  }
 
   const response = await fetchJsonResponse(
     `/api/file-diff?${params.toString()}`,
     {
       signal,
+      timeoutMs: requestTimeoutMs,
     },
   );
   if (!response.ok) {
     return parseErrorResponse(response);
   }
+  // /api/file-diff is the source of hydrated renderable FileEntry values.
   return FileDiffResponseSchema.parse(await response.json());
 }
 

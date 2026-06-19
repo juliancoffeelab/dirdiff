@@ -1,0 +1,124 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "def alpha():",
+    "right_no": 1,
+    "right_text": "def alpha():",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "    return 1",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "1"
+      }
+    ],
+    "right_no": 2,
+    "right_text": "    return 2",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "2"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "def beta():",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "def"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "beta"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "    return 3",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "3"
+      }
+    ],
+    "status": "insert"
+  }
+]

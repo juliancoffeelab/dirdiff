@@ -1,0 +1,102 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "let value = call(5..10, keep, tail);",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "let value = call(5.."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "10"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "keep"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " tail);"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "let value = call(",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "    wrap(5..20),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "wrap"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "5.."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "20"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "    tail,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": ");",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]

@@ -1,0 +1,395 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "type FileEntry = { render_kind: string };",
+    "right_no": 1,
+    "right_text": "type FileEntry = { render_kind: string };",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "declare function Show(props: { when: boolean; fallback?: unknown; children: unknown }): unknown;",
+    "right_no": 3,
+    "right_text": "declare function Show(props: { when: boolean; fallback?: unknown; children: unknown }): unknown;",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "declare function FilePlaceholder(props: { file: FileEntry }): unknown;",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "declare"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "function"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "FilePlaceholder"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "FileEntry"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "unknown"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ";"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 5,
+    "left_text": "declare function PlainSplitFileDiff(props: { file: FileEntry }): unknown;",
+    "right_no": 4,
+    "right_text": "declare function PlainSplitFileDiff(props: { file: FileEntry }): unknown;",
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "declare function DiffGrid(props: { file: FileEntry }): unknown;",
+    "right_no": 5,
+    "right_text": "declare function DiffGrid(props: { file: FileEntry }): unknown;",
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "export function FileCard(props: { file: FileEntry }) {",
+    "right_no": 7,
+    "right_text": "export function FileCard(props: { file: FileEntry }) {",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "  const canRenderRows = () => true;",
+    "right_no": 8,
+    "right_text": "  const canRenderRows = () => true;",
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "  const shouldRenderRichBody = () => true;",
+    "right_no": 9,
+    "right_text": "  const shouldRenderRichBody = () => true;",
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "",
+    "right_no": 10,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "  return (",
+    "right_no": 11,
+    "right_text": "  return (",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    <Show when={props.file.render_kind !== \"notebook\"}>",
+    "right_no": 12,
+    "right_text": "    <Show when={props.file.render_kind !== \"notebook\"}>",
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "      <Show",
+    "right_no": 13,
+    "right_text": "      <Show",
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "        when={canRenderRows()}",
+    "right_no": 13,
+    "right_text": "        when={canRenderRows()}",
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "        fallback={<FilePlaceholder file={props.file} />}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "fallback"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "FilePlaceholder"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 17,
+    "left_text": "      >",
+    "right_no": 13,
+    "right_text": "      >",
+    "status": "equal"
+  },
+  {
+    "left_no": 18,
+    "left_text": "        <Show",
+    "right_no": 14,
+    "right_text": "        <Show",
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "          when={shouldRenderRichBody()}",
+    "right_no": 15,
+    "right_text": "          when={shouldRenderRichBody()}",
+    "status": "equal"
+  },
+  {
+    "left_no": 20,
+    "left_text": "          fallback={<PlainSplitFileDiff file={props.file} />}",
+    "right_no": 16,
+    "right_text": "          fallback={<PlainSplitFileDiff file={props.file} />}",
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "        >",
+    "right_no": 17,
+    "right_text": "        >",
+    "status": "equal"
+  },
+  {
+    "left_no": 22,
+    "left_text": "          <DiffGrid file={props.file} />",
+    "right_no": 18,
+    "right_text": "          <DiffGrid file={props.file} />",
+    "status": "equal"
+  },
+  {
+    "left_no": 23,
+    "left_text": "        </Show>",
+    "right_no": 19,
+    "right_text": "        </Show>",
+    "status": "equal"
+  },
+  {
+    "left_no": 24,
+    "left_text": "      </Show>",
+    "right_no": 20,
+    "right_text": "      </Show>",
+    "status": "equal"
+  },
+  {
+    "left_no": 25,
+    "left_text": "    </Show>",
+    "right_no": 21,
+    "right_text": "    </Show>",
+    "status": "equal"
+  },
+  {
+    "left_no": 26,
+    "left_text": "  );",
+    "right_no": 22,
+    "right_text": "  );",
+    "status": "equal"
+  },
+  {
+    "left_no": 27,
+    "left_text": "}",
+    "right_no": 23,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

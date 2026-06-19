@@ -315,9 +315,13 @@ export function createRepoResources(options: RepoResourcesOptions) {
     }
   }
 
-  async function loadPresetCatalogs(): Promise<PresetCatalogs | null> {
+  async function fetchPresetCatalogs(options_: {
+    errorTitle: string;
+    refresh: boolean;
+    swallowError: boolean;
+  }): Promise<PresetCatalogs | null> {
     const loadedCatalogs = presetCatalogs();
-    if (loadedCatalogs !== null) {
+    if (!options_.refresh && loadedCatalogs !== null) {
       return loadedCatalogs;
     }
     if (presetCatalogsRequest !== null) {
@@ -340,13 +344,38 @@ export function createRepoResources(options: RepoResourcesOptions) {
           setPresetCatalogsError(error);
           setPresetCatalogsPending(false);
         });
-        options.addErrorToast("Failed to load presets", error);
+        options.addErrorToast(options_.errorTitle, error);
+        if (!options_.swallowError) {
+          throw error;
+        }
         return null;
       } finally {
         presetCatalogsRequest = null;
       }
     })();
     return presetCatalogsRequest;
+  }
+
+  async function loadPresetCatalogs(): Promise<PresetCatalogs | null> {
+    return fetchPresetCatalogs({
+      errorTitle: "Failed to load presets",
+      refresh: false,
+      swallowError: true,
+    });
+  }
+
+  async function reloadPresetCatalogs(): Promise<PresetCatalogs> {
+    const catalogs = await fetchPresetCatalogs({
+      errorTitle: "Failed to reload presets",
+      refresh: true,
+      swallowError: false,
+    });
+    if (catalogs === null) {
+      const error = new Error("Preset catalog refresh returned no catalogs.");
+      options.addErrorToast("Failed to reload presets", error);
+      throw error;
+    }
+    return catalogs;
   }
 
   const selectRepo = (repo: RepoMark) => {
@@ -385,6 +414,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     loadReposFromUrl,
     initializeRepo,
     loadPresetCatalogs,
+    reloadPresetCatalogs,
     selectRepo,
   };
 }

@@ -1,0 +1,33 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "value = old",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "old"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "value = new",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "new"
+      }
+    ],
+    "status": "replace"
+  }
+]

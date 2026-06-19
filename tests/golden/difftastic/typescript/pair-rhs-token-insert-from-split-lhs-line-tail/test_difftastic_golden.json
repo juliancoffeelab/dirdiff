@@ -1,0 +1,94 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "import { createEffect } from \"solid-js\";",
+    "right_no": 1,
+    "right_text": "import { createEffect } from \"solid-js\";",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "import type {",
+    "right_no": 2,
+    "right_text": "import type {",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  DiffRow,",
+    "right_no": 3,
+    "right_text": "  DiffRow,",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  FileEntry,",
+    "right_no": 4,
+    "right_text": "  FileEntry,",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  InlineToken,",
+    "right_no": 5,
+    "right_text": "  InlineToken,",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "  RowStatus,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RowStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  SyntaxSpan",
+    "right_no": 7,
+    "right_text": "  SyntaxSpan,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  SyntaxSpan"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 2,
+    "left_text": "} from \"./api\";",
+    "right_no": 8,
+    "right_text": "} from \"./api\";",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from \"./folds\";",
+    "right_no": 9,
+    "right_text": "import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from \"./folds\";",
+    "status": "equal"
+  }
+]

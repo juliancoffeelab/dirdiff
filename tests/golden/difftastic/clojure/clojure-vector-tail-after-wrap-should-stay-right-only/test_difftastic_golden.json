@@ -1,0 +1,112 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "(render [foo-bar keep baz])",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "(render ["
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "foo"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "bar"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "keep"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " baz])"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "(render [",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "  (wrap foo-baz)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "wrap"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "foo"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "baz"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "  baz",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "])",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]

@@ -1,0 +1,375 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "type ControlsState = { mode: string };",
+    "right_no": 1,
+    "right_text": "type ControlsState = { mode: string };",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "type RefChoices = { builtins: string[] };",
+    "right_no": 2,
+    "right_text": "type RefChoices = { builtins: string[] };",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "type DiffEngine = \"dirdiff\" | \"git\" | \"difftastic\";",
+    "right_no": 3,
+    "right_text": "type DiffEngine = \"dirdiff\" | \"git\" | \"difftastic\";",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "type RepoId = number;",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "type"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RepoId"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 4,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "declare function setEngine(engine: DiffEngine): void;",
+    "right_no": 6,
+    "right_text": "declare function setEngine(engine: DiffEngine): void;",
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "declare function setControls(controls: ControlsState): void;",
+    "right_no": 7,
+    "right_text": "declare function setControls(controls: ControlsState): void;",
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "declare function refChoices(): RefChoices;",
+    "right_no": 8,
+    "right_text": "declare function refChoices(): RefChoices;",
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "declare function buildRequest(",
+    "right_no": 9,
+    "right_text": "declare function buildRequest(",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "  controls: ControlsState,",
+    "right_no": 10,
+    "right_text": "  controls: ControlsState,",
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "  choices: RefChoices,",
+    "right_no": 11,
+    "right_text": "  choices: RefChoices,",
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "  engine: DiffEngine,",
+    "right_no": 12,
+    "right_text": "  engine: DiffEngine,",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 13,
+    "right_text": "  repoId: RepoId,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repoId"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RepoId"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 12,
+    "left_text": "): string | object;",
+    "right_no": 14,
+    "right_text": "): string | object;",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "declare function setStatus(status: \"error\"): void;",
+    "right_no": 15,
+    "right_text": "declare function setStatus(status: \"error\"): void;",
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "",
+    "right_no": 16,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "export function loadControls(",
+    "right_no": 17,
+    "right_text": "export function loadControls(",
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "  nextControls: ControlsState,",
+    "right_no": 18,
+    "right_text": "  nextControls: ControlsState,",
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "  nextEngine: DiffEngine,",
+    "right_no": 19,
+    "right_text": "  nextEngine: DiffEngine,",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 20,
+    "right_text": "  repoId: RepoId,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repoId"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RepoId"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 18,
+    "left_text": ") {",
+    "right_no": 21,
+    "right_text": ") {",
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "  setEngine(nextEngine);",
+    "right_no": 22,
+    "right_text": "  setEngine(nextEngine);",
+    "status": "equal"
+  },
+  {
+    "left_no": 20,
+    "left_text": "  setControls(nextControls);",
+    "right_no": 23,
+    "right_text": "  setControls(nextControls);",
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "  const nextRequest = buildRequest(",
+    "right_no": 24,
+    "right_text": "  const nextRequest = buildRequest(",
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "    nextControls,",
+    "right_no": 25,
+    "right_text": "    nextControls,",
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "    refChoices(),",
+    "right_no": 26,
+    "right_text": "    refChoices(),",
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "    nextEngine",
+    "right_no": 27,
+    "right_text": "    nextEngine,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    nextEngine"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 28,
+    "right_text": "    repoId,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repoId"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 21,
+    "left_text": "  );",
+    "right_no": 29,
+    "right_text": "  );",
+    "status": "equal"
+  },
+  {
+    "left_no": 22,
+    "left_text": "",
+    "right_no": 30,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 23,
+    "left_text": "  if (typeof nextRequest === \"string\") {",
+    "right_no": 31,
+    "right_text": "  if (typeof nextRequest === \"string\") {",
+    "status": "equal"
+  },
+  {
+    "left_no": 24,
+    "left_text": "    setStatus(\"error\");",
+    "right_no": 32,
+    "right_text": "    setStatus(\"error\");",
+    "status": "equal"
+  },
+  {
+    "left_no": 25,
+    "left_text": "  }",
+    "right_no": 33,
+    "right_text": "  }",
+    "status": "equal"
+  },
+  {
+    "left_no": 26,
+    "left_text": "}",
+    "right_no": 34,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

@@ -11,6 +11,7 @@ import {
   fetchLazyInfo,
   fetchManifest,
   fetchFileDiff,
+  REQUEST_TIMEOUT_MS,
   diffParamsQueryParams,
   type BranchReviewDiffParams,
   type DiffEngine,
@@ -18,6 +19,7 @@ import {
   type FileEntry,
   type HeadDiffParams,
   type LazyInfoFile,
+  type ManifestEntry,
   type PresetDiffParams,
   type PresetType,
   type RefChoices,
@@ -48,6 +50,7 @@ import {
 } from "./diffParams";
 
 const builtinSides = new Set(["head", "index", "worktree"]);
+const SLOW_FILE_DIFF_MS = REQUEST_TIMEOUT_MS;
 
 function nullableStringValue(
   value: string | null | undefined,
@@ -95,6 +98,27 @@ function loadedStatusLabel(
   const failureText =
     failedDetailFiles > 0 ? `, failed details ${failedDetailFiles}` : "";
   return `${baseStatus} · loaded ${loadedFiles} ${fileWord}${failureText}`;
+}
+
+function slowFileDiffDetail(file: ManifestEntry, elapsedMs: number): string {
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  return `${manifestDisplayName(file)} is slow, waiting for ${elapsedSeconds}s...`;
+}
+
+function manifestDisplayName(entry: ManifestEntry): string {
+  if (entry.left_path !== null && entry.left_path.length > 0) {
+    if (entry.right_path !== null && entry.right_path.length > 0) {
+      if (entry.left_path === entry.right_path) {
+        return entry.left_path;
+      }
+      return `${entry.left_path} -> ${entry.right_path}`;
+    }
+    return entry.left_path;
+  }
+  if (entry.right_path !== null && entry.right_path.length > 0) {
+    return entry.right_path;
+  }
+  return "(unknown)";
 }
 
 function qualifyRemoteRef(
@@ -297,6 +321,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
           payload,
         };
       },
+      retry: false,
       staleTime: 0,
     };
   });
@@ -367,6 +392,8 @@ export function createDiffResources(options: DiffResourcesOptions) {
     batch(() => {
       options.setLoadedDiff({
         params: diffParams,
+        // Manifest files are not FileEntry values; rendered files are inserted
+        // only after /api/file-diff or /api/lazy-info returns enough data.
         files: [],
         lazyFiles: lazyManifestFiles,
         fileOrder: order,
@@ -384,8 +411,8 @@ export function createDiffResources(options: DiffResourcesOptions) {
     void hydrateLazyInfo(diffParams, paramsIdentity, lazyManifestFiles, order);
   }
 
-  function mergeLazyInfoFiles(
-    manifestFiles: FileEntry[],
+  function hydrateLazyFiles(
+    manifestFiles: ManifestEntry[],
     lazyInfoFiles: LazyInfoFile[],
     order: Record<string, number>,
   ): FileEntry[] {
@@ -422,14 +449,26 @@ export function createDiffResources(options: DiffResourcesOptions) {
       if (lazyInfoEntry === undefined) {
         throw new Error(`Lazy info is missing file from manifest: ${key}.`);
       }
-      return { ...entry, ...lazyInfoEntry };
+      if (lazyInfoEntry.lazy === null) {
+        throw new Error(`Lazy info returned file without lazy reason: ${key}.`);
+      }
+      // Lazy placeholder FileEntry construction is allowed only from
+      // /api/lazy-info, which must contain every field needed by the card/tree.
+      return {
+        file_kind: lazyInfoEntry.file_kind,
+        left_path: lazyInfoEntry.left_path,
+        right_path: lazyInfoEntry.right_path,
+        display_name: lazyInfoEntry.display_name,
+        summary: lazyInfoEntry.summary,
+        lazy: lazyInfoEntry.lazy,
+      };
     });
   }
 
   async function hydrateLazyInfo(
     diffParams: DiffParams,
     paramsIdentity: string,
-    manifestFiles: FileEntry[],
+    manifestFiles: ManifestEntry[],
     order: Record<string, number>,
   ) {
     if (manifestFiles.length === 0) {
@@ -448,7 +487,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       if (!paramsAreCurrent(result.paramsIdentity)) {
         return;
       }
-      const mergedFiles = mergeLazyInfoFiles(
+      const mergedFiles = hydrateLazyFiles(
         manifestFiles,
         result.payload.files,
         order,
@@ -463,6 +502,8 @@ export function createDiffResources(options: DiffResourcesOptions) {
         );
         return {
           ...current,
+          // These FileEntry values are constructed from /api/lazy-info, not
+          // from /api/manifest.
           files: sortFilesByOrder(
             [...existingFiles, ...mergedFiles],
             current.fileOrder,
@@ -488,7 +529,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
   async function hydrateManifestFiles(
     diffParams: DiffParams,
     paramsIdentity: string,
-    manifestFiles: FileEntry[],
+    manifestFiles: ManifestEntry[],
     baseStatus: string,
     initialLoadedFiles: number,
   ) {
@@ -515,21 +556,52 @@ export function createDiffResources(options: DiffResourcesOptions) {
           }
           const entry = pendingFiles[index];
           const key = fileKey(entry);
+          let slowTimeout: number | null = null;
+          let slowInterval: number | null = null;
+          const clearSlowStatus = () => {
+            if (slowTimeout !== null) {
+              window.clearTimeout(slowTimeout);
+              slowTimeout = null;
+            }
+            if (slowInterval !== null) {
+              window.clearInterval(slowInterval);
+              slowInterval = null;
+            }
+          };
           try {
+            if (diffParams.engine === "difftastic") {
+              const startedAt = Date.now();
+              const updateSlowStatus = () => {
+                if (!paramsAreCurrent(paramsIdentity)) {
+                  clearSlowStatus();
+                  return;
+                }
+                setStatusText(
+                  `${loadedStatusLabel(
+                    baseStatus,
+                    loadedFiles,
+                    failedDetailFiles,
+                  )} · ${slowFileDiffDetail(entry, Date.now() - startedAt)}`,
+                );
+              };
+              slowTimeout = window.setTimeout(() => {
+                updateSlowStatus();
+                slowInterval = window.setInterval(updateSlowStatus, 1000);
+              }, SLOW_FILE_DIFF_MS);
+            }
             const hydrated = await queryClient.fetchQuery({
               queryKey: fileDiffQueryKey(diffParams, entry),
               queryFn: ({ signal }) => fetchFileDiff(diffParams, entry, signal),
+              retry: false,
               staleTime: 0,
             });
+            clearSlowStatus();
             if (!paramsAreCurrent(paramsIdentity)) {
               return;
             }
-            const nextEntry = {
-              ...entry,
-              ...hydrated,
-              lazy: null,
-              default_expanded: hydrated.default_expanded,
-            };
+            // Hydrated FileEntry construction is allowed only from
+            // /api/file-diff. Do not merge in the /api/manifest entry.
+            const nextEntry = hydrated;
             const nextKey = fileKey(nextEntry);
             const shouldOpenPinnedFile =
               pin !== null && fileMatchesLinePin(nextEntry, pin);
@@ -544,6 +616,8 @@ export function createDiffResources(options: DiffResourcesOptions) {
                 );
                 return {
                   ...current,
+                  // Insert only the /api/file-diff FileEntry into the rendered
+                  // file list.
                   files: sortFilesByOrder(
                     [...withoutCurrent, nextEntry],
                     current.fileOrder,
@@ -578,6 +652,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
               );
             });
           } catch (error) {
+            clearSlowStatus();
             if (!paramsAreCurrent(paramsIdentity)) {
               return;
             }
@@ -588,6 +663,34 @@ export function createDiffResources(options: DiffResourcesOptions) {
             loadedFiles += 1;
             failedDetailFiles += 1;
             batch(() => {
+              options.setLoadedDiff((current) => {
+                if (current === null) {
+                  return current;
+                }
+                const failedEntry: FileEntry = {
+                  file_kind: entry.file_kind,
+                  left_path: entry.left_path,
+                  right_path: entry.right_path,
+                  display_name: manifestDisplayName(entry),
+                  lazy: {
+                    type: "error",
+                    original: entry.lazy,
+                  },
+                };
+                const withoutCurrent = current.files.filter(
+                  (file) => fileKey(file) !== key,
+                );
+                return {
+                  ...current,
+                  // Error placeholders are the only renderable FileEntry values
+                  // constructed from /api/manifest; they reuse this manifest
+                  // handle when the user retries /api/file-diff.
+                  files: sortFilesByOrder(
+                    [...withoutCurrent, failedEntry],
+                    current.fileOrder,
+                  ),
+                };
+              });
               options.setFileExpansion((current) => ({
                 ...current,
                 [key]: true,

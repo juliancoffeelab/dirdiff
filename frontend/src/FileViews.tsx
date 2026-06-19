@@ -8,7 +8,15 @@ import {
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { isCancelledError } from "@tanstack/query-core";
-import type { DiffRow, FileEntry, FileKind, FoldHint, LazyReason } from "./api";
+import type {
+  DiffRow,
+  FileEntry,
+  FileKind,
+  FoldHint,
+  LazyReason,
+  LazyState,
+  ManifestEntry,
+} from "./api";
 import { fetchFileDiff } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import { NotebookFile } from "./NotebookViews";
@@ -36,6 +44,7 @@ type StringMapSetter = (
   updater: (current: Record<string, string>) => Record<string, string>,
 ) => void;
 type LoadedDiffSetter = (updater: (current: LoadedDiff) => LoadedDiff) => void;
+const MANUAL_FILE_DIFF_TIMEOUT_MS = 60_000;
 type LineStats = {
   added: number | null;
   modified: number | null;
@@ -124,9 +133,26 @@ function fileKindStatus(fileKind: FileKind): string {
   return fileKind.type === "git" ? fileKind.status : "untracked";
 }
 
+function lazyOriginalReason(
+  lazy: LazyState | null | undefined,
+): LazyReason | null {
+  if (lazy === undefined || lazy === null) {
+    return null;
+  }
+  if (typeof lazy === "string") {
+    return lazy;
+  }
+  return lazy.original;
+}
+
+function lazyIsError(lazy: LazyState | null | undefined): boolean {
+  return typeof lazy === "object" && lazy !== null && lazy.type === "error";
+}
+
 function fileTreeLazyReason(file: FileEntry): LazyReason | null {
-  if (file.lazy !== undefined && file.lazy !== null) {
-    return file.lazy;
+  const reason = lazyOriginalReason(file.lazy);
+  if (reason !== null) {
+    return reason;
   }
   if (file.lazy_reason !== undefined) {
     return file.lazy_reason;
@@ -460,6 +486,7 @@ export function FileTreeSidebar(props: {
                               untracked:
                                 fileKindStatus(file.file_kind) === "untracked",
                               lazy: lazyReason() !== null,
+                              "lazy-error": lazyIsError(file.lazy),
                               "lazy-generated": lazyReason() === "generated",
                               "lazy-too-big": lazyReason() === "too_big",
                               "active-hunk-file": fileIsActiveHunkFile(file),
@@ -575,7 +602,10 @@ function FileCard(props: {
     onCleanup(() => props.onFileVirtualizedChange(fileId, false));
   });
   const lazyTitle = () => {
-    switch (props.file.lazy) {
+    if (lazyIsError(props.file.lazy)) {
+      return "Retry file diff";
+    }
+    switch (lazyOriginalReason(props.file.lazy)) {
       case "deleted":
         return "Load deleted file diff";
       case "generated":
@@ -591,7 +621,10 @@ function FileCard(props: {
     }
   };
   const lazyMeta = () => {
-    switch (props.file.lazy) {
+    if (lazyIsError(props.file.lazy)) {
+      return `${displayName()} failed to load. Click to retry.`;
+    }
+    switch (lazyOriginalReason(props.file.lazy)) {
       case "deleted":
         return `${displayName()} is deleted. Click to fetch and open it.`;
       case "generated":
@@ -659,25 +692,42 @@ function FileCard(props: {
     }));
     props.setFileErrors((current) => ({ ...current, [activeKey]: "" }));
     try {
+      if (props.file.lazy === undefined || props.file.lazy === null) {
+        throw new Error("Hydrated file did not have a lazy reason.");
+      }
+      const originalReason = lazyOriginalReason(props.file.lazy);
+      const lazyFetchEntry: ManifestEntry = {
+        file_kind: props.file.file_kind,
+        left_path: props.file.left_path,
+        right_path: props.file.right_path,
+        lazy: originalReason,
+      };
+      const queryKey = fileDiffQueryKey(activeDiff.params, lazyFetchEntry);
+      queryClient.removeQueries({ queryKey });
       const hydrated = await queryClient.fetchQuery({
-        queryKey: fileDiffQueryKey(activeDiff.params, props.file),
+        queryKey,
         queryFn: ({ signal }) =>
-          fetchFileDiff(activeDiff.params, props.file, signal),
+          fetchFileDiff(
+            activeDiff.params,
+            lazyFetchEntry,
+            signal,
+            MANUAL_FILE_DIFF_TIMEOUT_MS,
+          ),
+        retry: false,
         staleTime: 0,
       });
       if (props.currentParamsIdentity() !== paramsIdentity) {
         return;
       }
-      const lazyReason = props.file.lazy;
-      if (lazyReason === undefined || lazyReason === null) {
-        throw new Error("Hydrated file did not have a lazy reason.");
-      }
-      const nextEntry = {
-        ...props.file,
-        ...hydrated,
-        lazy: null,
-        lazy_reason: lazyReason,
-      };
+      // The rendered FileEntry comes from /api/file-diff. The only extra field
+      // is client-only history for preserving the lazy marker after hydration.
+      const nextEntry =
+        originalReason === null
+          ? hydrated
+          : {
+              ...hydrated,
+              lazy_reason: originalReason,
+            };
       const nextKey = fileKey(nextEntry);
       props.updateLoadedDiff((current) => {
         const withoutCurrent = current.files.filter(
@@ -685,6 +735,8 @@ function FileCard(props: {
         );
         return {
           ...current,
+          // Insert only the /api/file-diff FileEntry into the rendered file
+          // list; lazy placeholders come from /api/lazy-info.
           files: sortFilesByOrder(
             [...withoutCurrent, nextEntry],
             current.fileOrder,
@@ -838,11 +890,13 @@ function FileCard(props: {
           type="button"
           class="file-lazy-load-toggle"
           classList={{
-            "is-untracked": props.file.lazy === "untracked",
-            "is-generated": props.file.lazy === "generated",
-            "is-deleted": props.file.lazy === "deleted",
-            "is-too-big": props.file.lazy === "too_big",
-            "is-pure-renamed": props.file.lazy === "pure_renamed",
+            "is-error": lazyIsError(props.file.lazy),
+            "is-untracked": lazyOriginalReason(props.file.lazy) === "untracked",
+            "is-generated": lazyOriginalReason(props.file.lazy) === "generated",
+            "is-deleted": lazyOriginalReason(props.file.lazy) === "deleted",
+            "is-too-big": lazyOriginalReason(props.file.lazy) === "too_big",
+            "is-pure-renamed":
+              lazyOriginalReason(props.file.lazy) === "pure_renamed",
           }}
           onClick={expand}
         >

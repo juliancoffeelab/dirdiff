@@ -273,11 +273,14 @@ class RepoFileEntryResponse(ApiModel):
 
 
 class LazyInfoFileResponse(ApiModel):
+    # This response must contain enough data for the frontend to construct a
+    # lazy placeholder FileEntry without copying fields from /api/manifest.
     file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
     display_name: str
     summary: TextDiffSummaryResponse
+    lazy: LazyReason = None
 
 
 class NotebookSectionDiffResponse(ApiModel):

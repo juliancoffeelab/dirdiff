@@ -1,0 +1,108 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "const x = make([alpha, keep, omega]);",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const x = make(["
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "alpha"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "keep"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " omega]);"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "const x = make([",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "  wrap(alphaChanged),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "wrap"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "alphaChanged"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "  omega,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  omega"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "]);",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]

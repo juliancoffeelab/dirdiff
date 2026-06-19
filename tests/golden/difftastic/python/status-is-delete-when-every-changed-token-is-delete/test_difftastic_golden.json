@@ -1,0 +1,23 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "value = arg",
+    "right_no": 1,
+    "right_text": "value = arg",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "old_value",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "old_value"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  }
+]

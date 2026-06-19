@@ -33,6 +33,7 @@ snapshot:
 		tests/test_fold_golden.py
 
 resnapshot:
+	rm -rf tests/golden/*
 	uv --no-cache run pytest \
 		tests/test_difftastic_golden.py \
 		tests/test_fold_golden.py \

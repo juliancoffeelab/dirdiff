@@ -27,6 +27,7 @@ BROKEN_PRESET_GROUPS: set[str] = {
 class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
     _write_mode = WriteMode.TEXT
     file_extension = "json"
+    snapshot_function_name = "test_difftastic_preset_rows_match_golden"
 
     def serialize(
         self,
@@ -57,7 +58,7 @@ class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
         cls, *, test_location: Any, index: int | str = 0
     ) -> str:
         if isinstance(index, str):
-            return index
+            return test_location.testname
         return super().get_snapshot_name(
             test_location=test_location, index=index
         )
@@ -65,18 +66,16 @@ class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
     @classmethod
     def get_location(cls, *, test_location: Any, index: int | str) -> str:
         if isinstance(index, str):
-            return str(GOLDEN_ROOT / f"{index}.{cls.file_extension}")
+            return str(
+                GOLDEN_ROOT
+                / index
+                / f"{test_location.basename}.{cls.file_extension}"
+            )
         return super().get_location(test_location=test_location, index=index)
 
     def read_snapshot_collection(self, *, snapshot_location: str) -> Any:
-        snapshot_path = Path(snapshot_location)
-        snapshot_name = snapshot_path.relative_to(GOLDEN_ROOT).as_posix()
-        suffix = f".{self.file_extension}"
-        if snapshot_name.endswith(suffix):
-            snapshot_name = snapshot_name[: -len(suffix)]
-
         snapshot_collection = SnapshotCollection(location=snapshot_location)
-        snapshot_collection.add(Snapshot(name=snapshot_name))
+        snapshot_collection.add(Snapshot(name=self.snapshot_function_name))
         return snapshot_collection
 
 

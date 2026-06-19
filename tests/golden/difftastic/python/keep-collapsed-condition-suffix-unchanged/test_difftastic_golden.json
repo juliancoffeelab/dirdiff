@@ -1,0 +1,1270 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "from dataclasses import dataclass",
+    "right_no": 1,
+    "right_text": "from dataclasses import dataclass",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 3,
+    "left_text": "LARGE_CHANGED_LINES_LAZY_THRESHOLD = 500",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "LARGE_CHANGED_LINES_LAZY_THRESHOLD"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "500"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 4,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "@dataclass",
+    "right_no": 4,
+    "right_text": "@dataclass",
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "class Entry:",
+    "right_no": 5,
+    "right_text": "class Entry:",
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "    left_path: str",
+    "right_no": 6,
+    "right_text": "    left_path: str",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "    right_path: str",
+    "right_no": 7,
+    "right_text": "    right_path: str",
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "    change_type: str",
+    "right_no": 8,
+    "right_text": "    change_type: str",
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "    changed_lines: int | None",
+    "right_no": 9,
+    "right_text": "    changed_lines: int | None",
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "    display_name: str",
+    "right_no": 10,
+    "right_text": "    display_name: str",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 11,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 12,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 13,
+    "right_text": "def _file_kind_for_repo_entry(entry: Entry) -> dict[str, str]:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "def"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "_file_kind_for_repo_entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "dict"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "str"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "str"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "]"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 14,
+    "right_text": "    return {\"type\": \"git\", \"status\": entry.change_type}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"type\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"git\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"status\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "change_type"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 15,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 16,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 17,
+    "right_text": "def _lazy_reason_for_repo_entry(entry: Entry) -> str | None:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "def"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "_lazy_reason_for_repo_entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "str"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "None"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 18,
+    "right_text": "    if entry.changed_lines is None:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "if"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "changed_lines"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "is"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "None"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 19,
+    "right_text": "        return None",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "None"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 20,
+    "right_text": "    return f\"{entry.display_name} has {entry.changed_lines} changed lines\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "f"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "has"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "changed_lines"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "changed"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "lines"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\""
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 13,
+    "left_text": "",
+    "right_no": 21,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "",
+    "right_no": 22,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "def to_lazy_repo_manifest_file_entry(entry: Entry) -> dict[str, object]:",
+    "right_no": 23,
+    "right_text": "def to_lazy_repo_manifest_file_entry(entry: Entry) -> dict[str, object]:",
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "    payload: dict[str, object] = {",
+    "right_no": 24,
+    "right_text": "    payload: dict[str, object] = {",
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "        \"left_path\": entry.left_path,",
+    "right_no": 25,
+    "right_text": "        \"left_path\": entry.left_path,",
+    "status": "equal"
+  },
+  {
+    "left_no": 18,
+    "left_text": "        \"right_path\": entry.right_path,",
+    "right_no": 26,
+    "right_text": "        \"right_path\": entry.right_path,",
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "        \"change_type\": entry.change_type,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"change_type\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": entry"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "change_type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "right_no": 27,
+    "right_text": "        \"file_kind\": _file_kind_for_repo_entry(entry),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"file_kind\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "_file_kind_for_repo_entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 20,
+    "left_text": "        \"lazy\": True,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"lazy\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "True"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 21,
+    "left_text": "    }",
+    "right_no": 28,
+    "right_text": "    }",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 29,
+    "right_text": "    lazy = _lazy_reason_for_repo_entry(entry)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "lazy"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "_lazy_reason_for_repo_entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 22,
+    "left_text": "    if (",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    if "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      }
+    ],
+    "right_no": 30,
+    "right_text": "    if lazy is not None:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    if "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " is not None:"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 23,
+    "left_text": "        entry.changed_lines is not None",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "changed_lines"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " is not None"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "replace"
+  },
+  {
+    "left_no": 24,
+    "left_text": "        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "and"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "changed_lines"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "LARGE_CHANGED_LINES_LAZY_THRESHOLD"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 25,
+    "left_text": "    ):",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "replace"
+  },
+  {
+    "left_no": 26,
+    "left_text": "        payload[\"lazy_reason\"] = (",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        payload["
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\"lazy_reason\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "] = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      }
+    ],
+    "right_no": 31,
+    "right_text": "        payload[\"lazy\"] = lazy",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        payload["
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\"lazy\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "] = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "lazy"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 27,
+    "left_text": "            f\"{entry.display_name} has {entry.changed_lines} changed lines, \"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "f"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "has"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "entry"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "changed_lines"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "changed"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "lines"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\""
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 28,
+    "left_text": "            \"so it is folded by default. Click to fetch and open it.\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"so it is folded by default. Click to fetch and open it.\""
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 29,
+    "left_text": "        )",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 30,
+    "left_text": "    return payload",
+    "right_no": 32,
+    "right_text": "    return payload",
+    "status": "equal"
+  }
+]

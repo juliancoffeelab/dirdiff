@@ -1,0 +1,117 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "(render {:left thing :tail keep :end done})",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "(render {:left "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "thing"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "tail"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "keep"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " :end done})"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "(render {",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "  :left (wrap thing-changed)",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  :left "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "wrap"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "thing"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "changed"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "  :end done",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "})",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]
