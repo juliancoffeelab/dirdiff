@@ -13,6 +13,9 @@ eslint:
 mypy:
 	.venv/bin/mypy .
 
+basedpyright:
+	.venv/bin/basedpyright -p pyrightcheck.json
+
 ruff:
 	.venv/bin/ruff check
 

@@ -1,0 +1,11 @@
+{
+  "include": ["src", "tests"],
+  "exclude": ["tests/presets"],
+  "typeCheckingMode": "off",
+  "reportDeprecated": "warning",
+  "reportDuplicateImport": "warning",
+  "reportUnusedClass": "warning",
+  "reportUnusedFunction": "warning",
+  "reportUnusedImport": "warning",
+  "reportUnusedVariable": "warning"
+}
