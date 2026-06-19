@@ -274,8 +274,20 @@ export function App() {
           />
           <p class={`status ${diff.status()}`}>{diff.statusText()}</p>
           <Show when={preferences() !== null}>
-            <Show when={ui.displayFiles().length > 0}>
-              <div class="repo-fold-controls">
+            <div class="repo-fold-controls">
+              <Show
+                when={ui.displayFiles().length > 0}
+                fallback={
+                  <>
+                    <button type="button" disabled>
+                      Fold all
+                    </button>
+                    <button type="button" disabled>
+                      Show all
+                    </button>
+                  </>
+                }
+              >
                 <button
                   type="button"
                   onClick={() => ui.setAllFilesExpanded(false)}
@@ -288,8 +300,8 @@ export function App() {
                 >
                   Show all
                 </button>
-              </div>
-            </Show>
+              </Show>
+            </div>
             <div
               class="diff-workspace"
               classList={{

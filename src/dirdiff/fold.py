@@ -80,8 +80,12 @@ TOP_LEVEL_NODE_KINDS: dict[str, str] = {
     "let_declaration": "declaration",
     "lexical_declaration": "declaration",
     "method_definition": "declaration",
+    "media_statement": "declaration",
+    "keyframes_statement": "declaration",
+    "rule_set": "declaration",
     "static_item": "declaration",
     "struct_item": "declaration",
+    "supports_statement": "declaration",
     "trait_item": "declaration",
     "type_alias_declaration": "declaration",
     "type_item": "declaration",
@@ -485,6 +489,10 @@ def _collect_hints(
             hint = _candidate_to_hint(candidate, rows)
             if hint is not None:
                 hints.append(hint)
+        else:
+            for child in _child_candidates(candidate, all_candidates):
+                if child.rule.region_kind in {"function_like", "class_like"}:
+                    _collect_hints(child, all_candidates, rows, hints)
     elif candidate.rule.region_kind == "container":
         if not _has_ancestor_kind(candidate, "function_like") and not (
             _has_ancestor_kind(candidate, "class_like")

@@ -178,6 +178,48 @@ def test_changed_class_still_folds_only_unchanged_methods() -> None:
     ]
 
 
+def test_changed_function_still_folds_unchanged_nested_functions() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.py",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=(
+            "def outer():\n"
+            "    def unchanged_inner():\n"
+            "        value = 1\n"
+            "        return value\n\n"
+            "    def changed_inner():\n"
+            "        value = 2\n"
+            "        return value\n\n"
+            "    return unchanged_inner() + changed_inner()\n"
+        ),
+        right_text=(
+            "def outer():\n"
+            "    def unchanged_inner():\n"
+            "        value = 1\n"
+            "        return value\n\n"
+            "    def changed_inner():\n"
+            "        value = 3\n"
+            "        return value\n\n"
+            "    return unchanged_inner() + changed_inner()\n"
+        ),
+        left_path_hint="demo.py",
+        right_path_hint="demo.py",
+    )
+
+    assert diff["fold_hints"] == [
+        {
+            "start_row": 2,
+            "end_row": 4,
+            "kind": "function_like",
+            "label": "def unchanged_inner():",
+        }
+    ]
+
+
 def test_whitespace_only_changes_block_folding() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
@@ -267,11 +309,17 @@ def test_css_unchanged_top_level_rule_folds_declarations() -> None:
 
     assert diff["fold_hints"] == [
         {
+            "start_row": 0,
+            "end_row": 4,
+            "kind": "top_level",
+            "label": "1 unchanged declaration",
+        },
+        {
             "start_row": 1,
             "end_row": 4,
             "kind": "container",
             "label": ".card {",
-        }
+        },
     ]
 
 
@@ -313,6 +361,88 @@ def test_changed_css_media_rule_still_folds_unchanged_nested_rule() -> None:
             "kind": "container",
             "label": ".card {",
         }
+    ]
+
+
+def test_changed_css_middle_rule_still_folds_unchanged_siblings() -> None:
+    diff = build_loaded_diff(
+        display_name="demo.css",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text=(
+            ".toolbar {\n"
+            "  display: flex;\n"
+            "  gap: 8px;\n"
+            "}\n\n"
+            ".sidebar {\n"
+            "  width: 240px;\n"
+            "  padding: 16px;\n"
+            "}\n\n"
+            ".content {\n"
+            "  color: #24231f;\n"
+            "  line-height: 1.5;\n"
+            "}\n\n"
+            ".footer {\n"
+            "  border-top: 1px solid #ded8cc;\n"
+            "  padding: 12px;\n"
+            "}\n"
+        ),
+        right_text=(
+            ".toolbar {\n"
+            "  display: flex;\n"
+            "  gap: 8px;\n"
+            "}\n\n"
+            ".sidebar {\n"
+            "  width: 240px;\n"
+            "  padding: 16px;\n"
+            "}\n\n"
+            ".content {\n"
+            "  color: #1f3f8a;\n"
+            "  line-height: 1.5;\n"
+            "}\n\n"
+            ".footer {\n"
+            "  border-top: 1px solid #ded8cc;\n"
+            "  padding: 12px;\n"
+            "}\n"
+        ),
+        left_path_hint="demo.css",
+        right_path_hint="demo.css",
+    )
+
+    assert diff["fold_hints"] == [
+        {
+            "start_row": 0,
+            "end_row": 9,
+            "kind": "top_level",
+            "label": "2 unchanged declarations",
+        },
+        {
+            "start_row": 1,
+            "end_row": 4,
+            "kind": "container",
+            "label": ".toolbar {",
+        },
+        {
+            "start_row": 6,
+            "end_row": 9,
+            "kind": "container",
+            "label": ".sidebar {",
+        },
+        {
+            "start_row": 15,
+            "end_row": 19,
+            "kind": "top_level",
+            "label": "1 unchanged declaration",
+        },
+        {
+            "start_row": 16,
+            "end_row": 19,
+            "kind": "container",
+            "label": ".footer {",
+        },
     ]
 
 

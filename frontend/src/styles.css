@@ -1034,6 +1034,11 @@ h1 {
   padding: 6px 10px;
 }
 
+.repo-fold-controls button:disabled {
+  cursor: default;
+  opacity: 0;
+}
+
 .file-tree-shell {
   position: fixed;
   bottom: 22px;
@@ -1189,6 +1194,15 @@ h1 {
 .file-tree-shell-inline .file-tree-groups {
   max-height: calc(100vh - var(--app-header-sticky-offset, 0px) - 40px);
   padding: 0;
+}
+
+.file-tree-empty {
+  margin: 0;
+  padding: 10px 8px;
+  color: #6a665d;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .file-tree-group + .file-tree-group {
@@ -1421,6 +1435,16 @@ h1 {
   background: #fffdf8;
   padding: 12px;
   contain: layout style;
+}
+
+.file-list-empty-shell {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+}
+
+.file-list-empty {
+  margin: 0;
 }
 
 .directory-group-header {
