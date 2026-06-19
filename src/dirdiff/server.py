@@ -185,7 +185,7 @@ FileKindResponse = GitFileKindResponse | UntrackedFileKindResponse
 
 
 class EngineWarningResponse(ApiModel):
-    type: Literal["difftastic_graph_limit"]
+    type: Literal["difftastic_graph_limit", "difftastic_empty_rows"]
     message: str
 
 

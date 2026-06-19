@@ -831,7 +831,7 @@ function FileCard(props: {
                 class="file-card-engine-warning"
                 title={engineWarningMessage(props.file)}
               >
-                Difftastic failed: text fallback
+                Difftastic failed: git fallback
               </span>
             </Show>
           </span>

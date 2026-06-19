@@ -313,7 +313,7 @@ const LazyStateSchema = z.union([LazyReasonSchema, LazyErrorSchema]);
 export type LazyState = z.infer<typeof LazyStateSchema>;
 
 const EngineWarningSchema = z.strictObject({
-  type: z.literal("difftastic_graph_limit"),
+  type: z.enum(["difftastic_graph_limit", "difftastic_empty_rows"]),
   message: z.string(),
 });
 export type EngineWarning = z.infer<typeof EngineWarningSchema>;

@@ -16,9 +16,6 @@ from dirdiff.diff import (
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"
-BROKEN_PRESET_NAMES: set[str] = {
-    "python/create-app-runtime-config-collapses-service-block",
-}
 BROKEN_PRESET_GROUPS: set[str] = {
     "borked",
 }
@@ -85,7 +82,6 @@ def _preset_dirs() -> list[Path]:
         for path in sorted(PRESETS_ROOT.glob("*/*"))
         if path.is_dir()
         and path.relative_to(PRESETS_ROOT).parts[0] not in BROKEN_PRESET_GROUPS
-        and path.relative_to(PRESETS_ROOT).as_posix() not in BROKEN_PRESET_NAMES
     ]
 
 

@@ -1,0 +1,100 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "from dirdiff.diff import ",
+    "left_tokens": [],
+    "right_no": 1,
+    "right_text": "from dirdiff.diff import (",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "from dirdiff.diff import "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "    DifftasticDiffService,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "DifftasticDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 1,
+    "left_text": "    GitDiffService,",
+    "right_no": 3,
+    "right_text": "    GitDiffService,",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "    GitBackend,",
+    "right_no": 4,
+    "right_text": "    GitBackend,",
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "    TextDiffService",
+    "right_no": 5,
+    "right_text": "    TextDiffService,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    TextDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": ")",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 2,
+    "left_text": "from dirdiff.server import create_app",
+    "right_no": 7,
+    "right_text": "from dirdiff.server import create_app",
+    "status": "equal"
+  }
+]
