@@ -2154,31 +2154,6 @@ def _rows_from_specs(
             )
             continue
 
-        right_padding_match = _match_right_leading_padding(
-            left_index=pending.index,
-            right_index=spec.right,
-            left_lines=left_lines,
-            right_lines=right_lines,
-            change_index=change_index,
-        )
-        if right_padding_match is not None:
-            rows.append(
-                _right_fragment_pair_row(
-                    pending.index,
-                    spec.right,
-                    match=right_padding_match,
-                    left_lines=left_lines,
-                    right_lines=right_lines,
-                    change_index=change_index,
-                )
-            )
-            pending_left.pop(0)
-            pending_right = _PendingRightLine(
-                index=spec.right,
-                cursor=right_padding_match.end,
-            )
-            continue
-
         rows.append(
             _full_pair_row(
                 pending.index,
@@ -2265,39 +2240,6 @@ def _changed_tokens_for_text(
 def _next_spec_has_left(specs: list[_RowSpec], index: int) -> bool:
     next_index = index + 1
     return next_index < len(specs) and specs[next_index].left is not None
-
-
-def _match_right_leading_padding(
-    *,
-    left_index: int,
-    right_index: int,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> _FragmentMatch | None:
-    if not _has_empty_side_change_pair(
-        side="right",
-        left_index=left_index,
-        right_index=right_index,
-        change_index=change_index,
-    ):
-        return None
-    if (
-        _line_similarity(left_lines[left_index], right_lines[right_index])
-        != 0.0
-    ):
-        return None
-    if right_lines[right_index].strip() in {")", "}", "]"}:
-        return None
-    leading = _leading_whitespace(right_lines[right_index])
-    if len(leading) <= 1:
-        return None
-    end = len(leading) - 1
-    if end >= len(right_lines[right_index]):
-        return None
-    return _FragmentMatch(
-        display_text=right_lines[right_index][:end], start=0, end=end
-    )
 
 
 def _side_tokens_for_line(
