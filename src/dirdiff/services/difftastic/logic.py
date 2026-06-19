@@ -238,6 +238,16 @@ def _difftastic_engine_warning(
             "type": "difftastic_graph_limit",
             "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
         }
+    if (
+        diff_json.get("status") == "unchanged"
+        and left_text is not None
+        and right_text is not None
+        and left_text != right_text
+    ):
+        return {
+            "type": "difftastic_empty_rows",
+            "message": "Difftastic reported no structural changes, so dirdiff fell back to a line diff.",
+        }
     return None
 
 
