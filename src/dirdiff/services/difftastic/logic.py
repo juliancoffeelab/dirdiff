@@ -706,10 +706,9 @@ def _difftastic_contextual_residual_mapping(
     right_lines: list[str],
     right_ranges: dict[int, list[tuple[int, int]]],
 ) -> dict[int, tuple[int, str]] | None:
-    if "||" not in fragment.text:
-        return None
-
-    fragment_semantics = _difftastic_semantic_tokens(fragment.text)
+    fragment_semantics: list[str] = []
+    if "||" in fragment.text:
+        fragment_semantics = _difftastic_semantic_tokens(fragment.text)
     if not fragment_semantics:
         return None
 
@@ -1401,6 +1400,299 @@ def _insert_unrendered_residual_fragments(
     return completed
 
 
+@dataclass(frozen=True)
+class DifftasticTokenSpan:
+    text: str
+    start: int
+    end: int
+
+
+def _difftastic_code_token_spans(text: str) -> list[DifftasticTokenSpan]:
+    return [
+        DifftasticTokenSpan(
+            text=match.group(0),
+            start=match.start(),
+            end=match.end(),
+        )
+        for match in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S", text)
+        if not match.group(0).isspace()
+    ]
+
+
+def _difftastic_common_token_prefix_length(
+    left: list[DifftasticTokenSpan],
+    right: list[DifftasticTokenSpan],
+) -> int:
+    limit = min(len(left), len(right))
+    cursor = 0
+    while cursor < limit and left[cursor].text == right[cursor].text:
+        cursor += 1
+    return cursor
+
+
+def _difftastic_text_through_token(
+    text: str,
+    spans: list[DifftasticTokenSpan],
+    token_count: int,
+) -> str:
+    if token_count <= 0:
+        return ""
+    return text[: spans[token_count - 1].end]
+
+
+def _difftastic_clip_tokens_to_text(
+    tokens: list[dict[str, Any]],
+    text: str,
+) -> list[dict[str, Any]]:
+    clipped: list[dict[str, Any]] = []
+    cursor = 0
+    limit = len(text)
+    for token in tokens:
+        token_text = token.get("text")
+        if not isinstance(token_text, str):
+            continue
+        token_end = cursor + len(token_text)
+        if token_end <= limit:
+            clipped.append(token)
+            cursor = token_end
+            continue
+        if cursor < limit:
+            clipped_text = token_text[: limit - cursor]
+            clipped.append(
+                {
+                    **token,
+                    "text": clipped_text,
+                    "is_ws": clipped_text.isspace(),
+                }
+            )
+        break
+    return clipped
+
+
+def _difftastic_projected_fragment_text(
+    *,
+    reference_text: str,
+    fragment_text: str,
+) -> str:
+    return f"{_difftastic_leading_whitespace(reference_text)}{fragment_text.strip()}"
+
+
+def _difftastic_set_row_side(
+    row: dict[str, Any],
+    *,
+    side: Literal["left", "right"],
+    line_no: int,
+    text: str,
+) -> dict[str, Any]:
+    next_row = dict(row)
+    if side == "left":
+        next_row["left_no"] = line_no
+        next_row["left_text"] = text
+        next_row.pop("left_tokens", None)
+        return next_row
+    next_row["right_no"] = line_no
+    next_row["right_text"] = text
+    next_row.pop("right_tokens", None)
+    return next_row
+
+
+def _difftastic_set_inserted_tail_tokens(
+    row: dict[str, Any],
+    *,
+    side: Literal["left", "right"],
+    extra_start: int,
+) -> dict[str, Any]:
+    text_key = "left_text" if side == "left" else "right_text"
+    tokens_key = "left_tokens" if side == "left" else "right_tokens"
+    text = row.get(text_key)
+    if not isinstance(text, str):
+        return row
+    if extra_start >= len(text):
+        next_row = dict(row)
+        next_row.pop(tokens_key, None)
+        return next_row
+    next_row = dict(row)
+    next_row[tokens_key] = _changed_tokens_for_ranges(
+        text,
+        [(extra_start, len(text))],
+        status="insert" if side == "right" else "delete",
+    )
+    return next_row
+
+
+def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
+    rows: list[dict[str, Any]],
+    *,
+    row_index: int,
+    long_side: Literal["left", "right"],
+) -> tuple[dict[str, Any] | None, dict[int, dict[str, Any]]]:
+    short_side: Literal["left", "right"] = (
+        "right" if long_side == "left" else "left"
+    )
+    long_text_key = "left_text" if long_side == "left" else "right_text"
+    short_text_key = "left_text" if short_side == "left" else "right_text"
+    long_no_key = "left_no" if long_side == "left" else "right_no"
+    short_no_key = "left_no" if short_side == "left" else "right_no"
+    long_tokens_key = "left_tokens" if long_side == "left" else "right_tokens"
+
+    row = rows[row_index]
+    long_text = row.get(long_text_key)
+    short_text = row.get(short_text_key)
+    long_no = row.get(long_no_key)
+    if not isinstance(long_text, str):
+        return None, {}
+    if not isinstance(short_text, str):
+        return None, {}
+    if not isinstance(long_no, int):
+        return None, {}
+
+    long_spans = _difftastic_code_token_spans(long_text)
+    short_spans = _difftastic_code_token_spans(short_text)
+    if len(long_spans) <= len(short_spans):
+        return None, {}
+    prefix_count = len(short_spans)
+    if prefix_count == 0:
+        return None, {}
+
+    clipped_long_text = _difftastic_text_through_token(
+        long_text,
+        long_spans,
+        prefix_count,
+    )
+    if clipped_long_text == long_text:
+        return None, {}
+
+    next_row = dict(row)
+    next_row[long_text_key] = clipped_long_text
+    raw_tokens = row.get(long_tokens_key)
+    if isinstance(raw_tokens, list):
+        next_row[long_tokens_key] = _difftastic_clip_tokens_to_text(
+            raw_tokens,
+            clipped_long_text,
+        )
+
+    replacements: dict[int, dict[str, Any]] = {}
+    cursor = prefix_count
+    scan_index = row_index + 1
+    while scan_index < len(rows) and cursor < len(long_spans):
+        candidate = rows[scan_index]
+        candidate_long_no = candidate.get(long_no_key)
+        if candidate_long_no is not None:
+            if candidate_long_no != long_no:
+                break
+            candidate_long_text = candidate.get(long_text_key)
+            if not isinstance(candidate_long_text, str):
+                break
+            candidate_long_spans = _difftastic_code_token_spans(
+                candidate_long_text
+            )
+            remaining_spans = long_spans[cursor:]
+            match_count = _difftastic_common_token_prefix_length(
+                remaining_spans,
+                candidate_long_spans,
+            )
+            if match_count != len(candidate_long_spans):
+                break
+            cursor += match_count
+            scan_index += 1
+            continue
+        if candidate.get(short_no_key) is None:
+            scan_index += 1
+            continue
+
+        candidate_text = candidate.get(short_text_key)
+        if not isinstance(candidate_text, str):
+            scan_index += 1
+            continue
+        candidate_spans = _difftastic_code_token_spans(candidate_text)
+        if not candidate_spans:
+            scan_index += 1
+            continue
+
+        remaining_spans = long_spans[cursor:]
+        match_count = _difftastic_common_token_prefix_length(
+            remaining_spans,
+            candidate_spans,
+        )
+        if match_count == 0:
+            scan_index += 1
+            continue
+
+        fragment_start = long_spans[cursor].start
+        fragment_end = long_spans[cursor + match_count - 1].end
+        fragment_text = long_text[fragment_start:fragment_end]
+        projected_text = _difftastic_projected_fragment_text(
+            reference_text=candidate_text,
+            fragment_text=fragment_text,
+        )
+        replacement = _difftastic_set_row_side(
+            candidate,
+            side=long_side,
+            line_no=long_no,
+            text=projected_text,
+        )
+        if match_count == len(candidate_spans):
+            replacement["status"] = "equal"
+            replacement.pop("left_tokens", None)
+            replacement.pop("right_tokens", None)
+        else:
+            replacement["status"] = "replace"
+            replacement = _difftastic_set_inserted_tail_tokens(
+                replacement,
+                side=short_side,
+                extra_start=candidate_spans[match_count].start,
+            )
+        replacements[scan_index] = replacement
+        cursor += match_count
+        scan_index += 1
+
+    if cursor != len(long_spans):
+        return None, {}
+    return next_row, replacements
+
+
+def _pair_wrapped_difftastic_projection_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    replacements: dict[int, dict[str, Any]] = {}
+    for index, row in enumerate(rows):
+        if index in replacements:
+            continue
+        if row.get("status") != "replace":
+            continue
+        if row.get("left_no") is None:
+            continue
+        if row.get("right_no") is None:
+            continue
+
+        left_result, left_replacements = (
+            _difftastic_pair_wrapped_projection_rows_for_side(
+                rows,
+                row_index=index,
+                long_side="left",
+            )
+        )
+        if left_result is not None:
+            replacements[index] = left_result
+            replacements.update(left_replacements)
+            continue
+
+        right_result, right_replacements = (
+            _difftastic_pair_wrapped_projection_rows_for_side(
+                rows,
+                row_index=index,
+                long_side="right",
+            )
+        )
+        if right_result is not None:
+            replacements[index] = right_result
+            replacements.update(right_replacements)
+
+    if not replacements:
+        return rows
+    return [replacements.get(index, row) for index, row in enumerate(rows)]
+
+
 def _unchanged_tokens_for_text(text: str) -> list[dict[str, Any]]:
     return [
         {"text": part, "status": "unchanged", "is_ws": part.isspace()}
@@ -1755,6 +2047,174 @@ def _normalize_one_sided_difftastic_replacements(
         if not changed:
             return next_rows
         normalized = next_rows
+
+
+def _difftastic_context_atoms(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S", text)
+
+
+def _difftastic_tokens_are_contiguous_subsequence(
+    needles: list[str],
+    haystack: list[str],
+) -> bool:
+    if len(needles) > len(haystack):
+        return False
+    last_start = len(haystack) - len(needles)
+    for start in range(last_start + 1):
+        if haystack[start : start + len(needles)] == needles:
+            return True
+    return False
+
+
+def _difftastic_row_is_changed_group_member(row: dict[str, Any]) -> bool:
+    if row.get("status") != "equal":
+        return True
+    left_tokens = row.get("left_tokens")
+    if isinstance(left_tokens, list) and left_tokens:
+        return True
+    right_tokens = row.get("right_tokens")
+    if isinstance(right_tokens, list) and right_tokens:
+        return True
+    if row.get("left_no") is None and row.get("right_no") is not None:
+        return True
+    return row.get("right_no") is None and row.get("left_no") is not None
+
+
+def _difftastic_changed_row_groups(
+    rows: list[dict[str, Any]],
+) -> list[list[tuple[int, dict[str, Any]]]]:
+    groups: list[list[tuple[int, dict[str, Any]]]] = []
+    current: list[tuple[int, dict[str, Any]]] = []
+    for index, row in enumerate(rows):
+        if _difftastic_row_is_changed_group_member(row):
+            current.append((index, row))
+            continue
+        if current:
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _difftastic_changed_atoms_for_side(
+    group: list[tuple[int, dict[str, Any]]],
+    *,
+    side: Literal["left", "right"],
+) -> list[str]:
+    tokens_key = "left_tokens" if side == "left" else "right_tokens"
+    atoms: list[str] = []
+    for _index, row in group:
+        raw_tokens = row.get(tokens_key)
+        if not isinstance(raw_tokens, list):
+            continue
+        for token in raw_tokens:
+            if not isinstance(token, dict):
+                continue
+            if token.get("status") == "unchanged":
+                continue
+            text = token.get("text")
+            if isinstance(text, str):
+                atoms.extend(_difftastic_context_atoms(text))
+    return atoms
+
+
+def _difftastic_one_sided_equal_context_atoms(
+    row: dict[str, Any],
+    *,
+    side: Literal["left", "right"],
+) -> list[str]:
+    if row.get("status") != "equal":
+        return []
+    if side == "left":
+        side_no = row.get("left_no")
+        other_side_no = row.get("right_no")
+        text = row.get("left_text")
+    else:
+        side_no = row.get("right_no")
+        other_side_no = row.get("left_no")
+        text = row.get("right_text")
+    if side_no is None:
+        return []
+    if other_side_no is not None:
+        return []
+    if not isinstance(text, str):
+        return []
+    return _difftastic_context_atoms(text)
+
+
+def _difftastic_leaky_context_row_indexes(
+    rows: list[dict[str, Any]],
+) -> set[int]:
+    leaky_indexes: set[int] = set()
+    for group in _difftastic_changed_row_groups(rows):
+        left_changed_atoms = _difftastic_changed_atoms_for_side(
+            group,
+            side="left",
+        )
+        right_changed_atoms = _difftastic_changed_atoms_for_side(
+            group,
+            side="right",
+        )
+        for index, row in group:
+            left_context_atoms = _difftastic_one_sided_equal_context_atoms(
+                row,
+                side="left",
+            )
+            if (
+                left_context_atoms
+                and _difftastic_tokens_are_contiguous_subsequence(
+                    left_context_atoms,
+                    right_changed_atoms,
+                )
+            ):
+                leaky_indexes.add(index)
+            right_context_atoms = _difftastic_one_sided_equal_context_atoms(
+                row,
+                side="right",
+            )
+            if (
+                right_context_atoms
+                and _difftastic_tokens_are_contiguous_subsequence(
+                    right_context_atoms,
+                    left_changed_atoms,
+                )
+            ):
+                leaky_indexes.add(index)
+    return leaky_indexes
+
+
+def _normalize_leaky_difftastic_context_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    leaky_indexes = _difftastic_leaky_context_row_indexes(rows)
+    if not leaky_indexes:
+        return rows
+
+    normalized: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if index in leaky_indexes:
+            next_row = {**row, "status": "replace"}
+            if row.get("left_no") is not None and row.get("right_no") is None:
+                left_text = row.get("left_text")
+                if isinstance(left_text, str):
+                    next_row["left_tokens"] = _changed_tokens_for_ranges(
+                        left_text,
+                        [(0, len(left_text))],
+                        status="replace",
+                    )
+            if row.get("right_no") is not None and row.get("left_no") is None:
+                right_text = row.get("right_text")
+                if isinstance(right_text, str):
+                    next_row["right_tokens"] = _changed_tokens_for_ranges(
+                        right_text,
+                        [(0, len(right_text))],
+                        status="replace",
+                    )
+            normalized.append(next_row)
+            continue
+        normalized.append(row)
+    return normalized
 
 
 def _difftastic_rows_from_json(
@@ -2214,8 +2674,10 @@ def _difftastic_rows_from_json(
         side="right",
         used_fragments=used_right_residual_fragments,
     )
+    rows = _pair_wrapped_difftastic_projection_rows(rows)
     rows = _normalize_redundant_left_residual_delete_rows(rows)
     rows = _expand_show_guard_residual_rows(rows)
+    rows = _normalize_leaky_difftastic_context_rows(rows)
 
     return _normalize_difftastic_replace_tokens_in_mixed_rows(
         _repair_replace_rows_with_delete_continuations(

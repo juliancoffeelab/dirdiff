@@ -1,0 +1,8212 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "function FileTreeGroups() {",
+    "right_no": 1,
+    "right_text": "function FileTreeGroups() {",
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  return (",
+    "right_no": 2,
+    "right_text": "  return (",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    <>",
+    "right_no": 3,
+    "right_text": "    <>",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "      <Show",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "        when={groups().length > 0}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "when"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "groups"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "length"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "0"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "        fallback={<p class=\"file-tree-empty\">No files loaded yet.</p>}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "fallback"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "p"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"file-tree-empty\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "No"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "files"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "loaded"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "yet"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "p"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 7,
+    "right_text": "      >",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 4,
+    "left_text": "      <For each={groups()}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "each"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "groups"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}>"
+      }
+    ],
+    "right_no": 8,
+    "right_text": "        <For each={groups()}>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "each"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "groups"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "        {(group) => (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "right_no": 9,
+    "right_text": "          {(group) => (",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "          <section class=\"file-tree-group\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "section"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "right_no": 10,
+    "right_text": "            <section class=\"file-tree-group\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "section"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "            <div class=\"file-tree-directory\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directory"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "right_no": 11,
+    "right_text": "              <div class=\"file-tree-directory\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directory"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "              <button",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "right_no": 12,
+    "right_text": "                <button",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "                type=\"button\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 13,
+    "right_text": "                  type=\"button\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "                class=\"file-tree-visibility-toggle\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visibility"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "toggle"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 14,
+    "right_text": "                  class=\"file-tree-visibility-toggle\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visibility"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "toggle"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "                onClick={() =>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      }
+    ],
+    "right_no": 15,
+    "right_text": "                  onClick={() =>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "                  setDirectoryExpanded(",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDirectoryExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "right_no": 16,
+    "right_text": "                    setDirectoryExpanded(",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setDirectoryExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 12,
+    "left_text": "                      group,",
+    "right_no": 17,
+    "right_text": "                      group,",
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "                      !directoryExpanded(group)",
+    "right_no": 18,
+    "right_text": "                      !directoryExpanded(group),",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "                      !directoryExpanded(group)"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 12,
+    "left_text": "                    )",
+    "right_no": 19,
+    "right_text": "                    )",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "                }",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 20,
+    "right_text": "                  }",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "                aria-label={",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "right_no": 21,
+    "right_text": "                  aria-label={",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "                  directoryExpanded(group)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "right_no": 22,
+    "right_text": "                    directoryExpanded(group)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "                    ? `Fold ${group.label}`",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "?"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Fold"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}`"
+      }
+    ],
+    "right_no": 23,
+    "right_text": "                      ? `Fold ${group.label}`",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "?"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Fold"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}`"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "                    : `Show ${group.label}`",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}`"
+      }
+    ],
+    "right_no": 24,
+    "right_text": "                      : `Show ${group.label}`",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}`"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 18,
+    "left_text": "                }",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 25,
+    "right_text": "                  }",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "              >",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 26,
+    "right_text": "                >",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 20,
+    "left_text": "                <VisibilityIndicator",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "VisibilityIndicator"
+      }
+    ],
+    "right_no": 27,
+    "right_text": "                  <VisibilityIndicator",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "VisibilityIndicator"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "                  size=\"small\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "size"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "small"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 28,
+    "right_text": "                    size=\"small\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "size"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "small"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 22,
+    "left_text": "                  visible={directoryExpanded(group)}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visible"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 29,
+    "right_text": "                    visible={directoryExpanded(group)}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visible"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directoryExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 23,
+    "left_text": "                />",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "right_no": 30,
+    "right_text": "                  />",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 24,
+    "left_text": "              </button>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 31,
+    "right_text": "                </button>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 25,
+    "left_text": "              <button",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "right_no": 32,
+    "right_text": "                <button",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 26,
+    "left_text": "                type=\"button\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 33,
+    "right_text": "                  type=\"button\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 27,
+    "left_text": "                class=\"file-tree-directory-target\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directory"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "target"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 34,
+    "right_text": "                  class=\"file-tree-directory-target\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "directory"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "target"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 28,
+    "left_text": "                onClick={() => props.onScrollToDirectory(group)}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onScrollToDirectory"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 35,
+    "right_text": "                  onClick={() => props.onScrollToDirectory(group)}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onScrollToDirectory"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 29,
+    "left_text": "              >",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 36,
+    "right_text": "                >",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 30,
+    "left_text": "                {group.label}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 37,
+    "right_text": "                  {group.label}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 31,
+    "left_text": "              </button>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 38,
+    "right_text": "                </button>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 32,
+    "left_text": "              <TreeLineStats stats={groupLineStats(group)} />",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "TreeLineStats"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "stats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "groupLineStats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "right_no": 39,
+    "right_text": "                <TreeLineStats stats={groupLineStats(group)} />",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "TreeLineStats"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "stats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "groupLineStats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 33,
+    "left_text": "            </div>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 40,
+    "right_text": "              </div>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 34,
+    "left_text": "            <For each={group.files}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "each"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "files"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}>"
+      }
+    ],
+    "right_no": 41,
+    "right_text": "              <For each={group.files}>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "each"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "group"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "files"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 35,
+    "left_text": "              {(file) => {",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      }
+    ],
+    "right_no": 42,
+    "right_text": "                {(file) => {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 36,
+    "left_text": "                const virtualized = () => fileIsVirtualized(file);",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "virtualized"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsVirtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "right_no": 43,
+    "right_text": "                  const virtualized = () => fileIsVirtualized(file);",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "virtualized"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsVirtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 37,
+    "left_text": "                const lazyReason = () => fileTreeLazyReason(file);",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileTreeLazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "right_no": 44,
+    "right_text": "                  const lazyReason = () => fileTreeLazyReason(file);",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileTreeLazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 38,
+    "left_text": "                return (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "right_no": 45,
+    "right_text": "                  return (",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 39,
+    "left_text": "                  <div",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      }
+    ],
+    "right_no": 46,
+    "right_text": "                    <div",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 40,
+    "left_text": "                    class=\"file-tree-file\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 47,
+    "right_text": "                      class=\"file-tree-file\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 41,
+    "left_text": "                    data-file-tree-file-id={fileElementId(",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "data"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "id"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileElementId"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "right_no": 48,
+    "right_text": "                      data-file-tree-file-id={fileElementId(",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "data"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "id"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileElementId"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 42,
+    "left_text": "                      fileKey(file),",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKey"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "),"
+      }
+    ],
+    "right_no": 49,
+    "right_text": "                        fileKey(file),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKey"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "),"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 43,
+    "left_text": "                    )}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 50,
+    "right_text": "                      )}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 44,
+    "left_text": "                    classList={{",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "classList"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={{"
+      }
+    ],
+    "right_no": 51,
+    "right_text": "                      classList={{",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "classList"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={{"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 45,
+    "left_text": "                      added:",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "added"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "right_no": 52,
+    "right_text": "                        added:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "added"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 45,
+    "left_text": "                          fileKindStatus(file.file_kind) === \"added\",",
+    "right_no": 53,
+    "right_text": "                          fileKindStatus(file.file_kind) === \"added\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 46,
+    "left_text": "                      removed:",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "removed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "right_no": 54,
+    "right_text": "                        removed:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "removed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 47,
+    "left_text": "                        fileKindStatus(file.file_kind) === \"deleted\",",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKindStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "deleted"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "right_no": 55,
+    "right_text": "                          fileKindStatus(file.file_kind) === \"deleted\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKindStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "deleted"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 48,
+    "left_text": "                      renamed:",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "renamed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "right_no": 56,
+    "right_text": "                        renamed:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "renamed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 49,
+    "left_text": "                        fileKindStatus(file.file_kind) === \"renamed\",",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKindStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "renamed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "right_no": 57,
+    "right_text": "                          fileKindStatus(file.file_kind) === \"renamed\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKindStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "renamed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 50,
+    "left_text": "                      untracked:",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "untracked"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "right_no": 58,
+    "right_text": "                        untracked:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "untracked"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 51,
+    "left_text": "                        fileKindStatus(file.file_kind) ===",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKindStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      }
+    ],
+    "right_no": 59,
+    "right_text": "                          fileKindStatus(file.file_kind) ===",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileKindStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 51,
+    "left_text": "                          \"untracked\",",
+    "right_no": 60,
+    "right_text": "                          \"untracked\",",
+    "status": "equal"
+  },
+  {
+    "left_no": 52,
+    "left_text": "                      lazy: lazyReason() !== null,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "!=="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "null"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "right_no": 61,
+    "right_text": "                        lazy: lazyReason() !== null,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "!=="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "null"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 53,
+    "left_text": "                      \"lazy-error\": lazyIsError(file.lazy),",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "error"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyIsError"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "),"
+      }
+    ],
+    "right_no": 62,
+    "right_text": "                        \"lazy-error\": lazyIsError(file.lazy),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "error"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyIsError"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "),"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 54,
+    "left_text": "                      \"lazy-generated\": lazyReason() === \"generated\",",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "generated"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "generated"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "right_no": 63,
+    "right_text": "                        \"lazy-generated\": lazyReason() === \"generated\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "generated"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "generated"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 55,
+    "left_text": "                      \"lazy-too-big\": lazyReason() === \"too_big\",",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "too"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "big"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "too_big"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "right_no": 64,
+    "right_text": "                        \"lazy-too-big\": lazyReason() === \"too_big\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazy"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "too"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "big"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "lazyReason"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "==="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "too_big"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\","
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 56,
+    "left_text": "                      \"active-hunk-file\": fileIsActiveHunkFile(file),",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "active"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "hunk"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsActiveHunkFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "),"
+      }
+    ],
+    "right_no": 65,
+    "right_text": "                        \"active-hunk-file\": fileIsActiveHunkFile(file),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "active"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "hunk"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsActiveHunkFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "),"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 57,
+    "left_text": "                    }}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "right_no": 66,
+    "right_text": "                      }}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 58,
+    "left_text": "                    aria-current={",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "current"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "right_no": 67,
+    "right_text": "                      aria-current={",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "current"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 59,
+    "left_text": "                      fileIsActiveHunkFile(file) ? \"true\" : undefined",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsActiveHunkFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "?"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "true"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "undefined"
+      }
+    ],
+    "right_no": 68,
+    "right_text": "                        fileIsActiveHunkFile(file) ? \"true\" : undefined",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsActiveHunkFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "?"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "true"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "undefined"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 60,
+    "left_text": "                    }",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 69,
+    "right_text": "                      }",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 61,
+    "left_text": "                    title={fileDisplayName(file)}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "title"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 70,
+    "right_text": "                      title={fileDisplayName(file)}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "title"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 62,
+    "left_text": "                  >",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 71,
+    "right_text": "                    >",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 63,
+    "left_text": "                    <button",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "right_no": 72,
+    "right_text": "                      <button",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 64,
+    "left_text": "                      type=\"button\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 73,
+    "right_text": "                        type=\"button\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 65,
+    "left_text": "                      class=\"file-tree-visibility-toggle\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visibility"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "toggle"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 74,
+    "right_text": "                        class=\"file-tree-visibility-toggle\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visibility"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "toggle"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 66,
+    "left_text": "                      onClick={() =>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      }
+    ],
+    "right_no": 75,
+    "right_text": "                        onClick={() =>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 67,
+    "left_text": "                        setFileExpanded(file, !fileExpanded(file))",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "))"
+      }
+    ],
+    "right_no": 76,
+    "right_text": "                          setFileExpanded(file, !fileExpanded(file))",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "setFileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "!"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "))"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 68,
+    "left_text": "                      }",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 77,
+    "right_text": "                        }",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 69,
+    "left_text": "                      aria-label={",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "right_no": 78,
+    "right_text": "                        aria-label={",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 70,
+    "left_text": "                        fileExpanded(file)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "right_no": 79,
+    "right_text": "                          fileExpanded(file)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 71,
+    "left_text": "                          ? `Fold ${fileDisplayName(file)}`",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "?"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Fold"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}`"
+      }
+    ],
+    "right_no": 80,
+    "right_text": "                            ? `Fold ${fileDisplayName(file)}`",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "?"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Fold"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}`"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 72,
+    "left_text": "                          : `Show ${fileDisplayName(file)}`",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}`"
+      }
+    ],
+    "right_no": 81,
+    "right_text": "                            : `Show ${fileDisplayName(file)}`",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "Show"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "${"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}`"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 73,
+    "left_text": "                      }",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 82,
+    "right_text": "                        }",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 74,
+    "left_text": "                    >",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 83,
+    "right_text": "                      >",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 75,
+    "left_text": "                      <VisibilityIndicator",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "VisibilityIndicator"
+      }
+    ],
+    "right_no": 84,
+    "right_text": "                        <VisibilityIndicator",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "VisibilityIndicator"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 76,
+    "left_text": "                        size=\"small\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "size"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "small"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 85,
+    "right_text": "                          size=\"small\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "size"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "small"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 77,
+    "left_text": "                        visible={fileExpanded(file)}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visible"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 86,
+    "right_text": "                          visible={fileExpanded(file)}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "visible"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileExpanded"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 78,
+    "left_text": "                        virtualized={virtualized()}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "virtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "virtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "right_no": 87,
+    "right_text": "                          virtualized={virtualized()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "virtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "virtualized"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 79,
+    "left_text": "                      />",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "right_no": 88,
+    "right_text": "                        />",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 80,
+    "left_text": "                    </button>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 89,
+    "right_text": "                      </button>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 81,
+    "left_text": "                    <button",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "right_no": 90,
+    "right_text": "                      <button",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 82,
+    "left_text": "                      type=\"button\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 91,
+    "right_text": "                        type=\"button\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "type"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 83,
+    "left_text": "                      class=\"file-tree-file-target\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "target"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "right_no": 92,
+    "right_text": "                        class=\"file-tree-file-target\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "target"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 84,
+    "left_text": "                      aria-current={",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "current"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "right_no": 93,
+    "right_text": "                        aria-current={",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "aria"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "current"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 85,
+    "left_text": "                        fileIsActiveHunkFile(file)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsActiveHunkFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "right_no": 94,
+    "right_text": "                          fileIsActiveHunkFile(file)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileIsActiveHunkFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 85,
+    "left_text": "                            ? \"true\"",
+    "right_no": 95,
+    "right_text": "                            ? \"true\"",
+    "status": "equal"
+  },
+  {
+    "left_no": 85,
+    "left_text": "                            : undefined",
+    "right_no": 96,
+    "right_text": "                            : undefined",
+    "status": "equal"
+  },
+  {
+    "left_no": 86,
+    "left_text": "                      }",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 97,
+    "right_text": "                        }",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 87,
+    "left_text": "                      onClick={() => props.onScrollToFile(file)}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onScrollToFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 98,
+    "right_text": "                        onClick={() => props.onScrollToFile(file)}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onClick"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={()"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=>"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "props"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "onScrollToFile"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 88,
+    "left_text": "                    >",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 99,
+    "right_text": "                      >",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 89,
+    "left_text": "                      <span class=\"file-tree-file-name\">",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "span"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "right_no": 100,
+    "right_text": "                        <span class=\"file-tree-file-name\">",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "span"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "tree"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "\">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 90,
+    "left_text": "                        {fileDisplayName(file)}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 101,
+    "right_text": "                          {fileDisplayName(file)}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileDisplayName"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 91,
+    "left_text": "                      </span>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "span"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 102,
+    "right_text": "                        </span>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "span"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 92,
+    "left_text": "                      <TreeLineStats stats={fileLineStats(file)} />",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "TreeLineStats"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "stats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileLineStats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "right_no": 103,
+    "right_text": "                        <TreeLineStats stats={fileLineStats(file)} />",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "TreeLineStats"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "stats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "={"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fileLineStats"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "/>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 93,
+    "left_text": "                    </button>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 104,
+    "right_text": "                      </button>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                    "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "button"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 94,
+    "left_text": "                  </div>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 105,
+    "right_text": "                    </div>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                  "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "div"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 95,
+    "left_text": "                );",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "right_no": 106,
+    "right_text": "                  );",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 96,
+    "left_text": "              }}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "right_no": 107,
+    "right_text": "                }}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "              "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 97,
+    "left_text": "            </For>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 108,
+    "right_text": "              </For>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 98,
+    "left_text": "          </section>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "section"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 109,
+    "right_text": "            </section>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "          "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "section"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 99,
+    "left_text": "        )}",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "right_no": 110,
+    "right_text": "          )}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 100,
+    "left_text": "      </For>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "right_no": 111,
+    "right_text": "        </For>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "</"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "For"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 112,
+    "right_text": "      </Show>",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "/"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Show"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 101,
+    "left_text": "    </>",
+    "right_no": 113,
+    "right_text": "    </>",
+    "status": "equal"
+  },
+  {
+    "left_no": 102,
+    "left_text": "  );",
+    "right_no": 114,
+    "right_text": "  );",
+    "status": "equal"
+  },
+  {
+    "left_no": 103,
+    "left_text": "}",
+    "right_no": 115,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

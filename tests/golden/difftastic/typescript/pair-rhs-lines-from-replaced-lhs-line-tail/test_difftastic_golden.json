@@ -99,7 +99,7 @@
   },
   {
     "left_no": 3,
-    "left_text": "export function syntaxParts(text: string, syntax: SyntaxSpan[]): string[] {",
+    "left_text": "export function syntaxParts(",
     "left_tokens": [
       {
         "is_ws": false,
@@ -114,7 +114,7 @@
       {
         "is_ws": false,
         "status": "unchanged",
-        "text": "(text: string, syntax: SyntaxSpan[]): string[] {"
+        "text": "("
       }
     ],
     "right_no": 4,
