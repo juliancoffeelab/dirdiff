@@ -51,7 +51,7 @@ def _pure_unchanged_one_sided_change_texts(
     broken_texts: list[str] = []
     for row in rows:
         status = row.get("status")
-        if status != "delete" and status != "insert":
+        if status not in {"delete", "insert"}:
             continue
 
         side = _one_sided_change_side(row)
@@ -88,6 +88,30 @@ def _assert_no_pure_unchanged_one_sided_changes(
 ) -> None:
     broken_texts = _pure_unchanged_one_sided_change_texts(rows)
     assert not broken_texts, broken_texts
+
+
+def _changed_semantic_atoms_for_line(
+    rows: list[dict[str, object]],
+    *,
+    side: str,
+    line_no: int,
+) -> list[str]:
+    changed_atoms: list[str] = []
+    for row in rows:
+        if row.get(f"{side}_no") != line_no:
+            continue
+        tokens = row.get(f"{side}_tokens")
+        if tokens is None:
+            continue
+        assert isinstance(tokens, list)
+        for token in tokens:
+            assert isinstance(token, dict)
+            if token.get("status") == "unchanged":
+                continue
+            text = token.get("text")
+            assert isinstance(text, str)
+            changed_atoms.extend(_semantic_token_atoms(text))
+    return changed_atoms
 
 
 def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
@@ -2374,6 +2398,23 @@ def test_difftastic_rows_keep_moved_show_wrapper_lines_as_replacements() -> (
             "right_text": "                >",
         },
     ]
+
+
+def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
+    rows = _preset_rows(
+        "typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly"
+    )
+
+    condition_atoms = {"when", "ui", "displayFiles", "length", "0"}
+    left_changed_atoms = set(
+        _changed_semantic_atoms_for_line(rows, side="left", line_no=4)
+    )
+    right_changed_atoms = set(
+        _changed_semantic_atoms_for_line(rows, side="right", line_no=6)
+    )
+
+    assert condition_atoms.isdisjoint(left_changed_atoms)
+    assert condition_atoms.isdisjoint(right_changed_atoms)
 
 
 def test_difftastic_rows_status_is_equal_for_right_only_line_without_changed_tokens() -> (

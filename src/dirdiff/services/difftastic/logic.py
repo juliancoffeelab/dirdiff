@@ -1562,16 +1562,13 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
     if clipped_long_text == long_text:
         return None, {}
 
-    next_row = dict(row)
-    next_row[long_text_key] = clipped_long_text
     raw_tokens = row.get(long_tokens_key)
-    if isinstance(raw_tokens, list):
-        next_row[long_tokens_key] = _difftastic_clip_tokens_to_text(
-            raw_tokens,
-            clipped_long_text,
-        )
 
     replacements: dict[int, dict[str, Any]] = {}
+    matched_rows: list[
+        tuple[int, dict[str, Any], list[DifftasticTokenSpan], int, str]
+    ] = []
+    crosses_long_side_order = False
     cursor = prefix_count
     scan_index = row_index + 1
     while scan_index < len(rows) and cursor < len(long_spans):
@@ -1579,6 +1576,13 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
         candidate_long_no = candidate.get(long_no_key)
         if candidate_long_no is not None:
             if candidate_long_no != long_no:
+                candidate_short_text = candidate.get(short_text_key)
+                if isinstance(candidate_short_text, str) and not (
+                    _difftastic_code_token_spans(candidate_short_text)
+                ):
+                    crosses_long_side_order = True
+                    scan_index += 1
+                    continue
                 break
             candidate_long_text = candidate.get(long_text_key)
             if not isinstance(candidate_long_text, str):
@@ -1621,16 +1625,50 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
         fragment_start = long_spans[cursor].start
         fragment_end = long_spans[cursor + match_count - 1].end
         fragment_text = long_text[fragment_start:fragment_end]
-        projected_text = _difftastic_projected_fragment_text(
-            reference_text=candidate_text,
-            fragment_text=fragment_text,
+        matched_rows.append(
+            (scan_index, candidate, candidate_spans, match_count, fragment_text)
         )
-        replacement = _difftastic_set_row_side(
-            candidate,
-            side=long_side,
-            line_no=long_no,
-            text=projected_text,
-        )
+        cursor += match_count
+        scan_index += 1
+
+    if cursor != len(long_spans):
+        return None, {}
+
+    next_row = dict(row)
+    if crosses_long_side_order:
+        if isinstance(raw_tokens, list):
+            next_row[long_tokens_key] = _unchanged_tokens_for_text(long_text)
+    else:
+        next_row[long_text_key] = clipped_long_text
+        if isinstance(raw_tokens, list):
+            next_row[long_tokens_key] = _difftastic_clip_tokens_to_text(
+                raw_tokens,
+                clipped_long_text,
+            )
+
+    for (
+        matched_index,
+        candidate,
+        candidate_spans,
+        match_count,
+        fragment_text,
+    ) in matched_rows:
+        if crosses_long_side_order:
+            replacement = dict(candidate)
+        else:
+            candidate_text = candidate.get(short_text_key)
+            if not isinstance(candidate_text, str):
+                return None, {}
+            projected_text = _difftastic_projected_fragment_text(
+                reference_text=candidate_text,
+                fragment_text=fragment_text,
+            )
+            replacement = _difftastic_set_row_side(
+                candidate,
+                side=long_side,
+                line_no=long_no,
+                text=projected_text,
+            )
         if match_count == len(candidate_spans):
             replacement["status"] = "equal"
             replacement.pop("left_tokens", None)
@@ -1642,12 +1680,7 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
                 side=short_side,
                 extra_start=candidate_spans[match_count].start,
             )
-        replacements[scan_index] = replacement
-        cursor += match_count
-        scan_index += 1
-
-    if cursor != len(long_spans):
-        return None, {}
+        replacements[matched_index] = replacement
     return next_row, replacements
 
 
@@ -2194,23 +2227,29 @@ def _normalize_leaky_difftastic_context_rows(
     normalized: list[dict[str, Any]] = []
     for index, row in enumerate(rows):
         if index in leaky_indexes:
-            next_row = {**row, "status": "replace"}
             if row.get("left_no") is not None and row.get("right_no") is None:
+                next_row = {**row, "status": "delete"}
                 left_text = row.get("left_text")
                 if isinstance(left_text, str):
                     next_row["left_tokens"] = _changed_tokens_for_ranges(
                         left_text,
                         [(0, len(left_text))],
-                        status="replace",
+                        status="delete",
                     )
+                normalized.append(next_row)
+                continue
             if row.get("right_no") is not None and row.get("left_no") is None:
+                next_row = {**row, "status": "insert"}
                 right_text = row.get("right_text")
                 if isinstance(right_text, str):
                     next_row["right_tokens"] = _changed_tokens_for_ranges(
                         right_text,
                         [(0, len(right_text))],
-                        status="replace",
+                        status="insert",
                     )
+                normalized.append(next_row)
+                continue
+            next_row = {**row, "status": "replace"}
             normalized.append(next_row)
             continue
         normalized.append(row)

@@ -1,0 +1,2694 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "from pathlib import Path",
+    "right_no": 1,
+    "right_text": "from pathlib import Path",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "from typing import Any",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "from "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "typing"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " import "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Any"
+      }
+    ],
+    "right_no": 3,
+    "right_text": "from fastapi import FastAPI",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "from "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "fastapi"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " import "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "FastAPI"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 3,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "def create_app_from_runtime_config() -> Any:",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def create_app_from_runtime_config() -> "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Any"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "right_no": 6,
+    "right_text": "def create_app_from_runtime_config() -> FastAPI:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def create_app_from_runtime_config() -> "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "FastAPI"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 6,
+    "left_text": "    config = load_runtime_config()",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "config"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "load_runtime_config"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      }
+    ],
+    "right_no": 7,
+    "right_text": "    config = load_runtime_config()",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "config"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "load_runtime_config"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 8,
+    "right_text": "    store = RepoMarkStore.open(Path(config.db_path))",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "store"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RepoMarkStore"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "open"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "db_path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 9,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 10,
+    "right_text": "    marks = store.list()",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "marks"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "store"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "list"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 11,
+    "right_text": "    if len(marks) == 0:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "if"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "len"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "marks"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "0"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 12,
+    "right_text": "        raise SystemExit(",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "raise"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "SystemExit"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 13,
+    "right_text": "            \"No marked repos. Run: dirdiff mark /path/to/repo \"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"No marked repos. Run: dirdiff mark /path/to/repo \""
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 14,
+    "right_text": "            \"--db-path /path/to/db.sqlite\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"--db-path /path/to/db.sqlite\""
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 15,
+    "right_text": "        )",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 16,
+    "right_text": "    return create_app(store, presets_root=config.presets_root)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "create_app"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "store"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presets_root"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "presets_root"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 17,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 18,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "    repo_root = (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo_root"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " ("
+      }
+    ],
+    "right_no": 19,
+    "right_text": "def handle_mark_command(args: argparse.Namespace) -> None:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "def"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "handle_mark_command"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "args"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "argparse"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Namespace"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ") "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ">"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "None"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 8,
+    "left_text": "        Path(config.repo_root).expanduser() if config.repo_root else None",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Path"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo_root"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "expanduser"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "if"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo_root"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "else"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "None"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 9,
+    "left_text": "    )",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 10,
+    "left_text": "    repo = GitBackend.discover(repo_root=repo_root)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "GitBackend"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "discover"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo_root"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo_root"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "right_no": 20,
+    "right_text": "    store = RepoMarkStore.open(Path(args.db_path))",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "store"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RepoMarkStore"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "open"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "args"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "db_path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 11,
+    "left_text": "    presets_root = (",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presets_root"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 12,
+    "left_text": "        Path(config.presets_root).expanduser() if config.presets_root else None",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        Path("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presets_root"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "expanduser"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "if"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presets_root"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "else"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "None"
+      }
+    ],
+    "right_no": 21,
+    "right_text": "    repo_path = Path(args.repo_path)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo_path"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = Path("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "args"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo_path"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    )",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 14,
+    "left_text": "    preset_repo = PresetBackend.discover(presets_root=presets_root)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_repo"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "PresetBackend"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "discover"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presets_root"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "presets_root"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": 22,
+    "right_text": "    if args.name is None:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "if"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "args"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "name"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "is"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "None"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 15,
+    "left_text": "    service = TextDiffService(repo)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "service"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "TextDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": 23,
+    "right_text": "        resolved_path = repo_path.expanduser().resolve()",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "resolved_path"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo_path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "expanduser"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "resolve"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 16,
+    "left_text": "    git_service = GitDiffService(repo)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "git_service"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "GitDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": 24,
+    "right_text": "        display_name = resolved_path.name",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "resolved_path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "name"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 17,
+    "left_text": "    difftastic_service = DifftasticDiffService(repo)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "difftastic_service"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "DifftasticDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "repo"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": 25,
+    "right_text": "        if not display_name:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "if"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "not"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 18,
+    "left_text": "    preset_service = TextDiffService(preset_repo)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_service"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "TextDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_repo"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "right_no": 26,
+    "right_text": "            raise SystemExit(",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "raise"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "SystemExit"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 27,
+    "right_text": "                f\"Cannot derive a repo name from path: {resolved_path}\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "                "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "f"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Cannot"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "derive"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "a"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "name"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "from"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "resolved_path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\""
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 28,
+    "right_text": "            )",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 29,
+    "right_text": "    else:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "else"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 19,
+    "left_text": "    preset_git_service = GitDiffService(preset_repo)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_git_service"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "GitDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_repo"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": 30,
+    "right_text": "        display_name = args.name",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "args"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "name"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 20,
+    "left_text": "    preset_difftastic_service = DifftasticDiffService(preset_repo)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_difftastic_service"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "DifftasticDiffService"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_repo"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": 31,
+    "right_text": "    try:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "try"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 21,
+    "left_text": "    defaults = build_defaults(",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "defaults"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "build_defaults"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      }
+    ],
+    "right_no": 32,
+    "right_text": "        mark = store.mark(RepoMarkInput(path=repo_path, name=display_name))",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "mark"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "store"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "mark"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RepoMarkInput"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "path"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo_path"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "display_name"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 22,
+    "left_text": "        service,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "service"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": 33,
+    "right_text": "    except RepoRegistryError as exc:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "except"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "RepoRegistryError"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "as"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "exc"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 23,
+    "left_text": "        left=config.left,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "left"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "left"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": 34,
+    "right_text": "        raise SystemExit(str(exc)) from exc",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "raise"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "SystemExit"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "str"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "exc"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "from"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "exc"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 24,
+    "left_text": "        right=config.right,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "right"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "right"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 25,
+    "left_text": "        base_branch=config.base_branch,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "base_branch"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "base_branch"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 26,
+    "left_text": "        review_branch=config.review_branch,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "review_branch"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "review_branch"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 27,
+    "left_text": "    )",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 28,
+    "left_text": "    return create_app(",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "return"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "create_app"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "right_no": 35,
+    "right_text": "    print(f\"Marked repo {mark.id}: {mark.path}\", file=sys.stderr)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "print"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "f"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Marked"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "mark"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "id"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "mark"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "path"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "sys"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "stderr"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 29,
+    "left_text": "        service,",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 30,
+    "left_text": "        defaults,",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 31,
+    "left_text": "        services={\"git\": git_service, \"difftastic\": difftastic_service},",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 32,
+    "left_text": "        preset_services={",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 33,
+    "left_text": "            \"dirdiff\": preset_service,",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 34,
+    "left_text": "            \"git\": preset_git_service,",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 35,
+    "left_text": "            \"difftastic\": preset_difftastic_service,",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 36,
+    "left_text": "        },",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 37,
+    "left_text": "    )",
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  }
+]

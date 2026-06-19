@@ -107,6 +107,21 @@ def _changed_atoms(tokens: object) -> list[str]:
     return atoms
 
 
+def _replace_atoms(tokens: object) -> list[str]:
+    assert isinstance(tokens, list)
+    atoms: list[str] = []
+    for token in tokens:
+        assert isinstance(token, dict)
+        if token.get("status") != "replace":
+            continue
+        if token.get("is_ws") is True:
+            continue
+        text = token.get("text")
+        assert isinstance(text, str)
+        atoms.extend(_token_atoms(text))
+    return atoms
+
+
 def _meaningful_token_atoms(token: dict[str, Any]) -> list[str]:
     text = token.get("text")
     assert isinstance(text, str)
@@ -141,6 +156,13 @@ def _row_marked_changed_atoms(row: dict[str, Any], side: Side) -> list[str]:
     if tokens is None:
         return []
     return _changed_atoms(tokens)
+
+
+def _row_marked_replace_atoms(row: dict[str, Any], side: Side) -> list[str]:
+    tokens = row.get(_side_tokens_key(side))
+    if tokens is None:
+        return []
+    return _replace_atoms(tokens)
 
 
 def _row_marked_unchanged_runs(
@@ -304,6 +326,51 @@ def _context_leak_diagnostic(
     )
 
 
+def _unpaired_replace_token_diagnostics(
+    rows: list[dict[str, Any]],
+) -> list[str]:
+    diagnostics: list[str] = []
+    for row_index, row in enumerate(rows):
+        left_atoms = _row_marked_replace_atoms(row, "left")
+        right_atoms = _row_marked_replace_atoms(row, "right")
+        if left_atoms and not right_atoms:
+            diagnostics.append(
+                _unpaired_replace_token_diagnostic(
+                    row_index=row_index,
+                    side="left",
+                    other_side="right",
+                    text=row.get("left_text"),
+                    atoms=left_atoms,
+                )
+            )
+        if right_atoms and not left_atoms:
+            diagnostics.append(
+                _unpaired_replace_token_diagnostic(
+                    row_index=row_index,
+                    side="right",
+                    other_side="left",
+                    text=row.get("right_text"),
+                    atoms=right_atoms,
+                )
+            )
+    return diagnostics
+
+
+def _unpaired_replace_token_diagnostic(
+    *,
+    row_index: int,
+    side: Side,
+    other_side: Side,
+    text: object,
+    atoms: list[str],
+) -> str:
+    assert isinstance(text, str)
+    return (
+        f"row {row_index + 1}: {side} replace tokens {atoms!r} "
+        f"from {text!r} have no replace tokens on {other_side}"
+    )
+
+
 def _one_sided_change_side(row: dict[str, Any]) -> Side | None:
     if row.get("left_no") is not None and row.get("right_no") is None:
         return "left"
@@ -405,6 +472,19 @@ def test_difftastic_preset_unchanged_tokens_match_on_both_sides(
     rows, _, _ = _preset_rows(preset_dir)
 
     diagnostics = _unchanged_context_leak_diagnostics(rows)
+    assert not diagnostics, diagnostics
+
+
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_replace_tokens_are_paired_on_both_sides(
+    preset_dir: Path,
+) -> None:
+    """This test verifies that a replacement token on one side has a
+    replacement token on the other side of the same rendered row.
+    """
+    rows, _, _ = _preset_rows(preset_dir)
+
+    diagnostics = _unpaired_replace_token_diagnostics(rows)
     assert not diagnostics, diagnostics
 
 
