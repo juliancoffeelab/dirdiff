@@ -215,6 +215,7 @@ export function App() {
         onHeaderMount={(element) => {
           appHeader = element;
         }}
+        onRepoListOpen={repo.refreshRepos}
         onRepoChange={selectRepo}
         onEngineChange={diff.loadEngine}
         onViewModeChange={setViewMode}

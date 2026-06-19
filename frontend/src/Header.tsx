@@ -17,6 +17,7 @@ export function Header(props: {
   onPreferencesSaved: (preferences: Preferences) => void;
   onReloadPreferences: () => Promise<void> | void;
   onHeaderMount: (element: HTMLElement) => void;
+  onRepoListOpen: () => void;
   onRepoChange: (repo: RepoMark) => void;
   onEngineChange: (engine: DiffEngine) => void;
   onViewModeChange: (viewMode: DiffViewMode) => void;
@@ -39,6 +40,7 @@ export function Header(props: {
             <RepoSelect
               repos={loadedRepos(props.repos)}
               selectedRepoId={props.selectedRepoId}
+              onRepoListOpen={props.onRepoListOpen}
               onRepoChange={props.onRepoChange}
             />
           </Show>
@@ -92,6 +94,7 @@ function EngineSelect(props: {
 function RepoSelect(props: {
   repos: RepoMark[];
   selectedRepoId: RepoId | null;
+  onRepoListOpen: () => void;
   onRepoChange: (repo: RepoMark) => void;
 }) {
   const handleRepoChange = (nextRepoIdRaw: string) => {
@@ -134,6 +137,7 @@ function RepoSelect(props: {
       selectedValue={
         props.selectedRepoId === null ? "" : String(props.selectedRepoId)
       }
+      onOpen={props.onRepoListOpen}
       onChange={handleRepoChange}
     />
   );

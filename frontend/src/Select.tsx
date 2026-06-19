@@ -12,6 +12,7 @@ export function Select(props: {
   options: readonly SelectOption[];
   selectedValue: string;
   onChange: (value: string) => void;
+  onOpen?: () => void;
 }) {
   let root: HTMLDivElement | undefined;
   let trigger: HTMLButtonElement | undefined;
@@ -60,6 +61,16 @@ export function Select(props: {
     trigger?.focus();
   };
 
+  const toggleOpen = () => {
+    const nextOpen = !open();
+    setOpen(nextOpen);
+    if (nextOpen) {
+      if (props.onOpen !== undefined) {
+        props.onOpen();
+      }
+    }
+  };
+
   return (
     <div
       ref={root}
@@ -72,7 +83,7 @@ export function Select(props: {
         class="ui-select-trigger"
         aria-haspopup="listbox"
         aria-expanded={open() ? "true" : "false"}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
       >
         <span class="ui-select-label">{props.label}</span>
         <span class="ui-select-value">{props.valueLabel}</span>

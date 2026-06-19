@@ -218,6 +218,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     createSignal<unknown>(null);
   const [repoRefsPending, setRepoRefsPending] = createSignal(false);
   const [repoRefsError, setRepoRefsError] = createSignal<unknown>(null);
+  let repoRefreshRequest: Promise<RepoMark[] | null> | null = null;
   let presetCatalogsRequest: Promise<PresetCatalogs | null> | null = null;
 
   const repoPickerRepos = createMemo(() => {
@@ -283,6 +284,30 @@ export function createRepoResources(options: RepoResourcesOptions) {
       options.addErrorToast("Failed to load marked repos", error);
       return null;
     }
+  }
+
+  async function refreshRepos(): Promise<void> {
+    if (repoRefreshRequest !== null) {
+      await repoRefreshRequest;
+      return;
+    }
+    repoRefreshRequest = (async () => {
+      try {
+        const availableRepos = await fetchRepos();
+        batch(() => {
+          setRepoList(availableRepos);
+          setReposError(null);
+        });
+        return availableRepos;
+      } catch (error) {
+        setReposError(error);
+        options.addErrorToast("Failed to refresh marked repos", error);
+        return null;
+      } finally {
+        repoRefreshRequest = null;
+      }
+    })();
+    await repoRefreshRequest;
   }
 
   async function initializeRepo(
@@ -412,6 +437,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     repoPickerRepos,
     refChoices,
     loadReposFromUrl,
+    refreshRepos,
     initializeRepo,
     loadPresetCatalogs,
     reloadPresetCatalogs,
