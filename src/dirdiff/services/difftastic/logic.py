@@ -1,24 +1,143 @@
+"""Difftastic JSON to dirdiff row AST contract.
+
+This module defines the boundary between raw difftastic output and the rendered
+row AST used by the difftastic service. It accepts difftastic-shaped JSON plus
+the original source text and returns dirdiff-shaped rows.
+
+This module must not own raw difftastic execution or final API payload assembly:
+
+* `dirdiff.services.difftastic.difft` owns invoking `difft` and parsing its JSON.
+* the service/textdiff layer owns syntax highlighting, fold hints, and frontend
+  payload assembly.
+
+Input contract
+--------------
+The main entrypoint is `build_difftastic_ast`:
+
+* `left_text` and `right_text` are the complete source documents. They are the
+  authority for line text, line counts, and user-visible content.
+* `left_path_hint` and `right_path_hint` are file-name hints for difftastic
+  parser selection.
+
+The lower-level `_difftastic_rows_from_json` takes an already produced
+`DifftasticJson` plus the same complete source texts. Raw `dict[str, Any]` is not
+accepted at this layer; unknown JSON enters through `difft.py`.
+
+Accepted difftastic facts
+-------------------------
+`DifftasticJson.aligned_lines` contains zero-based line index pairs. `None` means
+there is no line on that side.
+
+`DifftasticJson.chunks` contains changed ranges keyed by difftastic side names:
+`lhs` for the left/old document and `rhs` for the right/new document. The range
+offsets are treated as Python string slice offsets into the corresponding source
+line.
+
+The `language` field is opaque except for known difftastic fallback labels that
+may be exposed through `DifftasticAst.engine_warning`.
+
+Output contract
+---------------
+`build_difftastic_ast` returns `DifftasticAst`:
+
+* `rows`: a list of `DifftasticRow` values.
+* `engine_warning`: optional metadata for known difftastic fallback modes.
+
+Each `DifftasticRow` is a display row, not a difftastic JSON row. Its fields are:
+
+* `status`: one of `equal`, `replace`, `insert`, or `delete`.
+* `left_no` and `right_no`: one-based source line numbers, or `None` for
+  one-sided rendered rows.
+* `left_text` and `right_text`: the exact text shown on each side for this row.
+* `left_tokens` and `right_tokens`: optional inline token lists. If present, the
+  concatenated token text for a side must correspond to that side's displayed
+  row text.
+
+Each `DifftasticInlineToken` has:
+
+* `text`: the rendered token text.
+* `status`: `unchanged`, `replace`, `insert`, or `delete`.
+* `is_ws`: whether the token is whitespace.
+
+The row list is the exported AST for difftastic rendering. The service layer may
+cast it back to the generic row shape at the boundary where shared textdiff
+payload code takes over, but inside this module the row contract is explicit.
+
+Required invariants
+-------------------
+* row text must come from the supplied source text;
+* token text should not invent source content;
+* one-based row line numbers should always refer back to source lines;
+* unchanged semantic tokens should not appear as pure one-sided changes;
+* changed semantic tokens on one side should have a corresponding changed token
+  on the other side when difftastic supplies a semantic counterpart;
+* empty `aligned_lines` returns an empty row list so the service can choose a
+  fallback renderer.
+
+Non-goals
+---------
+This module does not validate the full difftastic JSON schema, does not shell
+out to difftastic, does not perform syntax highlighting, does not build fold
+hints, and does not assemble the final HTTP/API payload.
+"""
+
 from __future__ import annotations
 
-import json
-import os
 import re
-import subprocess
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict, cast
 
+from dirdiff.services.difftastic.difft import (
+    DifftasticJson,
+    DifftasticJsonSideName,
+    run_difftastic_json,
+)
 from dirdiff.services.textdiff import _paired_line_row
-from dirdiff.sources import TextDiffError
 
-DFT_GRAPH_LIMIT = "10000000"
+type DifftasticRowStatus = Literal["equal", "replace", "insert", "delete"]
+type DifftasticTokenStatus = Literal["unchanged", "replace", "insert", "delete"]
+
+
+class DifftasticInlineToken(TypedDict):
+    text: str
+    status: DifftasticTokenStatus
+    is_ws: bool
+
+
+class DifftasticRow(TypedDict, total=False):
+    """Rendered row shape exported from difftastic logic to the service."""
+
+    status: DifftasticRowStatus
+    left_no: int | None
+    right_no: int | None
+    left_text: str
+    right_text: str
+    left_tokens: list[DifftasticInlineToken]
+    right_tokens: list[DifftasticInlineToken]
 
 
 @dataclass(frozen=True)
 class DifftasticAst:
-    rows: list[dict[str, Any]]
+    rows: list[DifftasticRow]
     engine_warning: dict[str, str] | None
+
+
+def _row(value: object) -> DifftasticRow:
+    return cast("DifftasticRow", value)
+
+
+def _difftastic_paired_line_row(
+    left_text: str,
+    right_text: str,
+    left_no: int,
+    right_no: int,
+) -> DifftasticRow:
+    return _row(_paired_line_row(left_text, right_text, left_no, right_no))
+
+
+def _row_string(row: DifftasticRow, key: str) -> str:
+    value = row.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def _difftastic_changed_token_parts(text: str) -> list[str]:
@@ -36,11 +155,11 @@ def _changed_tokens_for_ranges(
     ranges: list[tuple[int, int]],
     *,
     status: Literal["replace", "insert", "delete"] = "replace",
-) -> list[dict[str, Any]]:
+) -> list[DifftasticInlineToken]:
     if not ranges:
         return []
 
-    tokens: list[dict[str, Any]] = []
+    tokens: list[DifftasticInlineToken] = []
     cursor = 0
     for raw_start, raw_end in sorted(ranges):
         start = max(cursor, 0, min(raw_start, len(line)))
@@ -74,11 +193,11 @@ def _changed_tokens_for_ranges_with_statuses(
     line: str,
     ranges: list[tuple[int, int]],
     statuses: list[Literal["replace", "insert", "delete"]],
-) -> list[dict[str, Any]]:
+) -> list[DifftasticInlineToken]:
     if not ranges:
         return []
 
-    tokens: list[dict[str, Any]] = []
+    tokens: list[DifftasticInlineToken] = []
     cursor = 0
     for index, (raw_start, raw_end) in enumerate(sorted(ranges)):
         start = max(cursor, 0, min(raw_start, len(line)))
@@ -122,12 +241,12 @@ def _common_prefix_length_from_cursor(
 
 
 def _mark_unmatched_reconstructed_token_tail(
-    tokens: list[dict[str, Any]],
+    tokens: list[DifftasticInlineToken],
     *,
     counterpart_text: str,
     extra_status: Literal["insert", "delete"],
-) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
+) -> list[DifftasticInlineToken]:
+    normalized: list[DifftasticInlineToken] = []
     counterpart_cursor = 0
     for index, token in enumerate(tokens):
         token_text = token.get("text")
@@ -196,7 +315,7 @@ def _paired_difftastic_range_statuses(
 
 
 def _difftastic_row_status_from_tokens(
-    tokens: list[dict[str, Any]],
+    tokens: list[DifftasticInlineToken],
 ) -> Literal["equal", "replace", "insert", "delete"]:
     significant_tokens = [token for token in tokens if not token.get("is_ws")]
     changed_statuses = [
@@ -215,9 +334,9 @@ def _difftastic_row_status_from_tokens(
 
 
 def _normalize_difftastic_replace_tokens_in_mixed_rows(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    normalized: list[DifftasticRow] = []
     for row in rows:
         left_tokens = row.get("left_tokens", [])
         right_tokens = row.get("right_tokens", [])
@@ -228,18 +347,23 @@ def _normalize_difftastic_replace_tokens_in_mixed_rows(
             normalized.append(row)
             continue
 
-        next_row = dict(row)
-        for side in ("left_tokens", "right_tokens"):
-            side_tokens = row.get(side, [])
-            replacement_status = "delete" if side == "left_tokens" else "insert"
-            next_row[side] = [
-                (
-                    {**token, "status": replacement_status}
-                    if token.get("status") == "replace"
-                    else token
-                )
-                for token in side_tokens
-            ]
+        next_row = _row(dict(row))
+        next_row["left_tokens"] = [
+            (
+                {**token, "status": "delete"}
+                if token.get("status") == "replace"
+                else token
+            )
+            for token in left_tokens
+        ]
+        next_row["right_tokens"] = [
+            (
+                {**token, "status": "insert"}
+                if token.get("status") == "replace"
+                else token
+            )
+            for token in right_tokens
+        ]
         normalized.append(next_row)
     return normalized
 
@@ -253,7 +377,7 @@ def _difftastic_semantic_words(text: str) -> set[str]:
 
 
 def _difftastic_unchanged_semantic_words(
-    tokens: list[dict[str, Any]],
+    tokens: list[DifftasticInlineToken],
 ) -> set[str]:
     words: set[str] = set()
     for token in tokens:
@@ -267,7 +391,7 @@ def _difftastic_unchanged_semantic_words(
 
 
 def _difftastic_changed_semantic_words(
-    tokens: list[dict[str, Any]],
+    tokens: list[DifftasticInlineToken],
 ) -> set[str]:
     words: set[str] = set()
     for token in tokens:
@@ -281,9 +405,9 @@ def _difftastic_changed_semantic_words(
 
 
 def _difftastic_changed_ranges_by_line(
-    diff_json: dict[str, Any],
+    diff_json: DifftasticJson,
     *,
-    side: Literal["lhs", "rhs"],
+    side: DifftasticJsonSideName,
 ) -> dict[int, list[tuple[int, int]]]:
     ranges: dict[int, list[tuple[int, int]]] = {}
     chunks = diff_json.get("chunks", [])
@@ -395,7 +519,7 @@ def _difftastic_aligned_lines(value: Any) -> list[DifftasticAlignedLine]:
 
 
 def _difftastic_engine_warning(
-    diff_json: dict[str, Any],
+    diff_json: DifftasticJson,
 ) -> dict[str, str] | None:
     language = diff_json.get("language")
     if isinstance(language, str) and "exceeded DFT_GRAPH_LIMIT" in language:
@@ -1092,7 +1216,7 @@ def _difftastic_fragment_key(
     return (fragment.source_index, _difftastic_line_item_key(fragment.text))
 
 
-def _delete_only_row(row: dict[str, Any]) -> dict[str, Any]:
+def _delete_only_row(row: DifftasticRow) -> DifftasticRow:
     return {
         "status": "delete",
         "left_no": row.get("left_no"),
@@ -1102,7 +1226,7 @@ def _delete_only_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _insert_only_row(row: dict[str, Any]) -> dict[str, Any]:
+def _insert_only_row(row: DifftasticRow) -> DifftasticRow:
     return {
         "status": "insert",
         "left_no": None,
@@ -1113,9 +1237,9 @@ def _insert_only_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _equal_row_from_crossed_replacements(
-    left_row: dict[str, Any],
-    right_row: dict[str, Any],
-) -> dict[str, Any]:
+    left_row: DifftasticRow,
+    right_row: DifftasticRow,
+) -> DifftasticRow:
     return {
         "status": "equal",
         "left_no": left_row.get("left_no"),
@@ -1126,9 +1250,9 @@ def _equal_row_from_crossed_replacements(
 
 
 def _replacement_row_from_shifted_delete_continuation(
-    replace_row: dict[str, Any],
-    delete_row: dict[str, Any],
-) -> dict[str, Any]:
+    replace_row: DifftasticRow,
+    delete_row: DifftasticRow,
+) -> DifftasticRow:
     return {
         "status": "replace",
         "left_no": delete_row.get("left_no"),
@@ -1141,8 +1265,8 @@ def _replacement_row_from_shifted_delete_continuation(
 
 
 def _left_delete_tokens_from_replace_row(
-    tokens: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    tokens: list[DifftasticInlineToken],
+) -> list[DifftasticInlineToken]:
     return [
         (
             {**token, "status": "delete"}
@@ -1154,8 +1278,8 @@ def _left_delete_tokens_from_replace_row(
 
 
 def _replace_row_needs_following_delete_continuation(
-    replace_row: dict[str, Any],
-    delete_row: dict[str, Any],
+    replace_row: DifftasticRow,
+    delete_row: DifftasticRow,
 ) -> bool:
     left_no = replace_row.get("left_no")
     basic_shape_matches = (
@@ -1183,9 +1307,9 @@ def _replace_row_needs_following_delete_continuation(
 
 
 def _repair_shifted_difftastic_replacements(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    repaired: list[dict[str, Any]] = []
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    repaired: list[DifftasticRow] = []
     index = 0
     while index < len(rows):
         row = rows[index]
@@ -1243,9 +1367,9 @@ def _repair_shifted_difftastic_replacements(
 
 
 def _repair_replace_rows_with_delete_continuations(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    repaired: list[dict[str, Any]] = []
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    repaired: list[DifftasticRow] = []
     index = 0
     while index < len(rows):
         row = rows[index]
@@ -1276,15 +1400,15 @@ def _repair_replace_rows_with_delete_continuations(
     return repaired
 
 
-def _is_left_only_row(row: dict[str, Any]) -> bool:
+def _is_left_only_row(row: DifftasticRow) -> bool:
     return row.get("left_no") is not None and row.get("right_no") is None
 
 
-def _is_right_only_row(row: dict[str, Any]) -> bool:
+def _is_right_only_row(row: DifftasticRow) -> bool:
     return row.get("left_no") is None and row.get("right_no") is not None
 
 
-def _one_sided_row_tokens(row: dict[str, Any]) -> list[dict[str, Any]]:
+def _one_sided_row_tokens(row: DifftasticRow) -> list[DifftasticInlineToken]:
     if _is_left_only_row(row):
         left_tokens = row.get("left_tokens", [])
         assert isinstance(left_tokens, list)
@@ -1312,7 +1436,7 @@ def _difftastic_tokens_are_subsequence(
 
 
 def _difftastic_source_line_is_rendered(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
     *,
     source_line: str,
     source_index: int,
@@ -1321,7 +1445,7 @@ def _difftastic_source_line_is_rendered(
     no_key = "left_no" if side == "left" else "right_no"
     text_key = "left_text" if side == "left" else "right_text"
     rendered_text = "".join(
-        row.get(text_key, "")
+        _row_string(row, text_key)
         for row in rows
         if row.get(no_key) == source_index + 1
     )
@@ -1335,7 +1459,7 @@ def _one_sided_fragment_row(
     fragment: DifftasticLineFragment,
     *,
     side: Literal["left", "right"],
-) -> dict[str, Any]:
+) -> DifftasticRow:
     status: Literal["delete", "insert"] = (
         "delete" if side == "left" else "insert"
     )
@@ -1364,13 +1488,13 @@ def _one_sided_fragment_row(
 
 
 def _insert_unrendered_residual_fragments(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
     *,
     fragments: list[DifftasticLineFragment],
     source_lines: list[str],
     side: Literal["left", "right"],
     used_fragments: set[DifftasticLineFragment] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[DifftasticRow]:
     no_key = "left_no" if side == "left" else "right_no"
     completed = rows
     for fragment in fragments:
@@ -1441,10 +1565,10 @@ def _difftastic_text_through_token(
 
 
 def _difftastic_clip_tokens_to_text(
-    tokens: list[dict[str, Any]],
+    tokens: list[DifftasticInlineToken],
     text: str,
-) -> list[dict[str, Any]]:
-    clipped: list[dict[str, Any]] = []
+) -> list[DifftasticInlineToken]:
+    clipped: list[DifftasticInlineToken] = []
     cursor = 0
     limit = len(text)
     for token in tokens:
@@ -1478,13 +1602,13 @@ def _difftastic_projected_fragment_text(
 
 
 def _difftastic_set_row_side(
-    row: dict[str, Any],
+    row: DifftasticRow,
     *,
     side: Literal["left", "right"],
     line_no: int,
     text: str,
-) -> dict[str, Any]:
-    next_row = dict(row)
+) -> DifftasticRow:
+    next_row = _row(dict(row))
     if side == "left":
         next_row["left_no"] = line_no
         next_row["left_text"] = text
@@ -1497,35 +1621,40 @@ def _difftastic_set_row_side(
 
 
 def _difftastic_set_inserted_tail_tokens(
-    row: dict[str, Any],
+    row: DifftasticRow,
     *,
     side: Literal["left", "right"],
     extra_start: int,
-) -> dict[str, Any]:
-    text_key = "left_text" if side == "left" else "right_text"
-    tokens_key = "left_tokens" if side == "left" else "right_tokens"
-    text = row.get(text_key)
+) -> DifftasticRow:
+    text = row.get("left_text") if side == "left" else row.get("right_text")
     if not isinstance(text, str):
         return row
     if extra_start >= len(text):
-        next_row = dict(row)
-        next_row.pop(tokens_key, None)
+        next_row = _row(dict(row))
+        if side == "left":
+            next_row.pop("left_tokens", None)
+        else:
+            next_row.pop("right_tokens", None)
         return next_row
-    next_row = dict(row)
-    next_row[tokens_key] = _changed_tokens_for_ranges(
+    next_row = _row(dict(row))
+    tokens = _changed_tokens_for_ranges(
         text,
         [(extra_start, len(text))],
         status="insert" if side == "right" else "delete",
     )
+    if side == "left":
+        next_row["left_tokens"] = tokens
+    else:
+        next_row["right_tokens"] = tokens
     return next_row
 
 
 def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
     *,
     row_index: int,
     long_side: Literal["left", "right"],
-) -> tuple[dict[str, Any] | None, dict[int, dict[str, Any]]]:
+) -> tuple[DifftasticRow | None, dict[int, DifftasticRow]]:
     short_side: Literal["left", "right"] = (
         "right" if long_side == "left" else "left"
     )
@@ -1564,9 +1693,9 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
 
     raw_tokens = row.get(long_tokens_key)
 
-    replacements: dict[int, dict[str, Any]] = {}
+    replacements: dict[int, DifftasticRow] = {}
     matched_rows: list[
-        tuple[int, dict[str, Any], list[DifftasticTokenSpan], int, str]
+        tuple[int, DifftasticRow, list[DifftasticTokenSpan], int, str]
     ] = []
     crosses_long_side_order = False
     cursor = prefix_count
@@ -1634,17 +1763,27 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
     if cursor != len(long_spans):
         return None, {}
 
-    next_row = dict(row)
+    next_row = _row(dict(row))
     if crosses_long_side_order:
         if isinstance(raw_tokens, list):
-            next_row[long_tokens_key] = _unchanged_tokens_for_text(long_text)
+            if long_side == "left":
+                next_row["left_tokens"] = _unchanged_tokens_for_text(long_text)
+            else:
+                next_row["right_tokens"] = _unchanged_tokens_for_text(long_text)
     else:
-        next_row[long_text_key] = clipped_long_text
+        if long_side == "left":
+            next_row["left_text"] = clipped_long_text
+        else:
+            next_row["right_text"] = clipped_long_text
         if isinstance(raw_tokens, list):
-            next_row[long_tokens_key] = _difftastic_clip_tokens_to_text(
+            clipped_tokens = _difftastic_clip_tokens_to_text(
                 raw_tokens,
                 clipped_long_text,
             )
+            if long_side == "left":
+                next_row["left_tokens"] = clipped_tokens
+            else:
+                next_row["right_tokens"] = clipped_tokens
 
     for (
         matched_index,
@@ -1654,7 +1793,7 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
         fragment_text,
     ) in matched_rows:
         if crosses_long_side_order:
-            replacement = dict(candidate)
+            replacement = _row(dict(candidate))
         else:
             candidate_text = candidate.get(short_text_key)
             if not isinstance(candidate_text, str):
@@ -1685,9 +1824,9 @@ def _difftastic_pair_wrapped_projection_rows_for_side(  # noqa: PLR0911
 
 
 def _pair_wrapped_difftastic_projection_rows(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    replacements: dict[int, dict[str, Any]] = {}
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    replacements: dict[int, DifftasticRow] = {}
     for index, row in enumerate(rows):
         if index in replacements:
             continue
@@ -1726,7 +1865,7 @@ def _pair_wrapped_difftastic_projection_rows(
     return [replacements.get(index, row) for index, row in enumerate(rows)]
 
 
-def _unchanged_tokens_for_text(text: str) -> list[dict[str, Any]]:
+def _unchanged_tokens_for_text(text: str) -> list[DifftasticInlineToken]:
     return [
         {"text": part, "status": "unchanged", "is_ws": part.isspace()}
         for part in _difftastic_changed_token_parts(text)
@@ -1734,9 +1873,9 @@ def _unchanged_tokens_for_text(text: str) -> list[dict[str, Any]]:
 
 
 def _normalize_redundant_left_residual_delete_rows(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    completed: list[dict[str, Any]] = []
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    completed: list[DifftasticRow] = []
     for index, row in enumerate(rows):
         if _is_redundant_left_residual_delete_row(rows, index):
             left_text = row.get("left_text")
@@ -1753,7 +1892,7 @@ def _normalize_redundant_left_residual_delete_rows(
 
 
 def _is_redundant_left_residual_delete_row(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
     index: int,
 ) -> bool:
     row = rows[index]
@@ -1878,11 +2017,11 @@ def _tail_changed_ranges(longer: str, shorter: str) -> list[tuple[int, int]]:
 
 def _paired_show_guard_residual_row(
     *,
-    residual_row: dict[str, Any],
-    other_row: dict[str, Any],
+    residual_row: DifftasticRow,
+    other_row: DifftasticRow,
     residual_side: Literal["left", "right"],
     generated_text: str,
-) -> dict[str, Any]:
+) -> DifftasticRow:
     other_side: Literal["left", "right"] = (
         "right" if residual_side == "left" else "left"
     )
@@ -1910,7 +2049,7 @@ def _paired_show_guard_residual_row(
     assert isinstance(right_text, str)
     assert isinstance(left_no, int)
     assert isinstance(right_no, int)
-    row = _paired_line_row(
+    row = _difftastic_paired_line_row(
         left_text,
         right_text,
         left_no,
@@ -1942,9 +2081,9 @@ def _paired_show_guard_residual_row(
 
 
 def _expand_show_guard_residual_rows(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    expanded: list[dict[str, Any]] = []
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    expanded: list[DifftasticRow] = []
     index = 0
     while index < len(rows):
         row = rows[index]
@@ -1974,7 +2113,7 @@ def _expand_show_guard_residual_rows(
         if (
             first_other_row is None
             or first_other_row.get(other_no_key) is None
-            or first_other_row.get(other_text_key, "").strip() != "when={"
+            or _row_string(first_other_row, other_text_key).strip() != "when={"
         ):
             expanded.append(row)
             index += 1
@@ -1992,7 +2131,7 @@ def _expand_show_guard_residual_rows(
                 is not None
             ):
                 break
-            stripped = block_row.get(other_text_key, "").strip()
+            stripped = _row_string(block_row, other_text_key).strip()
             block_end += 1
             if stripped == ">":
                 break
@@ -2005,7 +2144,7 @@ def _expand_show_guard_residual_rows(
         clause_index = 1
         for other_row in rows[index + 1 : block_end]:
             generated_text, clause_index = _show_guard_generated_text(
-                other_text=other_row.get(other_text_key, ""),
+                other_text=_row_string(other_row, other_text_key),
                 residual_parts=residual_parts,
                 clause_index=clause_index,
             )
@@ -2025,7 +2164,7 @@ def _expand_show_guard_residual_rows(
 
 
 def _one_sided_replace_should_use_side_status(
-    rows: list[dict[str, Any]], index: int
+    rows: list[DifftasticRow], index: int
 ) -> bool:
     row = rows[index]
     if row.get("status") != "replace":
@@ -2062,14 +2201,14 @@ def _one_sided_replace_should_use_side_status(
 
 
 def _normalize_one_sided_difftastic_replacements(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    normalized = [dict(row) for row in rows]
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    normalized = [_row(dict(row)) for row in rows]
     while True:
         changed = False
-        next_rows: list[dict[str, Any]] = []
+        next_rows: list[DifftasticRow] = []
         for index, row in enumerate(normalized):
-            next_row = dict(row)
+            next_row = _row(dict(row))
             if (
                 _one_sided_replace_should_use_side_status(normalized, index)
                 and next_row.get("status") != "delete"
@@ -2099,7 +2238,7 @@ def _difftastic_tokens_are_contiguous_subsequence(
     return False
 
 
-def _difftastic_row_is_changed_group_member(row: dict[str, Any]) -> bool:
+def _difftastic_row_is_changed_group_member(row: DifftasticRow) -> bool:
     if row.get("status") != "equal":
         return True
     left_tokens = row.get("left_tokens")
@@ -2114,10 +2253,10 @@ def _difftastic_row_is_changed_group_member(row: dict[str, Any]) -> bool:
 
 
 def _difftastic_changed_row_groups(
-    rows: list[dict[str, Any]],
-) -> list[list[tuple[int, dict[str, Any]]]]:
-    groups: list[list[tuple[int, dict[str, Any]]]] = []
-    current: list[tuple[int, dict[str, Any]]] = []
+    rows: list[DifftasticRow],
+) -> list[list[tuple[int, DifftasticRow]]]:
+    groups: list[list[tuple[int, DifftasticRow]]] = []
+    current: list[tuple[int, DifftasticRow]] = []
     for index, row in enumerate(rows):
         if _difftastic_row_is_changed_group_member(row):
             current.append((index, row))
@@ -2131,7 +2270,7 @@ def _difftastic_changed_row_groups(
 
 
 def _difftastic_changed_atoms_for_side(
-    group: list[tuple[int, dict[str, Any]]],
+    group: list[tuple[int, DifftasticRow]],
     *,
     side: Literal["left", "right"],
 ) -> list[str]:
@@ -2153,7 +2292,7 @@ def _difftastic_changed_atoms_for_side(
 
 
 def _difftastic_one_sided_equal_context_atoms(
-    row: dict[str, Any],
+    row: DifftasticRow,
     *,
     side: Literal["left", "right"],
 ) -> list[str]:
@@ -2177,7 +2316,7 @@ def _difftastic_one_sided_equal_context_atoms(
 
 
 def _difftastic_leaky_context_row_indexes(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
 ) -> set[int]:
     leaky_indexes: set[int] = set()
     for group in _difftastic_changed_row_groups(rows):
@@ -2218,17 +2357,17 @@ def _difftastic_leaky_context_row_indexes(
 
 
 def _normalize_leaky_difftastic_context_rows(
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
     leaky_indexes = _difftastic_leaky_context_row_indexes(rows)
     if not leaky_indexes:
         return rows
 
-    normalized: list[dict[str, Any]] = []
+    normalized: list[DifftasticRow] = []
     for index, row in enumerate(rows):
         if index in leaky_indexes:
             if row.get("left_no") is not None and row.get("right_no") is None:
-                next_row = {**row, "status": "delete"}
+                next_row = _row({**row, "status": "delete"})
                 left_text = row.get("left_text")
                 if isinstance(left_text, str):
                     next_row["left_tokens"] = _changed_tokens_for_ranges(
@@ -2239,7 +2378,7 @@ def _normalize_leaky_difftastic_context_rows(
                 normalized.append(next_row)
                 continue
             if row.get("right_no") is not None and row.get("left_no") is None:
-                next_row = {**row, "status": "insert"}
+                next_row = _row({**row, "status": "insert"})
                 right_text = row.get("right_text")
                 if isinstance(right_text, str):
                     next_row["right_tokens"] = _changed_tokens_for_ranges(
@@ -2249,7 +2388,7 @@ def _normalize_leaky_difftastic_context_rows(
                     )
                 normalized.append(next_row)
                 continue
-            next_row = {**row, "status": "replace"}
+            next_row = _row({**row, "status": "replace"})
             normalized.append(next_row)
             continue
         normalized.append(row)
@@ -2257,11 +2396,11 @@ def _normalize_leaky_difftastic_context_rows(
 
 
 def _difftastic_rows_from_json(
-    diff_json: dict[str, Any],
+    diff_json: DifftasticJson,
     *,
     left_text: str,
     right_text: str,
-) -> list[dict[str, Any]]:
+) -> list[DifftasticRow]:
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
     left_ranges = _difftastic_changed_ranges_by_line(diff_json, side="lhs")
@@ -2272,7 +2411,7 @@ def _difftastic_rows_from_json(
     if not aligned_lines:
         return []
 
-    rows: list[dict[str, Any]] = []
+    rows: list[DifftasticRow] = []
     used_left: set[int] = set()
     used_right: set[int] = set()
     left_fragments: list[DifftasticLineFragment] = []
@@ -2365,7 +2504,7 @@ def _difftastic_rows_from_json(
                         kind="suffix",
                     )
                 )
-            row = _paired_line_row(
+            row = _difftastic_paired_line_row(
                 left_line,
                 right_line,
                 left_index + 1,
@@ -2434,7 +2573,7 @@ def _difftastic_rows_from_json(
                     used=used_right,
                 )
                 if reconstructed_right_index is not None:
-                    row = _paired_line_row(
+                    row = _difftastic_paired_line_row(
                         left_lines[left_index],
                         candidate_right,
                         left_index + 1,
@@ -2461,7 +2600,7 @@ def _difftastic_rows_from_json(
                     )
                 )
                 if reconstructed_right_fragment is not None:
-                    row = _paired_line_row(
+                    row = _difftastic_paired_line_row(
                         left_lines[left_index],
                         candidate_right,
                         left_index + 1,
@@ -2495,7 +2634,7 @@ def _difftastic_rows_from_json(
                 )
                 if reconstructed_right_fragment is not None:
                     rows.append(
-                        _paired_line_row(
+                        _difftastic_paired_line_row(
                             left_lines[left_index],
                             candidate_right,
                             left_index + 1,
@@ -2554,7 +2693,7 @@ def _difftastic_rows_from_json(
         planned_left_row = planned_left_window_rows.get(right_index)
         if planned_left_row is not None:
             planned_source_index, planned_left_text = planned_left_row
-            row = _paired_line_row(
+            row = _difftastic_paired_line_row(
                 planned_left_text,
                 right_lines[right_index],
                 planned_source_index + 1,
@@ -2592,7 +2731,7 @@ def _difftastic_rows_from_json(
                 used=used_left,
             )
             if reconstructed_left_index is not None:
-                row = _paired_line_row(
+                row = _difftastic_paired_line_row(
                     candidate_left,
                     right_lines[right_index],
                     reconstructed_left_index + 1,
@@ -2629,7 +2768,7 @@ def _difftastic_rows_from_json(
                 collapsed_candidate_left = _collapse_reconstructed_gap_spaces(
                     candidate_left
                 )
-                row = _paired_line_row(
+                row = _difftastic_paired_line_row(
                     collapsed_candidate_left,
                     right_lines[right_index],
                     reconstructed_left_fragment.source_index + 1,
@@ -2670,7 +2809,7 @@ def _difftastic_rows_from_json(
             )
             if reconstructed_left_fragment is not None:
                 rows.append(
-                    _paired_line_row(
+                    _difftastic_paired_line_row(
                         _collapse_reconstructed_gap_spaces(candidate_left),
                         right_lines[right_index],
                         reconstructed_left_fragment.source_index + 1,
@@ -2727,70 +2866,6 @@ def _difftastic_rows_from_json(
     )
 
 
-def _run_difftastic_json(
-    *,
-    left_text: str,
-    right_text: str,
-    left_path_hint: str | None,
-    right_path_hint: str | None,
-) -> dict[str, Any]:
-    left_suffix = Path(left_path_hint or "left.txt").suffix or ".txt"
-    right_suffix = Path(right_path_hint or left_path_hint or "right.txt").suffix
-    right_suffix = right_suffix or left_suffix
-
-    with tempfile.TemporaryDirectory(prefix="dirdiff-difftastic-") as raw_tmp:
-        tmp = Path(raw_tmp)
-        left_path = tmp / f"left{left_suffix}"
-        right_path = tmp / f"right{right_suffix}"
-        left_path.write_text(left_text, encoding="utf-8")
-        right_path.write_text(right_text, encoding="utf-8")
-
-        env = {
-            **os.environ,
-            "DFT_GRAPH_LIMIT": DFT_GRAPH_LIMIT,
-            "DFT_UNSTABLE": "yes",
-        }
-        try:
-            result = subprocess.run(
-                [
-                    "difft",
-                    "--display",
-                    "json",
-                    "--context",
-                    "100000000",
-                    str(left_path),
-                    str(right_path),
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-        except FileNotFoundError as exc:
-            raise TextDiffError(
-                "Difftastic engine requires the `difft` executable on PATH."
-            ) from exc
-
-    if result.returncode != 0:
-        raise TextDiffError(
-            result.stderr.strip() or "Difftastic could not build this diff."
-        )
-    try:
-        parsed = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise TextDiffError("Difftastic returned invalid JSON.") from exc
-
-    if isinstance(parsed, list):
-        if not parsed:
-            return {"aligned_lines": [], "chunks": []}
-        first = parsed[0]
-        if isinstance(first, dict):
-            return first
-    if isinstance(parsed, dict):
-        return parsed
-    raise TextDiffError("Difftastic returned an unexpected JSON payload.")
-
-
 def build_difftastic_ast(
     *,
     left_text: str,
@@ -2798,7 +2873,7 @@ def build_difftastic_ast(
     left_path_hint: str | None,
     right_path_hint: str | None,
 ) -> DifftasticAst:
-    diff_json = _run_difftastic_json(
+    diff_json = run_difftastic_json(
         left_text=left_text,
         right_text=right_text,
         left_path_hint=left_path_hint,

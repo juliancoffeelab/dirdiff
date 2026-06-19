@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from dirdiff.notebooks import (
+    _normalize_notebook_document,
+    build_notebook_section_payload,
+)
 from dirdiff.services.base import (
     DiffServiceProtocol,
     _file_kind_for_change_type,
@@ -11,8 +15,11 @@ from dirdiff.services.base import (
     build_lazy_info_for_service,
     build_repo_manifest_for_service,
 )
+from dirdiff.services.difftastic.difft import (
+    DifftasticJson,
+    run_difftastic_json,
+)
 from dirdiff.services.difftastic.logic import (
-    _run_difftastic_json,
     build_difftastic_ast,
 )
 from dirdiff.services.textdiff import (
@@ -144,8 +151,8 @@ class DifftasticDiffService(DiffServiceProtocol):
         right_text: str,
         left_path_hint: str | None,
         right_path_hint: str | None,
-    ) -> dict[str, Any]:
-        return _run_difftastic_json(
+    ) -> DifftasticJson:
+        return run_difftastic_json(
             left_text=left_text,
             right_text=right_text,
             left_path_hint=left_path_hint,
@@ -222,7 +229,7 @@ class DifftasticDiffService(DiffServiceProtocol):
                 right_path_hint=normalized_right,
             )
             engine_warning = difftastic_ast.engine_warning
-            rows = difftastic_ast.rows
+            rows = cast("list[dict[str, Any]]", difftastic_ast.rows)
             if not rows:
                 rows = _git_style_line_rows(left_text, right_text)
         elif left_version.exists:
@@ -411,8 +418,6 @@ class DifftasticDiffService(DiffServiceProtocol):
         if not left_version.exists and not right_version.exists:
             raise TextDiffError("The selected file is missing on both sides.")
 
-        from dirdiff.notebooks import _normalize_notebook_document
-
         left_notebook = (
             _normalize_notebook_document(left_version.text)
             if left_version.exists
@@ -451,8 +456,6 @@ class DifftasticDiffService(DiffServiceProtocol):
         section: str | None,
         cell_key: str | None = None,
     ) -> dict[str, Any]:
-        from dirdiff.notebooks import build_notebook_section_payload
-
         context = self._load_git_notebook_context(
             left_path=left_path,
             right_path=right_path,
