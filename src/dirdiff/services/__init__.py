@@ -3,12 +3,14 @@ from dirdiff.services.base import (
 )
 from dirdiff.services.difftastic import DifftasticDiffService
 from dirdiff.services.git import GitDiffService
+from dirdiff.services.gumtree import GumTreeDiffService
 from dirdiff.services.textdiff import TextDiffService, build_loaded_diff
 
 __all__ = [
     "DiffServiceProtocol",
     "DifftasticDiffService",
     "GitDiffService",
+    "GumTreeDiffService",
     "TextDiffService",
     "build_loaded_diff",
 ]

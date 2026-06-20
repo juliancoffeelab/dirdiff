@@ -973,6 +973,11 @@ h1 {
   color: #971d28;
 }
 
+.delta.moved {
+  background: #f3e6fb;
+  color: #6f2c83;
+}
+
 .diff-workspace {
   --file-tree-collapsed-width: 42px;
   --file-tree-open-width: 320px;
@@ -1422,6 +1427,10 @@ h1 {
 
 .file-tree-line-stats .removed {
   color: #971d28;
+}
+
+.file-tree-line-stats .moved {
+  color: #6f2c83;
 }
 
 .directory-groups {
@@ -1976,6 +1985,10 @@ h1 {
   background: #fff7d6;
 }
 
+.diff-row.move .diff-side {
+  background: #f6e5ff;
+}
+
 .diff-grid-semantic-replace .diff-row.replace .diff-side {
   background: transparent;
 }
@@ -1990,6 +2003,11 @@ h1 {
   background: #fff0f0;
 }
 
+.inline-diff-row.move .line-no,
+.inline-diff-row.move .line-code {
+  background: #f6e5ff;
+}
+
 .diff-side.empty-side {
   background: #f4f1ea;
 }
@@ -2000,6 +2018,10 @@ h1 {
 
 .diff-row.delete .diff-side.side-right.empty-side {
   background: #fbefef;
+}
+
+.diff-row.move .diff-side.empty-side {
+  background: #f4ecf8;
 }
 
 .diff-row.whitespace-only-change .line-no {
@@ -2274,6 +2296,10 @@ h1 {
 
 .token-changed.token-delete {
   background: #ffc9c9;
+}
+
+.token-changed.token-move {
+  background: #e3b8f1;
 }
 
 .token-changed.whitespace-leading,

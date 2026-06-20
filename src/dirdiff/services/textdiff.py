@@ -287,6 +287,7 @@ def _build_rows_payload(
         "modified_lines": modified_lines,
         "added_lines": added_lines,
         "removed_lines": removed_lines,
+        "moved_lines": 0,
     }
     if plain_render:
         payload["render_mode"] = "plain"
@@ -973,7 +974,10 @@ def _plain_line_rows_for_side(
 
 
 def _git_style_line_rows(
-    left_text: str, right_text: str
+    left_text: str,
+    right_text: str,
+    *,
+    changed_statuses: bool = True,
 ) -> list[dict[str, Any]]:
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
@@ -995,9 +999,12 @@ def _git_style_line_rows(
             continue
 
         for offset, left_line in enumerate(left_lines[i1:i2]):
+            status = "delete"
+            if not changed_statuses:
+                status = "equal"
             rows.append(
                 {
-                    "status": "delete",
+                    "status": status,
                     "left_no": i1 + offset + 1,
                     "right_no": None,
                     "left_text": left_line,
@@ -1005,9 +1012,12 @@ def _git_style_line_rows(
                 }
             )
         for offset, right_line in enumerate(right_lines[j1:j2]):
+            status = "insert"
+            if not changed_statuses:
+                status = "equal"
             rows.append(
                 {
-                    "status": "insert",
+                    "status": status,
                     "left_no": None,
                     "right_no": j1 + offset + 1,
                     "left_text": "",
@@ -1056,6 +1066,7 @@ def _build_git_rows_payload(
 
     added_lines = sum(1 for row in rows if row["status"] == "insert")
     removed_lines = sum(1 for row in rows if row["status"] == "delete")
+    moved_lines = sum(1 for row in rows if row["status"] == "move")
     payload_rows = (
         _collapse_equal_rows_for_large_diff(rows) if plain_render else rows
     )
@@ -1065,10 +1076,11 @@ def _build_git_rows_payload(
 
     payload = {
         "rows": payload_rows,
-        "changed_lines": added_lines + removed_lines,
+        "changed_lines": added_lines + removed_lines + moved_lines,
         "modified_lines": 0,
         "added_lines": added_lines,
         "removed_lines": removed_lines,
+        "moved_lines": moved_lines,
     }
     if plain_render:
         payload["render_mode"] = "plain"
@@ -1137,6 +1149,7 @@ def build_loaded_diff(
             "modified_lines": rows_payload["modified_lines"],
             "added_lines": rows_payload["added_lines"],
             "removed_lines": rows_payload["removed_lines"],
+            "moved_lines": rows_payload["moved_lines"],
             "left_exists": left_exists,
             "right_exists": right_exists,
         },

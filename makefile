@@ -33,14 +33,18 @@ gitpytest:
 snapshot:
 	uv --no-cache run pytest \
 		tests/test_difftastic_golden.py \
-		tests/test_fold_golden.py
+		tests/test_fold_golden.py \
+		tests/test_gumtree_golden.py \
+		--snapshot-warn-unused
 
 resnapshot:
 	rm -rf tests/golden/*
 	uv --no-cache run pytest \
 		tests/test_difftastic_golden.py \
 		tests/test_fold_golden.py \
-		--snapshot-update
+		tests/test_gumtree_golden.py \
+		--snapshot-update \
+		--snapshot-warn-unused
 
 fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint 
 

@@ -119,8 +119,13 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
   );
   const requestedMode = search.get("mode") as ControlsState["mode"] | null;
   const requestedPresetType = search.get("preset_type");
-  const presetType: PresetType =
-    requestedPresetType === "fold" ? "fold" : "diff";
+  let presetType: PresetType = "diff";
+  if (requestedPresetType === "fold") {
+    presetType = "fold";
+  }
+  if (requestedPresetType === "gumtree") {
+    presetType = "gumtree";
+  }
   const preset = searchValue(search, "preset", "");
   const mode =
     requestedMode === null
@@ -171,7 +176,16 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
 
 function initialEngine(): DiffEngine {
   const engine = new URLSearchParams(window.location.search).get("engine");
-  if (engine === "git" || engine === "dirdiff" || engine === "difftastic") {
+  if (engine === "git") {
+    return engine;
+  }
+  if (engine === "dirdiff") {
+    return engine;
+  }
+  if (engine === "difftastic") {
+    return engine;
+  }
+  if (engine === "gumtree") {
     return engine;
   }
   return "dirdiff";

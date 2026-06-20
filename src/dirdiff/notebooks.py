@@ -490,6 +490,7 @@ def _build_notebook_diff_payload(
             "modified_lines": modified_lines,
             "added_lines": added_lines,
             "removed_lines": removed_lines,
+            "moved_lines": 0,
             "left_exists": left_exists,
             "right_exists": right_exists,
             "changed_cells": len(cells),

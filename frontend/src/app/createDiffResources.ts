@@ -75,7 +75,13 @@ function statusLabel(
     return `${diffParams.review_branch} vs ${diffParams.base_branch}`;
   }
   if (diffParams.mode === "preset") {
-    const kind = diffParams.preset_type === "fold" ? "Fold" : "Diff";
+    let kind = "Diff";
+    if (diffParams.preset_type === "fold") {
+      kind = "Fold";
+    }
+    if (diffParams.preset_type === "gumtree") {
+      kind = "GumTree";
+    }
     return `${kind} preset ${diffParams.preset}`;
   }
   return `${nullableStringValue(leftLabel, diffParams.left)} vs ${nullableStringValue(rightLabel, diffParams.right)}`;
@@ -678,7 +684,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
         }
       };
       try {
-        if (diffParams.engine === "difftastic") {
+        if (tracksSlowFileDiff(diffParams.engine)) {
           const startedAt = Date.now();
           const updateSlowStatus = () => {
             if (!loadIsCurrent(loadId)) {
@@ -1097,3 +1103,13 @@ export function createDiffResources(options: DiffResourcesOptions) {
 }
 
 export type DiffResources = ReturnType<typeof createDiffResources>;
+
+function tracksSlowFileDiff(engine: DiffEngine): boolean {
+  if (engine === "difftastic") {
+    return true;
+  }
+  if (engine === "gumtree") {
+    return true;
+  }
+  return false;
+}

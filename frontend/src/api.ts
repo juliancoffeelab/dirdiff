@@ -10,10 +10,15 @@ export const DiffModeSchema = z.enum([
 ]);
 export type DiffMode = z.infer<typeof DiffModeSchema>;
 
-export const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic"]);
+export const DiffEngineSchema = z.enum([
+  "dirdiff",
+  "git",
+  "difftastic",
+  "gumtree",
+]);
 export type DiffEngine = z.infer<typeof DiffEngineSchema>;
 
-export const PresetTypeSchema = z.enum(["diff", "fold"]);
+export const PresetTypeSchema = z.enum(["diff", "fold", "gumtree"]);
 export type PresetType = z.infer<typeof PresetTypeSchema>;
 
 export type RepoId = number;
@@ -68,6 +73,7 @@ export type PresetCatalog = z.infer<typeof PresetCatalogSchema>;
 const PresetCatalogsSchema = z.strictObject({
   diff: PresetCatalogSchema,
   fold: PresetCatalogSchema,
+  gumtree: PresetCatalogSchema,
 });
 export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
 
@@ -116,6 +122,7 @@ const SummarySchema = z.strictObject({
   modified_lines: z.number().int(),
   added_lines: z.number().int(),
   removed_lines: z.number().int(),
+  moved_lines: z.number().int(),
   skipped_files: z.number().int(),
   changed_cells: z.number().int().nullable().optional(),
   added_cells: z.number().int().nullable().optional(),
@@ -164,6 +171,7 @@ const FileSummarySchema = z.strictObject({
   modified_lines: z.number().int(),
   added_lines: z.number().int(),
   removed_lines: z.number().int(),
+  moved_lines: z.number().int(),
   left_exists: z.boolean(),
   right_exists: z.boolean(),
 });
@@ -183,6 +191,7 @@ export const RowStatusSchema = z.enum([
   "replace",
   "insert",
   "delete",
+  "move",
   "fold",
   "elided",
 ]);
@@ -191,7 +200,7 @@ export type RowStatus = z.infer<typeof RowStatusSchema>;
 const InlineTokenSchema = z.strictObject({
   text: z.string(),
   is_ws: z.boolean(),
-  status: z.enum(["unchanged", "replace", "insert", "delete"]),
+  status: z.enum(["unchanged", "replace", "insert", "delete", "move"]),
 });
 export type InlineToken = z.infer<typeof InlineTokenSchema>;
 
@@ -249,6 +258,11 @@ const DiffRowSchema: z.ZodType<DiffRow> = z.lazy(() =>
     }),
     z.strictObject({
       status: z.literal("delete"),
+      ...DiffRowCommonSchema,
+      foldedRows: z.array(DiffRowSchema).optional(),
+    }),
+    z.strictObject({
+      status: z.literal("move"),
       ...DiffRowCommonSchema,
       foldedRows: z.array(DiffRowSchema).optional(),
     }),
@@ -313,7 +327,11 @@ const LazyStateSchema = z.union([LazyReasonSchema, LazyErrorSchema]);
 export type LazyState = z.infer<typeof LazyStateSchema>;
 
 const EngineWarningSchema = z.strictObject({
-  type: z.enum(["difftastic_graph_limit", "difftastic_empty_rows"]),
+  type: z.enum([
+    "difftastic_graph_limit",
+    "difftastic_empty_rows",
+    "gumtree_invalid_json",
+  ]),
   message: z.string(),
 });
 export type EngineWarning = z.infer<typeof EngineWarningSchema>;
@@ -334,6 +352,7 @@ const FileEntrySchema = z.strictObject({
   changed_lines: z.number().int().nullable().optional(),
   added_lines: z.number().int().nullable().optional(),
   removed_lines: z.number().int().nullable().optional(),
+  moved_lines: z.number().int().nullable().optional(),
   rows: z.array(DiffRowSchema).optional(),
   fold_hints: z.array(FoldHintSchema).optional(),
   engine_warning: EngineWarningSchema.nullable().optional(),
@@ -804,6 +823,9 @@ export async function fetchFileDiff(
 
   let requestTimeoutMs = REQUEST_TIMEOUT_MS;
   if (diffParams.engine === "difftastic") {
+    requestTimeoutMs = DIFFTASTIC_FILE_DIFF_TIMEOUT_MS;
+  }
+  if (diffParams.engine === "gumtree") {
     requestTimeoutMs = DIFFTASTIC_FILE_DIFF_TIMEOUT_MS;
   }
   if (timeoutMs !== undefined) {

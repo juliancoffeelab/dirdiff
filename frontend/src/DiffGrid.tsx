@@ -18,8 +18,8 @@ const suppressedSyntaxClassPrefixes = [
 ];
 
 type Side = "left" | "right";
-type InlineMarker = " " | "-" | "+";
-type InlineRowStatus = "equal" | "delete" | "insert" | "replace";
+type InlineMarker = " " | "-" | "+" | "*";
+type InlineRowStatus = "equal" | "delete" | "insert" | "replace" | "move";
 
 export type DiffViewMode = "split" | "inline";
 
@@ -531,6 +531,48 @@ function renderInlineDiffRowsDom(
       }
       return fragment;
     }
+    case "move": {
+      const fragment = document.createDocumentFragment();
+      const hasLeftSide = inlineSideExists(row.left_no, leftText);
+      const hasRightSide = inlineSideExists(row.right_no, rightText);
+      if (hasLeftSide) {
+        fragment.append(
+          renderInlineDiffRowDom({
+            status: "move",
+            marker: "*",
+            leftNo: row.left_no,
+            rightNo: null,
+            text: leftText,
+            tokens: row.left_tokens,
+            syntax: row.left_syntax,
+            rowIndex,
+            fileLabel,
+            sourceRow: row,
+            foldToggle,
+            lineNumberState,
+          }),
+        );
+      }
+      if (hasRightSide) {
+        fragment.append(
+          renderInlineDiffRowDom({
+            status: "move",
+            marker: "*",
+            leftNo: null,
+            rightNo: row.right_no,
+            text: rightText,
+            tokens: row.right_tokens,
+            syntax: row.right_syntax,
+            rowIndex,
+            fileLabel,
+            sourceRow: { ...row, isHunkAnchor: !hasLeftSide },
+            foldToggle: hasLeftSide ? undefined : foldToggle,
+            lineNumberState,
+          }),
+        );
+      }
+      return fragment;
+    }
     case "elided":
       return renderInlineDiffRowDom({
         status: "equal",
@@ -895,7 +937,7 @@ function createInlineLineCodeDom(
   text: string,
   tokens: InlineToken[],
   syntax: SyntaxSpan[],
-  rowStatus?: "equal" | "delete" | "insert" | "replace",
+  rowStatus?: InlineRowStatus,
 ): HTMLElement {
   const element = document.createElement("code");
   element.className = "line-code inline-line-code";
@@ -904,10 +946,21 @@ function createInlineLineCodeDom(
   markerElement.ariaHidden = "true";
   markerElement.textContent = marker;
   element.append(markerElement);
-  const inlineTokenRowStatus =
-    rowStatus === "insert" || rowStatus === "delete" ? "replace" : rowStatus;
+  const inlineTokenRowStatus = inlineRowTokenStatus(rowStatus);
   appendDecoratedText(element, text, tokens, syntax, inlineTokenRowStatus);
   return element;
+}
+
+function inlineRowTokenStatus(
+  rowStatus: InlineRowStatus | undefined,
+): RowStatus | undefined {
+  if (rowStatus === "insert") {
+    return "replace";
+  }
+  if (rowStatus === "delete") {
+    return "replace";
+  }
+  return rowStatus;
 }
 
 function appendDecoratedText(
@@ -915,7 +968,7 @@ function appendDecoratedText(
   text: string,
   tokens: InlineToken[],
   syntax: SyntaxSpan[],
-  rowStatus?: RowStatus | "equal" | "delete" | "insert",
+  rowStatus?: RowStatus,
 ) {
   const parts = decoratedParts(text, tokens, syntax);
   if (parts.length === 0) {
@@ -930,9 +983,10 @@ function appendDecoratedText(
     }
     const span = document.createElement("span");
     const classes = [...part.classes];
-    const rowAlreadyShowsTokenChange =
-      (rowStatus === "insert" && part.status === "insert") ||
-      (rowStatus === "delete" && part.status === "delete");
+    const rowAlreadyShowsTokenChange = rowShowsTokenChange(
+      rowStatus,
+      part.status,
+    );
     const showTokenChange = tokenChanged && !rowAlreadyShowsTokenChange;
     if (showTokenChange) {
       classes.push("token-changed", `token-${part.status}`);
@@ -952,6 +1006,19 @@ function appendDecoratedText(
   }
 }
 
+function rowShowsTokenChange(
+  rowStatus: RowStatus | undefined,
+  tokenStatus: InlineToken["status"],
+): boolean {
+  if (rowStatus === "insert" && tokenStatus === "insert") {
+    return true;
+  }
+  if (rowStatus === "delete" && tokenStatus === "delete") {
+    return true;
+  }
+  return false;
+}
+
 function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
   tagName: K,
   className: string,
@@ -964,7 +1031,19 @@ function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
 }
 
 function isChangedRowStatus(status: string): boolean {
-  return status === "replace" || status === "insert" || status === "delete";
+  if (status === "replace") {
+    return true;
+  }
+  if (status === "insert") {
+    return true;
+  }
+  if (status === "delete") {
+    return true;
+  }
+  if (status === "move") {
+    return true;
+  }
+  return false;
 }
 
 function markHunkAnchors(rows: RenderRow[]): HunkRenderRow[] {

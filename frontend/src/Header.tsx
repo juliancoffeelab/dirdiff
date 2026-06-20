@@ -74,14 +74,23 @@ function EngineSelect(props: {
         { value: "dirdiff", label: engineLabels.dirdiff },
         { value: "git", label: engineLabels.git },
         { value: "difftastic", label: engineLabels.difftastic },
+        { value: "gumtree", label: engineLabels.gumtree },
       ]}
       selectedValue={props.engine}
       onChange={(nextEngine) => {
-        if (
-          nextEngine === "dirdiff" ||
-          nextEngine === "git" ||
-          nextEngine === "difftastic"
-        ) {
+        if (nextEngine === "dirdiff") {
+          props.onEngineChange(nextEngine);
+          return;
+        }
+        if (nextEngine === "git") {
+          props.onEngineChange(nextEngine);
+          return;
+        }
+        if (nextEngine === "difftastic") {
+          props.onEngineChange(nextEngine);
+          return;
+        }
+        if (nextEngine === "gumtree") {
           props.onEngineChange(nextEngine);
           return;
         }
@@ -184,6 +193,7 @@ function SummaryView(props: { summary: Summary }) {
         added={props.summary.added_lines}
         changed={props.summary.modified_lines}
         removed={props.summary.removed_lines}
+        moved={props.summary.moved_lines}
       />
       <Show when={hasNotebookCells()}>
         <SummaryMetric
@@ -220,6 +230,7 @@ function SummaryMetric(props: {
   added: number;
   changed: number;
   removed: number;
+  moved?: number;
 }) {
   const metricClass = () => props.label.toLowerCase();
 
@@ -229,6 +240,9 @@ function SummaryMetric(props: {
       <span class="delta added">+ {props.added}</span>
       <span class="delta changed">~ {props.changed}</span>
       <span class="delta removed">- {props.removed}</span>
+      <Show when={props.moved !== undefined}>
+        <span class="delta moved">* {props.moved}</span>
+      </Show>
     </div>
   );
 }

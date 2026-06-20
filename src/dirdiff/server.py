@@ -19,6 +19,7 @@ from dirdiff.services import (
     DiffServiceProtocol,
     DifftasticDiffService,
     GitDiffService,
+    GumTreeDiffService,
     TextDiffService,
 )
 from dirdiff.sources import (
@@ -33,15 +34,17 @@ LOGGER = logging.getLogger(__name__)
 ModeParam = Literal[
     "files", "staged", "head", "refs", "branch-review", "preset"
 ]
-EngineParam = Literal["dirdiff", "git", "difftastic"]
-PresetTypeParam = Literal["diff", "fold"]
+EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
+PresetTypeParam = Literal["diff", "fold", "gumtree"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 GitFileStatus = Literal["modified", "added", "deleted", "renamed", "copied"]
 LazyReason = (
     Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"]
     | None
 )
-RowStatus = Literal["equal", "replace", "insert", "delete", "fold", "elided"]
+RowStatus = Literal[
+    "equal", "replace", "insert", "delete", "move", "fold", "elided"
+]
 
 
 class ApiModel(BaseModel):
@@ -97,6 +100,7 @@ class PresetCatalogResponse(ApiModel):
 class PresetCatalogsResponse(ApiModel):
     diff: PresetCatalogResponse
     fold: PresetCatalogResponse
+    gumtree: PresetCatalogResponse
 
 
 class SyntaxSpanResponse(ApiModel):
@@ -108,7 +112,7 @@ class SyntaxSpanResponse(ApiModel):
 class InlineTokenResponse(ApiModel):
     text: str
     is_ws: bool
-    status: Literal["unchanged", "replace", "insert", "delete"]
+    status: Literal["unchanged", "replace", "insert", "delete", "move"]
 
 
 class FoldHintResponse(ApiModel):
@@ -144,6 +148,7 @@ class TextDiffSummaryResponse(ApiModel):
     modified_lines: int
     added_lines: int
     removed_lines: int
+    moved_lines: int = 0
     left_exists: bool
     right_exists: bool
 
@@ -165,6 +170,7 @@ class RepoDiffSummaryResponse(ApiModel):
     modified_lines: int
     added_lines: int
     removed_lines: int
+    moved_lines: int = 0
     skipped_files: int
     changed_cells: int | None = None
     added_cells: int | None = None
@@ -185,7 +191,11 @@ FileKindResponse = GitFileKindResponse | UntrackedFileKindResponse
 
 
 class EngineWarningResponse(ApiModel):
-    type: Literal["difftastic_graph_limit", "difftastic_empty_rows"]
+    type: Literal[
+        "difftastic_graph_limit",
+        "difftastic_empty_rows",
+        "gumtree_invalid_json",
+    ]
     message: str
 
 
@@ -333,6 +343,8 @@ def service_for_backend(
         return GitDiffService(backend)
     if engine == "difftastic":
         return DifftasticDiffService(backend)
+    if engine == "gumtree":
+        return GumTreeDiffService(backend)
     raise TextDiffError(f"Unknown diff engine: {engine}")
 
 
@@ -355,8 +367,12 @@ def create_app(
             if presets_root is not None:
                 return PresetBackend.discover(presets_root=Path(presets_root))
             return PresetBackend.discover()
+        if preset_type == "fold":
+            return PresetBackend.discover(
+                presets_root=Path.cwd() / "tests" / "presets" / "folds"
+            )
         return PresetBackend.discover(
-            presets_root=Path.cwd() / "tests" / "presets" / "folds"
+            presets_root=Path.cwd() / "tests" / "presets" / "gumtree"
         )
 
     def preset_catalog_for_type(
@@ -480,6 +496,7 @@ def create_app(
                 {
                     "diff": preset_catalog_for_type("diff"),
                     "fold": preset_catalog_for_type("fold"),
+                    "gumtree": preset_catalog_for_type("gumtree"),
                 }
             )
         except TextDiffError as exc:

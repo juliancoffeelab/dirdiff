@@ -70,8 +70,9 @@ export const modeLabels: Record<DiffMode, string> = {
 export const presetTypeLabels: Record<PresetType, string> = {
   diff: "Diff Presets",
   fold: "Fold Presets",
+  gumtree: "GumTree Presets",
 };
-export const presetTypes: PresetType[] = ["diff", "fold"];
+export const presetTypes: PresetType[] = ["diff", "fold", "gumtree"];
 export const topLevelModes: DiffMode[] = [
   "head",
   "refs",
@@ -82,6 +83,7 @@ export const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   git: "Git",
   difftastic: "Difftastic",
+  gumtree: "GumTree",
 };
 export const diffViewLabels: Record<DiffViewMode, string> = {
   split: "Split",
@@ -104,6 +106,7 @@ export const emptySummary: Summary = {
   modified_lines: 0,
   added_lines: 0,
   removed_lines: 0,
+  moved_lines: 0,
   skipped_files: 0,
 };
 

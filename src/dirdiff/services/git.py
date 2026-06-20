@@ -334,6 +334,7 @@ class GitDiffService(DiffServiceProtocol):
                 "modified_lines": rows_payload["modified_lines"],
                 "added_lines": rows_payload["added_lines"],
                 "removed_lines": rows_payload["removed_lines"],
+                "moved_lines": rows_payload["moved_lines"],
                 "left_exists": left_version.exists,
                 "right_exists": right_version.exists,
             },

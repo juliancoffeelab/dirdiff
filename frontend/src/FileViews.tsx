@@ -40,6 +40,7 @@ type LineStats = {
   added: number | null;
   modified: number | null;
   removed: number | null;
+  moved: number | null;
 };
 
 function expansionValue(
@@ -55,7 +56,7 @@ function expansionValue(
 }
 
 function emptyLineStats(): LineStats {
-  return { added: 0, modified: 0, removed: 0 };
+  return { added: 0, modified: 0, removed: 0, moved: 0 };
 }
 
 function addLineStat(left: number | null, right: number | null): number | null {
@@ -70,11 +71,12 @@ function addLineStats(left: LineStats, right: LineStats): LineStats {
     added: addLineStat(left.added, right.added),
     modified: addLineStat(left.modified, right.modified),
     removed: addLineStat(left.removed, right.removed),
+    moved: addLineStat(left.moved, right.moved),
   };
 }
 
 function unknownLineStats(): LineStats {
-  return { added: null, modified: null, removed: null };
+  return { added: null, modified: null, removed: null, moved: null };
 }
 
 function fileLineStats(entry: FileEntry): LineStats {
@@ -83,6 +85,7 @@ function fileLineStats(entry: FileEntry): LineStats {
       added: entry.summary.added_lines,
       modified: entry.summary.modified_lines,
       removed: entry.summary.removed_lines,
+      moved: entry.summary.moved_lines,
     };
   }
   if (
@@ -90,10 +93,15 @@ function fileLineStats(entry: FileEntry): LineStats {
     typeof entry.added_lines === "number" &&
     typeof entry.removed_lines === "number"
   ) {
+    let moved: number | null = null;
+    if (typeof entry.moved_lines === "number") {
+      moved = entry.moved_lines;
+    }
     return {
       added: entry.added_lines,
       modified: 0,
       removed: entry.removed_lines,
+      moved,
     };
   }
   return unknownLineStats();
@@ -175,6 +183,7 @@ function TreeLineStats(props: { stats: LineStats }) {
       <span class="added">+ {formatLineStat(props.stats.added)}</span>
       <span class="changed">~ {formatLineStat(props.stats.modified)}</span>
       <span class="removed">- {formatLineStat(props.stats.removed)}</span>
+      <span class="moved">* {formatLineStat(props.stats.moved)}</span>
     </span>
   );
 }
@@ -712,7 +721,7 @@ function FileCard(props: {
                 class="file-card-engine-warning"
                 title={engineWarningMessage(props.file)}
               >
-                Difftastic failed: git fallback
+                {engineWarningLabel(props.file)}
               </span>
             </Show>
           </span>
@@ -725,6 +734,7 @@ function FileCard(props: {
           <span class="delta removed">
             - {formatLineStat(lineStats().removed)}
           </span>
+          <span class="delta moved">* {formatLineStat(lineStats().moved)}</span>
         </span>
       </button>
       <div
@@ -886,7 +896,19 @@ function virtualHunkAnchorTop(rowIndex: number): number {
 }
 
 function isChangedDiffRowStatus(status: DiffRow["status"]): boolean {
-  return status === "replace" || status === "insert" || status === "delete";
+  if (status === "replace") {
+    return true;
+  }
+  if (status === "insert") {
+    return true;
+  }
+  if (status === "delete") {
+    return true;
+  }
+  if (status === "move") {
+    return true;
+  }
+  return false;
 }
 
 function plainSplitText(rows: DiffRow[]): { left: string; right: string } {
@@ -940,6 +962,22 @@ function engineWarningMessage(file: FileEntry): string {
     throw new Error(`${fileDisplayName(file)} is missing engine warning.`);
   }
   return warning.message;
+}
+
+function engineWarningLabel(file: FileEntry): string {
+  const warning = file.engine_warning;
+  if (warning === null || warning === undefined) {
+    throw new Error(`${fileDisplayName(file)} is missing engine warning.`);
+  }
+  switch (warning.type) {
+    case "difftastic_graph_limit":
+    case "difftastic_empty_rows":
+      return "Difftastic failed: git fallback";
+    case "gumtree_invalid_json":
+      return "GumTree failed: unified fallback";
+    default:
+      return warning.type satisfies never;
+  }
 }
 
 function foldRowLabel(row: DiffRow): string {

@@ -186,6 +186,7 @@ def _empty_repo_summary() -> dict[str, int]:
         "modified_lines": 0,
         "added_lines": 0,
         "removed_lines": 0,
+        "moved_lines": 0,
         "skipped_files": 0,
     }
 
@@ -201,6 +202,7 @@ def _summary_for_repo_path(entry: RepoDiffPath) -> dict[str, int | bool]:
         "modified_lines": modified_lines,
         "added_lines": added_lines,
         "removed_lines": removed_lines,
+        "moved_lines": 0,
         "left_exists": entry.left_path is not None,
         "right_exists": entry.right_path is not None,
     }
@@ -254,6 +256,7 @@ def build_repo_manifest_for_service(
         summary["modified_lines"] += line_summary["modified_lines"]
         summary["added_lines"] += line_summary["added_lines"]
         summary["removed_lines"] += line_summary["removed_lines"]
+        summary["moved_lines"] += line_summary["moved_lines"]
         files.append(file_entry)
 
     return {
