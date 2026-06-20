@@ -68,12 +68,26 @@ type ExpansionSetter = (
   updater: (current: Record<string, boolean>) => Record<string, boolean>,
 ) => void;
 
-function createFileTreeNavigation(options: FileTreeNavigationOptions) {
-  const targetIsVisible = (target: HTMLElement) => {
-    const rect = target.getBoundingClientRect();
-    return rect.bottom > 0 && rect.top < window.innerHeight;
-  };
+const FILE_TREE_SCROLL_MAX_FRAMES = 120;
+const FILE_TREE_SCROLL_STABLE_FRAMES = 2;
+const FILE_TREE_SCROLL_STABLE_PX = 1;
 
+function stableFrameCountForTarget(
+  target: HTMLElement,
+  previousTop: number | null,
+  stableFrames: number,
+) {
+  if (previousTop === null) {
+    return 0;
+  }
+  const top = target.getBoundingClientRect().top;
+  if (Math.abs(top - previousTop) <= FILE_TREE_SCROLL_STABLE_PX) {
+    return stableFrames + 1;
+  }
+  return 0;
+}
+
+function createFileTreeNavigation(options: FileTreeNavigationOptions) {
   const scrollToFile = (file: FileEntry) => {
     const key = fileKey(file);
     const fileId = fileElementId(key);
@@ -102,33 +116,31 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
       );
     };
 
-    const scrollWhenReady = (attempt: number, visibleFrames: number) => {
+    const scrollWhenReady = (
+      attempt: number,
+      stableFrames: number,
+      previousTop: number | null,
+    ) => {
       requestAnimationFrame(() => {
-        const pendingVirtualizedIds = preloadFileIds.filter((preloadFileId) =>
-          options.isFileVirtualized(preloadFileId),
-        );
         const card = document.getElementById(fileId);
-        if (card === null || pendingVirtualizedIds.length > 0) {
-          if (attempt >= 120) {
+        if (card === null || options.isFileVirtualized(fileId)) {
+          if (attempt >= FILE_TREE_SCROLL_MAX_FRAMES) {
             throw new Error(
               `File tree jump did not stabilize for ${fileDisplayName(file)}.`,
             );
           }
-          scrollWhenReady(attempt + 1, 0);
+          scrollWhenReady(attempt + 1, 0, null);
           return;
         }
 
         requestAnimationFrame(() => {
-          const settledPendingVirtualizedIds = preloadFileIds.filter(
-            (preloadFileId) => options.isFileVirtualized(preloadFileId),
-          );
-          if (settledPendingVirtualizedIds.length > 0) {
-            if (attempt >= 120) {
+          if (options.isFileVirtualized(fileId)) {
+            if (attempt >= FILE_TREE_SCROLL_MAX_FRAMES) {
               throw new Error(
                 `File tree jump did not stabilize for ${fileDisplayName(file)}.`,
               );
             }
-            scrollWhenReady(attempt + 1, 0);
+            scrollWhenReady(attempt + 1, 0, null);
             return;
           }
           if (card === null) {
@@ -139,41 +151,53 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
 
           const target = resolvedTarget(card);
           target.scrollIntoView({ block: "center", behavior: "instant" });
-          const nextVisibleFrames = targetIsVisible(target)
-            ? visibleFrames + 1
-            : 0;
-          if (nextVisibleFrames < 2) {
-            if (attempt >= 120) {
-              throw new Error(
-                `File tree jump did not stabilize for ${fileDisplayName(file)}.`,
+          requestAnimationFrame(() => {
+            const nextStableFrames = stableFrameCountForTarget(
+              target,
+              previousTop,
+              stableFrames,
+            );
+            if (nextStableFrames < FILE_TREE_SCROLL_STABLE_FRAMES) {
+              if (attempt >= FILE_TREE_SCROLL_MAX_FRAMES) {
+                throw new Error(
+                  `File tree jump did not stabilize for ${fileDisplayName(file)}.`,
+                );
+              }
+              scrollWhenReady(
+                attempt + 1,
+                nextStableFrames,
+                target.getBoundingClientRect().top,
               );
+              return;
             }
-            scrollWhenReady(attempt + 1, nextVisibleFrames);
-            return;
-          }
 
-          card.classList.remove("file-card-flash");
-          void card.offsetWidth;
-          card.classList.add("file-card-flash");
+            card.classList.remove("file-card-flash");
+            void card.offsetWidth;
+            card.classList.add("file-card-flash");
+          });
         });
       });
     };
 
-    scrollWhenReady(0, 0);
+    scrollWhenReady(0, 0, null);
   };
 
   const scrollToDirectory = (group: FileGroup) => {
     options.openDirectoryExpansion(group);
-    const scrollWhenReady = (attempt: number, visibleFrames: number) => {
+    const scrollWhenReady = (
+      attempt: number,
+      stableFrames: number,
+      previousTop: number | null,
+    ) => {
       requestAnimationFrame(() => {
         const target = document.getElementById(directoryElementId(group.label));
         if (target === null) {
-          if (attempt >= 120) {
+          if (attempt >= FILE_TREE_SCROLL_MAX_FRAMES) {
             throw new Error(
               `Directory tree jump did not stabilize for ${group.label}.`,
             );
           }
-          scrollWhenReady(attempt + 1, 0);
+          scrollWhenReady(attempt + 1, 0, null);
           return;
         }
         const header = target.querySelector<HTMLElement>(
@@ -185,22 +209,29 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
           );
         }
         header.scrollIntoView({ block: "start", behavior: "instant" });
-        const nextVisibleFrames = targetIsVisible(header)
-          ? visibleFrames + 1
-          : 0;
-        if (nextVisibleFrames < 2) {
-          if (attempt >= 120) {
-            throw new Error(
-              `Directory tree jump did not stabilize for ${group.label}.`,
+        requestAnimationFrame(() => {
+          const nextStableFrames = stableFrameCountForTarget(
+            header,
+            previousTop,
+            stableFrames,
+          );
+          if (nextStableFrames < FILE_TREE_SCROLL_STABLE_FRAMES) {
+            if (attempt >= FILE_TREE_SCROLL_MAX_FRAMES) {
+              throw new Error(
+                `Directory tree jump did not stabilize for ${group.label}.`,
+              );
+            }
+            scrollWhenReady(
+              attempt + 1,
+              nextStableFrames,
+              header.getBoundingClientRect().top,
             );
           }
-          scrollWhenReady(attempt + 1, nextVisibleFrames);
-          return;
-        }
+        });
       });
     };
 
-    scrollWhenReady(0, 0);
+    scrollWhenReady(0, 0, null);
   };
 
   return {
