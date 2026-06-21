@@ -15,7 +15,6 @@ const SCROLL_FOLLOW_INTERVAL_MS = 100;
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 150;
 const READING_LINE_RATIO = 0.5;
 const RICH_PRELOAD_FILE_RADIUS = 2;
-const RICH_PRELOAD_HUNK_RADIUS = 2;
 
 type HunkAnchor = HTMLElement | null;
 type HunkPosition = {
@@ -38,45 +37,6 @@ export function richPreloadFileIdsForAnchor(
   return richPreloadFileIdsForFileId(fileIdForHunkAnchor(anchor), files);
 }
 
-export function richPreloadFileIdsForHunkSelection(
-  anchors: HunkAnchor[],
-  activeIndex: number,
-  files: FileEntry[],
-): string[] {
-  const forced = new Set<string>();
-  const selectableIndices = anchors.flatMap((anchor, index) =>
-    anchor === null ? [] : [index],
-  );
-  const activeOrdinal = selectableIndices.indexOf(activeIndex);
-  if (activeOrdinal === -1) {
-    const selectedAnchor = currentSelectableAnchor(anchors, activeIndex);
-    if (selectedAnchor === null) {
-      return richPreloadFileIdsForFileId(null, files);
-    }
-    return richPreloadFileIdsForAnchor(selectedAnchor, files);
-  }
-
-  for (
-    let offset = -RICH_PRELOAD_HUNK_RADIUS;
-    offset <= RICH_PRELOAD_HUNK_RADIUS;
-    offset += 1
-  ) {
-    const ordinal = wrapIndex(activeOrdinal + offset, selectableIndices.length);
-    const anchor = anchors[selectableIndices[ordinal]];
-    if (anchor === null) {
-      throw new Error("Selectable hunk unexpectedly resolved to skip anchor.");
-    }
-    const fileId = fileIdForHunkAnchor(anchor);
-    if (fileId !== null) {
-      forced.add(fileId);
-    }
-  }
-
-  return files
-    .map((file) => fileElementId(fileKey(file)))
-    .filter((fileId) => forced.has(fileId));
-}
-
 export function richPreloadFileIdsForFileId(
   activeFileId: string | null,
   files: FileEntry[],
@@ -94,15 +54,17 @@ export function richPreloadFileIdsForFileId(
 
   const activeIndex =
     activeFileId === null ? -1 : preloadFileIds.indexOf(activeFileId);
-  if (activeIndex !== -1) {
-    const start = Math.max(0, activeIndex - RICH_PRELOAD_FILE_RADIUS);
-    const end = Math.min(
-      preloadFileIds.length - 1,
-      activeIndex + RICH_PRELOAD_FILE_RADIUS,
-    );
-    for (let index = start; index <= end; index += 1) {
-      forced.add(preloadFileIds[index]);
-    }
+  if (activeIndex === -1) {
+    return [...forced];
+  }
+
+  for (
+    let offset = -RICH_PRELOAD_FILE_RADIUS;
+    offset <= RICH_PRELOAD_FILE_RADIUS;
+    offset += 1
+  ) {
+    const index = wrapIndex(activeIndex + offset, preloadFileIds.length);
+    forced.add(preloadFileIds[index]);
   }
 
   return [...forced];

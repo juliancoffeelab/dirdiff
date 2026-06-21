@@ -11,7 +11,7 @@ import type { FileEntry } from "../api";
 import {
   createHunkNavigation,
   fileIdForHunkAnchor,
-  richPreloadFileIdsForHunkSelection,
+  richPreloadFileIdsForAnchor,
   richPreloadFileIdsForFileId,
   shouldIgnoreGlobalHotkeyEvent,
 } from "../hunkNavigation";
@@ -276,18 +276,14 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
         restoredLinePinKey = pinKey;
       });
     },
-    onSelectionChange: ({ anchors, index, selected }) => {
+    onSelectionChange: ({ selected }) => {
       if (selected === null) {
         options.setActiveHunkFileId(null);
         return;
       }
       options.setActiveHunkFileId(fileIdForHunkAnchor(selected));
       options.setForcedRichPreloadIds(
-        richPreloadFileIdsForHunkSelection(
-          anchors,
-          index,
-          options.displayFiles(),
-        ),
+        richPreloadFileIdsForAnchor(selected, options.displayFiles()),
       );
     },
   });

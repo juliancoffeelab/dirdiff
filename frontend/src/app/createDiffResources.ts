@@ -659,162 +659,148 @@ export function createDiffResources(options: DiffResourcesOptions) {
     let loadedFiles = initialLoadedFiles;
     let failedDetailFiles = 0;
 
-    const workers = Array.from(
-      { length: Math.min(4, pendingFiles.length) },
-      async (_, workerIndex) => {
-        for (let index = workerIndex; index < pendingFiles.length; index += 4) {
-          if (!loadIsCurrent(loadId)) {
-            return;
-          }
-          const entry = pendingFiles[index];
-          const key = fileKey(entry);
-          const originalLazyReason = entry.lazy;
-          let slowTimeout: number | null = null;
-          let slowInterval: number | null = null;
-          const clearSlowStatus = () => {
-            if (slowTimeout !== null) {
-              window.clearTimeout(slowTimeout);
-              slowTimeout = null;
-            }
-            if (slowInterval !== null) {
-              window.clearInterval(slowInterval);
-              slowInterval = null;
-            }
-          };
-          try {
-            if (diffParams.engine === "difftastic") {
-              const startedAt = Date.now();
-              const updateSlowStatus = () => {
-                if (!loadIsCurrent(loadId)) {
-                  clearSlowStatus();
-                  return;
-                }
-                setStatusText(
-                  `${loadedStatusLabel(
-                    baseStatus,
-                    loadedFiles,
-                    failedDetailFiles,
-                  )} · ${slowFileDiffDetail(entry, Date.now() - startedAt)}`,
-                );
-              };
-              slowTimeout = window.setTimeout(() => {
-                updateSlowStatus();
-                slowInterval = window.setInterval(updateSlowStatus, 1000);
-              }, SLOW_FILE_DIFF_MS);
-            }
-            const queryKey = fileDiffQueryKey(diffParams, entry);
-            queryClient.removeQueries({ queryKey });
-            const hydrated = await queryClient.fetchQuery({
-              queryKey,
-              queryFn: ({ signal }) => fetchFileDiff(diffParams, entry, signal),
-              retry: false,
-              staleTime: 0,
-            });
-            clearSlowStatus();
-            if (!loadIsCurrent(loadId)) {
-              return;
-            }
-            // Hydrated FileEntry construction is allowed only from
-            // /api/file-diff. Do not merge in the /api/manifest entry.
-            const nextEntry =
-              originalLazyReason === null
-                ? hydrated
-                : {
-                    ...hydrated,
-                    lazy_reason: originalLazyReason,
-                  };
-            const nextKey = fileKey(nextEntry);
-            const shouldOpenPinnedFile =
-              pin !== null && fileMatchesLinePin(nextEntry, pin);
-            loadedFiles += 1;
-            batch(() => {
-              options.upsertFile(
-                nextEntry,
-                diffParams,
-                loadId,
-                originalLazyReason,
-              );
-              options.setDirectoryExpansion((current) => {
-                const directory = entryDirectoryLabel(nextEntry);
-                if (shouldOpenPinnedFile) {
-                  return { ...current, [directory]: true };
-                }
-                if (Object.hasOwn(current, directory)) {
-                  return current;
-                }
-                return { ...current, [directory]: true };
-              });
-              options.setFileExpansion((current) =>
-                nextFileExpansion(
-                  shouldOpenPinnedFile
-                    ? { ...current, [nextKey]: true }
-                    : current,
-                  nextEntry,
-                  nextKey,
-                ),
-              );
-              setStatusText(
-                loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
-              );
-            });
-          } catch (error) {
-            clearSlowStatus();
-            if (!loadIsCurrent(loadId)) {
-              return;
-            }
-            if (isCancelledError(error)) {
-              continue;
-            }
-            hasFailure = true;
-            loadedFiles += 1;
-            failedDetailFiles += 1;
-            batch(() => {
-              const failedEntry: FileEntry = {
-                file_kind: entry.file_kind,
-                left_path: entry.left_path,
-                right_path: entry.right_path,
-                display_name: manifestDisplayName(entry),
-                lazy: {
-                  type: "error",
-                  original: entry.lazy,
-                },
-              };
-              options.upsertFile(
-                failedEntry,
-                diffParams,
-                loadId,
-                originalLazyReason,
-              );
-              options.setFileExpansion((current) => ({
-                ...current,
-                [key]: true,
-              }));
-              setFileErrors((current) => ({
-                ...current,
-                [key]:
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to load file diff.",
-              }));
-              setStatus("error");
-              setStatusText(
-                loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
-              );
-            });
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            console.error(
-              `Failed to hydrate file diff for ${fileKey(entry)}: ${errorMessage}`,
-            );
-            if (!toastedHydrationFailure) {
-              toastedHydrationFailure = true;
-              options.addErrorToast("Failed to load file diff", error);
-            }
-          }
+    for (const entry of pendingFiles) {
+      if (!loadIsCurrent(loadId)) {
+        return;
+      }
+      const key = fileKey(entry);
+      const originalLazyReason = entry.lazy;
+      let slowTimeout: number | null = null;
+      let slowInterval: number | null = null;
+      const clearSlowStatus = () => {
+        if (slowTimeout !== null) {
+          window.clearTimeout(slowTimeout);
+          slowTimeout = null;
         }
-      },
-    );
-    await Promise.all(workers);
+        if (slowInterval !== null) {
+          window.clearInterval(slowInterval);
+          slowInterval = null;
+        }
+      };
+      try {
+        if (diffParams.engine === "difftastic") {
+          const startedAt = Date.now();
+          const updateSlowStatus = () => {
+            if (!loadIsCurrent(loadId)) {
+              clearSlowStatus();
+              return;
+            }
+            setStatusText(
+              `${loadedStatusLabel(
+                baseStatus,
+                loadedFiles,
+                failedDetailFiles,
+              )} · ${slowFileDiffDetail(entry, Date.now() - startedAt)}`,
+            );
+          };
+          slowTimeout = window.setTimeout(() => {
+            updateSlowStatus();
+            slowInterval = window.setInterval(updateSlowStatus, 1000);
+          }, SLOW_FILE_DIFF_MS);
+        }
+        const queryKey = fileDiffQueryKey(diffParams, entry);
+        queryClient.removeQueries({ queryKey });
+        const hydrated = await queryClient.fetchQuery({
+          queryKey,
+          queryFn: ({ signal }) => fetchFileDiff(diffParams, entry, signal),
+          retry: false,
+          staleTime: 0,
+        });
+        clearSlowStatus();
+        if (!loadIsCurrent(loadId)) {
+          return;
+        }
+        // Hydrated FileEntry construction is allowed only from
+        // /api/file-diff. Do not merge in the /api/manifest entry.
+        const nextEntry =
+          originalLazyReason === null
+            ? hydrated
+            : {
+                ...hydrated,
+                lazy_reason: originalLazyReason,
+              };
+        const nextKey = fileKey(nextEntry);
+        const shouldOpenPinnedFile =
+          pin !== null && fileMatchesLinePin(nextEntry, pin);
+        loadedFiles += 1;
+        batch(() => {
+          options.upsertFile(nextEntry, diffParams, loadId, originalLazyReason);
+          options.setDirectoryExpansion((current) => {
+            const directory = entryDirectoryLabel(nextEntry);
+            if (shouldOpenPinnedFile) {
+              return { ...current, [directory]: true };
+            }
+            if (Object.hasOwn(current, directory)) {
+              return current;
+            }
+            return { ...current, [directory]: true };
+          });
+          options.setFileExpansion((current) =>
+            nextFileExpansion(
+              shouldOpenPinnedFile ? { ...current, [nextKey]: true } : current,
+              nextEntry,
+              nextKey,
+            ),
+          );
+          setStatusText(
+            loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
+          );
+        });
+      } catch (error) {
+        clearSlowStatus();
+        if (!loadIsCurrent(loadId)) {
+          return;
+        }
+        if (isCancelledError(error)) {
+          continue;
+        }
+        hasFailure = true;
+        loadedFiles += 1;
+        failedDetailFiles += 1;
+        batch(() => {
+          const failedEntry: FileEntry = {
+            file_kind: entry.file_kind,
+            left_path: entry.left_path,
+            right_path: entry.right_path,
+            display_name: manifestDisplayName(entry),
+            lazy: {
+              type: "error",
+              original: entry.lazy,
+            },
+          };
+          options.upsertFile(
+            failedEntry,
+            diffParams,
+            loadId,
+            originalLazyReason,
+          );
+          options.setFileExpansion((current) => ({
+            ...current,
+            [key]: true,
+          }));
+          setFileErrors((current) => ({
+            ...current,
+            [key]:
+              error instanceof Error
+                ? error.message
+                : "Failed to load file diff.",
+          }));
+          setStatus("error");
+          setStatusText(
+            loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
+          );
+        });
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        console.error(
+          `Failed to hydrate file diff for ${fileKey(entry)}: ${errorMessage}`,
+        );
+        if (!toastedHydrationFailure) {
+          toastedHydrationFailure = true;
+          options.addErrorToast("Failed to load file diff", error);
+        }
+      }
+    }
     if (loadIsCurrent(loadId)) {
       setStatus(hasFailure ? "error" : "done");
       if (!hasFailure) {
