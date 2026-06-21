@@ -116,26 +116,24 @@ def _plain_line_rows_for_side(
 def _gumtree_summary(
     *,
     rows: list[dict[str, Any]],
-    summarize_line_statuses: bool = False,
 ) -> DiffSummary:
     """Return GumTree summary counts for already-built rows.
 
-    GumTree's primary signal is token status, especially ``move``.  For normal
-    two-sided GumTree output, line statuses stay neutral so the frontend does
-    not report misleading line additions/deletions for moved code.  The
-    ``summarize_line_statuses`` flag is reserved for non-GumTree fallbacks and
-    one-sided rows where line counts are honest.
+    GumTree's primary signal is token status, especially ``move``.  After
+    projection, row statuses describe the same changed spans the frontend uses
+    for hunk navigation, so the summary counts those statuses directly.  Mixed
+    token changes are summarized as modified rows, while pure move rows are
+    summarized as moved rows.
     """
-    added_lines = 0
-    removed_lines = 0
-    moved_lines = 0
-    if summarize_line_statuses:
-        added_lines = sum(1 for row in rows if row["status"] == "insert")
-        removed_lines = sum(1 for row in rows if row["status"] == "delete")
-        moved_lines = sum(1 for row in rows if row["status"] == "move")
+    modified_lines = sum(1 for row in rows if row["status"] == "replace")
+    added_lines = sum(1 for row in rows if row["status"] == "insert")
+    removed_lines = sum(1 for row in rows if row["status"] == "delete")
+    moved_lines = sum(1 for row in rows if row["status"] == "move")
     return {
-        "changed_lines": added_lines + removed_lines + moved_lines,
-        "modified_lines": 0,
+        "changed_lines": (
+            modified_lines + added_lines + removed_lines + moved_lines
+        ),
+        "modified_lines": modified_lines,
         "added_lines": added_lines,
         "removed_lines": removed_lines,
         "moved_lines": moved_lines,
@@ -217,7 +215,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
                     "GumTree requires both file paths for move detection."
                 )
             engine_warning: EngineWarning | None = None
-            summarize_line_statuses = False
             try:
                 diff_json = self._run_gumtree_json(
                     left_text=left_text_value,
@@ -240,7 +237,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
                         "unified diff fallback instead."
                     ),
                 }
-                summarize_line_statuses = True
             else:
                 rows = build_gumtree_rows_from_json(
                     diff_json=diff_json,
@@ -253,19 +249,14 @@ class GumTreeDiffEngine(DiffEngineProtocol):
                 side="left",
             )
             engine_warning = None
-            summarize_line_statuses = True
         else:
             rows = _plain_line_rows_for_side(
                 text=right_text_value,
                 side="right",
             )
             engine_warning = None
-            summarize_line_statuses = True
 
-        summary = _gumtree_summary(
-            rows=rows,
-            summarize_line_statuses=summarize_line_statuses,
-        )
+        summary = _gumtree_summary(rows=rows)
         payload: DiffEngineResult = {
             "summary": summary,
             "rows": _strict_engine_rows(rows),

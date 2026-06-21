@@ -166,7 +166,7 @@
           "text": ":"
         }
       ],
-      "status": "equal"
+      "status": "replace"
     },
     {
       "left_no": null,
@@ -211,7 +211,7 @@
           "text": "    normalized_items = normalize_items(order)"
         }
       ],
-      "status": "equal"
+      "status": "insert"
     },
     {
       "left_no": null,
@@ -220,7 +220,7 @@
       "right_no": 3,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "insert"
     },
     {
       "left_no": null,
@@ -270,7 +270,7 @@
           "text": "lines: list[str] = []"
         }
       ],
-      "status": "equal"
+      "status": "replace"
     },
     {
       "left_no": null,
@@ -320,7 +320,7 @@
           "text": "for item in normalized_items:"
         }
       ],
-      "status": "equal"
+      "status": "replace"
     },
     {
       "left_no": null,
@@ -461,7 +461,7 @@
           "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
         }
       ],
-      "status": "equal"
+      "status": "move"
     },
     {
       "left_no": null,
@@ -526,7 +526,7 @@
           "text": "return \"\\n\".join(lines)"
         }
       ],
-      "status": "equal"
+      "status": "replace"
     },
     {
       "left_no": null,
@@ -535,7 +535,7 @@
       "right_no": 8,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "insert"
     },
     {
       "left_no": null,
@@ -544,7 +544,7 @@
       "right_no": 9,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "insert"
     },
     {
       "left_no": null,
@@ -658,7 +658,7 @@
           "text": ":"
         }
       ],
-      "status": "equal"
+      "status": "replace"
     },
     {
       "left_no": 2,
@@ -1199,7 +1199,7 @@
       "right_no": null,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "delete"
     },
     {
       "left_no": 13,
@@ -1249,7 +1249,7 @@
       "right_no": null,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "move"
     },
     {
       "left_no": 14,
@@ -1299,7 +1299,7 @@
       "right_no": null,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "move"
     },
     {
       "left_no": 15,
@@ -1440,7 +1440,7 @@
       "right_no": null,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "move"
     },
     {
       "left_no": 16,
@@ -1505,7 +1505,7 @@
       "right_no": null,
       "right_text": "",
       "right_tokens": [],
-      "status": "equal"
+      "status": "move"
     },
     {
       "left_no": null,
@@ -1541,16 +1541,16 @@
           "text": "return normalized_items"
         }
       ],
-      "status": "equal"
+      "status": "insert"
     }
   ],
   "summary": {
-    "added_lines": 0,
-    "changed_lines": 0,
+    "added_lines": 5,
+    "changed_lines": 16,
     "left_exists": true,
-    "modified_lines": 0,
-    "moved_lines": 0,
-    "removed_lines": 0,
+    "modified_lines": 5,
+    "moved_lines": 5,
+    "removed_lines": 1,
     "right_exists": true
   }
 }

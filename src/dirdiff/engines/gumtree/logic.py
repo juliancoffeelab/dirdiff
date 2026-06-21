@@ -38,9 +38,10 @@ first-class visual priority dirdiff expects for GumTree rendering.
 Output contract
 ---------------
 `build_gumtree_rows_from_json` returns display rows compatible with the shared
-dirdiff row payload. GumTree intentionally neutralizes row statuses to `equal`
-after projecting inline tokens: line counters should stay unchanged, while
-tokens carry `insert`, `delete`, `replace`, and `move` statuses.
+dirdiff row payload. GumTree rows whose changed tokens are purely inserted,
+deleted, or moved get the matching row status; mixed token changes are marked
+as `replace`. That gives hunk navigation a backend signal without asking the
+frontend to infer hunks from token arrays.
 
 Required invariants
 -------------------
@@ -389,9 +390,39 @@ def _apply_gumtree_statuses_to_rows(
                 )
 
 
-def _neutralize_line_statuses(rows: list[dict[str, Any]]) -> None:
+def _changed_token_statuses(row: dict[str, Any]) -> set[GumTreeTokenStatus]:
+    statuses: set[GumTreeTokenStatus] = set()
+    for key in ("left_tokens", "right_tokens"):
+        tokens = row.get(key)
+        if not isinstance(tokens, list):
+            continue
+        for token in tokens:
+            if not isinstance(token, dict):
+                continue
+            status = token.get("status")
+            if status in {"insert", "delete", "replace", "move"}:
+                statuses.add(status)
+    return statuses
+
+
+def _project_gumtree_line_statuses(rows: list[dict[str, Any]]) -> None:
     for row in rows:
-        row["status"] = "equal"
+        changed_statuses = _changed_token_statuses(row)
+        if not changed_statuses:
+            if row["status"] in {"insert", "delete"}:
+                continue
+            row["status"] = "equal"
+            continue
+        if changed_statuses == {"insert"}:
+            row["status"] = "insert"
+            continue
+        if changed_statuses == {"delete"}:
+            row["status"] = "delete"
+            continue
+        if changed_statuses == {"move"}:
+            row["status"] = "move"
+            continue
+        row["status"] = "replace"
 
 
 def _gumtree_aligned_line_rows(
@@ -458,7 +489,7 @@ def build_gumtree_rows_from_json(
         right_text=right_text,
         ranges=ranges,
     )
-    _neutralize_line_statuses(rows)
+    _project_gumtree_line_statuses(rows)
     return rows
 
 
