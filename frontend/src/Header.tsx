@@ -1,5 +1,12 @@
 import { Show } from "solid-js";
-import type { DiffEngine, Preferences, RepoId, RepoMark, Summary } from "./api";
+import {
+  DiffEngineSchema,
+  type DiffEngine,
+  type Preferences,
+  type RepoId,
+  type RepoMark,
+  type Summary,
+} from "./api";
 import type { DiffViewMode } from "./DiffGrid";
 import { diffViewLabels, engineLabels } from "./fileUtils";
 import { Profile } from "./Profile";
@@ -78,20 +85,9 @@ function EngineSelect(props: {
       ]}
       selectedValue={props.engine}
       onChange={(nextEngine) => {
-        if (nextEngine === "dirdiff") {
-          props.onEngineChange(nextEngine);
-          return;
-        }
-        if (nextEngine === "git") {
-          props.onEngineChange(nextEngine);
-          return;
-        }
-        if (nextEngine === "difftastic") {
-          props.onEngineChange(nextEngine);
-          return;
-        }
-        if (nextEngine === "gumtree") {
-          props.onEngineChange(nextEngine);
+        const parsedEngine = DiffEngineSchema.safeParse(nextEngine);
+        if (parsedEngine.success) {
+          props.onEngineChange(parsedEngine.data);
           return;
         }
         throw new Error(`Unsupported diff engine: ${nextEngine}.`);

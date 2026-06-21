@@ -1105,11 +1105,14 @@ export function createDiffResources(options: DiffResourcesOptions) {
 export type DiffResources = ReturnType<typeof createDiffResources>;
 
 function tracksSlowFileDiff(engine: DiffEngine): boolean {
-  if (engine === "difftastic") {
-    return true;
+  switch (engine) {
+    case "difftastic":
+    case "gumtree":
+      return true;
+    case "dirdiff":
+    case "git":
+      return false;
+    default:
+      return engine satisfies never;
   }
-  if (engine === "gumtree") {
-    return true;
-  }
-  return false;
 }

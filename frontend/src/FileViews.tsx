@@ -896,19 +896,7 @@ function virtualHunkAnchorTop(rowIndex: number): number {
 }
 
 function isChangedDiffRowStatus(status: DiffRow["status"]): boolean {
-  if (status === "replace") {
-    return true;
-  }
-  if (status === "insert") {
-    return true;
-  }
-  if (status === "delete") {
-    return true;
-  }
-  if (status === "move") {
-    return true;
-  }
-  return false;
+  return ["replace", "insert", "delete", "move"].includes(status);
 }
 
 function plainSplitText(rows: DiffRow[]): { left: string; right: string } {

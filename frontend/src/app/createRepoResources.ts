@@ -1,5 +1,7 @@
 import { batch, createMemo, createSignal } from "solid-js";
 import {
+  DiffEngineSchema,
+  PresetTypeSchema,
   fetchPresets,
   fetchRepoRefs,
   fetchRepos,
@@ -119,12 +121,10 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
   );
   const requestedMode = search.get("mode") as ControlsState["mode"] | null;
   const requestedPresetType = search.get("preset_type");
-  let presetType: PresetType = "diff";
-  if (requestedPresetType === "fold") {
-    presetType = "fold";
-  }
-  if (requestedPresetType === "gumtree") {
-    presetType = "gumtree";
+  let presetType: PresetType = PresetTypeSchema.enum.diff;
+  const parsedPresetType = PresetTypeSchema.safeParse(requestedPresetType);
+  if (parsedPresetType.success) {
+    presetType = parsedPresetType.data;
   }
   const preset = searchValue(search, "preset", "");
   const mode =
@@ -176,19 +176,11 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
 
 function initialEngine(): DiffEngine {
   const engine = new URLSearchParams(window.location.search).get("engine");
-  if (engine === "git") {
-    return engine;
+  const parsedEngine = DiffEngineSchema.safeParse(engine);
+  if (parsedEngine.success) {
+    return parsedEngine.data;
   }
-  if (engine === "dirdiff") {
-    return engine;
-  }
-  if (engine === "difftastic") {
-    return engine;
-  }
-  if (engine === "gumtree") {
-    return engine;
-  }
-  return "dirdiff";
+  return DiffEngineSchema.enum.dirdiff;
 }
 
 /**

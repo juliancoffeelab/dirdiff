@@ -514,7 +514,7 @@ const HttpExceptionResponseSchema = z.strictObject({
 });
 
 export const REQUEST_TIMEOUT_MS = 8_000;
-const DIFFTASTIC_FILE_DIFF_TIMEOUT_MS = 20_000;
+const SLOW_FILE_DIFF_TIMEOUT_MS = 20_000;
 
 type FetchJsonInit = RequestInit & {
   timeoutMs?: number;
@@ -822,11 +822,8 @@ export async function fetchFileDiff(
   params.set("file_kind", entry.file_kind.type);
 
   let requestTimeoutMs = REQUEST_TIMEOUT_MS;
-  if (diffParams.engine === "difftastic") {
-    requestTimeoutMs = DIFFTASTIC_FILE_DIFF_TIMEOUT_MS;
-  }
-  if (diffParams.engine === "gumtree") {
-    requestTimeoutMs = DIFFTASTIC_FILE_DIFF_TIMEOUT_MS;
+  if (usesSlowFileDiffTimeout(diffParams.engine)) {
+    requestTimeoutMs = SLOW_FILE_DIFF_TIMEOUT_MS;
   }
   if (timeoutMs !== undefined) {
     requestTimeoutMs = timeoutMs;
@@ -844,6 +841,19 @@ export async function fetchFileDiff(
   }
   // /api/file-diff is the source of hydrated renderable FileEntry values.
   return FileDiffResponseSchema.parse(await response.json());
+}
+
+function usesSlowFileDiffTimeout(engine: DiffEngine): boolean {
+  switch (engine) {
+    case "difftastic":
+    case "gumtree":
+      return true;
+    case "dirdiff":
+    case "git":
+      return false;
+    default:
+      return engine satisfies never;
+  }
 }
 
 function changeTypeForFileKind(fileKind: FileKind): GitChangeType {

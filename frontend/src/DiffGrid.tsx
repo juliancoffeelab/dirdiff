@@ -954,13 +954,9 @@ function createInlineLineCodeDom(
 function inlineRowTokenStatus(
   rowStatus: InlineRowStatus | undefined,
 ): RowStatus | undefined {
-  if (rowStatus === "insert") {
-    return "replace";
-  }
-  if (rowStatus === "delete") {
-    return "replace";
-  }
-  return rowStatus;
+  return rowStatus === "insert" || rowStatus === "delete"
+    ? "replace"
+    : rowStatus;
 }
 
 function appendDecoratedText(
@@ -1010,13 +1006,10 @@ function rowShowsTokenChange(
   rowStatus: RowStatus | undefined,
   tokenStatus: InlineToken["status"],
 ): boolean {
-  if (rowStatus === "insert" && tokenStatus === "insert") {
-    return true;
-  }
-  if (rowStatus === "delete" && tokenStatus === "delete") {
-    return true;
-  }
-  return false;
+  return (
+    (rowStatus === "insert" || rowStatus === "delete") &&
+    rowStatus === tokenStatus
+  );
 }
 
 function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
@@ -1031,19 +1024,7 @@ function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
 }
 
 function isChangedRowStatus(status: string): boolean {
-  if (status === "replace") {
-    return true;
-  }
-  if (status === "insert") {
-    return true;
-  }
-  if (status === "delete") {
-    return true;
-  }
-  if (status === "move") {
-    return true;
-  }
-  return false;
+  return ["replace", "insert", "delete", "move"].includes(status);
 }
 
 function markHunkAnchors(rows: RenderRow[]): HunkRenderRow[] {
