@@ -5,10 +5,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from helpers import WorkspaceDiffServiceAdapter
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
-from dirdiff.services.gumtree import GumTreeDiffService
+from dirdiff.engines.gumtree import GumTreeDiffEngine
 from dirdiff.sources import PresetBackend
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "gumtree"
@@ -101,7 +102,10 @@ def test_gumtree_preset_rows_match_golden(
     old_path = old_files[0]
     new_path = new_files[0]
     preset_name = preset_dir.relative_to(PRESETS_ROOT).as_posix()
-    service = GumTreeDiffService(PresetBackend(PRESETS_ROOT))
+    service = WorkspaceDiffServiceAdapter(
+        PresetBackend(PRESETS_ROOT),
+        GumTreeDiffEngine(cwd=Path.cwd()),
+    )
 
     payload = service.build_git_diff_paths(
         left_path=f"{preset_name}/{old_path.name}",

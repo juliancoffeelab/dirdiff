@@ -1,13 +1,10 @@
 import re
 from pathlib import Path
 
-from dirdiff.services.difftastic import DifftasticDiffService
-from dirdiff.services.difftastic.logic import (
+from dirdiff.engines.difftastic import DifftasticDiffEngine
+from dirdiff.engines.difftastic.logic import (
     _difftastic_engine_warning,
     _difftastic_rows_from_json,
-)
-from dirdiff.sources import (
-    PresetBackend,
 )
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
@@ -19,7 +16,7 @@ def _preset_rows(preset_name: str) -> list[dict[str, object]]:
     new_path = next(preset_dir.glob("new.*"))
     old_text = old_path.read_text()
     new_text = new_path.read_text()
-    service = DifftasticDiffService(PresetBackend(PRESETS_ROOT))
+    service = DifftasticDiffEngine()
     diff_json = service._run_difftastic_json(
         left_text=old_text,
         right_text=new_text,
@@ -39,7 +36,7 @@ def _text_rows(
     right_text: str,
     extension: str = "ts",
 ) -> list[dict[str, object]]:
-    service = DifftasticDiffService(PresetBackend(PRESETS_ROOT))
+    service = DifftasticDiffEngine()
     diff_json = service._run_difftastic_json(
         left_text=left_text,
         right_text=right_text,
@@ -301,7 +298,7 @@ def test_difftastic_rows_keep_build_request_arguments_aligned_when_repo_id_is_ad
     new_path = preset_dir / "new.tsx"
     old_text = old_path.read_text()
     new_text = new_path.read_text()
-    service = DifftasticDiffService(PresetBackend(PRESETS_ROOT))
+    service = DifftasticDiffEngine()
 
     diff_json = service._run_difftastic_json(
         left_text=old_text,

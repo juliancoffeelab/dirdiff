@@ -8,4 +8,4 @@ kept next to these files as `LICENSE-HELIX`.
 They are used for JavaScript, JSX, TypeScript, and TSX because the highlight
 queries bundled with the Python parser wheels are too small for dirdiff's UI.
 Helix query inheritance comments such as `; inherits: ecma,_typescript` are
-expanded by `dirdiff.highlight`.
+expanded by `dirdiff.rendering`.

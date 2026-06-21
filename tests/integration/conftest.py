@@ -1,9 +1,8 @@
-import pytest
+from __future__ import annotations
 
-pytestmark = pytest.mark.git
+import sys
+from pathlib import Path
 
-
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    for item in items:
-        if item.path.parent.name == "integration":
-            item.add_marker(pytest.mark.git)
+TESTS_ROOT = Path(__file__).resolve().parents[1]
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))

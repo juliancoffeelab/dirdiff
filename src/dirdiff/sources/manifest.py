@@ -1,16 +1,18 @@
+"""Manifest and lazy-file payload helpers for workspace backends.
+
+This module is part of ``dirdiff.sources`` because it turns backend path
+metadata into API payloads.  It does not render file contents and does not know
+which diff engine the user selected.  Services render one already-loaded file;
+sources list, classify, and load workspace paths.
+"""
+
 from __future__ import annotations
 
-import logging
-import os
-from pathlib import Path, PurePosixPath
-from typing import Any, Protocol
+from pathlib import PurePosixPath
+from typing import Any, Literal
 
-from dirdiff.sources import (
-    RepoDiffPath,
-    SideName,
-)
+from dirdiff.sources.base import RepoDiffPath, WorkspaceBackend
 
-ENABLE_PERF_LOGS = os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
 LARGE_CHANGED_LINES_LAZY_THRESHOLD = 1000
 GENERATED_FILES = frozenset(
     {
@@ -34,66 +36,10 @@ GIT_FILE_STATUS_BY_CHANGE_TYPE = {
     "rename": "renamed",
     "copy": "copied",
 }
-LOGGER = logging.getLogger(__name__)
 
 
-class DiffServiceProtocol(Protocol):
-    @property
-    def repo_root(self) -> Path | None: ...
-
-    def default_base_branch(self) -> str: ...
-
-    def preferred_review_branch(
-        self, *, base_branch: str | None = None
-    ) -> str: ...
-
-    def list_ref_choices(self) -> dict[str, list[str]]: ...
-
-    def normalize_side(self, side: str) -> str: ...
-
-    def resolve_branch_diff_sides(
-        self, *, base_branch: str, branch: str
-    ) -> tuple[str, str]: ...
-
-    def build_repo_manifest(
-        self, *, left: str, right: str, show_untracked: bool = False
-    ) -> dict[str, Any]: ...
-
-    def build_lazy_info(
-        self, *, left: str, right: str, show_untracked: bool = False
-    ) -> dict[str, Any]: ...
-
-    def build_git_diff_paths(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        display_name: str | None = None,
-        change_type: str = "modify",
-        file_kind: str | None = None,
-    ) -> dict[str, Any]: ...
-
-    def build_notebook_section_diff(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        section: str | None,
-        cell_key: str | None = None,
-    ) -> dict[str, Any]: ...
-
-
-def _perf_log(message: str) -> None:
-    if not ENABLE_PERF_LOGS:
-        return
-    LOGGER.info("[dirdiff-perf] %s", message)
-
-
-def _file_kind_for_repo_entry(entry: RepoDiffPath) -> dict[str, str]:
+def file_kind_for_repo_entry(entry: RepoDiffPath) -> dict[str, str]:
+    """Return the file-kind payload for one backend manifest entry."""
     if entry.untracked:
         return {"type": "untracked"}
     return {
@@ -104,11 +50,12 @@ def _file_kind_for_repo_entry(entry: RepoDiffPath) -> dict[str, str]:
     }
 
 
-def _file_kind_for_change_type(
-    change_type: str,
+def file_kind_for_change_type(
+    change_type: Literal["modify", "add", "delete", "rename", "copy"],
     *,
-    file_kind: str | None = None,
+    file_kind: Literal["git", "untracked"] | None = None,
 ) -> dict[str, str]:
+    """Return the file-kind payload for a file-diff request parameter."""
     if file_kind == "untracked":
         return {"type": "untracked"}
     return {
@@ -121,20 +68,6 @@ def _looks_generated_path(path: str | None) -> bool:
     if not path:
         return False
     return PurePosixPath(path).name.casefold() in GENERATED_FILES
-
-
-def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
-    return (
-        entry.untracked
-        or entry.change_type == "delete"
-        or (entry.change_type == "rename" and (entry.changed_lines or 0) == 0)
-        or _looks_generated_path(entry.right_path)
-        or _looks_generated_path(entry.left_path)
-        or (
-            entry.changed_lines is not None
-            and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
-        )
-    )
 
 
 def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
@@ -156,20 +89,20 @@ def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
     return None
 
 
+def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
+    return _lazy_reason_for_repo_entry(entry) is not None
+
+
 def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     return {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
-        "file_kind": _file_kind_for_repo_entry(entry),
+        "file_kind": file_kind_for_repo_entry(entry),
     }
 
 
 def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "left_path": entry.left_path,
-        "right_path": entry.right_path,
-        "file_kind": _file_kind_for_repo_entry(entry),
-    }
+    payload = _to_repo_manifest_file_entry(entry)
     lazy = _lazy_reason_for_repo_entry(entry)
     if lazy is not None:
         payload["lazy"] = lazy
@@ -209,28 +142,27 @@ def _summary_for_repo_path(entry: RepoDiffPath) -> dict[str, int | bool]:
 
 
 def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
-    # /api/lazy-info must contain enough data for the frontend to construct a
-    # lazy placeholder FileEntry without copying fields from /api/manifest.
     return {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
-        "file_kind": _file_kind_for_repo_entry(entry),
+        "file_kind": file_kind_for_repo_entry(entry),
         "display_name": entry.display_name,
         "summary": _summary_for_repo_path(entry),
         "lazy": _lazy_reason_for_repo_entry(entry),
     }
 
 
-def build_repo_manifest_for_service(
-    service: DiffServiceProtocol,
+def build_repo_manifest_for_backend(
+    backend: WorkspaceBackend,
     *,
     left: str,
     right: str,
     show_untracked: bool = False,
 ) -> dict[str, Any]:
-    normalized_left = service.normalize_side(left)
-    normalized_right = service.normalize_side(right)
-    paths = service.list_repo_diff_paths(
+    """Build the repository manifest payload from backend path metadata."""
+    normalized_left = backend.normalize_side(left)
+    normalized_right = backend.normalize_side(right)
+    paths = backend.list_repo_diff_paths(
         left=normalized_left,
         right=normalized_right,
         show_untracked=show_untracked,
@@ -269,16 +201,17 @@ def build_repo_manifest_for_service(
     }
 
 
-def build_lazy_info_for_service(
-    service: DiffServiceProtocol,
+def build_lazy_info_for_backend(
+    backend: WorkspaceBackend,
     *,
     left: str,
     right: str,
     show_untracked: bool = False,
 ) -> dict[str, Any]:
-    normalized_left = service.normalize_side(left)
-    normalized_right = service.normalize_side(right)
-    paths = service.list_repo_diff_paths(
+    """Build lazy-file metadata from backend path entries."""
+    normalized_left = backend.normalize_side(left)
+    normalized_right = backend.normalize_side(right)
+    paths = backend.list_repo_diff_paths(
         left=normalized_left,
         right=normalized_right,
         show_untracked=show_untracked,

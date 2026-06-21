@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path, PurePosixPath
+from typing import Literal
 
 from dirdiff.sources.base import (
     BUILTIN_SIDES,
@@ -11,7 +12,7 @@ from dirdiff.sources.base import (
     TextVersion,
     WorkspaceBackend,
     _decode_text,
-    _display_name_for_repo_paths,
+    display_name_for_repo_paths,
 )
 
 
@@ -25,7 +26,7 @@ def git_diff_args_with_direction(
     *,
     left: SideName,
     right: SideName,
-    kind: str,
+    kind: Literal["--name-status"],
 ) -> tuple[list[str], bool]:
     if "worktree" in {left, right}:
         other = right if left == "worktree" else left
@@ -334,7 +335,7 @@ class GitBackend(WorkspaceBackend):
         *,
         left: SideName,
         right: SideName,
-        kind: str,
+        kind: Literal["--name-status"],
     ) -> list[str]:
         args, _ = git_diff_args_with_direction(
             left=left,
@@ -367,7 +368,7 @@ class GitBackend(WorkspaceBackend):
                     RepoDiffPath(
                         left_path=left_path,
                         right_path=right_path,
-                        display_name=_display_name_for_repo_paths(
+                        display_name=display_name_for_repo_paths(
                             left_path, right_path
                         ),
                         change_type="rename" if change_kind == "R" else "copy",
@@ -388,7 +389,7 @@ class GitBackend(WorkspaceBackend):
                 RepoDiffPath(
                     left_path=current_left_path,
                     right_path=current_right_path,
-                    display_name=_display_name_for_repo_paths(
+                    display_name=display_name_for_repo_paths(
                         current_left_path, current_right_path
                     ),
                     change_type={

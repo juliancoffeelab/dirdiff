@@ -122,7 +122,7 @@ def run_gumtree_json(
         raise GumTreeInvalidJsonError("GumTree returned invalid JSON.") from exc
 
     if isinstance(parsed, dict):
-        return cast("GumTreeJson", parsed)
+        return cast("GumTreeJson", cast("object", parsed))
     raise GumTreeInvalidJsonError(
         "GumTree returned an unexpected JSON payload."
     )

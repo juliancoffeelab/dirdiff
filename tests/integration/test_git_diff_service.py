@@ -2,7 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
-from dirdiff.services import GitDiffService, TextDiffService
+from helpers import GitDiffService, TextDiffService
+
 from dirdiff.sources import GitBackend
 
 

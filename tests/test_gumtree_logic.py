@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dirdiff.services.gumtree import GumTreeDiffService
-from dirdiff.services.gumtree.logic import (
+from helpers import WorkspaceDiffServiceAdapter
+
+from dirdiff.engines.gumtree import GumTreeDiffEngine
+from dirdiff.engines.gumtree.logic import (
     _line_segments,
     _range_from_tree,
 )
@@ -33,8 +35,15 @@ class ActualTokenStatus:
     text: str
 
 
-def _extract_helper_service() -> GumTreeDiffService:
-    return GumTreeDiffService(PresetBackend(PRESETS_ROOT))
+def _extract_helper_engine() -> GumTreeDiffEngine:
+    return GumTreeDiffEngine(cwd=Path.cwd())
+
+
+def _extract_helper_service() -> WorkspaceDiffServiceAdapter:
+    return WorkspaceDiffServiceAdapter(
+        PresetBackend(PRESETS_ROOT),
+        _extract_helper_engine(),
+    )
 
 
 def _extract_helper_payload() -> dict[str, Any]:
@@ -52,8 +61,8 @@ def _source_text(side: str) -> str:
 
 
 def _gumtree_json() -> dict[str, Any]:
-    service = _extract_helper_service()
-    return service._run_gumtree_json(
+    engine = _extract_helper_engine()
+    return engine._run_gumtree_json(
         left_text=_source_text("left"),
         right_text=_source_text("right"),
         left_path_hint=LEFT_PATH,

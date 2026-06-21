@@ -8,9 +8,8 @@ import pytest
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
-from dirdiff.services.difftastic import DifftasticDiffService
-from dirdiff.services.difftastic.logic import _difftastic_rows_from_json
-from dirdiff.sources import PresetBackend
+from dirdiff.engines.difftastic import DifftasticDiffEngine
+from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"
@@ -101,7 +100,7 @@ def test_difftastic_preset_rows_match_golden(
     assert len(new_files) == 1, preset_dir
     old_path = old_files[0]
     new_path = new_files[0]
-    service = DifftasticDiffService(PresetBackend(PRESETS_ROOT))
+    service = DifftasticDiffEngine()
     old_text = old_path.read_text()
     new_text = new_path.read_text()
 

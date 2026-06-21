@@ -7,10 +7,10 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from dirdiff.cli.server_launch import choose_port_pair, require_bindable_port
 from dirdiff.db.base import open_ephemeral_engine
 from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.server import TextFileDiffResponse, create_app
-from dirdiff.server_utils import choose_port_pair, require_bindable_port
 
 
 def repo_mark_store() -> RepoMarkStore:

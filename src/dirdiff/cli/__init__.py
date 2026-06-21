@@ -1,3 +1,5 @@
+"""Command-line entrypoint for launching and managing dirdiff."""
+
 from __future__ import annotations
 
 import logging
@@ -7,8 +9,10 @@ from typing import Annotated
 
 import typer
 
-from dirdiff import marker_utils, server_utils
-from dirdiff.runtime import DEFAULT_DB_PATH, RuntimeConfig
+from dirdiff.server import RuntimeConfig
+
+from . import marker_utils, server_launch
+from .marker_utils import DEFAULT_DB_PATH
 
 cli_app = typer.Typer(
     no_args_is_help=False,
@@ -19,6 +23,13 @@ cli_app = typer.Typer(
 
 
 def configure_logging() -> None:
+    """Configure process logging before launching command work.
+
+    Normal CLI runs keep framework logs quiet.  ``DIRDIFF_DEBUG_PERF=1`` opts
+    into more verbose application logging without introducing another command
+    line flag.
+    """
+
     logging.basicConfig(
         level=logging.INFO
         if os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
@@ -44,7 +55,7 @@ def start(
     port: Annotated[
         int,
         typer.Option(help="Local web server port."),
-    ] = server_utils.DEFAULT_PORT,
+    ] = server_launch.DEFAULT_PORT,
     headless: Annotated[
         bool,
         typer.Option(
@@ -55,7 +66,7 @@ def start(
     frontend_port: Annotated[
         int,
         typer.Option(help="Browser UI dev server port."),
-    ] = server_utils.DEFAULT_FRONTEND_PORT,
+    ] = server_launch.DEFAULT_FRONTEND_PORT,
     no_frontend_dev: Annotated[
         bool,
         typer.Option(
@@ -64,10 +75,17 @@ def start(
         ),
     ] = False,
 ) -> None:
+    """Launch the default working-tree-vs-HEAD browser session.
+
+    Typer invokes this callback before subcommands as well, so it stores shared
+    options on ``ctx.obj`` and only launches the app when no subcommand was
+    selected.
+    """
+
     resolved_db_path = (
         DEFAULT_DB_PATH if db_path is None else db_path.expanduser()
     )
-    ctx.obj = server_utils.AppOptions(
+    ctx.obj = server_launch.AppOptions(
         db_path=resolved_db_path,
         presets_root=presets_root,
         port=port,
@@ -82,7 +100,7 @@ def start(
         db_path=str(resolved_db_path),
         presets_root=presets_root,
     )
-    server_utils.run_app(
+    server_launch.run_app(
         config=config,
         port=port,
         frontend_port=frontend_port,
@@ -103,9 +121,16 @@ def refs(
         typer.Argument(help="Right Git ref or diff side."),
     ] = "worktree",
 ) -> None:
+    """Launch the browser with an arbitrary-ref comparison selected.
+
+    This subcommand keeps the same local app startup behavior as the default
+    command, but seeds the frontend URL with ``refs`` mode and the two side
+    names the user supplied.
+    """
+
     configure_logging()
     options = ctx.obj
-    assert isinstance(options, server_utils.AppOptions), "app options missing"
+    assert isinstance(options, server_launch.AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
         mode="refs",
@@ -113,7 +138,7 @@ def refs(
         right=right,
         presets_root=options.presets_root,
     )
-    server_utils.run_app(
+    server_launch.run_app(
         config=config,
         port=options.port,
         frontend_port=options.frontend_port,
@@ -134,9 +159,16 @@ def branch(
         typer.Argument(help="Review branch."),
     ],
 ) -> None:
+    """Launch the browser with branch-review controls preselected.
+
+    The server still exposes the same API once it is running.  The branch names
+    here are only startup state passed to the frontend so the review view opens
+    on the requested base/review pair.
+    """
+
     configure_logging()
     options = ctx.obj
-    assert isinstance(options, server_utils.AppOptions), "app options missing"
+    assert isinstance(options, server_launch.AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
         mode="branch-review",
@@ -144,7 +176,7 @@ def branch(
         review_branch=review_branch,
         presets_root=options.presets_root,
     )
-    server_utils.run_app(
+    server_launch.run_app(
         config=config,
         port=options.port,
         frontend_port=options.frontend_port,
@@ -175,6 +207,13 @@ def mark(
         ),
     ] = False,
 ) -> None:
+    """Add or list repositories in the local dirdiff registry.
+
+    Repository marks are CLI-managed state.  The browser server reads the same
+    database later to build the repo picker, but path normalization and duplicate
+    handling belong to this command path.
+    """
+
     configure_logging()
     if list_marks:
         marker_utils.print_marked_repos(db_path=db_path)
@@ -183,4 +222,10 @@ def mark(
 
 
 def main() -> None:
+    """Run the Typer application used by the console entrypoint.
+
+    ``pyproject.toml`` points the ``dirdiff`` script at this function.  Keeping
+    the wrapper tiny makes the package importable without launching anything.
+    """
+
     cli_app()

@@ -1,6 +1,6 @@
 import json
 
-from dirdiff.services import build_loaded_diff
+from helpers import build_loaded_diff
 
 
 def test_counts_whitespace_only_changes_as_modified() -> None:

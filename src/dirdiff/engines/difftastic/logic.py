@@ -6,7 +6,7 @@ the original source text and returns dirdiff-shaped rows.
 
 This module must not own raw difftastic execution or final API payload assembly:
 
-* `dirdiff.services.difftastic.difft` owns invoking `difft` and parsing its JSON.
+* `dirdiff.engines.difftastic.difft` owns invoking `difft` and parsing its JSON.
 * the service/textdiff layer owns syntax highlighting, fold hints, and frontend
   payload assembly.
 
@@ -86,7 +86,8 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Literal, TypedDict
 
-from dirdiff.services.difftastic.difft import (
+from dirdiff.engines.contract import EngineWarning
+from dirdiff.engines.difftastic.difft import (
     DifftasticJson,
     DifftasticJsonChange,
     DifftasticJsonChunkEntry,
@@ -170,7 +171,7 @@ class DifftasticRow(TypedDict, total=False):
 @dataclass(frozen=True)
 class DifftasticAst:
     rows: list[DifftasticRow]
-    engine_warning: dict[str, str] | None
+    engine_warning: EngineWarning | None
 
 
 @dataclass(frozen=True)
@@ -231,7 +232,7 @@ def _difftastic_engine_warning(
     *,
     left_text: str | None = None,
     right_text: str | None = None,
-) -> dict[str, str] | None:
+) -> EngineWarning | None:
     language = diff_json.get("language")
     if isinstance(language, str) and "exceeded DFT_GRAPH_LIMIT" in language:
         return {

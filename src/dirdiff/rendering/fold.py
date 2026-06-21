@@ -1,3 +1,12 @@
+"""Tree-sitter fold hint discovery for rendered diff rows.
+
+Fold hints are display metadata.  They describe source regions the frontend can
+collapse after an engine has already aligned the old and new text.  This module
+therefore lives under ``dirdiff.rendering``: it uses rendered row numbers,
+right-side source text, and parser metadata to enrich an existing display
+payload, but it never chooses an engine and never changes diff semantics.
+"""
+
 from __future__ import annotations
 
 import importlib
@@ -8,6 +17,10 @@ from typing import Any, Literal
 
 from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
+from dirdiff.engines.contract import FoldHint
+
+__all__ = ["fold_hints_for_path"]
+
 RegionKind = Literal[
     "function_like",
     "class_like",
@@ -16,48 +29,173 @@ RegionKind = Literal[
     "top_level",
 ]
 StartMode = Literal["node_start", "next_line"]
-FoldHint = dict[str, int | str]
 
 
 @dataclass(frozen=True)
 class FoldRule:
+    """One query-pattern policy for turning syntax nodes into fold candidates.
+
+    The query file decides which syntax node was captured.  The rule explains
+    how that capture should be interpreted in rendered-row space: what kind of
+    region it represents, where the hidden body starts, and how many rendered
+    rows must be hidden before exposing a fold hint is worthwhile.
+    """
+
     region_kind: RegionKind
+    """
+    Frontend-facing category for the fold hint produced by this rule.
+    """
+
     start_mode: StartMode
+    """
+    Whether the hidden span starts on the captured node's first line or body.
+    """
+
     min_hidden_rows: int
+    """
+    Minimum number of rendered rows that must be hidden to emit a hint.
+    """
 
 
 @dataclass(frozen=True)
 class FoldLanguageSpec:
+    """Tree-sitter language, query, and rule set for one file family.
+
+    Fold detection is selected by path, then executed by loading the matching
+    tree-sitter language and dirdiff-owned fold query.  The query pattern index
+    is paired with ``rules`` to decide how each capture becomes a candidate.
+    """
+
     module_name: str
+    """
+    Python module that exposes the tree-sitter language factory.
+    """
+
     query_path: str
+    """
+    Package-resource path to the fold query under ``dirdiff``.
+    """
+
     suffixes: tuple[str, ...]
+    """
+    File suffixes that select this fold language.
+    """
+
     rules: tuple[FoldRule, ...]
+    """
+    Rules indexed by tree-sitter query pattern number.
+    """
+
     filenames: tuple[str, ...] = ()
+    """
+    Exact lower-case filenames that select this fold language.
+    """
+
     language_attr: str = "language"
+    """
+    Attribute name for the language factory inside ``module_name``.
+    """
 
 
 @dataclass
 class FoldCandidate:
+    """Intermediate foldable region before display policy accepts it.
+
+    Candidates still know their syntax nodes, source byte spans, rendered row
+    spans, rule, optional label, and parent relationship.  Later filtering uses
+    this richer representation to avoid folding changed regions or hiding an
+    outer region when an inner region is the better unchanged target.
+    """
+
     rule: FoldRule
+    """
+    Rule that interpreted the query capture.
+    """
+
     fold_node: Node
+    """
+    Syntax node whose lines form the foldable hidden range.
+    """
+
     context_node: Node
+    """
+    Surrounding syntax node used to decide whether the whole region changed.
+    """
+
     label_text: str | None
+    """
+    Optional label text captured by the tree-sitter query.
+    """
+
     context_start_row: int
+    """
+    First rendered row in the full context region.
+    """
+
     context_end_row: int
+    """
+    One-past-the-last rendered row in the full context region.
+    """
+
     hidden_start_row: int
+    """
+    First rendered row that the frontend may hide.
+    """
+
     hidden_end_row: int
+    """
+    One-past-the-last rendered row that the frontend may hide.
+    """
+
     context_start_byte: int
+    """
+    Source byte offset for ordering and containment checks.
+    """
+
     context_end_byte: int
+    """
+    Source byte offset for ordering and containment checks.
+    """
+
     parent: FoldCandidate | None = None
+    """
+    Smallest containing candidate, assigned after collection.
+    """
 
 
 @dataclass(frozen=True)
 class TopLevelItem:
+    """Top-level source item used for grouped unchanged folds.
+
+    Structural queries usually find foldable bodies.  Top-level items support a
+    separate display optimization for unchanged runs of imports, declarations,
+    or JSON members that do not have a body-style fold of their own.
+    """
+
     start_row: int
+    """
+    First rendered row covered by the top-level item.
+    """
+
     end_row: int
+    """
+    One-past-the-last rendered row covered by the top-level item.
+    """
+
     start_byte: int
+    """
+    Source byte offset used for stable ordering.
+    """
+
     end_byte: int
+    """
+    Source byte offset used for stable ordering.
+    """
+
     label_kind: str
+    """
+    Category used to build grouped fold labels.
+    """
 
 
 TOP_LEVEL_NODE_KINDS: dict[str, str] = {
@@ -209,6 +347,16 @@ def fold_hints_for_path(
     text: str | None,
     rows: list[dict[str, Any]],
 ) -> list[FoldHint]:
+    """Return fold hints for the right side of an already-rendered diff.
+
+    Rendering owns this because fold hints depend on both source structure and
+    displayed row status.  The parser sees ``text`` and ``path`` only to find
+    foldable source regions; the final hints are accepted only when those
+    regions map cleanly to ``rows`` and remain unchanged in the rendered diff.
+    Unsupported languages, missing tree-sitter packages, parse/query failures,
+    empty inputs, and paths without right-side rows all produce an empty list.
+    """
+
     if not path or not text or not rows:
         return []
 
@@ -289,6 +437,14 @@ def _collect_markdown_section_hints(
     right_line_to_row: dict[int, int],
     rows: list[dict[str, Any]],
 ) -> list[FoldHint]:
+    """Collect hierarchical Markdown section folds from heading captures.
+
+    Markdown folds are based on heading ranges rather than ordinary code-block
+    containers.  The section body extends until the next heading at the same or
+    higher level, and trailing blank rows are ignored when deciding whether a
+    changed section can be folded.
+    """
+
     if not spec.rules:
         return []
 
@@ -376,6 +532,14 @@ def _collect_candidates(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
 ) -> list[FoldCandidate]:
+    """Convert tree-sitter query matches into deduplicated fold candidates.
+
+    Query captures are expressed in source-node space.  This helper projects
+    each accepted capture into rendered right-side rows, keeps useful labels,
+    chooses the surrounding context node for functions/classes, and deduplicates
+    repeated captures that describe the same hidden row span.
+    """
+
     deduped: dict[tuple[str, int, int, int, int], FoldCandidate] = {}
 
     for pattern_index, capture_map in matches:
@@ -458,6 +622,13 @@ def _collect_candidates(
 
 
 def _assign_candidate_parents(candidates: list[FoldCandidate]) -> None:
+    """Attach each candidate to the smallest containing candidate, if any.
+
+    Parent links let later policy recurse through the syntax hierarchy without
+    repeatedly searching by byte span.  Containment is strict, so a candidate
+    cannot become its own parent or parent a duplicate with the same span.
+    """
+
     for candidate in candidates:
         parent: FoldCandidate | None = None
         for other in candidates:
@@ -476,6 +647,15 @@ def _collect_hints(
     rows: list[dict[str, Any]],
     hints: list[FoldHint],
 ) -> None:
+    """Apply fold policy recursively and append accepted display hints.
+
+    The policy prefers folding unchanged outer class/function regions.  When a
+    function or section changed, unchanged child regions may still be useful, so
+    recursion continues into the relevant child candidates.  Containers are
+    intentionally limited outside function/class ancestors to avoid noisy nested
+    folds inside code bodies.
+    """
+
     if candidate.rule.region_kind == "class_like":
         if _region_is_unchanged(candidate, rows):
             hint = _candidate_to_hint(candidate, rows)
@@ -520,6 +700,14 @@ def _candidate_to_hint(
     candidate: FoldCandidate,
     rows: list[dict[str, Any]],
 ) -> FoldHint | None:
+    """Convert an accepted candidate into the compact API fold-hint shape.
+
+    This is the last policy gate for structural folds.  Candidates that would
+    hide too little rendered content are discarded, and labels prefer the first
+    visible line immediately before the hidden body unless Markdown section
+    captures supplied a better heading label.
+    """
+
     hidden_rows = candidate.hidden_end_row - candidate.hidden_start_row
     if hidden_rows < candidate.rule.min_hidden_rows:
         return None
@@ -546,6 +734,13 @@ def _collect_top_level_hints(
     rows: list[dict[str, Any]],
     existing_hints: list[FoldHint],
 ) -> list[FoldHint]:
+    """Build grouped top-level folds for unchanged imports/declarations.
+
+    Query-driven folds usually describe bodies.  This second pass covers runs
+    of unchanged top-level items such as imports or adjacent declarations, but
+    avoids duplicating an existing single-item structural fold.
+    """
+
     items = _collect_top_level_items(
         root_node,
         source_bytes,
@@ -585,6 +780,13 @@ def _collect_top_level_items(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
 ) -> list[TopLevelItem]:
+    """Return top-level source items projected into rendered row spans.
+
+    The result is intentionally limited to nodes that can be mapped to actual
+    right-side diff rows.  If a source item is absent from the rendered right
+    side, it cannot participate in frontend folding.
+    """
+
     if root_node.type == "document":
         return _collect_json_top_level_items(
             root_node,
@@ -623,6 +825,13 @@ def _collect_json_top_level_items(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
 ) -> list[TopLevelItem]:
+    """Return top-level JSON object/array members as grouped fold items.
+
+    JSON parser roots wrap the actual document in a ``document`` node, so this
+    helper unwraps exactly one top-level container and treats its named children
+    as foldable top-level items.
+    """
+
     containers = [
         child
         for child in root_node.children
@@ -660,6 +869,12 @@ def _collect_json_top_level_items(
 
 
 def _json_top_level_label_kind(node: Node) -> str | None:
+    """Classify one JSON child node for top-level fold labels.
+
+    Object pairs get a ``property`` label, while array values and primitive
+    top-level members are grouped as generic ``item`` entries.
+    """
+
     if node.type == "pair":
         return "property"
     if node.type in {
@@ -676,6 +891,13 @@ def _json_top_level_label_kind(node: Node) -> str | None:
 
 
 def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
+    """Classify one root child for top-level grouping.
+
+    Most languages can use the node type directly.  JavaScript and TypeScript
+    exports wrap declarations in ``export_statement``, so those wrappers are
+    kept as the top-level declaration span.
+    """
+
     if node.type == "export_statement":
         return node, "declaration"
     label_kind = _top_level_label_kind(node)
@@ -685,6 +907,12 @@ def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
 
 
 def _top_level_label_kind(node: Node) -> str | None:
+    """Return the label category for a known top-level syntax node.
+
+    Unknown nodes are ignored by top-level grouping.  The mapping deliberately
+    stays conservative so incidental syntax trivia does not create noisy folds.
+    """
+
     return TOP_LEVEL_NODE_KINDS.get(node.type)
 
 
@@ -694,6 +922,13 @@ def _append_top_level_run_hint(
     existing_ranges: set[tuple[int, int]],
     hints: list[FoldHint],
 ) -> None:
+    """Append a grouped top-level hint when the accumulated run is foldable.
+
+    A run must be non-empty, unchanged, and not merely duplicate an existing
+    single-item structural fold.  The resulting hint hides the whole run and
+    labels it by the item categories it contains.
+    """
+
     if not run:
         return
     start_row = run[0].start_row
@@ -715,6 +950,13 @@ def _append_top_level_run_hint(
 
 
 def _top_level_run_label(run: list[TopLevelItem]) -> str:
+    """Build the visible label for one grouped top-level fold.
+
+    Homogeneous runs get specific labels such as unchanged imports.  Mixed runs
+    fall back to a broader top-level declaration label so the frontend still has
+    readable text for the collapsed region.
+    """
+
     if all(item.label_kind == "import" for item in run):
         return _plural_label(len(run), "unchanged import")
     if len({item.label_kind for item in run}) == 1:
@@ -724,6 +966,12 @@ def _top_level_run_label(run: list[TopLevelItem]) -> str:
 
 
 def _plural_label(count: int, noun: str) -> str:
+    """Pluralize the small set of fold labels used by grouped hints.
+
+    This is intentionally not a general inflector.  It only covers labels that
+    this module constructs, including the ``property`` to ``properties`` case.
+    """
+
     if count == 1:
         return f"{count} {noun}"
     if noun.endswith("property"):
@@ -732,6 +980,12 @@ def _plural_label(count: int, noun: str) -> str:
 
 
 def _fold_hint_sort_key(hint: FoldHint) -> tuple[int, int]:
+    """Sort hints by rendered row range for stable API output.
+
+    Stable order keeps API responses and golden snapshots deterministic even
+    when hints came from multiple collection passes.
+    """
+
     return int(hint["start_row"]), int(hint["end_row"])
 
 
@@ -739,6 +993,13 @@ def _child_candidates(
     parent: FoldCandidate,
     all_candidates: list[FoldCandidate],
 ) -> list[FoldCandidate]:
+    """Return direct child candidates in source order.
+
+    Candidate parent links are assigned once after collection.  This helper
+    reads those links and orders children by byte span before recursive policy
+    processing.
+    """
+
     return sorted(
         (
             candidate
@@ -756,6 +1017,13 @@ def _region_is_unchanged(
     candidate: FoldCandidate,
     rows: list[dict[str, Any]],
 ) -> bool:
+    """Return whether a candidate's rendered context has no visible changes.
+
+    Structural folds should hide only unchanged regions.  Markdown sections get
+    one special case: trailing blank rows do not make a section meaningfully
+    changed or worth keeping expanded.
+    """
+
     span = rows[candidate.context_start_row : candidate.context_end_row]
     if candidate.rule.region_kind == "section":
         span = _trim_markdown_section_trailing_blank_rows(span)
@@ -763,16 +1031,35 @@ def _region_is_unchanged(
 
 
 def _rows_are_unchanged(rows: list[dict[str, Any]]) -> bool:
+    """Return whether every row in a non-empty span is visually unchanged.
+
+    Empty spans are treated as not foldable.  Non-empty spans must have no
+    line-level changes, text mismatches, or token-level change markers.
+    """
+
     return bool(rows) and all(not _row_has_any_change(row) for row in rows)
 
 
 def _rows_have_any_change(rows: list[dict[str, Any]]) -> bool:
+    """Return whether any row in a span has line or token changes.
+
+    Top-level run grouping uses this to break runs when changed rows appear
+    between otherwise unchanged declarations.
+    """
+
     return any(_row_has_any_change(row) for row in rows)
 
 
 def _trim_markdown_section_trailing_blank_rows(
     span: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Ignore trailing blank rendered rows when judging Markdown sections.
+
+    Markdown parsers often include blank spacing after a heading section in the
+    section's source range.  Removing those rows prevents whitespace-only tails
+    from blocking a useful fold.
+    """
+
     end = len(span)
     while end > 0:
         row = span[end - 1]
@@ -788,6 +1075,12 @@ def _has_ancestor_kind(
     candidate: FoldCandidate,
     region_kind: RegionKind,
 ) -> bool:
+    """Return whether a candidate has an ancestor with ``region_kind``.
+
+    Container fold policy uses ancestry to avoid creating generic container
+    folds inside function/class bodies where function/class folding is clearer.
+    """
+
     parent = candidate.parent
     while parent is not None:
         if parent.rule.region_kind == region_kind:
@@ -800,6 +1093,12 @@ def _contains(
     outer: FoldCandidate,
     inner: FoldCandidate,
 ) -> bool:
+    """Return whether ``outer`` strictly contains ``inner`` in source bytes.
+
+    Strict containment requires one edge to be different.  Equal spans are
+    treated as duplicates, not as parent/child relationships.
+    """
+
     return (
         outer.context_start_byte <= inner.context_start_byte
         and outer.context_end_byte >= inner.context_end_byte
@@ -811,6 +1110,13 @@ def _contains(
 
 
 def _node_line_span(node: Node, source_bytes: bytes) -> tuple[int, int]:
+    """Return a one-based inclusive line span for a syntax node.
+
+    Tree-sitter points are zero-based and end-exclusive.  When a node ends at
+    the start of the next line because it consumed a trailing newline, this
+    helper pulls the end line back to the line that actually contains content.
+    """
+
     start_line = node.start_point.row + 1
     end_line = node.end_point.row + 1
     if (
@@ -827,6 +1133,12 @@ def _hidden_line_span(
     source_bytes: bytes,
     start_mode: StartMode,
 ) -> tuple[int, int]:
+    """Return the one-based source lines hidden by a fold candidate.
+
+    Some regions hide from the captured node's start line, while body-style
+    folds keep the opening line visible and hide from the following line.
+    """
+
     start_line, end_line = _node_line_span(node, source_bytes)
     if start_mode == "next_line":
         start_line += 1
@@ -838,6 +1150,13 @@ def _lines_to_row_span(
     start_line: int,
     end_line: int,
 ) -> tuple[int, int] | None:
+    """Map a one-based inclusive source line span to rendered row indexes.
+
+    Fold hints are expressed in rendered row indexes, not raw source lines.  If
+    either edge cannot be mapped to a right-side row, the source region is not
+    representable in the current diff view.
+    """
+
     start_row = right_line_to_row.get(start_line)
     end_row = right_line_to_row.get(end_line)
     if start_row is None or end_row is None:
@@ -846,12 +1165,25 @@ def _lines_to_row_span(
 
 
 def _node_text(node: Node, source_bytes: bytes) -> str:
+    """Decode the source text covered by ``node``.
+
+    Query labels are best-effort display text.  Decode errors are ignored so a
+    malformed byte sequence cannot break rendering of the whole diff.
+    """
+
     return source_bytes[node.start_byte : node.end_byte].decode(
         "utf-8", errors="ignore"
     )
 
 
 def _markdown_heading_level(node: Node) -> int:
+    """Return a Markdown heading level from an atx or setext heading node.
+
+    Markdown section folding needs heading levels to find the next sibling or
+    parent section.  Unknown heading node shapes default to level six, which is
+    conservative for containment.
+    """
+
     if node.type == "atx_heading":
         for child in node.children:
             if child.type.startswith("atx_h") and child.type.endswith(
@@ -872,11 +1204,24 @@ def _markdown_heading_level(node: Node) -> int:
 
 
 def _markdown_heading_label(node: Node, source_bytes: bytes) -> str:
+    """Return the visible first-line label for a Markdown heading.
+
+    Setext headings span multiple lines, but the first line is the readable
+    section title the frontend should show for the fold.
+    """
+
     text = _node_text(node, source_bytes).splitlines()
     return text[0].strip() if text else ""
 
 
 def _line_end_byte_for_line(source_bytes: bytes, line_number: int) -> int:
+    """Return the byte offset just after a one-based source line.
+
+    Markdown section candidates use this to extend a heading's context to the
+    line before the next sibling heading.  Missing or out-of-range lines clamp
+    to the end of the source bytes.
+    """
+
     current_line = 1
     index = 0
     start = 0
@@ -899,6 +1244,13 @@ def _line_end_byte_for_line(source_bytes: bytes, line_number: int) -> int:
 
 
 def _row_has_any_change(row: dict[str, Any]) -> bool:
+    """Return whether a rendered row contains line-level or token-level change.
+
+    Fold decisions consider both row status and inline tokens.  GumTree, for
+    example, may keep line status neutral while marking moved or changed token
+    ranges.
+    """
+
     if row.get("status") != "equal":
         return True
     if row.get("left_text") != row.get("right_text"):
@@ -910,6 +1262,13 @@ def _row_has_any_change(row: dict[str, Any]) -> bool:
 
 
 def _spec_for_path(path: str) -> FoldLanguageSpec | None:
+    """Choose the fold language spec for a source path.
+
+    Exact filename matches win before suffix matches so files such as
+    ``pyproject.toml`` can opt into a language even when suffix handling is
+    otherwise broad.
+    """
+
     normalized = path.casefold()
     basename = normalized.rsplit("/", 1)[-1]
     for spec in FOLD_LANGUAGE_SPECS:
@@ -926,6 +1285,13 @@ def _load_language_query(
     language_attr: str,
     query_path: str,
 ) -> tuple[Language, Query]:
+    """Load and cache the tree-sitter language plus dirdiff fold query.
+
+    Parser setup is relatively expensive and independent of the file contents.
+    Caching by module, language attribute, and query path keeps repeated diff
+    rendering from reloading the same grammar and query resources.
+    """
+
     module = importlib.import_module(module_name)
     language_factory = getattr(module, language_attr)
     language = Language(language_factory())

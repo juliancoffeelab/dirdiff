@@ -1,3 +1,5 @@
+"""CLI helpers for storing and listing marked repositories."""
+
 from __future__ import annotations
 
 import os
@@ -9,16 +11,33 @@ from sqlalchemy.exc import IntegrityError
 
 from dirdiff.db.base import open_sqlite_engine
 from dirdiff.db.repo_registry import RepoMarkStore
-from dirdiff.runtime import DEFAULT_DB_PATH
+
+DEFAULT_DB_PATH = (
+    Path.home() / ".local" / "share" / "dirdiff" / "dirdiff.sqlite"
+)
 
 
 def db_path_or_default(db_path: Path | None) -> Path:
+    """Resolve an optional CLI database path to the path dirdiff should use.
+
+    CLI commands accept ``--db-path`` on operations that touch the repo
+    registry.  Omitting it means all commands share the same user-level
+    registry path.
+    """
+
     if db_path is None:
         return DEFAULT_DB_PATH
     return db_path.expanduser()
 
 
 def absolute_repo_path(repo_path: Path) -> Path:
+    """Resolve a repo path the same way an interactive shell user expects.
+
+    ``Path.cwd()`` can differ from the original shell directory after process
+    launch details or test harnesses get involved.  ``PWD`` preserves the path
+    the user typed relative paths against, including symlink spelling.
+    """
+
     expanded_path = repo_path.expanduser()
     if expanded_path.is_absolute():
         return expanded_path
@@ -26,6 +45,13 @@ def absolute_repo_path(repo_path: Path) -> Path:
 
 
 def duplicate_repo_path_error(repo_path: Path, exc: IntegrityError) -> NoReturn:
+    """Raise a readable duplicate-mark error or re-raise unrelated DB errors.
+
+    SQLAlchemy reports all integrity failures through the same exception type.
+    This helper recognizes the repo path uniqueness constraint and preserves
+    unexpected database failures for the caller.
+    """
+
     if "repo_mark.path" in str(exc):
         raise SystemExit(f"Repo is already marked: {repo_path}") from exc
     raise exc
@@ -34,6 +60,13 @@ def duplicate_repo_path_error(repo_path: Path, exc: IntegrityError) -> NoReturn:
 def mark_repo(
     *, repo_path: Path, name: str | None, db_path: Path | None
 ) -> None:
+    """Store one repository mark in the selected registry database.
+
+    The CLI accepts a relative path and optional display name.  This helper
+    normalizes the path, derives the default name from the final path component,
+    writes the mark, and prints the created mark id for shell feedback.
+    """
+
     engine = open_sqlite_engine(db_path_or_default(db_path))
     store = RepoMarkStore(engine)
     expanded_repo_path = absolute_repo_path(repo_path)
@@ -53,6 +86,13 @@ def mark_repo(
 
 
 def print_marked_repos(*, db_path: Path | None) -> None:
+    """Print the registered repositories in the selected database.
+
+    This is intentionally plain terminal output rather than API formatting.
+    It supports ``dirdiff mark --list`` and mirrors the database the browser app
+    will read on launch.
+    """
+
     engine = open_sqlite_engine(db_path_or_default(db_path))
     store = RepoMarkStore(engine)
     marks = store.list()

@@ -1,10 +1,24 @@
+"""FastAPI wiring and request-level diff orchestration.
+
+The server owns REST concerns: resolving modes, refs, presets, repository
+marks, and response validation.  Diff engines render already-loaded text; they
+do not decide whether a file is a notebook.  For ``.ipynb`` paths, this module
+loads the two file versions through the selected ``WorkspaceBackend`` and calls
+the public notebook payload builders before falling back to the selected text
+engine.
+
+Keeping notebook routing here preserves the REST API while preventing concrete
+engines from depending on notebook internals.
+"""
+
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NotRequired, TypedDict
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -14,22 +28,98 @@ from dirdiff.db.base import open_sqlite_engine
 from dirdiff.db.preferences import PreferencesStore
 from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.db.user_profile import UserProfileStore
-from dirdiff.runtime import RUNTIME_CONFIG_ENV, RuntimeConfig
-from dirdiff.services import (
-    DiffServiceProtocol,
-    DifftasticDiffService,
-    GitDiffService,
-    GumTreeDiffService,
-    TextDiffService,
+from dirdiff.engines import (
+    DiffEngineProtocol,
+    DifftasticDiffEngine,
+    GitDiffEngine,
+    GumTreeDiffEngine,
+    TextDiffEngine,
+)
+from dirdiff.engines.contract import (
+    DiffRow,
+    DiffSide,
+    DiffSummary,
+    EngineWarning,
+    FoldHint,
+)
+from dirdiff.notebooks import (
+    build_notebook_diff_payload,
+    build_notebook_section_payload,
+    normalize_notebook_document,
+)
+from dirdiff.rendering import (
+    default_expanded_for_payload,
+    enrich_rows_for_display,
 )
 from dirdiff.sources import (
     GitBackend,
     PresetBackend,
     TextDiffError,
     WorkspaceBackend,
+    build_lazy_info_for_backend,
+    build_repo_manifest_for_backend,
+    display_name_for_repo_paths,
+    file_kind_for_change_type,
+    load_diff_sides,
 )
 
 LOGGER = logging.getLogger(__name__)
+
+RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    """Server startup configuration passed across the uvicorn factory boundary.
+
+    The CLI creates this value before starting uvicorn.  ``run_uvicorn``
+    serializes it into ``RUNTIME_CONFIG_ENV`` because uvicorn imports the app
+    factory in a fresh module-loading path, especially when reload is enabled.
+    The server owns the shape because ``uvicorn_entrypoint`` is the only place
+    that consumes the serialized payload.
+    """
+
+    db_path: str
+    """
+    SQLite database path used for repo marks, preferences, and user profile data.
+
+    The CLI resolves this to an absolute-ish string before launching uvicorn so
+    reload workers do not need to know how command-line defaults were chosen.
+    """
+
+    mode: Literal["head", "refs", "branch-review"] = "head"
+    """
+    Initial comparison mode encoded into the browser URL.
+
+    This is startup navigation state, not a server-wide restriction; the API can
+    still serve other modes after the frontend is running.
+    """
+
+    left: str = "head"
+    """
+    Left ref or side name for ``refs`` startup mode.
+    """
+
+    right: str = "worktree"
+    """
+    Right ref or side name for ``refs`` startup mode.
+    """
+
+    base_branch: str | None = None
+    """
+    Base branch for ``branch-review`` startup mode.
+    """
+
+    review_branch: str | None = None
+    """
+    Review branch for ``branch-review`` startup mode.
+    """
+
+    presets_root: str | None = None
+    """
+    Optional preset root supplied by the CLI for local fixture browsing.
+    """
+
 
 ModeParam = Literal[
     "files", "staged", "head", "refs", "branch-review", "preset"
@@ -37,14 +127,110 @@ ModeParam = Literal[
 EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
 PresetTypeParam = Literal["diff", "fold", "gumtree"]
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
-GitFileStatus = Literal["modified", "added", "deleted", "renamed", "copied"]
 LazyReason = (
     Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"]
     | None
 )
-RowStatus = Literal[
-    "equal", "replace", "insert", "delete", "move", "fold", "elided"
-]
+
+
+class DiffPayloadSummary(DiffSummary):
+    """API summary sent to the frontend for a text-file payload.
+
+    Engines return count-only summaries.  The source layer returns loaded side
+    data, so the server adds side-existence flags while assembling the HTTP
+    response payload.
+    """
+
+    left_exists: bool
+    """
+    Whether the loaded old/left side exists.
+    """
+
+    right_exists: bool
+    """
+    Whether the loaded new/right side exists.
+    """
+
+
+class DiffPayload(TypedDict):
+    """Text-file response payload assembled at the API boundary.
+
+    This is intentionally wider than ``DiffEngineResult``.  It carries the
+    rendered engine core plus request/UI metadata: the file display name, the
+    source mode selected by the API route, human-facing side labels, file-kind
+    metadata, and the normalized paths used to load each side.  Engines should
+    not construct this type directly.
+    """
+
+    summary: DiffPayloadSummary
+    """
+    Count summary plus loaded-side existence flags.
+    """
+
+    rows: list[DiffRow]
+    """
+    Display/API rows after engine rows have been syntax/fold enriched.
+    """
+
+    default_expanded: bool
+    """
+    Whether the frontend should initially expand this file.
+    """
+
+    display_name: str
+    """
+    Human-facing file display name chosen by the API/source layer.
+    """
+
+    mode: str
+    """
+    Source mode reported to the frontend for this payload.
+    """
+
+    left_label: str
+    """
+    Human-facing label for the old/left side.
+    """
+
+    right_label: str
+    """
+    Human-facing label for the new/right side.
+    """
+
+    render_mode: NotRequired[Literal["plain"]]
+    """
+    Present when display enrichment had to fall back to plain rendering.
+    """
+
+    truncated_rows: NotRequired[int]
+    """
+    Number of rows elided from a large plain render.
+    """
+
+    fold_hints: NotRequired[list[FoldHint]]
+    """
+    Syntax-aware fold hints produced during display enrichment.
+    """
+
+    engine_warning: NotRequired[EngineWarning]
+    """
+    Optional warning supplied by the selected diff engine.
+    """
+
+    file_kind: NotRequired[dict[str, str]]
+    """
+    Repository file-kind metadata attached by the API/source layer.
+    """
+
+    left_path: NotRequired[str | None]
+    """
+    Normalized old/left source path used to load this payload.
+    """
+
+    right_path: NotRequired[str | None]
+    """
+    Normalized new/right source path used to load this payload.
+    """
 
 
 class ApiModel(BaseModel):
@@ -129,7 +315,20 @@ class FoldHintResponse(ApiModel):
 
 
 class DiffRowResponse(ApiModel):
-    status: RowStatus
+    status: Literal[
+        "equal", "replace", "insert", "delete", "move", "fold", "elided"
+    ]
+    """
+    Display row status.
+
+    TODO: part of fold micro-optimisation, investigate for removal.
+
+    ``fold`` is a client-expandable placeholder for hidden rows that are still
+    included in ``foldedRows``.  ``elided`` is a non-expandable placeholder for
+    rows omitted from a large plain render.  These synthetic row statuses should
+    probably be removed from the core diff row shape.
+    """
+
     left_no: int | None = None
     right_no: int | None = None
     left_text: str | None = None
@@ -139,11 +338,22 @@ class DiffRowResponse(ApiModel):
     left_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
     right_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
     count: int | None = None
+    """
+    Number of hidden rows represented by a synthetic fold/elided row.
+    """
+
     foldedRows: list[DiffRowResponse] = Field(default_factory=list)
+    """
+    Hidden rows kept in the payload for fold mode.
+    """
+
     label: str | None = None
+    """
+    Label displayed during fold/elided rendering.
+    """
 
 
-class TextDiffSummaryResponse(ApiModel):
+class DiffSummaryResponse(ApiModel):
     changed_lines: int
     modified_lines: int
     added_lines: int
@@ -153,7 +363,7 @@ class TextDiffSummaryResponse(ApiModel):
     right_exists: bool
 
 
-class NotebookDiffSummaryResponse(TextDiffSummaryResponse):
+class NotebookDiffSummaryResponse(DiffSummaryResponse):
     changed_cells: int
     added_cells: int
     removed_cells: int
@@ -180,7 +390,7 @@ class RepoDiffSummaryResponse(ApiModel):
 
 class GitFileKindResponse(ApiModel):
     type: Literal["git"]
-    status: GitFileStatus
+    status: Literal["modified", "added", "deleted", "renamed", "copied"]
 
 
 class UntrackedFileKindResponse(ApiModel):
@@ -204,7 +414,7 @@ class TextFileDiffResponse(ApiModel):
     mode: Literal["git"]
     left_label: str
     right_label: str
-    summary: TextDiffSummaryResponse
+    summary: DiffSummaryResponse
     rows: list[DiffRowResponse]
     file_kind: FileKindResponse
     left_path: str | None = None
@@ -289,7 +499,7 @@ class LazyInfoFileResponse(ApiModel):
     left_path: str | None = None
     right_path: str | None = None
     display_name: str
-    summary: TextDiffSummaryResponse
+    summary: DiffSummaryResponse
     lazy: LazyReason = None
 
 
@@ -328,23 +538,37 @@ def selected_branches(
     base_branch: str | None,
     review_branch: str | None,
 ) -> tuple[str | None, str | None]:
+    """Return branch-review selections only when the active mode uses them.
+
+    The UI can keep base/review branch controls populated while the user moves
+    between modes.  API handlers call this helper so branch-review parameters
+    do not accidentally influence normal file, ref, or preset comparisons.
+    """
     if mode != "branch-review":
         return None, None
 
     return base_branch, review_branch
 
 
-def service_for_backend(
-    engine: EngineParam, backend: WorkspaceBackend
-) -> DiffServiceProtocol:
+def service_for_engine(
+    engine: EngineParam,
+    *,
+    cwd: Path,
+) -> DiffEngineProtocol:
+    """Return the renderer selected by the request.
+
+    The returned service does not own workspace state.  ``cwd`` is passed only
+    to GumTree so it can discover the executable relative to the active
+    workspace.
+    """
     if engine == "dirdiff":
-        return TextDiffService(backend)
+        return TextDiffEngine()
     if engine == "git":
-        return GitDiffService(backend)
+        return GitDiffEngine()
     if engine == "difftastic":
-        return DifftasticDiffService(backend)
+        return DifftasticDiffEngine()
     if engine == "gumtree":
-        return GumTreeDiffService(backend)
+        return GumTreeDiffEngine(cwd=cwd)
     raise TextDiffError(f"Unknown diff engine: {engine}")
 
 
@@ -355,6 +579,14 @@ def create_app(
     *,
     presets_root: str | None = None,
 ) -> FastAPI:
+    """Create the dirdiff FastAPI app and wire request orchestration.
+
+    The app layer owns HTTP validation, database-backed repo marks, preset
+    catalog selection, notebook detection, and response-model validation.  It
+    constructs a backend for each request, optionally builds notebook payloads
+    at the API boundary, and otherwise delegates already-loaded text rendering
+    to the selected diff engine.
+    """
     if user_profile_store is None:
         user_profile_store = UserProfileStore(db.engine)
     if preferences_store is None:
@@ -363,6 +595,13 @@ def create_app(
     app = FastAPI()
 
     def preset_backend_for_type(preset_type: PresetTypeParam) -> PresetBackend:
+        """Return the preset backend for the selected preset catalog.
+
+        Diff, fold, and GumTree presets live in separate catalogs because they
+        exercise different product surfaces.  Keeping that split here means
+        ``/api/presets`` can expose all catalogs without asking any rendering
+        engine to know about fixture layout.
+        """
         if preset_type == "diff":
             if presets_root is not None:
                 return PresetBackend.discover(presets_root=Path(presets_root))
@@ -378,6 +617,12 @@ def create_app(
     def preset_catalog_for_type(
         preset_type: PresetTypeParam,
     ) -> PresetCatalogResponse:
+        """Return the response model for one preset catalog.
+
+        This helper converts the backend's catalog discovery result into the
+        strict API response type.  It does not choose a diff engine; preset
+        catalog selection and engine selection are independent UI controls.
+        """
         preset_backend = preset_backend_for_type(preset_type)
         return PresetCatalogResponse.model_validate(
             {
@@ -386,25 +631,269 @@ def create_app(
             }
         )
 
-    def service_for_request(
-        engine: EngineParam,
+    def backend_for_request(
         *,
         mode: ModeParam,
         repo_id: int,
         preset_type: PresetTypeParam | None,
-    ) -> DiffServiceProtocol:
+    ) -> WorkspaceBackend:
+        """Return the backend that owns file/ref loading for this request.
+
+        Preset mode uses a ``PresetBackend`` rooted at the selected preset
+        catalog.  Repo-backed modes look up the marked repository and create a
+        ``GitBackend``.  The returned backend is intentionally separate from
+        the diff engine: backend objects load data, engines render loaded
+        data.
+
+        Keeping this helper separate from renderer construction is what lets
+        notebook routing happen without involving any concrete diff engine.
+        The server can load file versions from the backend, decide whether the
+        notebook payload path applies, and only then ask an engine renderer to
+        handle ordinary text.
+        """
         if mode == "preset":
             if preset_type is None:
                 raise TextDiffError("preset_type is required for preset mode.")
-            return service_for_backend(
-                engine, preset_backend_for_type(preset_type)
-            )
+            return preset_backend_for_type(preset_type)
 
         mark = db.get(repo_id)
         if mark is None:
             raise TextDiffError(f"Invalid repo_id: {repo_id}")
-        backend = GitBackend.discover(repo_root=Path(mark.path))
-        return service_for_backend(engine, backend)
+        return GitBackend.discover(repo_root=Path(mark.path))
+
+    def looks_like_notebook_path(path: str | None) -> bool:
+        """Return whether a repo path should be routed through notebook logic."""
+        return path is not None and path.endswith(".ipynb")
+
+    def build_text_file_payload(
+        *,
+        backend: WorkspaceBackend,
+        renderer: DiffEngineProtocol,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None,
+        change_type: ChangeType,
+        file_kind: Literal["git", "untracked"],
+    ) -> dict[str, Any]:
+        """Load one backend path pair and render it with the selected engine.
+
+        Loading and source metadata live here, at the API/source boundary.
+        The renderer receives only already-loaded text, existence flags, and
+        path hints; this function wraps the rendered core with HTTP metadata.
+        """
+        context = load_diff_sides(
+            backend=backend,
+            left_path=left_path,
+            right_path=right_path,
+            left=left,
+            right=right,
+        )
+        left_version = context["left_version"]
+        right_version = context["right_version"]
+        resolved_display_name = display_name
+        if resolved_display_name is None:
+            resolved_display_name = display_name_for_repo_paths(
+                context["left_path"],
+                context["right_path"],
+            )
+        rendered = renderer.render_diff(
+            old=DiffSide(
+                exists=left_version.exists,
+                text=left_version.text,
+                path_hint=context["left_path"],
+            ),
+            new=DiffSide(
+                exists=right_version.exists,
+                text=right_version.text,
+                path_hint=context["right_path"],
+            ),
+        )
+        left_text_value = "" if left_version.text is None else left_version.text
+        right_text_value = (
+            "" if right_version.text is None else right_version.text
+        )
+        display = enrich_rows_for_display(
+            rows=[dict(row) for row in rendered["rows"]],
+            left_text=left_text_value,
+            right_text=right_text_value,
+            left_path_hint=context["left_path"],
+            right_path_hint=context["right_path"],
+        )
+        payload: DiffPayload = {
+            "display_name": resolved_display_name,
+            "mode": "git",
+            "left_label": context["left_label"],
+            "right_label": context["right_label"],
+            "rows": display["rows"],
+            "summary": {
+                **rendered["summary"],
+                "left_exists": left_version.exists,
+                "right_exists": right_version.exists,
+            },
+            "default_expanded": False,
+        }
+        if "engine_warning" in rendered:
+            payload["engine_warning"] = rendered["engine_warning"]
+        if "render_mode" in display:
+            payload["render_mode"] = display["render_mode"]
+        if "truncated_rows" in display:
+            payload["truncated_rows"] = display["truncated_rows"]
+        if "fold_hints" in display:
+            payload["fold_hints"] = display["fold_hints"]
+        payload["default_expanded"] = default_expanded_for_payload(
+            dict(payload)
+        )
+        payload["file_kind"] = file_kind_for_change_type(
+            change_type,
+            file_kind=file_kind,
+        )
+        payload["left_path"] = context["left_path"]
+        payload["right_path"] = context["right_path"]
+        return dict(payload)
+
+    def build_notebook_file_payload_if_applicable(
+        *,
+        backend: WorkspaceBackend,
+        renderer: DiffEngineProtocol,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        display_name: str | None,
+        change_type: ChangeType,
+        file_kind: Literal["git", "untracked"],
+    ) -> dict[str, Any] | None:
+        """Return a notebook file payload when the request targets a notebook.
+
+        This is the boundary that keeps engines notebook-agnostic.  The server
+        inspects paths, loads file text through the backend, and asks
+        ``notebooks.py`` to build the ``render_kind: "notebook"`` payload.  If a
+        path looks like a notebook but parsing fails, ``None`` is returned so
+        the selected diff engine can render the file as plain text, matching the
+        previous fallback behavior.
+
+        The returned payload is shaped exactly like the existing
+        ``NotebookFileDiffResponse`` branch of ``/api/file-diff``.  The REST API
+        therefore does not change: the only difference is that the notebook
+        decision is made before engine rendering instead of inside each service.
+        """
+        left_is_notebook = looks_like_notebook_path(left_path)
+        right_is_notebook = looks_like_notebook_path(right_path)
+        if not left_is_notebook and not right_is_notebook:
+            return None
+
+        context = load_diff_sides(
+            backend=backend,
+            left_path=left_path,
+            right_path=right_path,
+            left=left,
+            right=right,
+        )
+        left_version = context["left_version"]
+        right_version = context["right_version"]
+        resolved_display_name = display_name
+        if resolved_display_name is None:
+            resolved_display_name = display_name_for_repo_paths(
+                context["left_path"],
+                context["right_path"],
+            )
+        payload = build_notebook_diff_payload(
+            renderer=renderer,
+            display_name=resolved_display_name,
+            mode="git",
+            left_label=context["left_label"],
+            right_label=context["right_label"],
+            left_exists=left_version.exists,
+            right_exists=right_version.exists,
+            left_text=left_version.text,
+            right_text=right_version.text,
+        )
+        if payload is None:
+            return None
+        if file_kind == "untracked":
+            payload["file_kind"] = {"type": "untracked"}
+        else:
+            status_by_change_type = {
+                "modify": "modified",
+                "add": "added",
+                "delete": "deleted",
+                "rename": "renamed",
+                "copy": "copied",
+            }
+            payload["file_kind"] = {
+                "type": "git",
+                "status": status_by_change_type[change_type],
+            }
+        payload["left_path"] = context["left_path"]
+        payload["right_path"] = context["right_path"]
+        return payload
+
+    def build_notebook_section_for_request(
+        *,
+        backend: WorkspaceBackend,
+        renderer: DiffEngineProtocol,
+        left_path: str | None,
+        right_path: str | None,
+        left: str,
+        right: str,
+        section: str | None,
+        cell_key: str | None,
+    ) -> dict[str, Any]:
+        """Load notebook files and build one lazy section payload.
+
+        ``/api/notebook-section`` uses the same selected engine as the top-level
+        notebook payload.  Notebook parsing and section selection stay in the
+        REST orchestration layer; the text-like section body is rendered only
+        through ``DiffEngineProtocol``.
+
+        Unlike top-level notebook file rendering, invalid notebook JSON is an
+        error here.  A section request can only be made after the frontend has
+        seen a notebook payload with a section key, so failure to parse either
+        side means the lazy section cannot be fulfilled honestly.
+        """
+        context = load_diff_sides(
+            backend=backend,
+            left_path=left_path,
+            right_path=right_path,
+            left=left,
+            right=right,
+        )
+        left_version = context["left_version"]
+        right_version = context["right_version"]
+        left_notebook = None
+        if left_version.exists:
+            if left_version.text is None:
+                raise TextDiffError(
+                    f"Could not load notebook on {context['left_label']}."
+                )
+            left_notebook = normalize_notebook_document(left_version.text)
+
+        right_notebook = None
+        if right_version.exists:
+            if right_version.text is None:
+                raise TextDiffError(
+                    f"Could not load notebook on {context['right_label']}."
+                )
+            right_notebook = normalize_notebook_document(right_version.text)
+        if left_version.exists and left_notebook is None:
+            raise TextDiffError(
+                f"Could not parse notebook on {context['left_label']}."
+            )
+        if right_version.exists and right_notebook is None:
+            raise TextDiffError(
+                f"Could not parse notebook on {context['right_label']}."
+            )
+        return build_notebook_section_payload(
+            renderer=renderer,
+            left_notebook=left_notebook,
+            right_notebook=right_notebook,
+            left_label=context["left_label"],
+            right_label=context["right_label"],
+            section=section,
+            cell_key=cell_key,
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def serve_frontend_missing() -> HTMLResponse:
@@ -471,15 +960,14 @@ def create_app(
                 detail=f"Invalid repo_id: {repo_id}",
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
-        service = TextDiffService(backend)
-        default_base_branch = service.default_base_branch()
-        preferred_review_branch = service.preferred_review_branch(
+        default_base_branch = backend.default_base_branch()
+        preferred_review_branch = backend.preferred_review_branch(
             base_branch=default_base_branch
         )
         return {
             "default_base_branch": default_base_branch,
             "preferred_review_branch": preferred_review_branch,
-            "ref_choices": service.list_ref_choices(),
+            "ref_choices": backend.list_ref_choices(),
         }
 
     @app.get(
@@ -651,8 +1139,7 @@ def create_app(
             review_branch=review_branch,
         )
         try:
-            diff_service = service_for_request(
-                engine,
+            backend = backend_for_request(
                 mode=mode,
                 repo_id=repo_id,
                 preset_type=preset_type,
@@ -660,8 +1147,9 @@ def create_app(
             if mode == "preset":
                 if preset is None or not preset.strip():
                     raise TextDiffError("preset is required for preset mode.")
-                preset_name = diff_service.normalize_side(preset)
-                payload = diff_service.build_repo_manifest(
+                preset_name = backend.normalize_side(preset)
+                payload = build_repo_manifest_for_backend(
+                    backend,
                     left=preset_name,
                     right="new",
                     show_untracked=False,
@@ -679,7 +1167,7 @@ def create_app(
                     )
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
-                        service=diff_service,
+                        backend=backend,
                         base_branch=selected_base_branch,
                         branch=selected_review_branch,
                     )
@@ -687,7 +1175,8 @@ def create_app(
                 left_label = (
                     f"{resolved_base_branch.strip()}...{normalized_branch}"
                 )
-                payload = diff_service.build_repo_manifest(
+                payload = build_repo_manifest_for_backend(
+                    backend,
                     left=merge_base,
                     right=normalized_branch,
                     show_untracked=False,
@@ -699,9 +1188,10 @@ def create_app(
                     raise TextDiffError("left is required for this diff mode.")
                 if right is None or not right.strip():
                     raise TextDiffError("right is required for this diff mode.")
-                normalized_left = diff_service.normalize_side(left)
-                normalized_right = diff_service.normalize_side(right)
-                payload = diff_service.build_repo_manifest(
+                normalized_left = backend.normalize_side(left)
+                normalized_right = backend.normalize_side(right)
+                payload = build_repo_manifest_for_backend(
+                    backend,
                     left=normalized_left,
                     right=normalized_right,
                     show_untracked=show_untracked,
@@ -767,8 +1257,7 @@ def create_app(
             review_branch=review_branch,
         )
         try:
-            diff_service = service_for_request(
-                engine,
+            backend = backend_for_request(
                 mode=mode,
                 repo_id=repo_id,
                 preset_type=preset_type,
@@ -776,8 +1265,9 @@ def create_app(
             if mode == "preset":
                 if preset is None or not preset.strip():
                     raise TextDiffError("preset is required for preset mode.")
-                preset_name = diff_service.normalize_side(preset)
-                payload = diff_service.build_lazy_info(
+                preset_name = backend.normalize_side(preset)
+                payload = build_lazy_info_for_backend(
+                    backend,
                     left=preset_name,
                     right="new",
                     show_untracked=False,
@@ -791,11 +1281,12 @@ def create_app(
                         "review_branch is required for branch-review mode."
                     )
                 _, merge_base, normalized_branch = _resolve_branch_review_refs(
-                    service=diff_service,
+                    backend=backend,
                     base_branch=selected_base_branch,
                     branch=selected_review_branch,
                 )
-                payload = diff_service.build_lazy_info(
+                payload = build_lazy_info_for_backend(
+                    backend,
                     left=merge_base,
                     right=normalized_branch,
                     show_untracked=False,
@@ -805,9 +1296,10 @@ def create_app(
                     raise TextDiffError("left is required for this diff mode.")
                 if right is None or not right.strip():
                     raise TextDiffError("right is required for this diff mode.")
-                normalized_left = diff_service.normalize_side(left)
-                normalized_right = diff_service.normalize_side(right)
-                payload = diff_service.build_lazy_info(
+                normalized_left = backend.normalize_side(left)
+                normalized_right = backend.normalize_side(right)
+                payload = build_lazy_info_for_backend(
+                    backend,
                     left=normalized_left,
                     right=normalized_right,
                     show_untracked=show_untracked,
@@ -885,17 +1377,19 @@ def create_app(
         )
 
         try:
-            diff_service = service_for_request(
-                engine,
+            backend = backend_for_request(
                 mode=mode,
                 repo_id=repo_id,
                 preset_type=preset_type,
             )
+            renderer = service_for_engine(engine, cwd=backend.cwd)
             if mode == "preset":
                 if preset is None or not preset.strip():
                     raise TextDiffError("preset is required for preset mode.")
-                preset_name = diff_service.normalize_side(preset)
-                payload = diff_service.build_git_diff_paths(
+                preset_name = backend.normalize_side(preset)
+                payload = build_notebook_file_payload_if_applicable(
+                    backend=backend,
+                    renderer=renderer,
                     left_path=left_path,
                     right_path=right_path,
                     left=preset_name,
@@ -904,6 +1398,18 @@ def create_app(
                     change_type=change_type,
                     file_kind=file_kind,
                 )
+                if payload is None:
+                    payload = build_text_file_payload(
+                        backend=backend,
+                        renderer=renderer,
+                        left_path=left_path,
+                        right_path=right_path,
+                        left=preset_name,
+                        right="new",
+                        display_name=display_name,
+                        change_type=change_type,
+                        file_kind=file_kind,
+                    )
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
             elif mode == "branch-review":
@@ -916,7 +1422,7 @@ def create_app(
                     )
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
-                        service=diff_service,
+                        backend=backend,
                         base_branch=selected_base_branch,
                         branch=selected_review_branch,
                     )
@@ -924,7 +1430,9 @@ def create_app(
                 left_label = (
                     f"{resolved_base_branch.strip()}...{normalized_branch}"
                 )
-                payload = diff_service.build_git_diff_paths(
+                payload = build_notebook_file_payload_if_applicable(
+                    backend=backend,
+                    renderer=renderer,
                     left_path=left_path,
                     right_path=right_path,
                     left=merge_base,
@@ -933,6 +1441,18 @@ def create_app(
                     change_type=change_type,
                     file_kind=file_kind,
                 )
+                if payload is None:
+                    payload = build_text_file_payload(
+                        backend=backend,
+                        renderer=renderer,
+                        left_path=left_path,
+                        right_path=right_path,
+                        left=merge_base,
+                        right=normalized_branch,
+                        display_name=display_name,
+                        change_type=change_type,
+                        file_kind=file_kind,
+                    )
                 payload["left_label"] = left_label
                 payload["right_label"] = normalized_branch
             else:
@@ -940,7 +1460,9 @@ def create_app(
                     raise TextDiffError("left is required for this diff mode.")
                 if right is None or not right.strip():
                     raise TextDiffError("right is required for this diff mode.")
-                payload = diff_service.build_git_diff_paths(
+                payload = build_notebook_file_payload_if_applicable(
+                    backend=backend,
+                    renderer=renderer,
                     left_path=left_path,
                     right_path=right_path,
                     left=left,
@@ -949,6 +1471,18 @@ def create_app(
                     change_type=change_type,
                     file_kind=file_kind,
                 )
+                if payload is None:
+                    payload = build_text_file_payload(
+                        backend=backend,
+                        renderer=renderer,
+                        left_path=left_path,
+                        right_path=right_path,
+                        left=left,
+                        right=right,
+                        display_name=display_name,
+                        change_type=change_type,
+                        file_kind=file_kind,
+                    )
         except TextDiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -1022,17 +1556,19 @@ def create_app(
         )
 
         try:
-            diff_service = service_for_request(
-                engine,
+            backend = backend_for_request(
                 mode=mode,
                 repo_id=repo_id,
                 preset_type=preset_type,
             )
+            renderer = service_for_engine(engine, cwd=backend.cwd)
             if mode == "preset":
                 if preset is None or not preset.strip():
                     raise TextDiffError("preset is required for preset mode.")
-                preset_name = diff_service.normalize_side(preset)
-                payload = diff_service.build_notebook_section_diff(
+                preset_name = backend.normalize_side(preset)
+                payload = build_notebook_section_for_request(
+                    backend=backend,
+                    renderer=renderer,
                     left_path=left_path,
                     right_path=right_path,
                     left=preset_name,
@@ -1052,12 +1588,14 @@ def create_app(
                     )
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
-                        service=diff_service,
+                        backend=backend,
                         base_branch=selected_base_branch,
                         branch=selected_review_branch,
                     )
                 )
-                payload = diff_service.build_notebook_section_diff(
+                payload = build_notebook_section_for_request(
+                    backend=backend,
+                    renderer=renderer,
                     left_path=left_path,
                     right_path=right_path,
                     left=merge_base,
@@ -1074,7 +1612,9 @@ def create_app(
                     raise TextDiffError("left is required for this diff mode.")
                 if right is None or not right.strip():
                     raise TextDiffError("right is required for this diff mode.")
-                payload = diff_service.build_notebook_section_diff(
+                payload = build_notebook_section_for_request(
+                    backend=backend,
+                    renderer=renderer,
                     left_path=left_path,
                     right_path=right_path,
                     left=left,
@@ -1119,12 +1659,12 @@ def uvicorn_entrypoint() -> FastAPI:
 
 def _resolve_branch_review_refs(
     *,
-    service: DiffServiceProtocol,
+    backend: WorkspaceBackend,
     base_branch: str | None,
     branch: str,
 ) -> tuple[str, str, str]:
-    resolved_base_branch = base_branch or service.default_base_branch()
-    merge_base, normalized_branch = service.resolve_branch_diff_sides(
+    resolved_base_branch = base_branch or backend.default_base_branch()
+    merge_base, normalized_branch = backend.resolve_branch_diff_sides(
         base_branch=resolved_base_branch,
         branch=branch,
     )

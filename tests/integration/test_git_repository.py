@@ -1,7 +1,8 @@
 import subprocess
 from pathlib import Path
 
-from dirdiff.services import TextDiffService
+from helpers import TextDiffService
+
 from dirdiff.sources import GitBackend
 
 

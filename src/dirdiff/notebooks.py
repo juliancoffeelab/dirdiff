@@ -1,3 +1,18 @@
+"""Notebook payload construction for the dirdiff REST API.
+
+Notebook diffs are an API-level representation, not a diff-engine feature.
+The server loads the left and right ``.ipynb`` texts through a
+``WorkspaceBackend``, asks this module to parse and compare notebook structure,
+and returns a ``render_kind: "notebook"`` payload from the existing
+``/api/file-diff`` endpoint.
+
+This module depends on display payload helpers from ``dirdiff.rendering`` to
+enrich rows after the selected engine has rendered a text snippet.  It calls
+concrete diff engines only through ``DiffEngineProtocol`` after
+notebook-specific cell pairing has identified the source, metadata, or output
+snippet to compare.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,18 +20,36 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any
 
-from dirdiff.services.textdiff import (
-    _build_rows_payload,
-    _canonical_json,
-    _count_changed_rows_and_hunks,
-    _default_expanded_for_payload,
+from dirdiff.engines import DiffEngineProtocol
+from dirdiff.engines.contract import DiffEngineRow, DiffSide
+from dirdiff.rendering import (
+    canonical_json,
+    default_expanded_for_payload,
+    enrich_rows_for_display,
 )
 from dirdiff.sources import TextDiffError
 
 
-def _normalize_notebook_document(text: str | None) -> dict[str, Any] | None:
-    if text is None:
-        return None
+def normalize_notebook_document(text: str) -> dict[str, Any] | None:
+    """Parse the subset of a Jupyter notebook that dirdiff renders.
+
+    Invalid notebook JSON returns ``None`` so callers can choose whether to
+    fall back to a plain text diff or report a notebook-specific error.  Missing
+    sides are a caller concern: if a file does not exist on one side, the caller
+    should pass ``None`` as the parsed notebook value for that side instead of
+    asking this parser to accept absent text.
+
+    Valid notebooks are normalized to the fields needed by the renderer: a list
+    of cell dictionaries and a metadata dictionary.  Unknown top-level fields
+    are intentionally ignored because the UI exposes them only through the
+    canonicalized metadata/output sections it knows how to render.
+
+    This parser is deliberately permissive about cell contents.  It filters out
+    non-dictionary cells and normalizes malformed top-level metadata to an
+    empty mapping.  That keeps notebook rendering focused on the structures the
+    frontend can display while leaving text fallback available for files that
+    are not notebooks at all.
+    """
     try:
         loaded = json.loads(text)
     except json.JSONDecodeError:
@@ -233,8 +266,71 @@ def _find_notebook_cell_pair(
     raise TextDiffError(f"Unknown notebook cell: {cell_key}")
 
 
+def _row_has_changed_tokens(row: DiffEngineRow) -> bool:
+    for token in row["left_tokens"]:
+        if token["status"] != "unchanged":
+            return True
+    return any(token["status"] != "unchanged" for token in row["right_tokens"])
+
+
+def _row_has_change(row: DiffEngineRow) -> bool:
+    if row["status"] != "equal":
+        return True
+    return _row_has_changed_tokens(row)
+
+
+def _changed_hunk_count(rows: list[DiffEngineRow]) -> int:
+    hunk_count = 0
+    in_changed_run = False
+    for row in rows:
+        changed = _row_has_change(row)
+        if changed and not in_changed_run:
+            hunk_count += 1
+        in_changed_run = changed
+    return hunk_count
+
+
+def _render_notebook_text_payload(
+    *,
+    renderer: DiffEngineProtocol,
+    left_text: str,
+    right_text: str,
+    left_path_hint: str,
+    right_path_hint: str,
+) -> dict[str, Any]:
+    rendered = renderer.render_diff(
+        old=DiffSide(
+            exists=True,
+            text=left_text,
+            path_hint=left_path_hint,
+        ),
+        new=DiffSide(
+            exists=True,
+            text=right_text,
+            path_hint=right_path_hint,
+        ),
+    )
+    display = enrich_rows_for_display(
+        rows=[dict(row) for row in rendered["rows"]],
+        left_text=left_text,
+        right_text=right_text,
+        left_path_hint=left_path_hint,
+        right_path_hint=right_path_hint,
+    )
+    return {
+        **display,
+        "changed_lines": rendered["summary"]["changed_lines"],
+        "modified_lines": rendered["summary"]["modified_lines"],
+        "added_lines": rendered["summary"]["added_lines"],
+        "removed_lines": rendered["summary"]["removed_lines"],
+        "moved_lines": rendered["summary"]["moved_lines"],
+        "hunk_count": _changed_hunk_count(rendered["rows"]),
+    }
+
+
 def _build_notebook_cell_diff(
     *,
+    renderer: DiffEngineProtocol,
     left_cell: dict[str, Any] | None,
     right_cell: dict[str, Any] | None,
     left_index: int | None,
@@ -269,48 +365,48 @@ def _build_notebook_cell_diff(
     if not any((source_changed, metadata_changed, outputs_changed)):
         return None
 
-    source_payload = _build_rows_payload(
+    source_path_hint = _notebook_source_path(cell_type)
+    if source_path_hint is None:
+        source_path_hint = "cell.txt"
+    source_payload = _render_notebook_text_payload(
+        renderer=renderer,
         left_text=left_source,
         right_text=right_source,
-        left_path_hint=_notebook_source_path(cell_type),
-        right_path_hint=_notebook_source_path(cell_type),
+        left_path_hint=source_path_hint,
+        right_path_hint=source_path_hint,
     )
+    left_metadata_text = canonical_json(left_metadata)
+    right_metadata_text = canonical_json(right_metadata)
+    left_outputs_text = canonical_json(left_outputs)
+    right_outputs_text = canonical_json(right_outputs)
     metadata_stats = (
-        _count_changed_rows_and_hunks(
-            _canonical_json(left_metadata),
-            _canonical_json(right_metadata),
+        _render_notebook_text_payload(
+            renderer=renderer,
+            left_text=left_metadata_text,
+            right_text=right_metadata_text,
+            left_path_hint="cell-metadata.json",
+            right_path_hint="cell-metadata.json",
         )
         if metadata_changed
         else None
     )
     outputs_stats = (
-        _count_changed_rows_and_hunks(
-            _canonical_json(left_outputs),
-            _canonical_json(right_outputs),
+        _render_notebook_text_payload(
+            renderer=renderer,
+            left_text=left_outputs_text,
+            right_text=right_outputs_text,
+            left_path_hint="cell-outputs.json",
+            right_path_hint="cell-outputs.json",
         )
         if outputs_changed
         else None
     )
-    metadata_payload = (
-        _build_rows_payload(
-            left_text=_canonical_json(left_metadata),
-            right_text=_canonical_json(right_metadata),
-            left_path_hint="cell-metadata.json",
-            right_path_hint="cell-metadata.json",
-        )
-        if metadata_changed and include_metadata_rows
-        else None
-    )
-    outputs_payload = (
-        _build_rows_payload(
-            left_text=_canonical_json(left_outputs),
-            right_text=_canonical_json(right_outputs),
-            left_path_hint="cell-outputs.json",
-            right_path_hint="cell-outputs.json",
-        )
-        if outputs_changed and include_outputs_rows
-        else None
-    )
+    metadata_payload = None
+    if metadata_changed and include_metadata_rows:
+        metadata_payload = metadata_stats
+    outputs_payload = None
+    if outputs_changed and include_outputs_rows:
+        outputs_payload = outputs_stats
 
     payload = {
         "kind": (
@@ -386,8 +482,9 @@ def _build_notebook_cell_diff(
     return payload
 
 
-def _build_notebook_diff_payload(
+def build_notebook_diff_payload(
     *,
+    renderer: DiffEngineProtocol,
     display_name: str,
     mode: str,
     left_label: str,
@@ -397,12 +494,37 @@ def _build_notebook_diff_payload(
     left_text: str | None,
     right_text: str | None,
 ) -> dict[str, Any] | None:
-    left_notebook = (
-        _normalize_notebook_document(left_text) if left_exists else None
-    )
-    right_notebook = (
-        _normalize_notebook_document(right_text) if right_exists else None
-    )
+    """Build the top-level ``render_kind: "notebook"`` file payload.
+
+    The returned dictionary is validated by ``NotebookFileDiffResponse`` in the
+    server and consumed by ``NotebookViews`` in the frontend.  Cell source rows
+    are included eagerly because they are the primary notebook diff surface.
+    Notebook-level metadata, cell metadata, and cell outputs are summarized here
+    but kept lazy when changed; the frontend asks ``/api/notebook-section`` for
+    those rows only when the user expands the relevant section.
+
+    ``None`` means the supplied text should not be treated as a notebook.  The
+    server uses that signal to preserve the old behavior for malformed
+    ``.ipynb`` files by allowing the selected text engine to render them as
+    ordinary text.
+
+    Pairing is done at the notebook-cell level before row rendering.  Stable
+    cell ids are preferred when they are unique on both sides; otherwise cell
+    source ordering is used.  The payload therefore represents notebook intent
+    first, then asks the selected diff engine to render the text-like surfaces
+    inside that structure.
+    """
+    left_notebook = None
+    if left_exists:
+        if left_text is None:
+            return None
+        left_notebook = normalize_notebook_document(left_text)
+
+    right_notebook = None
+    if right_exists:
+        if right_text is None:
+            return None
+        right_notebook = normalize_notebook_document(right_text)
 
     if left_exists and left_notebook is None:
         return None
@@ -424,9 +546,12 @@ def _build_notebook_diff_payload(
         right_notebook["metadata"] if right_notebook is not None else {}
     )
     if left_metadata != right_metadata:
-        notebook_metadata_stats = _count_changed_rows_and_hunks(
-            _canonical_json(left_metadata),
-            _canonical_json(right_metadata),
+        notebook_metadata_stats = _render_notebook_text_payload(
+            renderer=renderer,
+            left_text=canonical_json(left_metadata),
+            right_text=canonical_json(right_metadata),
+            left_path_hint="notebook-metadata.json",
+            right_path_hint="notebook-metadata.json",
         )
 
     cells: list[dict[str, Any]] = []
@@ -449,6 +574,7 @@ def _build_notebook_diff_payload(
             right_cells[right_index] if right_index is not None else None
         )
         cell_diff = _build_notebook_cell_diff(
+            renderer=renderer,
             left_cell=left_cell,
             right_cell=right_cell,
             left_index=left_index,
@@ -517,12 +643,13 @@ def _build_notebook_diff_payload(
         "notebook_metadata_lazy": notebook_metadata_stats is not None,
         "cells": cells,
     }
-    payload["default_expanded"] = _default_expanded_for_payload(payload)
+    payload["default_expanded"] = default_expanded_for_payload(payload)
     return payload
 
 
 def build_notebook_section_payload(
     *,
+    renderer: DiffEngineProtocol,
     left_notebook: dict[str, Any] | None,
     right_notebook: dict[str, Any] | None,
     left_label: str,
@@ -530,6 +657,26 @@ def build_notebook_section_payload(
     section: str | None,
     cell_key: str | None = None,
 ) -> dict[str, Any]:
+    """Build rows for a lazy notebook metadata or output section.
+
+    ``section`` selects one of the secondary notebook surfaces:
+    ``notebook-metadata`` for top-level notebook metadata, ``cell-metadata`` for
+    one cell's metadata, or ``cell-outputs`` for one code cell's outputs.
+    ``cell_key`` is required for cell-local sections and is the stable key
+    returned by ``build_notebook_diff_payload``.
+
+    This function receives already-parsed notebook dictionaries and the
+    selected diff engine protocol.  It does not load files or resolve refs;
+    that orchestration belongs to the server.  It raises ``TextDiffError`` for
+    unchanged or unknown sections so the REST endpoint can return the same
+    error model used by ordinary file diffs.
+
+    The section endpoint exists to keep the initial file payload reasonably
+    small.  Source rows are eager because they are the primary notebook diff,
+    but metadata and outputs can be verbose and rarely needed immediately.
+    This helper builds those secondary row payloads through the same selected
+    engine protocol as normal files.
+    """
     if section == "notebook-metadata":
         left_metadata = (
             left_notebook["metadata"] if left_notebook is not None else {}
@@ -539,9 +686,10 @@ def build_notebook_section_payload(
         )
         if left_metadata == right_metadata:
             raise TextDiffError("Notebook metadata is unchanged.")
-        payload = _build_rows_payload(
-            left_text=_canonical_json(left_metadata),
-            right_text=_canonical_json(right_metadata),
+        payload = _render_notebook_text_payload(
+            renderer=renderer,
+            left_text=canonical_json(left_metadata),
+            right_text=canonical_json(right_metadata),
             left_path_hint="notebook-metadata.json",
             right_path_hint="notebook-metadata.json",
         )
@@ -590,9 +738,10 @@ def build_notebook_section_payload(
     if left_value == right_value:
         raise TextDiffError("Notebook section is unchanged.")
 
-    payload = _build_rows_payload(
-        left_text=_canonical_json(left_value),
-        right_text=_canonical_json(right_value),
+    payload = _render_notebook_text_payload(
+        renderer=renderer,
+        left_text=canonical_json(left_value),
+        right_text=canonical_json(right_value),
         left_path_hint=left_hint,
         right_path_hint=right_hint,
     )

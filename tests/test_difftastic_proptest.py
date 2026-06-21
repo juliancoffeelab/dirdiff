@@ -4,9 +4,8 @@ from typing import Any, Literal
 
 import pytest
 
-from dirdiff.services.difftastic import DifftasticDiffService
-from dirdiff.services.difftastic.logic import _difftastic_rows_from_json
-from dirdiff.sources import PresetBackend
+from dirdiff.engines.difftastic import DifftasticDiffEngine
+from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 Side = Literal["left", "right"]
@@ -47,7 +46,7 @@ def _preset_rows(
     new_path = _single_file("new.*", preset_dir)
     old_text = old_path.read_text()
     new_text = new_path.read_text()
-    service = DifftasticDiffService(PresetBackend(PRESETS_ROOT))
+    service = DifftasticDiffEngine()
     diff_json = service._run_difftastic_json(
         left_text=old_text,
         right_text=new_text,

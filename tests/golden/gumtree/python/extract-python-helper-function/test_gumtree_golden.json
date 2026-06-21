@@ -171,6 +171,7 @@
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 2,
       "right_syntax": [
         {
@@ -215,13 +216,16 @@
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 3,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 4,
       "right_syntax": [
         {
@@ -271,6 +275,7 @@
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 5,
       "right_syntax": [
         {
@@ -320,6 +325,7 @@
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 6,
       "right_syntax": [
         {
@@ -460,6 +466,7 @@
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 7,
       "right_syntax": [
         {
@@ -524,20 +531,25 @@
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 8,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 9,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 10,
       "right_syntax": [
         {
@@ -695,6 +707,7 @@
         }
       ],
       "left_text": "    normalized_items: list[dict[str, object]] = []",
+      "left_tokens": [],
       "right_no": 11,
       "right_syntax": [
         {
@@ -741,6 +754,7 @@
         }
       ],
       "right_text": "    normalized_items: list[dict[str, object]] = []",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -783,6 +797,7 @@
         }
       ],
       "left_text": "    for item in order[\"items\"]:",
+      "left_tokens": [],
       "right_no": 12,
       "right_syntax": [
         {
@@ -822,6 +837,7 @@
         }
       ],
       "right_text": "    for item in order[\"items\"]:",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -865,6 +881,7 @@
         }
       ],
       "left_text": "        name = item[\"name\"].strip()",
+      "left_tokens": [],
       "right_no": 13,
       "right_syntax": [
         {
@@ -905,6 +922,7 @@
         }
       ],
       "right_text": "        name = item[\"name\"].strip()",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -963,6 +981,7 @@
         }
       ],
       "left_text": "        quantity = int(item.get(\"quantity\", 1))",
+      "left_tokens": [],
       "right_no": 14,
       "right_syntax": [
         {
@@ -1018,6 +1037,7 @@
         }
       ],
       "right_text": "        quantity = int(item.get(\"quantity\", 1))",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -1040,6 +1060,7 @@
         }
       ],
       "left_text": "        normalized_items.append(",
+      "left_tokens": [],
       "right_no": 15,
       "right_syntax": [
         {
@@ -1059,13 +1080,16 @@
         }
       ],
       "right_text": "        normalized_items.append(",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": 7,
       "left_text": "            {",
+      "left_tokens": [],
       "right_no": 16,
       "right_text": "            {",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -1087,6 +1111,7 @@
         }
       ],
       "left_text": "                \"name\": name,",
+      "left_tokens": [],
       "right_no": 17,
       "right_syntax": [
         {
@@ -1105,6 +1130,7 @@
         }
       ],
       "right_text": "                \"name\": name,",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -1126,6 +1152,7 @@
         }
       ],
       "left_text": "                \"quantity\": quantity,",
+      "left_tokens": [],
       "right_no": 18,
       "right_syntax": [
         {
@@ -1144,27 +1171,34 @@
         }
       ],
       "right_text": "                \"quantity\": quantity,",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": 10,
       "left_text": "            }",
+      "left_tokens": [],
       "right_no": 19,
       "right_text": "            }",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": 11,
       "left_text": "        )",
+      "left_tokens": [],
       "right_no": 20,
       "right_text": "        )",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": 12,
       "left_text": "",
+      "left_tokens": [],
       "right_no": null,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -1214,6 +1248,7 @@
       ],
       "right_no": null,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -1263,6 +1298,7 @@
       ],
       "right_no": null,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -1403,6 +1439,7 @@
       ],
       "right_no": null,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
@@ -1467,11 +1504,13 @@
       ],
       "right_no": null,
       "right_text": "",
+      "right_tokens": [],
       "status": "equal"
     },
     {
       "left_no": null,
       "left_text": "",
+      "left_tokens": [],
       "right_no": 21,
       "right_syntax": [
         {

@@ -7,7 +7,7 @@ statuses projected from GumTree action ranges.
 
 This module must not own raw GumTree execution or final API payload assembly:
 
-* `dirdiff.services.gumtree.gumtree` owns invoking `gumtree` and parsing JSON.
+* `dirdiff.engines.gumtree.gumtree` owns invoking `gumtree` and parsing JSON.
 * the GumTree service layer owns source loading, syntax highlighting, fold
   hints, and frontend payload assembly.
 
@@ -38,9 +38,9 @@ first-class visual priority dirdiff expects for GumTree rendering.
 Output contract
 ---------------
 `build_gumtree_rows_from_json` returns display rows compatible with the shared
-textdiff row payload. GumTree rows are alignment rows, not semantic line-status
-rows: line counters should stay unchanged, while tokens carry `insert`,
-`delete`, `replace`, and `move` statuses.
+dirdiff row payload. GumTree intentionally neutralizes row statuses to `equal`
+after projecting inline tokens: line counters should stay unchanged, while
+tokens carry `insert`, `delete`, `replace`, and `move` statuses.
 
 Required invariants
 -------------------
@@ -61,20 +61,21 @@ and does not assemble the final HTTP/API payload.
 
 from __future__ import annotations
 
-import difflib
 import re
 from dataclasses import dataclass
-from typing import Any
+from difflib import SequenceMatcher
+from itertools import pairwise
+from typing import Any, Literal
 
-from dirdiff.services.gumtree.gumtree import GumTreeJson
-from dirdiff.services.textdiff import _git_style_line_rows
-from dirdiff.sources import TextDiffError
+from dirdiff.engines.contract import InlineToken
+from dirdiff.engines.gumtree.gumtree import GumTreeJson
+from dirdiff.sources import TextDiffError, unified_diff_lines
+
+type GumTreeTokenStatus = Literal[
+    "unchanged", "insert", "delete", "replace", "move"
+]
 
 GUMTREE_TREE_RANGE_PATTERN = re.compile(r"\[(?P<start>\d+),(?P<end>\d+)\]\s*$")
-UNIFIED_HUNK_HEADER_PATTERN = re.compile(
-    r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
-    r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
-)
 GUMTREE_TOKEN_STATUS_PRIORITY = {
     "unchanged": 0,
     "insert": 1,
@@ -92,8 +93,8 @@ class SourceRange:
 
 @dataclass(frozen=True)
 class StatusRange:
-    side: str
-    status: str
+    side: Literal["left", "right"]
+    status: GumTreeTokenStatus
     source_range: SourceRange
 
 
@@ -101,7 +102,7 @@ class StatusRange:
 class StatusLineInterval:
     start: int
     end: int
-    status: str
+    status: GumTreeTokenStatus
 
 
 @dataclass(frozen=True)
@@ -283,11 +284,14 @@ def _status_line_intervals(
     return intervals_by_line
 
 
-def _token(text: str, status: str) -> dict[str, Any]:
+def _token(text: str, status: GumTreeTokenStatus) -> InlineToken:
     return {"text": text, "status": status, "is_ws": text.isspace()}
 
 
-def _stronger_status(left: str, right: str) -> str:
+def _stronger_status(
+    left: GumTreeTokenStatus,
+    right: GumTreeTokenStatus,
+) -> GumTreeTokenStatus:
     left_priority = GUMTREE_TOKEN_STATUS_PRIORITY[left]
     right_priority = GUMTREE_TOKEN_STATUS_PRIORITY[right]
     if right_priority > left_priority:
@@ -320,12 +324,12 @@ def _status_tokens_for_line(
     if not clipped:
         return []
 
-    tokens: list[dict[str, Any]] = []
+    tokens: list[InlineToken] = []
     sorted_boundaries = sorted(boundaries)
-    for start, end in zip(sorted_boundaries, sorted_boundaries[1:]):
+    for start, end in pairwise(sorted_boundaries):
         if start >= end:
             continue
-        status = "unchanged"
+        status: GumTreeTokenStatus = "unchanged"
         for interval in clipped:
             if interval.start <= start and end <= interval.end:
                 status = _stronger_status(status, interval.status)
@@ -385,6 +389,61 @@ def _apply_gumtree_statuses_to_rows(
                 )
 
 
+def _neutralize_line_statuses(rows: list[dict[str, Any]]) -> None:
+    for row in rows:
+        row["status"] = "equal"
+
+
+def _gumtree_aligned_line_rows(
+    left_text: str,
+    right_text: str,
+) -> list[dict[str, Any]]:
+    left_lines = left_text.splitlines()
+    right_lines = right_text.splitlines()
+    matcher = SequenceMatcher(
+        a=left_lines,
+        b=right_lines,
+        autojunk=False,
+    )
+    rows: list[dict[str, Any]] = []
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset, left_line in enumerate(left_lines[i1:i2]):
+                rows.append(
+                    {
+                        "status": "equal",
+                        "left_no": i1 + offset + 1,
+                        "right_no": j1 + offset + 1,
+                        "left_text": left_line,
+                        "right_text": left_line,
+                    }
+                )
+            continue
+
+        for offset, left_line in enumerate(left_lines[i1:i2]):
+            rows.append(
+                {
+                    "status": "delete",
+                    "left_no": i1 + offset + 1,
+                    "right_no": None,
+                    "left_text": left_line,
+                    "right_text": "",
+                }
+            )
+        for offset, right_line in enumerate(right_lines[j1:j2]):
+            rows.append(
+                {
+                    "status": "insert",
+                    "left_no": None,
+                    "right_no": j1 + offset + 1,
+                    "left_text": "",
+                    "right_text": right_line,
+                }
+            )
+    return rows
+
+
 def build_gumtree_rows_from_json(
     *,
     diff_json: GumTreeJson,
@@ -392,89 +451,62 @@ def build_gumtree_rows_from_json(
     right_text: str,
 ) -> list[dict[str, Any]]:
     ranges = _gumtree_status_ranges(diff_json)
-    rows = _git_style_line_rows(
-        left_text,
-        right_text,
-        changed_statuses=False,
-    )
+    rows = _gumtree_aligned_line_rows(left_text, right_text)
     _apply_gumtree_statuses_to_rows(
         rows=rows,
         left_text=left_text,
         right_text=right_text,
         ranges=ranges,
     )
+    _neutralize_line_statuses(rows)
     return rows
 
 
-def unified_patch_rows(
+def unified_diff_rows(
     *,
     left_text: str,
     right_text: str,
     left_path_hint: str,
     right_path_hint: str,
 ) -> list[dict[str, Any]]:
-    patch_lines = difflib.unified_diff(
-        left_text.splitlines(),
-        right_text.splitlines(),
-        fromfile=left_path_hint,
-        tofile=right_path_hint,
-        lineterm="",
+    diff_lines = unified_diff_lines(
+        left_text=left_text,
+        right_text=right_text,
+        left_label=left_path_hint,
+        right_label=right_path_hint,
     )
     rows: list[dict[str, Any]] = []
-    left_no = 1
-    right_no = 1
-    in_hunk = False
-
-    for line in patch_lines:
-        hunk_match = UNIFIED_HUNK_HEADER_PATTERN.match(line)
-        if hunk_match is not None:
-            left_no = int(hunk_match.group("left_start"))
-            right_no = int(hunk_match.group("right_start"))
-            in_hunk = True
-            continue
-        if not in_hunk:
-            continue
-        if line.startswith("\\"):
-            continue
-        prefix = " "
-        text = ""
-        if line:
-            prefix = line[0]
-            text = line[1:]
-        if prefix == " ":
+    for diff_line in diff_lines:
+        if diff_line.status == "equal":
             rows.append(
                 {
                     "status": "equal",
-                    "left_no": left_no,
-                    "right_no": right_no,
-                    "left_text": text,
-                    "right_text": text,
+                    "left_no": diff_line.left_no,
+                    "right_no": diff_line.right_no,
+                    "left_text": diff_line.text,
+                    "right_text": diff_line.text,
                 }
             )
-            left_no += 1
-            right_no += 1
             continue
-        if prefix == "-":
+        if diff_line.status == "delete":
             rows.append(
                 {
                     "status": "delete",
-                    "left_no": left_no,
+                    "left_no": diff_line.left_no,
                     "right_no": None,
-                    "left_text": text,
+                    "left_text": diff_line.text,
                     "right_text": "",
                 }
             )
-            left_no += 1
             continue
-        if prefix == "+":
+        if diff_line.status == "insert":
             rows.append(
                 {
                     "status": "insert",
                     "left_no": None,
-                    "right_no": right_no,
+                    "right_no": diff_line.right_no,
                     "left_text": "",
-                    "right_text": text,
+                    "right_text": diff_line.text,
                 }
             )
-            right_no += 1
     return rows
