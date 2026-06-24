@@ -18,7 +18,7 @@ import {
   type InitialRepoDiff,
   createRepoResources,
 } from "./app/createRepoResources";
-import { type ControlsState, emptySummary } from "./fileUtils";
+import { type ControlsState } from "./fileUtils";
 import { GracefulErrorBoundary, useToasts } from "./Toasts";
 import "./styles.css";
 
@@ -57,6 +57,7 @@ export function App() {
     upsertFile: ui.upsertFile,
     upsertFiles: ui.upsertFiles,
     currentHydratedLazyKeys: ui.currentHydratedLazyKeys,
+    directoryLabelForFileKey: ui.directoryLabelForFileKey,
     setDirectoryExpansion: ui.setDirectoryExpansion,
     setFileExpansion: ui.setFileExpansion,
     refChoices: repo.refChoices,
@@ -81,13 +82,7 @@ export function App() {
     }
   };
 
-  const summary = () => {
-    const loadedDiff = ui.loadedDiff();
-    if (loadedDiff === null) {
-      return emptySummary;
-    }
-    return loadedDiff.summary;
-  };
+  const summary = () => ui.summary();
 
   const loadPreferences = async () => {
     setPreferencesPending(true);
@@ -145,6 +140,8 @@ export function App() {
     setAllFilesExpanded: ui.setAllFilesExpanded,
     openFileExpansion: ui.openFileExpansion,
     openDirectoryExpansion: ui.openDirectoryExpansion,
+    openTreeDirectoryExpansion: ui.openTreeDirectoryExpansion,
+    directoryLabelForFileKey: ui.directoryLabelForFileKey,
   });
 
   const loadInitialDiff = (initial: InitialRepoDiff) => {
@@ -316,6 +313,7 @@ export function App() {
               <GracefulErrorBoundary title="Could not render file tree">
                 <FileTreeSidebar
                   files={ui.displayFiles()}
+                  tree={ui.displayFileTree()}
                   directoryExpansion={ui.directoryExpansion}
                   fileExpansion={ui.fileExpansion}
                   activeHunkFileId={ui.activeHunkFileId()}
@@ -326,13 +324,14 @@ export function App() {
                   onOpenChange={navigation.setFileTreeOpen}
                   setDirectoryExpansion={ui.setDirectoryExpansion}
                   setFileExpansion={ui.setFileExpansion}
-                  onScrollToDirectory={navigation.scrollToDirectory}
+                  onScrollToDirectory={navigation.scrollToTreeDirectory}
                   onScrollToFile={navigation.scrollToFile}
                 />
               </GracefulErrorBoundary>
               <GracefulErrorBoundary title="Could not render diff">
                 <FileList
                   files={ui.displayFiles()}
+                  groups={ui.displayFileGroups()}
                   directoryExpansion={ui.directoryExpansion}
                   fileExpansion={ui.fileExpansion}
                   loadingFiles={diff.loadingFiles}

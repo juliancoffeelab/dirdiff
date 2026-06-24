@@ -4,6 +4,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  type JSX,
   onCleanup,
 } from "solid-js";
 import type {
@@ -14,10 +15,18 @@ import type {
   LazyReason,
   LazyState,
 } from "./api";
-import { DiffGrid, type DiffViewMode } from "./DiffGrid";
+import {
+  DiffGrid,
+  markHunkAnchors,
+  type DiffViewMode,
+  type HunkDiffRow,
+} from "./DiffGrid";
+import { addFoldRows, isFoldRow, type RenderRow } from "./folds";
 import { NotebookFile } from "./NotebookViews";
 import {
   type FileGroup,
+  type FileTreeDirectoryNode,
+  type FileTreeNode,
   type LinePin,
   type RenderedFileEntry,
   directoryElementId,
@@ -28,7 +37,6 @@ import {
   fileKey,
   fileMatchesLinePin,
   fileRows,
-  groupFilesByLabel,
 } from "./fileUtils";
 
 type ExpansionSetter = (
@@ -190,6 +198,7 @@ function TreeLineStats(props: { stats: LineStats }) {
 
 export function FileList(props: {
   files: RenderedFileEntry[];
+  groups: FileGroup[];
   diffViewMode: DiffViewMode;
   directoryExpansion: BooleanMap;
   fileExpansion: BooleanMap;
@@ -203,10 +212,8 @@ export function FileList(props: {
   setDirectoryExpansion: ExpansionSetter;
   setFileExpansion: ExpansionSetter;
 }) {
-  const groupsByLabel = createMemo(() => groupFilesByLabel(props.files));
-  const groupLabels = createMemo(() => [...groupsByLabel().keys()]);
   const groupForLabel = (label: string) => {
-    const group = groupsByLabel().get(label);
+    const group = props.groups.find((entry) => entry.label === label);
     if (group === undefined) {
       throw new Error(`Could not find directory group ${label}.`);
     }
@@ -243,11 +250,15 @@ export function FileList(props: {
         }
       >
         <div class="directory-groups">
-          <For each={groupLabels()}>
-            {(label) => (
+          <For each={props.groups}>
+            {(group) => (
               <DirectoryGroup
-                group={() => groupForLabel(label)}
-                expanded={expansionValue(props.directoryExpansion, label, true)}
+                group={() => group}
+                expanded={expansionValue(
+                  props.directoryExpansion,
+                  group.label,
+                  true,
+                )}
                 fileExpansion={props.fileExpansion}
                 loadingFiles={props.loadingFiles}
                 fileErrors={props.fileErrors}
@@ -258,7 +269,7 @@ export function FileList(props: {
                 onHydrateFile={props.onHydrateFile}
                 diffViewMode={props.diffViewMode}
                 setExpanded={(expanded) =>
-                  setDirectoryExpanded(label, expanded)
+                  setDirectoryExpanded(group.label, expanded)
                 }
                 setFileExpanded={(key, expanded) =>
                   props.setFileExpansion((current) => ({
@@ -348,6 +359,7 @@ function DirectoryGroup(props: {
 
 export function FileTreeSidebar(props: {
   files: RenderedFileEntry[];
+  tree: FileTreeNode[];
   directoryExpansion: BooleanMap;
   fileExpansion: BooleanMap;
   activeHunkFileId: string | null;
@@ -358,15 +370,14 @@ export function FileTreeSidebar(props: {
   onOpenChange: (open: boolean) => void;
   setDirectoryExpansion: ExpansionSetter;
   setFileExpansion: ExpansionSetter;
-  onScrollToDirectory: (group: FileGroup) => void;
+  onScrollToDirectory: (directory: FileTreeDirectoryNode) => void;
   onScrollToFile: (file: FileEntry) => void;
 }) {
-  const groups = createMemo(() => [...groupFilesByLabel(props.files).values()]);
   const lineStats = createMemo(() =>
     groupLineStats({ label: "", files: props.files }),
   );
-  const directoryExpanded = (group: FileGroup) =>
-    expansionValue(props.directoryExpansion, group.label, true);
+  const directoryExpanded = (directory: FileTreeDirectoryNode) =>
+    expansionValue(props.directoryExpansion, directory.label, true);
   const fileExpanded = (file: FileEntry) =>
     expansionValue(
       props.fileExpansion,
@@ -374,15 +385,18 @@ export function FileTreeSidebar(props: {
       defaultFileExpansion(file),
     );
 
-  const setDirectoryExpanded = (group: FileGroup, expanded: boolean) => {
+  const setDirectoryExpanded = (
+    directory: FileTreeDirectoryNode,
+    expanded: boolean,
+  ) => {
     props.setDirectoryExpansion((current) => ({
       ...current,
-      [group.label]: expanded,
+      [directory.label]: expanded,
     }));
     props.setFileExpansion((current) => ({
       ...current,
       ...Object.fromEntries(
-        group.files.map((file) => [fileKey(file), expanded]),
+        directory.files.map((file) => [fileKey(file), expanded]),
       ),
     }));
   };
@@ -413,6 +427,33 @@ export function FileTreeSidebar(props: {
   const shouldRenderTree = () =>
     props.files.length > 0 ? true : props.viewMode === "inline";
 
+  const renderTreeNode = (node: FileTreeNode, depth: number) => {
+    if (node.type === "directory") {
+      return (
+        <FileTreeDirectory
+          directory={node}
+          depth={depth}
+          expanded={directoryExpanded(node)}
+          setExpanded={(expanded) => setDirectoryExpanded(node, expanded)}
+          onScrollToDirectory={() => props.onScrollToDirectory(node)}
+          renderNode={renderTreeNode}
+        />
+      );
+    }
+    return (
+      <FileTreeFile
+        file={node.file}
+        name={node.name}
+        depth={depth}
+        expanded={fileExpanded(node.file)}
+        virtualized={fileIsVirtualized(node.file)}
+        active={fileIsActiveHunkFile(node.file)}
+        setExpanded={(expanded) => setFileExpanded(node.file, expanded)}
+        onScrollToFile={() => props.onScrollToFile(node.file)}
+      />
+    );
+  };
+
   return (
     <Show when={shouldRenderTree()}>
       <div
@@ -430,113 +471,10 @@ export function FileTreeSidebar(props: {
           >
             <div class="file-tree-groups">
               <Show
-                when={groups().length > 0}
+                when={props.tree.length > 0}
                 fallback={<p class="file-tree-empty">No files loaded yet.</p>}
               >
-                <For each={groups()}>
-                  {(group) => (
-                    <section class="file-tree-group">
-                      <div class="file-tree-directory">
-                        <button
-                          type="button"
-                          class="file-tree-visibility-toggle"
-                          onClick={() =>
-                            setDirectoryExpanded(
-                              group,
-                              !directoryExpanded(group),
-                            )
-                          }
-                          aria-label={
-                            directoryExpanded(group)
-                              ? `Fold ${group.label}`
-                              : `Show ${group.label}`
-                          }
-                        >
-                          <VisibilityIndicator
-                            size="small"
-                            visible={directoryExpanded(group)}
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          class="file-tree-directory-target"
-                          onClick={() => props.onScrollToDirectory(group)}
-                        >
-                          {group.label}
-                        </button>
-                        <TreeLineStats stats={groupLineStats(group)} />
-                      </div>
-                      <For each={group.files}>
-                        {(file) => {
-                          const virtualized = () => fileIsVirtualized(file);
-                          const lazyReason = () => fileTreeLazyReason(file);
-                          return (
-                            <div
-                              class="file-tree-file"
-                              data-file-tree-file-id={fileElementId(
-                                fileKey(file),
-                              )}
-                              classList={{
-                                added:
-                                  fileKindStatus(file.file_kind) === "added",
-                                removed:
-                                  fileKindStatus(file.file_kind) === "deleted",
-                                renamed:
-                                  fileKindStatus(file.file_kind) === "renamed",
-                                untracked:
-                                  fileKindStatus(file.file_kind) ===
-                                  "untracked",
-                                lazy: lazyReason() !== null,
-                                "lazy-error": lazyIsError(file.lazy),
-                                "lazy-generated": lazyReason() === "generated",
-                                "lazy-too-big": lazyReason() === "too_big",
-                                "active-hunk-file": fileIsActiveHunkFile(file),
-                              }}
-                              aria-current={
-                                fileIsActiveHunkFile(file) ? "true" : undefined
-                              }
-                              title={fileDisplayName(file)}
-                            >
-                              <button
-                                type="button"
-                                class="file-tree-visibility-toggle"
-                                onClick={() =>
-                                  setFileExpanded(file, !fileExpanded(file))
-                                }
-                                aria-label={
-                                  fileExpanded(file)
-                                    ? `Fold ${fileDisplayName(file)}`
-                                    : `Show ${fileDisplayName(file)}`
-                                }
-                              >
-                                <VisibilityIndicator
-                                  size="small"
-                                  visible={fileExpanded(file)}
-                                  virtualized={virtualized()}
-                                />
-                              </button>
-                              <button
-                                type="button"
-                                class="file-tree-file-target"
-                                aria-current={
-                                  fileIsActiveHunkFile(file)
-                                    ? "true"
-                                    : undefined
-                                }
-                                onClick={() => props.onScrollToFile(file)}
-                              >
-                                <span class="file-tree-file-name">
-                                  {fileDisplayName(file)}
-                                </span>
-                                <TreeLineStats stats={fileLineStats(file)} />
-                              </button>
-                            </div>
-                          );
-                        }}
-                      </For>
-                    </section>
-                  )}
-                </For>
+                <For each={props.tree}>{(node) => renderTreeNode(node, 0)}</For>
               </Show>
             </div>
           </aside>
@@ -560,6 +498,119 @@ export function FileTreeSidebar(props: {
         </button>
       </div>
     </Show>
+  );
+}
+
+function FileTreeDirectory(props: {
+  directory: FileTreeDirectoryNode;
+  depth: number;
+  expanded: boolean;
+  setExpanded: (expanded: boolean) => void;
+  onScrollToDirectory: () => void;
+  renderNode: (node: FileTreeNode, depth: number) => JSX.Element;
+}) {
+  return (
+    <section class="file-tree-group">
+      <div
+        class="file-tree-directory"
+        style={{ "--file-tree-depth": String(props.depth) }}
+      >
+        <button
+          type="button"
+          class="file-tree-visibility-toggle"
+          onClick={() => props.setExpanded(!props.expanded)}
+          aria-label={
+            props.expanded
+              ? `Fold ${props.directory.label}`
+              : `Show ${props.directory.label}`
+          }
+        >
+          <VisibilityIndicator size="small" visible={props.expanded} />
+        </button>
+        <button
+          type="button"
+          class="file-tree-directory-target"
+          onClick={props.onScrollToDirectory}
+        >
+          {props.directory.name}
+        </button>
+        <TreeLineStats
+          stats={groupLineStats({
+            label: props.directory.label,
+            files: props.directory.files,
+          })}
+        />
+      </div>
+      <Show when={props.expanded}>
+        <div
+          class="file-tree-children"
+          style={{ "--file-tree-depth": String(props.depth) }}
+        >
+          <For each={props.directory.entries}>
+            {(node) => props.renderNode(node, props.depth + 1)}
+          </For>
+        </div>
+      </Show>
+    </section>
+  );
+}
+
+function FileTreeFile(props: {
+  file: RenderedFileEntry;
+  name: string;
+  depth: number;
+  expanded: boolean;
+  virtualized: boolean;
+  active: boolean;
+  setExpanded: (expanded: boolean) => void;
+  onScrollToFile: () => void;
+}) {
+  const lazyReason = () => fileTreeLazyReason(props.file);
+  return (
+    <div
+      class="file-tree-file"
+      data-file-tree-file-id={fileElementId(fileKey(props.file))}
+      classList={{
+        added: fileKindStatus(props.file.file_kind) === "added",
+        removed: fileKindStatus(props.file.file_kind) === "deleted",
+        renamed: fileKindStatus(props.file.file_kind) === "renamed",
+        untracked: fileKindStatus(props.file.file_kind) === "untracked",
+        lazy: lazyReason() !== null,
+        "lazy-error": lazyIsError(props.file.lazy),
+        "lazy-generated": lazyReason() === "generated",
+        "lazy-too-big": lazyReason() === "too_big",
+        "active-hunk-file": props.active,
+      }}
+      style={{ "--file-tree-depth": String(props.depth) }}
+      aria-current={props.active ? "true" : undefined}
+      title={fileDisplayName(props.file)}
+    >
+      <button
+        type="button"
+        class="file-tree-visibility-toggle"
+        onClick={() => props.setExpanded(!props.expanded)}
+        aria-label={
+          props.expanded
+            ? `Fold ${fileDisplayName(props.file)}`
+            : `Show ${fileDisplayName(props.file)}`
+        }
+      >
+        <VisibilityIndicator
+          size="small"
+          visible={props.expanded}
+          virtualized={props.virtualized}
+        />
+      </button>
+      <button
+        type="button"
+        class="file-tree-file-target"
+        aria-current={props.active ? "true" : undefined}
+        onClick={props.onScrollToFile}
+      >
+        <span class="file-tree-file-name">{props.name}</span>
+        <TreeLineStats stats={fileLineStats(props.file)} />
+      </button>
+    </div>
   );
 }
 
@@ -743,7 +794,10 @@ function FileCard(props: {
         aria-hidden="true"
       />
       <Show when={!props.expanded && canRenderRows()}>
-        <HunkSkipAnchors file={props.file} />
+        <HunkSkipAnchors
+          file={props.file}
+          aggressiveFolds={props.aggressiveFolds}
+        />
       </Show>
       <Show
         when={
@@ -771,7 +825,12 @@ function FileCard(props: {
               <Show when={canRenderRows()}>
                 <Show
                   when={shouldRenderRichBody()}
-                  fallback={<PlainSplitFileDiff file={props.file} />}
+                  fallback={
+                    <PlainSplitFileDiff
+                      file={props.file}
+                      aggressiveFolds={props.aggressiveFolds}
+                    />
+                  }
                 >
                   <DiffGrid
                     displayName={displayName()}
@@ -821,16 +880,25 @@ function FileCard(props: {
   );
 }
 
-function PlainSplitFileDiff(props: { file: FileEntry }) {
+function PlainSplitFileDiff(props: {
+  file: FileEntry;
+  aggressiveFolds: boolean;
+}) {
   const text = () => plainSplitText(fileRows(props.file));
-  const hunkAnchors = () => virtualHunkAnchors(fileRows(props.file));
+  const hunkAnchors = () =>
+    virtualHunkAnchors(hunkRenderRows(props.file, props.aggressiveFolds));
 
   return (
     <div class="plain-split-diff" aria-label="Virtualized plain split diff">
       <For each={hunkAnchors()}>
         {(anchor) => (
           <span
-            class="diff-row hunk-anchor virtual-hunk-anchor"
+            classList={{
+              "diff-row": true,
+              "hunk-anchor": true,
+              "virtual-hunk-anchor": !anchor.skipped,
+              "hunk-skip": anchor.skipped,
+            }}
             style={{ top: `${virtualHunkAnchorTop(anchor.rowIndex)}px` }}
             aria-hidden="true"
           />
@@ -857,8 +925,9 @@ function requiredSideLabel(file: FileEntry, side: "left" | "right"): string {
   throw new Error(`${fileDisplayName(file)} is missing ${side} label.`);
 }
 
-function HunkSkipAnchors(props: { file: FileEntry }) {
-  const hunkAnchors = () => virtualHunkAnchors(fileRows(props.file));
+function HunkSkipAnchors(props: { file: FileEntry; aggressiveFolds: boolean }) {
+  const hunkAnchors = () =>
+    virtualHunkAnchors(hunkRenderRows(props.file, props.aggressiveFolds));
 
   return (
     <div class="hunk-skip-anchors" aria-hidden="true">
@@ -869,21 +938,44 @@ function HunkSkipAnchors(props: { file: FileEntry }) {
   );
 }
 
-function virtualHunkAnchors(rows: DiffRow[]): { rowIndex: number }[] {
-  let previousChanged = false;
-  const anchors: { rowIndex: number }[] = [];
-  rows.forEach((row, rowIndex) => {
-    if (row.status === "fold") {
-      previousChanged = false;
-      return;
-    }
+type VirtualHunkAnchor = {
+  rowIndex: number;
+  skipped: boolean;
+};
 
-    const changed = isChangedDiffRowStatus(row.status);
-    if (changed && !previousChanged) {
-      anchors.push({ rowIndex });
+function hunkRenderRows(
+  file: FileEntry,
+  aggressiveFolds: boolean,
+): RenderRow[] {
+  return addFoldRows(
+    markHunkAnchors(fileRows(file)),
+    fileFoldHints(file),
+    aggressiveFolds,
+  );
+}
+
+function virtualHunkAnchors(
+  rows: RenderRow[],
+  startRow = 0,
+): VirtualHunkAnchor[] {
+  const anchors: VirtualHunkAnchor[] = [];
+  let cursor = startRow;
+  for (const row of rows) {
+    if (isFoldRow(row)) {
+      anchors.push(
+        ...virtualHunkAnchors(row.foldedRows, row.startRow).map((anchor) => ({
+          ...anchor,
+          skipped: true,
+        })),
+      );
+      cursor += row.count;
+      continue;
     }
-    previousChanged = changed;
-  });
+    if ((row as HunkDiffRow).isHunkAnchor === true) {
+      anchors.push({ rowIndex: cursor, skipped: false });
+    }
+    cursor += 1;
+  }
   return anchors;
 }
 
@@ -893,10 +985,6 @@ const VIRTUAL_HUNK_ROW_HEIGHT_PX = 17.4;
 function virtualHunkAnchorTop(rowIndex: number): number {
   // Mirrors the approximate line box used by the plain virtualized fallback.
   return VIRTUAL_HUNK_TOP_OFFSET_PX + rowIndex * VIRTUAL_HUNK_ROW_HEIGHT_PX;
-}
-
-function isChangedDiffRowStatus(status: DiffRow["status"]): boolean {
-  return ["replace", "insert", "delete", "move"].includes(status);
 }
 
 function plainSplitText(rows: DiffRow[]): { left: string; right: string } {

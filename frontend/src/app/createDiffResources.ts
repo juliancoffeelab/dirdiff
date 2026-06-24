@@ -26,10 +26,10 @@ import {
   type ControlsState,
   type LoadState,
   type RenderedFileEntry,
-  entryDirectoryLabel,
   fileDiffQueryKey,
   fileKey,
   fileMatchesLinePin,
+  manifestFileEntriesFromTree,
 } from "../fileUtils";
 import { getLinePinFromHash } from "../linePins";
 import { queryClient } from "../queryClient";
@@ -254,6 +254,7 @@ type DiffResourcesOptions = {
     originalLazyReasonByKey: Record<string, ManifestEntry["lazy"]>,
   ) => void;
   currentHydratedLazyKeys: () => string[];
+  directoryLabelForFileKey: (key: string) => string;
   setDirectoryExpansion: ExpansionSetter;
   setFileExpansion: ExpansionSetter;
   refChoices: () => RefChoices;
@@ -482,10 +483,11 @@ export function createDiffResources(options: DiffResourcesOptions) {
     mode: "replace" | "reconcile",
     hydratedLazyKeys: string[],
   ) {
+    const manifestFiles = manifestFileEntriesFromTree(payload.tree);
     const order = Object.fromEntries(
-      payload.files.map((entry, index) => [fileKey(entry), index]),
+      manifestFiles.map((entry, index) => [fileKey(entry), index]),
     );
-    const lazyManifestFiles = payload.files.filter(
+    const lazyManifestFiles = manifestFiles.filter(
       (entry) => entry.lazy !== null,
     );
     const hydratedLazyKeySet = new Set(hydratedLazyKeys);
@@ -502,7 +504,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     void hydrateManifestFiles(
       diffParams,
       loadId,
-      payload.files,
+      manifestFiles,
       baseStatus,
       0,
       hydratedLazyKeySet,
@@ -734,7 +736,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
         batch(() => {
           options.upsertFile(nextEntry, diffParams, loadId, originalLazyReason);
           options.setDirectoryExpansion((current) => {
-            const directory = entryDirectoryLabel(nextEntry);
+            const directory = options.directoryLabelForFileKey(nextKey);
             if (shouldOpenPinnedFile) {
               return { ...current, [directory]: true };
             }

@@ -66,13 +66,20 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
             "right": "worktree",
         },
     )
-    repo_entry = repo_response.json()["files"][0]
-    assert repo_entry == {
-        "lazy": "generated",
-        "left_path": "Cargo.lock",
-        "right_path": "Cargo.lock",
-        "file_kind": {"type": "git", "status": "modified"},
-    }
+    repo_payload = repo_response.json()
+    assert "files" not in repo_payload
+    assert repo_payload["tree"] == [
+        {
+            "type": "file",
+            "name": "Cargo.lock",
+            "entry": {
+                "lazy": "generated",
+                "left_path": "Cargo.lock",
+                "right_path": "Cargo.lock",
+                "file_kind": {"type": "git", "status": "modified"},
+            },
+        }
+    ]
     lazy_info_response = client.get(
         "/api/lazy-info",
         params={
@@ -170,9 +177,15 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
     payload = response.json()
 
     assert response.status_code == 200
-    assert payload["files"][0] == {
-        "lazy": "deleted",
-        "left_path": "alpha.txt",
-        "right_path": None,
-        "file_kind": {"type": "git", "status": "deleted"},
-    }
+    assert payload["tree"] == [
+        {
+            "type": "file",
+            "name": "alpha.txt",
+            "entry": {
+                "lazy": "deleted",
+                "left_path": "alpha.txt",
+                "right_path": None,
+                "file_kind": {"type": "git", "status": "deleted"},
+            },
+        }
+    ]

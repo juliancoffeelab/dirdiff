@@ -1210,12 +1210,6 @@ h1 {
   line-height: 1.2;
 }
 
-.file-tree-group + .file-tree-group {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid #ebe5da;
-}
-
 .file-tree-directory,
 .file-tree-file {
   display: grid;
@@ -1224,13 +1218,27 @@ h1 {
   gap: 4px;
   width: 100%;
   min-height: 28px;
-  padding: 4px 6px;
+  padding: 4px 6px 4px calc(6px + var(--file-tree-depth, 0) * 14px);
 }
 
 .file-tree-directory {
   color: #6a665d;
   font-size: 12px;
   font-weight: 800;
+}
+
+.file-tree-children {
+  position: relative;
+}
+
+.file-tree-children::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(14px + var(--file-tree-depth, 0) * 14px);
+  width: 1px;
+  background: #e6ded1;
+  content: "";
 }
 
 .file-tree-directory-target,
@@ -1243,7 +1251,6 @@ h1 {
 .file-tree-file {
   color: #24231f;
   font-size: 12px;
-  padding-left: 6px;
 }
 
 .file-tree-visibility-toggle {
@@ -1385,11 +1392,14 @@ h1 {
   font-weight: inherit;
 }
 
+.file-tree-directory:hover,
+.file-tree-directory:focus-within,
 .file-tree-file:hover,
 .file-tree-file:focus-within {
   background: #f4f1ea;
 }
 
+.file-tree-directory:focus-within,
 .file-tree-file:focus-within {
   outline: 2px solid #2563eb;
   outline-offset: -2px;

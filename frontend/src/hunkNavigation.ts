@@ -7,7 +7,7 @@ type HunkNavigationOptions = {
   onSelectionChange?: (selection: {
     anchors: HunkAnchor[];
     index: number;
-    selected: HTMLElement | null;
+    selected: HTMLElement;
   }) => void;
 };
 
@@ -16,7 +16,7 @@ const PROGRAMMATIC_SCROLL_IGNORE_MS = 150;
 const READING_LINE_RATIO = 0.5;
 const RICH_PRELOAD_FILE_RADIUS = 2;
 
-type HunkAnchor = HTMLElement | null;
+type HunkAnchor = HTMLElement;
 type HunkPosition = {
   current: number;
   total: number;
@@ -103,9 +103,7 @@ function hunkAnchorRoot(root: ParentNode | undefined): ParentNode {
 }
 
 function hunkAnchors(root: ParentNode | undefined): HunkAnchor[] {
-  return hunkAnchorElements(root).map((anchor) =>
-    anchor.classList.contains("hunk-skip") ? null : anchor,
-  );
+  return hunkAnchorElements(root);
 }
 
 function anchorDistanceToReadingLine(
@@ -117,7 +115,11 @@ function anchorDistanceToReadingLine(
 
 function anchorIsVisible(anchor: HTMLElement): boolean {
   const rect = anchor.getBoundingClientRect();
-  return rect.bottom > 0 && rect.top < window.innerHeight;
+  return rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+}
+
+function anchorIsSelectable(anchor: HTMLElement): boolean {
+  return !anchor.classList.contains("hunk-skip");
 }
 
 function currentSelectableAnchor(
@@ -125,7 +127,7 @@ function currentSelectableAnchor(
   index: number,
 ): HTMLElement | null {
   const anchor = anchors[clamp(index, 0, anchors.length - 1)];
-  if (anchor === null || anchor === undefined) {
+  if (anchor === undefined || !anchorIsSelectable(anchor)) {
     return null;
   }
   return anchor;
@@ -135,19 +137,16 @@ function selectCurrentHunk(options: {
   index: number;
   scroll: boolean;
   root: ParentNode | undefined;
-}): HTMLElement | null {
+}): HTMLElement {
   const anchors = hunkAnchors(options.root);
   const anchorElements = hunkAnchorElements(options.root);
   if (anchors.length === 0) {
-    return null;
+    throw new Error("Cannot select hunk without mounted hunk anchors.");
   }
   const selected = anchors[clamp(options.index, 0, anchors.length - 1)];
   for (const anchor of anchorElements) {
     anchor.classList.remove("active-hunk");
     anchor.removeAttribute("aria-current");
-  }
-  if (selected === null) {
-    return null;
   }
   selected.classList.add("active-hunk");
   selected.setAttribute("aria-current", "true");
@@ -173,12 +172,12 @@ function nextSelectableIndex(
   startIndex: number,
   direction: 1 | -1,
 ): number | null {
-  if (!anchors.some((anchor) => anchor !== null)) {
+  if (!anchors.some(anchorIsSelectable)) {
     return null;
   }
   let index = wrapIndex(startIndex, anchors.length);
   for (let steps = 0; steps < anchors.length; steps += 1) {
-    if (anchors[index] !== null) {
+    if (anchorIsSelectable(anchors[index])) {
       return index;
     }
     index = wrapIndex(index + direction, anchors.length);
@@ -205,21 +204,27 @@ export function createHunkNavigation(
     currentAnchors: HunkAnchor[],
     selectedIndex: number,
   ) => {
-    const selectableIndices = currentAnchors.flatMap((anchor, index) =>
-      anchor === null ? [] : [index],
-    );
-    if (selectableIndices.length === 0) {
+    if (currentAnchors.length === 0) {
       setPosition({ current: 0, total: 0 });
       return;
     }
-    const ordinal = selectableIndices.indexOf(selectedIndex);
     setPosition({
-      current: ordinal === -1 ? 0 : ordinal + 1,
-      total: selectableIndices.length,
+      current: selectedIndex + 1,
+      total: currentAnchors.length,
     });
   };
 
-  const select = (selectionOptions: { index: number; scroll: boolean }) => {
+  // Invariant: hunk selection and currentIndex writes are allowed only from:
+  // 1. scrollNext()
+  // 2. scrollPrev()
+  // 3. followScroll()
+  // Reconcile, virtualization, rendering, and layout effects must not call
+  // select() or otherwise write currentIndex.
+  const select = (selectionOptions: {
+    index: number;
+    notify: boolean;
+    scroll: boolean;
+  }) => {
     const currentAnchors = anchors();
     if (!currentAnchors.length) {
       setPosition({ current: 0, total: 0 });
@@ -231,12 +236,14 @@ export function createHunkNavigation(
       scroll: selectionOptions.scroll,
       root: root(),
     });
-    syncPosition(currentAnchors, selected === null ? -1 : index);
-    options.onSelectionChange?.({
-      anchors: currentAnchors,
-      index,
-      selected,
-    });
+    syncPosition(currentAnchors, index);
+    if (selectionOptions.notify) {
+      options.onSelectionChange?.({
+        anchors: currentAnchors,
+        index,
+        selected,
+      });
+    }
   };
 
   const cancelReconcileTimer = () => {
@@ -259,18 +266,19 @@ export function createHunkNavigation(
     ignoreScrollFollowUntil = performance.now() + durationMs;
   };
 
-  const selectNearestHunkToViewport = () => {
-    const currentAnchors = anchors();
+  const nearestVisibleHunkIndex = (currentAnchors: HunkAnchor[]) => {
     if (currentAnchors.length === 0) {
-      return;
+      return null;
     }
 
     const readingLineY = window.innerHeight * READING_LINE_RATIO;
     const candidateAnchorEntries = currentAnchors.flatMap((anchor, index) =>
-      anchor !== null && anchorIsVisible(anchor) ? [{ anchor, index }] : [],
+      anchorIsSelectable(anchor) && anchorIsVisible(anchor)
+        ? [{ anchor, index }]
+        : [],
     );
     if (candidateAnchorEntries.length === 0) {
-      return;
+      return null;
     }
 
     let nextIndex = candidateAnchorEntries[0].index;
@@ -286,12 +294,7 @@ export function createHunkNavigation(
       }
     }
 
-    if (nextIndex === currentIndex()) {
-      return;
-    }
-
-    setCurrentIndex(nextIndex);
-    select({ index: nextIndex, scroll: false });
+    return nextIndex;
   };
 
   const reconcile = () => {
@@ -300,27 +303,18 @@ export function createHunkNavigation(
       reconcileTimer = null;
       const currentAnchors = anchors();
       if (currentAnchors.length === 0) {
-        setCurrentIndex(0);
         setPosition({ current: 0, total: 0 });
         options.afterReconcile?.();
         return;
       }
 
-      const activeIndex = currentAnchors.findIndex(
-        (anchor) => anchor?.classList.contains("active-hunk") === true,
-      );
-      const nextIndex =
-        activeIndex === -1
-          ? clamp(currentIndex(), 0, currentAnchors.length - 1)
-          : activeIndex;
-      setCurrentIndex(nextIndex);
-      select({ index: nextIndex, scroll: false });
+      const nextIndex = clamp(currentIndex(), 0, currentAnchors.length - 1);
+      syncPosition(currentAnchors, nextIndex);
       options.afterReconcile?.();
     }, 120);
   };
 
-  const scroll = (direction: 1 | -1) => {
-    cancelScrollFollowTimer();
+  const explicitScrollTarget = (direction: 1 | -1) => {
     const currentAnchors = anchors();
     if (!currentAnchors.length) {
       console.error(
@@ -336,9 +330,7 @@ export function createHunkNavigation(
       currentIndex(),
     );
     if (currentAnchor !== null && !anchorIsVisible(currentAnchor)) {
-      ignoreScrollFollowFor(PROGRAMMATIC_SCROLL_IGNORE_MS);
-      select({ index: currentIndex(), scroll: true });
-      return;
+      return { index: currentIndex(), scroll: true };
     }
 
     const nextIndex = nextSelectableIndex(
@@ -347,30 +339,61 @@ export function createHunkNavigation(
       direction,
     );
     if (nextIndex === null) {
-      setCurrentIndex(0);
-      select({ index: 0, scroll: false });
-      return;
+      return { index: 0, scroll: false };
     }
-    setCurrentIndex(nextIndex);
+
+    return { index: nextIndex, scroll: true };
+  };
+
+  // currentIndex writer 1/3: explicit next hunk navigation from n/HUD.
+  const scrollNext = () => {
+    cancelScrollFollowTimer();
+    const nextTarget = explicitScrollTarget(1);
+    setCurrentIndex(nextTarget.index);
     ignoreScrollFollowFor(PROGRAMMATIC_SCROLL_IGNORE_MS);
-    select({ index: nextIndex, scroll: true });
+    select({
+      index: nextTarget.index,
+      notify: true,
+      scroll: nextTarget.scroll,
+    });
   };
 
-  const onScroll = () => {
-    if (performance.now() < ignoreScrollFollowUntil) {
-      return;
-    }
-    if (scrollFollowTimer !== null) {
-      return;
-    }
-
-    scrollFollowTimer = window.setTimeout(() => {
-      scrollFollowTimer = null;
-      selectNearestHunkToViewport();
-    }, SCROLL_FOLLOW_INTERVAL_MS);
+  // currentIndex writer 2/3: explicit previous hunk navigation from N/HUD.
+  const scrollPrev = () => {
+    cancelScrollFollowTimer();
+    const nextTarget = explicitScrollTarget(-1);
+    setCurrentIndex(nextTarget.index);
+    ignoreScrollFollowFor(PROGRAMMATIC_SCROLL_IGNORE_MS);
+    select({
+      index: nextTarget.index,
+      notify: true,
+      scroll: nextTarget.scroll,
+    });
   };
 
+  // currentIndex writer 3/3: scroll-follow picks the visible hunk nearest the
+  // reading line after user-driven page scrolling.
   const followScroll = () => {
+    const onScroll = () => {
+      if (performance.now() < ignoreScrollFollowUntil) {
+        return;
+      }
+      if (scrollFollowTimer !== null) {
+        return;
+      }
+
+      scrollFollowTimer = window.setTimeout(() => {
+        scrollFollowTimer = null;
+        const nextIndex = nearestVisibleHunkIndex(anchors());
+        if (nextIndex === null || nextIndex === currentIndex()) {
+          return;
+        }
+
+        setCurrentIndex(nextIndex);
+        select({ index: nextIndex, notify: true, scroll: false });
+      }, SCROLL_FOLLOW_INTERVAL_MS);
+    };
+
     window.addEventListener("scroll", onScroll, { passive: true });
     onCleanup(() => {
       window.removeEventListener("scroll", onScroll);
@@ -397,7 +420,7 @@ export function createHunkNavigation(
     ignoreScrollFollowFor,
     position,
     reconcileWhen,
-    scrollNext: () => scroll(1),
-    scrollPrev: () => scroll(-1),
+    scrollNext,
+    scrollPrev,
   };
 }

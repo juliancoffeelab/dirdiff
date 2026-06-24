@@ -490,6 +490,24 @@ class RepoFileEntryResponse(ApiModel):
     lazy: LazyReason = None
 
 
+class RepoManifestFileNodeResponse(ApiModel):
+    type: Literal["file"]
+    name: str
+    entry: RepoFileEntryResponse
+
+
+class RepoManifestDirectoryNodeResponse(ApiModel):
+    type: Literal["directory"]
+    name: str
+    path: str
+    entries: list[RepoManifestTreeEntryResponse]
+
+
+RepoManifestTreeEntryResponse = (
+    RepoManifestFileNodeResponse | RepoManifestDirectoryNodeResponse
+)
+
+
 class LazyInfoFileResponse(ApiModel):
     # This response must contain enough data for the frontend to construct a
     # lazy placeholder FileEntry without copying fields from /api/manifest.
@@ -522,7 +540,7 @@ class RepoManifestResponse(ApiModel):
     left_label: str
     right_label: str
     summary: RepoDiffSummaryResponse
-    files: list[RepoFileEntryResponse]
+    tree: list[RepoManifestTreeEntryResponse]
 
 
 class LazyInfoResponse(ApiModel):

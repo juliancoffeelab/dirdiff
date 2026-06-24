@@ -25,9 +25,9 @@ import {
 } from "../linePins";
 import {
   type FileGroup,
+  type FileTreeDirectoryNode,
   type LinePin,
   directoryElementId,
-  entryDirectoryLabel,
   fileBodyAnchorElementId,
   fileDisplayName,
   fileElementId,
@@ -54,6 +54,8 @@ type DiffNavigationOptions = {
   setAllFilesExpanded: (expanded: boolean) => void;
   openFileExpansion: (file: FileEntry) => void;
   openDirectoryExpansion: (group: FileGroup) => void;
+  openTreeDirectoryExpansion: (directory: FileTreeDirectoryNode) => void;
+  directoryLabelForFileKey: (key: string) => string;
 };
 
 type FileTreeNavigationOptions = {
@@ -62,6 +64,7 @@ type FileTreeNavigationOptions = {
   forceRichFileId: (fileId: string) => void;
   openFileExpansion: (file: FileEntry) => void;
   openDirectoryExpansion: (group: FileGroup) => void;
+  openTreeDirectoryExpansion: (directory: FileTreeDirectoryNode) => void;
 };
 
 type ExpansionSetter = (
@@ -234,9 +237,26 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
     scrollWhenReady(0, 0, null);
   };
 
+  const scrollToTreeDirectory = (directory: FileTreeDirectoryNode) => {
+    options.openTreeDirectoryExpansion(directory);
+    const matchingListGroup = document.getElementById(
+      directoryElementId(directory.label),
+    );
+    if (matchingListGroup !== null) {
+      scrollToDirectory({ label: directory.label, files: directory.files });
+      return;
+    }
+    const firstFile = directory.files[0];
+    if (firstFile === undefined) {
+      throw new Error(`Directory ${directory.label} did not contain files.`);
+    }
+    scrollToFile(firstFile);
+  };
+
   return {
     scrollToFile,
     scrollToDirectory,
+    scrollToTreeDirectory,
   };
 }
 
@@ -264,6 +284,7 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     forceRichFileId: options.forceRichFileId,
     openFileExpansion: options.openFileExpansion,
     openDirectoryExpansion: options.openDirectoryExpansion,
+    openTreeDirectoryExpansion: options.openTreeDirectoryExpansion,
   });
   let restoredLinePinKey = "";
   const hunkNav = createHunkNavigation(options.appRoot, {
@@ -470,8 +491,8 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     if (file === undefined) {
       return;
     }
-    const directory = entryDirectoryLabel(file);
     const key = fileKey(file);
+    const directory = options.directoryLabelForFileKey(key);
     batch(() => {
       options.setDirectoryExpansion((current) => ({
         ...current,
@@ -521,5 +542,6 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     scrollPrev: hunkNav.scrollPrev,
     scrollToFile: fileTreeNavigation.scrollToFile,
     scrollToDirectory: fileTreeNavigation.scrollToDirectory,
+    scrollToTreeDirectory: fileTreeNavigation.scrollToTreeDirectory,
   };
 }

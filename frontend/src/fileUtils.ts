@@ -7,6 +7,7 @@ import type {
   FileKind,
   FoldHint,
   LazyReason,
+  ManifestTreeEntry,
   ManifestEntry,
   NotebookSummary,
   PresetType,
@@ -30,15 +31,6 @@ export type ControlsState = {
   reviewBranch: string;
 };
 
-export type LoadedDiff = {
-  params: DiffParams;
-  // Rendered file cards are built from FileEntry values only.
-  files: RenderedFileEntry[];
-  // ManifestEntry values are only handles for fetching enough file data later.
-  lazyFiles: ManifestEntry[];
-  fileOrder: Record<string, number>;
-  summary: Summary;
-};
 export type RenderedFileEntry = FileEntry & {
   renderedKey: string;
   sourceParams: DiffParams;
@@ -57,6 +49,19 @@ export type LinePin = {
 export type FileGroup = {
   label: string;
   files: RenderedFileEntry[];
+};
+export type FileTreeNode = FileTreeFileNode | FileTreeDirectoryNode;
+export type FileTreeFileNode = {
+  type: "file";
+  name: string;
+  file: RenderedFileEntry;
+};
+export type FileTreeDirectoryNode = {
+  type: "directory";
+  label: string;
+  name: string;
+  files: RenderedFileEntry[];
+  entries: FileTreeNode[];
 };
 
 export const modeLabels: Record<DiffMode, string> = {
@@ -106,6 +111,7 @@ export const emptySummary: Summary = {
   removed_lines: 0,
   skipped_files: 0,
 };
+export const ROOT_FILES_LABEL = "root files";
 
 function nullableStringValue(
   value: string | null | undefined,
@@ -117,27 +123,11 @@ function nullableStringValue(
   return fallback;
 }
 
-function entryDirectoryPath(entry: FileEntry): string {
-  const path = fileTreePath(entry);
-  const lastSlash = path.lastIndexOf("/");
-  return lastSlash >= 0 ? path.slice(0, lastSlash) : "";
-}
-
 export function fileDisplayName(entry: FileEntry): string {
   if (entry.display_name !== undefined && entry.display_name.length > 0) {
     return entry.display_name;
   }
   throw new Error("File entry is missing display_name.");
-}
-
-function fileTreePath(entry: FileEntry): string {
-  if (entry.right_path !== null && entry.right_path.length > 0) {
-    return entry.right_path;
-  }
-  if (entry.left_path !== null && entry.left_path.length > 0) {
-    return entry.left_path;
-  }
-  throw new Error("File entry is missing paths.");
 }
 
 export function fileRows(entry: FileEntry): DiffRow[] {
@@ -198,14 +188,6 @@ function fileKindKey(fileKind: FileKind): string {
   return `git:${fileKind.status}`;
 }
 
-export function entryDirectoryLabel(entry: FileEntry): string {
-  const directory = entryDirectoryPath(entry);
-  if (directory.length > 0) {
-    return directory;
-  }
-  return "root files";
-}
-
 export function fileKey(entry: FileEntry): string {
   const leftPath = nullableStringValue(entry.left_path, "");
   const rightPath = nullableStringValue(entry.right_path, "");
@@ -214,27 +196,6 @@ export function fileKey(entry: FileEntry): string {
       ? ""
       : nullableStringValue(entry.display_name, "");
   return `${leftPath}\u0000${rightPath}\u0000${displayName}\u0000${fileKindKey(entry.file_kind)}`;
-}
-
-export function sortFilesByOrder(
-  files: FileEntry[],
-  order: Record<string, number>,
-): FileEntry[] {
-  return [...files].sort(
-    (leftFile, rightFile) =>
-      fileOrderIndex(order, leftFile) - fileOrderIndex(order, rightFile),
-  );
-}
-
-function fileOrderIndex(
-  order: Record<string, number>,
-  file: FileEntry,
-): number {
-  const index = order[fileKey(file)];
-  if (index === undefined) {
-    throw new Error(`Missing file order for ${fileKey(file)}.`);
-  }
-  return index;
 }
 
 export function fileElementId(key: string): string {
@@ -288,25 +249,129 @@ export function fileDiffQueryKey(
   ] as const;
 }
 
-export function groupFilesByLabel(
-  files: RenderedFileEntry[],
-): Map<string, FileGroup> {
-  const groups = new Map<string, RenderedFileEntry[]>();
-  for (const file of files) {
-    const label = entryDirectoryLabel(file);
-    const groupFiles = groups.get(label);
-    if (groupFiles !== undefined) {
-      groupFiles.push(file);
-    } else {
-      groups.set(label, [file]);
+type FilesByKey = Record<string, RenderedFileEntry | undefined>;
+
+function loadedFilesForNodes(
+  entries: ManifestTreeEntry[],
+  filesByKey: FilesByKey,
+): RenderedFileEntry[] {
+  return entries.flatMap((entry) => {
+    if (entry.type === "directory") {
+      return [];
     }
+    const file = filesByKey[fileKey(entry.entry)];
+    return file === undefined ? [] : [file];
+  });
+}
+
+function directoryGroupsFromTree(
+  entries: ManifestTreeEntry[],
+  filesByKey: FilesByKey,
+): FileGroup[] {
+  return entries.flatMap((entry) => {
+    if (entry.type === "file") {
+      return [];
+    }
+    const directFiles = loadedFilesForNodes(entry.entries, filesByKey);
+    const directGroup =
+      directFiles.length === 0
+        ? []
+        : [{ label: entry.path, files: directFiles }];
+    return [
+      ...directoryGroupsFromTree(entry.entries, filesByKey),
+      ...directGroup,
+    ];
+  });
+}
+
+export function groupFilesByManifestTree(
+  tree: ManifestTreeEntry[],
+  filesByKey: FilesByKey,
+): FileGroup[] {
+  const rootFiles = loadedFilesForNodes(tree, filesByKey);
+  const directoryGroups = directoryGroupsFromTree(tree, filesByKey);
+  if (rootFiles.length === 0) {
+    return directoryGroups;
   }
-  return new Map(
-    [...groups].map(([label, groupFiles]) => [
-      label,
-      { label, files: groupFiles },
-    ]),
-  );
+  return [...directoryGroups, { label: ROOT_FILES_LABEL, files: rootFiles }];
+}
+
+function fileTreeFilesForNodes(nodes: FileTreeNode[]): RenderedFileEntry[] {
+  return nodes.flatMap((node) => {
+    if (node.type === "file") {
+      return [node.file];
+    }
+    return node.files;
+  });
+}
+
+function fileTreeNodeFromManifestEntry(
+  entry: ManifestTreeEntry,
+  filesByKey: FilesByKey,
+): FileTreeNode | null {
+  if (entry.type === "file") {
+    const file = filesByKey[fileKey(entry.entry)];
+    return file === undefined ? null : { type: "file", name: entry.name, file };
+  }
+
+  const entries = entry.entries.flatMap((child) => {
+    const node = fileTreeNodeFromManifestEntry(child, filesByKey);
+    return node === null ? [] : [node];
+  });
+  const files = fileTreeFilesForNodes(entries);
+  if (files.length === 0) {
+    return null;
+  }
+  return {
+    type: "directory",
+    label: entry.path,
+    name: entry.name,
+    files,
+    entries,
+  };
+}
+
+export function fileTreeFromManifestTree(
+  tree: ManifestTreeEntry[],
+  filesByKey: FilesByKey,
+): FileTreeNode[] {
+  return tree.flatMap((entry) => {
+    const node = fileTreeNodeFromManifestEntry(entry, filesByKey);
+    return node === null ? [] : [node];
+  });
+}
+
+export function manifestFileEntriesFromTree(
+  tree: ManifestTreeEntry[],
+): ManifestEntry[] {
+  return tree.flatMap((entry) => {
+    if (entry.type === "file") {
+      return [entry.entry];
+    }
+    return manifestFileEntriesFromTree(entry.entries);
+  });
+}
+
+function collectDirectoryLabelsByFileKey(
+  entries: ManifestTreeEntry[],
+  label: string,
+  labels: Record<string, string>,
+): void {
+  for (const entry of entries) {
+    if (entry.type === "file") {
+      labels[fileKey(entry.entry)] = label;
+      continue;
+    }
+    collectDirectoryLabelsByFileKey(entry.entries, entry.path, labels);
+  }
+}
+
+export function manifestDirectoryLabelsByFileKey(
+  tree: ManifestTreeEntry[],
+): Record<string, string> {
+  const labels: Record<string, string> = {};
+  collectDirectoryLabelsByFileKey(tree, ROOT_FILES_LABEL, labels);
+  return labels;
 }
 
 export function fileMatchesLinePin(file: FileEntry, pin: LinePin): boolean {

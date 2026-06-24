@@ -89,9 +89,10 @@ function InlineHeader(props: { leftLabel: string; rightLabel: string }) {
   );
 }
 
-type HunkRenderRow = RenderRow & {
+export type HunkDiffRow = DiffRow & {
   isHunkAnchor?: boolean;
 };
+type HunkRenderRow = HunkDiffRow | FoldRow;
 
 type InlineLineNumberState = {
   leftNo: number | null;
@@ -141,9 +142,11 @@ function ImperativeDiffLines(props: {
       previousSemanticReplaceRows = props.semanticReplaceRows;
     }
 
-    const rows = markHunkAnchors(
-      addFoldRows(props.rows, props.foldHints, props.aggressiveFolds),
-    );
+    const rows = addFoldRows(
+      markHunkAnchors(props.rows),
+      props.foldHints,
+      props.aggressiveFolds,
+    ) as HunkRenderRow[];
     const fileLabel = props.displayName;
     const fragment =
       props.viewMode === "inline" && props.semanticReplaceRows === true
@@ -298,7 +301,7 @@ function renderSplitFoldDom(
     const expanded = expandedFolds.has(rowIndex);
     if (expanded) {
       const fragment = renderSplitRowsDom(
-        markHunkAnchors(row.foldedRows),
+        row.foldedRows as HunkRenderRow[],
         fileLabel,
         leftLabel,
         rightLabel,
@@ -320,7 +323,7 @@ function renderSplitFoldDom(
       createFoldSideDom(row.count, row.label, leftLabel),
       createFoldSideDom(row.count, row.label, rightLabel),
     );
-    wrapper.replaceChildren(button);
+    wrapper.replaceChildren(...hunkSkipAnchors(row.foldedRows), button);
   };
 
   renderFold();
@@ -349,7 +352,7 @@ function renderInlineFoldDom(
   const renderFold = () => {
     const expanded = expandedFolds.has(rowIndex);
     if (expanded) {
-      const rows = markHunkAnchors(row.foldedRows);
+      const rows = row.foldedRows as HunkRenderRow[];
       const fragment =
         semanticReplaceRows === true
           ? renderSemanticInlineRowsDom(
@@ -379,7 +382,7 @@ function renderInlineFoldDom(
         foldLabel(row),
       ),
     );
-    wrapper.replaceChildren(button);
+    wrapper.replaceChildren(...hunkSkipAnchors(row.foldedRows), button);
   };
 
   renderFold();
@@ -406,6 +409,21 @@ function attachExpandedFoldToggle(
   if (lineNumber instanceof HTMLElement) {
     lineNumber.prepend(createFoldToggleButtonDom({ expanded: true, onToggle }));
   }
+}
+
+function hunkSkipAnchors(rows: RenderRow[]): HTMLElement[] {
+  return rows.flatMap((row) => {
+    if (isFoldRow(row)) {
+      return hunkSkipAnchors(row.foldedRows);
+    }
+    if ((row as HunkDiffRow).isHunkAnchor === true) {
+      const anchor = document.createElement("span");
+      anchor.className = "diff-row hunk-anchor hunk-skip";
+      anchor.setAttribute("aria-hidden", "true");
+      return [anchor];
+    }
+    return [];
+  });
 }
 
 function renderSplitDiffRowDom(
@@ -1027,13 +1045,9 @@ function isChangedRowStatus(status: string): boolean {
   return ["replace", "insert", "delete", "move"].includes(status);
 }
 
-function markHunkAnchors(rows: RenderRow[]): HunkRenderRow[] {
+export function markHunkAnchors(rows: DiffRow[]): HunkDiffRow[] {
   let previousChanged = false;
   return rows.map((row) => {
-    if (isFoldRow(row)) {
-      previousChanged = false;
-      return row;
-    }
     const changed = isChangedRowStatus(row.status);
     const isHunkAnchor = changed && !previousChanged;
     previousChanged = changed;

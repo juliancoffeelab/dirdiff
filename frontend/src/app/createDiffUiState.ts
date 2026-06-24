@@ -12,17 +12,21 @@ import type {
   FileEntry,
   LazyReason,
   ManifestEntry,
+  ManifestTreeEntry,
   RepoManifestPayload,
+  Summary,
 } from "../api";
 import {
   type FileGroup,
-  type LoadedDiff,
+  type FileTreeDirectoryNode,
   type RenderedFileEntry,
   addHydratedNotebookSummary,
-  entryDirectoryLabel,
+  fileTreeFromManifestTree,
   fileEntryIsHydrated,
   fileKey,
-  groupFilesByLabel,
+  groupFilesByManifestTree,
+  manifestFileEntriesFromTree,
+  manifestDirectoryLabelsByFileKey,
 } from "../fileUtils";
 import { richPreloadFileIdsForFileId } from "../hunkNavigation";
 import { diffParamsIdentity } from "./diffParams";
@@ -53,13 +57,13 @@ function booleanRecordsEqual(
 
 type BooleanMap = Record<string, boolean | undefined>;
 type DiffDocumentState = {
-  params: DiffParams | null;
   loadId: number;
   order: string[];
-  fileOrder: Record<string, number>;
+  tree: ManifestTreeEntry[];
+  directoryLabelByFileKey: Record<string, string>;
   filesByKey: Record<string, RenderedFileEntry | undefined>;
   lazyFilesByKey: Record<string, ManifestEntry | undefined>;
-  baseSummary: LoadedDiff["summary"];
+  baseSummary: Summary;
 };
 export type ExpansionSetter = (
   updater: (current: Record<string, boolean>) => Record<string, boolean>,
@@ -67,10 +71,10 @@ export type ExpansionSetter = (
 
 function emptyDocumentState(): DiffDocumentState {
   return {
-    params: null,
     loadId: 0,
     order: [],
-    fileOrder: {},
+    tree: [],
+    directoryLabelByFileKey: {},
     filesByKey: {},
     lazyFilesByKey: {},
     baseSummary: {
@@ -104,21 +108,18 @@ function stringSetSnapshot(map: BooleanMap): string[] {
 
 function manifestOrder(payload: RepoManifestPayload): {
   order: string[];
-  fileOrder: Record<string, number>;
   lazyFilesByKey: Record<string, ManifestEntry>;
 } {
   const order: string[] = [];
-  const fileOrder: Record<string, number> = {};
   const lazyFilesByKey: Record<string, ManifestEntry> = {};
-  payload.files.forEach((entry, index) => {
+  for (const entry of manifestFileEntriesFromTree(payload.tree)) {
     const key = fileKey(entry);
     order.push(key);
-    fileOrder[key] = index;
     if (entry.lazy !== null) {
       lazyFilesByKey[key] = entry;
     }
-  });
-  return { order, fileOrder, lazyFilesByKey };
+  }
+  return { order, lazyFilesByKey };
 }
 
 function renderedFileEntry(
@@ -156,9 +157,9 @@ function renderedFileIsPendingLazy(file: RenderedFileEntry): boolean {
 /**
  * Owns client-only diff presentation state.
  *
- * This primitive stores the LoadedDiff snapshot and all UI state derived from
- * rendering it: display-file ordering, directory/file expansion, forced rich
- * rendering, active hunk file id, and virtualization bookkeeping.
+ * This primitive stores client-side diff presentation state: display-file
+ * ordering, directory/file expansion, forced rich rendering, active hunk file
+ * id, and virtualization bookkeeping.
  *
  * It does not fetch data, build requests, write the URL, or attach DOM
  * listeners. Callers mutate it through named actions so those workflows remain
@@ -244,16 +245,13 @@ export function createDiffUiState() {
     return files;
   });
 
-  const lazyFiles = createMemo(() => {
-    const files: ManifestEntry[] = [];
-    for (const key of document.order) {
-      const entry = document.lazyFilesByKey[key];
-      if (entry !== undefined) {
-        files.push(entry);
-      }
-    }
-    return files;
-  });
+  const displayFileGroups = createMemo(() =>
+    groupFilesByManifestTree(document.tree, document.filesByKey),
+  );
+
+  const displayFileTree = createMemo(() =>
+    fileTreeFromManifestTree(document.tree, document.filesByKey),
+  );
 
   const summary = createMemo(() => {
     let nextSummary = document.baseSummary;
@@ -263,20 +261,6 @@ export function createDiffUiState() {
       }
     }
     return nextSummary;
-  });
-
-  const loadedDiff = createMemo(() => {
-    const params = document.params;
-    if (params === null) {
-      return null;
-    }
-    return {
-      params,
-      files: displayFiles(),
-      lazyFiles: lazyFiles(),
-      fileOrder: document.fileOrder,
-      summary: summary(),
-    };
   });
 
   /**
@@ -306,11 +290,14 @@ export function createDiffUiState() {
     const activeKeys = new Set(next.order);
     const lazyKeys = new Set(Object.keys(next.lazyFilesByKey));
     batch(() => {
-      setDocument("params", diffParams);
       setDocument("loadId", loadId);
       setDocument("baseSummary", payload.summary);
       setDocument("order", next.order);
-      setDocument("fileOrder", reconcile(next.fileOrder));
+      setDocument("tree", reconcile(payload.tree));
+      setDocument(
+        "directoryLabelByFileKey",
+        reconcile(manifestDirectoryLabelsByFileKey(payload.tree)),
+      );
       setDocument("lazyFilesByKey", reconcile(next.lazyFilesByKey));
       if (mode === "replace") {
         setDocument("filesByKey", reconcile({}));
@@ -417,11 +404,22 @@ export function createDiffUiState() {
 
   const setAllFilesExpanded = (expanded: boolean) => {
     const currentFiles = displayFiles();
-    const groups = [...groupFilesByLabel(currentFiles).keys()];
+    const collectDirectoryLabels = (
+      entries: ReturnType<typeof displayFileTree>,
+    ): string[] =>
+      entries.flatMap((entry) => {
+        if (entry.type === "file") {
+          return [];
+        }
+        return [entry.label, ...collectDirectoryLabels(entry.entries)];
+      });
+    const directories = collectDirectoryLabels(displayFileTree());
     batch(() => {
       setViewState(
         "directoryExpansion",
-        reconcile(Object.fromEntries(groups.map((label) => [label, expanded]))),
+        reconcile(
+          Object.fromEntries(directories.map((label) => [label, expanded])),
+        ),
       );
       setViewState(
         "fileExpansion",
@@ -436,13 +434,24 @@ export function createDiffUiState() {
   };
 
   const openFileExpansion = (file: FileEntry) => {
-    const directory = entryDirectoryLabel(file);
     const key = fileKey(file);
+    const directory = document.directoryLabelByFileKey[key];
+    if (directory === undefined) {
+      throw new Error(`Missing directory label for ${key}.`);
+    }
     batch(() => {
       setViewState("directoryExpansion", directory, true);
       setViewState("fileExpansion", key, true);
       bumpLayoutRevision();
     });
+  };
+
+  const directoryLabelForFileKey = (key: string): string => {
+    const directory = document.directoryLabelByFileKey[key];
+    if (directory === undefined) {
+      throw new Error(`Missing directory label for ${key}.`);
+    }
+    return directory;
   };
 
   const openDirectoryExpansion = (group: FileGroup) => {
@@ -455,8 +464,18 @@ export function createDiffUiState() {
     });
   };
 
+  const openTreeDirectoryExpansion = (directory: FileTreeDirectoryNode) => {
+    batch(() => {
+      setViewState("directoryExpansion", directory.label, true);
+      for (const file of directory.files) {
+        setViewState("fileExpansion", fileKey(file), true);
+      }
+      bumpLayoutRevision();
+    });
+  };
+
   return {
-    loadedDiff,
+    summary,
     clearLoadedDiff,
     applyManifest,
     upsertFile,
@@ -479,10 +498,14 @@ export function createDiffUiState() {
     layoutRevision,
     virtualizationRevision,
     displayFiles,
+    displayFileGroups,
+    displayFileTree,
+    directoryLabelForFileKey,
     resetViewState,
     setAllFilesExpanded,
     openFileExpansion,
     openDirectoryExpansion,
+    openTreeDirectoryExpansion,
   };
 }
 

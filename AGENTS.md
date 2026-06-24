@@ -22,6 +22,4 @@
 - Keep console entry points in `pyproject.toml`.
 
 # Testing
-- `uv --no-cache run pytest` runs the default non-git suite: pure diff logic plus fake-service CLI/API contract tests.
-- `uv --no-cache run pytest -m git` runs the slower real-git integration suite in `tests/integration`; run it when touching git/ref handling, repo manifest generation, lazy git-backed file loading, or git-backed API behavior.
-- `uv --no-cache run pytest -m "git or not git"` runs every Python test despite the default marker filter.
+- `uv --no-cache run pytest` runs the Python test suite, including real-git integration tests in `tests/integration`.

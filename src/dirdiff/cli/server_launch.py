@@ -29,6 +29,7 @@ DEFAULT_PORT = 5052
 DEFAULT_FRONTEND_PORT = 5173
 PORT_FALLBACK_ATTEMPTS = 20
 FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
+BACKEND_RELOAD_DIR = Path(__file__).resolve().parents[1]
 
 
 @dataclass(frozen=True)
@@ -287,8 +288,8 @@ def run_uvicorn(*, config: RuntimeConfig, port: int) -> None:
         port=port,
         factory=True,
         reload=True,
-        reload_dirs=[str(Path(__file__).resolve().parent)],
-        reload_includes=["*.py", "*.html", "*.js", "*.css"],
+        reload_dirs=[str(BACKEND_RELOAD_DIR)],
+        reload_includes=["*.py"],
     )
 
 

@@ -138,6 +138,98 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     }
 
 
+def _tree_path_for_repo_entry(entry: RepoDiffPath) -> str:
+    path = entry.right_path or entry.left_path
+    if path is None:
+        raise ValueError("Repo manifest entry is missing both paths.")
+    return path
+
+
+def _manifest_file_entry_for_tree(entry: RepoDiffPath) -> dict[str, Any]:
+    return (
+        _to_lazy_repo_manifest_file_entry(entry)
+        if _should_lazy_load_repo_entry(entry)
+        else _to_repo_manifest_file_entry(entry)
+    )
+
+
+def _empty_directory_node(name: str, path: str) -> dict[str, Any]:
+    return {
+        "type": "directory",
+        "name": name,
+        "path": path,
+        "entries": [],
+    }
+
+
+def _insert_tree_entry(
+    entries: list[dict[str, Any]],
+    *,
+    parts: list[str],
+    full_path: str,
+    file_entry: dict[str, Any],
+) -> None:
+    if not parts:
+        raise ValueError(f"Cannot insert empty manifest tree path: {full_path}")
+    if len(parts) == 1:
+        entries.append({"type": "file", "name": parts[0], "entry": file_entry})
+        return
+
+    directory_name = parts[0]
+    directory_path = full_path.rsplit("/".join(parts[1:]), 1)[0].removesuffix(
+        "/"
+    )
+    directory_node: dict[str, Any] | None = None
+    for entry in entries:
+        if (
+            entry["type"] == "directory"
+            and entry["name"] == directory_name
+            and entry["path"] == directory_path
+        ):
+            directory_node = entry
+            break
+    if directory_node is None:
+        directory_node = _empty_directory_node(directory_name, directory_path)
+        entries.append(directory_node)
+    child_entries = directory_node["entries"]
+    if not isinstance(child_entries, list):
+        raise ValueError(f"Directory node is missing entries: {directory_path}")
+    _insert_tree_entry(
+        child_entries,
+        parts=parts[1:],
+        full_path=full_path,
+        file_entry=file_entry,
+    )
+
+
+def _root_files_last(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    directory_entries: list[dict[str, Any]] = []
+    file_entries: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry["type"] == "directory":
+            entry["entries"] = _root_files_last(entry["entries"])
+            directory_entries.append(entry)
+        else:
+            file_entries.append(entry)
+    return [*directory_entries, *file_entries]
+
+
+def _build_repo_manifest_tree(
+    entries: list[RepoDiffPath],
+) -> list[dict[str, Any]]:
+    tree_entries: list[dict[str, Any]] = []
+    for entry in entries:
+        path = _tree_path_for_repo_entry(entry)
+        parts = [part for part in PurePosixPath(path).parts if part != "."]
+        _insert_tree_entry(
+            tree_entries,
+            parts=parts,
+            full_path=path,
+            file_entry=_manifest_file_entry_for_tree(entry),
+        )
+    return _root_files_last(tree_entries)
+
+
 def build_repo_manifest_for_backend(
     backend: WorkspaceBackend,
     *,
@@ -154,14 +246,8 @@ def build_repo_manifest_for_backend(
         show_untracked=show_untracked,
     )
     summary = _empty_repo_summary()
-    files: list[dict[str, Any]] = []
 
     for entry in paths:
-        file_entry = (
-            _to_lazy_repo_manifest_file_entry(entry)
-            if _should_lazy_load_repo_entry(entry)
-            else _to_repo_manifest_file_entry(entry)
-        )
         summary["changed_files"] += 1
         if entry.change_type == "add":
             summary["added_files"] += 1
@@ -173,7 +259,6 @@ def build_repo_manifest_for_backend(
             summary["added_lines"] += entry.added_lines
         if entry.removed_lines is not None:
             summary["removed_lines"] += entry.removed_lines
-        files.append(file_entry)
 
     return {
         "display_name": "Repository diff",
@@ -181,7 +266,7 @@ def build_repo_manifest_for_backend(
         "left_label": normalized_left,
         "right_label": normalized_right,
         "summary": summary,
-        "files": files,
+        "tree": _build_repo_manifest_tree(paths),
     }
 
 

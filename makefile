@@ -37,10 +37,6 @@ pytest:
 	# default subset
 	uv --no-cache run pytest
 
-gitpytest:
-	# run all test, including git marks
-	uv --no-cache run pytest -m 'git or not git'
-
 snapshot:
 	uv --no-cache run pytest \
 		tests/test_difftastic_golden.py \
@@ -59,7 +55,7 @@ resnapshot:
 
 fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt
 
-fulltest: gitpytest cram
+fulltest: pytest cram
 
 format:
 	.venv/bin/ruff format

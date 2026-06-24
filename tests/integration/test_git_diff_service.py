@@ -55,12 +55,16 @@ def test_build_repo_manifest_lists_changed_tracked_files(
     assert manifest["summary"]["changed_files"] == 1
     assert manifest["summary"]["added_lines"] == 1
     assert manifest["summary"]["removed_lines"] == 1
-    assert manifest["files"] == [
+    assert manifest["tree"] == [
         {
-            "file_kind": {"type": "git", "status": "modified"},
-            "left_path": "alpha.txt",
-            "right_path": "alpha.txt",
-            "lazy": None,
+            "type": "file",
+            "name": "alpha.txt",
+            "entry": {
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "alpha.txt",
+                "right_path": "alpha.txt",
+                "lazy": None,
+            },
         }
     ]
 
@@ -111,13 +115,114 @@ def test_build_repo_manifest_can_include_untracked_files_as_lazy(
 
     assert manifest["summary"]["changed_files"] == 1
     assert manifest["summary"]["added_files"] == 1
-    assert manifest["files"] == [
+    assert manifest["tree"] == [
         {
-            "file_kind": {"type": "untracked"},
-            "left_path": None,
-            "right_path": "beta.txt",
-            "lazy": "untracked",
+            "type": "file",
+            "name": "beta.txt",
+            "entry": {
+                "file_kind": {"type": "untracked"},
+                "left_path": None,
+                "right_path": "beta.txt",
+                "lazy": "untracked",
+            },
         }
+    ]
+
+
+def test_build_repo_manifest_returns_explicit_tree_with_root_files_last(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "src" / "nested").mkdir(parents=True)
+    (tmp_path / "alpha.txt").write_text("one\n", encoding="utf-8")
+    (tmp_path / "src" / "beta.txt").write_text("two\n", encoding="utf-8")
+    (tmp_path / "src" / "nested" / "gamma.txt").write_text(
+        "three\n", encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "add", "."], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    (tmp_path / "alpha.txt").write_text("one changed\n", encoding="utf-8")
+    (tmp_path / "src" / "beta.txt").write_text(
+        "two changed\n", encoding="utf-8"
+    )
+    (tmp_path / "src" / "nested" / "gamma.txt").write_text(
+        "three changed\n", encoding="utf-8"
+    )
+
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
+
+    manifest = service.build_repo_manifest(left="index", right="worktree")
+
+    assert manifest["tree"] == [
+        {
+            "type": "directory",
+            "name": "src",
+            "path": "src",
+            "entries": [
+                {
+                    "type": "directory",
+                    "name": "nested",
+                    "path": "src/nested",
+                    "entries": [
+                        {
+                            "type": "file",
+                            "name": "gamma.txt",
+                            "entry": {
+                                "file_kind": {
+                                    "type": "git",
+                                    "status": "modified",
+                                },
+                                "left_path": "src/nested/gamma.txt",
+                                "right_path": "src/nested/gamma.txt",
+                                "lazy": None,
+                            },
+                        }
+                    ],
+                },
+                {
+                    "type": "file",
+                    "name": "beta.txt",
+                    "entry": {
+                        "file_kind": {"type": "git", "status": "modified"},
+                        "left_path": "src/beta.txt",
+                        "right_path": "src/beta.txt",
+                        "lazy": None,
+                    },
+                },
+            ],
+        },
+        {
+            "type": "file",
+            "name": "alpha.txt",
+            "entry": {
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "alpha.txt",
+                "right_path": "alpha.txt",
+                "lazy": None,
+            },
+        },
     ]
 
 
@@ -247,12 +352,16 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     assert manifest["mode"] == "repo"
     assert manifest["left_label"] == merge_base
     assert manifest["right_label"] == "feature"
-    assert manifest["files"] == [
+    assert manifest["tree"] == [
         {
-            "file_kind": {"type": "git", "status": "modified"},
-            "left_path": "alpha.txt",
-            "right_path": "alpha.txt",
-            "lazy": None,
+            "type": "file",
+            "name": "alpha.txt",
+            "entry": {
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "alpha.txt",
+                "right_path": "alpha.txt",
+                "lazy": None,
+            },
         }
     ]
     assert manifest["summary"]["changed_files"] == 1
@@ -382,10 +491,28 @@ def test_build_repo_manifest_summarizes_changed_files(
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
     assert manifest["summary"]["changed_files"] == 2
-    assert {entry["right_path"] for entry in manifest["files"]} == {
-        "alpha.txt",
-        "beta.txt",
-    }
+    assert manifest["tree"] == [
+        {
+            "type": "file",
+            "name": "alpha.txt",
+            "entry": {
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "alpha.txt",
+                "right_path": "alpha.txt",
+                "lazy": None,
+            },
+        },
+        {
+            "type": "file",
+            "name": "beta.txt",
+            "entry": {
+                "file_kind": {"type": "git", "status": "modified"},
+                "left_path": "beta.txt",
+                "right_path": "beta.txt",
+                "lazy": None,
+            },
+        },
+    ]
 
 
 def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
@@ -427,14 +554,18 @@ def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
 
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
-    assert len(manifest["files"]) == 1
-    entry = manifest["files"][0]
-    assert entry == {
-        "lazy": "generated",
-        "left_path": "Cargo.lock",
-        "right_path": "Cargo.lock",
-        "file_kind": {"type": "git", "status": "modified"},
-    }
+    assert manifest["tree"] == [
+        {
+            "type": "file",
+            "name": "Cargo.lock",
+            "entry": {
+                "lazy": "generated",
+                "left_path": "Cargo.lock",
+                "right_path": "Cargo.lock",
+                "file_kind": {"type": "git", "status": "modified"},
+            },
+        }
+    ]
     assert manifest["summary"]["changed_files"] == 1
 
 
@@ -482,12 +613,18 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
 
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
-    assert len(manifest["files"]) == 1
-    entry = manifest["files"][0]
-    assert entry["lazy"] == "too_big"
-    assert entry["left_path"] == "large.txt"
-    assert entry["right_path"] == "large.txt"
-    assert entry["file_kind"] == {"type": "git", "status": "modified"}
+    assert manifest["tree"] == [
+        {
+            "type": "file",
+            "name": "large.txt",
+            "entry": {
+                "lazy": "too_big",
+                "left_path": "large.txt",
+                "right_path": "large.txt",
+                "file_kind": {"type": "git", "status": "modified"},
+            },
+        }
+    ]
     assert manifest["summary"]["changed_files"] == 1
     assert manifest["summary"]["added_lines"] == 1001
     assert manifest["summary"]["removed_lines"] == 1
@@ -532,14 +669,18 @@ def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
 
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
-    assert len(manifest["files"]) == 1
-    entry = manifest["files"][0]
-    assert entry == {
-        "lazy": "deleted",
-        "left_path": "alpha.txt",
-        "right_path": None,
-        "file_kind": {"type": "git", "status": "deleted"},
-    }
+    assert manifest["tree"] == [
+        {
+            "type": "file",
+            "name": "alpha.txt",
+            "entry": {
+                "lazy": "deleted",
+                "left_path": "alpha.txt",
+                "right_path": None,
+                "file_kind": {"type": "git", "status": "deleted"},
+            },
+        }
+    ]
     assert manifest["summary"]["changed_files"] == 1
 
 
@@ -587,14 +728,18 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
 
     manifest = service.build_repo_manifest(left="head", right="worktree")
 
-    assert len(manifest["files"]) == 1
-    entry = manifest["files"][0]
-    assert entry == {
-        "lazy": "pure_renamed",
-        "left_path": "alpha.txt",
-        "right_path": "beta.txt",
-        "file_kind": {"type": "git", "status": "renamed"},
-    }
+    assert manifest["tree"] == [
+        {
+            "type": "file",
+            "name": "beta.txt",
+            "entry": {
+                "lazy": "pure_renamed",
+                "left_path": "alpha.txt",
+                "right_path": "beta.txt",
+                "file_kind": {"type": "git", "status": "renamed"},
+            },
+        }
+    ]
     assert manifest["summary"]["changed_files"] == 1
 
 

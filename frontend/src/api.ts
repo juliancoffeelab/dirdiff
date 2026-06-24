@@ -146,8 +146,23 @@ export type ManifestEntry = {
   lazy: LazyReason | null;
 };
 
+export type ManifestTreeEntry = ManifestFileNode | ManifestDirectoryNode;
+
+export type ManifestFileNode = {
+  type: "file";
+  name: string;
+  entry: ManifestEntry;
+};
+
+export type ManifestDirectoryNode = {
+  type: "directory";
+  name: string;
+  path: string;
+  entries: ManifestTreeEntry[];
+};
+
 export type RepoManifestPayload = RepoPayload & {
-  files: ManifestEntry[];
+  tree: ManifestTreeEntry[];
 };
 
 export type LazyInfoFile = {
@@ -382,6 +397,22 @@ const ManifestEntrySchema = z.strictObject({
   lazy: LazyReasonSchema.nullable(),
 });
 
+const ManifestTreeEntrySchema: z.ZodType<ManifestTreeEntry> = z.lazy(() =>
+  z.discriminatedUnion("type", [
+    z.strictObject({
+      type: z.literal("file"),
+      name: z.string(),
+      entry: ManifestEntrySchema,
+    }),
+    z.strictObject({
+      type: z.literal("directory"),
+      name: z.string(),
+      path: z.string(),
+      entries: z.array(ManifestTreeEntrySchema),
+    }),
+  ]),
+);
+
 // /api/lazy-info must contain every field needed for a lazy placeholder
 // FileEntry, including the lazy reason used by the file tree/card state.
 const LazyInfoFileSchema = z.strictObject({
@@ -486,7 +517,7 @@ const RepoManifestPayloadSchema = z.strictObject({
   left_label: z.string(),
   right_label: z.string(),
   summary: SummarySchema,
-  files: z.array(ManifestEntrySchema),
+  tree: z.array(ManifestTreeEntrySchema),
 });
 
 const LazyInfoPayloadSchema = z.strictObject({
