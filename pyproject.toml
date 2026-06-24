@@ -37,6 +37,7 @@ dirdiff = "dirdiff.cli:main"
 dev = [
     "basedpyright>=1.39.8",
     "cram>=0.7",
+    "flake8>=7.3.0",
     "httpx2>=2.3.0",
     "mypy>=2.1.0",
     "pyrefly>=1.0.0",
