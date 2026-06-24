@@ -9,10 +9,9 @@
 - Keep in mind that user runs it as `dirdiff` via installed tool with `uv tool install -e .`
 
 # Important rules
-- Never do fallsbacks (`or` chains, `??` chains, or anything like that). If you
-*really* need, ask user on *every* case.
-- Never edit tests. If you *really* need, ask user on *every* testcase.
-- Never create compatibility shims. Interface must be update on all sides.
+- Assert data inputs. Dont create optional parameters. If you need some field and it's null, throw the error.
+- Never edit test behavior, if expection changes, ask user and only after confirmation update the behaviour of the test.
+- Never create compatibility shims. Interface must be update on all sides, that includes tests.
 - Please dont use ORM mess.
 
 # Linting & Quality
