@@ -82,6 +82,7 @@ function emptyDocumentState(): DiffDocumentState {
       modified_lines: 0,
       added_lines: 0,
       removed_lines: 0,
+      moved_lines: 0,
       skipped_files: 0,
     },
   };
