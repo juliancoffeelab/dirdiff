@@ -118,11 +118,8 @@ const SummarySchema = z.strictObject({
   added_files: z.number().int(),
   removed_files: z.number().int(),
   updated_files: z.number().int(),
-  changed_lines: z.number().int(),
-  modified_lines: z.number().int(),
   added_lines: z.number().int(),
   removed_lines: z.number().int(),
-  moved_lines: z.number().int(),
   skipped_files: z.number().int(),
   changed_cells: z.number().int().nullable().optional(),
   added_cells: z.number().int().nullable().optional(),
@@ -158,7 +155,9 @@ export type LazyInfoFile = {
   left_path: string | null;
   right_path: string | null;
   display_name: string;
-  summary: FileSummary;
+  changed_lines: number | null;
+  added_lines: number | null;
+  removed_lines: number | null;
   lazy: LazyReason | null;
 };
 
@@ -390,7 +389,9 @@ const LazyInfoFileSchema = z.strictObject({
   left_path: z.string().nullable(),
   right_path: z.string().nullable(),
   display_name: z.string(),
-  summary: FileSummarySchema,
+  changed_lines: z.number().int().nullable(),
+  added_lines: z.number().int().nullable(),
+  removed_lines: z.number().int().nullable(),
   lazy: LazyReasonSchema.nullable(),
 });
 
@@ -429,6 +430,7 @@ const NotebookCellEntrySchema = z.strictObject({
   source_modified_lines: z.number().int(),
   source_added_lines: z.number().int(),
   source_removed_lines: z.number().int(),
+  source_moved_lines: z.number().int(),
   source_fold_hints: z.array(FoldHintSchema),
   metadata_rows: z.array(DiffRowSchema),
   outputs_rows: z.array(DiffRowSchema),

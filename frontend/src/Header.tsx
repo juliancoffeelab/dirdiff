@@ -184,12 +184,9 @@ function SummaryView(props: { summary: Summary }) {
         changed={props.summary.updated_files}
         removed={props.summary.removed_files}
       />
-      <SummaryMetric
-        label="Lines"
+      <LineSummaryMetric
         added={props.summary.added_lines}
-        changed={props.summary.modified_lines}
         removed={props.summary.removed_lines}
-        moved={props.summary.moved_lines}
       />
       <Show when={hasNotebookCells()}>
         <SummaryMetric
@@ -200,6 +197,16 @@ function SummaryView(props: { summary: Summary }) {
         />
       </Show>
     </section>
+  );
+}
+
+function LineSummaryMetric(props: { added: number; removed: number }) {
+  return (
+    <div class="summary-group summary-group-lines">
+      <strong>Lines</strong>
+      <span class="delta added">+ {props.added}</span>
+      <span class="delta removed">- {props.removed}</span>
+    </div>
   );
 }
 
@@ -226,7 +233,6 @@ function SummaryMetric(props: {
   added: number;
   changed: number;
   removed: number;
-  moved?: number;
 }) {
   const metricClass = () => props.label.toLowerCase();
 
@@ -236,9 +242,6 @@ function SummaryMetric(props: {
       <span class="delta added">+ {props.added}</span>
       <span class="delta changed">~ {props.changed}</span>
       <span class="delta removed">- {props.removed}</span>
-      <Show when={props.moved !== undefined}>
-        <span class="delta moved">* {props.moved}</span>
-      </Show>
     </div>
   );
 }

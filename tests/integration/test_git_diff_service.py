@@ -53,13 +53,14 @@ def test_build_repo_manifest_lists_changed_tracked_files(
 
     assert manifest["mode"] == "repo"
     assert manifest["summary"]["changed_files"] == 1
-    assert manifest["summary"]["changed_lines"] == 1
-    assert manifest["summary"]["removed_lines"] == 0
+    assert manifest["summary"]["added_lines"] == 1
+    assert manifest["summary"]["removed_lines"] == 1
     assert manifest["files"] == [
         {
             "file_kind": {"type": "git", "status": "modified"},
             "left_path": "alpha.txt",
             "right_path": "alpha.txt",
+            "lazy": None,
         }
     ]
 
@@ -110,7 +111,6 @@ def test_build_repo_manifest_can_include_untracked_files_as_lazy(
 
     assert manifest["summary"]["changed_files"] == 1
     assert manifest["summary"]["added_files"] == 1
-    assert manifest["summary"]["changed_lines"] == 0
     assert manifest["files"] == [
         {
             "file_kind": {"type": "untracked"},
@@ -252,6 +252,7 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
             "file_kind": {"type": "git", "status": "modified"},
             "left_path": "alpha.txt",
             "right_path": "alpha.txt",
+            "lazy": None,
         }
     ]
     assert manifest["summary"]["changed_files"] == 1
@@ -381,7 +382,6 @@ def test_build_repo_manifest_summarizes_changed_files(
     manifest = service.build_repo_manifest(left="index", right="worktree")
 
     assert manifest["summary"]["changed_files"] == 2
-    assert manifest["summary"]["changed_lines"] == 2
     assert {entry["right_path"] for entry in manifest["files"]} == {
         "alpha.txt",
         "beta.txt",
@@ -489,10 +489,8 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
     assert entry["right_path"] == "large.txt"
     assert entry["file_kind"] == {"type": "git", "status": "modified"}
     assert manifest["summary"]["changed_files"] == 1
-    assert manifest["summary"]["changed_lines"] == 1001
-    assert manifest["summary"]["modified_lines"] == 1
-    assert manifest["summary"]["added_lines"] == 1000
-    assert manifest["summary"]["removed_lines"] == 0
+    assert manifest["summary"]["added_lines"] == 1001
+    assert manifest["summary"]["removed_lines"] == 1
 
 
 def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
@@ -598,7 +596,6 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
         "file_kind": {"type": "git", "status": "renamed"},
     }
     assert manifest["summary"]["changed_files"] == 1
-    assert manifest["summary"]["changed_lines"] == 0
 
 
 def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:

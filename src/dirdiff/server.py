@@ -376,11 +376,8 @@ class RepoDiffSummaryResponse(ApiModel):
     added_files: int
     removed_files: int
     updated_files: int
-    changed_lines: int
-    modified_lines: int
     added_lines: int
     removed_lines: int
-    moved_lines: int = 0
     skipped_files: int
     changed_cells: int | None = None
     added_cells: int | None = None
@@ -444,6 +441,7 @@ class NotebookCellDiffResponse(ApiModel):
     source_modified_lines: int
     source_added_lines: int
     source_removed_lines: int
+    source_moved_lines: int
     source_fold_hints: list[FoldHintResponse] = Field(default_factory=list)
     metadata_rows: list[DiffRowResponse] = Field(default_factory=list)
     outputs_rows: list[DiffRowResponse] = Field(default_factory=list)
@@ -499,7 +497,9 @@ class LazyInfoFileResponse(ApiModel):
     left_path: str | None = None
     right_path: str | None = None
     display_name: str
-    summary: DiffSummaryResponse
+    changed_lines: int | None = None
+    added_lines: int | None = None
+    removed_lines: int | None = None
     lazy: LazyReason = None
 
 
@@ -886,7 +886,6 @@ def create_app(
                 f"Could not parse notebook on {context['right_label']}."
             )
         return build_notebook_section_payload(
-            renderer=renderer,
             left_notebook=left_notebook,
             right_notebook=right_notebook,
             left_label=context["left_label"],

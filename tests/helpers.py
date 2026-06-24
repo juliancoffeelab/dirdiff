@@ -303,7 +303,6 @@ class WorkspaceDiffServiceAdapter:
             else None
         )
         return build_notebook_section_payload(
-            renderer=self.renderer,
             left_notebook=left_notebook,
             right_notebook=right_notebook,
             left_label=context["left_label"],

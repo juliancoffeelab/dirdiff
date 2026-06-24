@@ -73,6 +73,28 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "right_path": "Cargo.lock",
         "file_kind": {"type": "git", "status": "modified"},
     }
+    lazy_info_response = client.get(
+        "/api/lazy-info",
+        params={
+            "repo_id": repo_id,
+            "engine": "dirdiff",
+            "mode": "files",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
+    lazy_info = lazy_info_response.json()["files"][0]
+    assert lazy_info_response.status_code == 200
+    assert lazy_info == {
+        "lazy": "generated",
+        "left_path": "Cargo.lock",
+        "right_path": "Cargo.lock",
+        "display_name": "Cargo.lock",
+        "changed_lines": 2,
+        "added_lines": 1,
+        "removed_lines": 1,
+        "file_kind": {"type": "git", "status": "modified"},
+    }
 
     response = client.get(
         "/api/file-diff",

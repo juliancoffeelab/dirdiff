@@ -75,7 +75,10 @@ def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
         return "untracked"
     if entry.change_type == "delete":
         return "deleted"
-    if entry.change_type == "rename" and (entry.changed_lines or 0) == 0:
+    changed_lines = 0
+    if entry.changed_lines is not None:
+        changed_lines = entry.changed_lines
+    if entry.change_type == "rename" and changed_lines == 0:
         return "pure_renamed"
     if _looks_generated_path(entry.right_path) or _looks_generated_path(
         entry.left_path
@@ -98,6 +101,7 @@ def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
         "left_path": entry.left_path,
         "right_path": entry.right_path,
         "file_kind": file_kind_for_repo_entry(entry),
+        "lazy": None,
     }
 
 
@@ -115,29 +119,9 @@ def _empty_repo_summary() -> dict[str, int]:
         "added_files": 0,
         "removed_files": 0,
         "updated_files": 0,
-        "changed_lines": 0,
-        "modified_lines": 0,
         "added_lines": 0,
         "removed_lines": 0,
-        "moved_lines": 0,
         "skipped_files": 0,
-    }
-
-
-def _summary_for_repo_path(entry: RepoDiffPath) -> dict[str, int | bool]:
-    raw_added = entry.added_lines or 0
-    raw_removed = entry.removed_lines or 0
-    modified_lines = min(raw_added, raw_removed)
-    added_lines = raw_added - modified_lines
-    removed_lines = raw_removed - modified_lines
-    return {
-        "changed_lines": modified_lines + added_lines + removed_lines,
-        "modified_lines": modified_lines,
-        "added_lines": added_lines,
-        "removed_lines": removed_lines,
-        "moved_lines": 0,
-        "left_exists": entry.left_path is not None,
-        "right_exists": entry.right_path is not None,
     }
 
 
@@ -147,7 +131,9 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
         "right_path": entry.right_path,
         "file_kind": file_kind_for_repo_entry(entry),
         "display_name": entry.display_name,
-        "summary": _summary_for_repo_path(entry),
+        "changed_lines": entry.changed_lines,
+        "added_lines": entry.added_lines,
+        "removed_lines": entry.removed_lines,
         "lazy": _lazy_reason_for_repo_entry(entry),
     }
 
@@ -176,7 +162,6 @@ def build_repo_manifest_for_backend(
             if _should_lazy_load_repo_entry(entry)
             else _to_repo_manifest_file_entry(entry)
         )
-        line_summary = _summary_for_repo_path(entry)
         summary["changed_files"] += 1
         if entry.change_type == "add":
             summary["added_files"] += 1
@@ -184,11 +169,10 @@ def build_repo_manifest_for_backend(
             summary["removed_files"] += 1
         else:
             summary["updated_files"] += 1
-        summary["changed_lines"] += line_summary["changed_lines"]
-        summary["modified_lines"] += line_summary["modified_lines"]
-        summary["added_lines"] += line_summary["added_lines"]
-        summary["removed_lines"] += line_summary["removed_lines"]
-        summary["moved_lines"] += line_summary["moved_lines"]
+        if entry.added_lines is not None:
+            summary["added_lines"] += entry.added_lines
+        if entry.removed_lines is not None:
+            summary["removed_lines"] += entry.removed_lines
         files.append(file_entry)
 
     return {

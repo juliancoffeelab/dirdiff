@@ -565,7 +565,9 @@ export function createDiffResources(options: DiffResourcesOptions) {
         left_path: lazyInfoEntry.left_path,
         right_path: lazyInfoEntry.right_path,
         display_name: lazyInfoEntry.display_name,
-        summary: lazyInfoEntry.summary,
+        changed_lines: lazyInfoEntry.changed_lines,
+        added_lines: lazyInfoEntry.added_lines,
+        removed_lines: lazyInfoEntry.removed_lines,
         lazy: lazyInfoEntry.lazy,
       };
     });
