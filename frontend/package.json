@@ -9,6 +9,7 @@
     "typecheck:src": "tsc --noEmit -p tsconfig.json",
     "typecheck:tools": "tsc --noEmit -p tsconfig.tools.json",
     "lint": "eslint \"src/**/*.{ts,tsx}\" eslint.config.ts \"eslint-rules/**/*.mjs\"",
+    "lint:human": "eslint --config eslint.human.config.ts \"src/**/*.{ts,tsx}\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
