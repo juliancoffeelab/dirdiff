@@ -10,11 +10,22 @@ tscheck:
 eslint:
 	bun run --cwd frontend lint
 
+eslint-human:
+	bun run --cwd frontend lint:human
+
 mypy:
 	.venv/bin/mypy .
 
 basedpyright:
 	.venv/bin/basedpyright -p pyrightcheck.json
+
+flake-sbt:
+	uv --no-cache run flake8 --jobs 1 --select SBT001 src
+
+flake-human:
+	uv --no-cache run flake8 --jobs 1 --select SBT002 src
+
+humancheck: basedpyright flake-human eslint-human
 
 ruff:
 	.venv/bin/ruff check
@@ -46,7 +57,7 @@ resnapshot:
 		--snapshot-update \
 		--snapshot-warn-unused
 
-fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint 
+fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt
 
 fulltest: gitpytest cram
 
