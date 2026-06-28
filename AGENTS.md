@@ -6,6 +6,7 @@
 - Prefer `uv --no-cache run ...` when invoking project commands through uv; this avoids uv cache permission issues in sandboxed agent sessions.
 - `.venv/bin/...` entry points are also fine for repeated local commands that do not need dependency resolution.
 - Run the app with `uv --no-cache run dirdiff ...`; prefer `uv --no-cache run dirdiff --headless` for local verification so Vite serves the frontend.
+- When temporary local verification needs isolated server state, use `--db-path` with a disposable SQLite file.
 - Keep in mind that user runs it as `dirdiff` via installed tool with `uv tool install -e .`
 
 # Important rules

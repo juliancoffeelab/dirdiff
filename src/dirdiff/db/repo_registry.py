@@ -5,7 +5,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import DateTime, Engine, ForeignKey, String, insert, select
+from sqlalchemy import (
+    DateTime,
+    Engine,
+    ForeignKey,
+    String,
+    insert,
+    select,
+)
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from dirdiff.db.base import TableBase
@@ -45,6 +53,24 @@ class RepoMarkMeta(TableBase):
     )
 
 
+class RepoMainBranch(TableBase):
+    """
+    Persisted main branch selection for one marked repository.
+
+    This is the repo-level main branch used to seed branch-review base controls.
+    """
+
+    __tablename__ = "repo_main_branch"
+
+    repo_id: Mapped[int] = mapped_column(
+        ForeignKey("repo_mark.id"),
+        primary_key=True,
+    )
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    remote: Mapped[str | None] = mapped_column(String, nullable=True)
+    branch: Mapped[str] = mapped_column(String, nullable=False)
+
+
 @dataclass(frozen=True)
 class RepoMarkRecord:
     """
@@ -57,6 +83,18 @@ class RepoMarkRecord:
     path: str
     name: str
     marked_at: datetime
+
+
+@dataclass(frozen=True)
+class RepoMainBranchRecord:
+    """
+    Read model returned for a persisted repository main branch row.
+    """
+
+    repo_id: int
+    source: str
+    remote: str | None
+    branch: str
 
 
 class RepoMarkStore:
@@ -174,4 +212,72 @@ class RepoMarkStore:
                 path=res[1],
                 name=res[2],
                 marked_at=res[3],
+            )
+
+    def get_main_branch(self, repo_id: int) -> RepoMainBranchRecord | None:
+        """
+        Return the persisted main branch for one marked repository.
+        """
+
+        with Session(self.engine) as session:
+            row = session.execute(
+                select(
+                    RepoMainBranch.repo_id,
+                    RepoMainBranch.source,
+                    RepoMainBranch.remote,
+                    RepoMainBranch.branch,
+                ).where(RepoMainBranch.repo_id == repo_id)
+            ).one_or_none()
+            if row is None:
+                return None
+            return RepoMainBranchRecord(
+                repo_id=row[0],
+                source=row[1],
+                remote=row[2],
+                branch=row[3],
+            )
+
+    def set_main_branch(
+        self,
+        repo_id: int,
+        *,
+        source: str,
+        remote: str | None,
+        branch: str,
+    ) -> RepoMainBranchRecord:
+        """
+        Persist the main branch for one marked repository.
+        """
+
+        mark = self.get(repo_id)
+        assert mark is not None, f"repo mark must exist: {repo_id}"
+        with Session(self.engine) as session, session.begin():
+            row = session.execute(
+                sqlite_insert(RepoMainBranch)
+                .values(
+                    repo_id=repo_id,
+                    source=source,
+                    remote=remote,
+                    branch=branch,
+                )
+                .on_conflict_do_update(
+                    index_elements=[RepoMainBranch.repo_id],
+                    set_={
+                        "source": source,
+                        "remote": remote,
+                        "branch": branch,
+                    },
+                )
+                .returning(
+                    RepoMainBranch.repo_id,
+                    RepoMainBranch.source,
+                    RepoMainBranch.remote,
+                    RepoMainBranch.branch,
+                )
+            ).one()
+            return RepoMainBranchRecord(
+                repo_id=row[0],
+                source=row[1],
+                remote=row[2],
+                branch=row[3],
             )

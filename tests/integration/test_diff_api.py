@@ -104,6 +104,57 @@ def test_repo_refs_defaults_base_to_remote_and_review_to_local(
     assert "preferred_review_branch" not in payload
 
 
+def test_repo_main_branch_save_overrides_repo_refs_default(
+    tmp_path: Path,
+) -> None:
+    """Saved repo main branch controls future branch-review base defaults."""
+    repo_path = clone_test_remote(tmp_path)
+    client, repo_id = create_repo_client(repo_path)
+
+    save_response = client.post(
+        f"/api/repos/{repo_id}/main-branch",
+        json={"selection": {"source": "local", "branch": "master"}},
+    )
+    assert save_response.status_code == 200
+    assert save_response.json() == {
+        "repo_id": repo_id,
+        "selection": {"source": "local", "branch": "master"},
+    }
+
+    refs_response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    payload = refs_response.json()
+
+    assert refs_response.status_code == 200
+    assert payload["default_base_selection"] == {
+        "source": "local",
+        "branch": "master",
+    }
+
+
+def test_repo_main_branch_save_rejects_remote_without_remote_name(
+    tmp_path: Path,
+) -> None:
+    """Remote main branch saves require both remote and branch fields."""
+    repo_path = clone_test_remote(tmp_path)
+    client, repo_id = create_repo_client(repo_path)
+
+    response = client.post(
+        f"/api/repos/{repo_id}/main-branch",
+        json={
+            "selection": {
+                "source": "remote",
+                "remote": "",
+                "branch": "master",
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "remote is required for remote selections."
+    )
+
+
 def test_repo_refs_reports_unresolved_base_when_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:

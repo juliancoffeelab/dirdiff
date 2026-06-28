@@ -9,6 +9,7 @@ from dirdiff.db.preferences import (
     PreferencesStore,
 )
 from dirdiff.db.repo_registry import (
+    RepoMainBranchRecord,
     RepoMarkRecord,
     RepoMarkStore,
 )
@@ -20,6 +21,7 @@ from dirdiff.db.user_profile import (
 __all__ = [
     "PreferencesRecord",
     "PreferencesStore",
+    "RepoMainBranchRecord",
     "RepoMarkRecord",
     "RepoMarkStore",
     "TableBase",

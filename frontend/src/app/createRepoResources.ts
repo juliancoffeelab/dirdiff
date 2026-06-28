@@ -7,6 +7,7 @@ import {
   fetchPresets,
   fetchRepoRefs,
   fetchRepos,
+  saveRepoMainBranch,
   type PresetCatalogs,
   type PresetType,
   type DiffEngine,
@@ -228,6 +229,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     createSignal<unknown>(null);
   const [repoRefsPending, setRepoRefsPending] = createSignal(false);
   const [repoRefsError, setRepoRefsError] = createSignal<unknown>(null);
+  const [mainBranchSaving, setMainBranchSaving] = createSignal(false);
   let repoRefreshRequest: Promise<RepoMark[] | null> | null = null;
   let presetCatalogsRequest: Promise<PresetCatalogs | null> | null = null;
 
@@ -413,6 +415,30 @@ export function createRepoResources(options: RepoResourcesOptions) {
     return catalogs;
   }
 
+  async function saveMainBranch(selection: BranchSelection): Promise<void> {
+    const repoId = selectedRepoId();
+    if (repoId === null) {
+      throw new Error("Cannot save main branch without a selected repo.");
+    }
+    setMainBranchSaving(true);
+    try {
+      const saved = await saveRepoMainBranch(repoId, selection);
+      setRepoRefs((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              default_base_selection: saved.selection,
+            },
+      );
+    } catch (error) {
+      options.addErrorToast("Failed to save main branch", error);
+      throw error;
+    } finally {
+      setMainBranchSaving(false);
+    }
+  }
+
   const selectRepo = (repo: RepoMark) => {
     const params = new URLSearchParams();
     params.set("repo_id", String(repo.id));
@@ -444,6 +470,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     presetCatalogsError,
     repoRefsPending,
     repoRefsError,
+    mainBranchSaving,
     repoPickerRepos,
     refChoices,
     loadReposFromUrl,
@@ -451,6 +478,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     initializeRepo,
     loadPresetCatalogs,
     reloadPresetCatalogs,
+    saveMainBranch,
     selectRepo,
   };
 }

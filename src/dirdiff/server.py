@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dirdiff.db.base import open_sqlite_engine
 from dirdiff.db.preferences import PreferencesStore
-from dirdiff.db.repo_registry import RepoMarkStore
+from dirdiff.db.repo_registry import RepoMainBranchRecord, RepoMarkStore
 from dirdiff.db.user_profile import UserProfileStore
 from dirdiff.engines import (
     DiffEngineProtocol,
@@ -258,6 +258,54 @@ class ApiModel(BaseModel):
 
 class ErrorResponse(ApiModel):
     error: str
+
+
+def branch_selection_request_to_selection(
+    request: BranchSelection,
+) -> BranchSelection:
+    branch = request["branch"].strip()
+    if branch == "":
+        raise TextDiffError("branch is required.")
+    if request["source"] == "local":
+        return {"source": "local", "branch": branch}
+    remote = request["remote"].strip()
+    if remote == "":
+        raise TextDiffError("remote is required for remote selections.")
+    return {
+        "source": "remote",
+        "remote": remote,
+        "branch": branch,
+    }
+
+
+def repo_main_branch_record_to_selection(
+    record: RepoMainBranchRecord,
+) -> BranchSelection:
+    if record.source == "local":
+        return {"source": "local", "branch": record.branch}
+    if record.source == "remote":
+        assert record.remote is not None, (
+            "remote main branch row is missing remote"
+        )
+        return {
+            "source": "remote",
+            "remote": record.remote,
+            "branch": record.branch,
+        }
+    raise TextDiffError(f"Unknown main branch source: {record.source}")
+
+
+class RepoMainBranchRequest(ApiModel):
+    """Request body for saving the repository main branch selection."""
+
+    selection: BranchSelection
+
+
+class RepoMainBranchResponse(ApiModel):
+    """Persisted repository main branch selection."""
+
+    repo_id: int
+    selection: BranchSelection
 
 
 class RepoMarkResponse(ApiModel):
@@ -1061,7 +1109,12 @@ def create_app(
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
         ref_choices = backend.list_ref_choices()
-        default_base_selection = backend.default_base_selection()
+        saved_main_branch = db.get_main_branch(repo_id)
+        default_base_selection = (
+            repo_main_branch_record_to_selection(saved_main_branch)
+            if saved_main_branch is not None
+            else backend.default_base_selection()
+        )
         preferred_review_selection = backend.preferred_review_selection(
             base_selection=default_base_selection
         )
@@ -1070,6 +1123,52 @@ def create_app(
             "preferred_review_selection": preferred_review_selection,
             "ref_choices": ref_choices,
         }
+
+    @app.post(
+        "/api/repos/{repo_id}/main-branch",
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
+        },
+        summary="Save the repository main branch selection",
+    )
+    def save_repo_main_branch(
+        repo_id: int,
+        request: RepoMainBranchRequest,
+    ) -> RepoMainBranchResponse:
+        # Future auth belongs here: setting shared repository main remote/branch
+        # should be admin-only once dirdiff has real users/permissions.
+        mark = db.get(repo_id)
+        if mark is None:
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=f"Invalid repo_id: {repo_id}",
+            )
+        try:
+            selection = branch_selection_request_to_selection(request.selection)
+            remote = (
+                selection["remote"] if selection["source"] == "remote" else None
+            )
+            record = db.set_main_branch(
+                repo_id,
+                source=selection["source"],
+                remote=remote,
+                branch=selection["branch"],
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except TextDiffError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        selection = repo_main_branch_record_to_selection(record)
+        return RepoMainBranchResponse.model_validate(
+            {"repo_id": record.repo_id, "selection": selection}
+        )
 
     @app.get(
         "/api/presets",

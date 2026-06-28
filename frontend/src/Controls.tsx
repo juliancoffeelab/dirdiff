@@ -7,6 +7,8 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import type { JSX } from "solid-js";
+import { Save } from "lucide-solid";
 import type {
   BranchSelection,
   PresetCatalogs,
@@ -87,6 +89,8 @@ export function Controls(props: {
     baseSelection: BranchSelection,
     reviewSelection: BranchSelection,
   ) => void;
+  mainBranchSaving: boolean;
+  onSaveMainBranch: (selection: BranchSelection) => void | Promise<void>;
 }) {
   const [draft, setDraft] = createSignal<ControlsState>(props.controls);
   createEffect(() => setDraft(props.controls));
@@ -147,6 +151,24 @@ export function Controls(props: {
     event.preventDefault();
     loadDraft(draft());
   };
+
+  const saveMainBranchButton = () => (
+    <button
+      type="button"
+      class="field-icon-button"
+      aria-label="Save main branch"
+      title="Save main branch"
+      disabled={
+        props.mainBranchSaving ||
+        !mainBranchSelectionSavable(draft().baseSelection)
+      }
+      onClick={() => {
+        void props.onSaveMainBranch(draft().baseSelection);
+      }}
+    >
+      <Save class="field-icon" aria-hidden="true" />
+    </button>
+  );
 
   return (
     <form class="controls" onSubmit={submit}>
@@ -226,6 +248,7 @@ export function Controls(props: {
           selection={draft().baseSelection}
           refChoices={props.refChoices}
           onSelection={(baseSelection) => updateDraft({ baseSelection })}
+          action={saveMainBranchButton()}
         />
         <AutocompleteField
           label="Base branch"
@@ -238,6 +261,7 @@ export function Controls(props: {
               baseSelection: selectionWithBranch(draft().baseSelection, branch),
             })
           }
+          action={saveMainBranchButton()}
         />
         <BranchSourceField
           label="Branch remote"
@@ -349,6 +373,7 @@ function BranchSourceField(props: {
   selection: BranchSelection;
   refChoices: RefChoices;
   onSelection: (selection: BranchSelection) => void;
+  action?: JSX.Element;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [blurTimer, setBlurTimer] = createSignal<number | undefined>();
@@ -474,6 +499,7 @@ function BranchSourceField(props: {
           </For>
         </div>
       </Show>
+      {props.action}
     </div>
   );
 }
@@ -483,6 +509,7 @@ function AutocompleteField(props: {
   value: string;
   groups: (query: string) => AutocompleteGroup[];
   onValue: (value: string) => void;
+  action?: JSX.Element;
 }) {
   let input: HTMLInputElement | undefined;
   const [focused, setFocused] = createSignal(false);
@@ -558,6 +585,7 @@ function AutocompleteField(props: {
           }
         }}
       />
+      {props.action}
       <Show when={groups().length > 0}>
         <div class="autocomplete-panel" onMouseDown={keepOpen}>
           <For each={groups()}>
@@ -600,6 +628,14 @@ function AutocompleteField(props: {
       </Show>
     </label>
   );
+}
+
+function mainBranchSelectionSavable(selection: BranchSelection): boolean {
+  const branch = selection.branch.trim();
+  if (branch.length === 0) {
+    return false;
+  }
+  return selection.source === "local" || selection.remote.trim().length > 0;
 }
 
 function filterValues(values: string[], query: string): string[] {

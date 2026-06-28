@@ -271,6 +271,8 @@ export function App() {
             onPreset={diff.loadPreset}
             onRefs={diff.loadRefs}
             onBranchReview={diff.loadBranchReview}
+            mainBranchSaving={repo.mainBranchSaving()}
+            onSaveMainBranch={repo.saveMainBranch}
           />
           <p class={`status ${diff.status()}`}>{diff.statusText()}</p>
           <Show when={preferences() !== null}>

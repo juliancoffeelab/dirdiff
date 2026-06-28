@@ -94,6 +94,12 @@ const RepoRefsSchema = z.strictObject({
 });
 export type RepoRefs = z.infer<typeof RepoRefsSchema>;
 
+const RepoMainBranchSchema = z.strictObject({
+  repo_id: z.number().int().positive(),
+  selection: BranchSelectionSchema,
+});
+export type RepoMainBranch = z.infer<typeof RepoMainBranchSchema>;
+
 const PresetGroupSchema = z.strictObject({
   name: z.string(),
   display_name: z.string(),
@@ -736,6 +742,23 @@ export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
     return parseErrorResponse(response);
   }
   return RepoRefsSchema.parse(await response.json());
+}
+
+export async function saveRepoMainBranch(
+  repoId: RepoId,
+  selection: BranchSelection,
+): Promise<RepoMainBranch> {
+  const response = await fetchJsonResponse(`/api/repos/${repoId}/main-branch`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ selection }),
+  });
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+  return RepoMainBranchSchema.parse(await response.json());
 }
 
 export async function fetchPresets(): Promise<PresetCatalogs> {
