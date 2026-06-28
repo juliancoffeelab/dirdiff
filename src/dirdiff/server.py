@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, TypedDict
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -52,6 +52,8 @@ from dirdiff.rendering import (
     enrich_rows_for_display,
 )
 from dirdiff.sources import (
+    BranchSelection,
+    BranchSource,
     GitBackend,
     PresetBackend,
     TextDiffError,
@@ -105,14 +107,20 @@ class RuntimeConfig:
     Right ref or side name for ``refs`` startup mode.
     """
 
-    base_branch: str | None = None
+    base_selection: BranchSelection | None = None
     """
-    Base branch for ``branch-review`` startup mode.
+    Base branch selection for ``branch-review`` startup mode.
+
+    The CLI writes this structured value into the first browser URL; API
+    handlers parse the same local/remote shape from query params afterward.
     """
 
-    review_branch: str | None = None
+    review_selection: BranchSelection | None = None
     """
-    Review branch for ``branch-review`` startup mode.
+    Review branch selection for ``branch-review`` startup mode.
+
+    This is startup navigation state only.  Diff requests still carry their own
+    explicit branch-review selections.
     """
 
     presets_root: str | None = None
@@ -126,11 +134,15 @@ ModeParam = Literal[
 ]
 EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
 PresetTypeParam = Literal["diff", "fold", "gumtree"]
+BranchSourceParam = BranchSource
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 LazyReason = (
     Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"]
     | None
 )
+
+
+BranchSelections = tuple[BranchSelection | None, BranchSelection | None]
 
 
 class DiffPayloadSummary(DiffSummary):
@@ -550,13 +562,34 @@ class LazyInfoResponse(ApiModel):
 DiffRowResponse.model_rebuild()
 
 
-def selected_branches(
-    *,
-    mode: ModeParam,
-    base_branch: str | None,
-    review_branch: str | None,
-) -> tuple[str | None, str | None]:
-    """Return branch-review selections only when the active mode uses them.
+def selected_branch_selections(
+    mode: ModeParam = Query(description="UI diff mode."),
+    base_source: BranchSourceParam | None = Query(
+        default=None,
+        description="Base branch source for branch-review mode.",
+    ),
+    base_remote: str | None = Query(
+        default=None,
+        description="Base remote for remote branch-review selections.",
+    ),
+    base_branch: str | None = Query(
+        default=None,
+        description="Base branch name for branch-review mode.",
+    ),
+    review_source: BranchSourceParam | None = Query(
+        default=None,
+        description="Review branch source for branch-review mode.",
+    ),
+    review_remote: str | None = Query(
+        default=None,
+        description="Review remote for remote branch-review selections.",
+    ),
+    review_branch: str | None = Query(
+        default=None,
+        description="Review branch name for branch-review mode.",
+    ),
+) -> BranchSelections:
+    """Return structured branch-review selections for the active mode.
 
     The UI can keep base/review branch controls populated while the user moves
     between modes.  API handlers call this helper so branch-review parameters
@@ -565,7 +598,56 @@ def selected_branches(
     if mode != "branch-review":
         return None, None
 
-    return base_branch, review_branch
+    return (
+        _branch_selection_from_query(
+            label="base",
+            source=base_source,
+            remote=base_remote,
+            branch=base_branch,
+        ),
+        _branch_selection_from_query(
+            label="review",
+            source=review_source,
+            remote=review_remote,
+            branch=review_branch,
+        ),
+    )
+
+
+def _branch_selection_from_query(
+    *,
+    label: str,
+    source: BranchSourceParam | None,
+    remote: str | None,
+    branch: str | None,
+) -> BranchSelection:
+    """Parse one split branch-review selection from query params.
+
+    Used only by ``selected_branch_selections`` so manifest, lazy-info,
+    file-diff, and notebook-section endpoints share one request contract.
+    """
+    if source is None:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=f"{label}_source is required for branch-review mode.",
+        )
+    if branch is None or not branch.strip():
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=f"{label}_branch is required for branch-review mode.",
+        )
+    if source == "local":
+        return {"source": source, "branch": branch.strip()}
+    if remote is None or not remote.strip():
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=f"{label}_remote is required for remote branch-review selections.",
+        )
+    return {
+        "source": source,
+        "remote": remote.strip(),
+        "branch": branch.strip(),
+    }
 
 
 def service_for_engine(
@@ -970,6 +1052,7 @@ def create_app(
             description="Marked repo id. Required for repo-backed refs.",
         ),
     ) -> dict[str, Any]:
+        """Return ref choices plus structured defaults for branch review."""
         mark = db.get(repo_id)
         if mark is None:
             raise HTTPException(
@@ -977,14 +1060,15 @@ def create_app(
                 detail=f"Invalid repo_id: {repo_id}",
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
-        default_base_branch = backend.default_base_branch()
-        preferred_review_branch = backend.preferred_review_branch(
-            base_branch=default_base_branch
+        ref_choices = backend.list_ref_choices()
+        default_base_selection = backend.default_base_selection()
+        preferred_review_selection = backend.preferred_review_selection(
+            base_selection=default_base_selection
         )
         return {
-            "default_base_branch": default_base_branch,
-            "preferred_review_branch": preferred_review_branch,
-            "ref_choices": backend.list_ref_choices(),
+            "default_base_selection": default_base_selection,
+            "preferred_review_selection": preferred_review_selection,
+            "ref_choices": ref_choices,
         }
 
     @app.get(
@@ -1123,19 +1207,14 @@ def create_app(
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
+        branch_selections: BranchSelections = Depends(
+            selected_branch_selections
+        ),
         left: str | None = Query(
             default=None, description="Left ref or diff side."
         ),
         right: str | None = Query(
             default=None, description="Right ref or diff side."
-        ),
-        base_branch: str | None = Query(
-            default=None,
-            description="Base branch for branch-review mode.",
-        ),
-        review_branch: str | None = Query(
-            default=None,
-            description="Branch being reviewed in branch-review mode.",
         ),
         preset: str | None = Query(
             default=None,
@@ -1150,11 +1229,7 @@ def create_app(
             description="Include untracked worktree files when supported by the selected mode.",
         ),
     ) -> RepoManifestResponse:
-        selected_base_branch, selected_review_branch = selected_branches(
-            mode=mode,
-            base_branch=base_branch,
-            review_branch=review_branch,
-        )
+        selected_base, selected_review = branch_selections
         try:
             backend = backend_for_request(
                 mode=mode,
@@ -1175,18 +1250,13 @@ def create_app(
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
             elif mode == "branch-review":
-                if (
-                    selected_review_branch is None
-                    or not selected_review_branch.strip()
-                ):
-                    raise TextDiffError(
-                        "review_branch is required for branch-review mode."
-                    )
+                if selected_base is None or selected_review is None:
+                    raise TextDiffError("branch selections are required.")
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
                         backend=backend,
-                        base_branch=selected_base_branch,
-                        branch=selected_review_branch,
+                        base_selection=selected_base,
+                        review_selection=selected_review,
                     )
                 )
                 left_label = (
@@ -1241,19 +1311,14 @@ def create_app(
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
+        branch_selections: BranchSelections = Depends(
+            selected_branch_selections
+        ),
         left: str | None = Query(
             default=None, description="Left ref or diff side."
         ),
         right: str | None = Query(
             default=None, description="Right ref or diff side."
-        ),
-        base_branch: str | None = Query(
-            default=None,
-            description="Base branch for branch-review mode.",
-        ),
-        review_branch: str | None = Query(
-            default=None,
-            description="Branch being reviewed in branch-review mode.",
         ),
         preset: str | None = Query(
             default=None,
@@ -1268,11 +1333,7 @@ def create_app(
             description="Include untracked worktree files when supported by the selected mode.",
         ),
     ) -> LazyInfoResponse:
-        selected_base_branch, selected_review_branch = selected_branches(
-            mode=mode,
-            base_branch=base_branch,
-            review_branch=review_branch,
-        )
+        selected_base, selected_review = branch_selections
         try:
             backend = backend_for_request(
                 mode=mode,
@@ -1290,17 +1351,12 @@ def create_app(
                     show_untracked=False,
                 )
             elif mode == "branch-review":
-                if (
-                    selected_review_branch is None
-                    or not selected_review_branch.strip()
-                ):
-                    raise TextDiffError(
-                        "review_branch is required for branch-review mode."
-                    )
+                if selected_base is None or selected_review is None:
+                    raise TextDiffError("branch selections are required.")
                 _, merge_base, normalized_branch = _resolve_branch_review_refs(
                     backend=backend,
-                    base_branch=selected_base_branch,
-                    branch=selected_review_branch,
+                    base_selection=selected_base,
+                    review_selection=selected_review,
                 )
                 payload = build_lazy_info_for_backend(
                     backend,
@@ -1349,19 +1405,14 @@ def create_app(
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
+        branch_selections: BranchSelections = Depends(
+            selected_branch_selections
+        ),
         left: str | None = Query(
             default=None, description="Left ref or diff side."
         ),
         right: str | None = Query(
             default=None, description="Right ref or diff side."
-        ),
-        base_branch: str | None = Query(
-            default=None,
-            description="Base branch for branch-review mode.",
-        ),
-        review_branch: str | None = Query(
-            default=None,
-            description="Branch being reviewed in branch-review mode.",
         ),
         preset: str | None = Query(
             default=None,
@@ -1387,11 +1438,7 @@ def create_app(
             default="git", description="File kind from the repo manifest."
         ),
     ) -> TextFileDiffResponse | NotebookFileDiffResponse:
-        selected_base_branch, selected_review_branch = selected_branches(
-            mode=mode,
-            base_branch=base_branch,
-            review_branch=review_branch,
-        )
+        selected_base, selected_review = branch_selections
 
         try:
             backend = backend_for_request(
@@ -1430,18 +1477,13 @@ def create_app(
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
             elif mode == "branch-review":
-                if (
-                    selected_review_branch is None
-                    or not selected_review_branch.strip()
-                ):
-                    raise TextDiffError(
-                        "review_branch is required for branch-review mode."
-                    )
+                if selected_base is None or selected_review is None:
+                    raise TextDiffError("branch selections are required.")
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
                         backend=backend,
-                        base_branch=selected_base_branch,
-                        branch=selected_review_branch,
+                        base_selection=selected_base,
+                        review_selection=selected_review,
                     )
                 )
                 left_label = (
@@ -1530,19 +1572,14 @@ def create_app(
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
+        branch_selections: BranchSelections = Depends(
+            selected_branch_selections
+        ),
         left: str | None = Query(
             default=None, description="Left ref or diff side."
         ),
         right: str | None = Query(
             default=None, description="Right ref or diff side."
-        ),
-        base_branch: str | None = Query(
-            default=None,
-            description="Base branch for branch-review mode.",
-        ),
-        review_branch: str | None = Query(
-            default=None,
-            description="Branch being reviewed in branch-review mode.",
         ),
         preset: str | None = Query(
             default=None,
@@ -1566,11 +1603,7 @@ def create_app(
             default=None, description="Repo-relative path on the right side."
         ),
     ) -> NotebookSectionDiffResponse:
-        selected_base_branch, selected_review_branch = selected_branches(
-            mode=mode,
-            base_branch=base_branch,
-            review_branch=review_branch,
-        )
+        selected_base, selected_review = branch_selections
 
         try:
             backend = backend_for_request(
@@ -1596,18 +1629,13 @@ def create_app(
                 payload["left_label"] = "old"
                 payload["right_label"] = "new"
             elif mode == "branch-review":
-                if (
-                    selected_review_branch is None
-                    or not selected_review_branch.strip()
-                ):
-                    raise TextDiffError(
-                        "review_branch is required for branch-review mode."
-                    )
+                if selected_base is None or selected_review is None:
+                    raise TextDiffError("branch selections are required.")
                 resolved_base_branch, merge_base, normalized_branch = (
                     _resolve_branch_review_refs(
                         backend=backend,
-                        base_branch=selected_base_branch,
-                        branch=selected_review_branch,
+                        base_selection=selected_base,
+                        review_selection=selected_review,
                     )
                 )
                 payload = build_notebook_section_for_request(
@@ -1677,12 +1705,14 @@ def uvicorn_entrypoint() -> FastAPI:
 def _resolve_branch_review_refs(
     *,
     backend: WorkspaceBackend,
-    base_branch: str | None,
-    branch: str,
+    base_selection: BranchSelection,
+    review_selection: BranchSelection,
 ) -> tuple[str, str, str]:
-    resolved_base_branch = base_branch or backend.default_base_branch()
-    merge_base, normalized_branch = backend.resolve_branch_diff_sides(
-        base_branch=resolved_base_branch,
-        branch=branch,
+    """Resolve structured branch selections for branch-review API handlers."""
+    resolved_base_branch, merge_base, normalized_branch = (
+        backend.resolve_branch_diff_sides(
+            base_selection=base_selection,
+            review_selection=review_selection,
+        )
     )
     return resolved_base_branch, merge_base, normalized_branch

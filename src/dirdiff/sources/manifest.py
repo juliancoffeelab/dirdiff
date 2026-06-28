@@ -139,6 +139,7 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _tree_path_for_repo_entry(entry: RepoDiffPath) -> str:
+    """Return the path used by ``_build_repo_manifest_tree`` for placement."""
     path = entry.right_path or entry.left_path
     if path is None:
         raise ValueError("Repo manifest entry is missing both paths.")
@@ -146,6 +147,7 @@ def _tree_path_for_repo_entry(entry: RepoDiffPath) -> str:
 
 
 def _manifest_file_entry_for_tree(entry: RepoDiffPath) -> dict[str, Any]:
+    """Build the file node payload used by ``_build_repo_manifest_tree``."""
     return (
         _to_lazy_repo_manifest_file_entry(entry)
         if _should_lazy_load_repo_entry(entry)
@@ -154,6 +156,7 @@ def _manifest_file_entry_for_tree(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _empty_directory_node(name: str, path: str) -> dict[str, Any]:
+    """Create directory nodes for ``_insert_tree_entry`` while building a tree."""
     return {
         "type": "directory",
         "name": name,
@@ -169,6 +172,7 @@ def _insert_tree_entry(
     full_path: str,
     file_entry: dict[str, Any],
 ) -> None:
+    """Insert one manifest file into the tree built by ``_build_repo_manifest_tree``."""
     if not parts:
         raise ValueError(f"Cannot insert empty manifest tree path: {full_path}")
     if len(parts) == 1:
@@ -203,6 +207,11 @@ def _insert_tree_entry(
 
 
 def _root_files_last(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order each tree level for ``_build_repo_manifest_tree``.
+
+    Directory entries stay before file entries so root files render last in the
+    frontend tree and flat depth-first file list.
+    """
     directory_entries: list[dict[str, Any]] = []
     file_entries: list[dict[str, Any]] = []
     for entry in entries:
@@ -214,9 +223,43 @@ def _root_files_last(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [*directory_entries, *file_entries]
 
 
+def _compact_single_directory_chains(
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collapse directory chains that contain no branching choice.
+
+    Used by ``_build_repo_manifest_tree`` after root-file ordering.
+
+    ``frontend -> src -> App.tsx`` becomes ``frontend/src -> App.tsx`` so API
+    consumers get a tree shaped around meaningful choices rather than every
+    path segment.
+    """
+    compacted_entries: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry["type"] != "directory":
+            compacted_entries.append(entry)
+            continue
+
+        entry["entries"] = _compact_single_directory_chains(entry["entries"])
+        while (
+            len(entry["entries"]) == 1
+            and entry["entries"][0]["type"] == "directory"
+        ):
+            child = entry["entries"][0]
+            entry = {
+                "type": "directory",
+                "name": f"{entry['name']}/{child['name']}",
+                "path": child["path"],
+                "entries": child["entries"],
+            }
+        compacted_entries.append(entry)
+    return compacted_entries
+
+
 def _build_repo_manifest_tree(
     entries: list[RepoDiffPath],
 ) -> list[dict[str, Any]]:
+    """Build the ``tree`` field returned by ``build_repo_manifest_for_backend``."""
     tree_entries: list[dict[str, Any]] = []
     for entry in entries:
         path = _tree_path_for_repo_entry(entry)
@@ -227,7 +270,7 @@ def _build_repo_manifest_tree(
             full_path=path,
             file_entry=_manifest_file_entry_for_tree(entry),
         )
-    return _root_files_last(tree_entries)
+    return _compact_single_directory_chains(_root_files_last(tree_entries))
 
 
 def build_repo_manifest_for_backend(

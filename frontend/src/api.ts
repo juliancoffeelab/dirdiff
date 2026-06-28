@@ -43,17 +43,53 @@ const PreferencesSchema = z.strictObject({
 });
 export type Preferences = z.infer<typeof PreferencesSchema>;
 
+// Branch-review defaults are tagged so local selections cannot accidentally
+// carry a meaningless remote field.
+const LocalBranchSelectionSchema = z.strictObject({
+  source: z.literal("local"),
+  branch: z.string(),
+});
+const RemoteBranchSelectionSchema = z.strictObject({
+  source: z.literal("remote"),
+  remote: z.string(),
+  branch: z.string(),
+});
+const BranchSelectionSchema = z.discriminatedUnion("source", [
+  LocalBranchSelectionSchema,
+  RemoteBranchSelectionSchema,
+]);
+export type BranchSelection = z.infer<typeof BranchSelectionSchema>;
+
+const DefaultBaseSelectionSchema = z.union([
+  BranchSelectionSchema,
+  z.strictObject({
+    kind: z.literal("error"),
+    error: z.literal("heuristic_fail"),
+  }),
+]);
+export type DefaultBaseSelection = z.infer<typeof DefaultBaseSelectionSchema>;
+
+const RemoteBranchRefSchema = z.strictObject({
+  structured: z.strictObject({
+    remote: z.string(),
+    branch: z.string(),
+  }),
+  // Only freeform ref controls like Compare Refs may use this. Structured
+  // branch selections must use the structured remote/branch value instead.
+  gitref: z.string(),
+});
+
 const RefChoicesSchema = z.strictObject({
   builtins: z.array(z.string()),
-  locals: z.array(z.string()),
+  local_branches: z.array(z.string()),
   remotes: z.array(z.string()),
-  remote_names: z.array(z.string()),
+  remote_branches: z.array(RemoteBranchRefSchema),
 });
 export type RefChoices = z.infer<typeof RefChoicesSchema>;
 
 const RepoRefsSchema = z.strictObject({
-  default_base_branch: z.string().nullable(),
-  preferred_review_branch: z.string().nullable(),
+  default_base_selection: DefaultBaseSelectionSchema,
+  preferred_review_selection: BranchSelectionSchema,
   ref_choices: RefChoicesSchema,
 });
 export type RepoRefs = z.infer<typeof RepoRefsSchema>;
@@ -97,8 +133,8 @@ export type RefsDiffParams = DiffParamsBase & {
 
 export type BranchReviewDiffParams = DiffParamsBase & {
   mode: "branch-review";
-  base_branch: string;
-  review_branch: string;
+  base_selection: BranchSelection;
+  review_selection: BranchSelection;
 };
 
 export type PresetDiffParams = DiffParamsBase & {
@@ -790,8 +826,16 @@ export function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {
     return params;
   }
   if (diffParams.mode === "branch-review") {
-    params.set("base_branch", diffParams.base_branch);
-    params.set("review_branch", diffParams.review_branch);
+    params.set("base_source", diffParams.base_selection.source);
+    params.set("base_branch", diffParams.base_selection.branch);
+    if (diffParams.base_selection.source === "remote") {
+      params.set("base_remote", diffParams.base_selection.remote);
+    }
+    params.set("review_source", diffParams.review_selection.source);
+    params.set("review_branch", diffParams.review_selection.branch);
+    if (diffParams.review_selection.source === "remote") {
+      params.set("review_remote", diffParams.review_selection.remote);
+    }
     return params;
   }
   params.set("left", diffParams.left);

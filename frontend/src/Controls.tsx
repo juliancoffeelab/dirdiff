@@ -7,10 +7,14 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import type { PresetCatalogs, PresetType, RefChoices } from "./api";
+import type {
+  BranchSelection,
+  PresetCatalogs,
+  PresetType,
+  RefChoices,
+} from "./api";
 import {
   type AutocompleteGroup,
-  type BranchSource,
   type ControlsState,
   modeLabels,
   presetTypeLabels,
@@ -29,6 +33,46 @@ const defaultRefsDraft = {
   right: "head",
 } as const;
 
+type RemoteBranchSelection = Extract<BranchSelection, { source: "remote" }>;
+
+/** Switch a BranchSelection between local and remote while preserving branch text. */
+function selectionWithSource(
+  selection: BranchSelection,
+  source: BranchSelection["source"],
+  refChoices: RefChoices,
+): BranchSelection {
+  if (source === "local") {
+    return { source, branch: selection.branch };
+  }
+  return {
+    source,
+    remote:
+      selection.source === "remote" && selection.remote.length > 0
+        ? selection.remote
+        : firstRemoteName(refChoices),
+    branch: selection.branch,
+  };
+}
+
+/** Update the remote name on an already-remote BranchSelection. */
+function selectionWithRemote(
+  selection: RemoteBranchSelection,
+  remote: string,
+): BranchSelection {
+  return { source: "remote", remote, branch: selection.branch };
+}
+
+/** Update only the branch text while preserving the local/remote variant. */
+function selectionWithBranch(
+  selection: BranchSelection,
+  branch: string,
+): BranchSelection {
+  if (selection.source === "local") {
+    return { source: "local", branch };
+  }
+  return { ...selection, branch };
+}
+
 export function Controls(props: {
   controls: ControlsState;
   refChoices: RefChoices;
@@ -40,12 +84,8 @@ export function Controls(props: {
   onPreset: (presetType: PresetType, preset: string) => void;
   onRefs: (left: string, right: string) => void;
   onBranchReview: (
-    baseSource: BranchSource,
-    baseRemote: string,
-    baseBranch: string,
-    branchSource: BranchSource,
-    branchRemote: string,
-    reviewBranch: string,
+    baseSelection: BranchSelection,
+    reviewSelection: BranchSelection,
   ) => void;
 }) {
   const [draft, setDraft] = createSignal<ControlsState>(props.controls);
@@ -81,14 +121,7 @@ export function Controls(props: {
       return;
     }
     if (value.mode === "branch-review") {
-      props.onBranchReview(
-        value.baseSource,
-        value.baseRemote,
-        value.baseBranch,
-        value.branchSource,
-        value.branchRemote,
-        value.reviewBranch,
-      );
+      props.onBranchReview(value.baseSelection, value.reviewSelection);
       return;
     }
     if (value.mode === "preset") {
@@ -167,8 +200,8 @@ export function Controls(props: {
           groups={(query) =>
             filterRefChoices(props.refChoices, query, [
               "builtins",
-              "locals",
-              "remotes",
+              "local_branches",
+              "remote_branches",
             ])
           }
           onValue={(left) => updateDraft({ left })}
@@ -179,8 +212,8 @@ export function Controls(props: {
           groups={(query) =>
             filterRefChoices(props.refChoices, query, [
               "builtins",
-              "locals",
-              "remotes",
+              "local_branches",
+              "remote_branches",
             ])
           }
           onValue={(right) => updateDraft({ right })}
@@ -190,61 +223,46 @@ export function Controls(props: {
       <Show when={draft().mode === "branch-review"}>
         <BranchSourceField
           label="Base remote"
-          source={draft().baseSource}
-          remote={draft().baseRemote}
-          remoteChoices={props.refChoices.remote_names}
-          onSource={(baseSource) =>
-            updateDraft({
-              baseSource,
-              baseRemote:
-                baseSource === "remote" && draft().baseRemote.length === 0
-                  ? firstRemoteName(props.refChoices)
-                  : draft().baseRemote,
-            })
-          }
-          onRemote={(baseRemote) => updateDraft({ baseRemote })}
+          selection={draft().baseSelection}
+          refChoices={props.refChoices}
+          onSelection={(baseSelection) => updateDraft({ baseSelection })}
         />
         <AutocompleteField
           label="Base branch"
-          value={draft().baseBranch}
+          value={draft().baseSelection.branch}
           groups={(query) =>
-            filterBranchChoices(
-              props.refChoices,
-              draft().baseSource,
-              draft().baseRemote,
-              query,
-            )
+            filterBranchChoices(props.refChoices, draft().baseSelection, query)
           }
-          onValue={(baseBranch) => updateDraft({ baseBranch })}
+          onValue={(branch) =>
+            updateDraft({
+              baseSelection: selectionWithBranch(draft().baseSelection, branch),
+            })
+          }
         />
         <BranchSourceField
           label="Branch remote"
-          source={draft().branchSource}
-          remote={draft().branchRemote}
-          remoteChoices={props.refChoices.remote_names}
-          onSource={(branchSource) =>
-            updateDraft({
-              branchSource,
-              branchRemote:
-                branchSource === "remote" && draft().branchRemote.length === 0
-                  ? firstRemoteName(props.refChoices)
-                  : draft().branchRemote,
-            })
-          }
-          onRemote={(branchRemote) => updateDraft({ branchRemote })}
+          selection={draft().reviewSelection}
+          refChoices={props.refChoices}
+          onSelection={(reviewSelection) => updateDraft({ reviewSelection })}
         />
         <AutocompleteField
           label="Branch to review"
-          value={draft().reviewBranch}
+          value={draft().reviewSelection.branch}
           groups={(query) =>
             filterBranchChoices(
               props.refChoices,
-              draft().branchSource,
-              draft().branchRemote,
+              draft().reviewSelection,
               query,
             )
           }
-          onValue={(reviewBranch) => updateDraft({ reviewBranch })}
+          onValue={(branch) =>
+            updateDraft({
+              reviewSelection: selectionWithBranch(
+                draft().reviewSelection,
+                branch,
+              ),
+            })
+          }
         />
       </Show>
 
@@ -320,36 +338,30 @@ export function Controls(props: {
   );
 }
 
+/**
+ * Edit only the source/remote half of a BranchSelection.
+ *
+ * The branch text remains in the adjacent AutocompleteField so branch-review
+ * controls stay as four direct grid children.
+ */
 function BranchSourceField(props: {
   label: string;
-  source: BranchSource;
-  remote: string;
-  remoteChoices: string[];
-  onSource: (source: BranchSource) => void;
-  onRemote: (remote: string) => void;
+  selection: BranchSelection;
+  refChoices: RefChoices;
+  onSelection: (selection: BranchSelection) => void;
 }) {
-  let input: HTMLInputElement | undefined;
   const [focused, setFocused] = createSignal(false);
   const [blurTimer, setBlurTimer] = createSignal<number | undefined>();
+  const remoteSelection = createMemo((): RemoteBranchSelection | null =>
+    props.selection.source === "remote" ? props.selection : null,
+  );
   const groups = createMemo(() => {
-    if (!focused() || props.source !== "remote") {
+    const selection = remoteSelection();
+    if (!focused() || selection === null) {
       return [];
     }
-    const values = filterValues(props.remoteChoices, props.remote);
-    return values.length ? [["remote_names", values] as AutocompleteGroup] : [];
-  });
-
-  onMount(() => {
-    if (input === undefined) {
-      return;
-    }
-    const open = () => setFocused(true);
-    input.addEventListener("focus", open);
-    input.addEventListener("blur", closeSoon);
-    onCleanup(() => {
-      input?.removeEventListener("focus", open);
-      input?.removeEventListener("blur", closeSoon);
-    });
+    const values = filterValues(props.refChoices.remotes, selection.remote);
+    return values.length ? [["remotes", values] as AutocompleteGroup] : [];
   });
 
   onCleanup(() => {
@@ -372,8 +384,13 @@ function BranchSourceField(props: {
   };
 
   const toggleSource = () => {
-    props.onSource(props.source === "local" ? "remote" : "local");
-    setFocused(props.source === "local");
+    const nextSelection = selectionWithSource(
+      props.selection,
+      props.selection.source === "local" ? "remote" : "local",
+      props.refChoices,
+    );
+    props.onSelection(nextSelection);
+    setFocused(nextSelection.source === "remote");
   };
 
   return (
@@ -382,38 +399,43 @@ function BranchSourceField(props: {
       <div
         classList={{
           "branch-source-control": true,
-          "is-remote": props.source === "remote",
+          "is-remote": props.selection.source === "remote",
         }}
       >
         <button
           type="button"
           class="branch-source-toggle"
-          aria-pressed={props.source === "remote"}
+          aria-pressed={props.selection.source === "remote"}
           onClick={toggleSource}
         >
-          {props.source === "remote" ? "Remote" : "Local"}
+          {props.selection.source === "remote" ? "Remote" : "Local"}
         </button>
-        <Show when={props.source === "remote"}>
-          <input
-            ref={input}
-            class="branch-source-remote"
-            value={props.remote}
-            aria-label={props.label}
-            placeholder="remote"
-            spellcheck={false}
-            autocomplete="off"
-            onClick={() => setFocused(true)}
-            onPointerDown={() => setFocused(true)}
-            onInput={(event) => {
-              props.onRemote(event.currentTarget.value);
-              setFocused(true);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setFocused(false);
-              }
-            }}
-          />
+        <Show when={remoteSelection()}>
+          {(selection) => (
+            <input
+              class="branch-source-remote"
+              value={selection().remote}
+              aria-label={props.label}
+              placeholder="remote"
+              spellcheck={false}
+              autocomplete="off"
+              onFocus={() => setFocused(true)}
+              onBlur={closeSoon}
+              onClick={() => setFocused(true)}
+              onPointerDown={() => setFocused(true)}
+              onInput={(event) => {
+                props.onSelection(
+                  selectionWithRemote(selection(), event.currentTarget.value),
+                );
+                setFocused(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setFocused(false);
+                }
+              }}
+            />
+          )}
         </Show>
       </div>
       <Show when={groups().length > 0}>
@@ -431,7 +453,15 @@ function BranchSourceField(props: {
                       class="autocomplete-option"
                       onMouseDown={(event) => {
                         event.preventDefault();
-                        props.onRemote(value);
+                        const selection = remoteSelection();
+                        if (selection === null) {
+                          throw new Error(
+                            "Remote autocomplete opened for a local branch selection",
+                          );
+                        }
+                        props.onSelection(
+                          selectionWithRemote(selection, value),
+                        );
                         setFocused(false);
                       }}
                     >
@@ -589,7 +619,15 @@ function filterRefChoices(
 ): AutocompleteGroup[] {
   const filtered: AutocompleteGroup[] = [];
   for (const section of sections) {
-    const values = filterValues(refChoices[section], query);
+    const values =
+      section === "remote_branches"
+        ? filterValues(
+            // Compare Refs is a freeform git-ref input, so this is the one UI
+            // path allowed to surface the fully-qualified remote ref string.
+            refChoices.remote_branches.map((branch) => branch.gitref),
+            query,
+          )
+        : filterValues(refChoices[section], query);
     if (values.length > 0) {
       filtered.push([section, values]);
     }
@@ -599,15 +637,16 @@ function filterRefChoices(
 
 function filterBranchChoices(
   refChoices: RefChoices,
-  source: BranchSource,
-  remoteName: string,
+  selection: BranchSelection,
   query: string,
 ): AutocompleteGroup[] {
-  if (source === "local") {
-    return filterRefChoices(refChoices, query, ["locals"]);
+  // Branch autocomplete follows the current selection variant: local branches
+  // for local selections, remote branch names within the selected remote.
+  if (selection.source === "local") {
+    return filterRefChoices(refChoices, query, ["local_branches"]);
   }
   const values = filterValues(
-    listRemoteBranchChoices(refChoices, remoteName),
+    listRemoteBranchChoices(refChoices, selection.remote),
     query,
   );
   return values.length > 0 ? [["remote_branches", values]] : [];
@@ -621,19 +660,20 @@ function listRemoteBranchChoices(
   if (normalizedRemote.length === 0) {
     return [];
   }
-  const prefix = `${normalizedRemote}/`;
-  return [
-    ...new Set(
-      refChoices.remotes
-        .filter((value) => value.startsWith(prefix))
-        .map((value) => value.slice(prefix.length))
-        .filter((value) => value.length > 0),
-    ),
-  ].sort();
+  const branches = new Set<string>();
+  for (const value of refChoices.remote_branches) {
+    if (value.structured.remote !== normalizedRemote) {
+      continue;
+    }
+    if (value.structured.branch.length > 0) {
+      branches.add(value.structured.branch);
+    }
+  }
+  return [...branches].sort();
 }
 
 function firstRemoteName(refChoices: RefChoices): string {
-  const first = refChoices.remote_names[0];
+  const first = refChoices.remotes[0];
   if (first === undefined) {
     return "";
   }

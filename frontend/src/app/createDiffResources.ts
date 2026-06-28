@@ -8,6 +8,7 @@ import {
   REQUEST_TIMEOUT_MS,
   diffParamsQueryParams,
   type BranchReviewDiffParams,
+  type BranchSelection,
   type DiffEngine,
   type DiffParams,
   type FileEntry,
@@ -22,7 +23,6 @@ import {
 } from "../api";
 import type { DiffViewMode } from "../DiffGrid";
 import {
-  type BranchSource,
   type ControlsState,
   type LoadState,
   type RenderedFileEntry,
@@ -40,7 +40,6 @@ import {
   manifestParamsQueryKey,
 } from "./diffParams";
 
-const builtinSides = new Set(["head", "index", "worktree"]);
 const SLOW_FILE_DIFF_MS = REQUEST_TIMEOUT_MS;
 const MANUAL_FILE_DIFF_TIMEOUT_MS = 60_000;
 
@@ -72,7 +71,7 @@ function statusLabel(
     return "Working tree vs HEAD";
   }
   if (diffParams.mode === "branch-review") {
-    return `${diffParams.review_branch} vs ${diffParams.base_branch}`;
+    return `${branchSelectionLabel(diffParams.review_selection)} vs ${branchSelectionLabel(diffParams.base_selection)}`;
   }
   if (diffParams.mode === "preset") {
     let kind = "Diff";
@@ -148,42 +147,11 @@ function shouldHydrateManifestEntry(
   return hydratedLazyKeys.has(fileKey(entry));
 }
 
-function qualifyRemoteRef(
-  remote: string,
-  ref: string,
-  remoteNames: string[],
-): string {
-  const trimmedRemote = remote.trim();
-  const trimmedRef = ref.trim();
-  if (trimmedRemote.length === 0 || trimmedRef.length === 0) {
-    return trimmedRef;
+function branchSelectionLabel(selection: BranchSelection): string {
+  if (selection.source === "local") {
+    return selection.branch;
   }
-  if (
-    trimmedRef.startsWith("refs/") ||
-    builtinSides.has(trimmedRef) ||
-    /^[0-9a-f]{7,40}$/i.test(trimmedRef) ||
-    trimmedRef.includes(":") ||
-    trimmedRef.includes("^") ||
-    trimmedRef.includes("~") ||
-    remoteNames.some(
-      (name) => trimmedRef === name || trimmedRef.startsWith(`${name}/`),
-    )
-  ) {
-    return trimmedRef;
-  }
-  return `${trimmedRemote}/${trimmedRef}`;
-}
-
-function branchReviewRef(
-  source: BranchSource,
-  remote: string,
-  branch: string,
-  remoteNames: string[],
-): string {
-  if (source === "local") {
-    return branch.trim();
-  }
-  return qualifyRemoteRef(remote, branch, remoteNames);
+  return `${selection.branch} @ ${selection.remote}`;
 }
 
 function nextFileExpansion(
@@ -483,10 +451,9 @@ export function createDiffResources(options: DiffResourcesOptions) {
     mode: "replace" | "reconcile",
     hydratedLazyKeys: string[],
   ) {
+    // This depth-first list is the load order for eager file diffs and lazy
+    // placeholders. The UI later walks the stored manifest tree the same way.
     const manifestFiles = manifestFileEntriesFromTree(payload.tree);
-    const order = Object.fromEntries(
-      manifestFiles.map((entry, index) => [fileKey(entry), index]),
-    );
     const lazyManifestFiles = manifestFiles.filter(
       (entry) => entry.lazy !== null,
     );
@@ -514,7 +481,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
       paramsIdentity,
       loadId,
       lazyManifestFiles,
-      order,
       hydratedLazyKeySet,
     );
   }
@@ -522,7 +488,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
   function hydrateLazyFiles(
     manifestFiles: ManifestEntry[],
     lazyInfoFiles: LazyInfoFile[],
-    order: Record<string, number>,
   ): FileEntry[] {
     const manifestKeys = new Set(manifestFiles.map((entry) => fileKey(entry)));
     const lazyInfoKeys = new Set<string>();
@@ -536,9 +501,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
         throw new Error(
           `Lazy info returned file missing from manifest: ${key}.`,
         );
-      }
-      if (order[key] === undefined) {
-        throw new Error(`Lazy info returned file missing from order: ${key}.`);
       }
       if (lazyInfoKeys.has(key)) {
         throw new Error(`Lazy info returned duplicate file: ${key}.`);
@@ -580,7 +542,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
     paramsIdentity: string,
     loadId: number,
     manifestFiles: ManifestEntry[],
-    order: Record<string, number>,
     hydratedLazyKeys: Set<string>,
   ) {
     if (manifestFiles.length === 0) {
@@ -606,7 +567,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
       const mergedFiles = hydrateLazyFiles(
         manifestFiles,
         result.payload.files,
-        order,
       ).filter((entry) => !activeHydratedLazyKeys.has(fileKey(entry)));
       const originalLazyReasonByKey: Record<string, ManifestEntry["lazy"]> = {};
       for (const file of mergedFiles) {
@@ -975,47 +935,40 @@ export function createDiffResources(options: DiffResourcesOptions) {
     startDiff(diffParams);
   };
 
+  // Branch-review loading validates tagged control state and sends that
+  // structure through the API. Remote and branch are not joined in frontend.
   const loadBranchReview = (
-    baseSource: BranchSource,
-    baseRemote: string,
-    baseBranch: string,
-    branchSource: BranchSource,
-    branchRemote: string,
-    reviewBranch: string,
+    baseSelection: BranchSelection,
+    reviewSelection: BranchSelection,
     selectedEngine: DiffEngine = engine(),
   ) => {
     const repoId = selectedRepoIdOrIdle();
     if (repoId === null) {
       return;
     }
-    const choices = options.refChoices();
     options.setControls((current) =>
       current === null
         ? current
         : {
             ...current,
             mode: "branch-review",
-            baseSource,
-            baseRemote,
-            baseBranch,
-            branchSource,
-            branchRemote,
-            reviewBranch,
+            baseSelection,
+            reviewSelection,
           },
     );
-    if (baseSource === "remote" && !baseRemote.trim()) {
+    if (baseSelection.source === "remote" && !baseSelection.remote.trim()) {
       failLoad("Pick a base remote.");
       return;
     }
-    if (!baseBranch.trim()) {
+    if (!baseSelection.branch.trim()) {
       failLoad("Pick a base branch.");
       return;
     }
-    if (branchSource === "remote" && !branchRemote.trim()) {
+    if (reviewSelection.source === "remote" && !reviewSelection.remote.trim()) {
       failLoad("Pick a branch remote.");
       return;
     }
-    if (!reviewBranch.trim()) {
+    if (!reviewSelection.branch.trim()) {
       failLoad("Pick a branch to compare against the base branch.");
       return;
     }
@@ -1023,18 +976,14 @@ export function createDiffResources(options: DiffResourcesOptions) {
       repo_id: repoId,
       engine: selectedEngine,
       mode: "branch-review",
-      base_branch: branchReviewRef(
-        baseSource,
-        baseRemote,
-        baseBranch,
-        choices.remote_names,
-      ),
-      review_branch: branchReviewRef(
-        branchSource,
-        branchRemote,
-        reviewBranch,
-        choices.remote_names,
-      ),
+      base_selection: {
+        ...baseSelection,
+        branch: baseSelection.branch.trim(),
+      },
+      review_selection: {
+        ...reviewSelection,
+        branch: reviewSelection.branch.trim(),
+      },
     };
     startDiff(diffParams);
   };
@@ -1048,12 +997,8 @@ export function createDiffResources(options: DiffResourcesOptions) {
       loadRefs(nextControls.left, nextControls.right, nextEngine);
     } else if (nextControls.mode === "branch-review") {
       loadBranchReview(
-        nextControls.baseSource,
-        nextControls.baseRemote,
-        nextControls.baseBranch,
-        nextControls.branchSource,
-        nextControls.branchRemote,
-        nextControls.reviewBranch,
+        nextControls.baseSelection,
+        nextControls.reviewSelection,
         nextEngine,
       );
     } else if (nextControls.mode === "preset") {

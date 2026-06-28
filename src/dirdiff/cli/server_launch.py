@@ -24,6 +24,7 @@ from dirdiff.cli.marker_utils import DEFAULT_DB_PATH
 from dirdiff.db.base import open_sqlite_engine
 from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
+from dirdiff.sources import BranchSelection
 
 DEFAULT_PORT = 5052
 DEFAULT_FRONTEND_PORT = 5173
@@ -72,6 +73,24 @@ class AppOptions:
     """
 
 
+def _add_branch_selection_query(
+    query: dict[str, str],
+    *,
+    prefix: str,
+    selection: BranchSelection,
+) -> None:
+    """Encode one startup branch selection into frontend URL params.
+
+    ``build_url`` uses this for CLI-provided branch-review state.  It mirrors
+    the API query contract: source and branch are always present, while remote
+    exists only on the remote variant.
+    """
+    query[f"{prefix}_source"] = selection["source"]
+    query[f"{prefix}_branch"] = selection["branch"]
+    if selection["source"] == "remote":
+        query[f"{prefix}_remote"] = selection["remote"]
+
+
 def build_url(port: int, config: RuntimeConfig) -> str:
     """Build the browser URL that matches the requested startup state.
 
@@ -85,11 +104,21 @@ def build_url(port: int, config: RuntimeConfig) -> str:
             "mode": config.mode,
             "left": config.left,
             "right": config.right,
-            "base_branch": config.base_branch,
-            "review_branch": config.review_branch,
         }.items()
         if value
     }
+    if config.mode == "branch-review" and config.base_selection is not None:
+        _add_branch_selection_query(
+            query,
+            prefix="base",
+            selection=config.base_selection,
+        )
+    if config.mode == "branch-review" and config.review_selection is not None:
+        _add_branch_selection_query(
+            query,
+            prefix="review",
+            selection=config.review_selection,
+        )
     return f"http://127.0.0.1:{port}/?{urlencode(query, quote_via=quote)}"
 
 

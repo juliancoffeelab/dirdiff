@@ -424,7 +424,11 @@ function notebookSectionQueryKey(
     diffParams.mode === "preset"
       ? [diffParams.mode, diffParams.preset_type, diffParams.preset]
       : diffParams.mode === "branch-review"
-        ? [diffParams.mode, diffParams.base_branch, diffParams.review_branch]
+        ? [
+            diffParams.mode,
+            diffParams.base_selection,
+            diffParams.review_selection,
+          ]
         : [
             diffParams.mode,
             diffParams.left,

@@ -139,7 +139,6 @@ export function App() {
     toggleDiffViewMode,
     setAllFilesExpanded: ui.setAllFilesExpanded,
     openFileExpansion: ui.openFileExpansion,
-    openDirectoryExpansion: ui.openDirectoryExpansion,
     openTreeDirectoryExpansion: ui.openTreeDirectoryExpansion,
     directoryLabelForFileKey: ui.directoryLabelForFileKey,
   });
@@ -331,8 +330,6 @@ export function App() {
               <GracefulErrorBoundary title="Could not render diff">
                 <FileList
                   files={ui.displayFiles()}
-                  groups={ui.displayFileGroups()}
-                  directoryExpansion={ui.directoryExpansion}
                   fileExpansion={ui.fileExpansion}
                   loadingFiles={diff.loadingFiles}
                   fileErrors={diff.fileErrors}
@@ -342,7 +339,6 @@ export function App() {
                   onFileVirtualizedChange={ui.setFileVirtualized}
                   onHydrateFile={diff.hydrateFile}
                   diffViewMode={diffViewMode()}
-                  setDirectoryExpansion={ui.setDirectoryExpansion}
                   setFileExpansion={ui.setFileExpansion}
                 />
               </GracefulErrorBoundary>

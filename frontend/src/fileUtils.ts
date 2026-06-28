@@ -6,6 +6,7 @@ import type {
   FileEntry,
   FileKind,
   FoldHint,
+  BranchSelection,
   LazyReason,
   ManifestTreeEntry,
   ManifestEntry,
@@ -16,19 +17,14 @@ import type {
 import type { DiffViewMode } from "./DiffGrid";
 
 export type LoadState = "idle" | "loading" | "done" | "error";
-export type BranchSource = "local" | "remote";
 export type ControlsState = {
   mode: DiffMode;
   left: string;
   right: string;
   presetType: PresetType;
   preset: string;
-  baseSource: BranchSource;
-  baseRemote: string;
-  baseBranch: string;
-  branchSource: BranchSource;
-  branchRemote: string;
-  reviewBranch: string;
+  baseSelection: BranchSelection;
+  reviewSelection: BranchSelection;
 };
 
 export type RenderedFileEntry = FileEntry & {
@@ -45,10 +41,6 @@ export type LinePin = {
   file: string;
   side: "left" | "right";
   line: string;
-};
-export type FileGroup = {
-  label: string;
-  files: RenderedFileEntry[];
 };
 export type FileTreeNode = FileTreeFileNode | FileTreeDirectoryNode;
 export type FileTreeFileNode = {
@@ -97,9 +89,8 @@ export const diffViewLabels: Record<DiffViewMode, string> = {
 
 export const refSectionLabels: Record<string, string> = {
   builtins: "Built-ins",
-  locals: "Local branches",
-  remotes: "Remote refs",
-  remote_names: "Remotes",
+  local_branches: "Local branches",
+  remotes: "Remotes",
   remote_branches: "Remote branches",
 };
 export const emptySummary: Summary = {
@@ -206,10 +197,6 @@ export function fileBodyAnchorElementId(key: string): string {
   return hashedElementId("file-body", key);
 }
 
-export function directoryElementId(label: string): string {
-  return hashedElementId("directory", label);
-}
-
 function hashedElementId(prefix: string, value: string): string {
   let hash = 5381;
   for (let index = 0; index < value.length; index += 1) {
@@ -230,7 +217,11 @@ export function fileDiffQueryKey(
     diffParams.mode === "preset"
       ? [diffParams.mode, diffParams.preset_type, diffParams.preset]
       : diffParams.mode === "branch-review"
-        ? [diffParams.mode, diffParams.base_branch, diffParams.review_branch]
+        ? [
+            diffParams.mode,
+            diffParams.base_selection,
+            diffParams.review_selection,
+          ]
         : [
             diffParams.mode,
             diffParams.left,
@@ -250,51 +241,6 @@ export function fileDiffQueryKey(
 }
 
 type FilesByKey = Record<string, RenderedFileEntry | undefined>;
-
-function loadedFilesForNodes(
-  entries: ManifestTreeEntry[],
-  filesByKey: FilesByKey,
-): RenderedFileEntry[] {
-  return entries.flatMap((entry) => {
-    if (entry.type === "directory") {
-      return [];
-    }
-    const file = filesByKey[fileKey(entry.entry)];
-    return file === undefined ? [] : [file];
-  });
-}
-
-function directoryGroupsFromTree(
-  entries: ManifestTreeEntry[],
-  filesByKey: FilesByKey,
-): FileGroup[] {
-  return entries.flatMap((entry) => {
-    if (entry.type === "file") {
-      return [];
-    }
-    const directFiles = loadedFilesForNodes(entry.entries, filesByKey);
-    const directGroup =
-      directFiles.length === 0
-        ? []
-        : [{ label: entry.path, files: directFiles }];
-    return [
-      ...directoryGroupsFromTree(entry.entries, filesByKey),
-      ...directGroup,
-    ];
-  });
-}
-
-export function groupFilesByManifestTree(
-  tree: ManifestTreeEntry[],
-  filesByKey: FilesByKey,
-): FileGroup[] {
-  const rootFiles = loadedFilesForNodes(tree, filesByKey);
-  const directoryGroups = directoryGroupsFromTree(tree, filesByKey);
-  if (rootFiles.length === 0) {
-    return directoryGroups;
-  }
-  return [...directoryGroups, { label: ROOT_FILES_LABEL, files: rootFiles }];
-}
 
 function fileTreeFilesForNodes(nodes: FileTreeNode[]): RenderedFileEntry[] {
   return nodes.flatMap((node) => {
@@ -344,6 +290,8 @@ export function fileTreeFromManifestTree(
 export function manifestFileEntriesFromTree(
   tree: ManifestTreeEntry[],
 ): ManifestEntry[] {
+  // Preorder depth-first traversal: a directory's children are emitted before
+  // moving to the next sibling. This order drives fetch and display sequencing.
   return tree.flatMap((entry) => {
     if (entry.type === "file") {
       return [entry.entry];

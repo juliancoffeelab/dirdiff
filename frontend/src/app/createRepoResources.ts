@@ -1,29 +1,21 @@
 import { batch, createMemo, createSignal } from "solid-js";
 import {
+  type BranchSelection,
+  type DefaultBaseSelection,
   DiffEngineSchema,
   PresetTypeSchema,
   fetchPresets,
   fetchRepoRefs,
   fetchRepos,
-  type DiffEngine,
   type PresetCatalogs,
   type PresetType,
+  type DiffEngine,
   type RefChoices,
   type RepoId,
   type RepoMark,
   type RepoRefs,
 } from "../api";
 import { type ControlsState } from "../fileUtils";
-
-function nullableStringValue(
-  value: string | null | undefined,
-  fallback: string,
-): string {
-  if (value !== null && value !== undefined && value.length > 0) {
-    return value;
-  }
-  return fallback;
-}
 
 function searchValue(
   search: URLSearchParams,
@@ -37,26 +29,56 @@ function searchValue(
   return fallback;
 }
 
-function splitRemoteQualifiedRef(
-  ref: string,
-  remoteNames: string[],
-): { remote: string; value: string } {
-  const trimmedRef = ref.trim();
-  for (const remoteName of [...remoteNames].sort(
-    (left, right) => right.length - left.length,
-  )) {
-    const prefix = `${remoteName}/`;
-    if (trimmedRef.startsWith(prefix)) {
-      return {
-        remote: remoteName,
-        value: trimmedRef.slice(prefix.length),
-      };
-    }
+/** Return whether a URL contains any field for one branch selection. */
+function branchSelectionParamPresent(
+  search: URLSearchParams,
+  prefix: string,
+): boolean {
+  return (
+    search.has(`${prefix}_source`) ||
+    search.has(`${prefix}_remote`) ||
+    search.has(`${prefix}_branch`)
+  );
+}
+
+/** Parse split branch-selection URL params used to seed branch-review controls. */
+function branchSelectionFromSearch(
+  search: URLSearchParams,
+  prefix: string,
+  fallback: BranchSelection,
+): BranchSelection {
+  if (!branchSelectionParamPresent(search, prefix)) {
+    return fallback;
   }
-  return {
-    remote: "",
-    value: trimmedRef,
-  };
+  const source = search.get(`${prefix}_source`);
+  const branch = search.get(`${prefix}_branch`);
+  if (source !== "local" && source !== "remote") {
+    throw new Error(`${prefix}_source must be local or remote.`);
+  }
+  if (branch === null || branch.length === 0) {
+    throw new Error(`${prefix}_branch is required.`);
+  }
+  if (source === "local") {
+    return { source, branch };
+  }
+  const remote = search.get(`${prefix}_remote`);
+  if (remote === null || remote.length === 0) {
+    throw new Error(`${prefix}_remote is required for remote selections.`);
+  }
+  return { source, remote, branch };
+}
+
+/**
+ * Convert /api/repo-refs default-base resolution into branch-review controls.
+ * If Git cannot resolve a safe default, the base input starts empty.
+ */
+function baseSelectionFromDefault(
+  defaultBaseSelection: DefaultBaseSelection,
+): BranchSelection {
+  if ("source" in defaultBaseSelection) {
+    return defaultBaseSelection;
+  }
+  return { source: "local", branch: "" };
 }
 
 const modeSides = {
@@ -66,24 +88,23 @@ const modeSides = {
 } as const;
 const defaultRefsSides = ["head~1", "head"] as const;
 
-function inferMode(
-  left: string,
-  right: string,
-  baseBranch: string,
-  reviewBranch: string,
-) {
-  if (baseBranch.length > 0 || reviewBranch.length > 0) {
+/** Infer mode from URL shape when mode is missing or from an old top-level tab. */
+function inferMode(search: URLSearchParams, left: string, right: string) {
+  if (
+    branchSelectionParamPresent(search, "base") ||
+    branchSelectionParamPresent(search, "review")
+  ) {
     return "branch-review" as const;
   }
   return left === "head" && right === "worktree" ? "head" : "refs";
 }
 
+/** Resolve the top-level mode used by initialControls for first render. */
 function resolveTopLevelMode(
   mode: ControlsState["mode"] | null,
+  search: URLSearchParams,
   left: string,
   right: string,
-  baseBranch: string,
-  reviewBranch: string,
 ): ControlsState["mode"] {
   if (
     mode === "refs" ||
@@ -96,28 +117,23 @@ function resolveTopLevelMode(
   if (mode === "files" || mode === "staged") {
     return "head";
   }
-  return inferMode(left, right, baseBranch, reviewBranch);
+  return inferMode(search, left, right);
 }
 
+/** Build first-render control state from URL params plus repo ref metadata. */
 function initialControls(repoRefs: RepoRefs): ControlsState {
   const search = new URLSearchParams(window.location.search);
-  const remoteNames = repoRefs.ref_choices.remote_names;
   const requestedLeft = searchValue(search, "left", "head");
   const requestedRight = searchValue(search, "right", "worktree");
-  const baseBranchRef = searchValue(
+  const baseSelection = branchSelectionFromSearch(
     search,
-    "base_branch",
-    nullableStringValue(repoRefs.default_base_branch, ""),
+    "base",
+    baseSelectionFromDefault(repoRefs.default_base_selection),
   );
-  const reviewBranchRef = searchValue(
+  const reviewSelection = branchSelectionFromSearch(
     search,
-    "review_branch",
-    nullableStringValue(repoRefs.preferred_review_branch, ""),
-  );
-  const baseBranchParts = splitRemoteQualifiedRef(baseBranchRef, remoteNames);
-  const reviewBranchParts = splitRemoteQualifiedRef(
-    reviewBranchRef,
-    remoteNames,
+    "review",
+    repoRefs.preferred_review_selection,
   );
   const requestedMode = search.get("mode") as ControlsState["mode"] | null;
   const requestedPresetType = search.get("preset_type");
@@ -127,16 +143,12 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
     presetType = parsedPresetType.data;
   }
   const preset = searchValue(search, "preset", "");
-  const mode =
-    requestedMode === null
-      ? "head"
-      : resolveTopLevelMode(
-          requestedMode,
-          requestedLeft,
-          requestedRight,
-          baseBranchParts.value,
-          reviewBranchParts.value,
-        );
+  const mode = resolveTopLevelMode(
+    requestedMode,
+    search,
+    requestedLeft,
+    requestedRight,
+  );
   const [defaultLeft, defaultRight] =
     mode === "refs" ? defaultRefsSides : modeSides.head;
   const left = searchValue(search, "left", defaultLeft);
@@ -150,12 +162,8 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
       right: modeRight,
       presetType,
       preset,
-      baseSource: baseBranchParts.remote ? "remote" : "local",
-      baseRemote: baseBranchParts.remote,
-      baseBranch: baseBranchParts.value,
-      branchSource: reviewBranchParts.remote ? "remote" : "local",
-      branchRemote: reviewBranchParts.remote,
-      reviewBranch: reviewBranchParts.value,
+      baseSelection,
+      reviewSelection,
     };
   }
 
@@ -165,12 +173,8 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
     right,
     presetType,
     preset,
-    baseSource: baseBranchParts.remote ? "remote" : "local",
-    baseRemote: baseBranchParts.remote,
-    baseBranch: baseBranchParts.value,
-    branchSource: reviewBranchParts.remote ? "remote" : "local",
-    branchRemote: reviewBranchParts.remote,
-    reviewBranch: reviewBranchParts.value,
+    baseSelection,
+    reviewSelection,
   };
 }
 

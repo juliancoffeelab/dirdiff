@@ -226,6 +226,67 @@ def test_build_repo_manifest_returns_explicit_tree_with_root_files_last(
     ]
 
 
+def test_build_repo_manifest_compacts_single_directory_chains(
+    tmp_path: Path,
+) -> None:
+    """Manifest tree collapses directory segments with only one child dir."""
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    source_file = tmp_path / "frontend" / "src" / "App.tsx"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("old\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "frontend/src/App.tsx"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    source_file.write_text("new\n", encoding="utf-8")
+
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
+
+    manifest = service.build_repo_manifest(left="index", right="worktree")
+
+    assert manifest["tree"] == [
+        {
+            "type": "directory",
+            "name": "frontend/src",
+            "path": "frontend/src",
+            "entries": [
+                {
+                    "type": "file",
+                    "name": "App.tsx",
+                    "entry": {
+                        "file_kind": {"type": "git", "status": "modified"},
+                        "left_path": "frontend/src/App.tsx",
+                        "right_path": "frontend/src/App.tsx",
+                        "lazy": None,
+                    },
+                }
+            ],
+        }
+    ]
+
+
 def test_untracked_lazy_file_can_be_loaded_from_worktree(
     tmp_path: Path,
 ) -> None:
@@ -340,9 +401,11 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     )
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    merge_base, normalized_branch = service.resolve_branch_diff_sides(
-        base_branch="master",
-        branch="feature",
+    resolved_base_branch, merge_base, normalized_branch = (
+        service.resolve_branch_diff_sides(
+            base_selection={"source": "local", "branch": "master"},
+            review_selection={"source": "local", "branch": "feature"},
+        )
     )
     manifest = service.build_repo_manifest(
         left=merge_base,
@@ -350,6 +413,7 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     )
 
     assert manifest["mode"] == "repo"
+    assert resolved_base_branch == "master"
     assert manifest["left_label"] == merge_base
     assert manifest["right_label"] == "feature"
     assert manifest["tree"] == [

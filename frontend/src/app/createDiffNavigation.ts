@@ -24,10 +24,8 @@ import {
   setLinePinInHash,
 } from "../linePins";
 import {
-  type FileGroup,
   type FileTreeDirectoryNode,
   type LinePin,
-  directoryElementId,
   fileBodyAnchorElementId,
   fileDisplayName,
   fileElementId,
@@ -53,7 +51,6 @@ type DiffNavigationOptions = {
   toggleDiffViewMode: () => void;
   setAllFilesExpanded: (expanded: boolean) => void;
   openFileExpansion: (file: FileEntry) => void;
-  openDirectoryExpansion: (group: FileGroup) => void;
   openTreeDirectoryExpansion: (directory: FileTreeDirectoryNode) => void;
   directoryLabelForFileKey: (key: string) => string;
 };
@@ -63,7 +60,6 @@ type FileTreeNavigationOptions = {
   isFileVirtualized: (fileId: string) => boolean;
   forceRichFileId: (fileId: string) => void;
   openFileExpansion: (file: FileEntry) => void;
-  openDirectoryExpansion: (group: FileGroup) => void;
   openTreeDirectoryExpansion: (directory: FileTreeDirectoryNode) => void;
 };
 
@@ -185,67 +181,8 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
     scrollWhenReady(0, 0, null);
   };
 
-  const scrollToDirectory = (group: FileGroup) => {
-    options.openDirectoryExpansion(group);
-    const scrollWhenReady = (
-      attempt: number,
-      stableFrames: number,
-      previousTop: number | null,
-    ) => {
-      requestAnimationFrame(() => {
-        const target = document.getElementById(directoryElementId(group.label));
-        if (target === null) {
-          if (attempt >= FILE_TREE_SCROLL_MAX_FRAMES) {
-            throw new Error(
-              `Directory tree jump did not stabilize for ${group.label}.`,
-            );
-          }
-          scrollWhenReady(attempt + 1, 0, null);
-          return;
-        }
-        const header = target.querySelector<HTMLElement>(
-          ".directory-group-header",
-        );
-        if (header === null) {
-          throw new Error(
-            `Could not find directory header for ${group.label}.`,
-          );
-        }
-        header.scrollIntoView({ block: "start", behavior: "instant" });
-        requestAnimationFrame(() => {
-          const nextStableFrames = stableFrameCountForTarget(
-            header,
-            previousTop,
-            stableFrames,
-          );
-          if (nextStableFrames < FILE_TREE_SCROLL_STABLE_FRAMES) {
-            if (attempt >= FILE_TREE_SCROLL_MAX_FRAMES) {
-              throw new Error(
-                `Directory tree jump did not stabilize for ${group.label}.`,
-              );
-            }
-            scrollWhenReady(
-              attempt + 1,
-              nextStableFrames,
-              header.getBoundingClientRect().top,
-            );
-          }
-        });
-      });
-    };
-
-    scrollWhenReady(0, 0, null);
-  };
-
   const scrollToTreeDirectory = (directory: FileTreeDirectoryNode) => {
     options.openTreeDirectoryExpansion(directory);
-    const matchingListGroup = document.getElementById(
-      directoryElementId(directory.label),
-    );
-    if (matchingListGroup !== null) {
-      scrollToDirectory({ label: directory.label, files: directory.files });
-      return;
-    }
     const firstFile = directory.files[0];
     if (firstFile === undefined) {
       throw new Error(`Directory ${directory.label} did not contain files.`);
@@ -255,7 +192,6 @@ function createFileTreeNavigation(options: FileTreeNavigationOptions) {
 
   return {
     scrollToFile,
-    scrollToDirectory,
     scrollToTreeDirectory,
   };
 }
@@ -283,7 +219,6 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     isFileVirtualized: options.isFileVirtualized,
     forceRichFileId: options.forceRichFileId,
     openFileExpansion: options.openFileExpansion,
-    openDirectoryExpansion: options.openDirectoryExpansion,
     openTreeDirectoryExpansion: options.openTreeDirectoryExpansion,
   });
   let restoredLinePinKey = "";
@@ -541,7 +476,6 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     scrollNext: hunkNav.scrollNext,
     scrollPrev: hunkNav.scrollPrev,
     scrollToFile: fileTreeNavigation.scrollToFile,
-    scrollToDirectory: fileTreeNavigation.scrollToDirectory,
     scrollToTreeDirectory: fileTreeNavigation.scrollToTreeDirectory,
   };
 }

@@ -172,8 +172,8 @@ def branch(
     config = RuntimeConfig(
         db_path=str(options.db_path),
         mode="branch-review",
-        base_branch=base_branch,
-        review_branch=review_branch,
+        base_selection={"source": "local", "branch": base_branch},
+        review_selection={"source": "local", "branch": review_branch},
         presets_root=options.presets_root,
     )
     server_launch.run_app(

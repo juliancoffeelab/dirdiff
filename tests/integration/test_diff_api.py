@@ -17,6 +17,221 @@ def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
     return TestClient(create_app(repo_marks, user_profile)), mark.id
 
 
+def run_git(cwd: Path, *args: str) -> None:
+    """Run one Git command while building integration-test repositories."""
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+
+
+def create_committed_repo(repo_path: Path, *, branch: str) -> None:
+    """Create a one-commit Git repo used as a local or remote test source."""
+    run_git(repo_path, "init", "-b", branch)
+    run_git(repo_path, "config", "user.name", "Test User")
+    run_git(repo_path, "config", "user.email", "test@example.com")
+    tracked_file = repo_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    run_git(repo_path, "add", "alpha.txt")
+    run_git(repo_path, "commit", "-m", "initial")
+
+
+def clone_test_remote(
+    tmp_path: Path,
+    *,
+    source_name: str = "remote-source",
+    bare_name: str = "remote.git",
+    worktree_name: str = "worktree",
+    branch: str = "master",
+) -> Path:
+    """Create a bare remote from a source repo and return a normal clone."""
+    source_repo = tmp_path / source_name
+    source_repo.mkdir()
+    create_committed_repo(source_repo, branch=branch)
+    run_git(tmp_path, "clone", "--bare", str(source_repo), bare_name)
+    run_git(tmp_path, "clone", str(tmp_path / bare_name), worktree_name)
+    return tmp_path / worktree_name
+
+
+def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
+    """Create a clone whose remote cannot report a default branch."""
+    source_repo = tmp_path / "remote-source"
+    source_repo.mkdir()
+    create_committed_repo(source_repo, branch="main")
+    run_git(tmp_path, "clone", "--bare", str(source_repo), "remote.git")
+    run_git(
+        tmp_path / "remote.git", "symbolic-ref", "HEAD", "refs/heads/missing"
+    )
+    subprocess.run(
+        ["git", "clone", str(tmp_path / "remote.git"), "worktree"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    return tmp_path / "worktree"
+
+
+def test_repo_refs_defaults_base_to_remote_and_review_to_local(
+    tmp_path: Path,
+) -> None:
+    """Repo refs expose structured branch-review defaults without legacy refs."""
+    repo_path = clone_test_remote(tmp_path)
+    run_git(repo_path, "config", "user.name", "Test User")
+    run_git(repo_path, "config", "user.email", "test@example.com")
+    run_git(repo_path, "checkout", "-b", "feature")
+    tracked_file = repo_path / "alpha.txt"
+    tracked_file.write_text("two\n", encoding="utf-8")
+    run_git(repo_path, "commit", "-am", "feature")
+
+    client, repo_id = create_repo_client(repo_path)
+
+    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["default_base_selection"] == {
+        "source": "remote",
+        "remote": "origin",
+        "branch": "master",
+    }
+    assert payload["preferred_review_selection"] == {
+        "source": "local",
+        "branch": "feature",
+    }
+    assert "default_base_branch" not in payload
+    assert "preferred_review_branch" not in payload
+
+
+def test_repo_refs_reports_unresolved_base_when_remote_head_is_missing(
+    tmp_path: Path,
+) -> None:
+    """Remote defaults fail when local and remote HEAD discovery both fail."""
+    repo_path = clone_test_remote_with_unknown_head(tmp_path)
+    client, repo_id = create_repo_client(repo_path)
+
+    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["default_base_selection"] == {
+        "kind": "error",
+        "error": "heuristic_fail",
+    }
+
+
+def test_repo_refs_uses_remote_show_when_local_remote_head_is_missing(
+    tmp_path: Path,
+) -> None:
+    """Remote defaults fall back to `git remote show` for missing origin/HEAD."""
+    repo_path = clone_test_remote(tmp_path, branch="main")
+    run_git(repo_path, "remote", "set-head", "origin", "-d")
+    client, repo_id = create_repo_client(repo_path)
+
+    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["default_base_selection"] == {
+        "source": "remote",
+        "remote": "origin",
+        "branch": "main",
+    }
+
+
+def test_repo_refs_prefers_current_branch_upstream_remote(
+    tmp_path: Path,
+) -> None:
+    """Default remote follows current branch upstream before origin."""
+    origin_worktree = clone_test_remote(
+        tmp_path,
+        source_name="origin-source",
+        bare_name="origin.git",
+        worktree_name="worktree",
+        branch="master",
+    )
+    upstream_source = tmp_path / "upstream-source"
+    upstream_source.mkdir()
+    create_committed_repo(upstream_source, branch="main")
+    run_git(upstream_source, "checkout", "-b", "feature")
+    (upstream_source / "alpha.txt").write_text("two\n", encoding="utf-8")
+    run_git(upstream_source, "commit", "-am", "feature")
+    run_git(upstream_source, "checkout", "main")
+    run_git(tmp_path, "clone", "--bare", str(upstream_source), "upstream.git")
+
+    run_git(
+        origin_worktree,
+        "remote",
+        "add",
+        "upstream",
+        str(tmp_path / "upstream.git"),
+    )
+    run_git(origin_worktree, "fetch", "upstream")
+    run_git(origin_worktree, "remote", "set-head", "upstream", "--auto")
+    run_git(origin_worktree, "checkout", "-b", "feature", "upstream/feature")
+
+    client, repo_id = create_repo_client(origin_worktree)
+
+    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["default_base_selection"] == {
+        "source": "remote",
+        "remote": "upstream",
+        "branch": "main",
+    }
+
+
+def test_repo_refs_defaults_local_only_repo_to_main(
+    tmp_path: Path,
+) -> None:
+    """Local-only defaults use main/master policy, not current HEAD guessing."""
+    create_committed_repo(tmp_path, branch="main")
+    run_git(tmp_path, "checkout", "-b", "feature")
+    client, repo_id = create_repo_client(tmp_path)
+
+    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["default_base_selection"] == {
+        "source": "local",
+        "branch": "main",
+    }
+
+
+def test_branch_review_query_validation_returns_bad_request(
+    tmp_path: Path,
+) -> None:
+    """Branch-review dependency validation returns 400, not an uncaught 500."""
+    subprocess.run(
+        ["git", "init", "-b", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    client, repo_id = create_repo_client(tmp_path)
+
+    response = client.get(
+        "/api/manifest",
+        params={
+            "repo_id": repo_id,
+            "engine": "dirdiff",
+            "mode": "branch-review",
+            "base_branch": "master",
+            "review_source": "local",
+            "review_branch": "feature",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "base_source is required for branch-review mode."
+    )
+
+
 def test_file_diff_endpoint_returns_full_generated_file_rows(
     tmp_path: Path,
 ) -> None:

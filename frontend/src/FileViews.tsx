@@ -24,12 +24,10 @@ import {
 import { addFoldRows, isFoldRow, type RenderRow } from "./folds";
 import { NotebookFile } from "./NotebookViews";
 import {
-  type FileGroup,
   type FileTreeDirectoryNode,
   type FileTreeNode,
   type LinePin,
   type RenderedFileEntry,
-  directoryElementId,
   fileBodyAnchorElementId,
   fileDisplayName,
   fileElementId,
@@ -126,8 +124,8 @@ function defaultFileExpansion(entry: FileEntry): boolean {
   return entry.default_expanded;
 }
 
-function groupLineStats(group: FileGroup): LineStats {
-  return group.files.reduce(
+function filesLineStats(files: FileEntry[]): LineStats {
+  return files.reduce(
     (total, file) => addLineStats(total, fileLineStats(file)),
     emptyLineStats(),
   );
@@ -198,9 +196,7 @@ function TreeLineStats(props: { stats: LineStats }) {
 
 export function FileList(props: {
   files: RenderedFileEntry[];
-  groups: FileGroup[];
   diffViewMode: DiffViewMode;
-  directoryExpansion: BooleanMap;
   fileExpansion: BooleanMap;
   loadingFiles: BooleanMap;
   fileErrors: StringMap;
@@ -209,31 +205,8 @@ export function FileList(props: {
   aggressiveFolds: boolean;
   onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
   onHydrateFile: (file: RenderedFileEntry) => void;
-  setDirectoryExpansion: ExpansionSetter;
   setFileExpansion: ExpansionSetter;
 }) {
-  const groupForLabel = (label: string) => {
-    const group = props.groups.find((entry) => entry.label === label);
-    if (group === undefined) {
-      throw new Error(`Could not find directory group ${label}.`);
-    }
-    return group;
-  };
-
-  const setDirectoryExpanded = (label: string, expanded: boolean) => {
-    const group = groupForLabel(label);
-    props.setDirectoryExpansion((current) => ({
-      ...current,
-      [label]: expanded,
-    }));
-    props.setFileExpansion((current) => ({
-      ...current,
-      ...Object.fromEntries(
-        group.files.map((file) => [fileKey(file), expanded]),
-      ),
-    }));
-  };
-
   return (
     <section class="file-list" aria-label="Changed files">
       <Show
@@ -250,82 +223,7 @@ export function FileList(props: {
         }
       >
         <div class="directory-groups">
-          <For each={props.groups}>
-            {(group) => (
-              <DirectoryGroup
-                group={() => group}
-                expanded={expansionValue(
-                  props.directoryExpansion,
-                  group.label,
-                  true,
-                )}
-                fileExpansion={props.fileExpansion}
-                loadingFiles={props.loadingFiles}
-                fileErrors={props.fileErrors}
-                linePin={props.linePin}
-                isForcedRichFileId={props.isForcedRichFileId}
-                aggressiveFolds={props.aggressiveFolds}
-                onFileVirtualizedChange={props.onFileVirtualizedChange}
-                onHydrateFile={props.onHydrateFile}
-                diffViewMode={props.diffViewMode}
-                setExpanded={(expanded) =>
-                  setDirectoryExpanded(group.label, expanded)
-                }
-                setFileExpanded={(key, expanded) =>
-                  props.setFileExpansion((current) => ({
-                    ...current,
-                    [key]: expanded,
-                  }))
-                }
-              />
-            )}
-          </For>
-        </div>
-      </Show>
-    </section>
-  );
-}
-
-function DirectoryGroup(props: {
-  group: () => FileGroup;
-  diffViewMode: DiffViewMode;
-  expanded: boolean;
-  fileExpansion: BooleanMap;
-  loadingFiles: BooleanMap;
-  fileErrors: StringMap;
-  linePin: LinePin | null;
-  isForcedRichFileId: (fileId: string) => boolean;
-  aggressiveFolds: boolean;
-  onFileVirtualizedChange: (fileId: string, virtualized: boolean) => void;
-  onHydrateFile: (file: RenderedFileEntry) => void;
-  setExpanded: (expanded: boolean) => void;
-  setFileExpanded: (key: string, expanded: boolean) => void;
-}) {
-  const group = () => props.group();
-
-  return (
-    <section
-      id={directoryElementId(group().label)}
-      class="directory-group"
-      classList={{ "is-collapsed": !props.expanded }}
-    >
-      <button
-        type="button"
-        class="directory-group-header"
-        onClick={() => props.setExpanded(!props.expanded)}
-      >
-        <span class="directory-group-heading">
-          <VisibilityIndicator size="large" visible={props.expanded} />
-          <span class="directory-group-title">{group().label}</span>
-        </span>
-        <span class="badge badge-neutral">
-          {group().files.length} file
-          {group().files.length === 1 ? "" : "s"}
-        </span>
-      </button>
-      <Show when={props.expanded}>
-        <div class="directory-group-body">
-          <For each={group().files}>
+          <For each={props.files}>
             {(file) => {
               const key = fileKey(file);
               return (
@@ -345,7 +243,10 @@ function DirectoryGroup(props: {
                   onHydrateFile={props.onHydrateFile}
                   diffViewMode={props.diffViewMode}
                   setExpanded={(expanded) =>
-                    props.setFileExpanded(key, expanded)
+                    props.setFileExpansion((current) => ({
+                      ...current,
+                      [key]: expanded,
+                    }))
                   }
                 />
               );
@@ -373,9 +274,7 @@ export function FileTreeSidebar(props: {
   onScrollToDirectory: (directory: FileTreeDirectoryNode) => void;
   onScrollToFile: (file: FileEntry) => void;
 }) {
-  const lineStats = createMemo(() =>
-    groupLineStats({ label: "", files: props.files }),
-  );
+  const lineStats = createMemo(() => filesLineStats(props.files));
   const directoryExpanded = (directory: FileTreeDirectoryNode) =>
     expansionValue(props.directoryExpansion, directory.label, true);
   const fileExpanded = (file: FileEntry) =>
@@ -534,12 +433,7 @@ function FileTreeDirectory(props: {
         >
           {props.directory.name}
         </button>
-        <TreeLineStats
-          stats={groupLineStats({
-            label: props.directory.label,
-            files: props.directory.files,
-          })}
-        />
+        <TreeLineStats stats={filesLineStats(props.directory.files)} />
       </div>
       <Show when={props.expanded}>
         <div

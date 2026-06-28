@@ -95,6 +95,19 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
     ).stdout.strip()
+    for remote_name in ["upstream", "origin", "cjgrand1"]:
+        subprocess.run(
+            [
+                "git",
+                "remote",
+                "add",
+                remote_name,
+                f"https://example.invalid/{remote_name}.git",
+            ],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
     subprocess.run(
         ["git", "update-ref", "refs/remotes/upstream/main", base_commit],
         cwd=tmp_path,
@@ -136,16 +149,52 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     ref_choices = service.list_ref_choices()
-    merge_base, normalized_branch = service.resolve_branch_diff_sides(
-        base_branch="upstream/main",
-        branch="upstream/rich-text",
+    resolved_base_branch, merge_base, normalized_branch = (
+        service.resolve_branch_diff_sides(
+            base_selection={
+                "source": "remote",
+                "remote": "upstream",
+                "branch": "main",
+            },
+            review_selection={
+                "source": "remote",
+                "remote": "upstream",
+                "branch": "rich-text",
+            },
+        )
     )
 
-    assert ref_choices["remote_names"] == ["cjgrand1", "origin", "upstream"]
-    assert "cjgrand1/rich-text" in ref_choices["remotes"]
-    assert "origin/rich-text" in ref_choices["remotes"]
-    assert "upstream/main" in ref_choices["remotes"]
-    assert "upstream/rich-text" in ref_choices["remotes"]
+    assert ref_choices["remotes"] == ["cjgrand1", "origin", "upstream"]
+    remote_branches = ref_choices["remote_branches"]
+    assert {
+        "structured": {
+            "remote": "cjgrand1",
+            "branch": "rich-text",
+        },
+        "gitref": "cjgrand1/rich-text",
+    } in remote_branches
+    assert {
+        "structured": {
+            "remote": "origin",
+            "branch": "rich-text",
+        },
+        "gitref": "origin/rich-text",
+    } in remote_branches
+    assert {
+        "structured": {
+            "remote": "upstream",
+            "branch": "main",
+        },
+        "gitref": "upstream/main",
+    } in remote_branches
+    assert {
+        "structured": {
+            "remote": "upstream",
+            "branch": "rich-text",
+        },
+        "gitref": "upstream/rich-text",
+    } in remote_branches
+    assert resolved_base_branch == "upstream/main"
     assert merge_base == base_commit
     assert normalized_branch == "upstream/rich-text"
 
@@ -157,6 +206,81 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
         raise AssertionError(
             "expected remote ref to require explicit remote name"
         )
+
+
+def test_ref_choices_use_configured_remote_names_with_slashes(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    tracked_file = tmp_path / "alpha.txt"
+    tracked_file.write_text("one\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "alpha.txt"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "add",
+            "team/origin",
+            "https://example.invalid/repo.git",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/team/origin/main", base_commit],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
+
+    ref_choices = service.list_ref_choices()
+
+    assert ref_choices["remotes"] == ["team/origin"]
+    assert {
+        "structured": {
+            "remote": "team/origin",
+            "branch": "main",
+        },
+        "gitref": "team/origin/main",
+    } in ref_choices["remote_branches"]
 
 
 def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:

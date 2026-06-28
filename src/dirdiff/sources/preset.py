@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 
 from dirdiff.sources.base import (
+    BranchSelection,
+    DefaultBaseSelection,
+    RefChoices,
     RepoDiffPath,
     SideName,
     TextDiffError,
@@ -149,38 +152,39 @@ class PresetBackend(WorkspaceBackend):
     def list_remote_names(self) -> list[str]:
         raise TextDiffError("Preset backend does not have Git remotes.")
 
-    def list_ref_choices(self) -> dict[str, list[str]]:
+    def list_ref_choices(self) -> RefChoices:
+        """Return an empty ref-choice shape for preset-backed fixtures."""
         return {
             "builtins": [],
-            "locals": [],
+            "local_branches": [],
             "remotes": [],
-            "remote_names": [],
+            "remote_branches": [],
         }
-
-    def default_remote_name(self) -> str:
-        raise TextDiffError(
-            "Preset backend does not have a default Git remote."
-        )
 
     def branch_upstream_name(self, branch_name: str) -> str:
         raise TextDiffError(
             "Preset backend does not have Git branch upstreams."
         )
 
-    def default_base_branch(self) -> str:
+    def default_base_selection(self) -> DefaultBaseSelection:
+        """Reject branch-review defaults for preset-backed fixtures."""
         raise TextDiffError(
             "Preset backend does not have a default base branch."
         )
 
-    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
+    def preferred_review_selection(
+        self, *, base_selection: DefaultBaseSelection | None = None
+    ) -> BranchSelection:
+        """Reject branch-review review defaults for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not support branch review.")
 
     def resolve_branch_diff_sides(
         self,
         *,
-        base_branch: str,
-        branch: str,
-    ) -> tuple[str, str]:
+        base_selection: BranchSelection,
+        review_selection: BranchSelection,
+    ) -> tuple[str, str, str]:
+        """Reject branch-review resolution for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not support branch review.")
 
     def list_repo_diff_paths(

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal, Protocol, TypedDict
 
 SideName = str
+BranchSource = Literal["local", "remote"]
 BUILTIN_SIDES = frozenset({"head", "index", "worktree"})
 UNIFIED_HUNK_HEADER_PATTERN = re.compile(
     r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
@@ -53,6 +54,61 @@ class UnifiedDiffLine:
 
 class TextDiffError(ValueError):
     """Raised when a diff request cannot be fulfilled safely."""
+
+
+class LocalBranchSelection(TypedDict):
+    """Local branch-review selection shared by defaults, JSON, and requests."""
+
+    source: Literal["local"]
+    branch: str
+
+
+class RemoteBranchSelection(TypedDict):
+    """Remote branch-review selection shared by defaults, JSON, and requests."""
+
+    source: Literal["remote"]
+    branch: str
+    remote: str
+
+
+BranchSelection = LocalBranchSelection | RemoteBranchSelection
+"""Tagged branch-review selection used by backends, JSON, and user requests."""
+
+
+class DefaultBaseSelectionError(TypedDict):
+    """Default-base result when Git metadata cannot identify a safe base."""
+
+    kind: Literal["error"]
+    error: Literal["heuristic_fail"]
+
+
+DefaultBaseSelection = BranchSelection | DefaultBaseSelectionError
+"""Default base selection or an explicit unresolved result for the UI."""
+
+
+class StructuredRemoteBranchRef(TypedDict):
+    """Structured remote branch choice used by branch-review controls."""
+
+    remote: str
+    branch: str
+
+
+class RemoteBranchRef(TypedDict):
+    """Paired remote-branch autocomplete entry from repository ref metadata."""
+
+    structured: StructuredRemoteBranchRef
+    # Use only for freeform ref inputs like Compare Refs. Structured branch
+    # review, defaults, runtime JSON, and backend APIs must use structured refs.
+    gitref: str
+
+
+class RefChoices(TypedDict):
+    """Repository ref choices returned by source backends for UI controls."""
+
+    builtins: list[str]
+    local_branches: list[str]
+    remotes: list[str]
+    remote_branches: list[RemoteBranchRef]
 
 
 class LoadedDiffSides(TypedDict):
@@ -160,24 +216,22 @@ class WorkspaceBackend(Protocol):
 
     def list_remote_names(self) -> list[str]: ...
 
-    def list_ref_choices(self) -> dict[str, list[str]]: ...
-
-    def default_remote_name(self) -> str: ...
+    def list_ref_choices(self) -> RefChoices: ...
 
     def branch_upstream_name(self, branch_name: str) -> str: ...
 
-    def default_base_branch(self) -> str: ...
+    def default_base_selection(self) -> DefaultBaseSelection: ...
 
-    def preferred_review_branch(
-        self, *, base_branch: str | None = None
-    ) -> str: ...
+    def preferred_review_selection(
+        self, *, base_selection: DefaultBaseSelection | None = None
+    ) -> BranchSelection: ...
 
     def resolve_branch_diff_sides(
         self,
         *,
-        base_branch: str,
-        branch: str,
-    ) -> tuple[str, str]: ...
+        base_selection: BranchSelection,
+        review_selection: BranchSelection,
+    ) -> tuple[str, str, str]: ...
 
     def list_repo_diff_paths(
         self,

@@ -14,6 +14,7 @@ from dirdiff.rendering import (
     enrich_rows_for_display,
 )
 from dirdiff.sources import (
+    BranchSelection,
     WorkspaceBackend,
     build_repo_manifest_for_backend,
     display_name_for_repo_paths,
@@ -262,12 +263,12 @@ class WorkspaceDiffServiceAdapter:
     def resolve_branch_diff_sides(
         self,
         *,
-        base_branch: str,
-        branch: str,
-    ) -> tuple[str, str]:
+        base_selection: BranchSelection,
+        review_selection: BranchSelection,
+    ) -> tuple[str, str, str]:
         return self.backend.resolve_branch_diff_sides(
-            base_branch=base_branch,
-            branch=branch,
+            base_selection=base_selection,
+            review_selection=review_selection,
         )
 
     def normalize_side(self, raw_side: str) -> str:

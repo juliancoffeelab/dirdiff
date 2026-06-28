@@ -22,8 +22,8 @@ function diffParamsParts(diffParams: DiffParams) {
       diffParams.repo_id,
       diffParams.engine,
       diffParams.mode,
-      diffParams.base_branch,
-      diffParams.review_branch,
+      diffParams.base_selection,
+      diffParams.review_selection,
     ] as const;
   }
   return [

@@ -6,6 +6,9 @@ from typing import Literal
 
 from dirdiff.sources.base import (
     BUILTIN_SIDES,
+    BranchSelection,
+    DefaultBaseSelection,
+    RefChoices,
     RepoDiffPath,
     SideName,
     TextDiffError,
@@ -231,27 +234,63 @@ class GitBackend(WorkspaceBackend):
         )
 
     def list_remote_names(self) -> list[str]:
+        if self.repo_root is None:
+            return []
+        result = self._run_git_text(["remote"], check=False)
+        if result.returncode != 0:
+            return []
         return sorted(
             {
-                ref.split("/", 1)[0]
-                for ref in self.list_remote_ref_names()
-                if "/" in ref
+                line.strip()
+                for line in result.stdout.splitlines()
+                if line.strip()
             }
         )
 
-    def list_ref_choices(self) -> dict[str, list[str]]:
-        return {
-            "builtins": ["head", "index", "worktree"],
-            "locals": self.list_branch_names(),
-            "remotes": self.list_remote_ref_names(),
-            "remote_names": self.list_remote_names(),
-        }
+    def _list_remote_branch_names(self, remote_name: str) -> list[str]:
+        """List branch names under one configured Git remote for list_ref_choices."""
+        if self.repo_root is None:
+            return []
+        result = self._run_git_text(
+            [
+                "for-each-ref",
+                "--format=%(refname)",
+                f"refs/remotes/{remote_name}",
+            ],
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        prefix = f"refs/remotes/{remote_name}/"
+        return sorted(
+            {
+                line.strip().removeprefix(prefix)
+                for line in result.stdout.splitlines()
+                if line.strip().startswith(prefix)
+                and line.strip().removeprefix(prefix) != "HEAD"
+            }
+        )
 
-    def default_remote_name(self) -> str:
-        remote_names = self.list_remote_names()
-        if "origin" in remote_names:
-            return "origin"
-        return remote_names[0] if remote_names else ""
+    def list_ref_choices(self) -> RefChoices:
+        """Return split ref choices for compare-ref and branch-review controls."""
+        remote_branches = []
+        for remote in self.list_remote_names():
+            for branch in self._list_remote_branch_names(remote):
+                remote_branches.append(
+                    {
+                        "structured": {
+                            "remote": remote,
+                            "branch": branch,
+                        },
+                        "gitref": f"{remote}/{branch}",
+                    }
+                )
+        return {
+            "builtins": ["HEAD", "index", "worktree"],
+            "local_branches": self.list_branch_names(),
+            "remotes": self.list_remote_names(),
+            "remote_branches": remote_branches,
+        }
 
     def branch_upstream_name(self, branch_name: str) -> str:
         normalized_branch = branch_name.strip()
@@ -267,57 +306,131 @@ class GitBackend(WorkspaceBackend):
         )
         return result.stdout.strip()
 
-    def default_base_branch(self) -> str:
+    def _remote_name_for_upstream(self, upstream: str) -> str:
+        """Resolve the remote name from an upstream ref for default_base_selection."""
+        for remote_name in sorted(
+            self.list_remote_names(), key=len, reverse=True
+        ):
+            if upstream.startswith(f"{remote_name}/"):
+                return remote_name
+        return ""
+
+    def _default_branch_review_remote_name(self) -> str:
+        """Pick the remote used by default_base_selection, or empty if ambiguous."""
+        current_branch = self.current_branch_name()
+        upstream = self.branch_upstream_name(current_branch)
+        upstream_remote = self._remote_name_for_upstream(upstream)
+        if upstream_remote:
+            return upstream_remote
+
+        remote_names = self.list_remote_names()
+        if "origin" in remote_names:
+            return "origin"
+        if len(remote_names) == 1:
+            return remote_names[0]
+        return ""
+
+    def _remote_head_branch_name(self, remote_name: str) -> str:
+        """Resolve a remote default branch for default_base_selection."""
+        result = self._run_git_text(
+            [
+                "symbolic-ref",
+                "--quiet",
+                "--short",
+                f"refs/remotes/{remote_name}/HEAD",
+            ],
+            check=False,
+        )
+        remote_head = result.stdout.strip()
+        prefix = f"{remote_name}/"
+        if result.returncode == 0 and remote_head.startswith(prefix):
+            return remote_head.removeprefix(prefix)
+        return self._remote_show_head_branch_name(remote_name)
+
+    def _remote_show_head_branch_name(self, remote_name: str) -> str:
+        """Read `git remote show` when local refs/remotes/<remote>/HEAD is absent."""
+        result = self._run_git_text(
+            ["remote", "show", remote_name],
+            check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            prefix = "HEAD branch: "
+            if stripped.startswith(prefix):
+                branch_name = stripped.removeprefix(prefix).strip()
+                return "" if branch_name == "(unknown)" else branch_name
+        return ""
+
+    def _local_default_base_branch_name(self) -> str:
+        """Return local main/master for local-only default_base_selection."""
         branch_names = self.list_branch_names()
-        if "master" in branch_names:
-            return "master"
         if "main" in branch_names:
             return "main"
+        if "master" in branch_names:
+            return "master"
+        return ""
 
-        if self.repo_root is not None:
-            result = self._run_git_text(
-                [
-                    "symbolic-ref",
-                    "--quiet",
-                    "--short",
-                    "refs/remotes/origin/HEAD",
-                ],
-                check=False,
-            )
-            remote_head = result.stdout.strip()
-            if remote_head.startswith("origin/"):
-                candidate = remote_head.removeprefix("origin/")
-                if candidate:
-                    return candidate
+    def default_base_selection(self) -> DefaultBaseSelection:
+        """Return the backend default base selection for /api/repo-refs JSON."""
+        if self.list_remote_names():
+            default_remote = self._default_branch_review_remote_name()
+            if not default_remote:
+                return {"kind": "error", "error": "heuristic_fail"}
+            base_branch = self._remote_head_branch_name(default_remote)
+            if not base_branch:
+                return {"kind": "error", "error": "heuristic_fail"}
+            return {
+                "source": "remote",
+                "remote": default_remote,
+                "branch": base_branch,
+            }
 
-        current = self.current_branch_name()
-        if current:
-            return current
-        return branch_names[0] if branch_names else ""
+        base_branch = self._local_default_base_branch_name()
+        if not base_branch:
+            return {"kind": "error", "error": "heuristic_fail"}
+        return {"source": "local", "branch": base_branch}
 
-    def preferred_review_branch(self, *, base_branch: str | None = None) -> str:
+    def preferred_review_selection(
+        self, *, base_selection: DefaultBaseSelection | None = None
+    ) -> BranchSelection:
+        """Return the backend default review selection for /api/repo-refs JSON."""
         branch_names = self.list_branch_names()
         if not branch_names:
-            return ""
+            return {"source": "local", "branch": ""}
 
-        normalized_base = (base_branch or self.default_base_branch()).strip()
+        normalized_base = (
+            base_selection["branch"]
+            if base_selection is not None and "source" in base_selection
+            else self._local_default_base_branch_name()
+        ).strip()
         current = self.current_branch_name()
 
         if current and current != normalized_base:
-            return current
+            return {"source": "local", "branch": current}
 
         for branch_name in branch_names:
             if branch_name != normalized_base:
-                return branch_name
+                return {"source": "local", "branch": branch_name}
 
-        return current or branch_names[0]
+        return {"source": "local", "branch": current or branch_names[0]}
+
+    def _branch_selection_ref(self, selection: BranchSelection) -> str:
+        """Collapse a BranchSelection to a git ref for resolve_branch_diff_sides."""
+        if selection["source"] == "local":
+            return selection["branch"]
+        return f"{selection['remote']}/{selection['branch']}"
 
     def resolve_branch_diff_sides(
         self,
         *,
-        base_branch: str,
-        branch: str,
-    ) -> tuple[str, str]:
+        base_selection: BranchSelection,
+        review_selection: BranchSelection,
+    ) -> tuple[str, str, str]:
+        """Resolve branch-review selections into merge-base and normalized refs."""
+        base_branch = self._branch_selection_ref(base_selection)
+        branch = self._branch_selection_ref(review_selection)
         normalized_base = self.normalize_side(base_branch)
         normalized_branch = self.normalize_side(branch)
         merge_base = self._run_git_text(
@@ -328,7 +441,7 @@ class GitBackend(WorkspaceBackend):
             raise TextDiffError(
                 f"Could not find a merge base between {normalized_base} and {normalized_branch}."
             )
-        return merge_base.stdout.strip(), normalized_branch
+        return normalized_base, merge_base.stdout.strip(), normalized_branch
 
     def _diff_args(
         self,
