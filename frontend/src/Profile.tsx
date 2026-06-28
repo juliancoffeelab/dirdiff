@@ -10,16 +10,18 @@ import {
 import { useToasts } from "./Toasts";
 import {
   clearStoredProfile,
-  loadStoredProfile,
   saveStoredProfile,
   toStoredProfile,
   type StoredProfile,
 } from "./storage";
 
 export function Profile(props: {
+  storedProfile: StoredProfile | null;
   preferences: Preferences | null;
   preferencesPending: boolean;
   preferencesError: string | null;
+  onProfileSaved: (profile: StoredProfile) => void;
+  onProfileForgotten: () => void;
   onPreferencesSaved: (preferences: Preferences) => void;
   onReloadPreferences: () => Promise<void> | void;
 }) {
@@ -27,9 +29,6 @@ export function Profile(props: {
   let trigger: HTMLButtonElement | undefined;
   const [open, setOpen] = createSignal(false);
   const [preferencesOpen, setPreferencesOpen] = createSignal(false);
-  const [storedProfile, setStoredProfile] = createSignal<StoredProfile | null>(
-    loadStoredProfile(),
-  );
   const [editing, setEditing] = createSignal(false);
   const [draftUsername, setDraftUsername] = createSignal("");
   const [draftAggressiveFolds, setDraftAggressiveFolds] =
@@ -104,7 +103,7 @@ export function Profile(props: {
   createEffect(syncPreferencesModalDismiss);
 
   const profileName = () => {
-    const profile = storedProfile();
+    const profile = props.storedProfile;
     if (profile === null) {
       return "___";
     }
@@ -112,7 +111,7 @@ export function Profile(props: {
   };
 
   const actionLabel = () => {
-    const profile = storedProfile();
+    const profile = props.storedProfile;
     if (profile === null) {
       return "Log in";
     }
@@ -120,7 +119,7 @@ export function Profile(props: {
   };
 
   const submitLabel = () => {
-    const profile = storedProfile();
+    const profile = props.storedProfile;
     if (profile === null) {
       return "Create";
     }
@@ -128,7 +127,7 @@ export function Profile(props: {
   };
 
   function startEditing() {
-    const profile = storedProfile();
+    const profile = props.storedProfile;
     if (profile === null) {
       setDraftUsername("");
     } else {
@@ -166,7 +165,7 @@ export function Profile(props: {
     setSaving(true);
     setFormError(null);
     try {
-      const currentProfile = storedProfile();
+      const currentProfile = props.storedProfile;
       let savedProfile: UserProfile;
       if (currentProfile === null) {
         savedProfile = await createUserProfile(draftUsername());
@@ -178,7 +177,7 @@ export function Profile(props: {
       }
       const nextStoredProfile = toStoredProfile(savedProfile);
       saveStoredProfile(nextStoredProfile);
-      setStoredProfile(nextStoredProfile);
+      props.onProfileSaved(nextStoredProfile);
       stopEditing();
       setOpen(false);
     } catch (error) {
@@ -203,12 +202,12 @@ export function Profile(props: {
     setPreferencesSaving(true);
     setPreferencesFormError(null);
     try {
-      const preferences = props.preferences;
-      if (preferences === null) {
-        throw new Error("Preferences are not loaded.");
+      const profile = props.storedProfile;
+      if (profile === null) {
+        throw new Error("Profile is required to save preferences.");
       }
       const savedPreferences = await updatePreferences(
-        preferences.id,
+        profile.id,
         draftAggressiveFolds(),
       );
       props.onPreferencesSaved(savedPreferences);
@@ -271,14 +270,16 @@ export function Profile(props: {
                 >
                   {actionLabel()}
                 </button>
-                <button
-                  type="button"
-                  class="profile-popover-option"
-                  role="menuitem"
-                  onClick={openPreferences}
-                >
-                  Preferences
-                </button>
+                <Show when={props.storedProfile !== null}>
+                  <button
+                    type="button"
+                    class="profile-popover-option"
+                    role="menuitem"
+                    onClick={openPreferences}
+                  >
+                    Preferences
+                  </button>
+                </Show>
               </>
             }
           >
@@ -316,14 +317,14 @@ export function Profile(props: {
               </div>
             </form>
           </Show>
-          <Show when={storedProfile() !== null && !editing()}>
+          <Show when={props.storedProfile !== null && !editing()}>
             <button
               type="button"
               class="profile-popover-option"
               role="menuitem"
               onClick={() => {
                 clearStoredProfile();
-                setStoredProfile(null);
+                props.onProfileForgotten();
                 setOpen(false);
               }}
             >

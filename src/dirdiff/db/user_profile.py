@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import Engine, String, insert, update
+from sqlalchemy import Engine, String, insert, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from dirdiff.db.base import TableBase
@@ -60,6 +60,21 @@ class UserProfileStore:
                 .values(username=username)
                 .returning(UserProfile.id, UserProfile.username)
             ).one()
+            return UserProfileRecord(id=row[0], username=row[1])
+
+    def get(self, profile_id: int) -> UserProfileRecord | None:
+        """
+        Return one persisted user profile row by id.
+        """
+
+        with Session(self.engine) as session:
+            row = session.execute(
+                select(UserProfile.id, UserProfile.username).where(
+                    UserProfile.id == profile_id
+                )
+            ).one_or_none()
+            if row is None:
+                return None
             return UserProfileRecord(id=row[0], username=row[1])
 
     def update_username(

@@ -20,6 +20,7 @@ import {
 } from "./app/createRepoResources";
 import { type ControlsState } from "./fileUtils";
 import { GracefulErrorBoundary, useToasts } from "./Toasts";
+import { loadStoredProfile, type StoredProfile } from "./storage";
 import "./styles.css";
 
 function initialDiffViewMode(): DiffViewMode {
@@ -35,8 +36,11 @@ export function App() {
     initialDiffViewMode(),
   );
   const [controls, setControls] = createSignal<ControlsState | null>(null);
+  const [storedProfile, setStoredProfile] = createSignal<StoredProfile | null>(
+    loadStoredProfile(),
+  );
   const [preferences, setPreferences] = createSignal<Preferences | null>(null);
-  const [preferencesPending, setPreferencesPending] = createSignal(true);
+  const [preferencesPending, setPreferencesPending] = createSignal(false);
   const [preferencesError, setPreferencesError] = createSignal<string | null>(
     null,
   );
@@ -84,10 +88,20 @@ export function App() {
 
   const summary = () => ui.summary();
 
-  const loadPreferences = async () => {
+  const loadPreferences = async (
+    profile: StoredProfile | null = storedProfile(),
+  ) => {
+    if (profile === null) {
+      batch(() => {
+        setPreferences(null);
+        setPreferencesError(null);
+        setPreferencesPending(false);
+      });
+      return;
+    }
     setPreferencesPending(true);
     try {
-      const loadedPreferences = await fetchPreferences();
+      const loadedPreferences = await fetchPreferences(profile.id);
       setPreferences(loadedPreferences);
       setPreferencesError(null);
     } catch (error) {
@@ -99,6 +113,22 @@ export function App() {
       setPreferencesPending(false);
     }
   };
+
+  const saveStoredProfileState = (profile: StoredProfile) => {
+    setStoredProfile(profile);
+    void loadPreferences(profile);
+  };
+
+  const forgetStoredProfileState = () => {
+    batch(() => {
+      setStoredProfile(null);
+      setPreferences(null);
+      setPreferencesError(null);
+      setPreferencesPending(false);
+    });
+  };
+
+  const aggressiveFolds = () => preferences()?.aggressive_folds ?? true;
 
   const reloadDiff = async () => {
     const diffParams = diff.currentParams();
@@ -201,9 +231,12 @@ export function App() {
   return (
     <main ref={appRoot} class="app-shell">
       <Header
+        storedProfile={storedProfile()}
         preferences={preferences()}
         preferencesPending={preferencesPending()}
         preferencesError={preferencesError()}
+        onProfileSaved={saveStoredProfileState}
+        onProfileForgotten={forgetStoredProfileState}
         onPreferencesSaved={setPreferences}
         onReloadPreferences={loadPreferences}
         repos={repo.repoList()}
@@ -275,85 +308,83 @@ export function App() {
             onSaveMainBranch={repo.saveMainBranch}
           />
           <p class={`status ${diff.status()}`}>{diff.statusText()}</p>
-          <Show when={preferences() !== null}>
-            <div class="repo-fold-controls">
-              <Show
-                when={ui.displayFiles().length > 0}
-                fallback={
-                  <>
-                    <button type="button" disabled>
-                      Fold all
-                    </button>
-                    <button type="button" disabled>
-                      Show all
-                    </button>
-                  </>
-                }
-              >
-                <button
-                  type="button"
-                  onClick={() => ui.setAllFilesExpanded(false)}
-                >
-                  Fold all
-                </button>
-                <button
-                  type="button"
-                  onClick={() => ui.setAllFilesExpanded(true)}
-                >
-                  Show all
-                </button>
-              </Show>
-            </div>
-            <div
-              class="diff-workspace"
-              classList={{
-                "diff-workspace-inline": diffViewMode() === "inline",
-                "diff-workspace-tree-open": navigation.fileTreeOpen(),
-              }}
+          <div class="repo-fold-controls">
+            <Show
+              when={ui.displayFiles().length > 0}
+              fallback={
+                <>
+                  <button type="button" disabled>
+                    Fold all
+                  </button>
+                  <button type="button" disabled>
+                    Show all
+                  </button>
+                </>
+              }
             >
-              <GracefulErrorBoundary title="Could not render file tree">
-                <FileTreeSidebar
-                  files={ui.displayFiles()}
-                  tree={ui.displayFileTree()}
-                  directoryExpansion={ui.directoryExpansion}
-                  fileExpansion={ui.fileExpansion}
-                  activeHunkFileId={ui.activeHunkFileId()}
-                  isActiveHunkFileId={ui.isActiveHunkFileId}
-                  isFileVirtualized={ui.isFileVirtualized}
-                  viewMode={diffViewMode()}
-                  open={navigation.fileTreeOpen()}
-                  onOpenChange={navigation.setFileTreeOpen}
-                  setDirectoryExpansion={ui.setDirectoryExpansion}
-                  setFileExpansion={ui.setFileExpansion}
-                  onScrollToDirectory={navigation.scrollToTreeDirectory}
-                  onScrollToFile={navigation.scrollToFile}
-                />
-              </GracefulErrorBoundary>
-              <GracefulErrorBoundary title="Could not render diff">
-                <FileList
-                  files={ui.displayFiles()}
-                  fileExpansion={ui.fileExpansion}
-                  loadingFiles={diff.loadingFiles}
-                  fileErrors={diff.fileErrors}
-                  linePin={navigation.linePin()}
-                  isForcedRichFileId={ui.isForcedRichFileId}
-                  aggressiveFolds={preferences()!.aggressive_folds}
-                  onFileVirtualizedChange={ui.setFileVirtualized}
-                  onHydrateFile={diff.hydrateFile}
-                  diffViewMode={diffViewMode()}
-                  setFileExpansion={ui.setFileExpansion}
-                />
-              </GracefulErrorBoundary>
-            </div>
-            <HunkNav
-              debugOpen={navigation.debugMenuOpen()}
-              helpOpen={navigation.helpOpen()}
-              hunkPosition={navigation.hunkPosition()}
-              onHelpOpenChange={navigation.setHelpOpen}
-              onNext={navigation.scrollNext}
-              onPrev={navigation.scrollPrev}
-            />
-          </Show>
+              <button
+                type="button"
+                onClick={() => ui.setAllFilesExpanded(false)}
+              >
+                Fold all
+              </button>
+              <button
+                type="button"
+                onClick={() => ui.setAllFilesExpanded(true)}
+              >
+                Show all
+              </button>
+            </Show>
+          </div>
+          <div
+            class="diff-workspace"
+            classList={{
+              "diff-workspace-inline": diffViewMode() === "inline",
+              "diff-workspace-tree-open": navigation.fileTreeOpen(),
+            }}
+          >
+            <GracefulErrorBoundary title="Could not render file tree">
+              <FileTreeSidebar
+                files={ui.displayFiles()}
+                tree={ui.displayFileTree()}
+                directoryExpansion={ui.directoryExpansion}
+                fileExpansion={ui.fileExpansion}
+                activeHunkFileId={ui.activeHunkFileId()}
+                isActiveHunkFileId={ui.isActiveHunkFileId}
+                isFileVirtualized={ui.isFileVirtualized}
+                viewMode={diffViewMode()}
+                open={navigation.fileTreeOpen()}
+                onOpenChange={navigation.setFileTreeOpen}
+                setDirectoryExpansion={ui.setDirectoryExpansion}
+                setFileExpansion={ui.setFileExpansion}
+                onScrollToDirectory={navigation.scrollToTreeDirectory}
+                onScrollToFile={navigation.scrollToFile}
+              />
+            </GracefulErrorBoundary>
+            <GracefulErrorBoundary title="Could not render diff">
+              <FileList
+                files={ui.displayFiles()}
+                fileExpansion={ui.fileExpansion}
+                loadingFiles={diff.loadingFiles}
+                fileErrors={diff.fileErrors}
+                linePin={navigation.linePin()}
+                isForcedRichFileId={ui.isForcedRichFileId}
+                aggressiveFolds={aggressiveFolds()}
+                onFileVirtualizedChange={ui.setFileVirtualized}
+                onHydrateFile={diff.hydrateFile}
+                diffViewMode={diffViewMode()}
+                setFileExpansion={ui.setFileExpansion}
+              />
+            </GracefulErrorBoundary>
+          </div>
+          <HunkNav
+            debugOpen={navigation.debugMenuOpen()}
+            helpOpen={navigation.helpOpen()}
+            hunkPosition={navigation.hunkPosition()}
+            onHelpOpenChange={navigation.setHelpOpen}
+            onNext={navigation.scrollNext}
+            onPrev={navigation.scrollPrev}
+          />
         </>
       </Show>
     </main>

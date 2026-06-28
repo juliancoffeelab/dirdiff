@@ -11,8 +11,10 @@ import type { DiffViewMode } from "./DiffGrid";
 import { diffViewLabels, engineLabels } from "./fileUtils";
 import { Profile } from "./Profile";
 import { Select } from "./Select";
+import type { StoredProfile } from "./storage";
 
 export function Header(props: {
+  storedProfile: StoredProfile | null;
   preferences: Preferences | null;
   preferencesPending: boolean;
   preferencesError: string | null;
@@ -21,6 +23,8 @@ export function Header(props: {
   engine: DiffEngine;
   viewMode: DiffViewMode;
   summary: Summary;
+  onProfileSaved: (profile: StoredProfile) => void;
+  onProfileForgotten: () => void;
   onPreferencesSaved: (preferences: Preferences) => void;
   onReloadPreferences: () => Promise<void> | void;
   onHeaderMount: (element: HTMLElement) => void;
@@ -36,9 +40,12 @@ export function Header(props: {
           <div class="app-brand">
             <h1>dirdiff</h1>
             <Profile
+              storedProfile={props.storedProfile}
               preferences={props.preferences}
               preferencesPending={props.preferencesPending}
               preferencesError={props.preferencesError}
+              onProfileSaved={props.onProfileSaved}
+              onProfileForgotten={props.onProfileForgotten}
               onPreferencesSaved={props.onPreferencesSaved}
               onReloadPreferences={props.onReloadPreferences}
             />

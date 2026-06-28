@@ -38,7 +38,7 @@ const UserProfileSchema = z.strictObject({
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
 const PreferencesSchema = z.strictObject({
-  id: z.number().int().positive(),
+  user_profile_id: z.number().int().positive(),
   aggressive_folds: z.boolean(),
 });
 export type Preferences = z.infer<typeof PreferencesSchema>;
@@ -810,8 +810,12 @@ export async function updateUserProfile(
   return UserProfileSchema.parse(await response.json());
 }
 
-export async function fetchPreferences(): Promise<Preferences> {
-  const response = await fetchJsonResponse("/api/preferences");
+export async function fetchPreferences(
+  userProfileId: number,
+): Promise<Preferences> {
+  const response = await fetchJsonResponse(
+    `/api/user-profile/${userProfileId}/preferences`,
+  );
   if (!response.ok) {
     return parseErrorResponse(response);
   }
@@ -819,11 +823,11 @@ export async function fetchPreferences(): Promise<Preferences> {
 }
 
 export async function updatePreferences(
-  preferencesId: number,
+  userProfileId: number,
   aggressiveFolds: boolean,
 ): Promise<Preferences> {
   const response = await fetchJsonResponse(
-    `/api/preferences/${preferencesId}`,
+    `/api/user-profile/${userProfileId}/preferences`,
     {
       method: "PATCH",
       headers: {

@@ -325,7 +325,7 @@ class UserProfileUpdateRequest(ApiModel):
 
 
 class PreferencesResponse(ApiModel):
-    id: int
+    user_profile_id: int
     aggressive_folds: bool
 
 
@@ -1259,36 +1259,45 @@ def create_app(
         )
 
     @app.get(
-        "/api/preferences",
-        summary="Load persisted global preferences",
+        "/api/user-profile/{profile_id}/preferences",
+        responses={
+            HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
+        },
+        summary="Load persisted user preferences",
     )
-    def serve_preferences() -> PreferencesResponse:
+    def serve_preferences(profile_id: int) -> PreferencesResponse:
+        profile = user_profile_store.get(profile_id)
+        if profile is None:
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=f"User profile not found: {profile_id}.",
+            )
         return PreferencesResponse.model_validate(
-            preferences_store.get_or_create(),
+            preferences_store.get_or_create(profile_id),
             from_attributes=True,
         )
 
     @app.patch(
-        "/api/preferences/{preferences_id}",
+        "/api/user-profile/{profile_id}/preferences",
         responses={
             HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
         },
-        summary="Update persisted global preferences",
+        summary="Update persisted user preferences",
     )
     def update_preferences(
-        preferences_id: int,
+        profile_id: int,
         request: PreferencesUpdateRequest,
     ) -> PreferencesResponse:
-        preferences = preferences_store.update_aggressive_folds(
-            preferences_id, request.aggressive_folds
-        )
-        if preferences is None:
+        profile = user_profile_store.get(profile_id)
+        if profile is None:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
-                detail=f"Preferences not found: {preferences_id}.",
+                detail=f"User profile not found: {profile_id}.",
             )
         return PreferencesResponse.model_validate(
-            preferences,
+            preferences_store.set_aggressive_folds(
+                profile_id, request.aggressive_folds
+            ),
             from_attributes=True,
         )
 

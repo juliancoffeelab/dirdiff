@@ -155,6 +155,56 @@ def test_repo_main_branch_save_rejects_remote_without_remote_name(
     )
 
 
+def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
+    """User preferences are keyed by user profile id, not first row."""
+    create_committed_repo(tmp_path, branch="main")
+    client, _repo_id = create_repo_client(tmp_path)
+
+    first_user = client.post(
+        "/api/user-profile", json={"username": "first"}
+    ).json()
+    second_user = client.post(
+        "/api/user-profile", json={"username": "second"}
+    ).json()
+
+    first_preferences = client.get(
+        f"/api/user-profile/{first_user['id']}/preferences"
+    )
+    second_preferences = client.get(
+        f"/api/user-profile/{second_user['id']}/preferences"
+    )
+
+    assert first_preferences.status_code == 200
+    assert first_preferences.json() == {
+        "user_profile_id": first_user["id"],
+        "aggressive_folds": True,
+    }
+    assert second_preferences.status_code == 200
+    assert second_preferences.json() == {
+        "user_profile_id": second_user["id"],
+        "aggressive_folds": True,
+    }
+
+    update_response = client.patch(
+        f"/api/user-profile/{first_user['id']}/preferences",
+        json={"aggressive_folds": False},
+    )
+    reloaded_second_preferences = client.get(
+        f"/api/user-profile/{second_user['id']}/preferences"
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json() == {
+        "user_profile_id": first_user["id"],
+        "aggressive_folds": False,
+    }
+    assert reloaded_second_preferences.status_code == 200
+    assert reloaded_second_preferences.json() == {
+        "user_profile_id": second_user["id"],
+        "aggressive_folds": True,
+    }
+
+
 def test_repo_refs_reports_unresolved_base_when_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
