@@ -1,8 +1,16 @@
+"""Preset-backed implementation of ``WorkspaceBackendProtocol``.
+
+``PresetBackend`` treats test preset directories as read-only backend data.  It lets
+the same manifest and rendering paths exercise fixture pairs without requiring
+a Git repository.  It should stay limited to preset discovery, path listing,
+and file loading for those fixtures.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
-from dirdiff.sources.base import (
+from dirdiff.backend.base import (
     BranchSelection,
     DefaultBaseSelection,
     RefChoices,
@@ -10,23 +18,32 @@ from dirdiff.sources.base import (
     SideName,
     TextDiffError,
     TextVersion,
-    WorkspaceBackend,
+    WorkspaceBackendProtocol,
     _count_changed_line_stats,
 )
 
+__all__ = [
+    "PresetBackend",
+]
 
-class PresetBackend(WorkspaceBackend):
+
+class PresetBackend(WorkspaceBackendProtocol):
+    """Read diff fixtures from a preset catalog through the backend interface."""
+
     def __init__(self, presets_root: Path, *, cwd: Path | None = None) -> None:
+        """Bind this backend to one preset root and caller working directory."""
         self.presets_root = presets_root.expanduser().resolve()
         self._repo_root = self.presets_root
         self._cwd = (cwd or Path.cwd()).resolve()
 
     @property
     def repo_root(self) -> Path | None:
+        """Expose the preset catalog root as the backend root."""
         return self._repo_root
 
     @property
     def cwd(self) -> Path:
+        """Expose the caller working directory for renderers."""
         return self._cwd
 
     @classmethod
@@ -36,11 +53,13 @@ class PresetBackend(WorkspaceBackend):
         *,
         presets_root: Path | None = None,
     ) -> PresetBackend:
+        """Resolve the preset catalog root from arguments or test defaults."""
         working_dir = (cwd or Path.cwd()).resolve()
         root = presets_root or working_dir / "tests" / "presets" / "difftastic"
         return cls(root, cwd=working_dir)
 
     def _preset_group_dirs(self) -> list[Path]:
+        """List preset groups that may contain fixture pairs."""
         if not self.presets_root.exists():
             return []
         return sorted(
@@ -48,6 +67,7 @@ class PresetBackend(WorkspaceBackend):
         )
 
     def _preset_dirs_for_group(self, group_name: str) -> list[Path]:
+        """List valid old/new fixture directories inside one preset group."""
         group_dir = self.presets_root / group_name
         if not group_dir.is_dir():
             raise TextDiffError(f"Unknown preset group: {group_name}")
@@ -60,6 +80,7 @@ class PresetBackend(WorkspaceBackend):
         )
 
     def _list_preset_names(self) -> list[str]:
+        """List groups that contain at least one usable fixture pair."""
         return [
             group_dir.name
             for group_dir in self._preset_group_dirs()
@@ -67,6 +88,7 @@ class PresetBackend(WorkspaceBackend):
         ]
 
     def list_preset_groups(self) -> list[dict[str, object]]:
+        """Build catalog entries for the preset picker."""
         return [
             {
                 "name": group_dir.name,
@@ -77,12 +99,14 @@ class PresetBackend(WorkspaceBackend):
         ]
 
     def default_preset_name(self) -> str:
+        """Choose the first available preset group for initial UI state."""
         names = self._list_preset_names()
         if not names:
             raise TextDiffError(f"No presets found in {self.presets_root}.")
         return names[0]
 
     def _preset_group_name(self, preset_name: str) -> str:
+        """Validate and normalize a user-selected preset group name."""
         normalized = preset_name.strip()
         if not normalized:
             normalized = self.default_preset_name()
@@ -103,6 +127,7 @@ class PresetBackend(WorkspaceBackend):
         return normalized
 
     def _preset_pair(self, preset_dir: Path) -> tuple[Path, Path]:
+        """Return the old/new fixture files for one preset directory."""
         old_files = sorted(preset_dir.glob("old.*"))
         new_files = sorted(preset_dir.glob("new.*"))
         if len(old_files) != 1 or len(new_files) != 1:
@@ -112,6 +137,7 @@ class PresetBackend(WorkspaceBackend):
         return old_files[0], new_files[0]
 
     def _path_for_side(self, path: str, side: SideName) -> Path:
+        """Resolve a preset-relative manifest path to the requested side file."""
         normalized_path = self.normalize_repo_path(path)
         full_path = self.presets_root / normalized_path
         if full_path.is_file():
@@ -127,29 +153,35 @@ class PresetBackend(WorkspaceBackend):
         raise TextDiffError(f"Preset file is missing: {normalized_path}")
 
     def normalize_side(self, raw_side: str) -> SideName:
+        """Normalize preset side names where the left side is the group name."""
         side = raw_side.strip()
         if side == "new":
             return side
         return self._preset_group_name(side)
 
     def discover_default_path(self) -> str:
+        """Pick the first old.* fixture path for single-file startup mode."""
         preset_group = self.default_preset_name()
         preset_dir = self._preset_dirs_for_group(preset_group)[0]
         old_path, _ = self._preset_pair(preset_dir)
         return f"{preset_group}/{preset_dir.name}/{old_path.name}"
 
     def current_branch_name(self) -> str:
+        """Reject Git branch access for preset-backed fixtures."""
         raise TextDiffError(
             "Preset backend does not have a current Git branch."
         )
 
     def list_branch_names(self) -> list[str]:
+        """Reject local branch listing for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not have Git branches.")
 
     def list_remote_ref_names(self) -> list[str]:
+        """Reject remote ref listing for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not have Git remote refs.")
 
     def list_remote_names(self) -> list[str]:
+        """Reject remote listing for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not have Git remotes.")
 
     def list_ref_choices(self) -> RefChoices:
@@ -162,6 +194,7 @@ class PresetBackend(WorkspaceBackend):
         }
 
     def branch_upstream_name(self, branch_name: str) -> str:
+        """Reject upstream lookup for preset-backed fixtures."""
         raise TextDiffError(
             "Preset backend does not have Git branch upstreams."
         )
@@ -194,6 +227,7 @@ class PresetBackend(WorkspaceBackend):
         right: SideName,
         show_untracked: bool = False,
     ) -> list[RepoDiffPath]:
+        """Represent each old/new fixture pair as one modified repo path."""
         normalized_left = self.normalize_side(left)
         if right != "new":
             raise TextDiffError(
@@ -226,6 +260,7 @@ class PresetBackend(WorkspaceBackend):
         return entries
 
     def normalize_repo_path(self, raw_path: str) -> str:
+        """Validate the <group>/<fixture>/<file> path shape used by presets."""
         if not raw_path.strip():
             raise TextDiffError("Preset path is required.")
         if raw_path.endswith("/"):
@@ -249,6 +284,7 @@ class PresetBackend(WorkspaceBackend):
         return normalized
 
     def load_version(self, path: str, side: SideName) -> TextVersion:
+        """Load one old/new fixture file for a preset manifest path."""
         normalized_path = self.normalize_repo_path(path)
         file_path = self._path_for_side(normalized_path, side)
         if not file_path.exists():

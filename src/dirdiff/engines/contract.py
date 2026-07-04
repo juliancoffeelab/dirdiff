@@ -1,8 +1,8 @@
 """Public diff-engine contract.
 
 Diff engines implement one boundary: render an already-loaded left/right text
-pair into a dirdiff result.  Workspace backends, ref resolution, manifest
-construction, lazy metadata, notebook routing, and file loading live outside
+pair into a dirdiff result.  Backend loading, ref resolution, manifest
+construction, lazy metadata, and notebook routing live outside
 ``dirdiff.engines``.
 
 This module owns the public data transfer shapes at that boundary.  Engines
@@ -16,12 +16,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, NotRequired, Protocol, TypedDict
 
+__all__ = [
+    "DiffEngineProtocol",
+    "DiffEngineResult",
+    "DiffEngineRow",
+    "DiffRow",
+    "DiffSide",
+    "DiffSummary",
+    "EngineWarning",
+    "FoldHint",
+    "InlineToken",
+    "SyntaxSpan",
+]
+
 
 @dataclass(frozen=True)
 class DiffSide:
     """One already-loaded side passed into a diff engine.
 
-    A side is the engine-facing input after source/backends have resolved refs
+    A side is the engine-facing input after backend loading has resolved refs
     and loaded bytes as text.  Human-facing labels such as ``HEAD``, ``new``,
     or branch names are intentionally absent here because they describe how the
     API presents the side, not what the engine compares.
@@ -33,7 +46,7 @@ class DiffSide:
 
     Missing sides carry ``text=None``.  Added/deleted file handling is still an
     engine concern, but fetching the contents or deciding that a side is absent
-    belongs to ``dirdiff.sources`` and server orchestration.
+    belongs to ``dirdiff.backend`` and server orchestration.
     """
 
     text: str | None
@@ -46,7 +59,7 @@ class DiffSide:
 
     path_hint: str | None = None
     """
-    Optional source metadata for parser and temporary-file selection.
+    Optional path metadata for parser and temporary-file selection.
 
     Difftastic and GumTree need file-like names to pick a language parser, and
     display rendering uses the hint for syntax/fold detection.  This is not
@@ -271,7 +284,7 @@ class DiffRow(TypedDict):
     Inline diff tokens for the old/left side.
 
     TODO: token spans and syntax spans are parallel decorations today.  We
-    should probably unify them into one backend-side decorated text model
+    should probably unify them into one server-side decorated text model
     before the frontend has to merge overlapping ranges itself.
     """
 

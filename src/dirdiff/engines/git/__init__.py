@@ -6,8 +6,8 @@ The package follows the same split as the other external diff engines:
 * ``logic.py`` owns projection from Git's unified patch text into rows;
 * this module owns the public ``GitDiffEngine`` class and summary assembly.
 
-The engine remains repo-agnostic.  ``dirdiff.sources`` loads old/new text from
-Git refs or other backends before this engine is called; this engine only asks
+The engine remains repo-agnostic.  ``dirdiff.backend`` loads old/new text from
+Git refs or preset fixtures before this engine is called; this engine only asks
 Git to compare two temporary files containing that text.
 """
 

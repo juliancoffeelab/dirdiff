@@ -16,6 +16,18 @@
 - Please dont use ORM mess.
 
 # Linting & Quality
+- Every added file must have throughough module-level docstring.
+What is the interface of this file, why it exists, what this file should do and
+what it should not do.
+If this docstring is hard to write, it means that such file should not exist
+and the code should just live elsewhere.
+- Same about functions. Either docstings with reasoning, or no function at all.
+- Public function docstrings should explain what callers can expect and need to
+comply with, not the internals.
+- Modules, classes should explain both. Private functions if reasonable, but
+public details are still non-negotiable.
+- Docstrings should explain public API, not the internals.
+- Every Python module must define `__all__` with its exported items.
 - Run `make format` afterwards
 - For user-visible frontend/rendering changes, verify in the browser against a local app session.
 - For ordinary frontend TypeScript verification, use `make tscheck`.

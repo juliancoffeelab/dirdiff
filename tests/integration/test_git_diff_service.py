@@ -4,7 +4,9 @@ from pathlib import Path
 
 from helpers import GitDiffService, TextDiffService
 
-from dirdiff.sources import GitBackend
+from dirdiff.backend import GitBackend
+
+__all__: list[str] = []
 
 
 def test_build_repo_manifest_lists_changed_tracked_files(

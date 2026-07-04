@@ -8,7 +8,7 @@ statuses projected from GumTree action ranges.
 This module must not own raw GumTree execution or final API payload assembly:
 
 * `dirdiff.engines.gumtree.gumtree` owns invoking `gumtree` and parsing JSON.
-* the GumTree service layer owns source loading, syntax highlighting, fold
+* the server/request layer owns backend loading, syntax highlighting, fold
   hints, and frontend payload assembly.
 
 Input contract
@@ -68,9 +68,9 @@ from difflib import SequenceMatcher
 from itertools import pairwise
 from typing import Any, Literal
 
+from dirdiff.backend import TextDiffError, unified_diff_lines
 from dirdiff.engines.contract import InlineToken
 from dirdiff.engines.gumtree.gumtree import GumTreeJson
-from dirdiff.sources import TextDiffError, unified_diff_lines
 
 type GumTreeTokenStatus = Literal[
     "unchanged", "insert", "delete", "replace", "move"
@@ -84,6 +84,17 @@ GUMTREE_TOKEN_STATUS_PRIORITY = {
     "replace": 2,
     "move": 3,
 }
+
+__all__ = [
+    "GUMTREE_TOKEN_STATUS_PRIORITY",
+    "GUMTREE_TREE_RANGE_PATTERN",
+    "LineSegment",
+    "SourceRange",
+    "StatusLineInterval",
+    "StatusRange",
+    "build_gumtree_rows_from_json",
+    "unified_diff_rows",
+]
 
 
 @dataclass(frozen=True)
@@ -304,7 +315,7 @@ def _status_tokens_for_line(
     *,
     text: str,
     intervals: list[StatusLineInterval],
-) -> list[dict[str, Any]]:
+) -> list[InlineToken]:
     boundaries = {0, len(text)}
     clipped: list[StatusLineInterval] = []
     for interval in intervals:

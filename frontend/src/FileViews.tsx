@@ -198,8 +198,26 @@ function TreeLineStats(props: { stats: LineStats }) {
   );
 }
 
+/**
+ * Render the card stack for the current diff result.
+ *
+ * FileList owns list-level rendering only: the empty shell, stable file-card
+ * keys, per-file expansion lookup, loading/error lookup, and the handoff from
+ * each rendered entry to FileCard.  It does not decide which files belong in
+ * the current diff, mutate file contents, resolve lazy entries, compute hunk
+ * navigation, or own file-tree state; those decisions are made by the diff
+ * resources and UI-state layers before entries reach this component.
+ *
+ * One pre-manifest state is intentional.  Repo controls can be active before
+ * the first manifest response arrives, so ``files`` may be empty while
+ * ``cacheId`` is null and the component renders only its empty shell.  Any
+ * non-empty file list must come from a manifest payload, and therefore must
+ * carry that manifest's cache id for file-card hydration and notebook section
+ * fetches.
+ */
 export function FileList(props: {
   files: RenderedFileEntry[];
+  cacheId: string | null;
   hunkPosition: HunkPosition;
   diffViewMode: DiffViewMode;
   fileExpansion: BooleanMap;
@@ -212,6 +230,9 @@ export function FileList(props: {
   onHydrateFile: (file: RenderedFileEntry) => void;
   setFileExpansion: ExpansionSetter;
 }) {
+  if (props.files.length > 0 && props.cacheId === null) {
+    throw new Error("FileList with files requires a cache id.");
+  }
   return (
     <section class="file-list" aria-label="Changed files">
       <Show
@@ -234,6 +255,7 @@ export function FileList(props: {
               return (
                 <FileCard
                   file={file}
+                  cacheId={props.cacheId}
                   hunkPosition={props.hunkPosition}
                   expanded={expansionValue(
                     props.fileExpansion,
@@ -516,6 +538,7 @@ function FileTreeFile(props: {
 
 function FileCard(props: {
   file: RenderedFileEntry;
+  cacheId: string | null;
   hunkPosition: HunkPosition;
   diffViewMode: DiffViewMode;
   expanded: boolean;
@@ -722,6 +745,7 @@ function FileCard(props: {
               <NotebookFile
                 file={props.file}
                 diffParams={props.file.sourceParams}
+                cacheId={loadedCacheId(props.cacheId)}
                 diffViewMode={props.diffViewMode}
                 aggressiveFolds={props.aggressiveFolds}
               />
@@ -935,6 +959,13 @@ function fileError(fileErrors: StringMap, key: string) {
     return "";
   }
   return error;
+}
+
+function loadedCacheId(cacheId: string | null): string {
+  if (cacheId === null) {
+    throw new Error("Notebook file rendering requires a cache id.");
+  }
+  return cacheId;
 }
 
 function hunkPositionText(position: HunkPosition): string | null {

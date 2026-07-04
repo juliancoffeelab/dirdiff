@@ -16,10 +16,21 @@ import tempfile
 from pathlib import Path
 from typing import NotRequired, Required, TypedDict, cast
 
-from dirdiff.sources import TextDiffError
+from dirdiff.backend import TextDiffError
 
 GUMTREE_BIN_ENV = "DIRDIFF_GUMTREE_BIN"
 GUMTREE_RELATIVE_BIN = Path("gumtree/dist/build/install/gumtree/bin/gumtree")
+
+__all__ = [
+    "GUMTREE_BIN_ENV",
+    "GUMTREE_RELATIVE_BIN",
+    "GumTreeInvalidJsonError",
+    "GumTreeJson",
+    "GumTreeJsonAction",
+    "GumTreeJsonMatch",
+    "gumtree_executable_for_cwd",
+    "run_gumtree_json",
+]
 
 
 class GumTreeJsonMatch(TypedDict):

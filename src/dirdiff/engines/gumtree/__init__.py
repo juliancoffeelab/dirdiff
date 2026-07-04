@@ -15,6 +15,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast, final
 
+from dirdiff.backend import TextDiffError
 from dirdiff.engines.contract import (
     DiffEngineProtocol,
     DiffEngineResult,
@@ -34,7 +35,6 @@ from dirdiff.engines.gumtree.logic import (
     build_gumtree_rows_from_json,
     unified_diff_rows,
 )
-from dirdiff.sources import TextDiffError
 
 __all__ = ["GumTreeDiffEngine"]
 

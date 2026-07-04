@@ -13,7 +13,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from dirdiff.sources import TextDiffError
+from dirdiff.backend import TextDiffError
+
+__all__ = [
+    "run_git_no_index_diff",
+]
 
 
 def _temp_file_name(label: str, path_hint: str | None) -> str:

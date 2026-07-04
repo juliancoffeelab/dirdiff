@@ -1,15 +1,18 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from helpers import WorkspaceDiffServiceAdapter
 
+from dirdiff.backend import PresetBackend
 from dirdiff.engines.gumtree import GumTreeDiffEngine
+from dirdiff.engines.gumtree.gumtree import GumTreeJson
 from dirdiff.engines.gumtree.logic import (
     _line_segments,
     _range_from_tree,
 )
-from dirdiff.sources import PresetBackend
+
+__all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "gumtree"
 FIXTURE_ROOT = PRESETS_ROOT / "python" / "extract-python-helper-function"
@@ -60,7 +63,7 @@ def _source_text(side: str) -> str:
     return (FIXTURE_ROOT / file_name).read_text()
 
 
-def _gumtree_json() -> dict[str, Any]:
+def _gumtree_json() -> GumTreeJson:
     engine = _extract_helper_engine()
     return engine._run_gumtree_json(
         left_text=_source_text("left"),
@@ -70,7 +73,7 @@ def _gumtree_json() -> dict[str, Any]:
     )
 
 
-def _action_tree(diff_json: dict[str, Any], action: str, tree: str) -> str:
+def _action_tree(diff_json: GumTreeJson, action: str, tree: str) -> str:
     actions = diff_json.get("actions", [])
     for candidate in actions:
         if candidate["action"] == action and candidate["tree"] == tree:
@@ -78,7 +81,7 @@ def _action_tree(diff_json: dict[str, Any], action: str, tree: str) -> str:
     raise AssertionError(f"GumTree action is missing: {action} {tree}")
 
 
-def _matched_dest_tree(diff_json: dict[str, Any], src_tree: str) -> str:
+def _matched_dest_tree(diff_json: GumTreeJson, src_tree: str) -> str:
     matches = diff_json.get("matches", [])
     for match in matches:
         if match["src"] == src_tree:
@@ -123,7 +126,7 @@ def _expected_for_tree(
 
 
 def _expected_action_statuses(
-    diff_json: dict[str, Any],
+    diff_json: GumTreeJson,
 ) -> list[ExpectedTokenStatus]:
     expectations: list[ExpectedTokenStatus] = []
 
@@ -186,7 +189,8 @@ def _row_for_line(
     line_no: int,
 ) -> dict[str, Any]:
     line_key = f"{side}_no"
-    for row in payload["rows"]:
+    rows = cast("list[dict[str, Any]]", payload["rows"])
+    for row in rows:
         if row[line_key] == line_no:
             return row
     raise AssertionError(f"Missing {side} row for line {line_no}")

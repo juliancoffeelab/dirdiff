@@ -1,17 +1,20 @@
 """Manifest and lazy-file payload helpers for workspace backends.
 
-This module is part of ``dirdiff.sources`` because it turns backend path
+This module is part of ``dirdiff.backend`` because it turns backend path
 metadata into API payloads.  It does not render file contents and does not know
 which diff engine the user selected.  Services render one already-loaded file;
-sources list, classify, and load workspace paths.
+backends list, classify, and load workspace paths.
 """
 
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from dirdiff.sources.base import RepoDiffPath, WorkspaceBackend
+from dirdiff.backend.base import (
+    RepoDiffPath,
+    WorkspaceBackendProtocol,
+)
 
 LARGE_CHANGED_LINES_LAZY_THRESHOLD = 1000
 GENERATED_FILES = frozenset(
@@ -37,9 +40,20 @@ GIT_FILE_STATUS_BY_CHANGE_TYPE = {
     "copy": "copied",
 }
 
+__all__ = [
+    "GENERATED_FILES",
+    "GIT_FILE_STATUS_BY_CHANGE_TYPE",
+    "LARGE_CHANGED_LINES_LAZY_THRESHOLD",
+    "build_lazy_info_for_paths",
+    "build_repo_manifest_for_backend",
+    "build_repo_manifest_for_paths",
+    "file_kind_for_change_type",
+    "file_kind_for_repo_entry",
+]
+
 
 def file_kind_for_repo_entry(entry: RepoDiffPath) -> dict[str, str]:
-    """Return the file-kind payload for one backend manifest entry."""
+    """Convert backend change metadata into the frontend's file-kind contract."""
     if entry.untracked:
         return {"type": "untracked"}
     return {
@@ -55,7 +69,7 @@ def file_kind_for_change_type(
     *,
     file_kind: Literal["git", "untracked"] | None = None,
 ) -> dict[str, str]:
-    """Return the file-kind payload for a file-diff request parameter."""
+    """Mirror manifest file-kind encoding for lazy file-diff responses."""
     if file_kind == "untracked":
         return {"type": "untracked"}
     return {
@@ -65,12 +79,14 @@ def file_kind_for_change_type(
 
 
 def _looks_generated_path(path: str | None) -> bool:
+    """Centralize generated-file heuristics so manifest and lazy info agree."""
     if not path:
         return False
     return PurePosixPath(path).name.casefold() in GENERATED_FILES
 
 
 def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
+    """Classify files that should be represented by lazy placeholders."""
     if entry.untracked:
         return "untracked"
     if entry.change_type == "delete":
@@ -93,10 +109,12 @@ def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
 
 
 def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
+    """Use the lazy classifier as the single decision point for placeholders."""
     return _lazy_reason_for_repo_entry(entry) is not None
 
 
 def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    """Build the non-lazy file node payload shared by manifest tree variants."""
     return {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
@@ -106,6 +124,7 @@ def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    """Attach lazy reason metadata while preserving the normal file shape."""
     payload = _to_repo_manifest_file_entry(entry)
     lazy = _lazy_reason_for_repo_entry(entry)
     if lazy is not None:
@@ -114,6 +133,7 @@ def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _empty_repo_summary() -> dict[str, int]:
+    """Keep the summary keys stable even when a manifest has no files."""
     return {
         "changed_files": 0,
         "added_files": 0,
@@ -126,6 +146,7 @@ def _empty_repo_summary() -> dict[str, int]:
 
 
 def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    """Expose enough metadata for the frontend to render unloaded file rows."""
     return {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
@@ -139,7 +160,7 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _tree_path_for_repo_entry(entry: RepoDiffPath) -> str:
-    """Return the path used by ``_build_repo_manifest_tree`` for placement."""
+    """Choose the visible path for tree placement and reject pathless entries."""
     path = entry.right_path or entry.left_path
     if path is None:
         raise ValueError("Repo manifest entry is missing both paths.")
@@ -147,7 +168,7 @@ def _tree_path_for_repo_entry(entry: RepoDiffPath) -> str:
 
 
 def _manifest_file_entry_for_tree(entry: RepoDiffPath) -> dict[str, Any]:
-    """Build the file node payload used by ``_build_repo_manifest_tree``."""
+    """Select lazy or eager file payload before inserting into the tree."""
     return (
         _to_lazy_repo_manifest_file_entry(entry)
         if _should_lazy_load_repo_entry(entry)
@@ -156,7 +177,7 @@ def _manifest_file_entry_for_tree(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _empty_directory_node(name: str, path: str) -> dict[str, Any]:
-    """Create directory nodes for ``_insert_tree_entry`` while building a tree."""
+    """Create the JSON directory shape once so insertion stays structural."""
     return {
         "type": "directory",
         "name": name,
@@ -172,7 +193,7 @@ def _insert_tree_entry(
     full_path: str,
     file_entry: dict[str, Any],
 ) -> None:
-    """Insert one manifest file into the tree built by ``_build_repo_manifest_tree``."""
+    """Mutate one tree level while preserving directory identity by path."""
     if not parts:
         raise ValueError(f"Cannot insert empty manifest tree path: {full_path}")
     if len(parts) == 1:
@@ -241,25 +262,26 @@ def _compact_single_directory_chains(
             continue
 
         entry["entries"] = _compact_single_directory_chains(entry["entries"])
-        while (
-            len(entry["entries"]) == 1
-            and entry["entries"][0]["type"] == "directory"
-        ):
-            child = entry["entries"][0]
-            entry = {
+        compacted_entry = entry
+        while len(compacted_entry["entries"]) == 1:
+            child = cast("dict[str, Any]", compacted_entry["entries"][0])
+            if child["type"] != "directory":
+                break
+            collapsed_entry = {
                 "type": "directory",
-                "name": f"{entry['name']}/{child['name']}",
+                "name": f"{compacted_entry['name']}/{child['name']}",
                 "path": child["path"],
                 "entries": child["entries"],
             }
-        compacted_entries.append(entry)
+            compacted_entry = collapsed_entry
+        compacted_entries.append(compacted_entry)
     return compacted_entries
 
 
 def _build_repo_manifest_tree(
     entries: list[RepoDiffPath],
 ) -> list[dict[str, Any]]:
-    """Build the ``tree`` field returned by ``build_repo_manifest_for_backend``."""
+    """Turn flat backend paths into the nested tree consumed by the sidebar."""
     tree_entries: list[dict[str, Any]] = []
     for entry in entries:
         path = _tree_path_for_repo_entry(entry)
@@ -274,13 +296,13 @@ def _build_repo_manifest_tree(
 
 
 def build_repo_manifest_for_backend(
-    backend: WorkspaceBackend,
+    backend: WorkspaceBackendProtocol,
     *,
     left: str,
     right: str,
     show_untracked: bool = False,
 ) -> dict[str, Any]:
-    """Build the repository manifest payload from backend path metadata."""
+    """Build a manifest from a backend for tests and uncached callers."""
     normalized_left = backend.normalize_side(left)
     normalized_right = backend.normalize_side(right)
     paths = backend.list_repo_diff_paths(
@@ -288,6 +310,20 @@ def build_repo_manifest_for_backend(
         right=normalized_right,
         show_untracked=show_untracked,
     )
+    return build_repo_manifest_for_paths(
+        left_label=normalized_left,
+        right_label=normalized_right,
+        paths=paths,
+    )
+
+
+def build_repo_manifest_for_paths(
+    *,
+    left_label: str,
+    right_label: str,
+    paths: list[RepoDiffPath] | tuple[RepoDiffPath, ...],
+) -> dict[str, Any]:
+    """Build a manifest from already-listed paths so cache reuse is exact."""
     summary = _empty_repo_summary()
 
     for entry in paths:
@@ -306,28 +342,18 @@ def build_repo_manifest_for_backend(
     return {
         "display_name": "Repository diff",
         "mode": "repo",
-        "left_label": normalized_left,
-        "right_label": normalized_right,
+        "left_label": left_label,
+        "right_label": right_label,
         "summary": summary,
-        "tree": _build_repo_manifest_tree(paths),
+        "tree": _build_repo_manifest_tree(list(paths)),
     }
 
 
-def build_lazy_info_for_backend(
-    backend: WorkspaceBackend,
+def build_lazy_info_for_paths(
     *,
-    left: str,
-    right: str,
-    show_untracked: bool = False,
+    paths: list[RepoDiffPath] | tuple[RepoDiffPath, ...],
 ) -> dict[str, Any]:
-    """Build lazy-file metadata from backend path entries."""
-    normalized_left = backend.normalize_side(left)
-    normalized_right = backend.normalize_side(right)
-    paths = backend.list_repo_diff_paths(
-        left=normalized_left,
-        right=normalized_right,
-        show_untracked=show_untracked,
-    )
+    """Derive lazy-file metadata from the same path snapshot as the manifest."""
     files: list[dict[str, Any]] = []
 
     for entry in paths:

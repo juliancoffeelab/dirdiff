@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal, cast, final
 
+from dirdiff.backend import unified_diff_lines
 from dirdiff.engines.contract import (
     DiffEngineProtocol,
     DiffEngineResult,
@@ -26,7 +27,6 @@ from dirdiff.engines.difftastic.difft import (
 from dirdiff.engines.difftastic.logic import (
     build_difftastic_ast,
 )
-from dirdiff.sources import unified_diff_lines
 
 __all__ = ["DifftasticDiffEngine"]
 

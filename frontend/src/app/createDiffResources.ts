@@ -262,6 +262,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     fileErrors: {},
   });
   const [loadingRevision, setLoadingRevision] = createSignal(0);
+  const [cacheId, setCacheId] = createSignal<string | null>(null);
   const [status, setStatus] = createSignal<DiffStatus>({
     loadedFiles: null,
     placement: "top",
@@ -337,6 +338,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       options.clearLoadedDiff();
       options.resetViewState();
       resetFileState();
+      setCacheId(null);
       setStatus({
         loadedFiles: null,
         placement: nextStatusPlacement,
@@ -372,7 +374,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     setCurrentParams(null);
     cancelActiveDiffQueries();
     queryClient.removeQueries({ queryKey: manifestParamsQueryKey(diffParams) });
-    queryClient.removeQueries({ queryKey: lazyInfoParamsQueryKey(diffParams) });
+    queryClient.removeQueries({ queryKey: ["lazy-info"] });
     replaceUrlForParams(diffParams);
     toastedManifestErrorIdentity = "";
     resetDiffState("loading", "Loading diff...", "top");
@@ -385,12 +387,13 @@ export function createDiffResources(options: DiffResourcesOptions) {
     const hydratedLazyKeys = options.currentHydratedLazyKeys();
     cancelActiveDiffQueries();
     queryClient.removeQueries({ queryKey: manifestParamsQueryKey(diffParams) });
-    queryClient.removeQueries({ queryKey: lazyInfoParamsQueryKey(diffParams) });
+    queryClient.removeQueries({ queryKey: ["lazy-info"] });
     replaceUrlForParams(diffParams);
     toastedManifestErrorIdentity = "";
     batch(() => {
       setCurrentParams(diffParams);
       resetFileState();
+      setCacheId(null);
       setStatus({
         loadedFiles: null,
         placement: "top",
@@ -485,6 +488,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     batch(() => {
       options.applyManifest(diffParams, loadId, payload, mode);
       resetFileState();
+      setCacheId(payload.cache_id);
       setStatus({
         loadedFiles: {
           failed: 0,
@@ -503,6 +507,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       baseStatus,
       0,
       hydratedLazyKeySet,
+      payload.cache_id,
     );
     void hydrateLazyInfo(
       diffParams,
@@ -510,6 +515,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       loadId,
       lazyManifestFiles,
       hydratedLazyKeySet,
+      payload.cache_id,
     );
   }
 
@@ -571,17 +577,18 @@ export function createDiffResources(options: DiffResourcesOptions) {
     loadId: number,
     manifestFiles: ManifestEntry[],
     hydratedLazyKeys: Set<string>,
+    cacheId: string,
   ) {
     if (manifestFiles.length === 0) {
       return;
     }
     try {
       const result = await queryClient.fetchQuery({
-        queryKey: lazyInfoParamsQueryKey(diffParams),
+        queryKey: lazyInfoParamsQueryKey(diffParams.repo_id, cacheId),
         queryFn: async ({ signal }): Promise<LazyInfoQueryPayload> => ({
           diffParams,
           paramsIdentity,
-          payload: await fetchLazyInfo(diffParams, signal),
+          payload: await fetchLazyInfo(diffParams.repo_id, cacheId, signal),
         }),
         staleTime: 0,
       });
@@ -640,6 +647,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     baseStatus: string,
     initialLoadedFiles: number,
     hydratedLazyKeys: Set<string>,
+    cacheId: string,
   ) {
     const pendingFiles = manifestFiles.filter((entry) =>
       shouldHydrateManifestEntry(entry, hydratedLazyKeys),
@@ -703,11 +711,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
             slowInterval = window.setInterval(updateSlowStatus, 1000);
           }, SLOW_FILE_DIFF_MS);
         }
-        const queryKey = fileDiffQueryKey(diffParams, entry);
+        const queryKey = fileDiffQueryKey(diffParams, entry, cacheId);
         queryClient.removeQueries({ queryKey });
         const hydrated = await queryClient.fetchQuery({
           queryKey,
-          queryFn: ({ signal }) => fetchFileDiff(diffParams, entry, signal),
+          queryFn: ({ signal }) =>
+            fetchFileDiff(diffParams, entry, cacheId, signal),
           retry: false,
           staleTime: 0,
         });
@@ -844,6 +853,10 @@ export function createDiffResources(options: DiffResourcesOptions) {
       return;
     }
     const loadId = activeLoadId;
+    const activeCacheId = cacheId();
+    if (activeCacheId === null) {
+      throw new Error("Cannot hydrate file without a cache id.");
+    }
     const key = fileKey(file);
     const originalLazyReason = lazyOriginalReasonForHydration(file);
     const lazyFetchEntry: ManifestEntry = {
@@ -864,7 +877,11 @@ export function createDiffResources(options: DiffResourcesOptions) {
     });
     void (async () => {
       try {
-        const queryKey = fileDiffQueryKey(diffParams, lazyFetchEntry);
+        const queryKey = fileDiffQueryKey(
+          diffParams,
+          lazyFetchEntry,
+          activeCacheId,
+        );
         queryClient.removeQueries({ queryKey });
         const hydrated = await queryClient.fetchQuery({
           queryKey,
@@ -872,6 +889,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
             fetchFileDiff(
               diffParams,
               lazyFetchEntry,
+              activeCacheId,
               signal,
               MANUAL_FILE_DIFF_TIMEOUT_MS,
             ),
@@ -1092,6 +1110,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     fileErrors: fileState.fileErrors,
     loadingRevision,
     status,
+    cacheId,
     resetDiffState,
     clearCurrentParams,
     loadAgainstHead,

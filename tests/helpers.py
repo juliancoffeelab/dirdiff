@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
+from dirdiff.backend import (
+    BranchSelection,
+    RefChoices,
+    WorkspaceBackendProtocol,
+    build_repo_manifest_for_backend,
+    display_name_for_repo_paths,
+    file_kind_for_change_type,
+    load_diff_sides,
+)
 from dirdiff.engines import GitDiffEngine, TextDiffEngine
 from dirdiff.engines.contract import DiffEngineProtocol, DiffSide
 from dirdiff.notebooks import (
@@ -13,14 +22,14 @@ from dirdiff.rendering import (
     default_expanded_for_payload,
     enrich_rows_for_display,
 )
-from dirdiff.sources import (
-    BranchSelection,
-    WorkspaceBackend,
-    build_repo_manifest_for_backend,
-    display_name_for_repo_paths,
-    file_kind_for_change_type,
-    load_diff_sides,
-)
+
+__all__ = [
+    "GitDiffService",
+    "TextDiffService",
+    "WorkspaceDiffServiceAdapter",
+    "build_loaded_diff",
+    "build_workspace_file_payload",
+]
 
 
 def build_loaded_diff(
@@ -39,7 +48,7 @@ def build_loaded_diff(
     """Build the text/notebook payload shape expected by legacy logic tests.
 
     The production helper with this name was removed when rendering was split
-    into source loading, engine rendering, notebook handling, and display
+    into backend loading, engine rendering, notebook handling, and display
     enrichment.  Tests still need a compact way to exercise that combined
     behavior without reintroducing the old production service surface, so this
     helper wires the new public pieces together locally.
@@ -106,15 +115,17 @@ def build_loaded_diff(
 
 def build_workspace_file_payload(
     *,
-    backend: WorkspaceBackend,
+    backend: WorkspaceBackendProtocol,
     renderer: DiffEngineProtocol,
     left_path: str | None,
     right_path: str | None,
     left: str,
     right: str,
     display_name: str | None = None,
-    change_type: str = "modify",
-    file_kind: str = "git",
+    change_type: Literal[
+        "modify", "add", "delete", "rename", "copy"
+    ] = "modify",
+    file_kind: Literal["git", "untracked"] = "git",
 ) -> dict[str, Any]:
     context = load_diff_sides(
         backend=backend,
@@ -211,7 +222,7 @@ def build_workspace_file_payload(
 class WorkspaceDiffServiceAdapter:
     def __init__(
         self,
-        backend: WorkspaceBackend,
+        backend: WorkspaceBackendProtocol,
         renderer: DiffEngineProtocol,
     ) -> None:
         self.backend = backend
@@ -225,8 +236,10 @@ class WorkspaceDiffServiceAdapter:
         left: str,
         right: str,
         display_name: str | None = None,
-        change_type: str = "modify",
-        file_kind: str = "git",
+        change_type: Literal[
+            "modify", "add", "delete", "rename", "copy"
+        ] = "modify",
+        file_kind: Literal["git", "untracked"] = "git",
     ) -> dict[str, Any]:
         return build_workspace_file_payload(
             backend=self.backend,
@@ -257,7 +270,7 @@ class WorkspaceDiffServiceAdapter:
     def list_repo_diff_paths(self, *, left: str, right: str) -> Any:
         return self.backend.list_repo_diff_paths(left=left, right=right)
 
-    def list_ref_choices(self) -> dict[str, list[str]]:
+    def list_ref_choices(self) -> RefChoices:
         return self.backend.list_ref_choices()
 
     def resolve_branch_diff_sides(
@@ -314,10 +327,10 @@ class WorkspaceDiffServiceAdapter:
 
 
 class TextDiffService(WorkspaceDiffServiceAdapter):
-    def __init__(self, backend: WorkspaceBackend) -> None:
+    def __init__(self, backend: WorkspaceBackendProtocol) -> None:
         super().__init__(backend, TextDiffEngine())
 
 
 class GitDiffService(WorkspaceDiffServiceAdapter):
-    def __init__(self, backend: WorkspaceBackend) -> None:
+    def __init__(self, backend: WorkspaceBackendProtocol) -> None:
         super().__init__(backend, GitDiffEngine())

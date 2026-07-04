@@ -83,10 +83,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NotRequired, Required, TypedDict, cast
 
-from dirdiff.sources import TextDiffError
+from dirdiff.backend import TextDiffError
 
 DFT_GRAPH_LIMIT = "10000000"
 DFT_CONTEXT_LINES = "100000000"
+
+__all__ = [
+    "DFT_CONTEXT_LINES",
+    "DFT_GRAPH_LIMIT",
+    "DifftasticAlignedPairJson",
+    "DifftasticJson",
+    "DifftasticJsonChange",
+    "DifftasticJsonChunkEntry",
+    "DifftasticJsonFileStatus",
+    "DifftasticJsonHighlight",
+    "DifftasticJsonSide",
+    "DifftasticJsonSideName",
+    "DifftasticTunings",
+    "run_difftastic_json",
+]
 
 type DifftasticAlignedPairJson = list[int | None]
 type DifftasticJsonSideName = Literal["lhs", "rhs"]

@@ -8,6 +8,8 @@ from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.db.user_profile import UserProfileStore
 from dirdiff.server import create_app
 
+__all__: list[str] = []
+
 
 def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
     engine = open_sqlite_engine(repo_path / ".dirdiff-test.sqlite")
@@ -383,6 +385,9 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         },
     )
     repo_payload = repo_response.json()
+    cache_id = repo_payload["cache_id"]
+    assert isinstance(cache_id, str)
+    assert cache_id
     assert "files" not in repo_payload
     assert repo_payload["tree"] == [
         {
@@ -400,10 +405,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "/api/lazy-info",
         params={
             "repo_id": repo_id,
-            "engine": "dirdiff",
-            "mode": "files",
-            "left": "index",
-            "right": "worktree",
+            "cache_id": cache_id,
         },
     )
     lazy_info = lazy_info_response.json()["files"][0]
@@ -423,13 +425,11 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "/api/file-diff",
         params={
             "repo_id": repo_id,
+            "cache_id": cache_id,
             "engine": "dirdiff",
             "mode": "files",
-            "left": "index",
-            "right": "worktree",
             "left_path": "Cargo.lock",
             "right_path": "Cargo.lock",
-            "change_type": "modify",
         },
     )
     payload = response.json()
@@ -439,6 +439,48 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     assert payload.get("lazy") is None
     assert payload["file_kind"] == {"type": "git", "status": "modified"}
     assert payload["rows"]
+
+    reloaded_manifest_response = client.get(
+        "/api/manifest",
+        params={
+            "repo_id": repo_id,
+            "engine": "dirdiff",
+            "mode": "files",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
+    reloaded_cache_id = reloaded_manifest_response.json()["cache_id"]
+
+    assert reloaded_manifest_response.status_code == 200
+    assert reloaded_cache_id != cache_id
+
+    stale_response = client.get(
+        "/api/file-diff",
+        params={
+            "repo_id": repo_id,
+            "cache_id": cache_id,
+            "engine": "dirdiff",
+            "mode": "files",
+            "left_path": "Cargo.lock",
+            "right_path": "Cargo.lock",
+        },
+    )
+    fresh_response = client.get(
+        "/api/file-diff",
+        params={
+            "repo_id": repo_id,
+            "cache_id": reloaded_cache_id,
+            "engine": "dirdiff",
+            "mode": "files",
+            "left_path": "Cargo.lock",
+            "right_path": "Cargo.lock",
+        },
+    )
+
+    assert stale_response.status_code == 400
+    assert stale_response.json()["detail"] == f"Unknown cache id: {cache_id}"
+    assert fresh_response.status_code == 200
 
 
 def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(

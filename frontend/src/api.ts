@@ -171,6 +171,7 @@ const SummarySchema = z.strictObject({
 export type Summary = z.infer<typeof SummarySchema>;
 
 export type RepoPayload = {
+  cache_id: string;
   display_name: string;
   mode: "repo";
   left_label: string;
@@ -351,8 +352,6 @@ const FoldHintSchema = z.strictObject({
   label: z.string(),
 });
 export type FoldHint = z.infer<typeof FoldHintSchema>;
-
-export type GitChangeType = "modify" | "add" | "delete" | "rename" | "copy";
 
 const GitFileKindSchema = z.strictObject({
   type: z.literal("git"),
@@ -554,6 +553,7 @@ const FileDiffResponseSchema = z.union([
 ]);
 
 const RepoManifestPayloadSchema = z.strictObject({
+  cache_id: z.string(),
   display_name: z.string(),
   mode: z.literal("repo"),
   left_label: z.string(),
@@ -873,6 +873,20 @@ export function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {
   return params;
 }
 
+function cachedDiffQueryParams(
+  diffParams: DiffParams,
+  cacheId: string,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("repo_id", String(diffParams.repo_id));
+  params.set("mode", diffParams.mode);
+  params.set("cache_id", cacheId);
+  if (diffParams.mode === "preset") {
+    params.set("preset_type", diffParams.preset_type);
+  }
+  return params;
+}
+
 export async function fetchManifest(
   diffParams: DiffParams,
   signal?: AbortSignal,
@@ -891,10 +905,13 @@ export async function fetchManifest(
 }
 
 export async function fetchLazyInfo(
-  diffParams: DiffParams,
+  repoId: RepoId,
+  cacheId: string,
   signal?: AbortSignal,
 ): Promise<LazyInfoPayload> {
-  const params = diffParamsQueryParams(diffParams);
+  const params = new URLSearchParams();
+  params.set("repo_id", String(repoId));
+  params.set("cache_id", cacheId);
   const response = await fetchJsonResponse(
     `/api/lazy-info?${params.toString()}`,
     {
@@ -912,18 +929,18 @@ export async function fetchLazyInfo(
 export async function fetchFileDiff(
   diffParams: DiffParams,
   entry: ManifestEntry,
+  cacheId: string,
   signal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<FileEntry> {
-  const params = diffParamsQueryParams(diffParams);
+  const params = cachedDiffQueryParams(diffParams, cacheId);
+  params.set("engine", diffParams.engine);
   if (entry.left_path !== null && entry.left_path.length > 0) {
     params.set("left_path", entry.left_path);
   }
   if (entry.right_path !== null && entry.right_path.length > 0) {
     params.set("right_path", entry.right_path);
   }
-  params.set("change_type", changeTypeForFileKind(entry.file_kind));
-  params.set("file_kind", entry.file_kind.type);
 
   let requestTimeoutMs = REQUEST_TIMEOUT_MS;
   if (usesSlowFileDiffTimeout(diffParams.engine)) {
@@ -960,37 +977,14 @@ function usesSlowFileDiffTimeout(engine: DiffEngine): boolean {
   }
 }
 
-function changeTypeForFileKind(fileKind: FileKind): GitChangeType {
-  if (fileKind.type === "untracked") {
-    return "add";
-  }
-  switch (fileKind.status) {
-    case "added":
-      return "add";
-    case "deleted":
-      return "delete";
-    case "renamed":
-      return "rename";
-    case "copied":
-      return "copy";
-    case "modified":
-      return "modify";
-    default:
-      return unsupportedGitStatus(fileKind.status);
-  }
-}
-
-function unsupportedGitStatus(status: never): never {
-  throw new Error(`Unsupported git file status: ${String(status)}.`);
-}
-
 export async function fetchNotebookSection(
   diffParams: DiffParams,
   entry: FileEntry,
+  cacheId: string,
   options: { section: string; cellKey?: string | null },
   signal?: AbortSignal,
 ): Promise<NotebookSection> {
-  const params = diffParamsQueryParams(diffParams);
+  const params = cachedDiffQueryParams(diffParams, cacheId);
   if (entry.left_path !== null && entry.left_path.length > 0) {
     params.set("left_path", entry.left_path);
   }

@@ -3,7 +3,9 @@ from pathlib import Path
 
 from helpers import TextDiffService
 
-from dirdiff.sources import GitBackend
+from dirdiff.backend import GitBackend
+
+__all__: list[str] = []
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:

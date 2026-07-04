@@ -2,7 +2,7 @@
 
 Notebook diffs are an API-level representation, not a diff-engine feature.
 The server loads the left and right ``.ipynb`` texts through a
-``WorkspaceBackend``, asks this module to parse and compare notebook structure,
+``WorkspaceBackendProtocol``, asks this module to parse and compare notebook structure,
 and returns a ``render_kind: "notebook"`` payload from the existing
 ``/api/file-diff`` endpoint.
 
@@ -20,6 +20,7 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any
 
+from dirdiff.backend import TextDiffError
 from dirdiff.engines import DiffEngineProtocol
 from dirdiff.engines.contract import DiffEngineRow, DiffSide
 from dirdiff.engines.textdiff import TextDiffEngine
@@ -28,10 +29,15 @@ from dirdiff.rendering import (
     default_expanded_for_payload,
     enrich_rows_for_display,
 )
-from dirdiff.sources import TextDiffError
-
 
 NOTEBOOK_SECONDARY_TEXT_RENDERER = TextDiffEngine()
+
+__all__ = [
+    "NOTEBOOK_SECONDARY_TEXT_RENDERER",
+    "build_notebook_diff_payload",
+    "build_notebook_section_payload",
+    "normalize_notebook_document",
+]
 
 
 def normalize_notebook_document(text: str) -> dict[str, Any] | None:

@@ -404,6 +404,7 @@ export function App() {
             <GracefulErrorBoundary title="Could not render diff">
               <FileList
                 files={ui.displayFiles()}
+                cacheId={diff.cacheId()}
                 hunkPosition={navigation.hunkPosition()}
                 fileExpansion={ui.fileExpansion}
                 loadingFiles={diff.loadingFiles}

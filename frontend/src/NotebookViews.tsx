@@ -31,6 +31,7 @@ function notebookCells(entry: FileEntry) {
 export function NotebookFile(props: {
   file: FileEntry;
   diffParams: DiffParams;
+  cacheId: string;
   diffViewMode: DiffViewMode;
   aggressiveFolds: boolean;
 }) {
@@ -59,6 +60,7 @@ export function NotebookFile(props: {
         <NotebookDetails
           file={props.file}
           diffParams={props.diffParams}
+          cacheId={props.cacheId}
           title={notebookSectionSummary("Notebook metadata diff", {
             renderMode: notebookMetadataRenderMode(props.file),
             truncatedRows: notebookMetadataTruncatedRows(props.file),
@@ -85,6 +87,7 @@ export function NotebookFile(props: {
               <NotebookCell
                 file={props.file}
                 diffParams={props.diffParams}
+                cacheId={props.cacheId}
                 cell={cell}
                 diffViewMode={props.diffViewMode}
                 aggressiveFolds={props.aggressiveFolds}
@@ -100,6 +103,7 @@ export function NotebookFile(props: {
 function NotebookCell(props: {
   file: FileEntry;
   diffParams: DiffParams;
+  cacheId: string;
   cell: NotebookCellEntry;
   diffViewMode: DiffViewMode;
   aggressiveFolds: boolean;
@@ -152,6 +156,7 @@ function NotebookCell(props: {
         <NotebookDetails
           file={props.file}
           diffParams={props.diffParams}
+          cacheId={props.cacheId}
           title={notebookSectionSummary("Cell metadata diff", {
             renderMode: cell().metadata_render_mode,
             truncatedRows: truncatedRowsValue(cell().metadata_truncated_rows),
@@ -169,6 +174,7 @@ function NotebookCell(props: {
         <NotebookDetails
           file={props.file}
           diffParams={props.diffParams}
+          cacheId={props.cacheId}
           title={notebookSectionSummary("Cell outputs diff", {
             renderMode: cell().outputs_render_mode,
             truncatedRows: truncatedRowsValue(cell().outputs_truncated_rows),
@@ -188,6 +194,7 @@ function NotebookCell(props: {
 function NotebookDetails(props: {
   file: FileEntry;
   diffParams: DiffParams;
+  cacheId: string;
   title: string;
   section: string;
   cellKey?: string;
@@ -215,6 +222,7 @@ function NotebookDetails(props: {
         queryKey: notebookSectionQueryKey(
           diffParams,
           props.file,
+          props.cacheId,
           props.section,
           notebookSectionCellKey(props.cellKey),
         ),
@@ -222,6 +230,7 @@ function NotebookDetails(props: {
           fetchNotebookSection(
             diffParams,
             props.file,
+            props.cacheId,
             {
               section: props.section,
               cellKey: props.cellKey,
@@ -417,29 +426,14 @@ function notebookCellKindBadgeClass(kind: NotebookCellEntry["kind"]): string {
 function notebookSectionQueryKey(
   diffParams: DiffParams,
   entry: FileEntry,
+  cacheId: string,
   section: string,
   cellKey: string | null,
 ) {
-  const diffIdentityParts =
-    diffParams.mode === "preset"
-      ? [diffParams.mode, diffParams.preset_type, diffParams.preset]
-      : diffParams.mode === "branch-review"
-        ? [
-            diffParams.mode,
-            diffParams.base_selection,
-            diffParams.review_selection,
-          ]
-        : [
-            diffParams.mode,
-            diffParams.left,
-            diffParams.right,
-            diffParams.mode === "head",
-          ];
   return [
     "notebook-section",
     diffParams.repo_id,
-    diffParams.engine,
-    ...diffIdentityParts,
+    cacheId,
     entry.left_path,
     entry.right_path,
     section,

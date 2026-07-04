@@ -208,35 +208,15 @@ function hashedElementId(prefix: string, value: string): string {
 export function fileDiffQueryKey(
   diffParams: DiffParams,
   entry: FileEntry | ManifestEntry,
+  cacheId: string,
 ) {
-  let displayName: string | undefined;
-  if ("display_name" in entry) {
-    displayName = entry.display_name;
-  }
-  const diffIdentityParts =
-    diffParams.mode === "preset"
-      ? [diffParams.mode, diffParams.preset_type, diffParams.preset]
-      : diffParams.mode === "branch-review"
-        ? [
-            diffParams.mode,
-            diffParams.base_selection,
-            diffParams.review_selection,
-          ]
-        : [
-            diffParams.mode,
-            diffParams.left,
-            diffParams.right,
-            diffParams.mode === "head",
-          ];
   return [
     "file-diff",
     diffParams.repo_id,
     diffParams.engine,
-    ...diffIdentityParts,
+    cacheId,
     entry.left_path,
     entry.right_path,
-    displayName,
-    fileKindKey(entry.file_kind),
   ] as const;
 }
 

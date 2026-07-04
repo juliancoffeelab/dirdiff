@@ -1,3 +1,14 @@
+"""Shared backend contracts and text-loading helpers.
+
+Concrete backends such as ``GitBackend`` and ``PresetBackend`` implement
+``WorkspaceBackendProtocol`` to provide normalized sides, changed path lists, ref
+metadata, and loaded file text.  This module defines those data shapes plus the
+small text/unified-diff helpers reused by backend implementations.
+
+It should not know about HTTP endpoints, cache ids, frontend rendering, or
+which diff engine will consume the loaded text.
+"""
+
 from __future__ import annotations
 
 import difflib
@@ -15,9 +26,34 @@ UNIFIED_HUNK_HEADER_PATTERN = re.compile(
     r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
 )
 
+__all__ = [
+    "BUILTIN_SIDES",
+    "BranchSelection",
+    "BranchSource",
+    "DefaultBaseSelection",
+    "DefaultBaseSelectionError",
+    "LoadedDiffSides",
+    "LocalBranchSelection",
+    "RefChoices",
+    "RemoteBranchRef",
+    "RemoteBranchSelection",
+    "RepoDiffPath",
+    "SideName",
+    "StructuredRemoteBranchRef",
+    "TextDiffError",
+    "TextVersion",
+    "UnifiedDiffLine",
+    "WorkspaceBackendProtocol",
+    "display_name_for_repo_paths",
+    "load_diff_sides",
+    "unified_diff_lines",
+]
+
 
 @dataclass(frozen=True)
 class TextVersion:
+    """One loaded side of a file before it is handed to a diff engine."""
+
     label: str
     exists: bool
     text: str | None
@@ -26,6 +62,8 @@ class TextVersion:
 
 @dataclass(frozen=True)
 class RepoDiffPath:
+    """Path-level metadata produced by a backend path listing."""
+
     left_path: str | None
     right_path: str | None
     display_name: str
@@ -40,7 +78,7 @@ class RepoDiffPath:
 class UnifiedDiffLine:
     """One parsed content line from a unified diff hunk.
 
-    This source-level shape is intentionally not a frontend row.  It records
+    This backend-level shape is intentionally not a frontend row.  It records
     the line status, side line numbers, and text extracted from
     ``difflib.unified_diff`` so engines can project the fallback into their own
     row payloads without each parsing unified-diff headers.
@@ -72,7 +110,7 @@ class RemoteBranchSelection(TypedDict):
 
 
 BranchSelection = LocalBranchSelection | RemoteBranchSelection
-"""Tagged branch-review selection used by backends, JSON, and user requests."""
+"""Branch-review selection with remote branches kept as structured data."""
 
 
 class DefaultBaseSelectionError(TypedDict):
@@ -98,12 +136,12 @@ class RemoteBranchRef(TypedDict):
 
     structured: StructuredRemoteBranchRef
     # Use only for freeform ref inputs like Compare Refs. Structured branch
-    # review, defaults, runtime JSON, and backend APIs must use structured refs.
+    # review, defaults, and runtime JSON must keep remote and branch separate.
     gitref: str
 
 
 class RefChoices(TypedDict):
-    """Repository ref choices returned by source backends for UI controls."""
+    """Repository ref choices returned by backends for UI controls."""
 
     builtins: list[str]
     local_branches: list[str]
@@ -112,13 +150,13 @@ class RefChoices(TypedDict):
 
 
 class LoadedDiffSides(TypedDict):
-    """Loaded left/right text sides returned by a workspace backend.
+    """Loaded left/right text sides returned by ``load_diff_sides``.
 
-    The source layer owns path normalization, side-name normalization, and text
-    loading.  This bundle is the handoff from that source work to server-level
-    notebook routing or engine rendering: it contains normalized repo paths,
-    display labels for the two selected sides, and the loaded ``TextVersion``
-    objects.
+    ``WorkspaceBackendProtocol`` objects own path normalization, side-name
+    normalization, and text loading.  This bundle is the handoff into
+    server-level notebook routing or engine rendering: it contains normalized
+    repo paths, display labels for the two selected sides, and the loaded
+    ``TextVersion`` objects.
     """
 
     left_path: str | None
@@ -130,6 +168,7 @@ class LoadedDiffSides(TypedDict):
 
 
 def _decode_text(data: bytes, *, label: str) -> str:
+    """Decode backend bytes as UTF-8 and turn binary data into a request error."""
     if b"\x00" in data:
         raise TextDiffError(f"{label} appears to be a binary file.")
     try:
@@ -144,7 +183,7 @@ def display_name_for_repo_paths(
 ) -> str:
     """Return the user-visible file label for a left/right repo path pair.
 
-    Path-pair display names are source metadata: they describe what file the
+    Path-pair display names are backend metadata: they describe what file the
     backend found before any diff engine renders contents.  Renames and copies
     show both sides, unchanged paths show the single path, and one-sided files
     show the path that exists.
@@ -162,6 +201,7 @@ def _count_changed_line_stats(
     left_text: str,
     right_text: str,
 ) -> tuple[int, int, int]:
+    """Count added, removed, and replaced lines for manifest summaries."""
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
     matcher = SequenceMatcher(
@@ -197,41 +237,69 @@ def _count_changed_line_stats(
     return added, removed, replaced
 
 
-class WorkspaceBackend(Protocol):
-    @property
-    def repo_root(self) -> Path | None: ...
+class WorkspaceBackendProtocol(Protocol):
+    """Interface implemented by Git and preset-backed workspace backends."""
 
     @property
-    def cwd(self) -> Path: ...
+    def repo_root(self) -> Path | None:
+        """Filesystem root used for display and path validation."""
+        ...
 
-    def normalize_side(self, raw_side: str) -> SideName: ...
+    @property
+    def cwd(self) -> Path:
+        """Working directory used by renderers that need to spawn tools."""
+        ...
 
-    def discover_default_path(self) -> str: ...
+    def normalize_side(self, raw_side: str) -> SideName:
+        """Normalize a user-facing side name into a backend-loadable side."""
+        ...
 
-    def current_branch_name(self) -> str: ...
+    def discover_default_path(self) -> str:
+        """Return the default path for single-file comparisons when available."""
+        ...
 
-    def list_branch_names(self) -> list[str]: ...
+    def current_branch_name(self) -> str:
+        """Return the current branch name when the backend has branch metadata."""
+        ...
 
-    def list_remote_ref_names(self) -> list[str]: ...
+    def list_branch_names(self) -> list[str]:
+        """Return local branch choices for branch-review controls."""
+        ...
 
-    def list_remote_names(self) -> list[str]: ...
+    def list_remote_ref_names(self) -> list[str]:
+        """Return remote ref names for freeform ref compares."""
+        ...
 
-    def list_ref_choices(self) -> RefChoices: ...
+    def list_remote_names(self) -> list[str]:
+        """Return configured remotes known to the backend."""
+        ...
 
-    def branch_upstream_name(self, branch_name: str) -> str: ...
+    def list_ref_choices(self) -> RefChoices:
+        """Return structured ref metadata consumed by repo-ref controls."""
+        ...
 
-    def default_base_selection(self) -> DefaultBaseSelection: ...
+    def branch_upstream_name(self, branch_name: str) -> str:
+        """Return the upstream ref configured for a local branch."""
+        ...
+
+    def default_base_selection(self) -> DefaultBaseSelection:
+        """Choose the initial branch-review base for this backend."""
+        ...
 
     def preferred_review_selection(
         self, *, base_selection: DefaultBaseSelection | None = None
-    ) -> BranchSelection: ...
+    ) -> BranchSelection:
+        """Choose the initial branch-review target for this backend."""
+        ...
 
     def resolve_branch_diff_sides(
         self,
         *,
         base_selection: BranchSelection,
         review_selection: BranchSelection,
-    ) -> tuple[str, str, str]: ...
+    ) -> tuple[str, str, str]:
+        """Resolve branch-review selections into label, merge base, and target."""
+        ...
 
     def list_repo_diff_paths(
         self,
@@ -239,16 +307,22 @@ class WorkspaceBackend(Protocol):
         left: SideName,
         right: SideName,
         show_untracked: bool = False,
-    ) -> list[RepoDiffPath]: ...
+    ) -> list[RepoDiffPath]:
+        """List changed paths between two normalized backend sides."""
+        ...
 
-    def normalize_repo_path(self, raw_path: str) -> str: ...
+    def normalize_repo_path(self, raw_path: str) -> str:
+        """Normalize a request path into this backend's repo-relative path form."""
+        ...
 
-    def load_version(self, path: str, side: SideName) -> TextVersion: ...
+    def load_version(self, path: str, side: SideName) -> TextVersion:
+        """Load one file version for a normalized side and path."""
+        ...
 
 
 def load_diff_sides(
     *,
-    backend: WorkspaceBackend,
+    backend: WorkspaceBackendProtocol,
     left_path: str | None,
     right_path: str | None,
     left: str,
@@ -262,7 +336,7 @@ def load_diff_sides(
     ``exists=False`` so added/deleted files can still render through the same
     downstream payload builders.
 
-    This is source-layer logic: normalize repo paths, normalize side names, ask
+    This is backend logic: normalize repo paths, normalize side names, ask
     the selected backend for text, and raise ``TextDiffError`` when the selected
     sides cannot be loaded safely.
     """
@@ -317,7 +391,7 @@ def unified_diff_lines(
 
     This helper centralizes the ``difflib.unified_diff`` fallback used when a
     structural engine cannot produce its normal row model.  It deliberately
-    returns source-level line records rather than dirdiff rows: engines still
+    returns backend-level line records rather than dirdiff rows: engines still
     choose how to map those records into their renderer-specific payloads.
     """
     patch_lines = difflib.unified_diff(

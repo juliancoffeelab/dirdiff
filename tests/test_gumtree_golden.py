@@ -9,8 +9,10 @@ from helpers import WorkspaceDiffServiceAdapter
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
+from dirdiff.backend import PresetBackend
 from dirdiff.engines.gumtree import GumTreeDiffEngine
-from dirdiff.sources import PresetBackend
+
+__all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "gumtree"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "gumtree"
@@ -53,9 +55,9 @@ class GumTreeGoldenSnapshotExtension(SingleFileSnapshotExtension):
         cls, *, test_location: Any, index: int | str = 0
     ) -> str:
         if isinstance(index, str):
-            return test_location.testname
-        return super().get_snapshot_name(
-            test_location=test_location, index=index
+            return str(test_location.testname)
+        return str(
+            super().get_snapshot_name(test_location=test_location, index=index)
         )
 
     @classmethod

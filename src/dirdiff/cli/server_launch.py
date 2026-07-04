@@ -20,17 +20,37 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
+from dirdiff.backend import BranchSelection
 from dirdiff.cli.marker_utils import DEFAULT_DB_PATH
 from dirdiff.db.base import open_sqlite_engine
 from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
-from dirdiff.sources import BranchSelection
 
 DEFAULT_PORT = 5052
 DEFAULT_FRONTEND_PORT = 5173
 PORT_FALLBACK_ATTEMPTS = 20
 FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
 BACKEND_RELOAD_DIR = Path(__file__).resolve().parents[1]
+
+__all__ = [
+    "BACKEND_RELOAD_DIR",
+    "DEFAULT_FRONTEND_PORT",
+    "DEFAULT_PORT",
+    "FRONTEND_DIR",
+    "PORT_FALLBACK_ATTEMPTS",
+    "AppOptions",
+    "build_url",
+    "can_bind_port",
+    "choose_port_pair",
+    "choose_runtime_ports",
+    "open_browser",
+    "require_bindable_port",
+    "require_marked_repos",
+    "run_app",
+    "run_uvicorn",
+    "start_frontend",
+    "start_frontend_dev_server",
+]
 
 
 @dataclass(frozen=True)

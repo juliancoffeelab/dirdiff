@@ -1,25 +1,40 @@
+"""Git-backed implementation of ``WorkspaceBackendProtocol``.
+
+``GitBackend`` is responsible for talking to Git: discovering the repository,
+listing refs, resolving branch-review sides, listing changed paths, and loading
+file versions.  It returns backend metadata and text only; rendering and API
+response shaping happen outside this module.
+"""
+
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Literal, cast
 
-from dirdiff.sources.base import (
+from dirdiff.backend.base import (
     BUILTIN_SIDES,
     BranchSelection,
     DefaultBaseSelection,
     RefChoices,
+    RemoteBranchRef,
     RepoDiffPath,
     SideName,
     TextDiffError,
     TextVersion,
-    WorkspaceBackend,
+    WorkspaceBackendProtocol,
     _decode_text,
     display_name_for_repo_paths,
 )
 
+__all__ = [
+    "GitBackend",
+    "git_diff_args_with_direction",
+]
+
 
 def _git_tree_spec(side: SideName) -> str:
+    """Translate built-in dirdiff side names into Git revision syntax."""
     if side == "head":
         return "HEAD"
     return side
@@ -31,6 +46,7 @@ def git_diff_args_with_direction(
     right: SideName,
     kind: Literal["--name-status"],
 ) -> tuple[list[str], bool]:
+    """Build Git diff args and whether output direction must be swapped."""
     if "worktree" in {left, right}:
         other = right if left == "worktree" else left
         args = (
@@ -64,19 +80,24 @@ def git_diff_args_with_direction(
     ], False
 
 
-class GitBackend(WorkspaceBackend):
+class GitBackend(WorkspaceBackendProtocol):
+    """Load refs, paths, and file contents from one Git repository."""
+
     def __init__(
         self, repo_root: Path | None, *, cwd: Path | None = None
     ) -> None:
+        """Bind the backend to a discovered repo root and caller working directory."""
         self._repo_root = repo_root.resolve() if repo_root is not None else None
         self._cwd = (cwd or Path.cwd()).resolve()
 
     @property
     def repo_root(self) -> Path | None:
+        """Expose the repository root used for path normalization."""
         return self._repo_root
 
     @property
     def cwd(self) -> Path:
+        """Expose the command working directory for renderers."""
         return self._cwd
 
     @classmethod
@@ -86,6 +107,7 @@ class GitBackend(WorkspaceBackend):
         *,
         repo_root: Path | None = None,
     ) -> GitBackend:
+        """Discover a Git repository from explicit root or current directory."""
         working_dir = (cwd or Path.cwd()).resolve()
         if repo_root is not None:
             return cls(Path(repo_root).expanduser().resolve(), cwd=working_dir)
@@ -110,6 +132,7 @@ class GitBackend(WorkspaceBackend):
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[bytes]:
+        """Run Git inside this backend's repository root and return bytes."""
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
@@ -125,6 +148,7 @@ class GitBackend(WorkspaceBackend):
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
+        """Run Git inside this backend's repository root and return text."""
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
@@ -136,6 +160,7 @@ class GitBackend(WorkspaceBackend):
         )
 
     def normalize_side(self, raw_side: str) -> SideName:
+        """Normalize built-in diff sides while validating explicit Git refs."""
         side = raw_side.strip()
         if not side:
             raise TextDiffError("Diff side is required.")
@@ -156,6 +181,7 @@ class GitBackend(WorkspaceBackend):
         return side
 
     def discover_default_path(self) -> str:
+        """Find a path suitable for single-file startup mode."""
         if self.repo_root is None:
             raise TextDiffError(
                 "No Git repo found for automatic path discovery."
@@ -194,12 +220,14 @@ class GitBackend(WorkspaceBackend):
         raise TextDiffError("No files found in the current Git repo.")
 
     def current_branch_name(self) -> str:
+        """Read the current branch name, returning empty string when detached."""
         if self.repo_root is None:
             return ""
         result = self._run_git_text(["branch", "--show-current"], check=False)
         return result.stdout.strip()
 
     def list_branch_names(self) -> list[str]:
+        """List local branch names sorted for stable API responses."""
         if self.repo_root is None:
             return []
         result = self._run_git_text(
@@ -217,6 +245,7 @@ class GitBackend(WorkspaceBackend):
         )
 
     def list_remote_ref_names(self) -> list[str]:
+        """List remote-tracking refs usable in freeform ref comparisons."""
         if self.repo_root is None:
             return []
         result = self._run_git_text(
@@ -234,6 +263,7 @@ class GitBackend(WorkspaceBackend):
         )
 
     def list_remote_names(self) -> list[str]:
+        """List configured Git remote names."""
         if self.repo_root is None:
             return []
         result = self._run_git_text(["remote"], check=False)
@@ -273,7 +303,7 @@ class GitBackend(WorkspaceBackend):
 
     def list_ref_choices(self) -> RefChoices:
         """Return split ref choices for compare-ref and branch-review controls."""
-        remote_branches = []
+        remote_branches: list[RemoteBranchRef] = []
         for remote in self.list_remote_names():
             for branch in self._list_remote_branch_names(remote):
                 remote_branches.append(
@@ -293,6 +323,7 @@ class GitBackend(WorkspaceBackend):
         }
 
     def branch_upstream_name(self, branch_name: str) -> str:
+        """Read the upstream ref configured for a local branch."""
         normalized_branch = branch_name.strip()
         if not normalized_branch or self.repo_root is None:
             return ""
@@ -373,7 +404,7 @@ class GitBackend(WorkspaceBackend):
         return ""
 
     def default_base_selection(self) -> DefaultBaseSelection:
-        """Return the backend default base selection for /api/repo-refs JSON."""
+        """Choose the initial branch-review base from local Git metadata."""
         if self.list_remote_names():
             default_remote = self._default_branch_review_remote_name()
             if not default_remote:
@@ -395,16 +426,15 @@ class GitBackend(WorkspaceBackend):
     def preferred_review_selection(
         self, *, base_selection: DefaultBaseSelection | None = None
     ) -> BranchSelection:
-        """Return the backend default review selection for /api/repo-refs JSON."""
+        """Choose the initial review branch relative to the selected base."""
         branch_names = self.list_branch_names()
         if not branch_names:
             return {"source": "local", "branch": ""}
 
-        normalized_base = (
-            base_selection["branch"]
-            if base_selection is not None and "source" in base_selection
-            else self._local_default_base_branch_name()
-        ).strip()
+        normalized_base = self._local_default_base_branch_name()
+        if base_selection is not None and "source" in base_selection:
+            branch_selection = cast("BranchSelection", base_selection)
+            normalized_base = branch_selection["branch"].strip()
         current = self.current_branch_name()
 
         if current and current != normalized_base:
@@ -450,6 +480,7 @@ class GitBackend(WorkspaceBackend):
         right: SideName,
         kind: Literal["--name-status"],
     ) -> list[str]:
+        """Build a Git diff command for the requested side pair."""
         args, _ = git_diff_args_with_direction(
             left=left,
             right=right,
@@ -458,6 +489,7 @@ class GitBackend(WorkspaceBackend):
         return args
 
     def _parse_name_status_output(self, output: bytes) -> list[RepoDiffPath]:
+        """Parse NUL-delimited `git diff --name-status` output."""
         tokens = output.split(b"\0")
         if tokens and not tokens[-1]:
             tokens = tokens[:-1]
@@ -498,6 +530,13 @@ class GitBackend(WorkspaceBackend):
             current_right_path: str | None = (
                 path if change_kind != "D" else None
             )
+            change_type: Literal["modify", "add", "delete"]
+            if change_kind == "A":
+                change_type = "add"
+            elif change_kind == "D":
+                change_type = "delete"
+            else:
+                change_type = "modify"
             entries.append(
                 RepoDiffPath(
                     left_path=current_left_path,
@@ -505,10 +544,7 @@ class GitBackend(WorkspaceBackend):
                     display_name=display_name_for_repo_paths(
                         current_left_path, current_right_path
                     ),
-                    change_type={
-                        "A": "add",
-                        "D": "delete",
-                    }.get(change_kind, "modify"),
+                    change_type=change_type,
                 )
             )
 
@@ -517,6 +553,7 @@ class GitBackend(WorkspaceBackend):
     def _parse_numstat_output(
         self, output: bytes
     ) -> dict[str, tuple[int, int]]:
+        """Parse NUL-delimited `git diff --numstat` output by display path."""
         tokens = output.split(b"\0")
         if tokens and not tokens[-1]:
             tokens = tokens[:-1]
@@ -550,6 +587,7 @@ class GitBackend(WorkspaceBackend):
         return counts
 
     def _list_untracked_worktree_paths(self) -> list[RepoDiffPath]:
+        """List untracked worktree files as one-sided repo diff paths."""
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
 
@@ -583,6 +621,7 @@ class GitBackend(WorkspaceBackend):
         right: SideName,
         show_untracked: bool = False,
     ) -> list[RepoDiffPath]:
+        """List Git-changed paths and attach line statistics."""
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
         if left == right:
@@ -625,6 +664,7 @@ class GitBackend(WorkspaceBackend):
         )
 
     def normalize_repo_path(self, raw_path: str) -> str:
+        """Normalize and validate a repo-relative path without escaping root."""
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
         if not raw_path.strip():
@@ -642,6 +682,7 @@ class GitBackend(WorkspaceBackend):
         return normalized
 
     def load_version(self, path: str, side: SideName) -> TextVersion:
+        """Load one file version from worktree, index, or Git tree."""
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
 
