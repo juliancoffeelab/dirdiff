@@ -1,4 +1,4 @@
-import { Show, batch, createSignal, onMount } from "solid-js";
+import { Show, batch, createMemo, createSignal, onMount } from "solid-js";
 import {
   fetchPreferences,
   type Preferences,
@@ -6,7 +6,12 @@ import {
   type RepoMark,
 } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
-import { Header } from "./Header";
+import {
+  Header,
+  type AppNotice,
+  type InlineDiffNotice,
+  type LoadingAppNotice,
+} from "./Header";
 import { Controls } from "./Controls";
 import { FileList, FileTreeSidebar } from "./FileViews";
 import { HunkNav } from "./Hud";
@@ -29,6 +34,10 @@ function initialDiffViewMode(): DiffViewMode {
     return view;
   }
   return "inline";
+}
+
+function isInlineDiffNotice(notice: AppNotice): notice is InlineDiffNotice {
+  return notice.id === "diff" && notice.placement === "inline";
 }
 
 export function App() {
@@ -87,6 +96,39 @@ export function App() {
   };
 
   const summary = () => ui.summary();
+  const notices = createMemo<AppNotice[]>(() => {
+    const nextNotices: AppNotice[] = [];
+    const pushLoadingNotice = (id: LoadingAppNotice["id"]): void => {
+      nextNotices.push({
+        id,
+        placement: "top",
+        state: "loading",
+      });
+    };
+    if (repo.selectedRepoId() !== null && repo.repoRefsPending()) {
+      pushLoadingNotice("repo-refs");
+    }
+    if (repo.reposPending()) {
+      pushLoadingNotice("marked-repos");
+    }
+    if (preferencesPending()) {
+      pushLoadingNotice("preferences");
+    }
+    if (repo.presetCatalogsPending()) {
+      pushLoadingNotice("presets");
+    }
+    const diffStatus = diff.status();
+    nextNotices.push({
+      id: "diff",
+      placement: diffStatus.placement,
+      state: diffStatus.state,
+      text: diffStatus.text,
+    });
+    return nextNotices;
+  });
+  const inlineDiffNotice = createMemo(
+    () => notices().find(isInlineDiffNotice) ?? null,
+  );
 
   const loadPreferences = async (
     profile: StoredProfile | null = storedProfile(),
@@ -141,7 +183,7 @@ export function App() {
       try {
         await repo.reloadPresetCatalogs();
       } catch {
-        diff.resetDiffState("error", "Failed to reload presets.");
+        diff.resetDiffState("error", "Failed to reload presets.", "inline");
         return;
       }
       if (diff.currentParamsIdentity() !== paramsIdentity) {
@@ -180,7 +222,11 @@ export function App() {
     if (initial.controls.mode === "preset") {
       void repo.loadPresetCatalogs();
       if (initial.controls.preset.length === 0) {
-        diff.resetDiffState("idle", "Choose a preset to load a diff.");
+        diff.resetDiffState(
+          "idle",
+          "Choose a preset to load a diff.",
+          "inline",
+        );
         return;
       }
     }
@@ -188,7 +234,7 @@ export function App() {
   };
 
   const initializeRepo = async (repoId: RepoId) => {
-    diff.resetDiffState("idle", "Loading refs...");
+    diff.resetDiffState("idle", "Loading refs...", "top");
     try {
       const initial = await repo.initializeRepo(repoId);
       if (initial !== null) {
@@ -201,6 +247,7 @@ export function App() {
         diff.resetDiffState(
           "error",
           error instanceof Error ? error.message : "Failed to load repo refs.",
+          "inline",
         );
       });
     }
@@ -211,7 +258,7 @@ export function App() {
     batch(() => {
       setControls(null);
       diff.clearCurrentParams();
-      diff.resetDiffState("idle", "Preparing diff...");
+      diff.resetDiffState("idle", "Preparing diff...", "top");
     });
     void initializeRepo(repoMark.id);
   };
@@ -221,7 +268,7 @@ export function App() {
     void (async () => {
       const repoId = await repo.loadReposFromUrl();
       if (repoId === null) {
-        diff.resetDiffState("idle", "Choose a repo to load a diff.");
+        diff.resetDiffState("idle", "Choose a repo to load a diff.", "inline");
         return;
       }
       await initializeRepo(repoId);
@@ -244,6 +291,8 @@ export function App() {
         engine={diff.engine()}
         viewMode={diffViewMode()}
         summary={summary()}
+        loadedFilesStatus={diff.status().loadedFiles}
+        notices={notices()}
         onHeaderMount={(element) => {
           appHeader = element;
         }}
@@ -252,18 +301,6 @@ export function App() {
         onEngineChange={diff.loadEngine}
         onViewModeChange={setViewMode}
       />
-
-      <Show when={repo.selectedRepoId() !== null && repo.repoRefsPending()}>
-        <p class="status">Loading refs...</p>
-      </Show>
-
-      <Show when={repo.reposPending()}>
-        <p class="status">Loading marked repos...</p>
-      </Show>
-
-      <Show when={preferencesPending()}>
-        <p class="status">Loading preferences...</p>
-      </Show>
 
       <Show when={repo.repoRefsError() !== null}>
         <section class="notice error">
@@ -297,7 +334,6 @@ export function App() {
             controls={controls()!}
             refChoices={repo.refChoices()}
             presetCatalogs={repo.presetCatalogs()}
-            presetCatalogsPending={repo.presetCatalogsPending()}
             presetCatalogsError={repo.presetCatalogsError()}
             onPresetMode={repo.loadPresetCatalogs}
             onAgainstHead={diff.loadAgainstHead}
@@ -307,7 +343,11 @@ export function App() {
             mainBranchSaving={repo.mainBranchSaving()}
             onSaveMainBranch={repo.saveMainBranch}
           />
-          <p class={`status ${diff.status()}`}>{diff.statusText()}</p>
+          <Show when={inlineDiffNotice()}>
+            {(notice) => (
+              <p class={`status ${notice().state}`}>{notice().text}</p>
+            )}
+          </Show>
           <div class="repo-fold-controls">
             <Show
               when={ui.displayFiles().length > 0}
@@ -364,6 +404,7 @@ export function App() {
             <GracefulErrorBoundary title="Could not render diff">
               <FileList
                 files={ui.displayFiles()}
+                hunkPosition={navigation.hunkPosition()}
                 fileExpansion={ui.fileExpansion}
                 loadingFiles={diff.loadingFiles}
                 fileErrors={diff.fileErrors}

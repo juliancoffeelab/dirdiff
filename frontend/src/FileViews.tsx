@@ -42,6 +42,10 @@ type ExpansionSetter = (
 ) => void;
 type BooleanMap = Record<string, boolean | undefined>;
 type StringMap = Record<string, string | undefined>;
+type HunkPosition = {
+  current: number;
+  total: number;
+};
 type LineStats = {
   added: number | null;
   modified: number | null;
@@ -196,6 +200,7 @@ function TreeLineStats(props: { stats: LineStats }) {
 
 export function FileList(props: {
   files: RenderedFileEntry[];
+  hunkPosition: HunkPosition;
   diffViewMode: DiffViewMode;
   fileExpansion: BooleanMap;
   loadingFiles: BooleanMap;
@@ -229,6 +234,7 @@ export function FileList(props: {
               return (
                 <FileCard
                   file={file}
+                  hunkPosition={props.hunkPosition}
                   expanded={expansionValue(
                     props.fileExpansion,
                     key,
@@ -510,6 +516,7 @@ function FileTreeFile(props: {
 
 function FileCard(props: {
   file: RenderedFileEntry;
+  hunkPosition: HunkPosition;
   diffViewMode: DiffViewMode;
   expanded: boolean;
   loading: boolean;
@@ -526,6 +533,7 @@ function FileCard(props: {
   const key = () => fileKey(props.file);
   const lineStats = () => fileLineStats(props.file);
   const displayName = () => fileDisplayName(props.file);
+  const hunkText = () => hunkPositionText(props.hunkPosition);
   const needsHydration = () => !fileEntryIsHydrated(props.file);
   const isPinnedFile = () =>
     props.linePin !== null && fileMatchesLinePin(props.file, props.linePin);
@@ -668,6 +676,9 @@ function FileCard(props: {
               >
                 {engineWarningLabel(props.file)}
               </span>
+            </Show>
+            <Show when={hunkText() !== null}>
+              <span class="file-card-hunks">{hunkText()}</span>
             </Show>
           </span>
         </span>
@@ -924,6 +935,13 @@ function fileError(fileErrors: StringMap, key: string) {
     return "";
   }
   return error;
+}
+
+function hunkPositionText(position: HunkPosition): string | null {
+  if (position.total === 0) {
+    return null;
+  }
+  return `${position.current}/${position.total} hunks`;
 }
 
 function engineWarningMessage(file: FileEntry): string {

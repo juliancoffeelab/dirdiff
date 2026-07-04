@@ -79,7 +79,6 @@ export function Controls(props: {
   controls: ControlsState;
   refChoices: RefChoices;
   presetCatalogs: PresetCatalogs | null;
-  presetCatalogsPending: boolean;
   presetCatalogsError: unknown;
   onPresetMode: () => Promise<PresetCatalogs | null>;
   onAgainstHead: () => void;
@@ -291,9 +290,6 @@ export function Controls(props: {
       </Show>
 
       <Show when={draft().mode === "preset"}>
-        <Show when={props.presetCatalogsPending}>
-          <p class="status">Loading presets...</p>
-        </Show>
         <Show when={props.presetCatalogsError !== null}>
           <section class="notice error">
             Failed to load presets: {String(props.presetCatalogsError)}

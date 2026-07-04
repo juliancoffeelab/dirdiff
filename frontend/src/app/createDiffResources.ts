@@ -86,17 +86,6 @@ function statusLabel(
   return `${nullableStringValue(leftLabel, diffParams.left)} vs ${nullableStringValue(rightLabel, diffParams.right)}`;
 }
 
-function loadedStatusLabel(
-  baseStatus: string,
-  loadedFiles: number,
-  failedDetailFiles: number,
-): string {
-  const fileWord = loadedFiles === 1 ? "file" : "files";
-  const failureText =
-    failedDetailFiles > 0 ? `, failed details ${failedDetailFiles}` : "";
-  return `${baseStatus} · loaded ${loadedFiles} ${fileWord}${failureText}`;
-}
-
 function slowFileDiffDetail(file: ManifestEntry, elapsedMs: number): string {
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
   return `${manifestDisplayName(file)} is slow, waiting for ${elapsedSeconds}s...`;
@@ -234,6 +223,18 @@ type ExpansionSetter = (
 ) => void;
 type BooleanMap = Record<string, boolean | undefined>;
 type StringMap = Record<string, string | undefined>;
+export type DiffStatusPlacement = "inline" | "top";
+export type LoadedFilesStatus = {
+  failed: number;
+  loaded: number;
+  total: number;
+};
+export type DiffStatus = {
+  loadedFiles: LoadedFilesStatus | null;
+  placement: DiffStatusPlacement;
+  state: LoadState;
+  text: string;
+};
 
 /**
  * Owns committed diff params and their render-as-you-load lifecycle.
@@ -261,8 +262,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
     fileErrors: {},
   });
   const [loadingRevision, setLoadingRevision] = createSignal(0);
-  const [status, setStatus] = createSignal<LoadState>("idle");
-  const [statusText, setStatusText] = createSignal("Preparing diff...");
+  const [status, setStatus] = createSignal<DiffStatus>({
+    loadedFiles: null,
+    placement: "top",
+    state: "idle",
+    text: "Preparing diff...",
+  });
   let toastedManifestErrorIdentity = "";
   let activeLoadId = 0;
 
@@ -323,13 +328,21 @@ export function createDiffResources(options: DiffResourcesOptions) {
     }
   };
 
-  const resetDiffState = (nextStatus: LoadState, nextStatusText: string) => {
+  const resetDiffState = (
+    nextStatus: LoadState,
+    nextStatusText: string,
+    nextStatusPlacement: DiffStatusPlacement,
+  ) => {
     batch(() => {
       options.clearLoadedDiff();
       options.resetViewState();
       resetFileState();
-      setStatus(nextStatus);
-      setStatusText(nextStatusText);
+      setStatus({
+        loadedFiles: null,
+        placement: nextStatusPlacement,
+        state: nextStatus,
+        text: nextStatusText,
+      });
     });
   };
 
@@ -344,7 +357,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
 
   const failLoad = (message: string) => {
     clearCurrentParams();
-    resetDiffState("error", message);
+    resetDiffState("error", message, "inline");
   };
 
   const cancelActiveDiffQueries = () => {
@@ -362,7 +375,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     queryClient.removeQueries({ queryKey: lazyInfoParamsQueryKey(diffParams) });
     replaceUrlForParams(diffParams);
     toastedManifestErrorIdentity = "";
-    resetDiffState("loading", "Loading diff...");
+    resetDiffState("loading", "Loading diff...", "top");
     setCurrentParams(diffParams);
     void loadDiff(diffParams, loadId, "replace", []);
   };
@@ -378,8 +391,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
     batch(() => {
       setCurrentParams(diffParams);
       resetFileState();
-      setStatus("loading");
-      setStatusText(nextStatusText);
+      setStatus({
+        loadedFiles: null,
+        placement: "top",
+        state: "loading",
+        text: nextStatusText,
+      });
     });
     void loadDiff(diffParams, loadId, "reconcile", hydratedLazyKeys);
   };
@@ -388,7 +405,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     const repoId = options.selectedRepoId();
     if (repoId === null) {
       clearCurrentParams();
-      resetDiffState("idle", "Choose a repo to load a diff.");
+      resetDiffState("idle", "Choose a repo to load a diff.", "inline");
       return null;
     }
     return repoId;
@@ -427,10 +444,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
         return;
       }
       batch(() => {
-        setStatus("error");
-        setStatusText(
-          error instanceof Error ? error.message : "Failed to load diff.",
-        );
+        setStatus({
+          loadedFiles: null,
+          placement: "inline",
+          state: "error",
+          text: error instanceof Error ? error.message : "Failed to load diff.",
+        });
       });
       const errorMessage =
         error instanceof Error ? error.message : "Failed to load diff.";
@@ -466,7 +485,16 @@ export function createDiffResources(options: DiffResourcesOptions) {
     batch(() => {
       options.applyManifest(diffParams, loadId, payload, mode);
       resetFileState();
-      setStatusText(loadedStatusLabel(baseStatus, 0, 0));
+      setStatus({
+        loadedFiles: {
+          failed: 0,
+          loaded: 0,
+          total: manifestFiles.length,
+        },
+        placement: "inline",
+        state: "loading",
+        text: baseStatus,
+      });
     });
     void hydrateManifestFiles(
       diffParams,
@@ -618,8 +646,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
     );
     if (pendingFiles.length === 0) {
       if (loadIsCurrent(loadId)) {
-        setStatus("done");
-        setStatusText(baseStatus);
+        setStatus({
+          loadedFiles: null,
+          placement: "inline",
+          state: "done",
+          text: baseStatus,
+        });
       }
       return;
     }
@@ -655,13 +687,16 @@ export function createDiffResources(options: DiffResourcesOptions) {
               clearSlowStatus();
               return;
             }
-            setStatusText(
-              `${loadedStatusLabel(
-                baseStatus,
-                loadedFiles,
-                failedDetailFiles,
-              )} · ${slowFileDiffDetail(entry, Date.now() - startedAt)}`,
-            );
+            setStatus({
+              loadedFiles: {
+                failed: failedDetailFiles,
+                loaded: loadedFiles,
+                total: manifestFiles.length,
+              },
+              placement: "top",
+              state: "loading",
+              text: `${baseStatus} · ${slowFileDiffDetail(entry, Date.now() - startedAt)}`,
+            });
           };
           slowTimeout = window.setTimeout(() => {
             updateSlowStatus();
@@ -712,9 +747,16 @@ export function createDiffResources(options: DiffResourcesOptions) {
               nextKey,
             ),
           );
-          setStatusText(
-            loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
-          );
+          setStatus({
+            loadedFiles: {
+              failed: failedDetailFiles,
+              loaded: loadedFiles,
+              total: manifestFiles.length,
+            },
+            placement: "inline",
+            state: "loading",
+            text: baseStatus,
+          });
         });
       } catch (error) {
         clearSlowStatus();
@@ -755,10 +797,16 @@ export function createDiffResources(options: DiffResourcesOptions) {
                 ? error.message
                 : "Failed to load file diff.",
           }));
-          setStatus("error");
-          setStatusText(
-            loadedStatusLabel(baseStatus, loadedFiles, failedDetailFiles),
-          );
+          setStatus({
+            loadedFiles: {
+              failed: failedDetailFiles,
+              loaded: loadedFiles,
+              total: manifestFiles.length,
+            },
+            placement: "inline",
+            state: "error",
+            text: baseStatus,
+          });
         });
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -772,10 +820,18 @@ export function createDiffResources(options: DiffResourcesOptions) {
       }
     }
     if (loadIsCurrent(loadId)) {
-      setStatus(hasFailure ? "error" : "done");
-      if (!hasFailure) {
-        setStatusText(baseStatus);
-      }
+      setStatus({
+        loadedFiles: hasFailure
+          ? {
+              failed: failedDetailFiles,
+              loaded: loadedFiles,
+              total: manifestFiles.length,
+            }
+          : null,
+        placement: "inline",
+        state: hasFailure ? "error" : "done",
+        text: baseStatus,
+      });
     }
   }
 
@@ -1036,7 +1092,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
     fileErrors: fileState.fileErrors,
     loadingRevision,
     status,
-    statusText,
     resetDiffState,
     clearCurrentParams,
     loadAgainstHead,

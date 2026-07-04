@@ -566,6 +566,14 @@ h1 {
   grid-column: 7;
 }
 
+.summary-group-loaded-files span,
+.summary-group-status span {
+  color: #6a665d;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .field {
   min-width: 0;
   min-height: 54px;
@@ -1655,6 +1663,16 @@ h1 {
   line-height: 1.2;
 }
 
+.file-card-hunks {
+  border: 1px solid #ded8cc;
+  background: #f4f1ea;
+  color: #4b4841;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .file-stats {
   display: flex;
   flex-wrap: wrap;
@@ -2551,7 +2569,9 @@ h1 {
 
   .summary-group-files,
   .summary-group-lines,
-  .summary-group-cells {
+  .summary-group-cells,
+  .summary-group-loaded-files,
+  .summary-group-status {
     grid-column: auto;
   }
 

@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
 import {
   DiffEngineSchema,
   type DiffEngine,
@@ -7,11 +7,37 @@ import {
   type RepoMark,
   type Summary,
 } from "./api";
+import type { LoadedFilesStatus } from "./app/createDiffResources";
 import type { DiffViewMode } from "./DiffGrid";
-import { diffViewLabels, engineLabels } from "./fileUtils";
+import { diffViewLabels, engineLabels, type LoadState } from "./fileUtils";
 import { Profile } from "./Profile";
 import { Select } from "./Select";
 import type { StoredProfile } from "./storage";
+
+type LoadingNoticeId = "marked-repos" | "preferences" | "presets" | "repo-refs";
+
+export type LoadingAppNotice = {
+  id: LoadingNoticeId;
+  placement: "top";
+  state: "loading";
+};
+
+export type TopDiffNotice = {
+  id: "diff";
+  placement: "top";
+  state: LoadState;
+  text: string;
+};
+
+export type InlineDiffNotice = {
+  id: "diff";
+  placement: "inline";
+  state: LoadState;
+  text: string;
+};
+
+export type AppNotice = LoadingAppNotice | TopDiffNotice | InlineDiffNotice;
+type TopNotice = LoadingAppNotice | TopDiffNotice;
 
 export function Header(props: {
   storedProfile: StoredProfile | null;
@@ -23,6 +49,8 @@ export function Header(props: {
   engine: DiffEngine;
   viewMode: DiffViewMode;
   summary: Summary;
+  loadedFilesStatus: LoadedFilesStatus | null;
+  notices: AppNotice[];
   onProfileSaved: (profile: StoredProfile) => void;
   onProfileForgotten: () => void;
   onPreferencesSaved: (preferences: Preferences) => void;
@@ -70,7 +98,11 @@ export function Header(props: {
           </div>
         </div>
       </div>
-      <SummaryView summary={props.summary} />
+      <SummaryView
+        summary={props.summary}
+        loadedFilesStatus={props.loadedFilesStatus}
+        notices={props.notices}
+      />
     </header>
   );
 }
@@ -179,12 +211,30 @@ function DiffViewSelect(props: {
   );
 }
 
-function SummaryView(props: { summary: Summary }) {
+function SummaryView(props: {
+  summary: Summary;
+  loadedFilesStatus: LoadedFilesStatus | null;
+  notices: AppNotice[];
+}) {
   const hasNotebookCells = () =>
     typeof props.summary.changed_cells === "number";
+  const loadedStatusText = () => loadedFilesStatusText(props.loadedFilesStatus);
+  const topLevelNotices = () => uniqueNotices(topNotices(props.notices));
 
   return (
     <section class="summary" aria-label="Diff summary">
+      <Show when={loadedStatusText() !== null}>
+        <div class="summary-group summary-group-loaded-files">
+          <span>{loadedStatusText()}</span>
+        </div>
+      </Show>
+      <For each={topLevelNotices()}>
+        {(notice) => (
+          <div class="summary-group summary-group-status">
+            <span>{noticeText(notice)}</span>
+          </div>
+        )}
+      </For>
       <SummaryMetric
         label="Files"
         added={props.summary.added_files}
@@ -222,6 +272,53 @@ function loadedRepos(repos: RepoMark[] | null): RepoMark[] {
     throw new Error("Repo select rendered before repos loaded.");
   }
   return repos;
+}
+
+function loadedFilesStatusText(
+  status: LoadedFilesStatus | null,
+): string | null {
+  if (status === null) {
+    return null;
+  }
+  const fileWord = status.total === 1 ? "file" : "files";
+  const failedText =
+    status.failed > 0 ? `, failed details ${status.failed}` : "";
+  return `loaded ${status.loaded}/${status.total} ${fileWord}${failedText}`;
+}
+
+function topNotices(notices: AppNotice[]): TopNotice[] {
+  return notices.filter((notice) => notice.placement === "top") as TopNotice[];
+}
+
+function uniqueNotices(notices: TopNotice[]): TopNotice[] {
+  const seen = new Set<string>();
+  const unique: TopNotice[] = [];
+  for (const notice of notices) {
+    const text = noticeText(notice);
+    if (seen.has(text)) {
+      continue;
+    }
+    seen.add(text);
+    unique.push(notice);
+  }
+  return unique;
+}
+
+function noticeText(notice: TopNotice | InlineDiffNotice): string {
+  switch (notice.id) {
+    case "diff":
+      return notice.text;
+    case "marked-repos":
+      return "Loading marked repos...";
+    case "preferences":
+      return "Loading preferences...";
+    case "presets":
+      return "Loading presets...";
+    case "repo-refs":
+      return "Loading refs...";
+    default:
+      return notice satisfies never;
+  }
 }
 
 function summaryCellMetric(
