@@ -1,10 +1,11 @@
 """Native dirdiff text-engine logic.
 
-This module owns the pure Python comparison algorithm used by
-``TextDiffEngine``: line alignment, inline tokenization, token-level statuses,
-and native text summary counts.  It does not attach syntax highlighting, fold
-hints, plain-render elision, request labels, repository paths, or HTTP payload
-metadata; those are display/API concerns outside the engine.
+`render_native_text_diff` is the pure Python comparison algorithm used by
+`TextDiffEngine`: it aligns lines, tokenizes inline changes, assigns token
+statuses, and returns native text summary counts.  `row_has_any_change` is the
+shared predicate for detecting changed inline tokens.  This module does not
+attach syntax highlighting, fold hints, plain-render elision, request labels,
+repository paths, or HTTP payload metadata.
 """
 
 from __future__ import annotations
@@ -17,8 +18,14 @@ from typing import Any, Literal, cast
 from dirdiff.engines.contract import (
     DiffEngineResult,
     DiffEngineRow,
+    DiffSummary,
     InlineToken,
 )
+
+__all__ = [
+    "render_native_text_diff",
+    "row_has_any_change",
+]
 
 INLINE_TOKEN_PATTERN = re.compile(r"\w+|\s+|[^\w\s]+", flags=re.UNICODE)
 INLINE_IDENTIFIER_PART_PATTERN = re.compile(
@@ -58,11 +65,11 @@ def _strict_engine_rows(
     return materialized
 
 
-def _native_text_summary(rows: list[dict[str, Any]]) -> dict[str, int]:
+def _native_text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
     """Return line-count summary for native text rows.
 
     The native text algorithm does not report moved lines.  GumTree owns move
-    detection, so this summary keeps ``moved_lines`` at zero while counting
+    detection, so this summary keeps `moved_lines` at zero while counting
     replace/insert/delete rows exactly as the native text renderer produced
     them.
     """
@@ -90,12 +97,12 @@ def render_native_text_diff(
 ) -> DiffEngineResult:
     """Render already-loaded text through dirdiff's native text algorithm.
 
-    The text engine accepts missing sides as ``None`` because the engine
+    The text engine accepts missing sides as `None` because the engine
     protocol receives existence separately from content.  Native text
     comparison treats missing content as an empty string, then returns only the
     engine-level result: summary counts plus strict engine rows.  Display
     enrichment such as syntax highlighting and folding is applied later by
-    ``dirdiff.rendering``.
+    `dirdiff.rendering`.
     """
     left_text_value = "" if left_text is None else left_text
     right_text_value = "" if right_text is None else right_text

@@ -3,7 +3,7 @@
 This module owns process startup concerns: port probing, Vite startup by
 default, the backend-only opt-out path, browser opening, repo-mark preflight
 checks, and the uvicorn factory handoff.  It does not define REST endpoints or
-diff behavior; those remain in ``dirdiff.server`` and the engine/rendering
+diff behavior; those remain in `dirdiff.server` and the engine/rendering
 modules.
 """
 
@@ -57,8 +57,8 @@ __all__ = [
 class AppOptions:
     """CLI options shared between the root callback and subcommands.
 
-    Typer stores this value on ``ctx.obj`` so commands such as ``refs`` and
-    ``branch`` can reuse the database, port, preset, and browser-launch options
+    Typer stores this value on `ctx.obj` so commands such as `refs` and
+    `branch` can reuse the database, port, preset, and browser-launch options
     parsed by the root callback.
     """
 
@@ -101,7 +101,7 @@ def _add_branch_selection_query(
 ) -> None:
     """Encode one startup branch selection into frontend URL params.
 
-    ``build_url`` uses this for CLI-provided branch-review state.  It mirrors
+    `build_url` uses this for CLI-provided branch-review state.  It mirrors
     the API query contract: source and branch are always present, while remote
     exists only on the remote variant.
     """
@@ -150,7 +150,7 @@ def start_frontend_dev_server(
     """Start Vite with a backend-origin override for this dirdiff process.
 
     The backend and frontend ports are selected together before this function
-    runs.  Vite is launched with ``--strictPort`` so the browser URL printed by
+    runs.  Vite is launched with `--strictPort` so the browser URL printed by
     the CLI cannot silently point at a different process.
     """
 
@@ -174,7 +174,7 @@ def start_frontend_dev_server(
 
 
 def can_bind_port(port: int) -> bool:
-    """Return whether localhost can bind ``port`` right now.
+    """Return whether localhost can bind `port` right now.
 
     The check opens and immediately closes a loopback socket.  It is only a
     launch-time probe; another process can still race us before uvicorn or Vite
@@ -191,7 +191,7 @@ def can_bind_port(port: int) -> bool:
 
 
 def require_bindable_port(port: int, *, label: str) -> None:
-    """Exit with a user-facing message if ``port`` is already occupied.
+    """Exit with a user-facing message if `port` is already occupied.
 
     Backend-only mode does not have a frontend port to shift in tandem, so the
     requested backend port must be available exactly or the CLI should stop with
@@ -234,7 +234,7 @@ def require_marked_repos(db_path: Path) -> None:
     """Require at least one marked repository before launching the app.
 
     The browser UI needs a repo catalog immediately.  Failing here gives the
-    user the exact ``dirdiff mark`` command instead of starting a mostly-empty
+    user the exact `dirdiff mark` command instead of starting a mostly-empty
     server that would fail later through API calls.
     """
 
@@ -279,7 +279,7 @@ def choose_runtime_ports(
 
 
 def open_browser(url: str) -> None:
-    """Open ``url`` shortly after startup without blocking uvicorn launch.
+    """Open `url` shortly after startup without blocking uvicorn launch.
 
     The timer gives uvicorn and, when enabled, Vite a moment to bind their
     sockets before the user's browser tries to load the app.
@@ -300,7 +300,7 @@ def start_frontend(
 
     Backend-only mode is the explicit opt-out.  If Vite is disabled or cannot
     be started, the CLI falls back to the backend URL.  The returned process is
-    owned by ``run_app`` and terminated when uvicorn exits.
+    owned by `run_app` and terminated when uvicorn exits.
     """
 
     if not use_frontend_dev:
@@ -322,8 +322,8 @@ def start_frontend(
 def run_uvicorn(*, config: RuntimeConfig, port: int) -> None:
     """Run the FastAPI app through uvicorn's factory entrypoint.
 
-    The config is serialized through ``RUNTIME_CONFIG_ENV`` because uvicorn
-    imports ``dirdiff.server:uvicorn_entrypoint`` independently of the Typer
+    The config is serialized through `RUNTIME_CONFIG_ENV` because uvicorn
+    imports `dirdiff.server:uvicorn_entrypoint` independently of the Typer
     command invocation.  Keeping that handoff here avoids global mutable server
     state while preserving reload support.
     """

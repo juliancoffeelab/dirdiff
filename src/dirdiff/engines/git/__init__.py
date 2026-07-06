@@ -2,11 +2,11 @@
 
 The package follows the same split as the other external diff engines:
 
-* ``git.py`` owns subprocess execution and temporary files;
-* ``logic.py`` owns projection from Git's unified patch text into rows;
-* this module owns the public ``GitDiffEngine`` class and summary assembly.
+* `git.py` owns subprocess execution and temporary files;
+* `logic.py` owns projection from Git's unified patch text into rows;
+* this module owns the public `GitDiffEngine` class and summary assembly.
 
-The engine remains repo-agnostic.  ``dirdiff.backend`` loads old/new text from
+The engine remains repo-agnostic.  `dirdiff.backend` loads old/new text from
 Git refs or preset fixtures before this engine is called; this engine only asks
 Git to compare two temporary files containing that text.
 """
@@ -62,7 +62,7 @@ def _strict_engine_rows(
 
 @final
 class GitDiffEngine(DiffEngineProtocol):
-    """Renderer for already-loaded text using ``git diff --no-index``."""
+    """Renderer for already-loaded text using `git diff --no-index`."""
 
     def render_diff(
         self,

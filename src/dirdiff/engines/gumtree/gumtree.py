@@ -2,7 +2,7 @@
 
 This module is the only place in the GumTree service package that invokes the
 external GumTree executable. It writes the two already-loaded file contents to
-temporary files, runs ``gumtree textdiff -f JSON`` on that single file pair, and
+temporary files, runs `gumtree textdiff -f JSON` on that single file pair, and
 returns the parsed JSON payload without projecting it into dirdiff rows.
 """
 

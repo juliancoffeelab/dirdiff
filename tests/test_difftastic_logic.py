@@ -1,16 +1,28 @@
+"""Unit tests for difftastic row projection.
+
+This module feeds sparse difftastic-shaped facts plus source text into the row
+projector and asserts the rendered row contract.  It is allowed to use private
+projection helpers because the tests pin tricky alignment invariants directly;
+it does not test subprocess execution or final API payload assembly.
+"""
+
 import re
 from pathlib import Path
 
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import (
+    DifftasticInlineToken,
+    DifftasticRow,
     _difftastic_engine_warning,
     _difftastic_rows_from_json,
 )
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 
+__all__: list[str] = []
 
-def _preset_rows(preset_name: str) -> list[dict[str, object]]:
+
+def _preset_rows(preset_name: str) -> list[DifftasticRow]:
     preset_dir = PRESETS_ROOT / preset_name
     old_path = next(preset_dir.glob("old.*"))
     new_path = next(preset_dir.glob("new.*"))
@@ -35,7 +47,7 @@ def _text_rows(
     left_text: str,
     right_text: str,
     extension: str = "ts",
-) -> list[dict[str, object]]:
+) -> list[DifftasticRow]:
     service = DifftasticDiffEngine()
     diff_json = service._run_difftastic_json(
         left_text=left_text,
@@ -54,7 +66,7 @@ def _semantic_token_atoms(text: str) -> list[str]:
     return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
 
 
-def _one_sided_change_side(row: dict[str, object]) -> str | None:
+def _one_sided_change_side(row: DifftasticRow) -> str | None:
     if row.get("left_no") is not None and row.get("right_no") is None:
         return "left"
     if row.get("left_no") is None and row.get("right_no") is not None:
@@ -63,7 +75,7 @@ def _one_sided_change_side(row: dict[str, object]) -> str | None:
 
 
 def _pure_unchanged_one_sided_change_texts(
-    rows: list[dict[str, object]],
+    rows: list[DifftasticRow],
 ) -> list[str]:
     broken_texts: list[str] = []
     for row in rows:
@@ -75,16 +87,17 @@ def _pure_unchanged_one_sided_change_texts(
         if side is None:
             continue
 
-        tokens = row.get(f"{side}_tokens")
+        tokens: list[DifftasticInlineToken] | None
+        if side == "left":
+            tokens = row.get("left_tokens")
+        else:
+            tokens = row.get("right_tokens")
         if tokens is None:
             continue
-        assert isinstance(tokens, list)
 
-        meaningful_tokens: list[dict[object, object]] = []
+        meaningful_tokens: list[DifftasticInlineToken] = []
         for token in tokens:
-            assert isinstance(token, dict)
             text = token.get("text")
-            assert isinstance(text, str)
             if _semantic_token_atoms(text):
                 meaningful_tokens.append(token)
 
@@ -101,14 +114,14 @@ def _pure_unchanged_one_sided_change_texts(
 
 
 def _assert_no_pure_unchanged_one_sided_changes(
-    rows: list[dict[str, object]],
+    rows: list[DifftasticRow],
 ) -> None:
     broken_texts = _pure_unchanged_one_sided_change_texts(rows)
     assert not broken_texts, broken_texts
 
 
 def _changed_semantic_atoms_for_line(
-    rows: list[dict[str, object]],
+    rows: list[DifftasticRow],
     *,
     side: str,
     line_no: int,
@@ -1940,10 +1953,11 @@ def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> 
         ),
     )
 
-    numbered_right_rows = [
-        row for row in rows if isinstance(row.get("right_no"), int)
+    right_numbers = [
+        right_no
+        for row in rows
+        if isinstance((right_no := row.get("right_no")), int)
     ]
-    right_numbers = [row["right_no"] for row in numbered_right_rows]
 
     assert right_numbers == sorted(set(right_numbers))
 

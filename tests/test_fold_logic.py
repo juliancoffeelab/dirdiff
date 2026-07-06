@@ -1,4 +1,14 @@
+"""Fold-hint behavior tests for rendered diff payloads.
+
+These focused tests build loaded diffs and assert the fold hints attached by
+display enrichment.  They cover policy cases that are easier to read inline
+than as golden fixtures, while leaving parser corpus coverage to
+`test_fold_golden`.
+"""
+
 from helpers import build_loaded_diff
+
+__all__: list[str] = []
 
 
 def test_fold_hints_include_unchanged_top_level_function_body() -> None:

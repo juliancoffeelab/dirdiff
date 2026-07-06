@@ -1,11 +1,10 @@
-"""Preset fixture hygiene.
+"""Preset fixture structure checks.
 
-These tests check that each preset directory is a valid source-file fixture:
-one old file, one new file, matching extensions, parseable source where we have
-cheap parsers, and a standard helper Makefile.
-
-Actual snapshot tests are in ./test_difftastic_golden.py.
-Or if you want unit tests ./test_difftastic_logic.py
+Preset directories are source-file fixtures consumed by golden and projector
+tests.  This module verifies fixture shape: exactly one old file, exactly one
+new file, matching extensions, a standard helper Makefile, and cheap parser
+validity where a parser is available.  It does not assert rendered diff output;
+that belongs to the golden and logic test modules.
 """
 
 import subprocess
@@ -30,6 +29,8 @@ json:
 show:
 \tbat $(OLD) $(NEW)
 """
+
+__all__: list[str] = []
 
 
 def _preset_dirs() -> list[Path]:

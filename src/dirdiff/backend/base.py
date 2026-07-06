@@ -1,7 +1,7 @@
 """Shared backend contracts and text-loading helpers.
 
-Concrete backends such as ``GitBackend`` and ``PresetBackend`` implement
-``WorkspaceBackendProtocol`` to provide normalized sides, changed path lists, ref
+Concrete backends such as `GitBackend` and `PresetBackend` implement
+`WorkspaceBackendProtocol` to provide normalized sides, changed path lists, ref
 metadata, and loaded file text.  This module defines those data shapes plus the
 small text/unified-diff helpers reused by backend implementations.
 
@@ -80,7 +80,7 @@ class UnifiedDiffLine:
 
     This backend-level shape is intentionally not a frontend row.  It records
     the line status, side line numbers, and text extracted from
-    ``difflib.unified_diff`` so engines can project the fallback into their own
+    `difflib.unified_diff` so engines can project the fallback into their own
     row payloads without each parsing unified-diff headers.
     """
 
@@ -150,13 +150,13 @@ class RefChoices(TypedDict):
 
 
 class LoadedDiffSides(TypedDict):
-    """Loaded left/right text sides returned by ``load_diff_sides``.
+    """Loaded left/right text sides returned by `load_diff_sides`.
 
-    ``WorkspaceBackendProtocol`` objects own path normalization, side-name
+    `WorkspaceBackendProtocol` objects own path normalization, side-name
     normalization, and text loading.  This bundle is the handoff into
     server-level notebook routing or engine rendering: it contains normalized
     repo paths, display labels for the two selected sides, and the loaded
-    ``TextVersion`` objects.
+    `TextVersion` objects.
     """
 
     left_path: str | None
@@ -332,12 +332,12 @@ def load_diff_sides(
 
     The caller supplies already-resolved side names: raw refs for ordinary
     modes, preset names for preset mode, or merge-base/review refs for branch
-    review.  Missing paths are represented as ``TextVersion`` values with
-    ``exists=False`` so added/deleted files can still render through the same
+    review.  Missing paths are represented as `TextVersion` values with
+    `exists=False` so added/deleted files can still render through the same
     downstream payload builders.
 
     This is backend logic: normalize repo paths, normalize side names, ask
-    the selected backend for text, and raise ``TextDiffError`` when the selected
+    the selected backend for text, and raise `TextDiffError` when the selected
     sides cannot be loaded safely.
     """
     normalized_left = (
@@ -389,7 +389,7 @@ def unified_diff_lines(
 ) -> list[UnifiedDiffLine]:
     """Return parsed unified-diff content lines for a text pair.
 
-    This helper centralizes the ``difflib.unified_diff`` fallback used when a
+    This helper centralizes the `difflib.unified_diff` fallback used when a
     structural engine cannot produce its normal row model.  It deliberately
     returns backend-level line records rather than dirdiff rows: engines still
     choose how to map those records into their renderer-specific payloads.

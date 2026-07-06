@@ -1,4 +1,15 @@
-"""Flake8 plugin for type-aware boolean lint checks."""
+"""Flake8 plugin for mypy-backed boolean-expression checks.
+
+Flake8 instantiates `StrictBoolPlugin` once per file, but the expensive mypy
+build is project-scoped.  This module owns that adapter boundary: it expands
+flake8 paths according to the configured mypy excludes, runs mypy with exported
+types, walks the preserved AST, and reports only SBT diagnostics back through
+flake8's iterator contract.
+
+The plugin may cache diagnostic JSON on disk because it is a developer lint
+tool.  It must not import application modules, mutate source files, or define
+runtime validation used by dirdiff itself.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +19,12 @@ import platform
 import re
 import sys
 import time
+import tomllib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, TypeGuard
 
 import mypy.build
 import mypy.find_sources
@@ -20,7 +32,7 @@ import mypy.nodes
 import mypy.options
 import mypy.types
 import mypy.version
-import tomllib
+from mypy.errors import CompileError
 
 TRUTHY_CODE = "SBT001"
 OR_FALLBACK_CODE = "SBT002"
@@ -56,6 +68,15 @@ SYNTAX_CHILD_ATTRS = (
     "type",
     "value",
     "values",
+)
+
+__all__ = ["StrictBoolPlugin"]
+
+SYNTAX_NODE_TYPES: tuple[type[mypy.nodes.Node], ...] = (
+    mypy.nodes.MypyFile,
+    mypy.nodes.Block,
+    mypy.nodes.Statement,
+    mypy.nodes.Expression,
 )
 
 
@@ -94,15 +115,13 @@ class Diagnostic:
         column = value.get("column")
         code = value.get("code")
         message = value.get("message")
-        if not isinstance(path, str):
-            return None
-        if not isinstance(line, int):
-            return None
-        if not isinstance(column, int):
-            return None
-        if not isinstance(code, str):
-            return None
-        if not isinstance(message, str):
+        if not (
+            isinstance(path, str)
+            and isinstance(line, int)
+            and isinstance(column, int)
+            and isinstance(code, str)
+            and isinstance(message, str)
+        ):
             return None
 
         return cls(
@@ -123,7 +142,7 @@ class StrictBoolPlugin:
     _flake8_paths: Sequence[str] = ()
     _clean_cache = False
     _mypy_config = Path("pyproject.toml")
-    _diagnostics_by_path: dict[str, list[Diagnostic]] = {}
+    _diagnostics_by_path: ClassVar[dict[str, list[Diagnostic]]] = {}
     _has_checked = False
 
     def __init__(self, tree: Any, filename: str) -> None:
@@ -170,11 +189,11 @@ class StrictBoolPlugin:
             plugin_type._diagnostics_by_path = _group_diagnostics(diagnostics)
             plugin_type._has_checked = True
 
-        diagnostics = plugin_type._diagnostics_by_path.get(path)
-        if diagnostics is None:
+        path_diagnostics = plugin_type._diagnostics_by_path.get(path)
+        if path_diagnostics is None:
             return
 
-        for diagnostic in diagnostics:
+        for diagnostic in path_diagnostics:
             yield diagnostic.flake8_error()
 
     @classmethod
@@ -276,11 +295,10 @@ class StrictBoolVisitor:
     def _check_bool_expr(self, expr: mypy.nodes.Expression) -> None:
         self._condition_expr_ids.add(id(expr))
 
-        if isinstance(expr, mypy.nodes.OpExpr):
-            if expr.op == "and" or expr.op == "or":
-                self._check_bool_expr(expr.left)
-                self._check_bool_expr(expr.right)
-                return
+        if isinstance(expr, mypy.nodes.OpExpr) and expr.op in {"and", "or"}:
+            self._check_bool_expr(expr.left)
+            self._check_bool_expr(expr.right)
+            return
 
         if isinstance(expr, mypy.nodes.UnaryExpr) and expr.op == "not":
             self._check_bool_expr(expr.expr)
@@ -299,11 +317,10 @@ class StrictBoolVisitor:
         )
 
     def _is_boolean_operation(self, expr: mypy.nodes.Expression) -> bool:
-        if isinstance(expr, mypy.nodes.OpExpr):
-            if expr.op == "and" or expr.op == "or":
-                left_is_boolean = self._is_boolean_operation(expr.left)
-                right_is_boolean = self._is_boolean_operation(expr.right)
-                return left_is_boolean and right_is_boolean
+        if isinstance(expr, mypy.nodes.OpExpr) and expr.op in {"and", "or"}:
+            left_is_boolean = self._is_boolean_operation(expr.left)
+            right_is_boolean = self._is_boolean_operation(expr.right)
+            return left_is_boolean and right_is_boolean
 
         if isinstance(expr, mypy.nodes.UnaryExpr) and expr.op == "not":
             return self._is_boolean_operation(expr.expr)
@@ -316,7 +333,10 @@ class StrictBoolVisitor:
 
         proper = mypy.types.get_proper_type(typ)
         if isinstance(proper, mypy.types.TypeAliasType):
-            proper = mypy.types.get_proper_type(proper.alias.target)
+            alias = proper.alias
+            assert alias is not None
+            assert alias.target is not None
+            proper = mypy.types.get_proper_type(alias.target)
 
         return _is_bool_proper_type(proper)
 
@@ -414,7 +434,7 @@ def _collect_diagnostics(
             stdout=StringIO(),
             stderr=StringIO(),
         )
-    except mypy.build.CompileError:
+    except CompileError:
         return []
     print(
         "SBT debug: mypy build finished "
@@ -615,28 +635,29 @@ def _hash_file(
 
 
 def _read_cache(context_hash: str) -> list[Diagnostic] | None:
+    diagnostics: list[Diagnostic] | None = None
     try:
         raw_cache = json.loads(CACHE_FILE.read_text())
     except FileNotFoundError:
-        return None
+        raw_cache = None
     except json.JSONDecodeError:
-        return None
+        raw_cache = None
 
-    if not isinstance(raw_cache, dict):
-        return None
-    if raw_cache.get("context_hash") != context_hash:
-        return None
-
-    raw_diagnostics = raw_cache.get("diagnostics")
-    if not isinstance(raw_diagnostics, list):
-        return None
-
-    diagnostics: list[Diagnostic] = []
-    for raw_diagnostic in raw_diagnostics:
-        diagnostic = Diagnostic.from_json(raw_diagnostic)
-        if diagnostic is None:
-            return None
-        diagnostics.append(diagnostic)
+    if (
+        isinstance(raw_cache, dict)
+        and raw_cache.get("context_hash") == context_hash
+    ):
+        raw_diagnostics = raw_cache.get("diagnostics")
+        if isinstance(raw_diagnostics, list):
+            parsed: list[Diagnostic] = []
+            for raw_diagnostic in raw_diagnostics:
+                diagnostic = Diagnostic.from_json(raw_diagnostic)
+                if diagnostic is None:
+                    parsed = []
+                    break
+                parsed.append(diagnostic)
+            else:
+                diagnostics = parsed
     return diagnostics
 
 
@@ -709,14 +730,8 @@ def _set_strict_options(options: mypy.options.Options) -> None:
     options.warn_unused_ignores = True
 
 
-def _is_syntax_node(value: object) -> bool:
-    return isinstance(
-        value,
-        mypy.nodes.MypyFile
-        | mypy.nodes.Block
-        | mypy.nodes.Statement
-        | mypy.nodes.Expression,
-    )
+def _is_syntax_node(value: object) -> TypeGuard[mypy.nodes.Node]:
+    return isinstance(value, SYNTAX_NODE_TYPES)
 
 
 def _is_bool_proper_type(typ: mypy.types.ProperType) -> bool:

@@ -99,6 +99,13 @@ type DifftasticRowStatus = Literal["equal", "replace", "insert", "delete"]
 type DifftasticTokenStatus = Literal["unchanged", "replace", "insert", "delete"]
 type _Side = Literal["left", "right"]
 
+__all__ = [
+    "DifftasticAst",
+    "DifftasticInlineToken",
+    "DifftasticRow",
+    "build_difftastic_ast",
+]
+
 _ATOM_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S")
 _WORD_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
 _GAP_PAIR_MIN_RATIO = 0.15

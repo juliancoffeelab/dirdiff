@@ -21,6 +21,7 @@ from tree_sitter import Language, Parser, Query, QueryCursor
 from dirdiff.rendering.fold import FoldHint, fold_hints_for_path
 
 __all__ = [
+    "FoldHint",
     "canonical_json",
     "default_expanded_for_payload",
     "enrich_rows_for_display",
@@ -57,12 +58,12 @@ class _SyntaxLanguageSpec:
 
     language_attr: str = "language"
     """
-    Attribute name for the language factory inside ``module_name``.
+    Attribute name for the language factory inside `module_name`.
     """
 
     query_package: str | None = None
     """
-    Optional package to read ``query_path`` from instead of ``module_name``.
+    Optional package to read `query_path` from instead of `module_name`.
     """
 
 
@@ -215,7 +216,7 @@ def _highlight_lines_for_path(
     Highlighting is part of the rendered row payload, not part of diff-engine
     comparison.  The renderer uses the path hint only to choose a tree-sitter
     language and query; unsupported languages, missing parsers, missing query
-    files, and empty inputs all produce ``None`` so callers can fall back to a
+    files, and empty inputs all produce `None` so callers can fall back to a
     plain render.
     """
     if not path or not text:

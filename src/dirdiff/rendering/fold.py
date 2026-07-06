@@ -2,7 +2,7 @@
 
 Fold hints are display metadata.  They describe source regions the frontend can
 collapse after an engine has already aligned the old and new text.  This module
-therefore lives under ``dirdiff.rendering``: it uses rendered row numbers,
+therefore lives under `dirdiff.rendering`: it uses rendered row numbers,
 right-side source text, and parser metadata to enrich an existing display
 payload, but it never chooses an engine and never changes diff semantics.
 """
@@ -19,7 +19,7 @@ from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
 from dirdiff.engines.contract import FoldHint
 
-__all__ = ["fold_hints_for_path"]
+__all__ = ["FoldHint", "fold_hints_for_path"]
 
 RegionKind = Literal[
     "function_like",
@@ -63,7 +63,7 @@ class FoldLanguageSpec:
 
     Fold detection is selected by path, then executed by loading the matching
     tree-sitter language and dirdiff-owned fold query.  The query pattern index
-    is paired with ``rules`` to decide how each capture becomes a candidate.
+    is paired with `rules` to decide how each capture becomes a candidate.
     """
 
     module_name: str
@@ -73,7 +73,7 @@ class FoldLanguageSpec:
 
     query_path: str
     """
-    Package-resource path to the fold query under ``dirdiff``.
+    Package-resource path to the fold query under `dirdiff`.
     """
 
     suffixes: tuple[str, ...]
@@ -93,7 +93,7 @@ class FoldLanguageSpec:
 
     language_attr: str = "language"
     """
-    Attribute name for the language factory inside ``module_name``.
+    Attribute name for the language factory inside `module_name`.
     """
 
 
@@ -350,9 +350,9 @@ def fold_hints_for_path(
     """Return fold hints for the right side of an already-rendered diff.
 
     Rendering owns this because fold hints depend on both source structure and
-    displayed row status.  The parser sees ``text`` and ``path`` only to find
+    displayed row status.  The parser sees `text` and `path` only to find
     foldable source regions; the final hints are accepted only when those
-    regions map cleanly to ``rows`` and remain unchanged in the rendered diff.
+    regions map cleanly to `rows` and remain unchanged in the rendered diff.
     Unsupported languages, missing tree-sitter packages, parse/query failures,
     empty inputs, and paths without right-side rows all produce an empty list.
     """
@@ -827,7 +827,7 @@ def _collect_json_top_level_items(
 ) -> list[TopLevelItem]:
     """Return top-level JSON object/array members as grouped fold items.
 
-    JSON parser roots wrap the actual document in a ``document`` node, so this
+    JSON parser roots wrap the actual document in a `document` node, so this
     helper unwraps exactly one top-level container and treats its named children
     as foldable top-level items.
     """
@@ -871,8 +871,8 @@ def _collect_json_top_level_items(
 def _json_top_level_label_kind(node: Node) -> str | None:
     """Classify one JSON child node for top-level fold labels.
 
-    Object pairs get a ``property`` label, while array values and primitive
-    top-level members are grouped as generic ``item`` entries.
+    Object pairs get a `property` label, while array values and primitive
+    top-level members are grouped as generic `item` entries.
     """
 
     if node.type == "pair":
@@ -894,7 +894,7 @@ def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
     """Classify one root child for top-level grouping.
 
     Most languages can use the node type directly.  JavaScript and TypeScript
-    exports wrap declarations in ``export_statement``, so those wrappers are
+    exports wrap declarations in `export_statement`, so those wrappers are
     kept as the top-level declaration span.
     """
 
@@ -969,7 +969,7 @@ def _plural_label(count: int, noun: str) -> str:
     """Pluralize the small set of fold labels used by grouped hints.
 
     This is intentionally not a general inflector.  It only covers labels that
-    this module constructs, including the ``property`` to ``properties`` case.
+    this module constructs, including the `property` to `properties` case.
     """
 
     if count == 1:
@@ -1075,7 +1075,7 @@ def _has_ancestor_kind(
     candidate: FoldCandidate,
     region_kind: RegionKind,
 ) -> bool:
-    """Return whether a candidate has an ancestor with ``region_kind``.
+    """Return whether a candidate has an ancestor with `region_kind`.
 
     Container fold policy uses ancestry to avoid creating generic container
     folds inside function/class bodies where function/class folding is clearer.
@@ -1093,7 +1093,7 @@ def _contains(
     outer: FoldCandidate,
     inner: FoldCandidate,
 ) -> bool:
-    """Return whether ``outer`` strictly contains ``inner`` in source bytes.
+    """Return whether `outer` strictly contains `inner` in source bytes.
 
     Strict containment requires one edge to be different.  Equal spans are
     treated as duplicates, not as parent/child relationships.
@@ -1165,7 +1165,7 @@ def _lines_to_row_span(
 
 
 def _node_text(node: Node, source_bytes: bytes) -> str:
-    """Decode the source text covered by ``node``.
+    """Decode the source text covered by `node`.
 
     Query labels are best-effort display text.  Decode errors are ignored so a
     malformed byte sequence cannot break rendering of the whole diff.
@@ -1265,7 +1265,7 @@ def _spec_for_path(path: str) -> FoldLanguageSpec | None:
     """Choose the fold language spec for a source path.
 
     Exact filename matches win before suffix matches so files such as
-    ``pyproject.toml`` can opt into a language even when suffix handling is
+    `pyproject.toml` can opt into a language even when suffix handling is
     otherwise broad.
     """
 

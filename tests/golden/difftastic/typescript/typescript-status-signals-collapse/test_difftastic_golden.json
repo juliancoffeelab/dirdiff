@@ -1,0 +1,872 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "type LoadState = \"idle\" | \"loading\" | \"done\" | \"error\";",
+    "right_no": 1,
+    "right_text": "type LoadState = \"idle\" | \"loading\" | \"done\" | \"error\";",
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 2,
+    "right_text": "type DiffStatus = {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "type"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "DiffStatus"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 3,
+    "right_text": "  loadedFiles: {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "loadedFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 4,
+    "right_text": "    failed: number;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "failed"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 5,
+    "right_text": "    loaded: number;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "loaded"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 6,
+    "right_text": "    total: number;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "total"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "number"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 7,
+    "right_text": "  } | null;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "null"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 8,
+    "right_text": "  placement: \"inline\" | \"top\";",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "placement"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"inline\""
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"top\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 9,
+    "right_text": "  state: LoadState;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "state"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "LoadState"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 10,
+    "right_text": "  text: string;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "text"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "string"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 11,
+    "right_text": "};",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 2,
+    "left_text": "",
+    "right_no": 12,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "export function createDiffResources() {",
+    "right_no": 13,
+    "right_text": "export function createDiffResources() {",
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  const [loadingRevision, setLoadingRevision] = createSignal(0);",
+    "right_no": 14,
+    "right_text": "  const [loadingRevision, setLoadingRevision] = createSignal(0);",
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "  const [status, setStatus] = createSignal<LoadState>(\"idle\");",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  const [status, setStatus] = createSignal<"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "LoadState"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">(\"idle\");"
+      }
+    ],
+    "right_no": 15,
+    "right_text": "  const [status, setStatus] = createSignal<DiffStatus>({",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  const [status, setStatus] = createSignal<"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "DiffStatus"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ">("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 6,
+    "left_text": "  const [statusText, setStatusText] = createSignal(\"Preparing diff...\");",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "const"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "["
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "statusText"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "setStatusText"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "]"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "createSignal"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"Preparing diff...\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ";"
+      }
+    ],
+    "right_no": 16,
+    "right_text": "    loadedFiles: null,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "loadedFiles"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "null"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 17,
+    "right_text": "    placement: \"top\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "placement"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"top\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 18,
+    "right_text": "    state: \"idle\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "state"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " \"idle\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 19,
+    "right_text": "    text: \"Preparing diff...\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "text"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"Preparing diff...\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 20,
+    "right_text": "  });",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ");"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 7,
+    "left_text": "",
+    "right_no": 21,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "  let toastedManifestErrorIdentity = \"\";",
+    "right_no": 22,
+    "right_text": "  let toastedManifestErrorIdentity = \"\";",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "  let activeLoadId = 0;",
+    "right_no": 23,
+    "right_text": "  let activeLoadId = 0;",
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "",
+    "right_no": 24,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "  return {",
+    "right_no": 25,
+    "right_text": "  return {",
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "    loadingRevision,",
+    "right_no": 26,
+    "right_text": "    loadingRevision,",
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    setLoadingRevision,",
+    "right_no": 27,
+    "right_text": "    setLoadingRevision,",
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "    status,",
+    "right_no": 28,
+    "right_text": "    status,",
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "    setStatus,",
+    "right_no": 29,
+    "right_text": "    setStatus,",
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "    statusText,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "statusText"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 17,
+    "left_text": "    setStatusText,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "setStatusText"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 18,
+    "left_text": "    toastedManifestErrorIdentity,",
+    "right_no": 30,
+    "right_text": "    toastedManifestErrorIdentity,",
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "    activeLoadId,",
+    "right_no": 31,
+    "right_text": "    activeLoadId,",
+    "status": "equal"
+  },
+  {
+    "left_no": 20,
+    "left_text": "  };",
+    "right_no": 32,
+    "right_text": "  };",
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "}",
+    "right_no": 33,
+    "right_text": "}",
+    "status": "equal"
+  }
+]

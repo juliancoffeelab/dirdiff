@@ -1,9 +1,10 @@
 """Projection logic for Git unified patches.
 
-``run_git_no_index_diff`` returns Git's unified patch text.  This module owns
-the deterministic conversion from that patch format into dirdiff's strict
-engine rows.  It deliberately does not run Git and does not attach syntax
-highlighting, fold rows, labels, or API metadata.
+`git_diff_rows_from_patch` parses unified patch text produced by Git and returns
+dirdiff engine rows.  `plain_line_rows_for_side` builds the same row shape when
+there is no opposite-side file to compare.  This module deliberately does not
+run Git and does not attach syntax highlighting, fold rows, labels, or API
+metadata.
 """
 
 from __future__ import annotations
@@ -15,6 +16,11 @@ GIT_HUNK_HEADER_PATTERN = re.compile(
     r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
     r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
 )
+
+__all__ = [
+    "git_diff_rows_from_patch",
+    "plain_line_rows_for_side",
+]
 
 
 def plain_line_rows_for_side(
@@ -58,7 +64,7 @@ def git_diff_rows_from_patch(patch: str) -> list[dict[str, Any]]:
 
     File headers and metadata are ignored.  Hunk headers reset the left/right
     line counters, and content lines become equal/delete/insert rows.  Git's
-    ``\\ No newline at end of file`` marker is metadata about the preceding
+    `\\ No newline at end of file` marker is metadata about the preceding
     content line, not a row, so it is skipped.
     """
     rows: list[dict[str, Any]] = []

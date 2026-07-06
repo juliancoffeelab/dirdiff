@@ -3,11 +3,11 @@
 Diff engines implement one boundary: render an already-loaded left/right text
 pair into a dirdiff result.  Backend loading, ref resolution, manifest
 construction, lazy metadata, and notebook routing live outside
-``dirdiff.engines``.
+`dirdiff.engines`.
 
 This module owns the public data transfer shapes at that boundary.  Engines
-produce strict ``DiffEngineRow`` values; display rendering enriches those into
-``DiffRow`` values; the server validates and serializes the same shapes for
+produce strict `DiffEngineRow` values; display rendering enriches those into
+`DiffRow` values; the server validates and serializes the same shapes for
 HTTP.
 """
 
@@ -35,7 +35,7 @@ class DiffSide:
     """One already-loaded side passed into a diff engine.
 
     A side is the engine-facing input after backend loading has resolved refs
-    and loaded bytes as text.  Human-facing labels such as ``HEAD``, ``new``,
+    and loaded bytes as text.  Human-facing labels such as `HEAD`, `new`,
     or branch names are intentionally absent here because they describe how the
     API presents the side, not what the engine compares.
     """
@@ -44,16 +44,16 @@ class DiffSide:
     """
     Tells the engine whether this side exists.
 
-    Missing sides carry ``text=None``.  Added/deleted file handling is still an
+    Missing sides carry `text=None`.  Added/deleted file handling is still an
     engine concern, but fetching the contents or deciding that a side is absent
-    belongs to ``dirdiff.backend`` and server orchestration.
+    belongs to `dirdiff.backend` and server orchestration.
     """
 
     text: str | None
     """
     Source text for this side.
 
-    Engines compare this string.  They should not treat ``path_hint`` as an
+    Engines compare this string.  They should not treat `path_hint` as an
     alternate source of file contents.
     """
 
@@ -142,8 +142,8 @@ class InlineToken(TypedDict):
     """
     Token-level diff status.
 
-    GumTree uses ``move`` for moved ranges.  Non-structural renderers normally
-    emit ``unchanged``, ``replace``, ``insert``, or ``delete``.
+    GumTree uses `move` for moved ranges.  Non-structural renderers normally
+    emit `unchanged`, `replace`, `insert`, or `delete`.
     """
 
 
@@ -194,27 +194,27 @@ class DiffEngineRow(TypedDict):
     Line-level row status produced by the engine.
 
     This is limited to real aligned diff rows.  Synthetic UI statuses such as
-    ``fold`` and ``elided`` are not legal engine output.
+    `fold` and `elided` are not legal engine output.
     """
 
     left_no: int | None
     """
-    One-based line number on the old/left side, or ``None`` for right-only rows.
+    One-based line number on the old/left side, or `None` for right-only rows.
     """
 
     right_no: int | None
     """
-    One-based line number on the new/right side, or ``None`` for left-only rows.
+    One-based line number on the new/right side, or `None` for left-only rows.
     """
 
     left_text: str | None
     """
-    Rendered old/left line text, or ``None`` when the side is absent.
+    Rendered old/left line text, or `None` when the side is absent.
     """
 
     right_text: str | None
     """
-    Rendered new/right line text, or ``None`` when the side is absent.
+    Rendered new/right line text, or `None` when the side is absent.
     """
 
     left_tokens: list[InlineToken]
@@ -253,8 +253,8 @@ class DiffRow(TypedDict):
 
     TODO: part of fold micro-optimisation, investigate for removal.
 
-    ``fold`` is a client-expandable placeholder for hidden rows that are still
-    included in ``foldedRows``.  ``elided`` is a non-expandable placeholder for
+    `fold` is a client-expandable placeholder for hidden rows that are still
+    included in `foldedRows`.  `elided` is a non-expandable placeholder for
     rows omitted from a large plain render.  These synthetic row statuses should
     probably be removed from the core diff row shape.
     """
@@ -297,7 +297,7 @@ class DiffRow(TypedDict):
     """
     Syntax-highlight spans for the old/left line.
 
-    See ``left_tokens`` for the TODO about unifying token and syntax
+    See `left_tokens` for the TODO about unifying token and syntax
     decorations before frontend rendering.
     """
 
@@ -392,9 +392,9 @@ class DiffEngineProtocol(Protocol):
     ) -> DiffEngineResult:
         """Render an already-loaded left/right pair.
 
-        The caller supplies two ``DiffSide`` values after resolving refs and
+        The caller supplies two `DiffSide` values after resolving refs and
         loading file contents.  The returned result is the rendered core of the
-        normal text-file branch of ``/api/file-diff``; notebook payloads and
+        normal text-file branch of `/api/file-diff`; notebook payloads and
         HTTP metadata are built at the API layer before or after an engine is
         selected.
         """

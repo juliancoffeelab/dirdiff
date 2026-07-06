@@ -1,4 +1,10 @@
-"""Golden fold-hint tests for fold presets."""
+"""Golden fold-hint tests for fold preset fixtures.
+
+This module snapshots the fold hints produced by display enrichment for every
+non-borked fold preset.  Presets provide compact source examples; the custom
+syrupy extension stores one JSON snapshot per preset path.  Focused behavioral
+cases that are easier to read inline belong in `test_fold_logic`.
+"""
 
 import json
 from pathlib import Path
@@ -14,6 +20,8 @@ GOLDEN_ROOT = Path(__file__).parent / "golden" / "folds"
 BROKEN_PRESETS = {
     "borked",
 }
+
+__all__: list[str] = []
 
 
 class FoldGoldenSnapshotExtension(SingleFileSnapshotExtension):
@@ -50,7 +58,8 @@ class FoldGoldenSnapshotExtension(SingleFileSnapshotExtension):
         cls, *, test_location: Any, index: int | str = 0
     ) -> str:
         if isinstance(index, str):
-            return test_location.testname
+            testname: str = test_location.testname
+            return testname
         return super().get_snapshot_name(
             test_location=test_location, index=index
         )

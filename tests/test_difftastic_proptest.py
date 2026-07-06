@@ -1,3 +1,12 @@
+"""Property-style checks for difftastic preset projections.
+
+The tests in this module run every non-borked difftastic preset through the
+same row projector and assert broad invariants: source text is preserved,
+one-sided rows are not pure unchanged context, and replacement tokens stay
+paired sensibly.  Golden snapshots cover exact output; this file guards shape
+and semantic consistency across the preset corpus.
+"""
+
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -5,10 +14,15 @@ from typing import Any, Literal
 import pytest
 
 from dirdiff.engines.difftastic import DifftasticDiffEngine
-from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
+from dirdiff.engines.difftastic.logic import (
+    DifftasticRow,
+    _difftastic_rows_from_json,
+)
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 Side = Literal["left", "right"]
+
+__all__: list[str] = []
 
 
 def _preset_dirs() -> list[Path]:
@@ -41,7 +55,7 @@ def _single_file(pattern: str, preset_dir: Path) -> Path:
 
 def _preset_rows(
     preset_dir: Path,
-) -> tuple[list[dict[str, Any]], str, str]:
+) -> tuple[list[DifftasticRow], str, str]:
     old_path = _single_file("old.*", preset_dir)
     new_path = _single_file("new.*", preset_dir)
     old_text = old_path.read_text()
@@ -77,7 +91,7 @@ def _token_atoms(text: str) -> list[str]:
 
 
 def _side_rendered_text(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
     *,
     side: Side,
 ) -> str:
@@ -150,14 +164,14 @@ def _unchanged_semantic_runs(tokens: object) -> list[list[str]]:
     return runs
 
 
-def _row_marked_changed_atoms(row: dict[str, Any], side: Side) -> list[str]:
+def _row_marked_changed_atoms(row: DifftasticRow, side: Side) -> list[str]:
     tokens = row.get(_side_tokens_key(side))
     if tokens is None:
         return []
     return _changed_atoms(tokens)
 
 
-def _row_marked_replace_atoms(row: dict[str, Any], side: Side) -> list[str]:
+def _row_marked_replace_atoms(row: DifftasticRow, side: Side) -> list[str]:
     tokens = row.get(_side_tokens_key(side))
     if tokens is None:
         return []
@@ -165,7 +179,7 @@ def _row_marked_replace_atoms(row: dict[str, Any], side: Side) -> list[str]:
 
 
 def _row_marked_unchanged_runs(
-    row: dict[str, Any], side: Side
+    row: DifftasticRow, side: Side
 ) -> list[list[str]]:
     tokens = row.get(_side_tokens_key(side))
     if tokens is None:
@@ -173,7 +187,7 @@ def _row_marked_unchanged_runs(
     return _unchanged_semantic_runs(tokens)
 
 
-def _row_is_changed_group_member(row: dict[str, Any]) -> bool:
+def _row_is_changed_group_member(row: DifftasticRow) -> bool:
     if row.get("status") != "equal":
         return True
     if row.get("left_tokens") or row.get("right_tokens"):
@@ -182,10 +196,10 @@ def _row_is_changed_group_member(row: dict[str, Any]) -> bool:
 
 
 def _changed_row_groups(
-    rows: list[dict[str, Any]],
-) -> list[list[tuple[int, dict[str, Any]]]]:
-    groups: list[list[tuple[int, dict[str, Any]]]] = []
-    current: list[tuple[int, dict[str, Any]]] = []
+    rows: list[DifftasticRow],
+) -> list[list[tuple[int, DifftasticRow]]]:
+    groups: list[list[tuple[int, DifftasticRow]]] = []
+    current: list[tuple[int, DifftasticRow]] = []
     for index, row in enumerate(rows):
         if _row_is_changed_group_member(row):
             current.append((index, row))
@@ -199,7 +213,7 @@ def _changed_row_groups(
 
 
 def _marked_changed_atoms_in_group(
-    group: list[tuple[int, dict[str, Any]]], side: Side
+    group: list[tuple[int, DifftasticRow]], side: Side
 ) -> list[str]:
     atoms: list[str] = []
     for _, row in group:
@@ -220,7 +234,7 @@ def _run_is_contiguous_subsequence(
 
 
 def _one_sided_equal_context_run(
-    row: dict[str, Any],
+    row: DifftasticRow,
     *,
     side: Side,
     other_side: Side,
@@ -238,7 +252,7 @@ def _one_sided_equal_context_run(
 
 
 def _unchanged_context_leak_diagnostics(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
 ) -> list[str]:
     diagnostics: list[str] = []
     for group_index, group in enumerate(_changed_row_groups(rows)):
@@ -263,7 +277,7 @@ def _collect_unchanged_context_leak_diagnostics(
     diagnostics: list[str],
     *,
     group_index: int,
-    group: list[tuple[int, dict[str, Any]]],
+    group: list[tuple[int, DifftasticRow]],
     side: Side,
     other_side: Side,
 ) -> None:
@@ -326,7 +340,7 @@ def _context_leak_diagnostic(
 
 
 def _unpaired_replace_token_diagnostics(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
 ) -> list[str]:
     diagnostics: list[str] = []
     for row_index, row in enumerate(rows):
@@ -370,7 +384,7 @@ def _unpaired_replace_token_diagnostic(
     )
 
 
-def _one_sided_change_side(row: dict[str, Any]) -> Side | None:
+def _one_sided_change_side(row: DifftasticRow) -> Side | None:
     if row.get("left_no") is not None and row.get("right_no") is None:
         return "left"
     if row.get("left_no") is None and row.get("right_no") is not None:
@@ -379,7 +393,7 @@ def _one_sided_change_side(row: dict[str, Any]) -> Side | None:
 
 
 def _pure_unchanged_one_sided_change_texts(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
 ) -> list[str]:
     broken_texts: list[str] = []
     for row in rows:
@@ -413,7 +427,7 @@ def _pure_unchanged_one_sided_change_texts(
 
 
 def _assert_one_sided_changes_are_not_pure_unchanged_context(
-    rows: list[dict[str, Any]],
+    rows: list[DifftasticRow],
 ) -> None:
     broken_texts = _pure_unchanged_one_sided_change_texts(rows)
     assert not broken_texts, broken_texts

@@ -1,3 +1,11 @@
+"""Integration checks for Git-backed manifest construction.
+
+The tests build real repositories on disk and assert the manifest shape exposed
+by `GitBackend` through the test service adapter.  They cover Git status,
+lazy-file, and branch-review behavior at the backend boundary rather than
+testing renderer internals.
+"""
+
 import json
 import subprocess
 from pathlib import Path

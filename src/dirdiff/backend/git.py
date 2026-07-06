@@ -1,6 +1,6 @@
-"""Git-backed implementation of ``WorkspaceBackendProtocol``.
+"""Git-backed implementation of `WorkspaceBackendProtocol`.
 
-``GitBackend`` is responsible for talking to Git: discovering the repository,
+`GitBackend` is responsible for talking to Git: discovering the repository,
 listing refs, resolving branch-review sides, listing changed paths, and loading
 file versions.  It returns backend metadata and text only; rendering and API
 response shaping happen outside this module.

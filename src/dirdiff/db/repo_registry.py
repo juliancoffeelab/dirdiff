@@ -1,3 +1,15 @@
+"""Persistence for repositories that dirdiff can open by id.
+
+`RepoMarkStore` is used by `dirdiff mark`, `dirdiff refs`, and FastAPI repo
+routes in `dirdiff.server`.  It maps a stable integer repo id to a filesystem
+path, a user-facing repo name, the mark timestamp, and an optional main-branch
+selection.  The exported records are read models for those concepts:
+`RepoMarkRecord` and `RepoMainBranchRecord`.
+
+This module is only the registry.  It does not inspect the Git worktree, resolve
+refs, build manifests, load file contents, or cache diff follow-up data.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -17,6 +29,12 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from dirdiff.db.base import TableBase
+
+__all__ = [
+    "RepoMainBranchRecord",
+    "RepoMarkRecord",
+    "RepoMarkStore",
+]
 
 
 class RepoMark(TableBase):
@@ -73,28 +91,36 @@ class RepoMainBranch(TableBase):
 
 @dataclass(frozen=True)
 class RepoMarkRecord:
-    """
-    Read model returned by the repo registry.
-
-    Combines the repo path with its display metadata for API responses.
-    """
+    """Registered repository shown in repo lists and used by repo routes."""
 
     id: int
+    """Stable database id used by FastAPI requests for this repository."""
+
     path: str
+    """Filesystem path string stored for repo-backed diff requests."""
+
     name: str
+    """Display name shown by CLI listings and the repo picker."""
+
     marked_at: datetime
+    """UTC timestamp for when the repository was registered."""
 
 
 @dataclass(frozen=True)
 class RepoMainBranchRecord:
-    """
-    Read model returned for a persisted repository main branch row.
-    """
+    """Persisted default branch-review base for one registered repository."""
 
     repo_id: int
+    """Repository id this branch selection belongs to."""
+
     source: str
+    """Ref source, such as a local branch or a remote branch selection."""
+
     remote: str | None
+    """Remote name when `source` identifies a remote branch; otherwise `None`."""
+
     branch: str
+    """Branch name to use as the default branch-review base."""
 
 
 class RepoMarkStore:

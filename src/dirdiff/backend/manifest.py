@@ -1,6 +1,6 @@
 """Manifest and lazy-file payload helpers for workspace backends.
 
-This module is part of ``dirdiff.backend`` because it turns backend path
+This module is part of `dirdiff.backend` because it turns backend path
 metadata into API payloads.  It does not render file contents and does not know
 which diff engine the user selected.  Services render one already-loaded file;
 backends list, classify, and load workspace paths.
@@ -228,7 +228,7 @@ def _insert_tree_entry(
 
 
 def _root_files_last(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Order each tree level for ``_build_repo_manifest_tree``.
+    """Order each tree level for `_build_repo_manifest_tree`.
 
     Directory entries stay before file entries so root files render last in the
     frontend tree and flat depth-first file list.
@@ -249,9 +249,9 @@ def _compact_single_directory_chains(
 ) -> list[dict[str, Any]]:
     """Collapse directory chains that contain no branching choice.
 
-    Used by ``_build_repo_manifest_tree`` after root-file ordering.
+    Used by `_build_repo_manifest_tree` after root-file ordering.
 
-    ``frontend -> src -> App.tsx`` becomes ``frontend/src -> App.tsx`` so API
+    `frontend -> src -> App.tsx` becomes `frontend/src -> App.tsx` so API
     consumers get a tree shaped around meaningful choices rather than every
     path segment.
     """

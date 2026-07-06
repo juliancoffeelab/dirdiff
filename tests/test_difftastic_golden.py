@@ -1,4 +1,11 @@
-"""Golden row-output tests for difftastic presets."""
+"""Golden row-output tests for difftastic preset fixtures.
+
+This module is the snapshot boundary for exact difftastic row projection.  Each
+non-borked preset directory supplies old/new source files, and the snapshot name
+is the preset path relative to `tests/presets/difftastic`.  It tests
+projection output only; subprocess invocation details belong to the engine, and
+broad semantic invariants live in `test_difftastic_proptest`.
+"""
 
 import json
 from pathlib import Path
@@ -16,6 +23,8 @@ GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"
 BROKEN_PRESET_GROUPS: set[str] = {
     "borked",
 }
+
+__all__: list[str] = []
 
 
 class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
@@ -52,7 +61,8 @@ class DifftasticGoldenSnapshotExtension(SingleFileSnapshotExtension):
         cls, *, test_location: Any, index: int | str = 0
     ) -> str:
         if isinstance(index, str):
-            return test_location.testname
+            testname: str = test_location.testname
+            return testname
         return super().get_snapshot_name(
             test_location=test_location, index=index
         )

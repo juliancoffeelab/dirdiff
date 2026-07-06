@@ -1,3 +1,15 @@
+"""Persistence for local dirdiff users.
+
+`UserProfileStore` is used by FastAPI profile routes in `dirdiff.server` to
+create, fetch, list, and rename local dirdiff users.  The exported
+`UserProfileRecord` is the read model returned to that route layer, and the
+private `UserProfile` SQLAlchemy table stores the generated id plus username.
+
+This module owns username validation and profile rows only.  It does not manage
+UI preferences or repository marks; those belong to `PreferencesStore` and
+`RepoMarkStore`.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +18,11 @@ from sqlalchemy import Engine, String, insert, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from dirdiff.db.base import TableBase
+
+__all__ = [
+    "UserProfileRecord",
+    "UserProfileStore",
+]
 
 
 class UserProfile(TableBase):
@@ -23,12 +40,13 @@ class UserProfile(TableBase):
 
 @dataclass(frozen=True)
 class UserProfileRecord:
-    """
-    Read model returned by the user profile store.
-    """
+    """Persisted local dirdiff user."""
 
     id: int
+    """Stable database id used as the profile key in related stores."""
+
     username: str
+    """Human-readable local name shown by profile controls."""
 
 
 def _validate_username(username: str) -> None:

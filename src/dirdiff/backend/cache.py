@@ -1,7 +1,7 @@
 """Process-local cache for backend request context.
 
-``/api/manifest`` is the request that discovers changed paths and resolves the
-left/right backend sides.  Follow-up endpoints such as ``/api/file-diff`` must
+`/api/manifest` is the request that discovers changed paths and resolves the
+left/right backend sides.  Follow-up endpoints such as `/api/file-diff` must
 reuse that operational cache entry instead of reconstructing it from query
 parameters.  This module owns that short-lived cache-id storage.
 

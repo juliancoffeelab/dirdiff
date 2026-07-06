@@ -1,7 +1,7 @@
 """Native dirdiff text engine.
 
-``TextDiffEngine`` is the built-in renderer for ordinary text files.  Unlike
-the external engines, it has no subprocess integration: ``logic.py`` owns the
+`TextDiffEngine` is the built-in renderer for ordinary text files.  Unlike
+the external engines, it has no subprocess integration: `logic.py` owns the
 native Python line alignment and inline tokenization, while this module owns
 the public engine class.
 """

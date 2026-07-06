@@ -1,4 +1,15 @@
-"""CLI helpers for storing and listing marked repositories."""
+"""Repo-mark helpers used by `dirdiff mark` and `dirdiff refs`.
+
+The command functions in `dirdiff.cli` call this module before touching
+`RepoMarkStore`: `db_path_or_default` chooses the SQLite file, `mark_repo`
+stores a repo path/name pair, and `print_marked_repos` formats the terminal
+listing.  `absolute_repo_path` keeps relative CLI arguments anchored to the
+user's shell directory, and `duplicate_repo_path_error` converts the repo-path
+uniqueness constraint into a readable command failure.
+
+FastAPI routes do not use this module.  Server code receives already-selected
+repo ids and should call `RepoMarkStore` directly.
+"""
 
 from __future__ import annotations
 
@@ -16,11 +27,20 @@ DEFAULT_DB_PATH = (
     Path.home() / ".local" / "share" / "dirdiff" / "dirdiff.sqlite"
 )
 
+__all__ = [
+    "DEFAULT_DB_PATH",
+    "absolute_repo_path",
+    "db_path_or_default",
+    "duplicate_repo_path_error",
+    "mark_repo",
+    "print_marked_repos",
+]
+
 
 def db_path_or_default(db_path: Path | None) -> Path:
     """Resolve an optional CLI database path to the path dirdiff should use.
 
-    CLI commands accept ``--db-path`` on operations that touch the repo
+    CLI commands accept `--db-path` on operations that touch the repo
     registry.  Omitting it means all commands share the same user-level
     registry path.
     """
@@ -33,8 +53,8 @@ def db_path_or_default(db_path: Path | None) -> Path:
 def absolute_repo_path(repo_path: Path) -> Path:
     """Resolve a repo path the same way an interactive shell user expects.
 
-    ``Path.cwd()`` can differ from the original shell directory after process
-    launch details or test harnesses get involved.  ``PWD`` preserves the path
+    `Path.cwd()` can differ from the original shell directory after process
+    launch details or test harnesses get involved.  `PWD` preserves the path
     the user typed relative paths against, including symlink spelling.
     """
 
@@ -89,7 +109,7 @@ def print_marked_repos(*, db_path: Path | None) -> None:
     """Print the registered repositories in the selected database.
 
     This is intentionally plain terminal output rather than API formatting.
-    It supports ``dirdiff mark --list`` and mirrors the database the browser app
+    It supports `dirdiff mark --list` and mirrors the database the browser app
     will read on launch.
     """
 

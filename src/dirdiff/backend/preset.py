@@ -1,6 +1,6 @@
-"""Preset-backed implementation of ``WorkspaceBackendProtocol``.
+"""Preset-backed implementation of `WorkspaceBackendProtocol`.
 
-``PresetBackend`` treats test preset directories as read-only backend data.  It lets
+`PresetBackend` treats test preset directories as read-only backend data.  It lets
 the same manifest and rendering paths exercise fixture pairs without requiring
 a Git repository.  It should stay limited to preset discovery, path listing,
 and file loading for those fixtures.

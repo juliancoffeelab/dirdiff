@@ -1,6 +1,16 @@
+"""Native text-rendering behavior tests.
+
+These tests exercise `helpers.build_loaded_diff` as the public test boundary
+for rendered text payloads.  They assert user-visible row statuses, token
+boundaries, summaries, and syntax/fold metadata without going through HTTP or a
+browser session.
+"""
+
 import json
 
 from helpers import build_loaded_diff
+
+__all__: list[str] = []
 
 
 def test_counts_whitespace_only_changes_as_modified() -> None:

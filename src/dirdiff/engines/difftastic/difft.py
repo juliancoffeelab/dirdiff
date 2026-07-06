@@ -46,7 +46,8 @@ of difftastic JSON currently consumed by dirdiff:
   `rhs` entries describe new-side/inserted spans, and an entry containing both
   sides means difftastic paired those spans syntactically. Missing sides are
   omitted by serde, not serialized as `null`. It is still not a rich before/after
-  AST.
+  AST. `DifftasticJsonChange.content` is used when present; otherwise row
+  projection slices the original source line with `start` and `end`.
 * `language`: a free-form language/fallback label from difftastic.
 * `path`: the path difftastic reports for the compared file.
 * `status`: the file-level action (`changed`, `created`, `deleted`, or
@@ -81,7 +82,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, NotRequired, Required, TypedDict, cast
+from typing import Literal, NotRequired, TypedDict, cast
 
 from dirdiff.backend import TextDiffError
 
@@ -96,7 +97,6 @@ __all__ = [
     "DifftasticJsonChange",
     "DifftasticJsonChunkEntry",
     "DifftasticJsonFileStatus",
-    "DifftasticJsonHighlight",
     "DifftasticJsonSide",
     "DifftasticJsonSideName",
     "DifftasticTunings",
@@ -107,15 +107,6 @@ type DifftasticAlignedPairJson = list[int | None]
 type DifftasticJsonSideName = Literal["lhs", "rhs"]
 type DifftasticJsonFileStatus = Literal[
     "changed", "created", "deleted", "unchanged"
-]
-type DifftasticJsonHighlight = Literal[
-    "delimiter",
-    "normal",
-    "string",
-    "type",
-    "comment",
-    "keyword",
-    "tree_sitter_error",
 ]
 
 
@@ -128,14 +119,12 @@ class DifftasticJsonChange(TypedDict):
     end: int
     """End column for the changed span, as emitted by difftastic."""
 
-    content: str
-    """Exact source text in `start:end` for this change span."""
+    content: NotRequired[str]
+    """Exact source text for this span when difftastic provides it.
 
-    highlight: DifftasticJsonHighlight
-    """Difftastic's syntax class for the span, not the line action.
-
-    This is serialized from difftastic's `Highlight` enum with
-    `rename_all = "snake_case"`.
+    Row projection uses this value when it is present.  Sparse facts can omit it
+    because the original source line is also supplied to the projector, which can
+    recover the span text from `start` and `end`.
     """
 
 
@@ -190,9 +179,26 @@ class DifftasticJson(TypedDict):
     The Rust serializer omits this field when the vector is empty.
     """
 
-    language: Required[str]
-    path: Required[str]
-    status: Required[DifftasticJsonFileStatus]
+    language: NotRequired[str]
+    """Difftastic language or fallback label for the compared file.
+
+    `build_difftastic_ast` only interprets known fallback labels for engine
+    warnings; otherwise this is opaque difftastic metadata.
+    """
+
+    path: NotRequired[str]
+    """Path string reported by difftastic for the compared file.
+
+    Dirdiff does not trust this as the repository path; backend code already
+    owns source paths.  It is retained as raw difftastic metadata.
+    """
+
+    status: NotRequired[DifftasticJsonFileStatus]
+    """File-level status reported by difftastic.
+
+    The engine summary is computed from projected rows, so this status is raw
+    difftastic metadata rather than the source of dirdiff line counts.
+    """
 
 
 @dataclass(frozen=True)

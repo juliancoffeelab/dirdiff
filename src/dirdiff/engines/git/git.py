@@ -1,4 +1,4 @@
-"""Raw ``git diff --no-index`` execution for the Git diff engine.
+"""Raw `git diff --no-index` execution for the Git diff engine.
 
 This module is the subprocess boundary for Git-backed rendering.  It receives
 already-loaded old/new text, writes that text to temporary files, invokes Git's
@@ -37,11 +37,11 @@ def run_git_no_index_diff(
     left_path_hint: str | None,
     right_path_hint: str | None,
 ) -> str:
-    """Run ``git diff --no-index`` for one already-loaded text pair.
+    """Run `git diff --no-index` for one already-loaded text pair.
 
-    Git no-index mode exits with ``0`` when files are equal and ``1`` when a
+    Git no-index mode exits with `0` when files are equal and `1` when a
     diff exists, so both are successful engine outcomes.  Other exit codes are
-    surfaced as ``TextDiffError`` because they mean Git failed to produce a
+    surfaced as `TextDiffError` because they mean Git failed to produce a
     trustworthy patch.
     """
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-") as raw_tmp:

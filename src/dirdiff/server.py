@@ -2,8 +2,8 @@
 
 The server owns REST concerns: resolving modes, refs, presets, repository
 marks, and response validation.  Diff engines render already-loaded text; they
-do not decide whether a file is a notebook.  For ``.ipynb`` paths, this module
-loads the two file versions through the selected ``WorkspaceBackendProtocol`` and calls
+do not decide whether a file is a notebook.  For `.ipynb` paths, this module
+loads the two file versions through the selected `WorkspaceBackendProtocol` and calls
 the public notebook payload builders before falling back to the selected text
 engine.
 
@@ -94,10 +94,10 @@ __all__ = [
 class RuntimeConfig:
     """Server startup configuration passed across the uvicorn factory boundary.
 
-    The CLI creates this value before starting uvicorn.  ``run_uvicorn``
-    serializes it into ``RUNTIME_CONFIG_ENV`` because uvicorn imports the app
+    The CLI creates this value before starting uvicorn.  `run_uvicorn`
+    serializes it into `RUNTIME_CONFIG_ENV` because uvicorn imports the app
     factory in a fresh module-loading path, especially when reload is enabled.
-    The server owns the shape because ``uvicorn_entrypoint`` is the only place
+    The server owns the shape because `uvicorn_entrypoint` is the only place
     that consumes the serialized payload.
     """
 
@@ -119,17 +119,17 @@ class RuntimeConfig:
 
     left: str = "head"
     """
-    Left ref or side name for ``refs`` startup mode.
+    Left ref or side name for `refs` startup mode.
     """
 
     right: str = "worktree"
     """
-    Right ref or side name for ``refs`` startup mode.
+    Right ref or side name for `refs` startup mode.
     """
 
     base_selection: BranchSelection | None = None
     """
-    Base branch selection for ``branch-review`` startup mode.
+    Base branch selection for `branch-review` startup mode.
 
     The CLI writes this structured value into the first browser URL; API
     handlers parse the same local/remote shape from query params afterward.
@@ -137,7 +137,7 @@ class RuntimeConfig:
 
     review_selection: BranchSelection | None = None
     """
-    Review branch selection for ``branch-review`` startup mode.
+    Review branch selection for `branch-review` startup mode.
 
     This is startup navigation state only.  Diff requests still carry their own
     explicit branch-review selections.
@@ -185,7 +185,7 @@ class DiffPayloadSummary(DiffSummary):
 class DiffPayload(TypedDict):
     """Text-file response payload assembled at the API boundary.
 
-    This is intentionally wider than ``DiffEngineResult``.  It carries the
+    This is intentionally wider than `DiffEngineResult`.  It carries the
     rendered engine core plus request/UI metadata: the file display name, the
     source mode selected by the API route, human-facing side labels, file-kind
     metadata, and the normalized paths used to load each side.  Engines should
@@ -401,8 +401,8 @@ class DiffRowResponse(ApiModel):
 
     TODO: part of fold micro-optimisation, investigate for removal.
 
-    ``fold`` is a client-expandable placeholder for hidden rows that are still
-    included in ``foldedRows``.  ``elided`` is a non-expandable placeholder for
+    `fold` is a client-expandable placeholder for hidden rows that are still
+    included in `foldedRows`.  `elided` is a non-expandable placeholder for
     rows omitted from a large plain render.  These synthetic row statuses should
     probably be removed from the core diff row shape.
     """
@@ -695,8 +695,8 @@ def build_repo_info_for_request(
 
     This is server request orchestration, not backend package logic: modes,
     branch-review controls, and preset query parameters belong to the REST API.
-    The returned ``RepoInfo`` is the operational state cached after
-    ``/api/manifest`` and reused by follow-up detail endpoints.
+    The returned `RepoInfo` is the operational state cached after
+    `/api/manifest` and reused by follow-up detail endpoints.
     """
     selected_base, selected_review = branch_selections
     if mode == "preset":
@@ -820,7 +820,7 @@ def service_for_engine(
 ) -> DiffEngineProtocol:
     """Return the renderer selected by the request.
 
-    The returned service does not own workspace state.  ``cwd`` is passed only
+    The returned service does not own workspace state.  `cwd` is passed only
     to GumTree so it can discover the executable relative to the active
     workspace.
     """
@@ -865,7 +865,7 @@ def create_app(
 
         Diff, fold, and GumTree presets live in separate catalogs because they
         exercise different product surfaces.  Keeping that split here means
-        ``/api/presets`` can expose all catalogs without asking any rendering
+        `/api/presets` can expose all catalogs without asking any rendering
         engine to know about fixture layout.
         """
         if preset_type == "diff":
@@ -905,9 +905,9 @@ def create_app(
     ) -> WorkspaceBackendProtocol:
         """Resolve the file/ref loader for a request.
 
-        Preset mode uses a ``PresetBackend`` rooted at the selected preset
+        Preset mode uses a `PresetBackend` rooted at the selected preset
         catalog.  Repo-backed modes look up the marked repository and create a
-        ``GitBackend``.  Engines stay out of this decision because they render
+        `GitBackend`.  Engines stay out of this decision because they render
         loaded text; they do not know where refs, presets, or repo paths come
         from.
 
@@ -1017,13 +1017,13 @@ def create_app(
 
         This is the boundary that keeps engines notebook-agnostic.  The server
         inspects paths, loads file text through the source, and asks
-        ``notebooks.py`` to build the ``render_kind: "notebook"`` payload.  If a
-        path looks like a notebook but parsing fails, ``None`` is returned so
+        `notebooks.py` to build the `render_kind: "notebook"` payload.  If a
+        path looks like a notebook but parsing fails, `None` is returned so
         the selected diff engine can render the file as plain text, matching the
         previous fallback behavior.
 
         The returned payload is shaped exactly like the existing
-        ``NotebookFileDiffResponse`` branch of ``/api/file-diff``.  The REST API
+        `NotebookFileDiffResponse` branch of `/api/file-diff`.  The REST API
         therefore does not change: the only difference is that the notebook
         decision is made before engine rendering instead of inside each service.
         """

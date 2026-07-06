@@ -1,12 +1,12 @@
 """Notebook payload construction for the dirdiff REST API.
 
 Notebook diffs are an API-level representation, not a diff-engine feature.
-The server loads the left and right ``.ipynb`` texts through a
-``WorkspaceBackendProtocol``, asks this module to parse and compare notebook structure,
-and returns a ``render_kind: "notebook"`` payload from the existing
-``/api/file-diff`` endpoint.
+The server loads the left and right `.ipynb` texts through a
+`WorkspaceBackendProtocol`, asks this module to parse and compare notebook structure,
+and returns a `render_kind: "notebook"` payload from the existing
+`/api/file-diff` endpoint.
 
-This module depends on display payload helpers from ``dirdiff.rendering`` to
+This module depends on display payload helpers from `dirdiff.rendering` to
 enrich rows after a renderer has produced text rows.  It uses the selected
 engine for cell source, but notebook metadata, cell metadata, and outputs stay
 on the native text renderer so structural engines do not report moves for JSON
@@ -43,10 +43,10 @@ __all__ = [
 def normalize_notebook_document(text: str) -> dict[str, Any] | None:
     """Parse the subset of a Jupyter notebook that dirdiff renders.
 
-    Invalid notebook JSON returns ``None`` so callers can choose whether to
+    Invalid notebook JSON returns `None` so callers can choose whether to
     fall back to a plain text diff or report a notebook-specific error.  Missing
     sides are a caller concern: if a file does not exist on one side, the caller
-    should pass ``None`` as the parsed notebook value for that side instead of
+    should pass `None` as the parsed notebook value for that side instead of
     asking this parser to accept absent text.
 
     Valid notebooks are normalized to the fields needed by the renderer: a list
@@ -519,18 +519,18 @@ def build_notebook_diff_payload(
     left_text: str | None,
     right_text: str | None,
 ) -> dict[str, Any] | None:
-    """Build the top-level ``render_kind: "notebook"`` file payload.
+    """Build the top-level `render_kind: "notebook"` file payload.
 
-    The returned dictionary is validated by ``NotebookFileDiffResponse`` in the
-    server and consumed by ``NotebookViews`` in the frontend.  Cell source rows
+    The returned dictionary is validated by `NotebookFileDiffResponse` in the
+    server and consumed by `NotebookViews` in the frontend.  Cell source rows
     are included eagerly because they are the primary notebook diff surface.
     Notebook-level metadata, cell metadata, and cell outputs are summarized here
-    but kept lazy when changed; the frontend asks ``/api/notebook-section`` for
+    but kept lazy when changed; the frontend asks `/api/notebook-section` for
     those rows only when the user expands the relevant section.
 
-    ``None`` means the supplied text should not be treated as a notebook.  The
+    `None` means the supplied text should not be treated as a notebook.  The
     server uses that signal to preserve the old behavior for malformed
-    ``.ipynb`` files by allowing the selected text engine to render them as
+    `.ipynb` files by allowing the selected text engine to render them as
     ordinary text.
 
     Pairing is done at the notebook-cell level before row rendering.  Stable
@@ -684,15 +684,15 @@ def build_notebook_section_payload(
 ) -> dict[str, Any]:
     """Build rows for a lazy notebook metadata or output section.
 
-    ``section`` selects one of the secondary notebook surfaces:
-    ``notebook-metadata`` for top-level notebook metadata, ``cell-metadata`` for
-    one cell's metadata, or ``cell-outputs`` for one code cell's outputs.
-    ``cell_key`` is required for cell-local sections and is the stable key
-    returned by ``build_notebook_diff_payload``.
+    `section` selects one of the secondary notebook surfaces:
+    `notebook-metadata` for top-level notebook metadata, `cell-metadata` for
+    one cell's metadata, or `cell-outputs` for one code cell's outputs.
+    `cell_key` is required for cell-local sections and is the stable key
+    returned by `build_notebook_diff_payload`.
 
     This function receives already-parsed notebook dictionaries.  It does not
     load files or resolve refs; that orchestration belongs to the server.  It
-    raises ``TextDiffError`` for unchanged or unknown sections so the REST
+    raises `TextDiffError` for unchanged or unknown sections so the REST
     endpoint can return the same error model used by ordinary file diffs.
 
     The section endpoint exists to keep the initial file payload reasonably

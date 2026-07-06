@@ -1,3 +1,11 @@
+"""CLI and local-app startup tests.
+
+These tests cover the command-layer contract around port selection, root-page
+fallback behavior, OpenAPI availability, and request validation for the local
+FastAPI app.  They use ephemeral stores and TestClient; they do not launch the
+Vite frontend or exercise browser workflows.
+"""
+
 from __future__ import annotations
 
 import socket
@@ -11,6 +19,8 @@ from dirdiff.cli.server_launch import choose_port_pair, require_bindable_port
 from dirdiff.db.base import open_ephemeral_engine
 from dirdiff.db.repo_registry import RepoMarkStore
 from dirdiff.server import TextFileDiffResponse, create_app
+
+__all__: list[str] = []
 
 
 def repo_mark_store() -> RepoMarkStore:

@@ -1,4 +1,16 @@
-"""Command-line entrypoint for launching and managing dirdiff."""
+"""Console command module for the local dirdiff application.
+
+The installed `dirdiff` console script and `python -m dirdiff` both call
+`main`, which hands execution to the Typer application defined here.  The
+decorated command functions (`start`, `mark`, `refs`, and `branch`) parse
+terminal options, build `RuntimeConfig` for server startup, and delegate repo
+mark operations to `dirdiff.cli.marker_utils`.
+
+This module is allowed to own command-line spelling and terminal feedback.  It
+must not own FastAPI routes, repository loading, diff rendering, or frontend
+behavior.  `main` is the only exported symbol; the decorated command functions
+are Typer wiring, not importable application API.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +26,8 @@ from dirdiff.server import RuntimeConfig
 from . import marker_utils, server_launch
 from .marker_utils import DEFAULT_DB_PATH
 
+__all__ = ["main"]
+
 cli_app = typer.Typer(
     no_args_is_help=False,
     add_completion=False,
@@ -25,7 +39,7 @@ cli_app = typer.Typer(
 def configure_logging() -> None:
     """Configure process logging before launching command work.
 
-    Normal CLI runs keep framework logs quiet.  ``DIRDIFF_DEBUG_PERF=1`` opts
+    Normal CLI runs keep framework logs quiet.  `DIRDIFF_DEBUG_PERF=1` opts
     into more verbose application logging without introducing another command
     line flag.
     """
@@ -78,7 +92,7 @@ def start(
     """Launch the default working-tree-vs-HEAD browser session.
 
     Typer invokes this callback before subcommands as well, so it stores shared
-    options on ``ctx.obj`` and only launches the app when no subcommand was
+    options on `ctx.obj` and only launches the app when no subcommand was
     selected.
     """
 
@@ -124,7 +138,7 @@ def refs(
     """Launch the browser with an arbitrary-ref comparison selected.
 
     This subcommand keeps the same local app startup behavior as the default
-    command, but seeds the frontend URL with ``refs`` mode and the two side
+    command, but seeds the frontend URL with `refs` mode and the two side
     names the user supplied.
     """
 
@@ -224,7 +238,7 @@ def mark(
 def main() -> None:
     """Run the Typer application used by the console entrypoint.
 
-    ``pyproject.toml`` points the ``dirdiff`` script at this function.  Keeping
+    `pyproject.toml` points the `dirdiff` script at this function.  Keeping
     the wrapper tiny makes the package importable without launching anything.
     """
 

@@ -1,3 +1,12 @@
+"""SQLAlchemy engine and table-base boundary for dirdiff persistence.
+
+Database modules define their tables against `TableBase` and callers obtain
+ready-to-use engines through this module.  It owns table bootstrapping for both
+persistent user databases and in-memory test databases.  It does not expose
+query helpers or application records; those live in the feature-specific store
+modules under `dirdiff.db`.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -5,6 +14,13 @@ from pathlib import Path
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import StaticPool
+
+__all__ = [
+    "TableBase",
+    "bootstrap_tables",
+    "open_ephemeral_engine",
+    "open_sqlite_engine",
+]
 
 
 class TableBase(DeclarativeBase):

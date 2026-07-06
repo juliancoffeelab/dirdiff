@@ -119,7 +119,7 @@ def _gumtree_summary(
 ) -> DiffSummary:
     """Return GumTree summary counts for already-built rows.
 
-    GumTree's primary signal is token status, especially ``move``.  After
+    GumTree's primary signal is token status, especially `move`.  After
     projection, row statuses describe the same changed spans the frontend uses
     for hunk navigation, so the summary counts those statuses directly.  Mixed
     token changes are summarized as modified rows, while pure move rows are
@@ -150,8 +150,8 @@ class GumTreeDiffEngine(DiffEngineProtocol):
     the JSON action stream, and projecting GumTree move/update/insert/delete
     actions into dirdiff rows and tokens.
 
-    GumTree behavior belongs in ``render_diff`` and the
-    ``engines.gumtree.logic`` projection layer.  Workspace state is only used
+    GumTree behavior belongs in `render_diff` and the
+    `engines.gumtree.logic` projection layer.  Workspace state is only used
     to choose a working directory for GumTree executable discovery.
     """
 
@@ -171,8 +171,8 @@ class GumTreeDiffEngine(DiffEngineProtocol):
 
         This is the only subprocess boundary in the service.  Executable
         discovery is resolved relative to the workspace, then
-        ``run_gumtree_json`` writes temporary files and parses GumTree's JSON
-        stream.  Callers handle ``GumTreeInvalidJsonError`` by producing an
+        `run_gumtree_json` writes temporary files and parses GumTree's JSON
+        stream.  Callers handle `GumTreeInvalidJsonError` by producing an
         engine warning and a unified fallback payload.
         """
         gumtree_bin = gumtree_executable_for_cwd(self.cwd)

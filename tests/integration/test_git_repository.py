@@ -1,3 +1,11 @@
+"""Integration checks for repository path and ref loading.
+
+These tests use real Git repositories to verify rename detection and explicit
+remote-ref comparisons through the backend/service boundary.  They should keep
+Git setup local to temporary directories and assert public diff-path contracts,
+not private command strings.
+"""
+
 import subprocess
 from pathlib import Path
 

@@ -1,3 +1,11 @@
+"""Behavior tests for GumTree-backed structural diff rendering.
+
+This module uses the checked-in GumTree presets to verify action matching,
+token mapping, and rendered payload shape.  It may call GumTree engine internals
+only where the public payload cannot expose the tree-action detail under test;
+ordinary UI payload behavior should go through the service adapter.
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast

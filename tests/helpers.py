@@ -1,3 +1,11 @@
+"""Shared test adapters around the production diff pipeline.
+
+Tests may use this module to assemble backend, engine, notebook, and rendering
+objects without reintroducing retired production service classes.  Helpers here
+must stay thin adapters over public dirdiff contracts, so behavior assertions
+remain in the calling tests and not hidden behind convenience fixtures.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Literal

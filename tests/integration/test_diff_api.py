@@ -1,3 +1,11 @@
+"""Integration coverage for FastAPI diff endpoints against real Git repos.
+
+These tests create temporary repositories, register them through the normal
+store layer, and exercise HTTP routes through `TestClient`.  They are allowed
+to use local Git subprocesses and disposable SQLite files, but they should not
+mock backend loading or bypass request/response contracts.
+"""
+
 import subprocess
 from pathlib import Path
 
