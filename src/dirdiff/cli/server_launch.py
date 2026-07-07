@@ -22,8 +22,7 @@ from urllib.parse import quote, urlencode
 
 from dirdiff.backend import BranchSelection
 from dirdiff.cli.marker_utils import DEFAULT_DB_PATH
-from dirdiff.db.base import open_sqlite_engine
-from dirdiff.db.repo_registry import RepoMarkStore
+from dirdiff.db import RepoMarkStore, open_sqlite_engine
 from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
 
 DEFAULT_PORT = 5052
@@ -328,6 +327,8 @@ def run_uvicorn(*, config: RuntimeConfig, port: int) -> None:
     state while preserving reload support.
     """
 
+    # Keep uvicorn out of normal CLI import cost; this path is only reached
+    # once the command is ready to hand control to the backend server process.
     import uvicorn  # noqa: PLC0415
 
     os.environ[RUNTIME_CONFIG_ENV] = json.dumps(asdict(config))

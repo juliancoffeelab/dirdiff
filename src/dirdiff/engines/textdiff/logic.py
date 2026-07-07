@@ -13,16 +13,19 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from difflib import SequenceMatcher
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, final, override
 
-from dirdiff.engines.contract import (
+from dirdiff.engines.base import (
+    DiffEngineProtocol,
     DiffEngineResult,
     DiffEngineRow,
+    DiffSide,
     DiffSummary,
     InlineToken,
 )
 
 __all__ = [
+    "TextDiffEngine",
     "render_native_text_diff",
     "row_has_any_change",
 ]
@@ -111,6 +114,29 @@ def render_native_text_diff(
         "summary": _native_text_summary(rows),
         "rows": _strict_engine_rows(rows),
     }
+
+
+@final
+class TextDiffEngine(DiffEngineProtocol):
+    """Native dirdiff renderer for already-loaded text sides."""
+
+    @override
+    def render_diff(
+        self,
+        *,
+        old: DiffSide,
+        new: DiffSide,
+    ) -> DiffEngineResult:
+        """Build a native dirdiff engine result from already-loaded sides.
+
+        Source loading and request metadata are handled before this engine is
+        called.  Display enrichment such as syntax highlighting and folding is
+        applied later by server-side payload assembly.
+        """
+        return render_native_text_diff(
+            left_text=old.text,
+            right_text=new.text,
+        )
 
 
 def _build_native_text_rows(

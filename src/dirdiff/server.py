@@ -27,10 +27,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from dirdiff.backend import (
     BranchSelection,
     BranchSource,
+    CacheBackendProtocol,
     GitBackend,
     LoadedDiffSides,
+    MemoryCacheBackend,
     PresetBackend,
     RepoDiffPath,
+    RepoInfo,
     TextDiffError,
     WorkspaceBackendProtocol,
     build_lazy_info_for_paths,
@@ -39,28 +42,24 @@ from dirdiff.backend import (
     file_kind_for_change_type,
     load_diff_sides,
 )
-from dirdiff.backend.cache import (
-    CacheBackendProtocol,
-    MemoryCacheBackend,
-    RepoInfo,
+from dirdiff.db import (
+    PreferencesStore,
+    RepoMainBranchRecord,
+    RepoMarkStore,
+    UserProfileStore,
+    open_sqlite_engine,
 )
-from dirdiff.db.base import open_sqlite_engine
-from dirdiff.db.preferences import PreferencesStore
-from dirdiff.db.repo_registry import RepoMainBranchRecord, RepoMarkStore
-from dirdiff.db.user_profile import UserProfileStore
 from dirdiff.engines import (
     DiffEngineProtocol,
-    DifftasticDiffEngine,
-    GitDiffEngine,
-    GumTreeDiffEngine,
-    TextDiffEngine,
-)
-from dirdiff.engines.contract import (
     DiffRow,
     DiffSide,
     DiffSummary,
+    DifftasticDiffEngine,
     EngineWarning,
     FoldHint,
+    GitDiffEngine,
+    GumTreeDiffEngine,
+    TextDiffEngine,
 )
 from dirdiff.notebooks import (
     build_notebook_diff_payload,

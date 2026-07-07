@@ -13,9 +13,11 @@ from typing import Any, Literal
 
 import pytest
 
-from dirdiff.engines.difftastic import DifftasticDiffEngine
-from dirdiff.engines.difftastic.logic import (
+from dirdiff.engines.difftastic import (
+    DifftasticDiffEngine,
     DifftasticRow,
+)
+from dirdiff.engines.difftastic.logic import (
     _difftastic_rows_from_json,
 )
 

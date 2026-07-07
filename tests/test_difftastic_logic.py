@@ -9,10 +9,12 @@ it does not test subprocess execution or final API payload assembly.
 import re
 from pathlib import Path
 
-from dirdiff.engines.difftastic import DifftasticDiffEngine
-from dirdiff.engines.difftastic.logic import (
+from dirdiff.engines.difftastic import (
+    DifftasticDiffEngine,
     DifftasticInlineToken,
     DifftasticRow,
+)
+from dirdiff.engines.difftastic.logic import (
     _difftastic_engine_warning,
     _difftastic_rows_from_json,
 )

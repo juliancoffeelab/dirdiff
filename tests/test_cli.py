@@ -4,6 +4,10 @@ These tests cover the command-layer contract around port selection, root-page
 fallback behavior, OpenAPI availability, and request validation for the local
 FastAPI app.  They use ephemeral stores and TestClient; they do not launch the
 Vite frontend or exercise browser workflows.
+
+Port-selection helpers are CLI implementation details, so these tests import
+them from the implementation module instead of making them public `dirdiff.cli`
+API.
 """
 
 from __future__ import annotations
@@ -16,8 +20,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from dirdiff.cli.server_launch import choose_port_pair, require_bindable_port
-from dirdiff.db.base import open_ephemeral_engine
-from dirdiff.db.repo_registry import RepoMarkStore
+from dirdiff.db import RepoMarkStore, open_ephemeral_engine
 from dirdiff.server import TextFileDiffResponse, create_app
 
 __all__: list[str] = []

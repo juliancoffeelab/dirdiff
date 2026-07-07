@@ -1,9 +1,17 @@
-"""Public backend-layer exports.
+"""Repository and preset access boundary for dirdiff.
 
-The backend package owns repository and preset access: normalizing sides,
-listing changed paths, loading file versions, and exposing ref metadata.  It
-does not render diffs, own HTTP request mode branching, or serialize API
-responses.  This module is only the public import surface for those primitives.
+Code outside `dirdiff.backend` imports backend contracts and concrete workspace
+backends from this package root.  The package owns branch/ref selection types,
+repository path discovery, manifest construction, file-side loading, text diff
+fallback helpers, preset loading, and the in-process repo-info cache used by the
+server between manifest and file-detail requests.
+
+Backend implementations may read Git repositories, preset directories, and the
+cache backend, but they must not render rich diff rows, choose HTTP request
+modes, build FastAPI responses, or know about frontend state.  Core backend
+side/path/text contracts live in `base.py`; cache-specific public contracts live
+in `cache.py`.  Sibling backend modules import shared internals from their
+owning implementation modules, while external callers use the exports here.
 """
 
 from dirdiff.backend.base import (
@@ -28,6 +36,11 @@ from dirdiff.backend.base import (
     load_diff_sides,
     unified_diff_lines,
 )
+from dirdiff.backend.cache import (
+    CacheBackendProtocol,
+    MemoryCacheBackend,
+    RepoInfo,
+)
 from dirdiff.backend.git import GitBackend, git_diff_args_with_direction
 from dirdiff.backend.manifest import (
     build_lazy_info_for_paths,
@@ -41,16 +54,19 @@ __all__ = [
     "BUILTIN_SIDES",
     "BranchSelection",
     "BranchSource",
+    "CacheBackendProtocol",
     "DefaultBaseSelection",
     "DefaultBaseSelectionError",
     "GitBackend",
     "LoadedDiffSides",
     "LocalBranchSelection",
+    "MemoryCacheBackend",
     "PresetBackend",
     "RefChoices",
     "RemoteBranchRef",
     "RemoteBranchSelection",
     "RepoDiffPath",
+    "RepoInfo",
     "SideName",
     "StructuredRemoteBranchRef",
     "TextDiffError",

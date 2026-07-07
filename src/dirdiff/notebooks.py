@@ -21,9 +21,12 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from dirdiff.backend import TextDiffError
-from dirdiff.engines import DiffEngineProtocol
-from dirdiff.engines.contract import DiffEngineRow, DiffSide
-from dirdiff.engines.textdiff import TextDiffEngine
+from dirdiff.engines import (
+    DiffEngineProtocol,
+    DiffEngineRow,
+    DiffSide,
+    TextDiffEngine,
+)
 from dirdiff.rendering import (
     canonical_json,
     default_expanded_for_payload,

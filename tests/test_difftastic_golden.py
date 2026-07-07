@@ -14,7 +14,9 @@ import pytest
 from helpers import GoldenJsonSnapshotExtension
 
 from dirdiff.engines.difftastic import DifftasticDiffEngine
-from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
+from dirdiff.engines.difftastic.logic import (
+    _difftastic_rows_from_json,
+)
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"

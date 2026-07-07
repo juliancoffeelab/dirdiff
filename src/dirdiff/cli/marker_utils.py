@@ -20,8 +20,7 @@ from typing import NoReturn
 
 from sqlalchemy.exc import IntegrityError
 
-from dirdiff.db.base import open_sqlite_engine
-from dirdiff.db.repo_registry import RepoMarkStore
+from dirdiff.db import RepoMarkStore, open_sqlite_engine
 
 DEFAULT_DB_PATH = (
     Path.home() / ".local" / "share" / "dirdiff" / "dirdiff.sqlite"

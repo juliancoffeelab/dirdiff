@@ -12,10 +12,22 @@
 # Important rules
 - Assert data inputs. Dont create optional parameters. If you need some field and it's null, throw the error.
 - Never edit test behavior, if expection changes, ask user and only after confirmation update the behaviour of the test.
-- Never create compatibility shims. Interface must be update on all sides, that includes tests.
-- Please dont use ORM mess.
+- Never create compatibility shims. Interface must be updated on all sides, that includes tests.
+- Please dont use ORM mess for database operations.
+- Second Normal Form (or better) is mandatory.
 
-# Linting & Quality
+# Module Architecture
+- Package `__init__.py` files are public facades and must contain re-exports
+only.
+- Code outside a package must import that package's public items from the
+package root, not from its submodules.
+- Package-internal shared contracts, types, helpers, and invariants belong in
+`base.py`. Sibling modules must import those shared internals from `base.py`,
+not from the package `__init__.py`.
+- Do not create new modules unless you envision them to be more than 1000 lines
+long.
+
+# Documentation & Structure
 - Every added file must have throughough module-level docstring.
 What is the interface of this file, why it exists, what this file should do and
 what it should not do.
@@ -27,7 +39,12 @@ comply with, not the internals.
 - Modules, classes should explain both. Private functions if reasonable, but
 public details are still non-negotiable.
 - Docstrings should explain public API, not the internals.
-- Every Python module must define `__all__` with its exported items.
+- If docstring has title only, it's not a docstring, it must comply with
+the rules above.
+- Every Python module must define `__all__` with its exported items, only
+if these items are exported **and used**.
+
+# Linting & Checks
 - Run `make format` afterwards
 - For user-visible frontend/rendering changes, verify in the browser against a local app session.
 - For ordinary frontend TypeScript verification, use `make tscheck`.

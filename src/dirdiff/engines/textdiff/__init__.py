@@ -1,43 +1,17 @@
 """Native dirdiff text engine.
 
-`TextDiffEngine` is the built-in renderer for ordinary text files.  Unlike
-the external engines, it has no subprocess integration: `logic.py` owns the
-native Python line alignment and inline tokenization, while this module owns
-the public engine class.
+This package is the built-in renderer for already-loaded ordinary text files
+when no external structural engine is needed.  Code outside the package imports
+`TextDiffEngine` from this package root.  The implementation in `logic.py` owns
+native Python line alignment, inline tokenization, and summary assembly.
+
+The text engine has no subprocess integration and no repository knowledge.  It
+must not load files, resolve refs, choose API modes, handle notebooks, or attach
+display-only syntax/fold enrichment.
 """
 
-from __future__ import annotations
+from dirdiff.engines.textdiff.logic import TextDiffEngine
 
-from typing import final, override
-
-from dirdiff.engines.contract import (
-    DiffEngineProtocol,
-    DiffEngineResult,
-    DiffSide,
-)
-from dirdiff.engines.textdiff.logic import render_native_text_diff
-
-__all__ = ["TextDiffEngine"]
-
-
-@final
-class TextDiffEngine(DiffEngineProtocol):
-    """Native dirdiff renderer for already-loaded text sides."""
-
-    @override
-    def render_diff(
-        self,
-        *,
-        old: DiffSide,
-        new: DiffSide,
-    ) -> DiffEngineResult:
-        """Build a native dirdiff engine result from already-loaded sides.
-
-        Source loading and request metadata are handled before this engine is
-        called.  Display enrichment such as syntax highlighting and folding is
-        applied later by server-side payload assembly.
-        """
-        return render_native_text_diff(
-            left_text=old.text,
-            right_text=new.text,
-        )
+__all__ = [
+    "TextDiffEngine",
+]

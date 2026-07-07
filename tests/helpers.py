@@ -24,8 +24,12 @@ from dirdiff.backend import (
     file_kind_for_change_type,
     load_diff_sides,
 )
-from dirdiff.engines import GitDiffEngine, TextDiffEngine
-from dirdiff.engines.contract import DiffEngineProtocol, DiffSide
+from dirdiff.engines import (
+    DiffEngineProtocol,
+    DiffSide,
+    GitDiffEngine,
+    TextDiffEngine,
+)
 from dirdiff.notebooks import (
     build_notebook_diff_payload,
     build_notebook_section_payload,

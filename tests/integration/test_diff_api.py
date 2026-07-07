@@ -11,9 +11,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from dirdiff.db.base import open_sqlite_engine
-from dirdiff.db.repo_registry import RepoMarkStore
-from dirdiff.db.user_profile import UserProfileStore
+from dirdiff.db import RepoMarkStore, UserProfileStore, open_sqlite_engine
 from dirdiff.server import create_app
 
 __all__: list[str] = []

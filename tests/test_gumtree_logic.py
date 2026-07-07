@@ -13,8 +13,10 @@ from typing import Any, cast
 from helpers import WorkspaceDiffServiceAdapter
 
 from dirdiff.backend import PresetBackend
-from dirdiff.engines.gumtree import GumTreeDiffEngine
-from dirdiff.engines.gumtree.gumtree import GumTreeJson
+from dirdiff.engines.gumtree import (
+    GumTreeDiffEngine,
+    GumTreeJson,
+)
 from dirdiff.engines.gumtree.logic import (
     _line_segments,
     _range_from_tree,

@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
-from dirdiff.engines.contract import FoldHint
+from dirdiff.engines import FoldHint
 
 __all__ = ["FoldHint", "fold_hints_for_path"]
 
