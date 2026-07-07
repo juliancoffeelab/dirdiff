@@ -8,7 +8,12 @@ remain in the calling tests and not hidden behind convenience fixtures.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+import json
+from pathlib import Path
+from typing import Any, ClassVar, Literal
+
+from syrupy.data import Snapshot, SnapshotCollection
+from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
 from dirdiff.backend import (
     BranchSelection,
@@ -33,11 +38,86 @@ from dirdiff.rendering import (
 
 __all__ = [
     "GitDiffService",
+    "GoldenJsonSnapshotExtension",
     "TextDiffService",
     "WorkspaceDiffServiceAdapter",
     "build_loaded_diff",
     "build_workspace_file_payload",
 ]
+
+
+class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
+    """Store preset golden snapshots as one JSON file per preset directory.
+
+    Test modules provide `preset_root` and `golden_root`; assertions pass a
+    preset-root-relative path as the snapshot name.  The extension maps that
+    key to `golden_root/<key>/<test-module>.json`, serializes JSON with stable
+    ordering, and reconstructs the same parametrized pytest snapshot name while
+    syrupy scans existing golden files for unused-snapshot reporting.
+    """
+
+    _write_mode = WriteMode.TEXT
+    file_extension = "json"
+    preset_root: ClassVar[Path]
+    golden_root: ClassVar[Path]
+    snapshot_function_name: ClassVar[str]
+
+    def serialize(
+        self,
+        data: Any,
+        *,
+        exclude: Any = None,
+        include: Any = None,
+        matcher: Any = None,
+    ) -> str:
+        return json.dumps(data, indent=2, sort_keys=True) + "\n"
+
+    def matches(
+        self,
+        *,
+        serialized_data: str,
+        snapshot_data: str,
+    ) -> bool:
+        serialized_json: object = json.loads(serialized_data)
+        snapshot_json: object = json.loads(snapshot_data)
+        return serialized_json == snapshot_json
+
+    @classmethod
+    def dirname(cls, *, test_location: Any) -> str:
+        return str(cls.golden_root)
+
+    @classmethod
+    def get_snapshot_name(
+        cls, *, test_location: Any, index: int | str = 0
+    ) -> str:
+        if isinstance(index, str):
+            preset_path = cls.preset_root / index
+            return f"{test_location.methodname}[{preset_path}]"
+        return super().get_snapshot_name(
+            test_location=test_location,
+            index=index,
+        )
+
+    @classmethod
+    def get_location(cls, *, test_location: Any, index: int | str) -> str:
+        if isinstance(index, str):
+            return str(
+                cls.golden_root
+                / index
+                / f"{test_location.basename}.{cls.file_extension}"
+            )
+        return super().get_location(test_location=test_location, index=index)
+
+    def read_snapshot_collection(
+        self, *, snapshot_location: str
+    ) -> SnapshotCollection:
+        snapshot_path = Path(snapshot_location)
+        preset_key = snapshot_path.parent.relative_to(self.golden_root)
+        preset_path = self.preset_root / preset_key
+        snapshot_name = f"{self.snapshot_function_name}[{preset_path}]"
+        snapshot_collection = SnapshotCollection(location=snapshot_location)
+        snapshot_collection.add(Snapshot(name=snapshot_name))
+        return snapshot_collection
 
 
 def build_loaded_diff(

@@ -53,7 +53,7 @@ resnapshot:
 		--snapshot-update \
 		--snapshot-warn-unused
 
-fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt
+fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt pytest
 
 fulltest: pytest cram
 
