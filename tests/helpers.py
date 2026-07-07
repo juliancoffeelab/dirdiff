@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, override
 
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
@@ -62,6 +62,7 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     golden_root: ClassVar[Path]
     snapshot_function_name: ClassVar[str]
 
+    @override
     def serialize(
         self,
         data: Any,
@@ -72,6 +73,7 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     ) -> str:
         return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
+    @override
     def matches(
         self,
         *,
@@ -83,10 +85,12 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
         return serialized_json == snapshot_json
 
     @classmethod
+    @override
     def dirname(cls, *, test_location: Any) -> str:
         return str(cls.golden_root)
 
     @classmethod
+    @override
     def get_snapshot_name(
         cls, *, test_location: Any, index: int | str = 0
     ) -> str:
@@ -99,6 +103,7 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
         )
 
     @classmethod
+    @override
     def get_location(cls, *, test_location: Any, index: int | str) -> str:
         if isinstance(index, str):
             return str(
@@ -108,6 +113,7 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
             )
         return super().get_location(test_location=test_location, index=index)
 
+    @override
     def read_snapshot_collection(
         self, *, snapshot_location: str
     ) -> SnapshotCollection:

@@ -14,7 +14,7 @@ Git to compare two temporary files containing that text.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Literal, cast, final
+from typing import Literal, cast, final, override
 
 from dirdiff.engines.contract import (
     DiffEngineProtocol,
@@ -64,6 +64,7 @@ def _strict_engine_rows(
 class GitDiffEngine(DiffEngineProtocol):
     """Renderer for already-loaded text using `git diff --no-index`."""
 
+    @override
     def render_diff(
         self,
         *,

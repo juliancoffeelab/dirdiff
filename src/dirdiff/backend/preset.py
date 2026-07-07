@@ -9,6 +9,7 @@ and file loading for those fixtures.
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
+from typing import override
 
 from dirdiff.backend.base import (
     BranchSelection,
@@ -38,11 +39,13 @@ class PresetBackend(WorkspaceBackendProtocol):
         self._cwd = selected_cwd.resolve()
 
     @property
+    @override
     def repo_root(self) -> Path | None:
         """Expose the preset catalog root as the backend root."""
         return self._repo_root
 
     @property
+    @override
     def cwd(self) -> Path:
         """Expose the caller working directory for renderers."""
         return self._cwd
@@ -153,6 +156,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             return new_path
         raise TextDiffError(f"Preset file is missing: {normalized_path}")
 
+    @override
     def normalize_side(self, raw_side: str) -> SideName:
         """Normalize preset side names where the left side is the group name."""
         side = raw_side.strip()
@@ -160,6 +164,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             return side
         return self._preset_group_name(side)
 
+    @override
     def discover_default_path(self) -> str:
         """Pick the first old.* fixture path for single-file startup mode."""
         preset_group = self.default_preset_name()
@@ -167,24 +172,29 @@ class PresetBackend(WorkspaceBackendProtocol):
         old_path, _ = self._preset_pair(preset_dir)
         return f"{preset_group}/{preset_dir.name}/{old_path.name}"
 
+    @override
     def current_branch_name(self) -> str:
         """Reject Git branch access for preset-backed fixtures."""
         raise TextDiffError(
             "Preset backend does not have a current Git branch."
         )
 
+    @override
     def list_branch_names(self) -> list[str]:
         """Reject local branch listing for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not have Git branches.")
 
+    @override
     def list_remote_ref_names(self) -> list[str]:
         """Reject remote ref listing for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not have Git remote refs.")
 
+    @override
     def list_remote_names(self) -> list[str]:
         """Reject remote listing for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not have Git remotes.")
 
+    @override
     def list_ref_choices(self) -> RefChoices:
         """Return an empty ref-choice shape for preset-backed fixtures."""
         return {
@@ -194,24 +204,28 @@ class PresetBackend(WorkspaceBackendProtocol):
             "remote_branches": [],
         }
 
+    @override
     def branch_upstream_name(self, branch_name: str) -> str:
         """Reject upstream lookup for preset-backed fixtures."""
         raise TextDiffError(
             "Preset backend does not have Git branch upstreams."
         )
 
+    @override
     def default_base_selection(self) -> DefaultBaseSelection:
         """Reject branch-review defaults for preset-backed fixtures."""
         raise TextDiffError(
             "Preset backend does not have a default base branch."
         )
 
+    @override
     def preferred_review_selection(
         self, *, base_selection: DefaultBaseSelection | None = None
     ) -> BranchSelection:
         """Reject branch-review review defaults for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not support branch review.")
 
+    @override
     def resolve_branch_diff_sides(
         self,
         *,
@@ -221,6 +235,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         """Reject branch-review resolution for preset-backed fixtures."""
         raise TextDiffError("Preset backend does not support branch review.")
 
+    @override
     def list_repo_diff_paths(
         self,
         *,
@@ -260,6 +275,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             )
         return entries
 
+    @override
     def normalize_repo_path(self, raw_path: str) -> str:
         """Validate the <group>/<fixture>/<file> path shape used by presets."""
         if not raw_path.strip():
@@ -284,6 +300,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             raise TextDiffError(f"Unknown preset path: {normalized}")
         return normalized
 
+    @override
     def load_version(self, path: str, side: SideName) -> TextVersion:
         """Load one old/new fixture file for a preset manifest path."""
         normalized_path = self.normalize_repo_path(path)

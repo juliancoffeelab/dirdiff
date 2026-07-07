@@ -8,7 +8,7 @@ the public engine class.
 
 from __future__ import annotations
 
-from typing import final
+from typing import final, override
 
 from dirdiff.engines.contract import (
     DiffEngineProtocol,
@@ -24,6 +24,7 @@ __all__ = ["TextDiffEngine"]
 class TextDiffEngine(DiffEngineProtocol):
     """Native dirdiff renderer for already-loaded text sides."""
 
+    @override
     def render_diff(
         self,
         *,

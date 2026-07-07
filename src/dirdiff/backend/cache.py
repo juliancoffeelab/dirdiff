@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
-from typing import Protocol
+from typing import Protocol, override
 from uuid import uuid4
 
 from dirdiff.backend.base import RepoDiffPath, SideName
@@ -60,7 +60,7 @@ class CacheBackendProtocol(Protocol):
         ...
 
 
-class MemoryCacheBackend:
+class MemoryCacheBackend(CacheBackendProtocol):
     """Thread-safe in-memory cache cleared naturally when the process exits."""
 
     def __init__(self) -> None:
@@ -74,6 +74,7 @@ class MemoryCacheBackend:
         self._repo_info_by_key: dict[tuple[int, str], RepoInfo] = {}
         self._latest_cache_id_by_repo: dict[int, str] = {}
 
+    @override
     def store_repo_info(self, *, repo_id: int, repo_info: RepoInfo) -> str:
         """Create the only live cache id for a repo.
 
@@ -90,6 +91,7 @@ class MemoryCacheBackend:
             self._repo_info_by_key[(repo_id, cache_id)] = repo_info
         return cache_id
 
+    @override
     def repo_info(
         self,
         *,

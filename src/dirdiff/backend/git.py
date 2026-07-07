@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path, PurePosixPath
-from typing import Literal, cast
+from typing import Literal, cast, override
 
 from dirdiff.backend.base import (
     BUILTIN_SIDES,
@@ -92,11 +92,13 @@ class GitBackend(WorkspaceBackendProtocol):
         self._cwd = selected_cwd.resolve()
 
     @property
+    @override
     def repo_root(self) -> Path | None:
         """Expose the repository root used for path normalization."""
         return self._repo_root
 
     @property
+    @override
     def cwd(self) -> Path:
         """Expose the command working directory for renderers."""
         return self._cwd
@@ -160,6 +162,7 @@ class GitBackend(WorkspaceBackendProtocol):
             text=True,
         )
 
+    @override
     def normalize_side(self, raw_side: str) -> SideName:
         """Normalize built-in diff sides while validating explicit Git refs."""
         side = raw_side.strip()
@@ -181,6 +184,7 @@ class GitBackend(WorkspaceBackendProtocol):
             raise TextDiffError(f"Unknown Git ref: {side}")
         return side
 
+    @override
     def discover_default_path(self) -> str:
         """Find a path suitable for single-file startup mode."""
         if self.repo_root is None:
@@ -220,6 +224,7 @@ class GitBackend(WorkspaceBackendProtocol):
 
         raise TextDiffError("No files found in the current Git repo.")
 
+    @override
     def current_branch_name(self) -> str:
         """Read the current branch name, returning empty string when detached."""
         if self.repo_root is None:
@@ -227,6 +232,7 @@ class GitBackend(WorkspaceBackendProtocol):
         result = self._run_git_text(["branch", "--show-current"], check=False)
         return result.stdout.strip()
 
+    @override
     def list_branch_names(self) -> list[str]:
         """List local branch names sorted for stable API responses."""
         if self.repo_root is None:
@@ -245,6 +251,7 @@ class GitBackend(WorkspaceBackendProtocol):
             }
         )
 
+    @override
     def list_remote_ref_names(self) -> list[str]:
         """List remote-tracking refs usable in freeform ref comparisons."""
         if self.repo_root is None:
@@ -263,6 +270,7 @@ class GitBackend(WorkspaceBackendProtocol):
             }
         )
 
+    @override
     def list_remote_names(self) -> list[str]:
         """List configured Git remote names."""
         if self.repo_root is None:
@@ -302,6 +310,7 @@ class GitBackend(WorkspaceBackendProtocol):
             }
         )
 
+    @override
     def list_ref_choices(self) -> RefChoices:
         """Return split ref choices for compare-ref and branch-review controls."""
         remote_branches: list[RemoteBranchRef] = []
@@ -323,6 +332,7 @@ class GitBackend(WorkspaceBackendProtocol):
             "remote_branches": remote_branches,
         }
 
+    @override
     def branch_upstream_name(self, branch_name: str) -> str:
         """Read the upstream ref configured for a local branch."""
         normalized_branch = branch_name.strip()
@@ -404,6 +414,7 @@ class GitBackend(WorkspaceBackendProtocol):
             return "master"
         return ""
 
+    @override
     def default_base_selection(self) -> DefaultBaseSelection:
         """Choose the initial branch-review base from local Git metadata."""
         if self.list_remote_names() != []:
@@ -424,6 +435,7 @@ class GitBackend(WorkspaceBackendProtocol):
             return {"kind": "error", "error": "heuristic_fail"}
         return {"source": "local", "branch": base_branch}
 
+    @override
     def preferred_review_selection(
         self, *, base_selection: DefaultBaseSelection | None = None
     ) -> BranchSelection:
@@ -454,6 +466,7 @@ class GitBackend(WorkspaceBackendProtocol):
             return selection["branch"]
         return f"{selection['remote']}/{selection['branch']}"
 
+    @override
     def resolve_branch_diff_sides(
         self,
         *,
@@ -616,6 +629,7 @@ class GitBackend(WorkspaceBackendProtocol):
             )
         return entries
 
+    @override
     def list_repo_diff_paths(
         self,
         *,
@@ -670,6 +684,7 @@ class GitBackend(WorkspaceBackendProtocol):
             key=lambda entry: (entry.display_name, entry.change_type),
         )
 
+    @override
     def normalize_repo_path(self, raw_path: str) -> str:
         """Normalize and validate a repo-relative path without escaping root."""
         if self.repo_root is None:
@@ -688,6 +703,7 @@ class GitBackend(WorkspaceBackendProtocol):
             raise TextDiffError("Repo path must stay inside the repo.")
         return normalized
 
+    @override
     def load_version(self, path: str, side: SideName) -> TextVersion:
         """Load one file version from worktree, index, or Git tree."""
         if self.repo_root is None:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Literal, cast, final
+from typing import Any, Literal, cast, final, override
 
 from dirdiff.backend import TextDiffError
 from dirdiff.engines.contract import (
@@ -184,6 +184,7 @@ class GumTreeDiffEngine(DiffEngineProtocol):
             right_path_hint=right_path_hint,
         )
 
+    @override
     def render_diff(
         self,
         *,

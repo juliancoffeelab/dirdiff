@@ -9,7 +9,7 @@ manifests, or handle notebooks.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, Literal, cast, final
+from typing import Any, Literal, cast, final, override
 
 from dirdiff.backend import unified_diff_lines
 from dirdiff.engines.contract import (
@@ -171,6 +171,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
             right_path_hint=right_path_hint,
         )
 
+    @override
     def render_diff(
         self,
         *,
