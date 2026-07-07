@@ -991,7 +991,7 @@ function engineWarningLabel(file: FileEntry): string {
   switch (warning.type) {
     case "difftastic_graph_limit":
     case "difftastic_empty_rows":
-      return "Difftastic failed: git fallback";
+      return "Difftastic failed: unified fallback";
     case "gumtree_invalid_json":
       return "GumTree failed: unified fallback";
     default:

@@ -144,7 +144,11 @@ class GitDiffEngine(DiffEngineProtocol):
                 left_path_hint=old.path_hint,
                 right_path_hint=new.path_hint,
             )
-            rows = git_diff_rows_from_patch(patch)
+            rows = git_diff_rows_from_patch(
+                patch=patch,
+                left_text=left_text_value,
+                right_text=right_text_value,
+            )
         elif old.exists:
             rows = plain_line_rows_for_side(
                 text=left_text_value,
