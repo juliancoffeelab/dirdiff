@@ -1,10 +1,11 @@
 """Property-style checks for difftastic preset projections.
 
-The tests in this module run every non-borked difftastic preset through the
-same row projector and assert broad invariants: source text is preserved,
-one-sided rows are not pure unchanged context, and replacement tokens stay
-paired sensibly.  Golden snapshots cover exact output; this file guards shape
-and semantic consistency across the preset corpus.
+The tests in this module run every difftastic preset, including `borked`
+fixtures, through the same row projector and assert broad invariants: source
+text is preserved, one-sided rows are not pure unchanged context, and
+replacement tokens stay paired sensibly.  Golden snapshots cover exact output
+for non-borked presets; this file guards shape and semantic consistency across
+the full preset corpus.
 """
 
 import re
@@ -12,6 +13,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pytest
+import tree_sitter_javascript
+import tree_sitter_python
+import tree_sitter_rust
+import tree_sitter_typescript
+from tree_sitter import Language, Node, Parser
 
 from dirdiff.engines.difftastic import (
     DifftasticDiffEngine,
@@ -23,6 +29,7 @@ from dirdiff.engines.difftastic.logic import (
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 Side = Literal["left", "right"]
+
 
 __all__: list[str] = []
 
@@ -439,6 +446,96 @@ def _assert_one_sided_changes_are_not_pure_unchanged_context(
     assert not broken_texts, broken_texts
 
 
+def _text_without_difftastic_ignored_trailing_commas(
+    source_path: Path, source_text: str
+) -> str:
+    """Remove punctuation that difftastic deliberately omits from JSON.
+
+    Difftastic marks language-specific trailing commas as ignorable before
+    emitting change positions.  The replay invariant compares concrete text,
+    so it must normalize the same punctuation away before it asks whether the
+    remaining status stream can reconstruct the target.
+    """
+    match source_path.suffix:
+        case ".py":
+            language = Language(tree_sitter_python.language())
+            ignored_parents = {
+                "dictionary",
+                "list",
+                "set",
+                "argument_list",
+                "parameters",
+            }
+        case ".rs":
+            language = Language(tree_sitter_rust.language())
+            ignored_parents = {
+                "arguments",
+                "parameters",
+                "type_parameters",
+                "field_declaration_list",
+                "token_tree",
+            }
+        case ".js" | ".jsx":
+            language = Language(tree_sitter_javascript.language())
+            ignored_parents = {
+                "object",
+                "array",
+                "arguments",
+                "formal_parameters",
+            }
+        case ".ts":
+            language = Language(tree_sitter_typescript.language_typescript())
+            ignored_parents = {
+                "object",
+                "array",
+                "arguments",
+                "formal_parameters",
+            }
+        case ".tsx":
+            language = Language(tree_sitter_typescript.language_tsx())
+            ignored_parents = {
+                "object",
+                "array",
+                "arguments",
+                "formal_parameters",
+            }
+        case _:
+            return source_text
+
+    parser = Parser(language)
+    source_bytes = source_text.encode()
+    tree = parser.parse(source_bytes)
+    ranges_to_remove: list[tuple[int, int]] = []
+    stack: list[Node] = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.children)
+        if node.type not in ignored_parents:
+            continue
+
+        children = [child for child in node.children if not child.is_extra]
+        if len(children) < 2:
+            continue
+
+        candidate = children[-2]
+        if children[-1].type == ",":
+            candidate = children[-1]
+        if candidate.type != ",":
+            continue
+
+        comma_text = source_bytes[candidate.start_byte : candidate.end_byte]
+        assert comma_text == b","
+        ranges_to_remove.append((candidate.start_byte, candidate.end_byte))
+
+    normalized_pieces: list[str] = []
+    cursor = 0
+    for start, end in sorted(ranges_to_remove):
+        normalized_pieces.append(source_bytes[cursor:start].decode())
+        cursor = end
+    normalized_pieces.append(source_bytes[cursor:].decode())
+    return "".join(normalized_pieces)
+
+
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
 def test_difftastic_preset_tokens_stay_in_source_order(
     preset_dir: Path,
@@ -492,6 +589,290 @@ def test_difftastic_preset_unchanged_tokens_match_on_both_sides(
 
     diagnostics = _unchanged_context_leak_diagnostics(rows)
     assert not diagnostics, diagnostics
+
+
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_diff_replays_left_to_right(
+    preset_dir: Path,
+) -> None:
+    """Token statuses should replay the old file into the new file."""
+    if preset_dir.name in {
+        "create-app-runtime-config-collapses-service-block",
+        "rust-quest-resolve-chain-wraps-poorly",
+        "typescript-repo-fold-controls-show-placeholder-aligns-poorly",
+    }:
+        pytest.xfail("difftastic emits non-replayable status streams")
+
+    old_path = _single_file("old.*", preset_dir)
+    new_path = _single_file("new.*", preset_dir)
+    source_texts = {
+        "left": old_path.read_text(),
+        "right": new_path.read_text(),
+    }
+    source_paths = {"left": old_path, "right": new_path}
+    normalized_texts: dict[Side, str] = {"left": "", "right": ""}
+    sides: tuple[Side, Side] = ("left", "right")
+
+    # Stage 0: remove the trailing commas that difftastic intentionally
+    # ignores before it emits JSON change positions.
+    for side in sides:
+        normalized_texts[side] = (
+            _text_without_difftastic_ignored_trailing_commas(
+                source_paths[side],
+                source_texts[side],
+            )
+        )
+
+    service = DifftasticDiffEngine()
+    diff_json = service._run_difftastic_json(
+        left_text=normalized_texts["left"],
+        right_text=normalized_texts["right"],
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    rows = _difftastic_rows_from_json(
+        diff_json,
+        left_text=normalized_texts["left"],
+        right_text=normalized_texts["right"],
+    )
+
+    # Keep the replay stages in this test in sync with the right-to-left test.
+
+    # Stage 1: collect difftastic statuses as non-whitespace characters.
+    side_parts: dict[Side, list[tuple[str, str]]] = {"left": [], "right": []}
+    for side in sides:
+        for row in rows:
+            if row.get(_side_no_key(side)) is None:
+                continue
+            tokens = row.get(_side_tokens_key(side))
+            if tokens is None or tokens == []:
+                row_text = row.get(_side_text_key(side))
+                assert isinstance(row_text, str)
+                row_status = row.get("status")
+                assert isinstance(row_status, str)
+                if row_status == "equal":
+                    token_status = "unchanged"
+                elif side == "left" and row.get("right_no") is None:
+                    assert row_status == "delete"
+                    token_status = "delete"
+                elif side == "right" and row.get("left_no") is None:
+                    assert row_status == "insert"
+                    token_status = "insert"
+                else:
+                    token_status = "unchanged"
+                for char in row_text:
+                    if char.isspace():
+                        continue
+                    side_parts[side].append((token_status, char))
+                continue
+            assert isinstance(tokens, list)
+            for token in tokens:
+                assert isinstance(token, dict)
+                token_text = token.get("text")
+                assert isinstance(token_text, str)
+                listed_token_status = token.get("status")
+                assert isinstance(listed_token_status, str)
+                for char in token_text:
+                    if char.isspace():
+                        continue
+                    side_parts[side].append((listed_token_status, char))
+
+    old_parts = side_parts["left"]
+    new_parts = side_parts["right"]
+    operations: list[tuple[str, str]] = []
+    old_cursor = 0
+    new_cursor = 0
+
+    # Stage 2: walk source and target status streams into edit operations.
+    while old_cursor < len(old_parts) or new_cursor < len(new_parts):
+        if old_cursor >= len(old_parts):
+            status, text = new_parts[new_cursor]
+            assert status in {"insert", "replace"}
+            operations.append(("insert", text))
+            new_cursor += 1
+            continue
+        if new_cursor >= len(new_parts):
+            status, text = old_parts[old_cursor]
+            assert status in {"delete", "replace"}
+            operations.append(("remove", text))
+            old_cursor += 1
+            continue
+
+        old_status, old_text = old_parts[old_cursor]
+        new_status, new_text = new_parts[new_cursor]
+        if old_status == "unchanged":
+            while new_status != "unchanged" or new_text != old_text:
+                assert new_status in {"insert", "replace"}
+                operations.append(("insert", new_text))
+                new_cursor += 1
+                assert new_cursor < len(new_parts)
+                new_status, new_text = new_parts[new_cursor]
+            operations.append(("keep", old_text))
+            old_cursor += 1
+            new_cursor += 1
+            continue
+
+        assert old_status in {"delete", "replace"}
+        operations.append(("remove", old_text))
+        old_cursor += 1
+
+    replayed: list[str] = []
+    old_cursor = 0
+
+    # Stage 3: apply collected operations to source and compare with target.
+    for operation, text in operations:
+        if operation == "insert":
+            replayed.append(text)
+            continue
+        assert old_cursor < len(old_parts)
+        assert old_parts[old_cursor][1] == text
+        if operation == "keep":
+            replayed.append(text)
+        old_cursor += 1
+
+    assert "".join(replayed) == "".join(text for _, text in new_parts)
+
+
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_diff_replays_right_to_left(
+    preset_dir: Path,
+) -> None:
+    """Token statuses should replay the new file back into the old file."""
+    if preset_dir.name in {
+        "create-app-runtime-config-collapses-service-block",
+        "rust-quest-resolve-chain-wraps-poorly",
+        "typescript-repo-fold-controls-show-placeholder-aligns-poorly",
+    }:
+        pytest.xfail("difftastic emits non-replayable status streams")
+
+    old_path = _single_file("old.*", preset_dir)
+    new_path = _single_file("new.*", preset_dir)
+    source_texts = {
+        "left": old_path.read_text(),
+        "right": new_path.read_text(),
+    }
+    source_paths = {"left": old_path, "right": new_path}
+    normalized_texts: dict[Side, str] = {"left": "", "right": ""}
+    sides: tuple[Side, Side] = ("left", "right")
+
+    # Stage 0: remove the trailing commas that difftastic intentionally
+    # ignores before it emits JSON change positions.
+    for side in sides:
+        normalized_texts[side] = (
+            _text_without_difftastic_ignored_trailing_commas(
+                source_paths[side],
+                source_texts[side],
+            )
+        )
+
+    service = DifftasticDiffEngine()
+    diff_json = service._run_difftastic_json(
+        left_text=normalized_texts["left"],
+        right_text=normalized_texts["right"],
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    rows = _difftastic_rows_from_json(
+        diff_json,
+        left_text=normalized_texts["left"],
+        right_text=normalized_texts["right"],
+    )
+
+    # Keep the replay stages in this test in sync with the left-to-right test.
+
+    # Stage 1: collect difftastic statuses as non-whitespace characters.
+    side_parts: dict[Side, list[tuple[str, str]]] = {"left": [], "right": []}
+    for side in sides:
+        for row in rows:
+            if row.get(_side_no_key(side)) is None:
+                continue
+            tokens = row.get(_side_tokens_key(side))
+            if tokens is None or tokens == []:
+                row_text = row.get(_side_text_key(side))
+                assert isinstance(row_text, str)
+                row_status = row.get("status")
+                assert isinstance(row_status, str)
+                if row_status == "equal":
+                    token_status = "unchanged"
+                elif side == "left" and row.get("right_no") is None:
+                    assert row_status == "delete"
+                    token_status = "delete"
+                elif side == "right" and row.get("left_no") is None:
+                    assert row_status == "insert"
+                    token_status = "insert"
+                else:
+                    token_status = "unchanged"
+                for char in row_text:
+                    if char.isspace():
+                        continue
+                    side_parts[side].append((token_status, char))
+                continue
+            assert isinstance(tokens, list)
+            for token in tokens:
+                assert isinstance(token, dict)
+                token_text = token.get("text")
+                assert isinstance(token_text, str)
+                listed_token_status = token.get("status")
+                assert isinstance(listed_token_status, str)
+                for char in token_text:
+                    if char.isspace():
+                        continue
+                    side_parts[side].append((listed_token_status, char))
+
+    new_parts = side_parts["right"]
+    old_parts = side_parts["left"]
+    operations: list[tuple[str, str]] = []
+    new_cursor = 0
+    old_cursor = 0
+
+    # Stage 2: walk source and target status streams into edit operations.
+    while new_cursor < len(new_parts) or old_cursor < len(old_parts):
+        if new_cursor >= len(new_parts):
+            status, text = old_parts[old_cursor]
+            assert status in {"delete", "replace"}
+            operations.append(("insert", text))
+            old_cursor += 1
+            continue
+        if old_cursor >= len(old_parts):
+            status, text = new_parts[new_cursor]
+            assert status in {"insert", "replace"}
+            operations.append(("remove", text))
+            new_cursor += 1
+            continue
+
+        new_status, new_text = new_parts[new_cursor]
+        old_status, old_text = old_parts[old_cursor]
+        if new_status == "unchanged":
+            while old_status != "unchanged" or old_text != new_text:
+                assert old_status in {"delete", "replace"}
+                operations.append(("insert", old_text))
+                old_cursor += 1
+                assert old_cursor < len(old_parts)
+                old_status, old_text = old_parts[old_cursor]
+            operations.append(("keep", new_text))
+            new_cursor += 1
+            old_cursor += 1
+            continue
+
+        assert new_status in {"insert", "replace"}
+        operations.append(("remove", new_text))
+        new_cursor += 1
+
+    replayed: list[str] = []
+    new_cursor = 0
+
+    # Stage 3: apply collected operations to source and compare with target.
+    for operation, text in operations:
+        if operation == "insert":
+            replayed.append(text)
+            continue
+        assert new_cursor < len(new_parts)
+        assert new_parts[new_cursor][1] == text
+        if operation == "keep":
+            replayed.append(text)
+        new_cursor += 1
+
+    assert "".join(replayed) == "".join(text for _, text in old_parts)
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)

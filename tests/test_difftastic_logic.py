@@ -2420,7 +2420,7 @@ def test_difftastic_rows_keep_moved_show_wrapper_lines_as_replacements() -> (
 
 def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
     rows = _preset_rows(
-        "typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly"
+        "borked/typescript-repo-fold-controls-show-placeholder-aligns-poorly"
     )
 
     condition_atoms = {"when", "ui", "displayFiles", "length", "0"}
@@ -2964,7 +2964,7 @@ def test_difftastic_rows_pair_one_sided_lhs_token_delete_with_matching_rhs_line(
 
 def test_difftastic_rows_mark_runtime_config_service_tail_as_deleted() -> None:
     rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block"
+        "borked/create-app-runtime-config-collapses-service-block"
     )
 
     deleted_tail = [
@@ -3004,7 +3004,7 @@ def test_difftastic_rows_keep_shared_path_residue_unchanged_in_deleted_block() -
     None
 ):
     rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block"
+        "borked/create-app-runtime-config-collapses-service-block"
     )
 
     deleted_header_row = next(
