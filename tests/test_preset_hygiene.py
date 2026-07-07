@@ -38,14 +38,14 @@ def _preset_dirs() -> list[Path]:
         path
         for path in PRESETS_ROOT.glob("*/*/*")
         if path.is_dir()
-        and list(path.glob("old.*"))
-        and list(path.glob("new.*"))
+        and list(path.glob("old.*")) != []
+        and list(path.glob("new.*")) != []
     )
 
 
 def test_presets_have_old_and_new_files() -> None:
     preset_dirs = _preset_dirs()
-    assert preset_dirs
+    assert preset_dirs != []
     for preset_dir in preset_dirs:
         old_files = sorted(preset_dir.glob("old.*"))
         new_files = sorted(preset_dir.glob("new.*"))
@@ -57,7 +57,7 @@ def test_presets_have_old_and_new_files() -> None:
 
 def test_presets_have_standard_makefiles() -> None:
     preset_dirs = _preset_dirs()
-    assert preset_dirs
+    assert preset_dirs != []
     for preset_dir in preset_dirs:
         makefile = preset_dir / "Makefile"
 

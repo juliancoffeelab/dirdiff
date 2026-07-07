@@ -30,7 +30,7 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
     assert diff["summary"]["changed_lines"] == 1
     assert diff["summary"]["modified_lines"] == 1
     assert diff["rows"][0]["status"] == "equal"
-    assert diff["rows"][0]["left_tokens"]
+    assert diff["rows"][0]["left_tokens"] != []
 
 
 def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
@@ -194,7 +194,7 @@ def test_large_tree_sitter_diff_keeps_rich_render_mode() -> None:
         for row in diff["rows"]
         if row.get("left_text") != row.get("right_text")
     ]
-    assert changed_rows
+    assert changed_rows != []
     assert "right_syntax" in changed_rows[0] or "left_syntax" in changed_rows[0]
 
 

@@ -100,10 +100,10 @@ def _pure_unchanged_one_sided_change_texts(
         meaningful_tokens: list[DifftasticInlineToken] = []
         for token in tokens:
             text = token.get("text")
-            if _semantic_token_atoms(text):
+            if _semantic_token_atoms(text) != []:
                 meaningful_tokens.append(token)
 
-        if not meaningful_tokens:
+        if meaningful_tokens == []:
             continue
 
         if all(

@@ -192,7 +192,11 @@ def _row_marked_unchanged_runs(
 def _row_is_changed_group_member(row: DifftasticRow) -> bool:
     if row.get("status") != "equal":
         return True
-    if row.get("left_tokens") or row.get("right_tokens"):
+    left_tokens = row.get("left_tokens")
+    right_tokens = row.get("right_tokens")
+    if left_tokens != [] and left_tokens is not None:
+        return True
+    if right_tokens != [] and right_tokens is not None:
         return True
     return row.get("left_no") is None or row.get("right_no") is None
 
@@ -206,10 +210,10 @@ def _changed_row_groups(
         if _row_is_changed_group_member(row):
             current.append((index, row))
             continue
-        if current:
+        if current != []:
             groups.append(current)
             current = []
-    if current:
+    if current != []:
         groups.append(current)
     return groups
 
@@ -348,7 +352,7 @@ def _unpaired_replace_token_diagnostics(
     for row_index, row in enumerate(rows):
         left_atoms = _row_marked_replace_atoms(row, "left")
         right_atoms = _row_marked_replace_atoms(row, "right")
-        if left_atoms and not right_atoms:
+        if left_atoms != [] and right_atoms == []:
             diagnostics.append(
                 _unpaired_replace_token_diagnostic(
                     row_index=row_index,
@@ -358,7 +362,7 @@ def _unpaired_replace_token_diagnostics(
                     atoms=left_atoms,
                 )
             )
-        if right_atoms and not left_atoms:
+        if right_atoms != [] and left_atoms == []:
             diagnostics.append(
                 _unpaired_replace_token_diagnostic(
                     row_index=row_index,

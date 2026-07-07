@@ -393,7 +393,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     repo_payload = repo_response.json()
     cache_id = repo_payload["cache_id"]
     assert isinstance(cache_id, str)
-    assert cache_id
+    assert cache_id != ""
     assert "files" not in repo_payload
     assert repo_payload["tree"] == [
         {
@@ -444,7 +444,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     assert payload["display_name"] == "Cargo.lock"
     assert payload.get("lazy") is None
     assert payload["file_kind"] == {"type": "git", "status": "modified"}
-    assert payload["rows"]
+    assert payload["rows"] != []
 
     reloaded_manifest_response = client.get(
         "/api/manifest",
