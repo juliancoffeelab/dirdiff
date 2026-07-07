@@ -507,7 +507,7 @@ def _text_without_difftastic_ignored_trailing_commas(
     tree = parser.parse(source_bytes)
     ranges_to_remove: list[tuple[int, int]] = []
     stack: list[Node] = [tree.root_node]
-    while stack:
+    while len(stack) != 0:
         node = stack.pop()
         stack.extend(node.children)
         if node.type not in ignored_parents:

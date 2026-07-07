@@ -1,0 +1,22 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt",
+    "left_tokens": [],
+    "right_no": 1,
+    "right_text": "fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt pytest",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "pytest"
+      }
+    ],
+    "status": "replace"
+  }
+]

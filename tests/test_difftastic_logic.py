@@ -9,6 +9,7 @@ it does not test subprocess execution or final API payload assembly.
 import re
 from pathlib import Path
 
+from dirdiff.engines import DiffSide
 from dirdiff.engines.difftastic import (
     DifftasticDiffEngine,
     DifftasticInlineToken,
@@ -18,6 +19,7 @@ from dirdiff.engines.difftastic.logic import (
     _difftastic_engine_warning,
     _difftastic_rows_from_json,
 )
+from dirdiff.rendering import enrich_rows_for_display
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 
@@ -154,6 +156,112 @@ def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
         "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
     }
     assert _difftastic_engine_warning({"language": "TypeScript"}) is None
+
+
+def test_difftastic_summary_counts_makefile_target_suffix_insert() -> None:
+    preset_dir = (
+        PRESETS_ROOT
+        / "makefile"
+        / "makefile-target-dependency-suffix-not-counted"
+    )
+    old_path = next(preset_dir.glob("old.*"))
+    new_path = next(preset_dir.glob("new.*"))
+
+    payload = DifftasticDiffEngine().render_diff(
+        old=DiffSide(
+            exists=True,
+            text=old_path.read_text(),
+            path_hint=old_path.name,
+        ),
+        new=DiffSide(
+            exists=True,
+            text=new_path.read_text(),
+            path_hint=new_path.name,
+        ),
+    )
+
+    assert payload["summary"] == {
+        "changed_lines": 1,
+        "modified_lines": 1,
+        "added_lines": 0,
+        "removed_lines": 0,
+        "moved_lines": 0,
+    }
+
+
+def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
+    preset_dir = (
+        PRESETS_ROOT
+        / "makefile"
+        / "makefile-target-dependency-suffix-not-counted"
+    )
+    old_path = next(preset_dir.glob("old.*"))
+    new_path = next(preset_dir.glob("new.*"))
+    old_text = old_path.read_text()
+    new_text = new_path.read_text()
+    rendered = DifftasticDiffEngine().render_diff(
+        old=DiffSide(
+            exists=True,
+            text=old_text,
+            path_hint=old_path.name,
+        ),
+        new=DiffSide(
+            exists=True,
+            text=new_text,
+            path_hint=new_path.name,
+        ),
+    )
+
+    display = enrich_rows_for_display(
+        rows=[dict(row) for row in rendered["rows"]],
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+
+    assert display["render_mode"] == "plain"
+    assert display["rows"][0]["right_tokens"] == [
+        {
+            "text": "fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt ",
+            "status": "unchanged",
+            "is_ws": False,
+        },
+        {"text": "pytest", "status": "insert", "is_ws": False},
+    ]
+
+
+def test_difftastic_summary_counts_makefile_wrapped_command_suffix_inserts() -> (
+    None
+):
+    preset_dir = (
+        PRESETS_ROOT
+        / "makefile"
+        / "makefile-wrapped-target-dependency-suffix-not-counted"
+    )
+    old_path = next(preset_dir.glob("old.*"))
+    new_path = next(preset_dir.glob("new.*"))
+
+    payload = DifftasticDiffEngine().render_diff(
+        old=DiffSide(
+            exists=True,
+            text=old_path.read_text(),
+            path_hint=old_path.name,
+        ),
+        new=DiffSide(
+            exists=True,
+            text=new_path.read_text(),
+            path_hint=new_path.name,
+        ),
+    )
+
+    assert payload["summary"] == {
+        "changed_lines": 2,
+        "modified_lines": 2,
+        "added_lines": 0,
+        "removed_lines": 0,
+        "moved_lines": 0,
+    }
 
 
 def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sided_change() -> (

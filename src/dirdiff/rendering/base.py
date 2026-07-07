@@ -192,17 +192,15 @@ def _payload_size_bytes(payload: dict[str, Any]) -> int:
     return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
 
-def _strip_rich_row_markup(rows: list[dict[str, Any]]) -> None:
-    """Remove token and syntax decorations from rows in-place.
+def _strip_syntax_markup(rows: list[dict[str, Any]]) -> None:
+    """Remove syntax decorations from rows in-place.
 
-    Large or plain fallback renders sometimes need to preserve row alignment
-    while dropping expensive frontend detail.  Keeping this helper in the
-    neutral rendering module makes that degradation available to engines and
-    notebook rendering without coupling either side to the native text service.
+    Plain fallback means there is no syntax highlighter or fold query for this
+    file type.  It must not discard diff tokens: those are engine output, and
+    the frontend needs them to render inline changes for unsupported languages
+    such as Makefiles.
     """
     for row in rows:
-        row.pop("left_tokens", None)
-        row.pop("right_tokens", None)
         row.pop("left_syntax", None)
         row.pop("right_syntax", None)
 
@@ -550,7 +548,7 @@ def enrich_rows_for_display(
     fold_hints: list[FoldHint] = []
 
     if plain_render:
-        _strip_rich_row_markup(rows)
+        _strip_syntax_markup(rows)
     else:
         fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
         for row in rows:

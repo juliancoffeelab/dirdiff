@@ -3136,13 +3136,16 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 side="right",
             )
 
+        modified_lines = sum(1 for row in rows if row["status"] == "replace")
         added_lines = sum(1 for row in rows if row["status"] == "insert")
         removed_lines = sum(1 for row in rows if row["status"] == "delete")
         moved_lines = sum(1 for row in rows if row["status"] == "move")
         payload: DiffEngineResult = {
             "summary": {
-                "changed_lines": added_lines + removed_lines + moved_lines,
-                "modified_lines": 0,
+                "changed_lines": (
+                    modified_lines + added_lines + removed_lines + moved_lines
+                ),
+                "modified_lines": modified_lines,
                 "added_lines": added_lines,
                 "removed_lines": removed_lines,
                 "moved_lines": moved_lines,
