@@ -22,6 +22,9 @@ basedpyright:
 flake-sbt:
 	uv --no-cache run flake8 --jobs 1 --select SBT001 src tests
 
+flake-cst:
+	uv --no-cache run flake8 --jobs 1 --select CST001 src tests lints
+
 flake-human:
 	uv --no-cache run flake8 --jobs 1 --select SBT002 src tests
 
@@ -53,7 +56,7 @@ resnapshot:
 		--snapshot-update \
 		--snapshot-warn-unused
 
-fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt pytest
+fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt flake-cst pytest
 
 fulltest: pytest cram
 

@@ -13,8 +13,9 @@ HTTP.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Literal, NotRequired, Protocol, TypedDict
+from typing import Literal, NotRequired, Protocol, TypedDict, TypeIs
 
 __all__ = [
     "DiffEngineProtocol",
@@ -27,6 +28,23 @@ __all__ = [
     "FoldHint",
     "InlineToken",
     "SyntaxSpan",
+    "strict_engine_rows",
+]
+
+type InlineTokenStatus = Literal[
+    "unchanged",
+    "replace",
+    "insert",
+    "delete",
+    "move",
+]
+
+type DiffEngineRowStatus = Literal[
+    "equal",
+    "replace",
+    "insert",
+    "delete",
+    "move",
 ]
 
 
@@ -138,7 +156,7 @@ class InlineToken(TypedDict):
     Whether this token is whitespace.
     """
 
-    status: Literal["unchanged", "replace", "insert", "delete", "move"]
+    status: InlineTokenStatus
     """
     Token-level diff status.
 
@@ -189,7 +207,7 @@ class DiffEngineRow(TypedDict):
     rendering by the API/display layer.
     """
 
-    status: Literal["equal", "replace", "insert", "delete", "move"]
+    status: DiffEngineRowStatus
     """
     Line-level row status produced by the engine.
 
@@ -399,3 +417,108 @@ class DiffEngineProtocol(Protocol):
         selected.
         """
         ...
+
+
+def strict_engine_rows(
+    rows: Iterable[object],
+) -> list[DiffEngineRow]:
+    """Materialize public engine rows from renderer-local row mappings.
+
+    Native renderers build rows incrementally as dictionaries because their
+    projection logic is easier to express with ordinary mapping operations.
+    Difftastic's internal row AST also treats absent token lists as “no inline
+    token decorations.” This function is the single adapter into the public
+    `DiffEngineRow` contract: required line fields and present token fields are
+    validated, and absent token fields become empty token lists in the public
+    engine payload.
+    """
+
+    materialized: list[DiffEngineRow] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise TypeError("Engine row must be a mapping.")
+
+        required_keys = {
+            "status",
+            "left_no",
+            "right_no",
+            "left_text",
+            "right_text",
+        }
+        missing_keys = required_keys - row.keys()
+        if missing_keys != set():
+            missing_text = ", ".join(sorted(missing_keys))
+            raise TypeError(f"Engine row is missing fields: {missing_text}.")
+
+        status = row["status"]
+        if not _is_diff_engine_row_status(status):
+            raise TypeError(f"Invalid engine row status: {status!r}")
+
+        left_no = row["left_no"]
+        if not _is_optional_int(left_no):
+            raise TypeError("Engine row left_no must be int or None.")
+        right_no = row["right_no"]
+        if not _is_optional_int(right_no):
+            raise TypeError("Engine row right_no must be int or None.")
+
+        left_text = row["left_text"]
+        if not _is_optional_str(left_text):
+            raise TypeError("Engine row left_text must be str or None.")
+        right_text = row["right_text"]
+        if not _is_optional_str(right_text):
+            raise TypeError("Engine row right_text must be str or None.")
+
+        left_tokens = row.get("left_tokens", [])
+        if not _is_inline_token_list(left_tokens):
+            raise TypeError("Engine row left_tokens must be inline tokens.")
+        right_tokens = row.get("right_tokens", [])
+        if not _is_inline_token_list(right_tokens):
+            raise TypeError("Engine row right_tokens must be inline tokens.")
+
+        materialized.append(
+            {
+                "status": status,
+                "left_no": left_no,
+                "right_no": right_no,
+                "left_text": left_text,
+                "right_text": right_text,
+                "left_tokens": left_tokens,
+                "right_tokens": right_tokens,
+            }
+        )
+    return materialized
+
+
+def _is_diff_engine_row_status(value: object) -> TypeIs[DiffEngineRowStatus]:
+    return value in {"equal", "replace", "insert", "delete", "move"}
+
+
+def _is_inline_token_status(value: object) -> TypeIs[InlineTokenStatus]:
+    return value in {"unchanged", "replace", "insert", "delete", "move"}
+
+
+def _is_optional_int(value: object) -> TypeIs[int | None]:
+    return value is None or isinstance(value, int)
+
+
+def _is_optional_str(value: object) -> TypeIs[str | None]:
+    return value is None or isinstance(value, str)
+
+
+def _is_inline_token_list(value: object) -> TypeIs[list[InlineToken]]:
+    if not isinstance(value, list):
+        return False
+    return all(_is_inline_token(token) for token in value)
+
+
+def _is_inline_token(value: object) -> TypeIs[InlineToken]:
+    if not isinstance(value, dict):
+        return False
+    text = value.get("text")
+    is_ws = value.get("is_ws")
+    status = value.get("status")
+    return (
+        isinstance(text, str)
+        and isinstance(is_ws, bool)
+        and _is_inline_token_status(status)
+    )

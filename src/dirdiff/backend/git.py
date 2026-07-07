@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path, PurePosixPath
-from typing import Literal, cast, override
+from typing import Literal, TypeIs, override
 
 from dirdiff.backend.base import (
     BUILTIN_SIDES,
@@ -38,6 +38,12 @@ def _git_tree_spec(side: SideName) -> str:
     if side == "head":
         return "HEAD"
     return side
+
+
+def _is_branch_selection(
+    selection: DefaultBaseSelection,
+) -> TypeIs[BranchSelection]:
+    return "source" in selection
 
 
 def git_diff_args_with_direction(
@@ -445,9 +451,8 @@ class GitBackend(WorkspaceBackendProtocol):
             return {"source": "local", "branch": ""}
 
         normalized_base = self._local_default_base_branch_name()
-        if base_selection is not None and "source" in base_selection:
-            branch_selection = cast("BranchSelection", base_selection)
-            normalized_base = branch_selection["branch"].strip()
+        if base_selection is not None and _is_branch_selection(base_selection):
+            normalized_base = base_selection["branch"].strip()
         current = self.current_branch_name()
 
         if current != "" and current != normalized_base:

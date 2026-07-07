@@ -11,17 +11,15 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Literal, cast, final, override
+from typing import final, override
 
 from dirdiff.backend import TextDiffError
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
-    DiffEngineRow,
     DiffSide,
-    InlineToken,
+    strict_engine_rows,
 )
 from dirdiff.engines.git.logic import (
     git_diff_rows_from_patch,
@@ -32,34 +30,6 @@ __all__ = [
     "GitDiffEngine",
     "run_git_no_index_diff",
 ]
-
-
-def _strict_engine_rows(
-    rows: Iterable[Mapping[str, object]],
-) -> list[DiffEngineRow]:
-    materialized: list[DiffEngineRow] = []
-    for row in rows:
-        materialized.append(
-            {
-                "status": cast(
-                    "Literal['equal', 'replace', 'insert', 'delete', 'move']",
-                    row["status"],
-                ),
-                "left_no": cast("int | None", row.get("left_no")),
-                "right_no": cast("int | None", row.get("right_no")),
-                "left_text": cast("str | None", row.get("left_text")),
-                "right_text": cast("str | None", row.get("right_text")),
-                "left_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("left_tokens", []),
-                ),
-                "right_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("right_tokens", []),
-                ),
-            }
-        )
-    return materialized
 
 
 def _temp_file_name(label: str, path_hint: str | None) -> str:
@@ -170,6 +140,6 @@ class GitDiffEngine(DiffEngineProtocol):
                 "removed_lines": removed_lines,
                 "moved_lines": moved_lines,
             },
-            "rows": _strict_engine_rows(rows),
+            "rows": strict_engine_rows(rows),
         }
         return payload

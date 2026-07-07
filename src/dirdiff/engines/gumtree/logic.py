@@ -64,22 +64,21 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, Literal, cast, final, override
+from typing import Any, Literal, final, override
 
 from dirdiff.backend import TextDiffError, unified_diff_lines
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
-    DiffEngineRow,
     DiffSide,
     DiffSummary,
     EngineWarning,
     InlineToken,
+    strict_engine_rows,
 )
 from dirdiff.engines.gumtree.gumtree import (
     GumTreeInvalidJsonError,
@@ -476,6 +475,8 @@ def _gumtree_aligned_line_rows(
                         "right_no": j1 + offset + 1,
                         "left_text": left_line,
                         "right_text": left_line,
+                        "left_tokens": [],
+                        "right_tokens": [],
                     }
                 )
             continue
@@ -488,6 +489,8 @@ def _gumtree_aligned_line_rows(
                     "right_no": None,
                     "left_text": left_line,
                     "right_text": "",
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
         for offset, right_line in enumerate(right_lines[j1:j2]):
@@ -498,6 +501,8 @@ def _gumtree_aligned_line_rows(
                     "right_no": j1 + offset + 1,
                     "left_text": "",
                     "right_text": right_line,
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
     return rows
@@ -544,6 +549,8 @@ def unified_diff_rows(
                     "right_no": diff_line.right_no,
                     "left_text": diff_line.text,
                     "right_text": diff_line.text,
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
             continue
@@ -555,6 +562,8 @@ def unified_diff_rows(
                     "right_no": None,
                     "left_text": diff_line.text,
                     "right_text": "",
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
             continue
@@ -566,37 +575,11 @@ def unified_diff_rows(
                     "right_no": diff_line.right_no,
                     "left_text": "",
                     "right_text": diff_line.text,
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
     return rows
-
-
-def _strict_engine_rows(
-    rows: Iterable[Mapping[str, object]],
-) -> list[DiffEngineRow]:
-    materialized: list[DiffEngineRow] = []
-    for row in rows:
-        materialized.append(
-            {
-                "status": cast(
-                    "Literal['equal', 'replace', 'insert', 'delete', 'move']",
-                    row["status"],
-                ),
-                "left_no": cast("int | None", row.get("left_no")),
-                "right_no": cast("int | None", row.get("right_no")),
-                "left_text": cast("str | None", row.get("left_text")),
-                "right_text": cast("str | None", row.get("right_text")),
-                "left_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("left_tokens", []),
-                ),
-                "right_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("right_tokens", []),
-                ),
-            }
-        )
-    return materialized
 
 
 def _payload_size_bytes(payload: dict[str, Any]) -> int:
@@ -630,6 +613,8 @@ def _plain_line_rows_for_side(
                     "right_no": None,
                     "left_text": line,
                     "right_text": "",
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
         else:
@@ -640,6 +625,8 @@ def _plain_line_rows_for_side(
                     "right_no": index,
                     "left_text": "",
                     "right_text": line,
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
     return rows
@@ -792,7 +779,7 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         summary = _gumtree_summary(rows=rows)
         payload: DiffEngineResult = {
             "summary": summary,
-            "rows": _strict_engine_rows(rows),
+            "rows": strict_engine_rows(rows),
         }
         if engine_warning is not None:
             payload["engine_warning"] = engine_warning

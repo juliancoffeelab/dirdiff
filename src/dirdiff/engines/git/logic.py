@@ -45,6 +45,8 @@ def plain_line_rows_for_side(
                     "right_no": None,
                     "left_text": line,
                     "right_text": "",
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
         else:
@@ -55,6 +57,8 @@ def plain_line_rows_for_side(
                     "right_no": index,
                     "left_text": "",
                     "right_text": line,
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
     return rows
@@ -90,6 +94,8 @@ def _append_equal_rows(
                 "right_no": right_no,
                 "left_text": left_text,
                 "right_text": right_text,
+                "left_tokens": [],
+                "right_tokens": [],
             }
         )
         left_no += 1
@@ -153,6 +159,8 @@ def git_diff_rows_from_patch(
                     "right_no": right_no,
                     "left_text": text,
                     "right_text": text,
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
             left_no += 1
@@ -166,6 +174,8 @@ def git_diff_rows_from_patch(
                     "right_no": None,
                     "left_text": text,
                     "right_text": "",
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
             left_no += 1
@@ -178,6 +188,8 @@ def git_diff_rows_from_patch(
                     "right_no": right_no,
                     "left_text": "",
                     "right_text": text,
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
             right_no += 1

@@ -9,7 +9,7 @@ backends list, classify, and load workspace paths.
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from dirdiff.backend.base import (
     RepoDiffPath,
@@ -264,7 +264,8 @@ def _compact_single_directory_chains(
         entry["entries"] = _compact_single_directory_chains(entry["entries"])
         compacted_entry = entry
         while len(compacted_entry["entries"]) == 1:
-            child = cast("dict[str, Any]", compacted_entry["entries"][0])
+            child = compacted_entry["entries"][0]
+            assert isinstance(child, dict)
             if child["type"] != "directory":
                 break
             collapsed_entry = {

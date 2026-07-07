@@ -1,5 +1,6 @@
 [flake8:local-plugins]
 extension =
     SBT = strict_bool:StrictBoolPlugin
+    CST = no_casts:NoCastsPlugin
 paths =
     ./lints

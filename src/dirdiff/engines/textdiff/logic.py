@@ -11,17 +11,15 @@ repository paths, or HTTP payload metadata.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
 from difflib import SequenceMatcher
-from typing import Any, Literal, cast, final, override
+from typing import Any, final, override
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
-    DiffEngineRow,
     DiffSide,
     DiffSummary,
-    InlineToken,
+    strict_engine_rows,
 )
 
 __all__ = [
@@ -38,34 +36,6 @@ INLINE_IDENTIFIER_PART_PATTERN = re.compile(
 ALIGNMENT_WORD_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
 ALIGNMENT_NOISE_WORDS = frozenset({"none", "true", "false", "null"})
 MIN_SIMILAR_LINE_RATIO = 0.45
-
-
-def _strict_engine_rows(
-    rows: Iterable[Mapping[str, object]],
-) -> list[DiffEngineRow]:
-    materialized: list[DiffEngineRow] = []
-    for row in rows:
-        materialized.append(
-            {
-                "status": cast(
-                    "Literal['equal', 'replace', 'insert', 'delete', 'move']",
-                    row["status"],
-                ),
-                "left_no": cast("int | None", row.get("left_no")),
-                "right_no": cast("int | None", row.get("right_no")),
-                "left_text": cast("str | None", row.get("left_text")),
-                "right_text": cast("str | None", row.get("right_text")),
-                "left_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("left_tokens", []),
-                ),
-                "right_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("right_tokens", []),
-                ),
-            }
-        )
-    return materialized
 
 
 def _native_text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
@@ -112,7 +82,7 @@ def render_native_text_diff(
     rows = _build_native_text_rows(left_text_value, right_text_value)
     return {
         "summary": _native_text_summary(rows),
-        "rows": _strict_engine_rows(rows),
+        "rows": strict_engine_rows(rows),
     }
 
 
@@ -179,6 +149,8 @@ def _build_native_text_rows(
                         "right_no": None,
                         "left_text": left_line,
                         "right_text": "",
+                        "left_tokens": [],
+                        "right_tokens": [],
                     }
                 )
                 left_no += 1
@@ -193,6 +165,8 @@ def _build_native_text_rows(
                         "right_no": right_no,
                         "left_text": "",
                         "right_text": right_line,
+                        "left_tokens": [],
+                        "right_tokens": [],
                     }
                 )
                 right_no += 1
@@ -211,6 +185,8 @@ def _build_native_text_rows(
                         "right_no": None,
                         "left_text": left_block[delete_index],
                         "right_text": "",
+                        "left_tokens": [],
+                        "right_tokens": [],
                     }
                 )
                 left_no += 1
@@ -223,6 +199,8 @@ def _build_native_text_rows(
                         "right_no": right_no,
                         "left_text": "",
                         "right_text": right_block[insert_index],
+                        "left_tokens": [],
+                        "right_tokens": [],
                     }
                 )
                 right_no += 1
@@ -248,6 +226,8 @@ def _build_native_text_rows(
                     "right_no": None,
                     "left_text": left_block[delete_index],
                     "right_text": "",
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
             left_no += 1
@@ -260,6 +240,8 @@ def _build_native_text_rows(
                     "right_no": right_no,
                     "left_text": "",
                     "right_text": right_block[insert_index],
+                    "left_tokens": [],
+                    "right_tokens": [],
                 }
             )
             right_no += 1
@@ -293,12 +275,13 @@ def _paired_line_row(
         "right_no": right_no,
         "left_text": left_line,
         "right_text": right_line,
+        "left_tokens": [],
+        "right_tokens": [],
     }
     if left_line != right_line:
         left_tokens, right_tokens = _inline_diff(left_line, right_line)
-        if left_tokens != [] or right_tokens != []:
-            row["left_tokens"] = left_tokens
-            row["right_tokens"] = right_tokens
+        row["left_tokens"] = left_tokens
+        row["right_tokens"] = right_tokens
     return row
 
 

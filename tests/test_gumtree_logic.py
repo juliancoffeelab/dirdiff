@@ -8,7 +8,7 @@ ordinary UI payload behavior should go through the service adapter.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from helpers import WorkspaceDiffServiceAdapter
 
@@ -199,7 +199,7 @@ def _row_for_line(
     line_no: int,
 ) -> dict[str, Any]:
     line_key = f"{side}_no"
-    rows = cast("list[dict[str, Any]]", payload["rows"])
+    rows: list[dict[str, Any]] = payload["rows"]
     for row in rows:
         if row[line_key] == line_no:
             return row

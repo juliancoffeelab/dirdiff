@@ -82,7 +82,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, NotRequired, TypedDict, cast
+from typing import Literal, NotRequired, TypedDict, TypeIs
 
 from dirdiff.backend import TextDiffError
 
@@ -270,10 +270,110 @@ def run_difftastic_json(
 
     if isinstance(parsed, list):
         if parsed == []:
-            return cast("DifftasticJson", {"aligned_lines": [], "chunks": []})
+            return {"aligned_lines": [], "chunks": []}
         first = parsed[0]
-        if isinstance(first, dict):
-            return cast("DifftasticJson", first)
-    if isinstance(parsed, dict):
-        return cast("DifftasticJson", parsed)
+        if _is_difftastic_json(first):
+            return first
+    if _is_difftastic_json(parsed):
+        return parsed
     raise TextDiffError("Difftastic returned an unexpected JSON payload.")
+
+
+def _is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
+    if not isinstance(value, dict):
+        return False
+
+    aligned_lines = value.get("aligned_lines")
+    if aligned_lines is not None and not _is_aligned_lines(aligned_lines):
+        return False
+
+    chunks = value.get("chunks")
+    if chunks is not None and not _is_chunks(chunks):
+        return False
+
+    language = value.get("language")
+    if language is not None and not isinstance(language, str):
+        return False
+
+    path = value.get("path")
+    if path is not None and not isinstance(path, str):
+        return False
+
+    status = value.get("status")
+    return status is None or status in {
+        "changed",
+        "created",
+        "deleted",
+        "unchanged",
+    }
+
+
+def _is_aligned_lines(
+    value: object,
+) -> TypeIs[list[DifftasticAlignedPairJson]]:
+    if not isinstance(value, list):
+        return False
+    return all(_is_aligned_pair(pair) for pair in value)
+
+
+def _is_aligned_pair(value: object) -> TypeIs[DifftasticAlignedPairJson]:
+    if not isinstance(value, list):
+        return False
+    return len(value) == 2 and all(
+        item is None or isinstance(item, int) for item in value
+    )
+
+
+def _is_chunks(
+    value: object,
+) -> TypeIs[list[list[DifftasticJsonChunkEntry]]]:
+    if not isinstance(value, list):
+        return False
+    return all(_is_chunk(chunk) for chunk in value)
+
+
+def _is_chunk(value: object) -> TypeIs[list[DifftasticJsonChunkEntry]]:
+    if not isinstance(value, list):
+        return False
+    return all(_is_chunk_entry(entry) for entry in value)
+
+
+def _is_chunk_entry(value: object) -> TypeIs[DifftasticJsonChunkEntry]:
+    if not isinstance(value, dict):
+        return False
+
+    lhs = value.get("lhs")
+    if lhs is not None and not _is_side(lhs):
+        return False
+
+    rhs = value.get("rhs")
+    return rhs is None or _is_side(rhs)
+
+
+def _is_side(value: object) -> TypeIs[DifftasticJsonSide]:
+    if not isinstance(value, dict):
+        return False
+
+    line_number = value.get("line_number")
+    changes = value.get("changes")
+    return isinstance(line_number, int) and _is_changes(changes)
+
+
+def _is_changes(value: object) -> TypeIs[list[DifftasticJsonChange]]:
+    if not isinstance(value, list):
+        return False
+    return all(_is_change(change) for change in value)
+
+
+def _is_change(value: object) -> TypeIs[DifftasticJsonChange]:
+    if not isinstance(value, dict):
+        return False
+
+    start = value.get("start")
+    end = value.get("end")
+    content = value.get("content")
+    return (
+        isinstance(start, int)
+        and isinstance(end, int)
+        and (content is None or isinstance(content, str))
+    )

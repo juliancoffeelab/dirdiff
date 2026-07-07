@@ -56,7 +56,7 @@ Each `DifftasticInlineToken` has:
 * `is_ws`: whether the token is whitespace.
 
 The row list is the exported AST for difftastic rendering. The service layer may
-cast it back to the generic row shape at the boundary where shared textdiff
+validate it as the generic row shape at the boundary where shared textdiff
 payload code takes over, but inside this module the row contract is explicit.
 
 Required invariants
@@ -82,19 +82,18 @@ hints, and does not assemble the final HTTP/API payload.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any, Literal, TypedDict, cast, final, override
+from typing import Any, Literal, TypedDict, final, override
 
 from dirdiff.backend import unified_diff_lines
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
-    DiffEngineRow,
     DiffSide,
     EngineWarning,
-    InlineToken,
+    strict_engine_rows,
 )
 from dirdiff.engines.difftastic.difft import (
     DifftasticJson,
@@ -2947,34 +2946,6 @@ def build_difftastic_ast(
     )
 
 
-def _strict_engine_rows(
-    rows: Iterable[Mapping[str, object]],
-) -> list[DiffEngineRow]:
-    materialized: list[DiffEngineRow] = []
-    for row in rows:
-        materialized.append(
-            {
-                "status": cast(
-                    "Literal['equal', 'replace', 'insert', 'delete', 'move']",
-                    row["status"],
-                ),
-                "left_no": cast("int | None", row.get("left_no")),
-                "right_no": cast("int | None", row.get("right_no")),
-                "left_text": cast("str | None", row.get("left_text")),
-                "right_text": cast("str | None", row.get("right_text")),
-                "left_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("left_tokens", []),
-                ),
-                "right_tokens": cast(
-                    "list[InlineToken]",
-                    row.get("right_tokens", []),
-                ),
-            }
-        )
-    return materialized
-
-
 def _plain_line_rows_for_side(
     *,
     text: str,
@@ -3109,6 +3080,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
         left_text_value = "" if old.text is None else old.text
         right_text_value = "" if new.text is None else new.text
         engine_warning: EngineWarning | None = None
+        rows: Iterable[object]
         if old.exists and new.exists:
             difftastic_ast = build_difftastic_ast(
                 left_text=left_text_value,
@@ -3117,14 +3089,15 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 right_path_hint=new.path_hint,
             )
             engine_warning = difftastic_ast.engine_warning
-            rows = cast("list[dict[str, Any]]", difftastic_ast.rows)
-            if not rows:
+            if difftastic_ast.rows == []:
                 rows = _unified_diff_rows(
                     left_text=left_text_value,
                     right_text=right_text_value,
                     left_label="" if old.path_hint is None else old.path_hint,
                     right_label="" if new.path_hint is None else new.path_hint,
                 )
+            else:
+                rows = difftastic_ast.rows
         elif old.exists:
             rows = _plain_line_rows_for_side(
                 text=left_text_value,
@@ -3136,10 +3109,15 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 side="right",
             )
 
-        modified_lines = sum(1 for row in rows if row["status"] == "replace")
-        added_lines = sum(1 for row in rows if row["status"] == "insert")
-        removed_lines = sum(1 for row in rows if row["status"] == "delete")
-        moved_lines = sum(1 for row in rows if row["status"] == "move")
+        engine_rows = strict_engine_rows(rows)
+        modified_lines = sum(
+            1 for row in engine_rows if row["status"] == "replace"
+        )
+        added_lines = sum(1 for row in engine_rows if row["status"] == "insert")
+        removed_lines = sum(
+            1 for row in engine_rows if row["status"] == "delete"
+        )
+        moved_lines = sum(1 for row in engine_rows if row["status"] == "move")
         payload: DiffEngineResult = {
             "summary": {
                 "changed_lines": (
@@ -3150,7 +3128,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 "removed_lines": removed_lines,
                 "moved_lines": moved_lines,
             },
-            "rows": _strict_engine_rows(rows),
+            "rows": engine_rows,
         }
         if engine_warning is not None:
             payload["engine_warning"] = engine_warning
