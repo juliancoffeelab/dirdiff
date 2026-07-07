@@ -86,7 +86,7 @@ def git_diff_rows_from_patch(patch: str) -> list[dict[str, Any]]:
 
         prefix = " "
         text = ""
-        if line:
+        if line != "":
             prefix = line[0]
             text = line[1:]
 

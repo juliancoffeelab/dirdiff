@@ -345,7 +345,7 @@ def _status_tokens_for_line(
         for interval in clipped:
             if interval.start <= start and end <= interval.end:
                 status = _stronger_status(status, interval.status)
-        if tokens and tokens[-1]["status"] == status:
+        if tokens != [] and tokens[-1]["status"] == status:
             tokens[-1]["text"] += text[start:end]
             tokens[-1]["is_ws"] = tokens[-1]["text"].isspace()
             continue

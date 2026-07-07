@@ -270,7 +270,7 @@ def _paired_line_row(
     }
     if left_line != right_line:
         left_tokens, right_tokens = _inline_diff(left_line, right_line)
-        if left_tokens or right_tokens:
+        if left_tokens != [] or right_tokens != []:
             row["left_tokens"] = left_tokens
             row["right_tokens"] = right_tokens
     return row
@@ -288,7 +288,7 @@ def _append_char_level_diff(
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             text = left_text[i1:i2]
-            if text:
+            if text != "":
                 left_tokens.append(
                     {"text": text, "status": "unchanged", "is_ws": is_ws}
                 )
@@ -297,24 +297,24 @@ def _append_char_level_diff(
                 )
         elif tag == "delete":
             text = left_text[i1:i2]
-            if text:
+            if text != "":
                 left_tokens.append(
                     {"text": text, "status": "delete", "is_ws": is_ws}
                 )
         elif tag == "insert":
             text = right_text[j1:j2]
-            if text:
+            if text != "":
                 right_tokens.append(
                     {"text": text, "status": "insert", "is_ws": is_ws}
                 )
         else:
             left_piece = left_text[i1:i2]
             right_piece = right_text[j1:j2]
-            if left_piece:
+            if left_piece != "":
                 left_tokens.append(
                     {"text": left_piece, "status": "replace", "is_ws": is_ws}
                 )
-            if right_piece:
+            if right_piece != "":
                 right_tokens.append(
                     {"text": right_piece, "status": "replace", "is_ws": is_ws}
                 )
@@ -322,7 +322,7 @@ def _append_char_level_diff(
 
 def _identifier_diff_parts(text: str) -> list[str]:
     parts = INLINE_IDENTIFIER_PART_PATTERN.findall(text)
-    return parts or [text]
+    return parts if parts != [] else [text]
 
 
 def _append_identifier_level_diff(
@@ -441,7 +441,7 @@ def _has_shared_informative_alignment_word(
 def _line_alignment_ratio(left_line: str, right_line: str) -> float:
     left_words = _line_alignment_words(left_line)
     right_words = _line_alignment_words(right_line)
-    if left_words and right_words:
+    if left_words != [] and right_words != []:
         if not _has_shared_informative_alignment_word(
             left_words,
             right_words,
@@ -547,7 +547,7 @@ def _inline_diff(
             for li, ri in zip(range(i1, i2), range(j1, j2), strict=True):
                 left_token = left_data[li]
                 right_token = right_data[ri]
-                if left_token["is_ws"] and right_token["is_ws"]:
+                if left_token["is_ws"] is True and right_token["is_ws"] is True:
                     _append_char_level_diff(
                         left_token["text"],
                         right_token["text"],

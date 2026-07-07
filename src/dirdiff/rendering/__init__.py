@@ -394,7 +394,7 @@ def _collapse_line_intervals(
     spans: list[_SyntaxSpan] = []
 
     for event_position, event_kind, interval_index in events:
-        if event_position > position and active:
+        if event_position > position and active != {}:
             chosen = min(
                 active.values(),
                 key=lambda item: (
@@ -412,7 +412,7 @@ def _collapse_line_intervals(
             active[interval_index] = interval
         position = event_position
 
-    if position < len(line_text) and active:
+    if position < len(line_text) and active != {}:
         chosen = min(
             active.values(),
             key=lambda item: (
@@ -434,7 +434,7 @@ def _append_syntax_span(
 ) -> None:
     if start >= end:
         return
-    if spans and spans[-1].end == start and spans[-1].classes == classes:
+    if spans != [] and spans[-1].end == start and spans[-1].classes == classes:
         previous = spans[-1]
         spans[-1] = _SyntaxSpan(previous.start, end, previous.classes)
         return
@@ -488,11 +488,11 @@ def _collapse_equal_rows_for_large_diff(
             continue
 
         leading = run_rows[:context_rows]
-        trailing = run_rows[-context_rows:] if context_rows else []
+        trailing = run_rows[-context_rows:] if context_rows != 0 else []
         middle = run_rows[context_rows : len(run_rows) - len(trailing)]
 
         collapsed.extend(leading)
-        if middle:
+        if middle != []:
             collapsed.append(
                 {
                     "status": "fold",
@@ -557,18 +557,18 @@ def enrich_rows_for_display(
             left_no = row.get("left_no")
             if (
                 isinstance(left_no, int)
-                and left_syntax_lines
+                and left_syntax_lines is not None
                 and left_no - 1 < len(left_syntax_lines)
-                and left_syntax_lines[left_no - 1]
+                and left_syntax_lines[left_no - 1] != []
             ):
                 row["left_syntax"] = left_syntax_lines[left_no - 1]
 
             right_no = row.get("right_no")
             if (
                 isinstance(right_no, int)
-                and right_syntax_lines
+                and right_syntax_lines is not None
                 and right_no - 1 < len(right_syntax_lines)
-                and right_syntax_lines[right_no - 1]
+                and right_syntax_lines[right_no - 1] != []
             ):
                 row["right_syntax"] = right_syntax_lines[right_no - 1]
 
@@ -584,8 +584,8 @@ def enrich_rows_for_display(
     }
     if plain_render:
         payload["render_mode"] = "plain"
-    if truncated_rows:
+    if truncated_rows != 0:
         payload["truncated_rows"] = truncated_rows
-    if fold_hints:
+    if fold_hints != []:
         payload["fold_hints"] = fold_hints
     return payload

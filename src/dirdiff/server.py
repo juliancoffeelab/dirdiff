@@ -1662,7 +1662,7 @@ def uvicorn_entrypoint() -> FastAPI:
     user_profile_store = UserProfileStore(engine)
     preferences_store = PreferencesStore(engine)
     marks = repo_store.list()
-    assert marks, "dirdiff runtime config has no marked repos"
+    assert marks != [], "dirdiff runtime config has no marked repos"
     return create_app(
         repo_store,
         user_profile_store,

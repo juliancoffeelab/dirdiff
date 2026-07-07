@@ -115,6 +115,8 @@ ignore = [
     "TC003",
     # ok, some magic values are just .. values
     "PLR2004",
+    # Replacing logic with set theory doesn't help readability
+    "PLR1714",
     # TODO: some functions take a lot of arguments, figure out what to do
     # about that
     "PLR0913",

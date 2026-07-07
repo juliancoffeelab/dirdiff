@@ -216,9 +216,12 @@ def run_difftastic_json(
     right_path_hint: str | None = None,
     tunings: DifftasticTunings = DifftasticTunings(),
 ) -> DifftasticJson:
-    left_suffix = Path(left_path_hint or "left.txt").suffix or ".txt"
-    right_suffix = Path(right_path_hint or left_path_hint or "right.txt").suffix
-    right_suffix = right_suffix or left_suffix
+    left_suffix = (
+        ".txt" if left_path_hint is None else Path(left_path_hint).suffix
+    )
+    right_suffix = (
+        left_suffix if right_path_hint is None else Path(right_path_hint).suffix
+    )
 
     with tempfile.TemporaryDirectory(prefix="dirdiff-difftastic-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -256,9 +259,10 @@ def run_difftastic_json(
             ) from exc
 
     if result.returncode != 0:
-        raise TextDiffError(
-            result.stderr.strip() or "Difftastic could not build this diff."
-        )
+        message = result.stderr.strip()
+        if message == "":
+            message = "Difftastic could not build this diff."
+        raise TextDiffError(message)
     try:
         parsed = json.loads(result.stdout)
     except json.JSONDecodeError as exc:

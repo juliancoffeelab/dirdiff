@@ -401,7 +401,7 @@ def fold_hints_for_path(
             right_line_to_row,
         )
         hints = []
-        if candidates:
+        if candidates != []:
             _assign_candidate_parents(candidates)
             root_candidates = sorted(
                 (
@@ -587,11 +587,13 @@ def _collect_candidates(
             if label_nodes
             else None
         )
+        if label_text == "":
+            label_text = None
         candidate = FoldCandidate(
             rule=rule,
             fold_node=fold_node,
             context_node=context_node,
-            label_text=label_text or None,
+            label_text=label_text,
             context_start_row=row_span[0],
             context_end_row=row_span[1],
             hidden_start_row=hidden_row_span[0],
@@ -608,7 +610,7 @@ def _collect_candidates(
         )
         existing = deduped.get(dedupe_key)
         if existing is None or (
-            not existing.label_text and candidate.label_text
+            existing.label_text is None and candidate.label_text is not None
         ):
             deduped[dedupe_key] = candidate
 
@@ -714,11 +716,21 @@ def _candidate_to_hint(
     visible_index = candidate.hidden_start_row - 1
     visible_label = ""
     if 0 <= visible_index < len(rows):
-        visible_label = str(rows[visible_index].get("right_text") or "").strip()
+        raw_visible_label = rows[visible_index].get("right_text")
+        visible_label = (
+            "" if raw_visible_label is None else str(raw_visible_label).strip()
+        )
     if candidate.rule.region_kind == "section":
-        label = candidate.label_text or visible_label or ""
+        if candidate.label_text is not None:
+            label = candidate.label_text
+        else:
+            label = visible_label
+    elif visible_label != "":
+        label = visible_label
+    elif candidate.label_text is not None:
+        label = candidate.label_text
     else:
-        label = visible_label or candidate.label_text or ""
+        label = ""
     return {
         "start_row": candidate.hidden_start_row,
         "end_row": candidate.hidden_end_row,
@@ -761,12 +773,12 @@ def _collect_top_level_hints(
             _append_top_level_run_hint(run, rows, existing_ranges, hints)
             run = []
             continue
-        if run and _rows_have_any_change(
+        if run != [] and _rows_have_any_change(
             rows[run[-1].end_row : item.start_row]
         ):
             _append_top_level_run_hint(run, rows, existing_ranges, hints)
             run = []
-        if run and run[-1].label_kind != item.label_kind:
+        if run != [] and run[-1].label_kind != item.label_kind:
             _append_top_level_run_hint(run, rows, existing_ranges, hints)
             run = []
         run.append(item)
@@ -1063,9 +1075,11 @@ def _trim_markdown_section_trailing_blank_rows(
     end = len(span)
     while end > 0:
         row = span[end - 1]
-        right_text = str(row.get("right_text") or "")
-        left_text = str(row.get("left_text") or "")
-        if right_text.strip() or left_text.strip():
+        raw_right_text = row.get("right_text")
+        right_text = "" if raw_right_text is None else str(raw_right_text)
+        raw_left_text = row.get("left_text")
+        left_text = "" if raw_left_text is None else str(raw_left_text)
+        if right_text.strip() != "" or left_text.strip() != "":
             break
         end -= 1
     return span[:end]

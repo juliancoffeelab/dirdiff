@@ -188,13 +188,17 @@ def display_name_for_repo_paths(
     show both sides, unchanged paths show the single path, and one-sided files
     show the path that exists.
     """
-    if left_path and right_path:
+    if left_path is not None and right_path is not None:
         return (
             left_path
             if left_path == right_path
             else f"{left_path} -> {right_path}"
         )
-    return left_path or right_path or "(unknown)"
+    if left_path is not None:
+        return left_path
+    if right_path is not None:
+        return right_path
+    return "(unknown)"
 
 
 def _count_changed_line_stats(
@@ -363,9 +367,9 @@ def load_diff_sides(
         else TextVersion(label=normalized_right_side, exists=False, text=None)
     )
 
-    if left_version.error:
+    if left_version.error is not None:
         raise TextDiffError(left_version.error)
-    if right_version.error:
+    if right_version.error is not None:
         raise TextDiffError(right_version.error)
     if not left_version.exists and not right_version.exists:
         raise TextDiffError("The selected file is missing on both sides.")
@@ -420,7 +424,7 @@ def unified_diff_lines(
 
         prefix = " "
         text = ""
-        if line:
+        if line != "":
             prefix = line[0]
             text = line[1:]
 

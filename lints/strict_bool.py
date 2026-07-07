@@ -39,6 +39,20 @@ OR_FALLBACK_CODE = "SBT002"
 CACHE_DIR = Path(".sbt_cache")
 CACHE_FILE = CACHE_DIR / "diagnostics.json"
 CACHE_VERSION = "1"
+EXPLICIT_BOOL_OPERATORS = frozenset(
+    {
+        "==",
+        "!=",
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "is",
+        "is not",
+        "in",
+        "not in",
+    }
+)
 SYNTAX_CHILD_ATTRS = (
     "actual",
     "args",
@@ -300,8 +314,9 @@ class StrictBoolVisitor:
             self._check_bool_expr(expr.right)
             return
 
-        if isinstance(expr, mypy.nodes.UnaryExpr) and expr.op == "not":
-            self._check_bool_expr(expr.expr)
+        if isinstance(
+            expr, mypy.nodes.ComparisonExpr
+        ) and _has_only_explicit_bool_operators(expr):
             return
 
         if self._is_bool_type(self.type_map.get(expr)):
@@ -322,8 +337,8 @@ class StrictBoolVisitor:
             right_is_boolean = self._is_boolean_operation(expr.right)
             return left_is_boolean and right_is_boolean
 
-        if isinstance(expr, mypy.nodes.UnaryExpr) and expr.op == "not":
-            return self._is_boolean_operation(expr.expr)
+        if isinstance(expr, mypy.nodes.ComparisonExpr):
+            return _has_only_explicit_bool_operators(expr)
 
         return self._is_bool_type(self.type_map.get(expr))
 
@@ -754,3 +769,11 @@ def _is_bool_proper_type(typ: mypy.types.ProperType) -> bool:
         return False
 
     return False
+
+
+def _has_only_explicit_bool_operators(
+    expr: mypy.nodes.ComparisonExpr,
+) -> bool:
+    return all(
+        operator in EXPLICIT_BOOL_OPERATORS for operator in expr.operators
+    )

@@ -149,7 +149,7 @@ class RepoMarkStore:
         assert path.is_absolute(), f"repo path must be absolute: {path}"
         assert path.is_dir(), f"repo path must be a directory: {path}"
         display_name = name.strip()
-        assert display_name, "repo name cannot be empty"
+        assert display_name != "", "repo name cannot be empty"
         marked_at = datetime.now(UTC)
         with Session(self.engine) as session, session.begin():
             repo_id = session.execute(

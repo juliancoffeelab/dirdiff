@@ -88,7 +88,8 @@ class GitBackend(WorkspaceBackendProtocol):
     ) -> None:
         """Bind the backend to a discovered repo root and caller working directory."""
         self._repo_root = repo_root.resolve() if repo_root is not None else None
-        self._cwd = (cwd or Path.cwd()).resolve()
+        selected_cwd = cwd if cwd is not None else Path.cwd()
+        self._cwd = selected_cwd.resolve()
 
     @property
     def repo_root(self) -> Path | None:
@@ -197,9 +198,9 @@ class GitBackend(WorkspaceBackendProtocol):
         candidates = [
             line.strip()
             for line in modified.stdout.splitlines()
-            if line.strip() and not line.endswith("/")
+            if line.strip() != "" and not line.endswith("/")
         ]
-        if candidates:
+        if candidates != []:
             return candidates[0]
 
         tracked = subprocess.run(
@@ -212,9 +213,9 @@ class GitBackend(WorkspaceBackendProtocol):
         tracked_candidates = [
             line.strip()
             for line in tracked.stdout.splitlines()
-            if line.strip() and not line.endswith("/")
+            if line.strip() != "" and not line.endswith("/")
         ]
-        if tracked_candidates:
+        if tracked_candidates != []:
             return tracked_candidates[0]
 
         raise TextDiffError("No files found in the current Git repo.")
@@ -351,7 +352,7 @@ class GitBackend(WorkspaceBackendProtocol):
         current_branch = self.current_branch_name()
         upstream = self.branch_upstream_name(current_branch)
         upstream_remote = self._remote_name_for_upstream(upstream)
-        if upstream_remote:
+        if upstream_remote != "":
             return upstream_remote
 
         remote_names = self.list_remote_names()
@@ -405,12 +406,12 @@ class GitBackend(WorkspaceBackendProtocol):
 
     def default_base_selection(self) -> DefaultBaseSelection:
         """Choose the initial branch-review base from local Git metadata."""
-        if self.list_remote_names():
+        if self.list_remote_names() != []:
             default_remote = self._default_branch_review_remote_name()
-            if not default_remote:
+            if default_remote == "":
                 return {"kind": "error", "error": "heuristic_fail"}
             base_branch = self._remote_head_branch_name(default_remote)
-            if not base_branch:
+            if base_branch == "":
                 return {"kind": "error", "error": "heuristic_fail"}
             return {
                 "source": "remote",
@@ -419,7 +420,7 @@ class GitBackend(WorkspaceBackendProtocol):
             }
 
         base_branch = self._local_default_base_branch_name()
-        if not base_branch:
+        if base_branch == "":
             return {"kind": "error", "error": "heuristic_fail"}
         return {"source": "local", "branch": base_branch}
 
@@ -428,7 +429,7 @@ class GitBackend(WorkspaceBackendProtocol):
     ) -> BranchSelection:
         """Choose the initial review branch relative to the selected base."""
         branch_names = self.list_branch_names()
-        if not branch_names:
+        if branch_names == []:
             return {"source": "local", "branch": ""}
 
         normalized_base = self._local_default_base_branch_name()
@@ -437,14 +438,15 @@ class GitBackend(WorkspaceBackendProtocol):
             normalized_base = branch_selection["branch"].strip()
         current = self.current_branch_name()
 
-        if current and current != normalized_base:
+        if current != "" and current != normalized_base:
             return {"source": "local", "branch": current}
 
         for branch_name in branch_names:
             if branch_name != normalized_base:
                 return {"source": "local", "branch": branch_name}
 
-        return {"source": "local", "branch": current or branch_names[0]}
+        fallback_branch = current if current != "" else branch_names[0]
+        return {"source": "local", "branch": fallback_branch}
 
     def _branch_selection_ref(self, selection: BranchSelection) -> str:
         """Collapse a BranchSelection to a git ref for resolve_branch_diff_sides."""
@@ -491,7 +493,7 @@ class GitBackend(WorkspaceBackendProtocol):
     def _parse_name_status_output(self, output: bytes) -> list[RepoDiffPath]:
         """Parse NUL-delimited `git diff --name-status` output."""
         tokens = output.split(b"\0")
-        if tokens and not tokens[-1]:
+        if tokens != [] and tokens[-1] == b"":
             tokens = tokens[:-1]
 
         entries: list[RepoDiffPath] = []
@@ -499,7 +501,7 @@ class GitBackend(WorkspaceBackendProtocol):
         while index < len(tokens):
             status_token = tokens[index].decode("utf-8")
             index += 1
-            if not status_token:
+            if status_token == "":
                 continue
 
             change_kind = status_token[0]
@@ -555,7 +557,7 @@ class GitBackend(WorkspaceBackendProtocol):
     ) -> dict[str, tuple[int, int]]:
         """Parse NUL-delimited `git diff --numstat` output by display path."""
         tokens = output.split(b"\0")
-        if tokens and not tokens[-1]:
+        if tokens != [] and tokens[-1] == b"":
             tokens = tokens[:-1]
 
         counts: dict[str, tuple[int, int]] = {}
@@ -595,13 +597,13 @@ class GitBackend(WorkspaceBackendProtocol):
             ["ls-files", "--others", "--exclude-standard", "-z"]
         )
         tokens = result.stdout.split(b"\0")
-        if tokens and not tokens[-1]:
+        if tokens != [] and tokens[-1] == b"":
             tokens = tokens[:-1]
 
         entries: list[RepoDiffPath] = []
         for token in tokens:
             path = token.decode("utf-8")
-            if not path:
+            if path == "":
                 continue
             entries.append(
                 RepoDiffPath(
@@ -639,7 +641,12 @@ class GitBackend(WorkspaceBackendProtocol):
         line_counts = self._parse_numstat_output(numstat_output.stdout)
         entries_with_counts: list[RepoDiffPath] = []
         for entry in entries:
-            path = entry.right_path or entry.left_path or entry.display_name
+            if entry.right_path is not None:
+                path = entry.right_path
+            elif entry.left_path is not None:
+                path = entry.left_path
+            else:
+                path = entry.display_name
             line_count = line_counts.get(path)
             if line_count is None:
                 entries_with_counts.append(entry)

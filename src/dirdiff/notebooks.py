@@ -124,7 +124,7 @@ def _cell_type_name(
 
 def _notebook_cell_id(cell: dict[str, Any]) -> str | None:
     cell_id = str(cell.get("id", "")).strip()
-    return cell_id or None
+    return cell_id if cell_id != "" else None
 
 
 def _cell_identity(
@@ -136,11 +136,11 @@ def _cell_identity(
 ) -> dict[str, Any]:
     left_source = _cell_source(left_cell)
     right_source = _cell_source(right_cell)
-    left_id = str(left_cell.get("id")) if left_cell is not None else None
-    right_id = str(right_cell.get("id")) if right_cell is not None else None
-    cell_id = right_id or left_id
+    left_id = _notebook_cell_id(left_cell) if left_cell is not None else None
+    right_id = _notebook_cell_id(right_cell) if right_cell is not None else None
+    cell_id = right_id if right_id is not None else left_id
 
-    cell_key = str(cell_id) if cell_id else None
+    cell_key = cell_id
     if cell_key is None and right_index is not None:
         cell_key = f"right-{right_index}"
     if cell_key is None and left_index is not None:
@@ -213,7 +213,7 @@ def _pair_notebook_cells(
         if count == 1 and right_id_counts.get(cell_id) == 1
     }
 
-    if shared_unique_ids:
+    if shared_unique_ids != set():
         left_tokens = [
             ("id", cell_id) if cell_id in shared_unique_ids else ("left", index)
             for index, cell_id in enumerate(left_ids)
@@ -496,13 +496,13 @@ def _build_notebook_cell_diff(
         payload["source_render_mode"] = source_payload["render_mode"]
     if "truncated_rows" in source_payload:
         payload["source_truncated_rows"] = source_payload["truncated_rows"]
-    if metadata_payload and "render_mode" in metadata_payload:
+    if metadata_payload is not None and "render_mode" in metadata_payload:
         payload["metadata_render_mode"] = metadata_payload["render_mode"]
-    if metadata_payload and "truncated_rows" in metadata_payload:
+    if metadata_payload is not None and "truncated_rows" in metadata_payload:
         payload["metadata_truncated_rows"] = metadata_payload["truncated_rows"]
-    if outputs_payload and "render_mode" in outputs_payload:
+    if outputs_payload is not None and "render_mode" in outputs_payload:
         payload["outputs_render_mode"] = outputs_payload["render_mode"]
-    if outputs_payload and "truncated_rows" in outputs_payload:
+    if outputs_payload is not None and "truncated_rows" in outputs_payload:
         payload["outputs_truncated_rows"] = outputs_payload["truncated_rows"]
     return payload
 

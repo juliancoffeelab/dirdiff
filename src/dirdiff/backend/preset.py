@@ -34,7 +34,8 @@ class PresetBackend(WorkspaceBackendProtocol):
         """Bind this backend to one preset root and caller working directory."""
         self.presets_root = presets_root.expanduser().resolve()
         self._repo_root = self.presets_root
-        self._cwd = (cwd or Path.cwd()).resolve()
+        selected_cwd = cwd if cwd is not None else Path.cwd()
+        self._cwd = selected_cwd.resolve()
 
     @property
     def repo_root(self) -> Path | None:

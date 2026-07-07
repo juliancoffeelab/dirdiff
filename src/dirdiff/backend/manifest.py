@@ -161,7 +161,7 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
 
 def _tree_path_for_repo_entry(entry: RepoDiffPath) -> str:
     """Choose the visible path for tree placement and reject pathless entries."""
-    path = entry.right_path or entry.left_path
+    path = entry.right_path if entry.right_path is not None else entry.left_path
     if path is None:
         raise ValueError("Repo manifest entry is missing both paths.")
     return path

@@ -267,13 +267,13 @@ def _side_statuses_for_entry(
     lhs_changes: tuple[DifftasticJsonChange, ...],
     rhs_changes: tuple[DifftasticJsonChange, ...],
 ) -> tuple[DifftasticTokenStatus | None, DifftasticTokenStatus | None]:
-    if lhs_changes and rhs_changes:
+    if lhs_changes != () and rhs_changes != ():
         if len(lhs_changes) == len(rhs_changes):
             return "replace", "replace"
         return "delete", "insert"
-    if lhs_changes:
+    if lhs_changes != ():
         return "delete", None
-    if rhs_changes:
+    if rhs_changes != ():
         return None, "insert"
     return None, None
 
@@ -343,7 +343,7 @@ def _change_index(diff_json: DifftasticJson) -> _ChangeIndex:
                         changes=left_changes,
                         status=left_status,
                     )
-                if left_changes and right_status is None:
+                if left_changes != () and right_status is None:
                     left_has_unpaired_delete.add(left_line)
 
             if right_line is not None:
@@ -597,7 +597,7 @@ def _has_current_pair_shared_context(
         right_prefix = right_line[:right_start]
         if left_prefix != right_prefix:
             continue
-        if _WORD_PATTERN.search(left_prefix):
+        if _WORD_PATTERN.search(left_prefix) is not None:
             return True
     return False
 
@@ -1169,7 +1169,7 @@ def _has_unchanged_meaningful_tokens(
             continue
         if token["is_ws"]:
             continue
-        if _ATOM_PATTERN.search(token["text"]):
+        if _ATOM_PATTERN.search(token["text"]) is not None:
             return True
     return False
 
@@ -1184,7 +1184,7 @@ def _has_unchanged_semantic_tokens(
             continue
         if token["is_ws"]:
             continue
-        if _WORD_PATTERN.search(token["text"]):
+        if _WORD_PATTERN.search(token["text"]) is not None:
             return True
     return False
 
@@ -1553,7 +1553,7 @@ def _has_current_change_pair(
             continue
         if pair.right_line != right_index:
             continue
-        if pair.left_changes or pair.right_changes:
+        if pair.left_changes != () or pair.right_changes != ():
             return True
     return False
 
@@ -1738,8 +1738,16 @@ def _context_tokens_with_indent_delta(
 ) -> tuple[list[DifftasticInlineToken], list[DifftasticInlineToken]]:
     left_leading = _leading_whitespace(left_text)
     right_leading = _leading_whitespace(right_text)
-    left_body = left_body_override or left_text[len(left_leading) :]
-    right_body = right_body_override or right_text[len(right_leading) :]
+    left_body = (
+        left_text[len(left_leading) :]
+        if left_body_override is None
+        else left_body_override
+    )
+    right_body = (
+        right_text[len(right_leading) :]
+        if right_body_override is None
+        else right_body_override
+    )
     left_tokens: list[DifftasticInlineToken] = []
     right_tokens: list[DifftasticInlineToken] = []
 
@@ -1945,7 +1953,7 @@ def _rows_from_specs(
             pending_right = None
 
         if spec.left is not None:
-            while pending_left and pending_left[0].index != spec.left:
+            while pending_left != [] and pending_left[0].index != spec.left:
                 pending = pending_left.pop(0)
                 if pending.cursor > 0:
                     rows.append(
