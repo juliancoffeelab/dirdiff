@@ -699,9 +699,9 @@ def build_repo_info_for_request(
     """
     selected_base, selected_review = branch_selections
     if mode == "preset":
-        if preset is None or not preset.strip():
+        if preset is None or (requested_preset := preset.strip()) == "":
             raise TextDiffError("preset is required for preset mode.")
-        preset_name = backend.normalize_side(preset)
+        preset_name = backend.normalize_side(requested_preset)
         paths = backend.list_repo_diff_paths(
             left=preset_name,
             right="new",
@@ -735,12 +735,12 @@ def build_repo_info_for_request(
             right_label=normalized_branch,
             paths=tuple(paths),
         )
-    if left is None or not left.strip():
+    if left is None or (requested_left := left.strip()) == "":
         raise TextDiffError("left is required for this diff mode.")
-    if right is None or not right.strip():
+    if right is None or (requested_right := right.strip()) == "":
         raise TextDiffError("right is required for this diff mode.")
-    normalized_left = backend.normalize_side(left)
-    normalized_right = backend.normalize_side(right)
+    normalized_left = backend.normalize_side(requested_left)
+    normalized_right = backend.normalize_side(requested_right)
     paths = backend.list_repo_diff_paths(
         left=normalized_left,
         right=normalized_right,
@@ -793,22 +793,22 @@ def _branch_selection_from_query(
             status_code=HTTPStatus.BAD_REQUEST,
             detail=f"{label}_source is required for branch-review mode.",
         )
-    if branch is None or not branch.strip():
+    if branch is None or (branch_name := branch.strip()) == "":
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
             detail=f"{label}_branch is required for branch-review mode.",
         )
     if source == "local":
-        return {"source": source, "branch": branch.strip()}
-    if remote is None or not remote.strip():
+        return {"source": source, "branch": branch_name}
+    if remote is None or (remote_name := remote.strip()) == "":
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
             detail=f"{label}_remote is required for remote branch-review selections.",
         )
     return {
         "source": source,
-        "remote": remote.strip(),
-        "branch": branch.strip(),
+        "remote": remote_name,
+        "branch": branch_name,
     }
 
 

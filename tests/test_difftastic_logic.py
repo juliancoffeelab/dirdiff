@@ -121,7 +121,7 @@ def _assert_no_pure_unchanged_one_sided_changes(
     rows: list[DifftasticRow],
 ) -> None:
     broken_texts = _pure_unchanged_one_sided_change_texts(rows)
-    assert not broken_texts, broken_texts
+    assert broken_texts == [], broken_texts
 
 
 def _changed_semantic_atoms_for_line(

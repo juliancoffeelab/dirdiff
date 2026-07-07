@@ -91,7 +91,7 @@ def mark_repo(
     expanded_repo_path = absolute_repo_path(repo_path)
     if name is None:
         display_name = expanded_repo_path.name
-        if not display_name:
+        if display_name == "":
             raise SystemExit(
                 f"Cannot derive a repo name from path: {expanded_repo_path}"
             )

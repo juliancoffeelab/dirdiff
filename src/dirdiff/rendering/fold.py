@@ -344,7 +344,7 @@ FOLD_LANGUAGE_SPECS: tuple[FoldLanguageSpec, ...] = (
 
 def fold_hints_for_path(
     path: str | None,
-    text: str | None,
+    text: str,
     rows: list[dict[str, Any]],
 ) -> list[FoldHint]:
     """Return fold hints for the right side of an already-rendered diff.
@@ -354,10 +354,10 @@ def fold_hints_for_path(
     foldable source regions; the final hints are accepted only when those
     regions map cleanly to `rows` and remain unchanged in the rendered diff.
     Unsupported languages, missing tree-sitter packages, parse/query failures,
-    empty inputs, and paths without right-side rows all produce an empty list.
+    and paths without right-side rows all produce an empty list.
     """
 
-    if not path or not text or not rows:
+    if path is None or rows == []:
         return []
 
     spec = _spec_for_path(path)
@@ -381,7 +381,7 @@ def fold_hints_for_path(
         for index, row in enumerate(rows)
         if isinstance(row.get("right_no"), int)
     }
-    if not right_line_to_row:
+    if right_line_to_row == {}:
         return []
 
     cursor = QueryCursor(query)
@@ -445,7 +445,7 @@ def _collect_markdown_section_hints(
     changed section can be folded.
     """
 
-    if not spec.rules:
+    if spec.rules == ():
         return []
 
     headings: list[tuple[Node, int, str]] = []
@@ -453,7 +453,7 @@ def _collect_markdown_section_hints(
         if pattern_index >= len(spec.rules):
             continue
         label_nodes = capture_map.get("fold.label")
-        if not label_nodes:
+        if label_nodes is None or label_nodes == []:
             continue
         heading = label_nodes[0]
         headings.append(
@@ -464,7 +464,7 @@ def _collect_markdown_section_hints(
             )
         )
 
-    if not headings:
+    if headings == []:
         return []
 
     candidates: list[FoldCandidate] = []
@@ -508,7 +508,7 @@ def _collect_markdown_section_hints(
             )
         )
 
-    if not candidates:
+    if candidates == []:
         return []
 
     _assign_candidate_parents(candidates)
@@ -546,7 +546,7 @@ def _collect_candidates(
         if pattern_index >= len(spec.rules):
             continue
         fold_nodes = capture_map.get("fold")
-        if not fold_nodes:
+        if fold_nodes is None or fold_nodes == []:
             continue
 
         rule = spec.rules[pattern_index]
@@ -758,7 +758,7 @@ def _collect_top_level_hints(
         source_bytes,
         right_line_to_row,
     )
-    if not items:
+    if items == []:
         return []
 
     existing_ranges = {
@@ -941,7 +941,7 @@ def _append_top_level_run_hint(
     labels it by the item categories it contains.
     """
 
-    if not run:
+    if run == []:
         return
     start_row = run[0].start_row
     end_row = run[-1].end_row

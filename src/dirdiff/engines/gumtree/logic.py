@@ -350,7 +350,7 @@ def _status_tokens_for_line(
         boundaries.add(start)
         boundaries.add(end)
 
-    if not clipped:
+    if clipped == []:
         return []
 
     tokens: list[InlineToken] = []
@@ -436,7 +436,7 @@ def _changed_token_statuses(row: dict[str, Any]) -> set[GumTreeTokenStatus]:
 def _project_gumtree_line_statuses(rows: list[dict[str, Any]]) -> None:
     for row in rows:
         changed_statuses = _changed_token_statuses(row)
-        if not changed_statuses:
+        if changed_statuses == set():
             if row["status"] in {"insert", "delete"}:
                 continue
             row["status"] = "equal"

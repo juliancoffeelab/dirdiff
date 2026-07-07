@@ -418,7 +418,7 @@ def _normalized_row_specs(
     change_index: _ChangeIndex,
 ) -> list[_RowSpec]:
     aligned_lines = diff_json.get("aligned_lines", [])
-    if not aligned_lines:
+    if aligned_lines == []:
         return []
 
     specs: list[_RowSpec] = []
@@ -593,9 +593,9 @@ def _has_current_pair_shared_context(
             continue
         if pair.right_line != right_index:
             continue
-        if not pair.left_changes:
+        if pair.left_changes == ():
             continue
-        if not pair.right_changes:
+        if pair.right_changes == ():
             continue
         left_start = _first_change_start(pair.left_changes)
         right_start = _first_change_start(pair.right_changes)
@@ -620,7 +620,7 @@ def _first_change_start(
         start = change.get("start")
         if isinstance(start, int):
             starts.append(start)
-    if not starts:
+    if starts == []:
         return None
     return min(starts)
 
@@ -747,9 +747,9 @@ def _repair_one_sided_block(
         for position, spec in enumerate(block)
         if spec.left is None and spec.right is not None
     ]
-    if not left_items:
+    if left_items == []:
         return block
-    if not right_items:
+    if right_items == []:
         return block
 
     structural_pairs = _adjacent_structural_context_pairs(
@@ -765,7 +765,7 @@ def _repair_one_sided_block(
         change_index=change_index,
     )
     pairs = [*structural_pairs, *adjacent_pairs]
-    if not pairs:
+    if pairs == []:
         return block
 
     left_position = {index: position for position, index in left_items}
@@ -984,9 +984,9 @@ def _nearest_left_after(block: list[_RowSpec], position: int) -> int | None:
 def _line_similarity(left_line: str, right_line: str) -> float:
     left_atoms = _semantic_atoms(left_line)
     right_atoms = _semantic_atoms(right_line)
-    if not left_atoms:
+    if left_atoms == []:
         return 1.0 if left_line == right_line else 0.0
-    if not right_atoms:
+    if right_atoms == []:
         return 1.0 if left_line == right_line else 0.0
     if set(left_atoms).isdisjoint(right_atoms):
         return 0.0
@@ -1254,7 +1254,7 @@ def _right_line_template_for_left(
                 _ChangeInterval(start=start, end=end, status="insert")
             )
 
-    if not skip_intervals:
+    if skip_intervals == []:
         return right_line
 
     pieces: list[str] = []
@@ -1290,7 +1290,7 @@ def _match_left_fragment(
         change_index=change_index,
     )
     template_atoms = _atoms_with_offsets(template)
-    if not template_atoms:
+    if template_atoms == []:
         return None
 
     left_atoms = _atoms_with_offsets(left_line[pending.cursor :])
@@ -1335,9 +1335,9 @@ def _match_left_fragment_by_subsequence(
     right_line = right_lines[right_index]
     left_atoms = _atoms_with_offsets(left_line[pending.cursor :])
     right_atoms = _atoms_with_offsets(right_line)
-    if not left_atoms:
+    if left_atoms == []:
         return None
-    if not right_atoms:
+    if right_atoms == []:
         return None
     skipped_leading_opener = False
     if left_atoms[0][0] != right_atoms[0][0]:
@@ -1403,9 +1403,9 @@ def _match_right_fragment(
     left_line = left_lines[left_index]
     right_atoms = _atoms_with_offsets(right_line[pending.cursor :])
     left_atoms = _atoms_with_offsets(left_line)
-    if not right_atoms:
+    if right_atoms == []:
         return None
-    if not left_atoms:
+    if left_atoms == []:
         return None
     if right_atoms[0][0] != left_atoms[0][0]:
         return None
@@ -1449,7 +1449,7 @@ def _extend_matching_trailing_whitespace(
     template: str,
 ) -> int:
     template_atoms = _atoms_with_offsets(template)
-    if not template_atoms:
+    if template_atoms == []:
         return source_end
     trailing = template[template_atoms[-1][2] :]
     if trailing == "":
@@ -1922,7 +1922,7 @@ def _mark_last_unchanged_suffix(
     suffix: str,
     status: DifftasticTokenStatus,
 ) -> list[DifftasticInlineToken]:
-    if not tokens:
+    if tokens == []:
         return tokens
     last = tokens[-1]
     if last["status"] != "unchanged":
@@ -1984,7 +1984,7 @@ def _rows_from_specs(
             pending_left.append(_PendingLeftLine(index=spec.left))
 
         if spec.right is None:
-            if not pending_left:
+            if pending_left == []:
                 continue
             pending = pending_left.pop(0)
             if pending_right is not None:

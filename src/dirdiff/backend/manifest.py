@@ -80,7 +80,7 @@ def file_kind_for_change_type(
 
 def _looks_generated_path(path: str | None) -> bool:
     """Centralize generated-file heuristics so manifest and lazy info agree."""
-    if not path:
+    if path is None:
         return False
     return PurePosixPath(path).name.casefold() in GENERATED_FILES
 
@@ -194,7 +194,7 @@ def _insert_tree_entry(
     file_entry: dict[str, Any],
 ) -> None:
     """Mutate one tree level while preserving directory identity by path."""
-    if not parts:
+    if parts == []:
         raise ValueError(f"Cannot insert empty manifest tree path: {full_path}")
     if len(parts) == 1:
         entries.append({"type": "file", "name": parts[0], "entry": file_entry})

@@ -453,7 +453,7 @@ def _has_shared_informative_alignment_word(
         for word in left_words
         if _is_informative_alignment_word(word)
     }
-    if not left_informative:
+    if left_informative == set():
         return False
 
     right_informative = {
@@ -486,7 +486,7 @@ def _align_similar_lines(
     left_lines: list[str],
     right_lines: list[str],
 ) -> list[tuple[int, int]]:
-    if not left_lines or not right_lines:
+    if left_lines == [] or right_lines == []:
         return []
 
     left_count = len(left_lines)
@@ -673,7 +673,9 @@ def _inline_diff(
                     if left_count == 1 and right_count == 1:
                         left_token = left_slice[ii1]
                         right_token = right_slice[jj1]
-                        if not left_token["is_ws"] and not right_token["is_ws"]:
+                        left_is_ws: bool = left_token["is_ws"]
+                        right_is_ws: bool = right_token["is_ws"]
+                        if not left_is_ws and not right_is_ws:
                             left_parts = _identifier_diff_parts(
                                 left_token["text"]
                             )

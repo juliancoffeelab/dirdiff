@@ -51,7 +51,8 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
     for token in diff["rows"][0]["left_tokens"]:
         if token["text"] == "(":
             break
-        if token["text"] != "function" and not token["is_ws"]:
+        left_is_ws: bool = token["is_ws"]
+        if token["text"] != "function" and not left_is_ws:
             left_name_tokens.append(
                 (token["text"], (token["status"] != "unchanged"))
             )
@@ -60,7 +61,8 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
     for token in diff["rows"][0]["right_tokens"]:
         if token["text"] == "(":
             break
-        if token["text"] != "function" and not token["is_ws"]:
+        right_is_ws: bool = token["is_ws"]
+        if token["text"] != "function" and not right_is_ws:
             right_name_tokens.append(
                 (token["text"], (token["status"] != "unchanged"))
             )

@@ -317,7 +317,7 @@ def _collect_unchanged_context_leak_diagnostics(
         context_run = _one_sided_equal_context_run(
             row, side=side, other_side=other_side
         )
-        if not context_run:
+        if context_run == []:
             continue
 
         if _run_is_contiguous_subsequence(
@@ -427,7 +427,7 @@ def _pure_unchanged_one_sided_change_texts(
             for token in tokens
             if isinstance(token, dict) and _meaningful_token_atoms(token)
         ]
-        if not meaningful_tokens:
+        if meaningful_tokens == []:
             continue
 
         if all(
@@ -443,7 +443,7 @@ def _assert_one_sided_changes_are_not_pure_unchanged_context(
     rows: list[DifftasticRow],
 ) -> None:
     broken_texts = _pure_unchanged_one_sided_change_texts(rows)
-    assert not broken_texts, broken_texts
+    assert broken_texts == [], broken_texts
 
 
 def _text_without_difftastic_ignored_trailing_commas(

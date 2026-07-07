@@ -269,7 +269,7 @@ def run_difftastic_json(
         raise TextDiffError("Difftastic returned invalid JSON.") from exc
 
     if isinstance(parsed, list):
-        if not parsed:
+        if parsed == []:
             return cast("DifftasticJson", {"aligned_lines": [], "chunks": []})
         first = parsed[0]
         if isinstance(first, dict):

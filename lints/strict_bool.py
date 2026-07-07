@@ -314,6 +314,10 @@ class StrictBoolVisitor:
             self._check_bool_expr(expr.right)
             return
 
+        if isinstance(expr, mypy.nodes.UnaryExpr) and expr.op == "not":
+            self._check_bool_expr(expr.expr)
+            return
+
         if isinstance(
             expr, mypy.nodes.ComparisonExpr
         ) and _has_only_explicit_bool_operators(expr):
@@ -336,6 +340,9 @@ class StrictBoolVisitor:
             left_is_boolean = self._is_boolean_operation(expr.left)
             right_is_boolean = self._is_boolean_operation(expr.right)
             return left_is_boolean and right_is_boolean
+
+        if isinstance(expr, mypy.nodes.UnaryExpr) and expr.op == "not":
+            return self._is_boolean_operation(expr.expr)
 
         if isinstance(expr, mypy.nodes.ComparisonExpr):
             return _has_only_explicit_bool_operators(expr)

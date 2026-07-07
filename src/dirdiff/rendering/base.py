@@ -207,19 +207,17 @@ def _strip_syntax_markup(rows: list[dict[str, Any]]) -> None:
 
 def _highlight_lines_for_path(
     path: str | None,
-    text: str | None,
+    text: str,
 ) -> list[list[dict[str, object]]] | None:
     """Return syntax spans for display rendering, if a parser is available.
 
     Highlighting is part of the rendered row payload, not part of diff-engine
     comparison.  The renderer uses the path hint only to choose a tree-sitter
-    language and query; unsupported languages, missing parsers, missing query
-    files, and empty inputs all produce `None` so callers can fall back to a
-    plain render.
+    language and query; unsupported languages, missing parsers, and missing
+    query files all produce `None` so callers can fall back to a plain render.
     """
-    if not path or not text:
+    if path is None:
         return None
-
     spec = _syntax_spec_for_path(path)
     if spec is None:
         return None
@@ -311,7 +309,7 @@ def _highlight_lines_with_spec(
             if node.start_byte < node.end_byte:
                 captures.append((capture_name, node.start_byte, node.end_byte))
 
-    if not captures:
+    if captures == []:
         return [[] for _ in text.splitlines()]
 
     byte_boundaries = [0]
@@ -378,7 +376,7 @@ def _collapse_line_intervals(
     line_text: str,
     intervals: list[tuple[int, int, tuple[str, ...], int]],
 ) -> list[_SyntaxSpan]:
-    if not line_text or not intervals:
+    if intervals == []:
         return []
 
     events: list[tuple[int, int, int]] = []

@@ -105,14 +105,14 @@ class PresetBackend(WorkspaceBackendProtocol):
     def default_preset_name(self) -> str:
         """Choose the first available preset group for initial UI state."""
         names = self._list_preset_names()
-        if not names:
+        if names == []:
             raise TextDiffError(f"No presets found in {self.presets_root}.")
         return names[0]
 
     def _preset_group_name(self, preset_name: str) -> str:
         """Validate and normalize a user-selected preset group name."""
         normalized = preset_name.strip()
-        if not normalized:
+        if normalized == "":
             normalized = self.default_preset_name()
         candidate = PurePosixPath(normalized)
         if candidate.is_absolute():
@@ -126,7 +126,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         preset_dir = self.presets_root / normalized
         if not preset_dir.is_dir():
             raise TextDiffError(f"Unknown preset: {normalized}")
-        if not self._preset_dirs_for_group(normalized):
+        if self._preset_dirs_for_group(normalized) == []:
             raise TextDiffError(f"Preset group has no fixtures: {normalized}")
         return normalized
 

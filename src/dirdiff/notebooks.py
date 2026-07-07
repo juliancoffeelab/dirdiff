@@ -729,7 +729,7 @@ def build_notebook_section_payload(
             "fold_hints": payload.get("fold_hints", []),
         }
 
-    if not cell_key:
+    if cell_key is None:
         raise TextDiffError("Notebook cell key is required.")
 
     left_cells = (
