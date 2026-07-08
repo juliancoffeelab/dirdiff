@@ -19,6 +19,7 @@ import tree_sitter_rust
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
+from dirdiff.engines import DiffSide
 from dirdiff.engines.difftastic import (
     DifftasticDiffEngine,
     DifftasticRow,
@@ -623,18 +624,18 @@ def test_difftastic_preset_diff_replays_left_to_right(
             )
         )
 
-    service = DifftasticDiffEngine()
-    diff_json = service._run_difftastic_json(
-        left_text=normalized_texts["left"],
-        right_text=normalized_texts["right"],
-        left_path_hint=old_path.name,
-        right_path_hint=new_path.name,
-    )
-    rows = _difftastic_rows_from_json(
-        diff_json,
-        left_text=normalized_texts["left"],
-        right_text=normalized_texts["right"],
-    )
+    rows = DifftasticDiffEngine().render_diff(
+        old=DiffSide(
+            exists=True,
+            text=normalized_texts["left"],
+            path_hint=old_path.name,
+        ),
+        new=DiffSide(
+            exists=True,
+            text=normalized_texts["right"],
+            path_hint=new_path.name,
+        ),
+    )["rows"]
 
     # Keep the replay stages in this test in sync with the right-to-left test.
 
@@ -679,6 +680,14 @@ def test_difftastic_preset_diff_replays_left_to_right(
 
     old_parts = side_parts["left"]
     new_parts = side_parts["right"]
+    old_source_chars = [
+        char for char in normalized_texts["left"] if not char.isspace()
+    ]
+    new_source_chars = [
+        char for char in normalized_texts["right"] if not char.isspace()
+    ]
+    assert [text for _, text in old_parts] == old_source_chars
+    assert [text for _, text in new_parts] == new_source_chars
     operations: list[tuple[str, str]] = []
     old_cursor = 0
     new_cursor = 0
@@ -730,7 +739,7 @@ def test_difftastic_preset_diff_replays_left_to_right(
             replayed.append(text)
         old_cursor += 1
 
-    assert "".join(replayed) == "".join(text for _, text in new_parts)
+    assert replayed == new_source_chars
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
@@ -765,18 +774,18 @@ def test_difftastic_preset_diff_replays_right_to_left(
             )
         )
 
-    service = DifftasticDiffEngine()
-    diff_json = service._run_difftastic_json(
-        left_text=normalized_texts["left"],
-        right_text=normalized_texts["right"],
-        left_path_hint=old_path.name,
-        right_path_hint=new_path.name,
-    )
-    rows = _difftastic_rows_from_json(
-        diff_json,
-        left_text=normalized_texts["left"],
-        right_text=normalized_texts["right"],
-    )
+    rows = DifftasticDiffEngine().render_diff(
+        old=DiffSide(
+            exists=True,
+            text=normalized_texts["left"],
+            path_hint=old_path.name,
+        ),
+        new=DiffSide(
+            exists=True,
+            text=normalized_texts["right"],
+            path_hint=new_path.name,
+        ),
+    )["rows"]
 
     # Keep the replay stages in this test in sync with the left-to-right test.
 
@@ -821,6 +830,14 @@ def test_difftastic_preset_diff_replays_right_to_left(
 
     new_parts = side_parts["right"]
     old_parts = side_parts["left"]
+    new_source_chars = [
+        char for char in normalized_texts["right"] if not char.isspace()
+    ]
+    old_source_chars = [
+        char for char in normalized_texts["left"] if not char.isspace()
+    ]
+    assert [text for _, text in new_parts] == new_source_chars
+    assert [text for _, text in old_parts] == old_source_chars
     operations: list[tuple[str, str]] = []
     new_cursor = 0
     old_cursor = 0
@@ -872,7 +889,7 @@ def test_difftastic_preset_diff_replays_right_to_left(
             replayed.append(text)
         new_cursor += 1
 
-    assert "".join(replayed) == "".join(text for _, text in old_parts)
+    assert replayed == old_source_chars
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)

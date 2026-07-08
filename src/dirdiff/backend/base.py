@@ -398,12 +398,15 @@ def unified_diff_lines(
     returns backend-level line records rather than dirdiff rows: engines still
     choose how to map those records into their renderer-specific payloads.
     """
+    left_lines = left_text.splitlines()
+    right_lines = right_text.splitlines()
     patch_lines = difflib.unified_diff(
-        left_text.splitlines(),
-        right_text.splitlines(),
+        left_lines,
+        right_lines,
         fromfile=left_label,
         tofile=right_label,
         lineterm="",
+        n=max(len(left_lines), len(right_lines)),
     )
     lines: list[UnifiedDiffLine] = []
     left_no = 1
