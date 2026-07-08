@@ -20,13 +20,8 @@ import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
 from dirdiff.engines import DiffSide
-from dirdiff.engines.difftastic import (
-    DifftasticDiffEngine,
-    DifftasticRow,
-)
-from dirdiff.engines.difftastic.logic import (
-    _difftastic_rows_from_json,
-)
+from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
+from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
 Side = Literal["left", "right"]
@@ -779,6 +774,47 @@ def test_difftastic_preset_line_status_matches_token_statuses(
             diagnostics.append((row_index, actual, expected, token_statuses))
 
     assert diagnostics == []
+
+
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_line_alignment_matches_difftastic(
+    preset_dir: Path,
+) -> None:
+    old_path = _single_file("old.*", preset_dir)
+    new_path = _single_file("new.*", preset_dir)
+    old_text = old_path.read_text()
+    new_text = new_path.read_text()
+    service = DifftasticDiffEngine()
+    diff_json = service._run_difftastic_json(
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    rows = _difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
+    old_line_count = len(old_text.splitlines())
+    new_line_count = len(new_text.splitlines())
+    expected: list[tuple[int | None, int | None]] = []
+    for pair in diff_json.get("aligned_lines", []):
+        assert isinstance(pair, list)
+        assert len(pair) == 2
+        left_raw, right_raw = pair
+        assert left_raw is None or isinstance(left_raw, int)
+        assert right_raw is None or isinstance(right_raw, int)
+        left_no = None if left_raw is None else left_raw + 1
+        right_no = None if right_raw is None else right_raw + 1
+        if left_no is not None and left_no > old_line_count:
+            continue
+        if right_no is not None and right_no > new_line_count:
+            continue
+        expected.append((left_no, right_no))
+
+    actual = [(row.get("left_no"), row.get("right_no")) for row in rows]
+    assert actual == expected
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
