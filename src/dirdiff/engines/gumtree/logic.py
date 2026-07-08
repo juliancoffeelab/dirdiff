@@ -1,511 +1,96 @@
-"""GumTree JSON to dirdiff row AST contract.
+"""Project GumTree JSON ranges into dirdiff rows.
 
-This module defines the boundary between raw GumTree JSON actions and the
-rendered row AST used by the GumTree service. It accepts GumTree-shaped JSON
-plus the original source text and returns dirdiff-shaped rows with inline token
-statuses projected from GumTree action ranges.
+This module is the GumTree engine's row-building boundary.  It accepts raw
+`gumtree textdiff -f JSON` output plus the two complete source texts, then
+returns dirdiff engine rows whose visible decorations come from GumTree source
+ranges.  The source texts remain the authority for displayed characters and
+line breaks; GumTree ranges are the authority for changed spans and statuses.
 
-This module must not own raw GumTree execution or final API payload assembly:
+The module intentionally does not perform text-diff alignment or line-level
+change painting.  GumTree's browser view renders both files from their own
+source text and applies GumTree-classified ranges over those files.  Dirdiff's
+row grid needs rows, so this module pairs source lines by ordinal position
+only and keeps those rows visually neutral; it does not use similarity matching
+or reconstruct changed tokens from text differences.
 
-* `dirdiff.engines.gumtree.gumtree` owns invoking `gumtree` and parsing JSON.
-* the server/request layer owns backend loading, syntax highlighting, fold
-  hints, and frontend payload assembly.
-
-Input contract
---------------
-The main entrypoint is `build_gumtree_rows_from_json`:
-
-* `left_text` and `right_text` are the complete source documents. They are the
-  authority for line text, line counts, and user-visible content.
-* `diff_json.actions` contains GumTree edit actions. The `tree` value must end
-  with a byte/character range of the form `[start,end]`.
-* `diff_json.matches` maps source tree strings to destination tree strings for
-  actions that need a paired destination range, such as updates and moves.
-
-Accepted GumTree facts
-----------------------
-GumTree action names are interpreted by prefix:
-
-* `insert-*`: destination/right range, rendered as `insert`;
-* `delete-*`: source/left range, rendered as `delete`;
-* `update-*`: source and matched destination ranges, rendered as `replace`;
-* `move-*`: source and matched destination ranges, rendered as `move`.
-
-Overlapping action ranges are resolved as a single token status. `move` wins
-over `replace`, and `replace` wins over `insert`/`delete`, matching the
-first-class visual priority dirdiff expects for GumTree rendering.
-
-Output contract
----------------
-`build_gumtree_rows_from_json` returns display rows compatible with the shared
-dirdiff row payload. GumTree rows whose changed tokens are purely inserted,
-deleted, or moved get the matching row status; mixed token changes are marked
-as `replace`. That gives hunk navigation a backend signal without asking the
-frontend to infer hunks from token arrays.
-
-Required invariants
--------------------
-* row text must come from the supplied source text;
-* token text must concatenate back to the displayed row text whenever tokens are
-  emitted for a side;
-* GumTree ranges are projected onto one-based source line numbers;
-* matched update and move actions must have destination ranges in `matches`;
-* invalid or malformed GumTree JSON facts fail at this boundary instead of
-  silently degrading into misleading token output.
-
-Non-goals
----------
-This module does not validate the full GumTree JSON schema, does not shell out
-to GumTree, does not perform syntax highlighting, does not build fold hints,
-and does not assemble the final HTTP/API payload.
+`dirdiff.engines.gumtree.gumtree` owns subprocess execution and JSON schema
+validation.  Server-side display enrichment, syntax highlighting, folds, and
+HTTP payload assembly happen outside this module.
 """
 
 from __future__ import annotations
 
-import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from difflib import SequenceMatcher
-from itertools import pairwise
+from itertools import pairwise, zip_longest
 from pathlib import Path
-from typing import Any, Literal, final, override
+from typing import Literal, final, override
 
-from dirdiff.backend import TextDiffError, unified_diff_lines
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
     DiffSide,
     DiffSummary,
-    EngineWarning,
     InlineToken,
+    InlineTokenStatus,
     strict_engine_rows,
 )
 from dirdiff.engines.gumtree.gumtree import (
-    GumTreeInvalidJsonError,
     GumTreeJson,
     gumtree_executable_for_cwd,
     run_gumtree_json,
 )
 
-type GumTreeTokenStatus = Literal[
-    "unchanged", "insert", "delete", "replace", "move"
-]
-
-GUMTREE_TREE_RANGE_PATTERN = re.compile(r"\[(?P<start>\d+),(?P<end>\d+)\]\s*$")
-GUMTREE_TOKEN_STATUS_PRIORITY = {
-    "unchanged": 0,
-    "insert": 1,
-    "delete": 1,
-    "replace": 2,
-    "move": 3,
-}
-
 __all__ = [
-    "GUMTREE_TOKEN_STATUS_PRIORITY",
-    "GUMTREE_TREE_RANGE_PATTERN",
     "GumTreeDiffEngine",
-    "LineSegment",
-    "SourceRange",
-    "StatusLineInterval",
-    "StatusRange",
     "build_gumtree_rows_from_json",
-    "unified_diff_rows",
 ]
 
+type _Side = Literal["left", "right"]
+
 
 @dataclass(frozen=True)
-class SourceRange:
+class _SourceRange:
+    """Half-open source range reported by GumTree.
+
+    GumTree ranges are absolute offsets into one source document.  Callers must
+    pass only ranges where `start <= end`; empty ranges are ignored by token
+    projection because no visible character can carry a decoration.
+    """
+
     start: int
     end: int
 
 
 @dataclass(frozen=True)
-class StatusRange:
-    side: Literal["left", "right"]
-    status: GumTreeTokenStatus
-    source_range: SourceRange
+class _LineSegment:
+    """One displayed source line plus its absolute source offsets.
 
+    `start` and `content_end` delimit the text displayed for the line.
+    `segment_end` also includes the line break when the original source had
+    one, allowing range iteration to skip efficiently across newline offsets.
+    """
 
-@dataclass(frozen=True)
-class StatusLineInterval:
-    start: int
-    end: int
-    status: GumTreeTokenStatus
-
-
-@dataclass(frozen=True)
-class LineSegment:
     index: int
     start: int
     content_end: int
     segment_end: int
+    text: str
 
 
-StatusLineIntervalMap = dict[int, list[StatusLineInterval]]
+@dataclass(frozen=True)
+class _DecorationRange:
+    """Single GumTree decoration range after action classification.
 
+    The status uses dirdiff's public inline-token vocabulary.  `ordinal` keeps
+    range selection stable when two GumTree ranges have identical spans.
+    """
 
-def _range_from_tree(raw_tree: str) -> SourceRange:
-    match = GUMTREE_TREE_RANGE_PATTERN.search(raw_tree)
-    if match is None:
-        raise TextDiffError(f"GumTree tree range is missing: {raw_tree}")
-    return SourceRange(
-        start=int(match.group("start")),
-        end=int(match.group("end")),
-    )
-
-
-def _gumtree_destinations_by_source(diff_json: GumTreeJson) -> dict[str, str]:
-    matches = diff_json.get("matches")
-    if matches is None:
-        matches = []
-
-    dest_by_src: dict[str, str] = {}
-    for match in matches:
-        dest_by_src[match["src"]] = match["dest"]
-    return dest_by_src
-
-
-def _gumtree_status_ranges(diff_json: GumTreeJson) -> list[StatusRange]:
-    actions = diff_json.get("actions")
-    if actions is None:
-        actions = []
-    dest_by_src = _gumtree_destinations_by_source(diff_json)
-
-    ranges: list[StatusRange] = []
-    for action in actions:
-        action_name = action["action"]
-        tree = action["tree"]
-        if action_name.startswith("insert"):
-            ranges.append(
-                StatusRange(
-                    side="right",
-                    status="insert",
-                    source_range=_range_from_tree(tree),
-                )
-            )
-            continue
-        if action_name.startswith("delete"):
-            ranges.append(
-                StatusRange(
-                    side="left",
-                    status="delete",
-                    source_range=_range_from_tree(tree),
-                )
-            )
-            continue
-        if action_name.startswith("update"):
-            ranges.append(
-                StatusRange(
-                    side="left",
-                    status="replace",
-                    source_range=_range_from_tree(tree),
-                )
-            )
-            dest_tree = dest_by_src.get(tree)
-            if dest_tree is None:
-                raise TextDiffError(
-                    f"GumTree update action has no destination mapping: {tree}"
-                )
-            ranges.append(
-                StatusRange(
-                    side="right",
-                    status="replace",
-                    source_range=_range_from_tree(dest_tree),
-                )
-            )
-            continue
-        if action_name.startswith("move"):
-            ranges.append(
-                StatusRange(
-                    side="left",
-                    status="move",
-                    source_range=_range_from_tree(tree),
-                )
-            )
-            dest_tree = dest_by_src.get(tree)
-            if dest_tree is None:
-                raise TextDiffError(
-                    f"GumTree move action has no destination mapping: {tree}"
-                )
-            ranges.append(
-                StatusRange(
-                    side="right",
-                    status="move",
-                    source_range=_range_from_tree(dest_tree),
-                )
-            )
-
-    return ranges
-
-
-def _content_length(line_segment: str) -> int:
-    if line_segment.endswith("\r\n"):
-        return len(line_segment) - 2
-    if line_segment.endswith("\n"):
-        return len(line_segment) - 1
-    if line_segment.endswith("\r"):
-        return len(line_segment) - 1
-    return len(line_segment)
-
-
-def _line_segments(text: str) -> list[LineSegment]:
-    segments: list[LineSegment] = []
-    cursor = 0
-    for index, raw_line in enumerate(text.splitlines(keepends=True)):
-        content_end = cursor + _content_length(raw_line)
-        segment_end = cursor + len(raw_line)
-        segments.append(
-            LineSegment(
-                index=index,
-                start=cursor,
-                content_end=content_end,
-                segment_end=segment_end,
-            )
-        )
-        cursor = segment_end
-    return segments
-
-
-def _add_range_to_status_line_intervals(
-    intervals_by_line: StatusLineIntervalMap,
-    text: str,
-    status_range: StatusRange,
-) -> None:
-    source_range = status_range.source_range
-    if source_range.end <= source_range.start:
-        return
-
-    for segment in _line_segments(text):
-        if source_range.end <= segment.start:
-            break
-        if source_range.start >= segment.segment_end:
-            continue
-        overlap_start = max(source_range.start, segment.start)
-        overlap_end = min(source_range.end, segment.content_end)
-        if overlap_start >= overlap_end:
-            continue
-        line_intervals = intervals_by_line.get(segment.index)
-        if line_intervals is None:
-            line_intervals = []
-            intervals_by_line[segment.index] = line_intervals
-        line_intervals.append(
-            StatusLineInterval(
-                start=overlap_start - segment.start,
-                end=overlap_end - segment.start,
-                status=status_range.status,
-            )
-        )
-
-
-def _status_line_intervals(
-    *,
-    text: str,
-    ranges: list[StatusRange],
-) -> StatusLineIntervalMap:
-    intervals_by_line: StatusLineIntervalMap = {}
-    for status_range in ranges:
-        _add_range_to_status_line_intervals(
-            intervals_by_line,
-            text,
-            status_range,
-        )
-    return intervals_by_line
-
-
-def _token(text: str, status: GumTreeTokenStatus) -> InlineToken:
-    return {"text": text, "status": status, "is_ws": text.isspace()}
-
-
-def _stronger_status(
-    left: GumTreeTokenStatus,
-    right: GumTreeTokenStatus,
-) -> GumTreeTokenStatus:
-    left_priority = GUMTREE_TOKEN_STATUS_PRIORITY[left]
-    right_priority = GUMTREE_TOKEN_STATUS_PRIORITY[right]
-    if right_priority > left_priority:
-        return right
-    return left
-
-
-def _status_tokens_for_line(
-    *,
-    text: str,
-    intervals: list[StatusLineInterval],
-) -> list[InlineToken]:
-    boundaries = {0, len(text)}
-    clipped: list[StatusLineInterval] = []
-    for interval in intervals:
-        start = max(interval.start, 0)
-        end = min(interval.end, len(text))
-        if start >= end:
-            continue
-        clipped.append(
-            StatusLineInterval(
-                start=start,
-                end=end,
-                status=interval.status,
-            )
-        )
-        boundaries.add(start)
-        boundaries.add(end)
-
-    if clipped == []:
-        return []
-
-    tokens: list[InlineToken] = []
-    sorted_boundaries = sorted(boundaries)
-    for start, end in pairwise(sorted_boundaries):
-        if start >= end:
-            continue
-        status: GumTreeTokenStatus = "unchanged"
-        for interval in clipped:
-            if interval.start <= start and end <= interval.end:
-                status = _stronger_status(status, interval.status)
-        if tokens != [] and tokens[-1]["status"] == status:
-            tokens[-1]["text"] += text[start:end]
-            tokens[-1]["is_ws"] = tokens[-1]["text"].isspace()
-            continue
-        tokens.append(_token(text[start:end], status))
-    return tokens
-
-
-def _apply_gumtree_statuses_to_rows(
-    *,
-    rows: list[dict[str, Any]],
-    left_text: str,
-    right_text: str,
-    ranges: list[StatusRange],
-) -> None:
-    left_ranges = [
-        status_range for status_range in ranges if status_range.side == "left"
-    ]
-    right_ranges = [
-        status_range for status_range in ranges if status_range.side == "right"
-    ]
-    left_intervals = _status_line_intervals(
-        text=left_text,
-        ranges=left_ranges,
-    )
-    right_intervals = _status_line_intervals(
-        text=right_text,
-        ranges=right_ranges,
-    )
-
-    for row in rows:
-        left_no = row.get("left_no")
-        if isinstance(left_no, int):
-            line_intervals = left_intervals.get(left_no - 1)
-            if line_intervals is not None:
-                left_text_value = row.get("left_text")
-                if not isinstance(left_text_value, str):
-                    raise TextDiffError("GumTree row is missing left text.")
-                row["left_tokens"] = _status_tokens_for_line(
-                    text=left_text_value,
-                    intervals=line_intervals,
-                )
-
-        right_no = row.get("right_no")
-        if isinstance(right_no, int):
-            line_intervals = right_intervals.get(right_no - 1)
-            if line_intervals is not None:
-                right_text_value = row.get("right_text")
-                if not isinstance(right_text_value, str):
-                    raise TextDiffError("GumTree row is missing right text.")
-                row["right_tokens"] = _status_tokens_for_line(
-                    text=right_text_value,
-                    intervals=line_intervals,
-                )
-
-
-def _changed_token_statuses(row: dict[str, Any]) -> set[GumTreeTokenStatus]:
-    statuses: set[GumTreeTokenStatus] = set()
-    for key in ("left_tokens", "right_tokens"):
-        tokens = row.get(key)
-        if not isinstance(tokens, list):
-            continue
-        for token in tokens:
-            if not isinstance(token, dict):
-                continue
-            status = token.get("status")
-            if status in {"insert", "delete", "replace", "move"}:
-                statuses.add(status)
-    return statuses
-
-
-def _project_gumtree_line_statuses(rows: list[dict[str, Any]]) -> None:
-    for row in rows:
-        changed_statuses = _changed_token_statuses(row)
-        if changed_statuses == set():
-            if row["status"] in {"insert", "delete"}:
-                continue
-            row["status"] = "equal"
-            continue
-        if changed_statuses == {"insert"}:
-            row["status"] = "insert"
-            continue
-        if changed_statuses == {"delete"}:
-            row["status"] = "delete"
-            continue
-        if changed_statuses == {"move"}:
-            row["status"] = "move"
-            continue
-        row["status"] = "replace"
-
-
-def _gumtree_aligned_line_rows(
-    left_text: str,
-    right_text: str,
-) -> list[dict[str, Any]]:
-    left_lines = left_text.splitlines()
-    right_lines = right_text.splitlines()
-    matcher = SequenceMatcher(
-        a=left_lines,
-        b=right_lines,
-        autojunk=False,
-    )
-    rows: list[dict[str, Any]] = []
-
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            for offset, left_line in enumerate(left_lines[i1:i2]):
-                rows.append(
-                    {
-                        "status": "equal",
-                        "left_no": i1 + offset + 1,
-                        "right_no": j1 + offset + 1,
-                        "left_text": left_line,
-                        "right_text": left_line,
-                        "left_tokens": [],
-                        "right_tokens": [],
-                    }
-                )
-            continue
-
-        for offset, left_line in enumerate(left_lines[i1:i2]):
-            rows.append(
-                {
-                    "status": "delete",
-                    "left_no": i1 + offset + 1,
-                    "right_no": None,
-                    "left_text": left_line,
-                    "right_text": "",
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-        for offset, right_line in enumerate(right_lines[j1:j2]):
-            rows.append(
-                {
-                    "status": "insert",
-                    "left_no": None,
-                    "right_no": j1 + offset + 1,
-                    "left_text": "",
-                    "right_text": right_line,
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-    return rows
+    start: int
+    end: int
+    status: InlineTokenStatus
+    ordinal: int
 
 
 def build_gumtree_rows_from_json(
@@ -513,170 +98,107 @@ def build_gumtree_rows_from_json(
     diff_json: GumTreeJson,
     left_text: str,
     right_text: str,
-) -> list[dict[str, Any]]:
-    ranges = _gumtree_status_ranges(diff_json)
-    rows = _gumtree_aligned_line_rows(left_text, right_text)
-    _apply_gumtree_statuses_to_rows(
-        rows=rows,
-        left_text=left_text,
-        right_text=right_text,
-        ranges=ranges,
-    )
-    _project_gumtree_line_statuses(rows)
-    return rows
+) -> list[dict[str, object]]:
+    """Return dirdiff rows whose token statuses come from GumTree JSON.
 
-
-def unified_diff_rows(
-    *,
-    left_text: str,
-    right_text: str,
-    left_path_hint: str,
-    right_path_hint: str,
-) -> list[dict[str, Any]]:
-    diff_lines = unified_diff_lines(
-        left_text=left_text,
-        right_text=right_text,
-        left_label=left_path_hint,
-        right_label=right_path_hint,
-    )
-    rows: list[dict[str, Any]] = []
-    for diff_line in diff_lines:
-        if diff_line.status == "equal":
-            rows.append(
-                {
-                    "status": "equal",
-                    "left_no": diff_line.left_no,
-                    "right_no": diff_line.right_no,
-                    "left_text": diff_line.text,
-                    "right_text": diff_line.text,
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-            continue
-        if diff_line.status == "delete":
-            rows.append(
-                {
-                    "status": "delete",
-                    "left_no": diff_line.left_no,
-                    "right_no": None,
-                    "left_text": diff_line.text,
-                    "right_text": "",
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-            continue
-        if diff_line.status == "insert":
-            rows.append(
-                {
-                    "status": "insert",
-                    "left_no": None,
-                    "right_no": diff_line.right_no,
-                    "left_text": "",
-                    "right_text": diff_line.text,
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-    return rows
-
-
-def _payload_size_bytes(payload: dict[str, Any]) -> int:
-    """Measure GumTree payload size using the API's JSON representation.
-
-    GumTree rows can become token-heavy because move/update information is
-    attached at token level.  The renderer uses the same serialized-size
-    measurement as the other engines when recording performance diagnostics.
+    `diff_json` must be the JSON emitted for `left_text` and `right_text`.
+    GumTree action tree ranges are projected directly to token ranges.  For
+    update and move actions, the source tree must have a matching destination
+    tree in `diff_json.matches`; missing mappings are treated as invalid engine
+    data because dirdiff cannot invent the destination range.
     """
-    return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
+    left_ranges, right_ranges = _classified_ranges(diff_json)
+    left_lines = _line_segments(left_text)
+    right_lines = _line_segments(right_text)
+    rows: list[dict[str, object]] = []
 
-def _plain_line_rows_for_side(
-    *,
-    text: str,
-    side: str,
-) -> list[dict[str, Any]]:
-    """Build rows for one-sided GumTree file diffs.
+    for left_segment, right_segment in zip_longest(left_lines, right_lines):
+        left_tokens = (
+            _tokens_for_line(segment=left_segment, ranges=left_ranges)
+            if left_segment is not None
+            else []
+        )
+        right_tokens = (
+            _tokens_for_line(segment=right_segment, ranges=right_ranges)
+            if right_segment is not None
+            else []
+        )
+        rows.append(
+            {
+                "status": "equal",
+                "left_no": (
+                    None if left_segment is None else left_segment.index + 1
+                ),
+                "right_no": (
+                    None if right_segment is None else right_segment.index + 1
+                ),
+                "left_text": "" if left_segment is None else left_segment.text,
+                "right_text": (
+                    "" if right_segment is None else right_segment.text
+                ),
+                "left_tokens": left_tokens,
+                "right_tokens": right_tokens,
+            }
+        )
 
-    GumTree move detection only applies when both old and new files exist.  For
-    added or deleted files, the service still needs to return a normal dirdiff
-    payload, so it builds plain insert/delete rows without invoking GumTree.
-    """
-    rows: list[dict[str, Any]] = []
-    for index, line in enumerate(text.splitlines(), start=1):
-        if side == "left":
-            rows.append(
-                {
-                    "status": "delete",
-                    "left_no": index,
-                    "right_no": None,
-                    "left_text": line,
-                    "right_text": "",
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-        else:
-            rows.append(
-                {
-                    "status": "insert",
-                    "left_no": None,
-                    "right_no": index,
-                    "left_text": "",
-                    "right_text": line,
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
     return rows
-
-
-def _gumtree_summary(
-    *,
-    rows: list[dict[str, Any]],
-) -> DiffSummary:
-    """Return GumTree summary counts for already-built rows.
-
-    GumTree's primary signal is token status, especially `move`.  After
-    projection, row statuses describe the same changed spans the frontend uses
-    for hunk navigation, so the summary counts those statuses directly.  Mixed
-    token changes are summarized as modified rows, while pure move rows are
-    summarized as moved rows.
-    """
-    modified_lines = sum(1 for row in rows if row["status"] == "replace")
-    added_lines = sum(1 for row in rows if row["status"] == "insert")
-    removed_lines = sum(1 for row in rows if row["status"] == "delete")
-    moved_lines = sum(1 for row in rows if row["status"] == "move")
-    return {
-        "changed_lines": (
-            modified_lines + added_lines + removed_lines + moved_lines
-        ),
-        "modified_lines": modified_lines,
-        "added_lines": added_lines,
-        "removed_lines": removed_lines,
-        "moved_lines": moved_lines,
-    }
 
 
 @final
 class GumTreeDiffEngine(DiffEngineProtocol):
-    """Move-aware renderer backed by GumTree.
+    """Structural renderer backed by GumTree JSON ranges.
 
-    GumTree needs old/new files on disk, but dirdiff's renderer boundary still
-    supplies text.  This service bridges that gap by writing temporary file
-    pairs with useful path hints, invoking GumTree for one file pair, parsing
-    the JSON action stream, and projecting GumTree move/update/insert/delete
-    actions into dirdiff rows and tokens.
-
-    GumTree behavior belongs in `render_diff` and this module's projection
-    layer.  Workspace state is only used to choose a working directory for
-    GumTree executable discovery.
+    The engine compares already-loaded source texts.  Path hints are used only
+    to let GumTree select a parser for temporary files; they are not read as
+    source content.  Missing-file diffs are rendered as whole-side insertions or
+    deletions because GumTree requires both source documents.
     """
 
     def __init__(self, *, cwd: Path) -> None:
-        """Store the working directory used for GumTree executable discovery."""
-        self.cwd = cwd
+        """Create a GumTree engine rooted at `cwd` for executable discovery."""
+
+        self._cwd = cwd
+
+    @override
+    def render_diff(
+        self,
+        *,
+        old: DiffSide,
+        new: DiffSide,
+    ) -> DiffEngineResult:
+        """Render a dirdiff engine result from loaded source sides.
+
+        When both sides exist, GumTree JSON ranges drive the row decorations.
+        When one side is absent, every displayed line on the present side is a
+        whole-line insertion or deletion.
+        """
+
+        left_text = "" if old.text is None else old.text
+        right_text = "" if new.text is None else new.text
+
+        if old.exists and new.exists:
+            diff_json = self._run_gumtree_json(
+                left_text=left_text,
+                right_text=right_text,
+                left_path_hint="" if old.path_hint is None else old.path_hint,
+                right_path_hint="" if new.path_hint is None else new.path_hint,
+            )
+            rows = build_gumtree_rows_from_json(
+                diff_json=diff_json,
+                left_text=left_text,
+                right_text=right_text,
+            )
+        elif old.exists:
+            rows = _whole_side_rows(text=left_text, side="left")
+        else:
+            rows = _whole_side_rows(text=right_text, side="right")
+
+        engine_rows = strict_engine_rows(rows)
+        return {
+            "summary": _summary(engine_rows),
+            "rows": engine_rows,
+        }
 
     def _run_gumtree_json(
         self,
@@ -686,101 +208,304 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         left_path_hint: str,
         right_path_hint: str,
     ) -> GumTreeJson:
-        """Invoke GumTree for one old/new text pair and parse JSON output.
+        """Run GumTree for tests and the public renderer entrypoint.
 
-        This is the only subprocess boundary in the service.  Executable
-        discovery is resolved relative to the workspace, then
-        `run_gumtree_json` writes temporary files and parses GumTree's JSON
-        stream.  Callers handle `GumTreeInvalidJsonError` by producing an
-        engine warning and a unified fallback payload.
+        The method exists so behavior tests can inspect the same raw JSON that
+        powers rendering without duplicating executable discovery.
         """
-        gumtree_bin = gumtree_executable_for_cwd(self.cwd)
+
         return run_gumtree_json(
-            gumtree_bin=gumtree_bin,
+            gumtree_bin=gumtree_executable_for_cwd(self._cwd),
             left_text=left_text,
             right_text=right_text,
             left_path_hint=left_path_hint,
             right_path_hint=right_path_hint,
         )
 
-    @override
-    def render_diff(
-        self,
-        *,
-        old: DiffSide,
-        new: DiffSide,
-    ) -> DiffEngineResult:
-        """Render a loaded old/new text pair with GumTree JSON as the boundary.
 
-        GumTree requires file names so it can select a parser, so callers must
-        provide both path hints when both sides exist.  The method writes the
-        supplied text into a temporary old/new pair, runs GumTree only for that
-        pair, and treats GumTree JSON as the integration boundary.
+_TREE_RANGE_RE = re.compile(r"\[(?P<start>\d+),(?P<end>\d+)\]\s*$")
 
-        Invalid GumTree JSON is converted into an honest engine warning and a
-        unified textual fallback.  Valid GumTree moves are summarized as moved
-        tokens/rows without making the service responsible for repo loading,
-        ref resolution, preset handling, or notebook decisions.
-        """
-        left_text_value = "" if old.text is None else old.text
-        right_text_value = "" if new.text is None else new.text
 
-        if old.exists and new.exists:
-            if old.path_hint is None:
-                raise TextDiffError(
-                    "GumTree requires both file paths for move detection."
-                )
-            if new.path_hint is None:
-                raise TextDiffError(
-                    "GumTree requires both file paths for move detection."
-                )
-            engine_warning: EngineWarning | None = None
-            try:
-                diff_json = self._run_gumtree_json(
-                    left_text=left_text_value,
-                    right_text=right_text_value,
-                    left_path_hint=old.path_hint,
-                    right_path_hint=new.path_hint,
-                )
-            except GumTreeInvalidJsonError:
-                rows = unified_diff_rows(
-                    left_text=left_text_value,
-                    right_text=right_text_value,
-                    left_path_hint=old.path_hint,
-                    right_path_hint=new.path_hint,
-                )
-                engine_warning = {
-                    "type": "gumtree_invalid_json",
-                    "message": (
-                        "GumTree returned invalid JSON, so dirdiff could not "
-                        "render GumTree move tokens for this file. Showing a "
-                        "unified diff fallback instead."
-                    ),
+def _range_from_tree(tree: str) -> _SourceRange:
+    """Extract the absolute half-open range from a GumTree tree string."""
+
+    match = _TREE_RANGE_RE.search(tree)
+    if match is None:
+        raise ValueError(f"GumTree tree is missing a source range: {tree!r}")
+
+    source_range = _SourceRange(
+        start=int(match.group("start")),
+        end=int(match.group("end")),
+    )
+    if source_range.start > source_range.end:
+        raise ValueError(f"GumTree tree has an invalid range: {tree!r}")
+    return source_range
+
+
+def _line_segments(text: str) -> list[_LineSegment]:
+    """Split source text into displayed lines with absolute offsets."""
+
+    segments: list[_LineSegment] = []
+    cursor = 0
+    for index, line in enumerate(text.splitlines(keepends=True)):
+        content = line.rstrip("\r\n")
+        content_end = cursor + len(content)
+        segment_end = cursor + len(line)
+        segments.append(
+            _LineSegment(
+                index=index,
+                start=cursor,
+                content_end=content_end,
+                segment_end=segment_end,
+                text=content,
+            )
+        )
+        cursor = segment_end
+    return segments
+
+
+def _classified_ranges(
+    diff_json: GumTreeJson,
+) -> tuple[list[_DecorationRange], list[_DecorationRange]]:
+    """Return left and right GumTree decoration ranges from JSON actions."""
+
+    dest_by_src = {
+        match["src"]: match["dest"] for match in diff_json.get("matches", [])
+    }
+    left_ranges: list[_DecorationRange] = []
+    right_ranges: list[_DecorationRange] = []
+
+    for ordinal, action in enumerate(diff_json.get("actions", [])):
+        action_name = action["action"]
+        tree = action["tree"]
+        if action_name.startswith("insert"):
+            _append_range(right_ranges, tree, "insert", ordinal)
+            continue
+        if action_name.startswith("delete"):
+            _append_range(left_ranges, tree, "delete", ordinal)
+            continue
+        if action_name.startswith("update"):
+            _append_range(left_ranges, tree, "replace", ordinal)
+            _append_range(
+                right_ranges,
+                _required_dest(dest_by_src, tree),
+                "replace",
+                ordinal,
+            )
+            continue
+        if action_name.startswith("move"):
+            _append_range(left_ranges, tree, "move", ordinal)
+            _append_range(
+                right_ranges, _required_dest(dest_by_src, tree), "move", ordinal
+            )
+
+    return (
+        sorted(
+            left_ranges, key=lambda item: (item.start, item.end, item.ordinal)
+        ),
+        sorted(
+            right_ranges, key=lambda item: (item.start, item.end, item.ordinal)
+        ),
+    )
+
+
+def _append_range(
+    ranges: list[_DecorationRange],
+    tree: str,
+    status: InlineTokenStatus,
+    ordinal: int,
+) -> None:
+    """Append one non-empty GumTree range to a side's decoration list."""
+
+    source_range = _range_from_tree(tree)
+    if source_range.start == source_range.end:
+        return
+    ranges.append(
+        _DecorationRange(
+            start=source_range.start,
+            end=source_range.end,
+            status=status,
+            ordinal=ordinal,
+        )
+    )
+
+
+def _required_dest(dest_by_src: dict[str, str], src_tree: str) -> str:
+    """Return the GumTree destination tree paired with a source tree."""
+
+    dest_tree = dest_by_src.get(src_tree)
+    if dest_tree is None:
+        raise ValueError(
+            f"GumTree action range has no destination mapping: {src_tree!r}"
+        )
+    return dest_tree
+
+
+def _tokens_for_line(
+    *,
+    segment: _LineSegment,
+    ranges: list[_DecorationRange],
+) -> list[InlineToken]:
+    """Return one line's tokens split exactly at GumTree range boundaries."""
+
+    boundaries = {segment.start, segment.content_end}
+    relevant: list[_DecorationRange] = []
+    for item in ranges:
+        if item.end <= segment.start:
+            continue
+        if item.start >= segment.content_end:
+            break
+        relevant.append(item)
+        boundaries.add(max(segment.start, item.start))
+        boundaries.add(min(segment.content_end, item.end))
+
+    if segment.text == "":
+        return []
+
+    tokens: list[InlineToken] = []
+    ordered_boundaries = sorted(boundaries)
+    for start, end in pairwise(ordered_boundaries):
+        if start == end:
+            continue
+        text = segment.text[start - segment.start : end - segment.start]
+        tokens.append(
+            {
+                "text": text,
+                "is_ws": text.isspace(),
+                "status": _visible_status(start, end, relevant),
+            }
+        )
+    return _merge_adjacent_tokens(tokens)
+
+
+def _visible_status(
+    start: int,
+    end: int,
+    ranges: list[_DecorationRange],
+) -> InlineTokenStatus:
+    """Return the visible dirdiff status for one source slice.
+
+    Monaco receives overlapping GumTree decorations and uses z-index to show
+    deeper tree decorations above wider ancestors.  GumTree JSON does not carry
+    the tree depth used by the original web view, so this projection chooses the
+    narrowest covering range as the closest available representation.
+    """
+
+    covering = [
+        item for item in ranges if item.start <= start and item.end >= end
+    ]
+    if covering == []:
+        return "unchanged"
+    return min(
+        covering,
+        key=lambda item: (item.end - item.start, item.ordinal),
+    ).status
+
+
+def _merge_adjacent_tokens(tokens: list[InlineToken]) -> list[InlineToken]:
+    """Merge neighboring tokens that share the same visible status."""
+
+    merged: list[InlineToken] = []
+    for token in tokens:
+        if merged != [] and merged[-1]["status"] == token["status"]:
+            merged[-1] = {
+                "text": merged[-1]["text"] + token["text"],
+                "is_ws": merged[-1]["is_ws"] and token["is_ws"],
+                "status": token["status"],
+            }
+            continue
+        merged.append(token)
+    return merged
+
+
+def _token_row_status(
+    left_tokens: list[InlineToken],
+    right_tokens: list[InlineToken],
+) -> Literal["equal", "replace", "insert", "delete", "move"]:
+    """Summarize GumTree token classes for non-visual summary counts."""
+
+    statuses = {
+        token["status"]
+        for token in left_tokens + right_tokens
+        if token["status"] != "unchanged"
+    }
+    if statuses == set():
+        return "equal"
+    if statuses == {"insert"}:
+        return "insert"
+    if statuses == {"delete"}:
+        return "delete"
+    if statuses == {"move"}:
+        return "move"
+    return "replace"
+
+
+def _whole_side_rows(*, text: str, side: _Side) -> list[dict[str, object]]:
+    """Render a missing-side diff as whole-line GumTree-compatible rows."""
+
+    rows: list[dict[str, object]] = []
+    for segment in _line_segments(text):
+        token_status: InlineTokenStatus = (
+            "delete" if side == "left" else "insert"
+        )
+        tokens: list[InlineToken] = (
+            []
+            if segment.text == ""
+            else [
+                {
+                    "text": segment.text,
+                    "is_ws": segment.text.isspace(),
+                    "status": token_status,
                 }
-            else:
-                rows = build_gumtree_rows_from_json(
-                    diff_json=diff_json,
-                    left_text=left_text_value,
-                    right_text=right_text_value,
-                )
-        elif old.exists:
-            rows = _plain_line_rows_for_side(
-                text=left_text_value,
-                side="left",
-            )
-            engine_warning = None
-        else:
-            rows = _plain_line_rows_for_side(
-                text=right_text_value,
-                side="right",
-            )
-            engine_warning = None
+            ]
+        )
+        rows.append(
+            {
+                "status": token_status,
+                "left_no": segment.index + 1 if side == "left" else None,
+                "right_no": segment.index + 1 if side == "right" else None,
+                "left_text": segment.text if side == "left" else "",
+                "right_text": segment.text if side == "right" else "",
+                "left_tokens": tokens if side == "left" else [],
+                "right_tokens": tokens if side == "right" else [],
+            }
+        )
+    return rows
 
-        summary = _gumtree_summary(rows=rows)
-        payload: DiffEngineResult = {
-            "summary": summary,
-            "rows": strict_engine_rows(rows),
-        }
-        if engine_warning is not None:
-            payload["engine_warning"] = engine_warning
-        return payload
+
+def _summary(rows: Sequence[object]) -> DiffSummary:
+    """Count changed rows while keeping GumTree visual rows neutral."""
+
+    modified_lines = 0
+    added_lines = 0
+    removed_lines = 0
+    moved_lines = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            raise TypeError("Engine row must be a mapping.")
+        status = row["status"]
+        if status == "equal":
+            left_tokens = row.get("left_tokens", [])
+            right_tokens = row.get("right_tokens", [])
+            if not isinstance(left_tokens, list) or not isinstance(
+                right_tokens, list
+            ):
+                raise TypeError("Engine row tokens must be lists.")
+            status = _token_row_status(left_tokens, right_tokens)
+        if status == "replace":
+            modified_lines += 1
+        elif status == "insert":
+            added_lines += 1
+        elif status == "delete":
+            removed_lines += 1
+        elif status == "move":
+            moved_lines += 1
+    return {
+        "changed_lines": (
+            modified_lines + added_lines + removed_lines + moved_lines
+        ),
+        "modified_lines": modified_lines,
+        "added_lines": added_lines,
+        "removed_lines": removed_lines,
+        "moved_lines": moved_lines,
+    }

@@ -1,0 +1,283 @@
+{
+  "engine_warning": null,
+  "rows": [
+    {
+      "left_no": 1,
+      "left_syntax": [
+        {
+          "classes": [
+            "ts-keyword"
+          ],
+          "end": 3,
+          "start": 0
+        },
+        {
+          "classes": [
+            "ts-function"
+          ],
+          "end": 16,
+          "start": 12
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-bracket"
+          ],
+          "end": 17,
+          "start": 16
+        },
+        {
+          "classes": [
+            "ts-constant",
+            "ts-constant-builtin"
+          ],
+          "end": 18,
+          "start": 17
+        },
+        {
+          "classes": [
+            "ts-constant",
+            "ts-constant-builtin"
+          ],
+          "end": 22,
+          "start": 20
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-delimiter"
+          ],
+          "end": 23,
+          "start": 22
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-delimiter"
+          ],
+          "end": 29,
+          "start": 28
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-bracket"
+          ],
+          "end": 35,
+          "start": 34
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-delimiter"
+          ],
+          "end": 36,
+          "start": 35
+        }
+      ],
+      "left_text": "let value = call(5..10, keep, tail);",
+      "left_tokens": [
+        {
+          "is_ws": false,
+          "status": "unchanged",
+          "text": "let value = call("
+        },
+        {
+          "is_ws": false,
+          "status": "delete",
+          "text": "5..10"
+        },
+        {
+          "is_ws": false,
+          "status": "unchanged",
+          "text": ", "
+        },
+        {
+          "is_ws": false,
+          "status": "delete",
+          "text": "keep"
+        },
+        {
+          "is_ws": false,
+          "status": "unchanged",
+          "text": ", tail);"
+        }
+      ],
+      "right_no": 1,
+      "right_syntax": [
+        {
+          "classes": [
+            "ts-keyword"
+          ],
+          "end": 3,
+          "start": 0
+        },
+        {
+          "classes": [
+            "ts-function"
+          ],
+          "end": 16,
+          "start": 12
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-bracket"
+          ],
+          "end": 17,
+          "start": 16
+        }
+      ],
+      "right_text": "let value = call(",
+      "right_tokens": [
+        {
+          "is_ws": false,
+          "status": "unchanged",
+          "text": "let value = call("
+        }
+      ],
+      "status": "equal"
+    },
+    {
+      "left_no": null,
+      "left_text": "",
+      "left_tokens": [],
+      "right_no": 2,
+      "right_syntax": [
+        {
+          "classes": [
+            "ts-function"
+          ],
+          "end": 8,
+          "start": 4
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-bracket"
+          ],
+          "end": 9,
+          "start": 8
+        },
+        {
+          "classes": [
+            "ts-constant",
+            "ts-constant-builtin"
+          ],
+          "end": 10,
+          "start": 9
+        },
+        {
+          "classes": [
+            "ts-constant",
+            "ts-constant-builtin"
+          ],
+          "end": 14,
+          "start": 12
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-bracket"
+          ],
+          "end": 15,
+          "start": 14
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-delimiter"
+          ],
+          "end": 16,
+          "start": 15
+        }
+      ],
+      "right_text": "    wrap(5..20),",
+      "right_tokens": [
+        {
+          "is_ws": true,
+          "status": "unchanged",
+          "text": "    "
+        },
+        {
+          "is_ws": false,
+          "status": "insert",
+          "text": "wrap(5..20)"
+        },
+        {
+          "is_ws": false,
+          "status": "unchanged",
+          "text": ","
+        }
+      ],
+      "status": "equal"
+    },
+    {
+      "left_no": null,
+      "left_text": "",
+      "left_tokens": [],
+      "right_no": 3,
+      "right_syntax": [
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-delimiter"
+          ],
+          "end": 9,
+          "start": 8
+        }
+      ],
+      "right_text": "    tail,",
+      "right_tokens": [
+        {
+          "is_ws": false,
+          "status": "unchanged",
+          "text": "    tail,"
+        }
+      ],
+      "status": "equal"
+    },
+    {
+      "left_no": null,
+      "left_text": "",
+      "left_tokens": [],
+      "right_no": 4,
+      "right_syntax": [
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-bracket"
+          ],
+          "end": 1,
+          "start": 0
+        },
+        {
+          "classes": [
+            "ts-punctuation",
+            "ts-punctuation-delimiter"
+          ],
+          "end": 2,
+          "start": 1
+        }
+      ],
+      "right_text": ");",
+      "right_tokens": [
+        {
+          "is_ws": false,
+          "status": "unchanged",
+          "text": ");"
+        }
+      ],
+      "status": "equal"
+    }
+  ],
+  "summary": {
+    "added_lines": 1,
+    "changed_lines": 2,
+    "left_exists": true,
+    "modified_lines": 0,
+    "moved_lines": 0,
+    "removed_lines": 1,
+    "right_exists": true
+  }
+}

@@ -271,19 +271,17 @@ def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
     assert missing == []
 
 
-def test_gumtree_projects_pure_token_rows_to_line_statuses_for_hunks() -> None:
+def test_gumtree_keeps_rows_neutral_and_summarizes_token_ranges() -> None:
     payload = _extract_helper_payload()
 
-    assert _row_for_line(payload, side="right", line_no=2)["status"] == "insert"
-    assert _row_for_line(payload, side="right", line_no=6)["status"] == "move"
-    assert _row_for_line(payload, side="left", line_no=13)["status"] == "move"
-    assert (
-        _row_for_line(payload, side="right", line_no=4)["status"] == "replace"
-    )
-    assert _row_for_line(payload, side="left", line_no=1)["status"] == "replace"
+    assert _row_for_line(payload, side="right", line_no=2)["status"] == "equal"
+    assert _row_for_line(payload, side="right", line_no=6)["status"] == "equal"
+    assert _row_for_line(payload, side="left", line_no=13)["status"] == "equal"
+    assert _row_for_line(payload, side="right", line_no=4)["status"] == "equal"
+    assert _row_for_line(payload, side="left", line_no=1)["status"] == "equal"
 
-    assert payload["summary"]["changed_lines"] == 16
+    assert payload["summary"]["changed_lines"] == 12
     assert payload["summary"]["modified_lines"] == 5
-    assert payload["summary"]["added_lines"] == 5
-    assert payload["summary"]["removed_lines"] == 1
+    assert payload["summary"]["added_lines"] == 2
+    assert payload["summary"]["removed_lines"] == 0
     assert payload["summary"]["moved_lines"] == 5
