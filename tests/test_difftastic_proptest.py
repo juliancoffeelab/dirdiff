@@ -601,6 +601,113 @@ def test_difftastic_preset_tokens_stay_in_source_order(
         assert rendered_atoms == source_atoms
 
 
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_token_spans_match_difftastic_json(
+    preset_dir: Path,
+) -> None:
+    old_path = _single_file("old.*", preset_dir)
+    new_path = _single_file("new.*", preset_dir)
+    old_text = old_path.read_text()
+    new_text = new_path.read_text()
+    service = DifftasticDiffEngine()
+    diff_json = service._run_difftastic_json(
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    rows = _difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
+
+    expected: dict[Side, dict[int, set[int]]] = {"left": {}, "right": {}}
+    for chunk in diff_json.get("chunks", []):
+        assert isinstance(chunk, list)
+        for entry in chunk:
+            assert isinstance(entry, dict)
+            for json_side, side in (("lhs", "left"), ("rhs", "right")):
+                side_data = entry.get(json_side)
+                if side_data is None:
+                    continue
+                assert isinstance(side_data, dict)
+                line_number = side_data.get("line_number")
+                assert isinstance(line_number, int)
+                changes = side_data.get("changes")
+                assert isinstance(changes, list)
+                line_spans = expected[side].setdefault(line_number, set())
+                for change in changes:
+                    assert isinstance(change, dict)
+                    start = change.get("start")
+                    end = change.get("end")
+                    assert isinstance(start, int)
+                    assert isinstance(end, int)
+                    line_spans.update(range(start, end))
+
+    actual: dict[Side, dict[int, set[int]]] = {"left": {}, "right": {}}
+    source_lines = {
+        "left": old_text.splitlines(),
+        "right": new_text.splitlines(),
+    }
+    cursors: dict[Side, dict[int, int]] = {"left": {}, "right": {}}
+    diagnostics: list[str] = []
+    for row_index, row in enumerate(rows):
+        for side in ("left", "right"):
+            line_no = row.get(_side_no_key(side))
+            if line_no is None:
+                continue
+            assert isinstance(line_no, int)
+            tokens = row.get(_side_tokens_key(side))
+            if tokens is None:
+                continue
+            assert isinstance(tokens, list)
+            text = row.get(_side_text_key(side))
+            assert isinstance(text, str)
+            source_line = source_lines[side][line_no - 1]
+            cursor = cursors[side].get(line_no - 1, 0)
+            if source_line.startswith(text, cursor):
+                start_offset = cursor
+            else:
+                start_offset = source_line.find(text, cursor)
+            if start_offset < 0:
+                diagnostics.append(
+                    f"row {row_index + 1} {side} line {line_no}: "
+                    f"{text!r} is not a source slice after offset {cursor}"
+                )
+                continue
+            token_offset = start_offset
+            line_spans = actual[side].setdefault(line_no - 1, set())
+            for token in tokens:
+                assert isinstance(token, dict)
+                token_text = token.get("text")
+                assert isinstance(token_text, str)
+                status = token.get("status")
+                assert isinstance(status, str)
+                if status != "unchanged":
+                    line_spans.update(
+                        range(token_offset, token_offset + len(token_text))
+                    )
+                token_offset += len(token_text)
+            cursors[side][line_no - 1] = start_offset + len(text)
+
+    for side in ("left", "right"):
+        for line_number in sorted(
+            set(expected[side].keys()) | set(actual[side].keys())
+        ):
+            if expected[side].get(line_number, set()) == actual[side].get(
+                line_number, set()
+            ):
+                continue
+            diagnostics.append(
+                f"{side} line {line_number + 1}: expected changed offsets "
+                f"{sorted(expected[side].get(line_number, set()))}, got "
+                f"{sorted(actual[side].get(line_number, set()))}"
+            )
+
+    assert diagnostics == []
+
+
 @pytest.mark.parametrize(
     "preset_dir",
     _preset_dirs(),

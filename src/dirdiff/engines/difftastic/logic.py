@@ -2153,12 +2153,6 @@ def _repair_adjacent_left_context_from_right(
                 start=index + 1,
                 context=following_context,
             )
-        elif current_context != []:
-            _repair_following_left_sparse_context_rows(
-                repaired,
-                start=index + 1,
-                context=current_context,
-            )
     return repaired
 
 
@@ -2285,108 +2279,6 @@ def _repair_following_left_context_rows(
         rows[index] = repaired
         cursor = next_cursor
         index += 1
-
-
-def _repair_following_left_sparse_context_rows(
-    rows: list[DifftasticRow],
-    *,
-    start: int,
-    context: list[str],
-) -> None:
-    if not _is_structural_closer_context([context[-1]]):
-        return
-
-    chars = _left_only_sparse_chars(rows, start=start)
-    matches = _rightmost_context_matches(chars, context=context)
-    if len(matches) == 0:
-        return
-
-    by_row: dict[int, set[int]] = {}
-    for char_index in matches:
-        row_index = chars[char_index][0]
-        row_char_index = chars[char_index][1]
-        by_row.setdefault(row_index, set()).add(row_char_index)
-
-    for row_index, char_indexes in by_row.items():
-        row = rows[row_index]
-        tokens = _sparse_left_context_tokens(
-            row["left_text"],
-            unchanged_indexes=char_indexes,
-        )
-        repaired = _build_row(
-            left_no=row.get("left_no"),
-            right_no=None,
-            left_text=row["left_text"],
-            right_text="",
-            left_tokens=tokens,
-            right_tokens=None,
-        )
-        if _all_non_ws_tokens_unchanged(tokens):
-            repaired["status"] = "equal"
-            repaired["left_tokens"] = []
-        else:
-            repaired["status"] = "replace"
-        rows[row_index] = repaired
-
-
-def _left_only_sparse_chars(
-    rows: list[DifftasticRow],
-    *,
-    start: int,
-) -> list[tuple[int, int, str]]:
-    chars: list[tuple[int, int, str]] = []
-    for row_index in range(start, len(rows)):
-        row = rows[row_index]
-        if not _is_left_only_row(row):
-            break
-        for char_index, char in enumerate(row["left_text"]):
-            if char.isspace():
-                continue
-            chars.append((row_index, char_index, char))
-    return chars
-
-
-def _rightmost_context_matches(
-    chars: list[tuple[int, int, str]],
-    *,
-    context: list[str],
-) -> set[int]:
-    matches: set[int] = set()
-    cursor = len(chars)
-    for target in reversed(context):
-        match = None
-        for char_index in range(cursor - 1, -1, -1):
-            if chars[char_index][2] == target:
-                match = char_index
-                break
-        if match is None:
-            return set()
-        matches.add(match)
-        cursor = match
-    return matches
-
-
-def _sparse_left_context_tokens(
-    text: str,
-    *,
-    unchanged_indexes: set[int],
-) -> list[DifftasticInlineToken]:
-    tokens: list[DifftasticInlineToken] = []
-    for char_index, char in enumerate(text):
-        if char.isspace() or char_index in unchanged_indexes:
-            status: DifftasticTokenStatus = "unchanged"
-        else:
-            status = "delete"
-        _append_token(tokens, text=char, status=status)
-    return tokens
-
-
-def _all_non_ws_tokens_unchanged(
-    tokens: list[DifftasticInlineToken],
-) -> bool:
-    return all(
-        token["status"] == "unchanged" for token in tokens if not token["is_ws"]
-    )
 
 
 def _is_left_only_row(row: DifftasticRow) -> bool:
