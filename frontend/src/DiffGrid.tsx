@@ -31,14 +31,16 @@ export function DiffGrid(props: {
   foldHints: FoldHint[];
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
-  semanticReplaceRows?: boolean;
+  collapseInsertOnlyReplaceRows?: boolean;
 }) {
   return (
     <div
       class="diff-grid"
       classList={{
         "diff-grid-inline": props.viewMode === "inline",
-        "diff-grid-semantic-replace": Boolean(props.semanticReplaceRows),
+        "diff-grid-collapse-insert-only-replace": Boolean(
+          props.collapseInsertOnlyReplaceRows,
+        ),
       }}
     >
       {props.viewMode === "inline" ? (
@@ -60,7 +62,7 @@ export function DiffGrid(props: {
         rightLabel={props.rightLabel}
         viewMode={props.viewMode}
         aggressiveFolds={props.aggressiveFolds}
-        semanticReplaceRows={props.semanticReplaceRows}
+        collapseInsertOnlyReplaceRows={props.collapseInsertOnlyReplaceRows}
       />
     </div>
   );
@@ -107,7 +109,7 @@ function ImperativeDiffLines(props: {
   rightLabel: string;
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
-  semanticReplaceRows?: boolean;
+  collapseInsertOnlyReplaceRows?: boolean;
 }) {
   let root!: HTMLDivElement;
   const expandedFolds = new Set<number>();
@@ -118,7 +120,7 @@ function ImperativeDiffLines(props: {
   let previousRightLabel: string | undefined;
   let previousViewMode: DiffViewMode | undefined;
   let previousAggressiveFolds: boolean | undefined;
-  let previousSemanticReplaceRows: boolean | undefined;
+  let previousCollapseInsertOnlyReplaceRows: boolean | undefined;
 
   const render = () => {
     if (
@@ -129,7 +131,8 @@ function ImperativeDiffLines(props: {
       props.rightLabel !== previousRightLabel ||
       props.viewMode !== previousViewMode ||
       props.aggressiveFolds !== previousAggressiveFolds ||
-      props.semanticReplaceRows !== previousSemanticReplaceRows
+      props.collapseInsertOnlyReplaceRows !==
+        previousCollapseInsertOnlyReplaceRows
     ) {
       expandedFolds.clear();
       previousDisplayName = props.displayName;
@@ -139,7 +142,8 @@ function ImperativeDiffLines(props: {
       previousRightLabel = props.rightLabel;
       previousViewMode = props.viewMode;
       previousAggressiveFolds = props.aggressiveFolds;
-      previousSemanticReplaceRows = props.semanticReplaceRows;
+      previousCollapseInsertOnlyReplaceRows =
+        props.collapseInsertOnlyReplaceRows;
     }
 
     const rows = addFoldRows(
@@ -149,8 +153,9 @@ function ImperativeDiffLines(props: {
     ) as HunkRenderRow[];
     const fileLabel = props.displayName;
     const fragment =
-      props.viewMode === "inline" && props.semanticReplaceRows === true
-        ? renderSemanticInlineRowsDom(rows, fileLabel, expandedFolds)
+      props.viewMode === "inline" &&
+      props.collapseInsertOnlyReplaceRows === true
+        ? renderCollapsedInlineRowsDom(rows, fileLabel, expandedFolds)
         : props.viewMode === "inline"
           ? renderInlineRowsDom(rows, fileLabel, expandedFolds)
           : renderSplitRowsDom(
@@ -240,7 +245,7 @@ function renderInlineRowsDom(
   return fragment;
 }
 
-function renderSemanticInlineRowsDom(
+function renderCollapsedInlineRowsDom(
   rows: HunkRenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
@@ -263,7 +268,7 @@ function renderSemanticInlineRowsDom(
       cursor += row.count;
     } else {
       fragment.append(
-        renderSemanticInlineDiffRowsDom(
+        renderCollapsedInlineDiffRowsDom(
           row,
           rowIndex,
           fileLabel,
@@ -335,7 +340,7 @@ function renderInlineFoldDom(
   rowIndex: number,
   fileLabel: string,
   expandedFolds: Set<number>,
-  semanticReplaceRows = false,
+  collapseInsertOnlyReplaceRows = false,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
@@ -354,8 +359,8 @@ function renderInlineFoldDom(
     if (expanded) {
       const rows = row.foldedRows as HunkRenderRow[];
       const fragment =
-        semanticReplaceRows === true
-          ? renderSemanticInlineRowsDom(
+        collapseInsertOnlyReplaceRows === true
+          ? renderCollapsedInlineRowsDom(
               rows,
               fileLabel,
               expandedFolds,
@@ -638,14 +643,14 @@ function inlineSideExists(lineNo: number | null, text: string): boolean {
   return lineNo !== null || text.length > 0;
 }
 
-function renderSemanticInlineDiffRowsDom(
+function renderCollapsedInlineDiffRowsDom(
   row: DiffRow & { isHunkAnchor?: boolean },
   rowIndex: number,
   fileLabel: string,
   foldToggle?: FoldToggle,
   lineNumberState?: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
-  if (!canCollapseSemanticInlineRow(row)) {
+  if (!canCollapseInsertOnlyReplaceRow(row)) {
     return renderInlineDiffRowsDom(
       row,
       rowIndex,
@@ -672,7 +677,7 @@ function renderSemanticInlineDiffRowsDom(
   });
 }
 
-function canCollapseSemanticInlineRow(row: DiffRow): boolean {
+function canCollapseInsertOnlyReplaceRow(row: DiffRow): boolean {
   if (row.status !== "replace") {
     return false;
   }

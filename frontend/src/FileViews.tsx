@@ -769,7 +769,7 @@ function FileCard(props: {
                     foldHints={fileFoldHints(props.file)}
                     viewMode={props.diffViewMode}
                     aggressiveFolds={props.aggressiveFolds}
-                    semanticReplaceRows={
+                    collapseInsertOnlyReplaceRows={
                       props.file.sourceEngine === "difftastic"
                     }
                   />

@@ -2052,7 +2052,7 @@ h1 {
   background: #f6e5ff;
 }
 
-.diff-grid-semantic-replace .diff-row.replace .diff-side {
+.diff-grid-collapse-insert-only-replace .diff-row.replace .diff-side {
   background: transparent;
 }
 

@@ -4,7 +4,7 @@ The tests in this module run every difftastic preset, including `borked`
 fixtures, through the same row projector and assert broad invariants: source
 text is preserved, one-sided rows are not pure unchanged context, and
 replacement tokens stay paired sensibly.  Golden snapshots cover exact output
-for non-borked presets; this file guards shape and semantic consistency across
+for non-borked presets; this file guards shape and token consistency across
 the full preset corpus.
 """
 
@@ -148,10 +148,10 @@ def _replace_atoms(tokens: object) -> list[str]:
 def _meaningful_token_atoms(token: dict[str, Any]) -> list[str]:
     text = token.get("text")
     assert isinstance(text, str)
-    return _semantic_atoms(_token_atoms(text))
+    return _word_like_atoms(_token_atoms(text))
 
 
-def _semantic_atoms(atoms: list[str]) -> list[str]:
+def _word_like_atoms(atoms: list[str]) -> list[str]:
     return [
         atom
         for atom in atoms
@@ -159,7 +159,7 @@ def _semantic_atoms(atoms: list[str]) -> list[str]:
     ]
 
 
-def _unchanged_semantic_runs(tokens: object) -> list[list[str]]:
+def _unchanged_word_like_runs(tokens: object) -> list[list[str]]:
     assert isinstance(tokens, list)
     runs: list[list[str]] = []
     for token in tokens:
@@ -168,7 +168,7 @@ def _unchanged_semantic_runs(tokens: object) -> list[list[str]]:
             continue
         text = token.get("text")
         assert isinstance(text, str)
-        atoms = _semantic_atoms(_token_atoms(text))
+        atoms = _word_like_atoms(_token_atoms(text))
         if len(atoms) >= 2:
             runs.append(atoms)
     return runs
@@ -194,7 +194,7 @@ def _row_marked_unchanged_runs(
     tokens = row.get(_side_tokens_key(side))
     if tokens is None:
         return []
-    return _unchanged_semantic_runs(tokens)
+    return _unchanged_word_like_runs(tokens)
 
 
 def _row_is_changed_group_member(row: DifftasticRow) -> bool:
@@ -232,6 +232,25 @@ def _marked_changed_atoms_in_group(
     atoms: list[str] = []
     for _, row in group:
         atoms.extend(_row_marked_changed_atoms(row, side))
+    return atoms
+
+
+def _marked_unchanged_atoms_in_group(
+    group: list[tuple[int, DifftasticRow]], side: Side
+) -> list[str]:
+    atoms: list[str] = []
+    for _, row in group:
+        tokens = row.get(_side_tokens_key(side))
+        if tokens is None:
+            continue
+        assert isinstance(tokens, list)
+        for token in tokens:
+            assert isinstance(token, dict)
+            if token.get("status") != "unchanged":
+                continue
+            text = token.get("text")
+            assert isinstance(text, str)
+            atoms.extend(_token_atoms(text))
     return atoms
 
 
@@ -296,13 +315,14 @@ def _collect_unchanged_context_leak_diagnostics(
     other_side: Side,
 ) -> None:
     changed_atoms = _marked_changed_atoms_in_group(group, other_side)
-    changed_semantic_atoms = _semantic_atoms(changed_atoms)
+    unchanged_atoms = _marked_unchanged_atoms_in_group(group, other_side)
+    changed_word_like_atoms = _word_like_atoms(changed_atoms)
 
     for row_index, row in group:
         for run in _row_marked_unchanged_runs(row, side):
             if _run_is_contiguous_subsequence(
                 needles=run,
-                haystack=changed_semantic_atoms,
+                haystack=changed_word_like_atoms,
             ):
                 diagnostics.append(
                     _context_leak_diagnostic(
@@ -321,20 +341,26 @@ def _collect_unchanged_context_leak_diagnostics(
         if context_run == []:
             continue
 
-        if _run_is_contiguous_subsequence(
+        if not _run_is_contiguous_subsequence(
             needles=context_run,
             haystack=changed_atoms,
         ):
-            diagnostics.append(
-                _context_leak_diagnostic(
-                    group_index=group_index,
-                    row_index=row_index,
-                    side=side,
-                    other_side=other_side,
-                    text=row.get(_side_text_key(side)),
-                    run=context_run,
-                )
+            continue
+        if _run_is_contiguous_subsequence(
+            needles=context_run,
+            haystack=unchanged_atoms,
+        ):
+            continue
+        diagnostics.append(
+            _context_leak_diagnostic(
+                group_index=group_index,
+                row_index=row_index,
+                side=side,
+                other_side=other_side,
+                text=row.get(_side_text_key(side)),
+                run=context_run,
             )
+        )
 
 
 def _context_leak_diagnostic(
@@ -747,7 +773,6 @@ def test_difftastic_preset_diff_replays_right_to_left(
 ) -> None:
     """Token statuses should replay the new file back into the old file."""
     if preset_dir.name in {
-        "create-app-runtime-config-collapses-service-block",
         "rust-quest-resolve-chain-wraps-poorly",
         "typescript-repo-fold-controls-show-placeholder-aligns-poorly",
     }:

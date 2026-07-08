@@ -127,12 +127,7 @@
       {
         "is_ws": false,
         "status": "unchanged",
-        "text": "}"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ","
+        "text": "},"
       }
     ],
     "status": "replace"

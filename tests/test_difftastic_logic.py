@@ -66,7 +66,7 @@ def _text_rows(
     )
 
 
-def _semantic_token_atoms(text: str) -> list[str]:
+def _word_like_token_atoms(text: str) -> list[str]:
     return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
 
 
@@ -102,7 +102,7 @@ def _pure_unchanged_one_sided_change_texts(
         meaningful_tokens: list[DifftasticInlineToken] = []
         for token in tokens:
             text = token.get("text")
-            if _semantic_token_atoms(text) != []:
+            if _word_like_token_atoms(text) != []:
                 meaningful_tokens.append(token)
 
         if meaningful_tokens == []:
@@ -124,7 +124,7 @@ def _assert_no_pure_unchanged_one_sided_changes(
     assert broken_texts == [], broken_texts
 
 
-def _changed_semantic_atoms_for_line(
+def _changed_word_like_atoms_for_line(
     rows: list[DifftasticRow],
     *,
     side: str,
@@ -144,7 +144,7 @@ def _changed_semantic_atoms_for_line(
                 continue
             text = token.get("text")
             assert isinstance(text, str)
-            changed_atoms.extend(_semantic_token_atoms(text))
+            changed_atoms.extend(_word_like_token_atoms(text))
     return changed_atoms
 
 
@@ -288,7 +288,7 @@ def test_difftastic_python_literal_expansion_does_not_render_existing_members_as
     _assert_no_pure_unchanged_one_sided_changes(rows)
 
 
-def test_difftastic_json_rows_use_semantic_alignment_and_changed_ranges() -> (
+def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
     None
 ):
     rows = _difftastic_rows_from_json(
@@ -344,7 +344,7 @@ def test_difftastic_json_rows_use_semantic_alignment_and_changed_ranges() -> (
     ]
 
 
-def test_difftastic_rows_render_split_arguments_as_semantic_context() -> None:
+def test_difftastic_rows_render_split_arguments_as_context() -> None:
     rows = _difftastic_rows_from_json(
         {
             "aligned_lines": [
@@ -2533,10 +2533,10 @@ def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
 
     condition_atoms = {"when", "ui", "displayFiles", "length", "0"}
     left_changed_atoms = set(
-        _changed_semantic_atoms_for_line(rows, side="left", line_no=4)
+        _changed_word_like_atoms_for_line(rows, side="left", line_no=4)
     )
     right_changed_atoms = set(
-        _changed_semantic_atoms_for_line(rows, side="right", line_no=6)
+        _changed_word_like_atoms_for_line(rows, side="right", line_no=6)
     )
 
     assert condition_atoms.isdisjoint(left_changed_atoms)
@@ -3070,9 +3070,9 @@ def test_difftastic_rows_pair_one_sided_lhs_token_delete_with_matching_rhs_line(
     assert rows[6]["left_text"] == '} from "./api";'
 
 
-def test_difftastic_rows_mark_runtime_config_service_tail_as_deleted() -> None:
+def test_difftastic_rows_mark_runtime_config_service_tail_context() -> None:
     rows = _preset_rows(
-        "borked/create-app-runtime-config-collapses-service-block"
+        "python/create-app-runtime-config-collapses-service-block-copy"
     )
 
     deleted_tail = [
@@ -3096,13 +3096,13 @@ def test_difftastic_rows_mark_runtime_config_service_tail_as_deleted() -> None:
     assert [row["status"] for row in deleted_tail] == [
         "delete",
         "delete",
+        "replace",
+        "replace",
         "delete",
         "delete",
         "delete",
         "delete",
-        "delete",
-        "delete",
-        "delete",
+        "equal",
     ]
     assert all(row["right_no"] is None for row in deleted_tail)
     assert all(row["right_text"] == "" for row in deleted_tail)
@@ -3112,7 +3112,7 @@ def test_difftastic_rows_keep_shared_path_residue_unchanged_in_deleted_block() -
     None
 ):
     rows = _preset_rows(
-        "borked/create-app-runtime-config-collapses-service-block"
+        "python/create-app-runtime-config-collapses-service-block-copy"
     )
 
     deleted_header_row = next(
@@ -3124,7 +3124,7 @@ def test_difftastic_rows_keep_shared_path_residue_unchanged_in_deleted_block() -
         if row["right_text"] == "    repo_path = Path(args.repo_path)"
     )
 
-    assert deleted_header_row["status"] == "delete"
+    assert deleted_header_row["status"] == "replace"
     assert deleted_header_row["right_no"] is None
     assert deleted_header_row["left_tokens"] == [
         {"text": "    ", "status": "unchanged", "is_ws": True},
@@ -3197,14 +3197,178 @@ def test_difftastic_rows_keep_member_access_dot_unchanged_across_wrapped_pair() 
         == "def handle_mark_command(args: argparse.Namespace) -> None:"
     )
 
-    assert left_row["left_tokens"][:6] == [
+    assert left_row["left_tokens"] == [
         {"text": "    ", "status": "unchanged", "is_ws": True},
         {"text": "Path", "status": "delete", "is_ws": False},
         {"text": "(", "status": "delete", "is_ws": False},
         {"text": "config", "status": "delete", "is_ws": False},
+        {"text": ".", "status": "delete", "is_ws": False},
+        {"text": "repo_root", "status": "delete", "is_ws": False},
+        {"text": ")", "status": "delete", "is_ws": False},
+        {"text": ".", "status": "delete", "is_ws": False},
+        {"text": "expanduser", "status": "delete", "is_ws": False},
+        {"text": "(", "status": "delete", "is_ws": False},
+        {"text": ")", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "if", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "config", "status": "delete", "is_ws": False},
         {"text": ".", "status": "unchanged", "is_ws": False},
         {"text": "repo_root", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "else", "status": "delete", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "None", "status": "delete", "is_ws": False},
     ]
+    assert left_row["status"] == "replace"
     assert {"text": ".", "status": "unchanged", "is_ws": False} in right_row[
         "right_tokens"
     ]
+
+    closing_row = next(row for row in rows if row["left_text"] == ")")
+    assert closing_row["status"] == "equal"
+    assert closing_row["left_tokens"] == []
+
+
+def test_difftastic_rows_keep_inserted_structural_closer_context_unchanged() -> (
+    None
+):
+    rows = _preset_rows(
+        "python/create-app-runtime-config-collapses-service-block-copy"
+    )
+
+    paired_row = next(
+        row
+        for row in rows
+        if row["left_text"]
+        == "    preset_service = TextDiffService(preset_repo)"
+    )
+    closing_row = next(
+        row for row in rows if row["right_text"] == "            )"
+    )
+
+    assert paired_row["left_tokens"][-1] == {
+        "text": ")",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+    assert paired_row["right_tokens"][-1] == {
+        "text": "(",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+    assert closing_row["status"] == "equal"
+    assert closing_row["right_tokens"] == []
+
+
+def test_difftastic_rows_keep_defaults_argument_punctuation_context_unchanged() -> (
+    None
+):
+    rows = _preset_rows(
+        "python/create-app-runtime-config-collapses-service-block-copy"
+    )
+
+    right_row = next(
+        row for row in rows if row["left_text"] == "        right=config.right,"
+    )
+    review_branch_row = next(
+        row
+        for row in rows
+        if row["left_text"] == "        review_branch=config.review_branch,"
+    )
+
+    assert right_row["left_tokens"][-1] == {
+        "text": ",",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+    assert review_branch_row["left_tokens"][2] == {
+        "text": "=",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+
+
+def test_difftastic_rows_do_not_paint_defaults_right_comma_as_delete() -> None:
+    rows = _preset_rows(
+        "python/create-app-runtime-config-collapses-service-block-copy"
+    )
+
+    row = next(
+        row for row in rows if row["left_text"] == "        right=config.right,"
+    )
+
+    assert row["left_tokens"][-1] == {
+        "text": ",",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+    assert row["status"] == "replace"
+
+
+def test_difftastic_rows_do_not_paint_review_branch_equals_as_delete() -> None:
+    rows = _preset_rows(
+        "python/create-app-runtime-config-collapses-service-block-copy"
+    )
+
+    row = next(
+        row
+        for row in rows
+        if row["left_text"] == "        review_branch=config.review_branch,"
+    )
+
+    assert row["left_tokens"][2] == {
+        "text": "=",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+    assert row["status"] == "replace"
+
+
+def test_difftastic_rows_keep_normalized_base_branch_comma_unchanged() -> None:
+    rows = _preset_rows(
+        "python/create-app-runtime-config-collapses-service-block-normalized"
+    )
+
+    row = next(
+        row
+        for row in rows
+        if row["left_text"] == "        base_branch=config.base_branch,"
+    )
+
+    assert row["left_tokens"][-1] == {
+        "text": ",",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+
+
+def test_difftastic_rows_keep_normalized_services_mapping_comma_unchanged() -> (
+    None
+):
+    rows = _preset_rows(
+        "python/create-app-runtime-config-collapses-service-block-normalized"
+    )
+
+    row = next(row for row in rows if row.get("left_no") == 31)
+
+    assert row["left_text"] == (
+        '        services={"git": git_service, "difftastic": difftastic_service},'
+    )
+    assert row["left_tokens"][-1] == {
+        "text": ",",
+        "status": "unchanged",
+        "is_ws": False,
+    }
+
+
+def test_difftastic_rows_keep_normalized_create_app_closer_unchanged() -> None:
+    rows = _preset_rows(
+        "python/create-app-runtime-config-collapses-service-block-normalized"
+    )
+
+    row = next(row for row in rows if row.get("left_no") == 37)
+
+    assert row["left_text"] == "    )"
+    assert row["left_tokens"] == []
+    assert row["status"] == "equal"

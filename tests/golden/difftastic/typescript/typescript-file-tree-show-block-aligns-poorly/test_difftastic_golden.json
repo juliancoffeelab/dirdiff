@@ -1057,18 +1057,6 @@
     "left_text": "                      !directoryExpanded(group)",
     "right_no": 18,
     "right_text": "                      !directoryExpanded(group),",
-    "right_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "                      !directoryExpanded(group)"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ","
-      }
-    ],
     "status": "replace"
   },
   {

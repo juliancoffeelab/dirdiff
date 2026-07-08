@@ -4,7 +4,7 @@ This module is the snapshot boundary for exact difftastic row projection.  Each
 non-borked preset directory supplies old/new source files, and the snapshot name
 is the preset path relative to `tests/presets/difftastic`.  It tests
 projection output only; subprocess invocation details belong to the engine, and
-broad semantic invariants live in `test_difftastic_proptest`.
+broad token and row-shape invariants live in `test_difftastic_proptest`.
 """
 
 from pathlib import Path

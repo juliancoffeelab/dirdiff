@@ -1878,9 +1878,19 @@
         "text": "defaults"
       },
       {
-        "is_ws": false,
+        "is_ws": true,
         "status": "unchanged",
-        "text": " = "
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
       },
       {
         "is_ws": false,
@@ -1891,6 +1901,74 @@
         "is_ws": false,
         "status": "delete",
         "text": "("
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 22,
+    "left_text": "        service,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "service"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 23,
+    "left_text": "        left=config.left,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "left"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "left"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
       }
     ],
     "right_no": 32,
@@ -1990,8 +2068,8 @@
     "status": "replace"
   },
   {
-    "left_no": 22,
-    "left_text": "        service,",
+    "left_no": 24,
+    "left_text": "        right=config.right,",
     "left_tokens": [
       {
         "is_ws": true,
@@ -2000,12 +2078,32 @@
       },
       {
         "is_ws": false,
-        "status": "delete",
-        "text": "service"
+        "status": "replace",
+        "text": "right"
       },
       {
         "is_ws": false,
-        "status": "delete",
+        "status": "replace",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "config"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "right"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
         "text": ","
       }
     ],
@@ -2019,7 +2117,7 @@
       },
       {
         "is_ws": false,
-        "status": "insert",
+        "status": "replace",
         "text": "except"
       },
       {
@@ -2029,7 +2127,7 @@
       },
       {
         "is_ws": false,
-        "status": "insert",
+        "status": "replace",
         "text": "RepoRegistryError"
       },
       {
@@ -2039,7 +2137,7 @@
       },
       {
         "is_ws": false,
-        "status": "insert",
+        "status": "replace",
         "text": "as"
       },
       {
@@ -2049,20 +2147,20 @@
       },
       {
         "is_ws": false,
-        "status": "insert",
+        "status": "replace",
         "text": "exc"
       },
       {
         "is_ws": false,
-        "status": "insert",
+        "status": "replace",
         "text": ":"
       }
     ],
     "status": "replace"
   },
   {
-    "left_no": 23,
-    "left_text": "        left=config.left,",
+    "left_no": 25,
+    "left_text": "        base_branch=config.base_branch,",
     "left_tokens": [
       {
         "is_ws": true,
@@ -2072,11 +2170,11 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "left"
+        "text": "base_branch"
       },
       {
         "is_ws": false,
-        "status": "delete",
+        "status": "unchanged",
         "text": "="
       },
       {
@@ -2086,17 +2184,17 @@
       },
       {
         "is_ws": false,
-        "status": "unchanged",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
         "status": "delete",
-        "text": "left"
+        "text": "base_branch"
       },
       {
         "is_ws": false,
-        "status": "delete",
+        "status": "unchanged",
         "text": ","
       }
     ],
@@ -2177,96 +2275,8 @@
     "status": "replace"
   },
   {
-    "left_no": 24,
-    "left_text": "        right=config.right,",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "        "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "right"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "config"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "right"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ","
-      }
-    ],
-    "right_no": null,
-    "right_text": "",
-    "status": "replace"
-  },
-  {
-    "left_no": 25,
-    "left_text": "        base_branch=config.base_branch,",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "        "
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "base_branch"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "="
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "config"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "base_branch"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": ","
-      }
-    ],
-    "right_no": null,
-    "right_text": "",
-    "status": "delete"
-  },
-  {
     "left_no": 26,
-    "left_text": "        review_branch=config.review_branch,",
+    "left_text": "        review_branch=config.review_branch",
     "left_tokens": [
       {
         "is_ws": true,
@@ -2297,11 +2307,6 @@
         "is_ws": false,
         "status": "delete",
         "text": "review_branch"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": ","
       }
     ],
     "right_no": null,
@@ -2951,14 +2956,14 @@
   },
   {
     "left_no": 35,
-    "left_text": "            \"difftastic\": preset_difftastic_service,",
+    "left_text": "            \"difftastic\": preset_difftastic_service",
     "right_no": null,
     "right_text": "",
     "status": "delete"
   },
   {
     "left_no": 36,
-    "left_text": "        },",
+    "left_text": "        }",
     "right_no": null,
     "right_text": "",
     "status": "delete"

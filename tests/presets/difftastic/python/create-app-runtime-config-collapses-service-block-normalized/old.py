@@ -23,7 +23,7 @@ def create_app_from_runtime_config() -> Any:
         left=config.left,
         right=config.right,
         base_branch=config.base_branch,
-        review_branch=config.review_branch,
+        review_branch=config.review_branch
     )
     return create_app(
         service,
@@ -32,6 +32,6 @@ def create_app_from_runtime_config() -> Any:
         preset_services={
             "dirdiff": preset_service,
             "git": preset_git_service,
-            "difftastic": preset_difftastic_service,
-        },
+            "difftastic": preset_difftastic_service
+        }
     )

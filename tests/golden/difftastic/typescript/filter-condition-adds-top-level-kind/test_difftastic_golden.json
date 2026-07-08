@@ -100,7 +100,7 @@
       },
       {
         "is_ws": false,
-        "status": "insert",
+        "status": "unchanged",
         "text": ","
       }
     ],

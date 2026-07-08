@@ -1105,18 +1105,6 @@
     "left_text": "                      !props.directoryExpanded(props.group)",
     "right_no": 22,
     "right_text": "                      !props.directoryExpanded(props.group),",
-    "right_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "                      !props.directoryExpanded(props.group)"
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": ","
-      }
-    ],
     "status": "replace"
   },
   {

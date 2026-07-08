@@ -61,14 +61,15 @@ payload code takes over, but inside this module the row contract is explicit.
 
 Required invariants
 -------------------
-* row semantic text must come from the supplied source text;
+* row source text must come from the supplied source text;
 * split-fragment row text may project whitespace to match difftastic display
   layout, but must not invent non-whitespace source content;
 * token text should not invent source content;
 * one-based row line numbers should always refer back to source lines;
-* unchanged semantic tokens should not appear as pure one-sided changes;
-* changed semantic tokens on one side should have a corresponding changed token
-  on the other side when difftastic supplies a semantic counterpart;
+* unchanged word-like or punctuation context should not appear as pure
+  one-sided changes;
+* changed word-like tokens on one side should have a corresponding changed
+  token on the other side when difftastic supplies a counterpart;
 * empty `aligned_lines` returns an empty row list so the service can choose a
   fallback renderer.
 
@@ -981,8 +982,8 @@ def _nearest_left_after(block: list[_RowSpec], position: int) -> int | None:
 
 
 def _line_similarity(left_line: str, right_line: str) -> float:
-    left_atoms = _semantic_atoms(left_line)
-    right_atoms = _semantic_atoms(right_line)
+    left_atoms = _pairing_atoms(left_line)
+    right_atoms = _pairing_atoms(right_line)
     if left_atoms == []:
         return 1.0 if left_line == right_line else 0.0
     if right_atoms == []:
@@ -992,7 +993,7 @@ def _line_similarity(left_line: str, right_line: str) -> float:
     return SequenceMatcher(a=left_atoms, b=right_atoms, autojunk=False).ratio()
 
 
-def _semantic_atoms(text: str) -> list[str]:
+def _pairing_atoms(text: str) -> list[str]:
     return [
         atom
         for atom in _WORD_PATTERN.findall(text)
@@ -1070,7 +1071,7 @@ def _append_changed_token(
     text: str,
     status: DifftasticTokenStatus,
 ) -> None:
-    # Difftastic's changed spans are the semantic boundary. Preserve that
+    # Difftastic's changed spans are the inline-change boundary. Preserve that
     # exact source slice instead of splitting punctuation clusters like `&&`.
     _append_token(tokens, text=text, status=status)
 
@@ -1131,10 +1132,10 @@ def _left_only_row_status(
     left_tokens: list[DifftasticInlineToken] | None,
 ) -> DifftasticRowStatus:
     if not _has_changed_tokens(left_tokens):
+        if _has_unchanged_meaningful_tokens(left_tokens):
+            return "equal"
         return "delete"
-    if _has_unchanged_semantic_tokens(left_tokens):
-        return "replace"
-    if _has_unchanged_block_opener_context(left_tokens):
+    if _has_unchanged_meaningful_tokens(left_tokens):
         return "replace"
     return "delete"
 
@@ -1179,36 +1180,6 @@ def _has_unchanged_meaningful_tokens(
         if token["is_ws"]:
             continue
         if _ATOM_PATTERN.search(token["text"]) is not None:
-            return True
-    return False
-
-
-def _has_unchanged_semantic_tokens(
-    tokens: list[DifftasticInlineToken] | None,
-) -> bool:
-    if tokens is None:
-        return False
-    for token in tokens:
-        if token["status"] != "unchanged":
-            continue
-        if token["is_ws"]:
-            continue
-        if _WORD_PATTERN.search(token["text"]) is not None:
-            return True
-    return False
-
-
-def _has_unchanged_block_opener_context(
-    tokens: list[DifftasticInlineToken] | None,
-) -> bool:
-    if tokens is None:
-        return False
-    for token in tokens:
-        if token["status"] != "unchanged":
-            continue
-        if "{" in token["text"]:
-            return True
-        if ":" in token["text"]:
             return True
     return False
 
@@ -1474,7 +1445,7 @@ def _projected_fragment_text(
 ) -> str:
     # Difftastic renders fragments from one physical source line at the
     # indentation of the structural counterpart. Only whitespace is projected;
-    # all semantic text stays in `source_text`.
+    # all source text stays in `source_text`.
     if source_text.startswith((" ", "\t")):
         return source_text
     if len(source_prefix) >= 2 and source_prefix.isspace():
@@ -1671,12 +1642,6 @@ def _build_row(
         left_tokens=left_tokens,
         right_tokens=right_tokens,
     )
-    left_tokens, right_tokens = _mark_trailing_comma_delta(
-        left_text=left_text,
-        right_text=right_text,
-        left_tokens=left_tokens,
-        right_tokens=right_tokens,
-    )
     row: DifftasticRow = {
         "status": _row_status(
             left_text=left_text,
@@ -1843,96 +1808,6 @@ def _should_separate_equals_brace_after(
         not compact_punctuation
         and _WORD_PATTERN.fullmatch(previous_text) is not None
     )
-
-
-def _mark_trailing_comma_delta(
-    *,
-    left_text: str,
-    right_text: str,
-    left_tokens: list[DifftasticInlineToken] | None,
-    right_tokens: list[DifftasticInlineToken] | None,
-) -> tuple[
-    list[DifftasticInlineToken] | None,
-    list[DifftasticInlineToken] | None,
-]:
-    if (
-        right_tokens is not None
-        and left_text != ""
-        and right_text.endswith(",")
-        and not left_text.endswith(",")
-    ):
-        right_tokens = _mark_last_unchanged_suffix(
-            right_tokens,
-            suffix=",",
-            status="insert",
-        )
-    elif (
-        right_tokens is None
-        and left_text != ""
-        and right_text.endswith(",")
-        and not left_text.endswith(",")
-    ):
-        right_tokens = _suffix_delta_tokens(
-            right_text,
-            suffix=",",
-            status="insert",
-        )
-    if (
-        left_tokens is not None
-        and right_text != ""
-        and left_text.endswith(",")
-        and not right_text.endswith(",")
-    ):
-        left_tokens = _mark_last_unchanged_suffix(
-            left_tokens,
-            suffix=",",
-            status="delete",
-        )
-    elif (
-        left_tokens is None
-        and right_text != ""
-        and left_text.endswith(",")
-        and not right_text.endswith(",")
-    ):
-        left_tokens = _suffix_delta_tokens(
-            left_text,
-            suffix=",",
-            status="delete",
-        )
-    return left_tokens, right_tokens
-
-
-def _suffix_delta_tokens(
-    text: str,
-    *,
-    suffix: str,
-    status: DifftasticTokenStatus,
-) -> list[DifftasticInlineToken]:
-    prefix = text[: -len(suffix)]
-    tokens: list[DifftasticInlineToken] = []
-    _append_token(tokens, text=prefix, status="unchanged")
-    _append_token(tokens, text=suffix, status=status)
-    return tokens
-
-
-def _mark_last_unchanged_suffix(
-    tokens: list[DifftasticInlineToken],
-    *,
-    suffix: str,
-    status: DifftasticTokenStatus,
-) -> list[DifftasticInlineToken]:
-    if tokens == []:
-        return tokens
-    last = tokens[-1]
-    if last["status"] != "unchanged":
-        return tokens
-    if not last["text"].endswith(suffix):
-        return tokens
-    prefix = last["text"][: -len(suffix)]
-    rewritten = tokens[:-1]
-    _append_copied_token(rewritten, last, prefix)
-    _append_token(rewritten, text=suffix, status=status)
-    return rewritten
 
 
 def _rows_from_specs(
@@ -2215,9 +2090,11 @@ def _rows_from_specs(
                 change_index=change_index,
             )
         )
-    return _repair_structural_context_rows(
-        _repair_inserted_structural_closers(_repair_shifted_rows(rows))
-    )
+    repaired = _repair_shifted_rows(rows)
+    repaired = _repair_inserted_structural_closers(repaired)
+    repaired = _repair_adjacent_left_context_from_right(repaired)
+    repaired = _repair_adjacent_right_context_from_left(repaired)
+    return _repair_structural_context_rows(repaired)
 
 
 def _repair_inserted_structural_closers(
@@ -2251,6 +2128,483 @@ def _repair_inserted_structural_closers(
             right_tokens=_changed_tokens_for_text(row["right_text"], "insert"),
         )
     return repaired
+
+
+def _repair_adjacent_left_context_from_right(
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    repaired = list(rows)
+    for index in range(1, len(repaired)):
+        row = repaired[index]
+        if row.get("left_no") is None:
+            continue
+        if row.get("right_no") is not None:
+            continue
+
+        previous = repaired[index - 1]
+        extra_context = _extra_right_unchanged_context(previous)
+        if extra_context == []:
+            continue
+
+        following_context = _following_left_context_suffix(
+            repaired,
+            start=index + 1,
+            context=extra_context,
+        )
+        current_context = extra_context[
+            : len(extra_context) - len(following_context)
+        ]
+
+        left_tokens = row.get("left_tokens")
+        if isinstance(left_tokens, list) and current_context != []:
+            rewritten = _left_tokens_with_borrowed_context(
+                left_tokens,
+                extra_context=current_context,
+            )
+            if rewritten != left_tokens:
+                repaired[index] = _build_row(
+                    left_no=row.get("left_no"),
+                    right_no=None,
+                    left_text=row["left_text"],
+                    right_text="",
+                    left_tokens=rewritten,
+                    right_tokens=None,
+                )
+                repaired[index]["status"] = "replace"
+
+        if following_context != []:
+            _repair_following_left_context_rows(
+                repaired,
+                start=index + 1,
+                context=following_context,
+            )
+        elif current_context != []:
+            _repair_following_left_sparse_context_rows(
+                repaired,
+                start=index + 1,
+                context=current_context,
+            )
+    return repaired
+
+
+def _repair_adjacent_right_context_from_left(
+    rows: list[DifftasticRow],
+) -> list[DifftasticRow]:
+    repaired = list(rows)
+    for index, row in enumerate(repaired):
+        if row.get("left_no") is None:
+            continue
+        if row.get("right_no") is None:
+            continue
+
+        extra_context = _extra_left_unchanged_context(row)
+        if extra_context == []:
+            continue
+        if not _is_structural_closer_context(extra_context):
+            continue
+
+        context_row = _following_right_context_row(
+            repaired,
+            start=index + 1,
+            context=extra_context,
+        )
+        if context_row is None:
+            continue
+
+        row_to_repair = repaired[context_row]
+        repaired_row = _build_row(
+            left_no=None,
+            right_no=row_to_repair.get("right_no"),
+            left_text="",
+            right_text=row_to_repair["right_text"],
+            left_tokens=None,
+            right_tokens=[],
+        )
+        repaired_row["status"] = "equal"
+        repaired[context_row] = repaired_row
+    return repaired
+
+
+def _following_left_context_suffix(
+    rows: list[DifftasticRow],
+    *,
+    start: int,
+    context: list[str],
+) -> list[str]:
+    for context_start in range(1, len(context)):
+        suffix = context[context_start:]
+        if _left_only_rows_match_context(rows, start=start, context=suffix):
+            return suffix
+    return []
+
+
+def _following_right_context_row(
+    rows: list[DifftasticRow],
+    *,
+    start: int,
+    context: list[str],
+) -> int | None:
+    for index in range(start, len(rows)):
+        row = rows[index]
+        if row.get("left_no") is not None and row.get("right_no") is not None:
+            return None
+        if not _is_right_only_row(row):
+            continue
+        if _non_ws_chars_for_row(row, side="right") == context:
+            return index
+    return None
+
+
+def _left_only_rows_match_context(
+    rows: list[DifftasticRow],
+    *,
+    start: int,
+    context: list[str],
+) -> bool:
+    cursor = 0
+    index = start
+    while cursor < len(context) and index < len(rows):
+        row = rows[index]
+        if not _is_left_only_row(row):
+            return False
+        row_chars = _non_ws_chars_for_row(row, side="left")
+        if row_chars == []:
+            index += 1
+            continue
+        next_cursor = cursor + len(row_chars)
+        if context[cursor:next_cursor] != row_chars:
+            return False
+        cursor = next_cursor
+        index += 1
+    return cursor == len(context)
+
+
+def _repair_following_left_context_rows(
+    rows: list[DifftasticRow],
+    *,
+    start: int,
+    context: list[str],
+) -> None:
+    cursor = 0
+    index = start
+    while cursor < len(context) and index < len(rows):
+        row = rows[index]
+        if not _is_left_only_row(row):
+            return
+        row_chars = _non_ws_chars_for_row(row, side="left")
+        if row_chars == []:
+            index += 1
+            continue
+        next_cursor = cursor + len(row_chars)
+        if context[cursor:next_cursor] != row_chars:
+            return
+        repaired = _build_row(
+            left_no=row.get("left_no"),
+            right_no=None,
+            left_text=row["left_text"],
+            right_text="",
+            left_tokens=[],
+            right_tokens=None,
+        )
+        repaired["status"] = "equal"
+        rows[index] = repaired
+        cursor = next_cursor
+        index += 1
+
+
+def _repair_following_left_sparse_context_rows(
+    rows: list[DifftasticRow],
+    *,
+    start: int,
+    context: list[str],
+) -> None:
+    if not _is_structural_closer_context([context[-1]]):
+        return
+
+    chars = _left_only_sparse_chars(rows, start=start)
+    matches = _rightmost_context_matches(chars, context=context)
+    if len(matches) == 0:
+        return
+
+    by_row: dict[int, set[int]] = {}
+    for char_index in matches:
+        row_index = chars[char_index][0]
+        row_char_index = chars[char_index][1]
+        by_row.setdefault(row_index, set()).add(row_char_index)
+
+    for row_index, char_indexes in by_row.items():
+        row = rows[row_index]
+        tokens = _sparse_left_context_tokens(
+            row["left_text"],
+            unchanged_indexes=char_indexes,
+        )
+        repaired = _build_row(
+            left_no=row.get("left_no"),
+            right_no=None,
+            left_text=row["left_text"],
+            right_text="",
+            left_tokens=tokens,
+            right_tokens=None,
+        )
+        if _all_non_ws_tokens_unchanged(tokens):
+            repaired["status"] = "equal"
+            repaired["left_tokens"] = []
+        else:
+            repaired["status"] = "replace"
+        rows[row_index] = repaired
+
+
+def _left_only_sparse_chars(
+    rows: list[DifftasticRow],
+    *,
+    start: int,
+) -> list[tuple[int, int, str]]:
+    chars: list[tuple[int, int, str]] = []
+    for row_index in range(start, len(rows)):
+        row = rows[row_index]
+        if not _is_left_only_row(row):
+            break
+        for char_index, char in enumerate(row["left_text"]):
+            if char.isspace():
+                continue
+            chars.append((row_index, char_index, char))
+    return chars
+
+
+def _rightmost_context_matches(
+    chars: list[tuple[int, int, str]],
+    *,
+    context: list[str],
+) -> set[int]:
+    matches: set[int] = set()
+    cursor = len(chars)
+    for target in reversed(context):
+        match = None
+        for char_index in range(cursor - 1, -1, -1):
+            if chars[char_index][2] == target:
+                match = char_index
+                break
+        if match is None:
+            return set()
+        matches.add(match)
+        cursor = match
+    return matches
+
+
+def _sparse_left_context_tokens(
+    text: str,
+    *,
+    unchanged_indexes: set[int],
+) -> list[DifftasticInlineToken]:
+    tokens: list[DifftasticInlineToken] = []
+    for char_index, char in enumerate(text):
+        if char.isspace() or char_index in unchanged_indexes:
+            status: DifftasticTokenStatus = "unchanged"
+        else:
+            status = "delete"
+        _append_token(tokens, text=char, status=status)
+    return tokens
+
+
+def _all_non_ws_tokens_unchanged(
+    tokens: list[DifftasticInlineToken],
+) -> bool:
+    return all(
+        token["status"] == "unchanged" for token in tokens if not token["is_ws"]
+    )
+
+
+def _is_left_only_row(row: DifftasticRow) -> bool:
+    return row.get("left_no") is not None and row.get("right_no") is None
+
+
+def _is_right_only_row(row: DifftasticRow) -> bool:
+    return row.get("left_no") is None and row.get("right_no") is not None
+
+
+def _non_ws_chars_for_row(row: DifftasticRow, *, side: _Side) -> list[str]:
+    if side == "left":
+        tokens = row.get("left_tokens")
+        text = row["left_text"]
+    else:
+        tokens = row.get("right_tokens")
+        text = row["right_text"]
+    if isinstance(tokens, list) and tokens != []:
+        return [
+            char
+            for token in tokens
+            for char in token["text"]
+            if not char.isspace()
+        ]
+    return [char for char in text if not char.isspace()]
+
+
+def _extra_right_unchanged_context(row: DifftasticRow) -> list[str]:
+    if row.get("left_no") is None:
+        return []
+    if row.get("right_no") is None:
+        return []
+    left_context = _non_ws_chars_with_status(
+        row.get("left_tokens"), "unchanged"
+    )
+    right_context = _non_ws_chars_with_status(
+        row.get("right_tokens"), "unchanged"
+    )
+    if len(right_context) <= len(left_context):
+        return []
+    if right_context[: len(left_context)] != left_context:
+        return []
+    return right_context[len(left_context) :]
+
+
+def _extra_left_unchanged_context(row: DifftasticRow) -> list[str]:
+    if row.get("left_no") is None:
+        return []
+    if row.get("right_no") is None:
+        return []
+    left_context = _non_ws_chars_with_status(
+        row.get("left_tokens"), "unchanged"
+    )
+    right_context = _non_ws_chars_with_status(
+        row.get("right_tokens"), "unchanged"
+    )
+    if len(left_context) <= len(right_context):
+        return []
+    if left_context[: len(right_context)] != right_context:
+        return []
+    return left_context[len(right_context) :]
+
+
+def _is_structural_closer_context(context: list[str]) -> bool:
+    return context != [] and all(
+        char in {")", "}", "]", ">"} for char in context
+    )
+
+
+def _non_ws_chars_with_status(
+    tokens: object,
+    status: DifftasticTokenStatus,
+) -> list[str]:
+    if not isinstance(tokens, list):
+        return []
+    chars: list[str] = []
+    for token in tokens:
+        if not isinstance(token, dict):
+            continue
+        if token.get("status") != status:
+            continue
+        text = token.get("text")
+        if not isinstance(text, str):
+            continue
+        chars.extend(char for char in text if not char.isspace())
+    return chars
+
+
+def _left_tokens_with_borrowed_context(
+    tokens: list[DifftasticInlineToken],
+    *,
+    extra_context: list[str],
+) -> list[DifftasticInlineToken]:
+    repairs: dict[tuple[int, int], DifftasticTokenStatus] = {}
+    cursor = 0
+    chars = _token_chars(tokens)
+    for target in extra_context:
+        match = _find_token_char(chars, cursor=cursor, target=target)
+        if match is None:
+            return tokens
+        for skipped in range(cursor, match):
+            token_index, char_index, _char, status = chars[skipped]
+            if status == "unchanged":
+                repairs[(token_index, char_index)] = "delete"
+        token_index, char_index, _char, status = chars[match]
+        if status != "unchanged":
+            repairs[(token_index, char_index)] = "unchanged"
+        cursor = match + 1
+
+    for extra in range(cursor, len(chars)):
+        token_index, char_index, _char, status = chars[extra]
+        if status == "unchanged":
+            repairs[(token_index, char_index)] = "delete"
+    if repairs == {}:
+        return tokens
+    return _tokens_with_status_repairs(tokens, repairs)
+
+
+def _token_chars(
+    tokens: list[DifftasticInlineToken],
+) -> list[tuple[int, int, str, DifftasticTokenStatus]]:
+    chars: list[tuple[int, int, str, DifftasticTokenStatus]] = []
+    for token_index, token in enumerate(tokens):
+        for char_index, char in enumerate(token["text"]):
+            if char.isspace():
+                continue
+            chars.append((token_index, char_index, char, token["status"]))
+    return chars
+
+
+def _find_token_char(
+    chars: list[tuple[int, int, str, DifftasticTokenStatus]],
+    *,
+    cursor: int,
+    target: str,
+) -> int | None:
+    for index in range(cursor, len(chars)):
+        if chars[index][2] == target and chars[index][3] == "unchanged":
+            return index
+    for index in range(cursor, len(chars)):
+        if chars[index][2] == target:
+            return index
+    return None
+
+
+def _tokens_with_status_repairs(
+    tokens: list[DifftasticInlineToken],
+    repairs: dict[tuple[int, int], DifftasticTokenStatus],
+) -> list[DifftasticInlineToken]:
+    rewritten: list[DifftasticInlineToken] = []
+    for token_index, token in enumerate(tokens):
+        rewritten.extend(
+            _token_with_status_repairs(
+                token,
+                {
+                    char_index: status
+                    for (
+                        repair_token,
+                        char_index,
+                    ), status in repairs.items()
+                    if repair_token == token_index
+                },
+            )
+        )
+    return rewritten
+
+
+def _token_with_status_repairs(
+    token: DifftasticInlineToken,
+    repairs: dict[int, DifftasticTokenStatus],
+) -> list[DifftasticInlineToken]:
+    if repairs == {}:
+        return [token]
+
+    rewritten: list[DifftasticInlineToken] = []
+    segment_text = ""
+    segment_status: DifftasticTokenStatus | None = None
+    for char_index, char in enumerate(token["text"]):
+        status = repairs.get(char_index, token["status"])
+        if segment_status is None:
+            segment_status = status
+            segment_text = char
+            continue
+        if status == segment_status:
+            segment_text += char
+            continue
+        _append_token(rewritten, text=segment_text, status=segment_status)
+        segment_status = status
+        segment_text = char
+
+    if segment_status is not None:
+        _append_token(rewritten, text=segment_text, status=segment_status)
+    return rewritten
 
 
 def _changed_tokens_for_text(
@@ -2697,10 +3051,6 @@ def _previous_left_suffix_candidate(
     ):
         return candidate_index
     return None
-
-
-def _is_right_only_row(row: DifftasticRow) -> bool:
-    return row.get("left_no") is None and row.get("right_no") is not None
 
 
 def _right_only_run_has_unclosed_opener(

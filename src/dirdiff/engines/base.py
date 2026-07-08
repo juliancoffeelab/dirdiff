@@ -202,8 +202,8 @@ class FoldHint(TypedDict):
 class DiffEngineRow(TypedDict):
     """One aligned diff row returned by a diff engine.
 
-    Engine rows describe only the semantic comparison between two already
-    loaded text sides.  Display-only transport fields are added after engine
+    Engine rows describe only the aligned text comparison between two already
+    loaded sides.  Display-only transport fields are added after engine
     rendering by the API/display layer.
     """
 
