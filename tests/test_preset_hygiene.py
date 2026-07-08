@@ -15,13 +15,24 @@ REPO_ROOT = Path(__file__).parents[1]
 EXPECTED_PRESET_MAKEFILE = """OLD := $(firstword $(wildcard old.*))
 NEW := $(firstword $(wildcard new.*))
 
-.PHONY: diff full json show
+.PHONY: diff full gum json show
 
 diff:
 \tdifft $(OLD) $(NEW)
 
 full:
 \tdiff $(OLD) $(NEW)
+
+gum:
+\tgumtree webdiff --port $${GUM_PORT:-4567} $(OLD) $(NEW) & \\
+\tpid=$$!; \\
+\ttrap 'kill $$pid 2>/dev/null || true' INT TERM EXIT; \\
+\tsleep 1; \\
+\turl=http://127.0.0.1:$${GUM_PORT:-4567}/; \\
+\tif command -v open >/dev/null 2>&1; then open $$url; \\
+\telif command -v xdg-open >/dev/null 2>&1; then xdg-open $$url; \\
+\telse printf 'GumTree webdiff: %s\\n' $$url; fi; \\
+\twait $$pid
 
 json:
 \t@DFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
