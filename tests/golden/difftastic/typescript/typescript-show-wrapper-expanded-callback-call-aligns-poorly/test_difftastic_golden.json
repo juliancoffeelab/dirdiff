@@ -1091,7 +1091,7 @@
         "text": "("
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 16,

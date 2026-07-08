@@ -1043,7 +1043,7 @@
         "text": "("
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 12,
@@ -3672,7 +3672,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 45,
@@ -4215,7 +4215,7 @@
         "text": "==="
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 51,
@@ -7066,7 +7066,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 85,

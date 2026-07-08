@@ -1086,102 +1086,77 @@ def _row_status(
     right_tokens: list[DifftasticInlineToken] | None,
     allow_ws_only_equal: bool,
 ) -> DifftasticRowStatus:
+    assert left_no is not None or right_no is not None
+
+    token_status = _token_row_status(left_tokens, right_tokens)
+    if token_status is not None:
+        return token_status
+
     if left_no is not None and right_no is not None:
         return _paired_row_status(
             left_text=left_text,
             right_text=right_text,
-            left_tokens=left_tokens,
-            right_tokens=right_tokens,
             allow_ws_only_equal=allow_ws_only_equal,
         )
 
-    if left_no is not None:
-        return _left_only_row_status(left_tokens)
+    if left_tokens == [] or right_tokens == []:
+        return "equal"
 
     if right_no is not None:
-        return _right_only_row_status(right_tokens)
+        return "insert"
 
-    return "equal"
+    return "delete"
+
+
+def _token_row_status(
+    left_tokens: list[DifftasticInlineToken] | None,
+    right_tokens: list[DifftasticInlineToken] | None,
+) -> DifftasticRowStatus | None:
+    token_lists = [
+        tokens for tokens in (left_tokens, right_tokens) if tokens is not None
+    ]
+    if token_lists == []:
+        return None
+
+    token_statuses = [
+        token["status"] for tokens in token_lists for token in tokens
+    ]
+    if token_statuses == []:
+        return None
+
+    changed_statuses = {
+        status for status in token_statuses if status != "unchanged"
+    }
+    changed_tokens_are_ws = all(
+        token["status"] == "unchanged" or token["is_ws"]
+        for tokens in token_lists
+        for token in tokens
+    )
+    has_unchanged_text = any(
+        token["status"] == "unchanged" and not token["is_ws"]
+        for tokens in token_lists
+        for token in tokens
+    )
+    if changed_statuses == set() or changed_tokens_are_ws:
+        return "equal"
+    if changed_statuses == {"delete"} and not has_unchanged_text:
+        return "delete"
+    if changed_statuses == {"insert"} and not has_unchanged_text:
+        return "insert"
+    return "replace"
 
 
 def _paired_row_status(
     *,
     left_text: str,
     right_text: str,
-    left_tokens: list[DifftasticInlineToken] | None,
-    right_tokens: list[DifftasticInlineToken] | None,
     allow_ws_only_equal: bool,
 ) -> DifftasticRowStatus:
-    if (
-        left_text == right_text
-        and not _has_changed_tokens(left_tokens)
-        and not _has_changed_tokens(right_tokens)
-    ):
+    if left_text == right_text:
         return "equal"
-    if (
-        allow_ws_only_equal
-        and left_text.strip() == right_text.strip()
-        and _has_only_whitespace_changes(left_tokens)
-        and _has_only_whitespace_changes(right_tokens)
-    ):
+    if allow_ws_only_equal and left_text.strip() == right_text.strip():
         return "equal"
     return "replace"
-
-
-def _left_only_row_status(
-    left_tokens: list[DifftasticInlineToken] | None,
-) -> DifftasticRowStatus:
-    if not _has_changed_tokens(left_tokens):
-        if _has_unchanged_meaningful_tokens(left_tokens):
-            return "equal"
-        return "delete"
-    if _has_unchanged_meaningful_tokens(left_tokens):
-        return "replace"
-    return "delete"
-
-
-def _right_only_row_status(
-    right_tokens: list[DifftasticInlineToken] | None,
-) -> DifftasticRowStatus:
-    if not _has_changed_tokens(right_tokens):
-        return "equal"
-    if not _has_unchanged_meaningful_tokens(right_tokens):
-        return "insert"
-    return "replace"
-
-
-def _has_changed_tokens(tokens: list[DifftasticInlineToken] | None) -> bool:
-    if tokens is None:
-        return False
-    return any(token["status"] != "unchanged" for token in tokens)
-
-
-def _has_only_whitespace_changes(
-    tokens: list[DifftasticInlineToken] | None,
-) -> bool:
-    if tokens is None:
-        return False
-    for token in tokens:
-        if token["status"] == "unchanged":
-            continue
-        if not token["is_ws"]:
-            return False
-    return True
-
-
-def _has_unchanged_meaningful_tokens(
-    tokens: list[DifftasticInlineToken] | None,
-) -> bool:
-    if tokens is None:
-        return False
-    for token in tokens:
-        if token["status"] != "unchanged":
-            continue
-        if token["is_ws"]:
-            continue
-        if _ATOM_PATTERN.search(token["text"]) is not None:
-            return True
-    return False
 
 
 def _right_line_template_for_left(

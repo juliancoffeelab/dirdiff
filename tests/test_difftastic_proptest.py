@@ -619,6 +619,57 @@ def test_difftastic_preset_unchanged_tokens_match_on_both_sides(
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_line_status_matches_token_statuses(
+    preset_dir: Path,
+) -> None:
+    rows, _, _ = _preset_rows(preset_dir)
+
+    diagnostics: list[tuple[int, str, str, list[str]]] = []
+    for row_index, row in enumerate(rows, start=1):
+        has_token_data = False
+        token_statuses: list[str] = []
+        changed_tokens_are_ws = True
+        has_unchanged_text = False
+        for side in ("left", "right"):
+            tokens = row.get(_side_tokens_key(side))
+            if tokens is None:
+                continue
+            assert isinstance(tokens, list)
+            if tokens != []:
+                has_token_data = True
+            for token in tokens:
+                assert isinstance(token, dict)
+                status = token.get("status")
+                assert isinstance(status, str)
+                token_statuses.append(status)
+                if status == "unchanged" and token.get("is_ws") is not True:
+                    has_unchanged_text = True
+                if status != "unchanged" and token.get("is_ws") is not True:
+                    changed_tokens_are_ws = False
+        if token_statuses == [] and not has_token_data:
+            continue
+
+        changed_statuses = {
+            status for status in token_statuses if status != "unchanged"
+        }
+        if changed_statuses == set() or changed_tokens_are_ws:
+            expected = "equal"
+        elif changed_statuses == {"delete"} and not has_unchanged_text:
+            expected = "delete"
+        elif changed_statuses == {"insert"} and not has_unchanged_text:
+            expected = "insert"
+        else:
+            expected = "replace"
+
+        actual = row.get("status")
+        assert isinstance(actual, str)
+        if actual != expected:
+            diagnostics.append((row_index, actual, expected, token_statuses))
+
+    assert diagnostics == []
+
+
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
 def test_difftastic_preset_diff_replays_left_to_right(
     preset_dir: Path,
 ) -> None:
