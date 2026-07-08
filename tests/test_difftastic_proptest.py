@@ -598,7 +598,6 @@ def test_difftastic_preset_diff_replays_left_to_right(
 ) -> None:
     """Token statuses should replay the old file into the new file."""
     if preset_dir.name in {
-        "create-app-runtime-config-collapses-service-block",
         "rust-quest-resolve-chain-wraps-poorly",
         "typescript-repo-fold-controls-show-placeholder-aligns-poorly",
     }:

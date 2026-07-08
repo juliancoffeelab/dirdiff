@@ -3167,3 +3167,44 @@ def test_difftastic_rows_keep_shared_path_residue_unchanged_in_deleted_block() -
         {"text": "repo_path", "status": "insert", "is_ws": False},
         {"text": ")", "status": "unchanged", "is_ws": False},
     ]
+
+
+def test_difftastic_rows_keep_member_access_dot_unchanged_across_wrapped_pair() -> (
+    None
+):
+    rows = _text_rows(
+        left_text=(
+            "repo_root = (\n"
+            "    Path(config.repo_root).expanduser() if config.repo_root else None\n"
+            ")\n"
+        ),
+        right_text=(
+            "def handle_mark_command(args: argparse.Namespace) -> None:\n"
+        ),
+        extension="py",
+    )
+
+    left_row = next(
+        row
+        for row in rows
+        if row["left_text"]
+        == "    Path(config.repo_root).expanduser() if config.repo_root else None"
+    )
+    right_row = next(
+        row
+        for row in rows
+        if row["right_text"]
+        == "def handle_mark_command(args: argparse.Namespace) -> None:"
+    )
+
+    assert left_row["left_tokens"][:6] == [
+        {"text": "    ", "status": "unchanged", "is_ws": True},
+        {"text": "Path", "status": "delete", "is_ws": False},
+        {"text": "(", "status": "delete", "is_ws": False},
+        {"text": "config", "status": "delete", "is_ws": False},
+        {"text": ".", "status": "unchanged", "is_ws": False},
+        {"text": "repo_root", "status": "delete", "is_ws": False},
+    ]
+    assert {"text": ".", "status": "unchanged", "is_ws": False} in right_row[
+        "right_tokens"
+    ]
