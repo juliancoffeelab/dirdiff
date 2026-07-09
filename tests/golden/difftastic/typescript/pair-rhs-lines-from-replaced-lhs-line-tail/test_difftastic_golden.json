@@ -103,7 +103,7 @@
   },
   {
     "left_no": 3,
-    "left_text": "export function syntaxParts(",
+    "left_text": "export function syntaxParts(text: string, syntax: SyntaxSpan[]): string[] {",
     "left_tokens": [
       {
         "is_ws": false,
@@ -118,7 +118,7 @@
       {
         "is_ws": false,
         "status": "unchanged",
-        "text": "("
+        "text": "(text: string, syntax: SyntaxSpan[]): string[] {"
       }
     ],
     "right_no": 4,
@@ -143,8 +143,8 @@
     "status": "replace"
   },
   {
-    "left_no": 3,
-    "left_text": "  text: string,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 5,
     "right_text": "  text: string,",
     "right_tokens": [],
@@ -200,8 +200,8 @@
     "status": "insert"
   },
   {
-    "left_no": 3,
-    "left_text": "  syntax: SyntaxSpan[]",
+    "left_no": null,
+    "left_text": "",
     "right_no": 7,
     "right_text": "  syntax: SyntaxSpan[],",
     "right_tokens": [
@@ -219,8 +219,8 @@
     "status": "replace"
   },
   {
-    "left_no": 3,
-    "left_text": "): string[] {",
+    "left_no": null,
+    "left_text": "",
     "right_no": 8,
     "right_text": "): string[] {",
     "right_tokens": [],

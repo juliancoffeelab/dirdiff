@@ -28,39 +28,40 @@
   },
   {
     "left_no": 4,
-    "left_text": "  kind: z.enum([",
+    "left_text": "  kind: z.enum([\"function_like\", \"class_like\", \"container\", \"section\"]),",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "  kind: z.enum([",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 4,
-    "left_text": "    \"function_like\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 5,
     "right_text": "    \"function_like\",",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 4,
-    "left_text": "    \"class_like\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 6,
     "right_text": "    \"class_like\",",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 4,
-    "left_text": "    \"container\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 7,
     "right_text": "    \"container\",",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 4,
-    "left_text": "    \"section\"",
+    "left_no": null,
+    "left_text": "",
     "right_no": 8,
     "right_text": "    \"section\",",
     "right_tokens": [
@@ -102,8 +103,8 @@
     "status": "insert"
   },
   {
-    "left_no": 4,
-    "left_text": "  ]),",
+    "left_no": null,
+    "left_text": "",
     "right_no": 10,
     "right_text": "  ]),",
     "right_tokens": [],

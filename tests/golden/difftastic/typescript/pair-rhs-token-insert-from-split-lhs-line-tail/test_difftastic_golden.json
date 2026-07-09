@@ -10,31 +10,32 @@
   },
   {
     "left_no": 2,
-    "left_text": "import type {",
+    "left_text": "import type { DiffRow, FileEntry, InlineToken, SyntaxSpan } from \"./api\";",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "import type {",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 2,
-    "left_text": "  DiffRow,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 3,
     "right_text": "  DiffRow,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 2,
-    "left_text": "  FileEntry,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 4,
     "right_text": "  FileEntry,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 2,
-    "left_text": "  InlineToken,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 5,
     "right_text": "  InlineToken,",
     "right_tokens": [],
@@ -65,8 +66,8 @@
     "status": "insert"
   },
   {
-    "left_no": 2,
-    "left_text": "  SyntaxSpan",
+    "left_no": null,
+    "left_text": "",
     "right_no": 7,
     "right_text": "  SyntaxSpan,",
     "right_tokens": [
@@ -84,8 +85,8 @@
     "status": "replace"
   },
   {
-    "left_no": 2,
-    "left_text": "} from \"./api\";",
+    "left_no": null,
+    "left_text": "",
     "right_no": 8,
     "right_text": "} from \"./api\";",
     "right_tokens": [],

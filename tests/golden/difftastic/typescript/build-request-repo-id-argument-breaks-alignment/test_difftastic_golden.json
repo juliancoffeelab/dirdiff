@@ -308,31 +308,32 @@
   },
   {
     "left_no": 21,
-    "left_text": "  const nextRequest = buildRequest(",
+    "left_text": "  const nextRequest = buildRequest(nextControls, refChoices(), nextEngine);",
+    "left_tokens": [],
     "right_no": 24,
     "right_text": "  const nextRequest = buildRequest(",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 21,
-    "left_text": "    nextControls,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 25,
     "right_text": "    nextControls,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 21,
-    "left_text": "    refChoices(),",
+    "left_no": null,
+    "left_text": "",
     "right_no": 26,
     "right_text": "    refChoices(),",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 21,
-    "left_text": "    nextEngine",
+    "left_no": null,
+    "left_text": "",
     "right_no": 27,
     "right_text": "    nextEngine,",
     "right_tokens": [
@@ -374,8 +375,8 @@
     "status": "insert"
   },
   {
-    "left_no": 21,
-    "left_text": "  );",
+    "left_no": null,
+    "left_text": "",
     "right_no": 29,
     "right_text": "  );",
     "right_tokens": [],

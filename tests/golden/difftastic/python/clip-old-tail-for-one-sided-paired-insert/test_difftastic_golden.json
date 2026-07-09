@@ -1,7 +1,7 @@
 [
   {
     "left_no": 1,
-    "left_text": "from dirdiff.diff import ",
+    "left_text": "from dirdiff.diff import GitDiffService, GitBackend, TextDiffService",
     "left_tokens": [],
     "right_no": 1,
     "right_text": "from dirdiff.diff import (",
@@ -44,24 +44,24 @@
     "status": "insert"
   },
   {
-    "left_no": 1,
-    "left_text": "    GitDiffService,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 3,
     "right_text": "    GitDiffService,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "    GitBackend,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 4,
     "right_text": "    GitBackend,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "    TextDiffService",
+    "left_no": null,
+    "left_text": "",
     "right_no": 5,
     "right_text": "    TextDiffService,",
     "right_tokens": [

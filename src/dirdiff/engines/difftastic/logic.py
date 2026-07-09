@@ -422,9 +422,6 @@ def _normalized_row_specs(
         return []
 
     specs: list[_RowSpec] = []
-    next_left = 0
-    next_right = 0
-
     for pair in aligned_lines:
         left_index, right_index = _pair_indices(pair)
         if left_index is not None and left_index >= left_count:
@@ -433,38 +430,8 @@ def _normalized_row_specs(
             right_index = None
         if left_index is None and right_index is None:
             continue
-        missing_left = _missing_range(next_left, left_index, left_count)
-        missing_right = _missing_range(next_right, right_index, right_count)
-        specs.extend(
-            _align_gap_specs(
-                missing_left,
-                missing_right,
-            )
-        )
         specs.append(_RowSpec(left=left_index, right=right_index))
-        if left_index is not None:
-            next_left = left_index + 1
-        if right_index is not None:
-            next_right = right_index + 1
-
-    specs.extend(
-        _align_gap_specs(
-            list(range(next_left, left_count)),
-            list(range(next_right, right_count)),
-        )
-    )
-    split_specs = _split_dissimilar_pairs(
-        specs,
-        left_lines=left_lines,
-        right_lines=right_lines,
-        change_index=change_index,
-    )
-    return _repair_one_sided_blocks(
-        split_specs,
-        left_lines=left_lines,
-        right_lines=right_lines,
-        change_index=change_index,
-    )
+    return specs
 
 
 def _split_dissimilar_pairs(
@@ -1789,283 +1756,38 @@ def _rows_from_specs(
     change_index: _ChangeIndex,
 ) -> list[DifftasticRow]:
     rows: list[DifftasticRow] = []
-    pending_left: list[_PendingLeftLine] = []
-    pending_right: _PendingRightLine | None = None
-
-    for spec_index, spec in enumerate(specs):
-        if (
-            pending_right is not None
-            and spec.right is not None
-            and spec.right != pending_right.index
-        ):
+    for spec in specs:
+        if spec.left is None:
+            assert spec.right is not None
             rows.append(
-                _right_residual_row(
-                    pending_right,
+                _right_only_row(
+                    spec.right,
                     right_lines=right_lines,
                     change_index=change_index,
                 )
             )
-            pending_right = None
-
-        if spec.left is not None:
-            while pending_left != [] and pending_left[0].index != spec.left:
-                pending = pending_left.pop(0)
-                if pending.cursor > 0:
-                    rows.append(
-                        _left_residual_row(
-                            pending,
-                            left_lines=left_lines,
-                            change_index=change_index,
-                        )
-                    )
-                else:
-                    rows.append(
-                        _full_left_row(
-                            pending.index,
-                            left_lines=left_lines,
-                            change_index=change_index,
-                        )
-                    )
-            pending_left.append(_PendingLeftLine(index=spec.left))
+            continue
 
         if spec.right is None:
-            if pending_left == []:
-                continue
-            pending = pending_left.pop(0)
-            if pending_right is not None:
-                match = _match_right_fragment(
-                    pending=pending_right,
-                    left_index=pending.index,
-                    left_lines=left_lines,
-                    right_lines=right_lines,
-                )
-                if match is not None:
-                    rows.append(
-                        _right_fragment_pair_row(
-                            pending.index,
-                            pending_right.index,
-                            match=match,
-                            left_lines=left_lines,
-                            right_lines=right_lines,
-                            change_index=change_index,
-                        )
-                    )
-                    pending_right.cursor = match.end
-                    if pending_right.cursor >= len(
-                        right_lines[pending_right.index]
-                    ):
-                        pending_right = None
-                    continue
             rows.append(
                 _full_left_row(
-                    pending.index,
+                    spec.left,
                     left_lines=left_lines,
                     change_index=change_index,
                 )
-            )
-            continue
-
-        current_pending: _PendingLeftLine | None = (
-            pending_left[0] if pending_left else None
-        )
-        if current_pending is None:
-            rows.append(
-                _right_only_row(
-                    spec.right,
-                    right_lines=right_lines,
-                    change_index=change_index,
-                )
-            )
-            continue
-
-        pending = current_pending
-        if _line_can_split(pending.index, change_index):
-            match = _match_left_fragment(
-                pending=pending,
-                right_index=spec.right,
-                left_lines=left_lines,
-                right_lines=right_lines,
-                change_index=change_index,
-            )
-        else:
-            match = None
-
-        if (
-            match is None
-            and pending.cursor > 0
-            and spec.left is None
-            and pending.index not in change_index.left_has_unpaired_delete
-        ):
-            match = _match_left_fragment_by_subsequence(
-                pending=pending,
-                right_index=spec.right,
-                left_lines=left_lines,
-                right_lines=right_lines,
-            )
-
-        if (
-            match is not None
-            and match.end < len(left_lines[pending.index])
-            and spec.left is not None
-            and _next_spec_has_left(specs, spec_index)
-        ):
-            match = None
-
-        if match is not None and match.end < len(left_lines[pending.index]):
-            rows.append(
-                _fragment_pair_row(
-                    pending.index,
-                    spec.right,
-                    match=match,
-                    left_lines=left_lines,
-                    right_lines=right_lines,
-                    change_index=change_index,
-                )
-            )
-            pending.cursor = match.end
-            continue
-
-        if match is not None and pending.cursor > 0:
-            rows.append(
-                _fragment_pair_row(
-                    pending.index,
-                    spec.right,
-                    match=match,
-                    left_lines=left_lines,
-                    right_lines=right_lines,
-                    change_index=change_index,
-                )
-            )
-            pending_left.pop(0)
-            continue
-
-        residual_match: _FragmentMatch | None = None
-        if _has_current_replace_pair(
-            left_index=pending.index,
-            right_index=spec.right,
-            change_index=change_index,
-        ):
-            residual_match = _match_left_fragment(
-                pending=pending,
-                right_index=spec.right,
-                left_lines=left_lines,
-                right_lines=right_lines,
-                change_index=change_index,
-            )
-        if residual_match is not None and residual_match.end < len(
-            left_lines[pending.index]
-        ):
-            if _has_current_replace_pair_content(
-                left_index=pending.index,
-                right_index=spec.right,
-                change_index=change_index,
-            ):
-                rows.append(
-                    _fragment_pair_row(
-                        pending.index,
-                        spec.right,
-                        match=residual_match,
-                        left_lines=left_lines,
-                        right_lines=right_lines,
-                        change_index=change_index,
-                    )
-                )
-            else:
-                rows.append(
-                    _full_pair_row(
-                        pending.index,
-                        spec.right,
-                        left_lines=left_lines,
-                        right_lines=right_lines,
-                        change_index=change_index,
-                    )
-                )
-            pending.cursor = residual_match.end
-            continue
-
-        if pending.cursor > 0 and spec.left is None:
-            rows.append(
-                _right_only_row(
-                    spec.right,
-                    right_lines=right_lines,
-                    change_index=change_index,
-                )
-            )
-            continue
-
-        right_match = _match_right_fragment(
-            pending=_PendingRightLine(index=spec.right),
-            left_index=pending.index,
-            left_lines=left_lines,
-            right_lines=right_lines,
-        )
-        can_split_right = (
-            pending.index not in change_index.touched_left_lines
-            and spec.right not in change_index.touched_right_lines
-        )
-        if (
-            can_split_right
-            and right_match is not None
-            and right_match.end < len(right_lines[spec.right])
-        ):
-            rows.append(
-                _right_fragment_pair_row(
-                    pending.index,
-                    spec.right,
-                    match=right_match,
-                    left_lines=left_lines,
-                    right_lines=right_lines,
-                    change_index=change_index,
-                )
-            )
-            pending_left.pop(0)
-            pending_right = _PendingRightLine(
-                index=spec.right,
-                cursor=right_match.end,
             )
             continue
 
         rows.append(
             _full_pair_row(
-                pending.index,
+                spec.left,
                 spec.right,
                 left_lines=left_lines,
                 right_lines=right_lines,
                 change_index=change_index,
             )
         )
-        pending_left.pop(0)
-
-    for pending in pending_left:
-        if pending.cursor > 0:
-            rows.append(
-                _left_residual_row(
-                    pending,
-                    left_lines=left_lines,
-                    change_index=change_index,
-                )
-            )
-        else:
-            rows.append(
-                _full_left_row(
-                    pending.index,
-                    left_lines=left_lines,
-                    change_index=change_index,
-                )
-            )
-    if pending_right is not None:
-        rows.append(
-            _right_residual_row(
-                pending_right,
-                right_lines=right_lines,
-                change_index=change_index,
-            )
-        )
-    repaired = _repair_shifted_rows(rows)
-    repaired = _repair_inserted_structural_closers(repaired)
-    repaired = _repair_adjacent_left_context_from_right(repaired)
-    repaired = _repair_adjacent_right_context_from_left(repaired)
-    return _repair_structural_context_rows(repaired)
+    return rows
 
 
 def _repair_inserted_structural_closers(

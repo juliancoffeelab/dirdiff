@@ -347,31 +347,32 @@
   },
   {
     "left_no": 16,
-    "left_text": "                  props.setDirectoryExpanded(",
+    "left_text": "                  props.setDirectoryExpanded(props.group, !props.directoryExpanded(props.group))",
+    "left_tokens": [],
     "right_no": 20,
     "right_text": "                    props.setDirectoryExpanded(",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 16,
-    "left_text": "                      props.group,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 21,
     "right_text": "                      props.group,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 16,
-    "left_text": "                      !props.directoryExpanded(props.group)",
+    "left_no": null,
+    "left_text": "",
     "right_no": 22,
     "right_text": "                      !props.directoryExpanded(props.group),",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 16,
-    "left_text": "                    )",
+    "left_no": null,
+    "left_text": "",
     "right_no": 23,
     "right_text": "                    )",
     "right_tokens": [],

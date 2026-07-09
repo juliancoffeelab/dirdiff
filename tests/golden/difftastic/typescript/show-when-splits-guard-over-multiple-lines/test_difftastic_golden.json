@@ -109,31 +109,32 @@
   },
   {
     "left_no": 13,
-    "left_text": "    <Show",
+    "left_text": "    <Show when={repo.selectedRepoId() !== null && controls() !== null}>",
+    "left_tokens": [],
     "right_no": 13,
     "right_text": "    <Show",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 13,
-    "left_text": "      when={",
+    "left_no": null,
+    "left_text": "",
     "right_no": 14,
     "right_text": "      when={",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 13,
-    "left_text": "        repo.selectedRepoId() !== null &&",
+    "left_no": null,
+    "left_text": "",
     "right_no": 15,
     "right_text": "        repo.selectedRepoId() !== null &&",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 13,
-    "left_text": "        controls() !== null",
+    "left_no": null,
+    "left_text": "",
     "right_no": 16,
     "right_text": "        controls() !== null &&",
     "right_tokens": [
@@ -210,16 +211,16 @@
     "status": "insert"
   },
   {
-    "left_no": 13,
-    "left_text": "      }",
+    "left_no": null,
+    "left_text": "",
     "right_no": 18,
     "right_text": "      }",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 13,
-    "left_text": "    >",
+    "left_no": null,
+    "left_text": "",
     "right_no": 19,
     "right_text": "    >",
     "right_tokens": [],
