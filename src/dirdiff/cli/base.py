@@ -24,7 +24,7 @@ import typer
 from dirdiff.server import RuntimeConfig
 
 from . import marker_utils, server_launch
-from .marker_utils import DEFAULT_DB_PATH
+from .marker_utils import DB_PATH_ENV
 
 __all__ = ["main"]
 
@@ -60,7 +60,10 @@ def start(
     ctx: typer.Context,
     db_path: Annotated[
         Path | None,
-        typer.Option(help="Repo registry database path."),
+        typer.Option(
+            envvar=DB_PATH_ENV,
+            help="Repo registry database path.",
+        ),
     ] = None,
     presets_root: Annotated[
         str | None,
@@ -96,9 +99,7 @@ def start(
     selected.
     """
 
-    resolved_db_path = (
-        DEFAULT_DB_PATH if db_path is None else db_path.expanduser()
-    )
+    resolved_db_path = marker_utils.db_path_or_default(db_path)
     ctx.obj = server_launch.AppOptions(
         db_path=resolved_db_path,
         presets_root=presets_root,
@@ -211,7 +212,10 @@ def mark(
     ] = None,
     db_path: Annotated[
         Path | None,
-        typer.Option(help="Repo registry database path."),
+        typer.Option(
+            envvar=DB_PATH_ENV,
+            help="Repo registry database path.",
+        ),
     ] = None,
     list_marks: Annotated[
         bool,
@@ -220,6 +224,14 @@ def mark(
             help="Print marked repositories.",
         ),
     ] = False,
+    remove_id: Annotated[
+        int | None,
+        typer.Option(
+            "--remove",
+            min=1,
+            help="Remove a marked repository by id.",
+        ),
+    ] = None,
 ) -> None:
     """Add or list repositories in the local dirdiff registry.
 
@@ -229,8 +241,13 @@ def mark(
     """
 
     configure_logging()
+    if list_marks and remove_id is not None:
+        raise typer.BadParameter("--list and --remove cannot be combined.")
     if list_marks:
         marker_utils.print_marked_repos(db_path=db_path)
+        return
+    if remove_id is not None:
+        marker_utils.remove_marked_repo(repo_id=remove_id, db_path=db_path)
         return
     marker_utils.mark_repo(repo_path=path, name=name, db_path=db_path)
 

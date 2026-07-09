@@ -100,6 +100,22 @@ const RepoMainBranchSchema = z.strictObject({
 });
 export type RepoMainBranch = z.infer<typeof RepoMainBranchSchema>;
 
+const PreparedPullRequestBranchSchema = z.strictObject({
+  remote: z.string(),
+  branch: z.string(),
+});
+export type PreparedPullRequestBranch = z.infer<
+  typeof PreparedPullRequestBranchSchema
+>;
+
+const PreparedPullRequestSchema = z.strictObject({
+  repo_id: z.number().int().positive(),
+  pull_request_url: z.string(),
+  base_branch: PreparedPullRequestBranchSchema,
+  review_branch: PreparedPullRequestBranchSchema,
+});
+export type PreparedPullRequest = z.infer<typeof PreparedPullRequestSchema>;
+
 const PresetGroupSchema = z.strictObject({
   name: z.string(),
   display_name: z.string(),
@@ -761,6 +777,23 @@ export async function saveRepoMainBranch(
   return RepoMainBranchSchema.parse(await response.json());
 }
 
+export async function preparePullRequest(
+  url: string,
+): Promise<PreparedPullRequest> {
+  const response = await fetchJsonResponse("/api/pull-request/prepare", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ url }),
+    timeoutMs: 60_000,
+  });
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+  return PreparedPullRequestSchema.parse(await response.json());
+}
+
 export async function fetchPresets(): Promise<PresetCatalogs> {
   const response = await fetchJsonResponse("/api/presets");
   if (!response.ok) {
@@ -775,6 +808,15 @@ export async function fetchRepos(): Promise<RepoMark[]> {
     return parseErrorResponse(response);
   }
   return z.array(RepoMarkSchema).parse(await response.json());
+}
+
+export async function deleteRepoMark(repoId: RepoId): Promise<void> {
+  const response = await fetchJsonResponse(`/api/repos/${repoId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
 }
 
 export async function createUserProfile(

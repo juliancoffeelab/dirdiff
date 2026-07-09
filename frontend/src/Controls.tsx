@@ -18,11 +18,11 @@ import type {
 import {
   type AutocompleteGroup,
   type ControlsState,
-  modeLabels,
+  controlsTabLabels,
   presetTypeLabels,
   presetTypes,
   refSectionLabels,
-  topLevelModes,
+  topLevelTabs,
 } from "./fileUtils";
 
 const builtinRefDescriptions: Record<string, string> = {
@@ -84,6 +84,7 @@ export function Controls(props: {
   onAgainstHead: () => void;
   onPreset: (presetType: PresetType, preset: string) => void;
   onRefs: (left: string, right: string) => void;
+  onPullRequest: (url: string) => void | Promise<void>;
   onBranchReview: (
     baseSelection: BranchSelection,
     reviewSelection: BranchSelection,
@@ -119,6 +120,10 @@ export function Controls(props: {
   };
 
   const loadDraft = (value: ControlsState) => {
+    if (value.tab === "pull-request") {
+      void props.onPullRequest(value.pullRequestUrl);
+      return;
+    }
     if (value.mode === "refs") {
       props.onRefs(value.left, value.right);
       return;
@@ -173,21 +178,26 @@ export function Controls(props: {
     <form class="controls" onSubmit={submit}>
       <fieldset class="mode-tabs">
         <legend>View</legend>
-        <For each={topLevelModes}>
-          {(mode) => (
+        <For each={topLevelTabs}>
+          {(tab) => (
             <button
               type="button"
-              classList={{ "is-active": draft().mode === mode }}
-              aria-pressed={draft().mode === mode}
+              classList={{ "is-active": draft().tab === tab }}
+              aria-pressed={draft().tab === tab}
               onClick={() => {
-                if (mode === "preset") {
+                if (tab === "pull-request") {
+                  setDraft({ ...draft(), tab });
+                  return;
+                }
+                if (tab === "preset") {
                   const catalogs = props.presetCatalogs;
                   const nextDraft =
                     catalogs === null
-                      ? { ...draft(), mode }
+                      ? { ...draft(), tab, mode: "preset" as const }
                       : {
                           ...draft(),
-                          mode,
+                          tab,
+                          mode: "preset" as const,
                           preset: catalogs[draft().presetType].default_preset,
                         };
                   setDraft(nextDraft);
@@ -201,20 +211,20 @@ export function Controls(props: {
                   return;
                 }
                 const nextDraft =
-                  mode === "refs"
-                    ? { ...draft(), mode, ...defaultRefsDraft }
-                    : { ...draft(), mode };
+                  tab === "refs"
+                    ? { ...draft(), tab, mode: tab, ...defaultRefsDraft }
+                    : { ...draft(), tab, mode: tab };
                 setDraft(nextDraft);
                 loadDraft(nextDraft);
               }}
             >
-              {modeLabels[mode]}
+              {controlsTabLabels[tab]}
             </button>
           )}
         </For>
       </fieldset>
 
-      <Show when={draft().mode === "refs"}>
+      <Show when={draft().tab === "refs"}>
         <AutocompleteField
           label="Old ref"
           value={draft().left}
@@ -241,7 +251,7 @@ export function Controls(props: {
         />
       </Show>
 
-      <Show when={draft().mode === "branch-review"}>
+      <Show when={draft().tab === "branch-review"}>
         <BranchSourceField
           label="Base remote"
           selection={draft().baseSelection}
@@ -289,7 +299,22 @@ export function Controls(props: {
         />
       </Show>
 
-      <Show when={draft().mode === "preset"}>
+      <Show when={draft().tab === "pull-request"}>
+        <label class="field pull-request-field">
+          <span>Pull request</span>
+          <input
+            value={draft().pullRequestUrl}
+            placeholder="GitHub PR or GitLab MR URL"
+            spellcheck={false}
+            autocomplete="off"
+            onInput={(event) =>
+              updateDraft({ pullRequestUrl: event.currentTarget.value })
+            }
+          />
+        </label>
+      </Show>
+
+      <Show when={draft().tab === "preset"}>
         <Show when={props.presetCatalogsError !== null}>
           <section class="notice error">
             Failed to load presets: {String(props.presetCatalogsError)}

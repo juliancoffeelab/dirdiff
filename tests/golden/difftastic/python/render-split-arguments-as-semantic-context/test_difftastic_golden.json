@@ -72,31 +72,32 @@
   },
   {
     "left_no": 6,
-    "left_text": "    return create_app(",
+    "left_text": "    return create_app(service, defaults, services={\"git\": git_service})",
+    "left_tokens": [],
     "right_no": 6,
     "right_text": "    return create_app(",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 6,
-    "left_text": "        service,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 7,
     "right_text": "        service,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 6,
-    "left_text": "        defaults,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 8,
     "right_text": "        defaults,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 6,
-    "left_text": "        services={\"git\": git_service}",
+    "left_no": null,
+    "left_text": "",
     "right_no": 9,
     "right_text": "        services={\"git\": git_service, \"difftastic\": difftastic_service},",
     "right_tokens": [
@@ -144,8 +145,8 @@
     "status": "replace"
   },
   {
-    "left_no": 6,
-    "left_text": "    )",
+    "left_no": null,
+    "left_text": "",
     "right_no": 10,
     "right_text": "    )",
     "right_tokens": [],

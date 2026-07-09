@@ -1,39 +1,40 @@
 [
   {
     "left_no": 1,
-    "left_text": "RegionKind = Literal[",
+    "left_text": "RegionKind = Literal[\"function_like\", \"class_like\", \"container\", \"section\"]",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "RegionKind = Literal[",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "    \"function_like\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 2,
     "right_text": "    \"function_like\",",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "    \"class_like\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 3,
     "right_text": "    \"class_like\",",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "    \"container\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 4,
     "right_text": "    \"container\",",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "    \"section\"",
+    "left_no": null,
+    "left_text": "",
     "right_no": 5,
     "right_text": "    \"section\",",
     "right_tokens": [
@@ -75,8 +76,8 @@
     "status": "insert"
   },
   {
-    "left_no": 1,
-    "left_text": "]",
+    "left_no": null,
+    "left_text": "",
     "right_no": 7,
     "right_text": "]",
     "right_tokens": [],

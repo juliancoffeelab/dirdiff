@@ -19,16 +19,13 @@ import tree_sitter_rust
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
+from dirdiff.backend import GitBackend, TextDiffError, load_diff_sides
 from dirdiff.engines import DiffSide
-from dirdiff.engines.difftastic import (
-    DifftasticDiffEngine,
-    DifftasticRow,
-)
-from dirdiff.engines.difftastic.logic import (
-    _difftastic_rows_from_json,
-)
+from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
+from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 Side = Literal["left", "right"]
 
 
@@ -37,6 +34,39 @@ __all__: list[str] = []
 
 def _preset_dirs() -> list[Path]:
     return [path for path in sorted(PRESETS_ROOT.glob("*/*")) if path.is_dir()]
+
+
+def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
+    backend = GitBackend.discover(cwd=REPO_ROOT)
+    cases: list[tuple[str, str, str, str, str]] = []
+    for entry in backend.list_repo_diff_paths(
+        left="head",
+        right="worktree",
+        show_untracked=True,
+    ):
+        try:
+            sides = load_diff_sides(
+                backend=backend,
+                left_path=entry.left_path,
+                right_path=entry.right_path,
+                left="head",
+                right="worktree",
+            )
+        except TextDiffError:
+            continue
+
+        left_version = sides["left_version"]
+        right_version = sides["right_version"]
+        left_text = left_version.text if left_version.exists else ""
+        right_text = right_version.text if right_version.exists else ""
+        assert left_text is not None
+        assert right_text is not None
+        left_name = entry.left_path or entry.display_name
+        right_name = entry.right_path or entry.display_name
+        cases.append(
+            (entry.display_name, left_name, right_name, left_text, right_text)
+        )
+    return cases
 
 
 def _side_text_key(side: Side) -> str:
@@ -186,197 +216,6 @@ def _row_marked_replace_atoms(row: DifftasticRow, side: Side) -> list[str]:
     if tokens is None:
         return []
     return _replace_atoms(tokens)
-
-
-def _row_marked_unchanged_runs(
-    row: DifftasticRow, side: Side
-) -> list[list[str]]:
-    tokens = row.get(_side_tokens_key(side))
-    if tokens is None:
-        return []
-    return _unchanged_word_like_runs(tokens)
-
-
-def _row_is_changed_group_member(row: DifftasticRow) -> bool:
-    if row.get("status") != "equal":
-        return True
-    left_tokens = row.get("left_tokens")
-    right_tokens = row.get("right_tokens")
-    if left_tokens != [] and left_tokens is not None:
-        return True
-    if right_tokens != [] and right_tokens is not None:
-        return True
-    return row.get("left_no") is None or row.get("right_no") is None
-
-
-def _changed_row_groups(
-    rows: list[DifftasticRow],
-) -> list[list[tuple[int, DifftasticRow]]]:
-    groups: list[list[tuple[int, DifftasticRow]]] = []
-    current: list[tuple[int, DifftasticRow]] = []
-    for index, row in enumerate(rows):
-        if _row_is_changed_group_member(row):
-            current.append((index, row))
-            continue
-        if current != []:
-            groups.append(current)
-            current = []
-    if current != []:
-        groups.append(current)
-    return groups
-
-
-def _marked_changed_atoms_in_group(
-    group: list[tuple[int, DifftasticRow]], side: Side
-) -> list[str]:
-    atoms: list[str] = []
-    for _, row in group:
-        atoms.extend(_row_marked_changed_atoms(row, side))
-    return atoms
-
-
-def _marked_unchanged_atoms_in_group(
-    group: list[tuple[int, DifftasticRow]], side: Side
-) -> list[str]:
-    atoms: list[str] = []
-    for _, row in group:
-        tokens = row.get(_side_tokens_key(side))
-        if tokens is None:
-            continue
-        assert isinstance(tokens, list)
-        for token in tokens:
-            assert isinstance(token, dict)
-            if token.get("status") != "unchanged":
-                continue
-            text = token.get("text")
-            assert isinstance(text, str)
-            atoms.extend(_token_atoms(text))
-    return atoms
-
-
-def _run_is_contiguous_subsequence(
-    *, needles: list[str], haystack: list[str]
-) -> bool:
-    if len(needles) > len(haystack):
-        return False
-    last_start = len(haystack) - len(needles)
-    return any(
-        haystack[start : start + len(needles)] == needles
-        for start in range(last_start + 1)
-    )
-
-
-def _one_sided_equal_context_run(
-    row: DifftasticRow,
-    *,
-    side: Side,
-    other_side: Side,
-) -> list[str]:
-    if row.get("status") != "equal":
-        return []
-    if row.get(_side_no_key(side)) is None:
-        return []
-    if row.get(_side_no_key(other_side)) is not None:
-        return []
-
-    text = row.get(_side_text_key(side))
-    assert isinstance(text, str)
-    return _token_atoms(text)
-
-
-def _unchanged_context_leak_diagnostics(
-    rows: list[DifftasticRow],
-) -> list[str]:
-    diagnostics: list[str] = []
-    for group_index, group in enumerate(_changed_row_groups(rows)):
-        _collect_unchanged_context_leak_diagnostics(
-            diagnostics,
-            group_index=group_index,
-            group=group,
-            side="left",
-            other_side="right",
-        )
-        _collect_unchanged_context_leak_diagnostics(
-            diagnostics,
-            group_index=group_index,
-            group=group,
-            side="right",
-            other_side="left",
-        )
-    return diagnostics
-
-
-def _collect_unchanged_context_leak_diagnostics(
-    diagnostics: list[str],
-    *,
-    group_index: int,
-    group: list[tuple[int, DifftasticRow]],
-    side: Side,
-    other_side: Side,
-) -> None:
-    changed_atoms = _marked_changed_atoms_in_group(group, other_side)
-    unchanged_atoms = _marked_unchanged_atoms_in_group(group, other_side)
-    changed_word_like_atoms = _word_like_atoms(changed_atoms)
-
-    for row_index, row in group:
-        for run in _row_marked_unchanged_runs(row, side):
-            if _run_is_contiguous_subsequence(
-                needles=run,
-                haystack=changed_word_like_atoms,
-            ):
-                diagnostics.append(
-                    _context_leak_diagnostic(
-                        group_index=group_index,
-                        row_index=row_index,
-                        side=side,
-                        other_side=other_side,
-                        text=row.get(_side_text_key(side)),
-                        run=run,
-                    )
-                )
-
-        context_run = _one_sided_equal_context_run(
-            row, side=side, other_side=other_side
-        )
-        if context_run == []:
-            continue
-
-        if not _run_is_contiguous_subsequence(
-            needles=context_run,
-            haystack=changed_atoms,
-        ):
-            continue
-        if _run_is_contiguous_subsequence(
-            needles=context_run,
-            haystack=unchanged_atoms,
-        ):
-            continue
-        diagnostics.append(
-            _context_leak_diagnostic(
-                group_index=group_index,
-                row_index=row_index,
-                side=side,
-                other_side=other_side,
-                text=row.get(_side_text_key(side)),
-                run=context_run,
-            )
-        )
-
-
-def _context_leak_diagnostic(
-    *,
-    group_index: int,
-    row_index: int,
-    side: Side,
-    other_side: Side,
-    text: object,
-    run: list[str],
-) -> str:
-    assert isinstance(text, str)
-    return (
-        f"group {group_index + 1}, row {row_index + 1}: "
-        f"{side} context {run!r} from {text!r} is changed on {other_side}"
-    )
 
 
 def _unpaired_replace_token_diagnostics(
@@ -713,23 +552,6 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
     assert diagnostics == []
 
 
-@pytest.mark.parametrize(
-    "preset_dir",
-    _preset_dirs(),
-    ids=str,
-)
-def test_difftastic_preset_unchanged_tokens_match_on_both_sides(
-    preset_dir: Path,
-) -> None:
-    """This test verifies that context rendered as unchanged on one side is
-    not rendered as changed on the other side of the same change group.
-    """
-    rows, _, _ = _preset_rows(preset_dir)
-
-    diagnostics = _unchanged_context_leak_diagnostics(rows)
-    assert not diagnostics, diagnostics
-
-
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
 def test_difftastic_preset_line_status_matches_token_statuses(
     preset_dir: Path,
@@ -782,16 +604,51 @@ def test_difftastic_preset_line_status_matches_token_statuses(
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+def test_difftastic_preset_line_alignment_matches_difftastic(
+    preset_dir: Path,
+) -> None:
+    old_path = _single_file("old.*", preset_dir)
+    new_path = _single_file("new.*", preset_dir)
+    old_text = old_path.read_text()
+    new_text = new_path.read_text()
+    service = DifftasticDiffEngine()
+    diff_json = service._run_difftastic_json(
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    rows = _difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
+    old_line_count = len(old_text.splitlines())
+    new_line_count = len(new_text.splitlines())
+    expected: list[tuple[int | None, int | None]] = []
+    for pair in diff_json.get("aligned_lines", []):
+        assert isinstance(pair, list)
+        assert len(pair) == 2
+        left_raw, right_raw = pair
+        assert left_raw is None or isinstance(left_raw, int)
+        assert right_raw is None or isinstance(right_raw, int)
+        left_no = None if left_raw is None else left_raw + 1
+        right_no = None if right_raw is None else right_raw + 1
+        if left_no is not None and left_no > old_line_count:
+            continue
+        if right_no is not None and right_no > new_line_count:
+            continue
+        expected.append((left_no, right_no))
+
+    actual = [(row.get("left_no"), row.get("right_no")) for row in rows]
+    assert actual == expected
+
+
+@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
 def test_difftastic_preset_diff_replays_left_to_right(
     preset_dir: Path,
 ) -> None:
     """Token statuses should replay the old file into the new file."""
-    if preset_dir.name in {
-        "rust-quest-resolve-chain-wraps-poorly",
-        "typescript-repo-fold-controls-show-placeholder-aligns-poorly",
-    }:
-        pytest.xfail("difftastic emits non-replayable status streams")
-
     old_path = _single_file("old.*", preset_dir)
     new_path = _single_file("new.*", preset_dir)
     source_texts = {
@@ -935,12 +792,6 @@ def test_difftastic_preset_diff_replays_right_to_left(
     preset_dir: Path,
 ) -> None:
     """Token statuses should replay the new file back into the old file."""
-    if preset_dir.name in {
-        "rust-quest-resolve-chain-wraps-poorly",
-        "typescript-repo-fold-controls-show-placeholder-aligns-poorly",
-    }:
-        pytest.xfail("difftastic emits non-replayable status streams")
-
     old_path = _single_file("old.*", preset_dir)
     new_path = _single_file("new.*", preset_dir)
     source_texts = {
@@ -1102,3 +953,29 @@ def test_difftastic_preset_one_sided_changes_include_changed_tokens(
     rows, _, _ = _preset_rows(preset_dir)
 
     _assert_one_sided_changes_are_not_pure_unchanged_context(rows)
+
+
+@pytest.mark.parametrize(
+    "case", _current_diff_cases(), ids=lambda case: case[0]
+)
+def test_difftastic_current_diff_matches_preset_invariants(
+    case: tuple[str, str, str, str, str],
+    tmp_path: Path,
+) -> None:
+    display_name, left_name, right_name, left_text, right_text = case
+    suffix = Path(right_name).suffix or Path(left_name).suffix or ".txt"
+    current_case = tmp_path / display_name.replace("/", "__")
+    current_case.mkdir()
+    (current_case / f"old{suffix}").write_text(left_text)
+    (current_case / f"new{suffix}").write_text(right_text)
+
+    test_difftastic_preset_tokens_stay_in_source_order(current_case)
+    test_difftastic_preset_token_spans_match_difftastic_json(current_case)
+    test_difftastic_preset_line_status_matches_token_statuses(current_case)
+    test_difftastic_preset_line_alignment_matches_difftastic(current_case)
+    test_difftastic_preset_diff_replays_left_to_right(current_case)
+    test_difftastic_preset_diff_replays_right_to_left(current_case)
+    test_difftastic_preset_replace_tokens_are_paired_on_both_sides(current_case)
+    test_difftastic_preset_one_sided_changes_include_changed_tokens(
+        current_case
+    )

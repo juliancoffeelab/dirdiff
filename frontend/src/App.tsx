@@ -1,6 +1,7 @@
 import { Show, batch, createMemo, createSignal, onMount } from "solid-js";
 import {
   fetchPreferences,
+  preparePullRequest,
   type Preferences,
   type RepoId,
   type RepoMark,
@@ -38,6 +39,14 @@ function initialDiffViewMode(): DiffViewMode {
 
 function isInlineDiffNotice(notice: AppNotice): notice is InlineDiffNotice {
   return notice.id === "diff" && notice.placement === "inline";
+}
+
+function pullRequestUrlFromSearch(): string {
+  const search = new URLSearchParams(window.location.search);
+  if (search.get("tab") !== "pull-request") {
+    return "";
+  }
+  return search.get("pull_request_url") ?? "";
 }
 
 export function App() {
@@ -219,6 +228,13 @@ export function App() {
     batch(() => {
       setControls(initial.controls);
     });
+    if (
+      initial.controls.tab === "pull-request" &&
+      initial.controls.pullRequestUrl.length > 0
+    ) {
+      void loadPullRequest(initial.controls.pullRequestUrl);
+      return;
+    }
     if (initial.controls.mode === "preset") {
       void repo.loadPresetCatalogs();
       if (initial.controls.preset.length === 0) {
@@ -263,11 +279,65 @@ export function App() {
     void initializeRepo(repoMark.id);
   };
 
+  const removeRepo = async (repoMark: RepoMark) => {
+    diff.resetDiffState("loading", "Removing marked repo...", "top");
+    try {
+      await repo.removeRepo(repoMark.id);
+      diff.resetDiffState("idle", "Choose a repo.", "top");
+    } catch (error) {
+      diff.resetDiffState(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Failed to remove marked repo.",
+        "inline",
+      );
+    }
+  };
+
+  const loadPullRequest = async (url: string) => {
+    const pullRequestUrl = url.trim();
+    if (pullRequestUrl.length === 0) {
+      diff.resetDiffState("error", "Enter a pull request URL.", "inline");
+      return;
+    }
+    diff.resetDiffState("loading", "Preparing pull request...", "top");
+    try {
+      const prepared = await preparePullRequest(pullRequestUrl);
+      repo.selectRepoId(prepared.repo_id);
+      const initial = await repo.initializeRepo(prepared.repo_id);
+      if (initial === null) {
+        return;
+      }
+      setControls({
+        ...initial.controls,
+        tab: "pull-request",
+        mode: "branch-review",
+        pullRequestUrl: prepared.pull_request_url,
+      });
+      diff.loadPullRequest(prepared, initial.engine);
+    } catch (error) {
+      addErrorToast("Failed to prepare pull request", error);
+      diff.resetDiffState(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Failed to prepare pull request.",
+        "inline",
+      );
+    }
+  };
+
   onMount(() => {
     void loadPreferences();
     void (async () => {
       const repoId = await repo.loadReposFromUrl();
       if (repoId === null) {
+        const pullRequestUrl = pullRequestUrlFromSearch();
+        if (pullRequestUrl.length > 0) {
+          void loadPullRequest(pullRequestUrl);
+          return;
+        }
         diff.resetDiffState("idle", "Choose a repo to load a diff.", "inline");
         return;
       }
@@ -298,6 +368,7 @@ export function App() {
         }}
         onRepoListOpen={repo.refreshRepos}
         onRepoChange={selectRepo}
+        onRepoRemove={removeRepo}
         onEngineChange={diff.loadEngine}
         onViewModeChange={setViewMode}
       />
@@ -325,6 +396,8 @@ export function App() {
           repos={repo.repoPickerRepos()!}
           error={repo.repoSelectionError()}
           onSelect={selectRepo}
+          onRemove={removeRepo}
+          onPullRequest={loadPullRequest}
         />
       </Show>
 
@@ -339,6 +412,7 @@ export function App() {
             onAgainstHead={diff.loadAgainstHead}
             onPreset={diff.loadPreset}
             onRefs={diff.loadRefs}
+            onPullRequest={loadPullRequest}
             onBranchReview={diff.loadBranchReview}
             mainBranchSaving={repo.mainBranchSaving()}
             onSaveMainBranch={repo.saveMainBranch}

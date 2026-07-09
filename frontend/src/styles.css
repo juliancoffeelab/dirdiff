@@ -441,7 +441,19 @@ h1 {
   box-shadow: 0 10px 24px rgb(36 35 31 / 16%);
 }
 
+.ui-select-option-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: stretch;
+}
+
+.ui-select-option-row-plain {
+  display: block;
+}
+
 .ui-select-option {
+  display: block;
+  width: 100%;
   border: 0;
   background: transparent;
   color: #24231f;
@@ -454,6 +466,26 @@ h1 {
 .ui-select-option[data-selected="true"] {
   background: #f4f1ea;
   outline: 0;
+}
+
+.ui-select-option-action {
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid #ede7dc;
+  background: transparent;
+  color: #8e1f1f;
+}
+
+.ui-select-option-action:hover,
+.ui-select-option-action:focus-visible {
+  background: #fff1ef;
+  outline: 0;
+}
+
+.ui-select-option-action-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .repo-select {
@@ -536,6 +568,10 @@ h1 {
 }
 
 .load-button {
+  grid-column: 1 / -1;
+}
+
+.pull-request-field {
   grid-column: 1 / -1;
 }
 
@@ -943,9 +979,29 @@ h1 {
   font-weight: 700;
 }
 
+.repo-picker-pr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+  margin-bottom: 16px;
+}
+
+.repo-picker-pr .load-button {
+  grid-column: auto;
+  min-width: 96px;
+}
+
 .repo-list {
   display: grid;
   gap: 8px;
+}
+
+.repo-option-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  align-items: stretch;
 }
 
 .repo-option {
@@ -983,6 +1039,30 @@ h1 {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.repo-remove-button {
+  display: grid;
+  place-items: center;
+  border: 1px solid #d8d0c2;
+  background: #fffdf8;
+  color: #8e1f1f;
+}
+
+.repo-remove-button:hover,
+.repo-remove-button:focus-visible {
+  border-color: #8e1f1f;
+  outline: 0;
+}
+
+.repo-remove-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.repo-remove-icon {
+  width: 17px;
+  height: 17px;
 }
 
 .summary-group > strong {

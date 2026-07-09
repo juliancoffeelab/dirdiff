@@ -10,31 +10,32 @@
   },
   {
     "left_no": 2,
-    "left_text": "  .filter(",
+    "left_text": "  .filter((hint) => aggressiveFolds || hint.kind !== \"class_like\")",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "  .filter(",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 2,
-    "left_text": "    (hint) =>",
+    "left_no": null,
+    "left_text": "",
     "right_no": 3,
     "right_text": "    (hint) =>",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 2,
-    "left_text": "      aggressiveFolds ||",
+    "left_no": null,
+    "left_text": "",
     "right_no": 4,
     "right_text": "      aggressiveFolds ||",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 2,
-    "left_text": "      hint.kind !== \"class_like\"",
+    "left_no": null,
+    "left_text": "",
     "right_no": 5,
     "right_text": "      (hint.kind !== \"class_like\" && hint.kind !== \"top_level\"),",
     "right_tokens": [
@@ -112,8 +113,8 @@
     "status": "replace"
   },
   {
-    "left_no": 2,
-    "left_text": "  )",
+    "left_no": null,
+    "left_text": "",
     "right_no": 6,
     "right_text": "  )",
     "right_tokens": [],

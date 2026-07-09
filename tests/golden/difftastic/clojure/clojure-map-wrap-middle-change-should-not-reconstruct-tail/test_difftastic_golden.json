@@ -1,15 +1,16 @@
 [
   {
     "left_no": 1,
-    "left_text": "(render {",
+    "left_text": "(render {:left foo-bar :right baz})",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "(render {",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "  :left foo-bar",
+    "left_no": null,
+    "left_text": "",
     "right_no": 2,
     "right_text": "  :left (wrap foo-bar)",
     "right_tokens": [
@@ -42,16 +43,16 @@
     "status": "replace"
   },
   {
-    "left_no": 1,
-    "left_text": "  :right baz",
+    "left_no": null,
+    "left_text": "",
     "right_no": 3,
     "right_text": "  :right baz",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 1,
-    "left_text": "})",
+    "left_no": null,
+    "left_text": "",
     "right_no": 4,
     "right_text": "})",
     "right_tokens": [],

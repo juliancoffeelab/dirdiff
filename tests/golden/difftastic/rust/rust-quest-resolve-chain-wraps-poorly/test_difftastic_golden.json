@@ -1,0 +1,601 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "#[allow(clippy::result_unit_err)]",
+    "left_tokens": [],
+    "right_no": 1,
+    "right_text": "#[allow(clippy::result_unit_err)]",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "pub fn resolve_take_deposit(",
+    "left_tokens": [],
+    "right_no": 2,
+    "right_text": "pub fn resolve_take_deposit(",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    ctx: &mut NpcCtx,",
+    "left_tokens": [],
+    "right_no": 3,
+    "right_text": "    ctx: &mut NpcCtx,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "    quest_id: QuestId,",
+    "left_tokens": [],
+    "right_no": 4,
+    "right_text": "    quest_id: QuestId,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "    success: bool,",
+    "left_tokens": [],
+    "right_no": 5,
+    "right_text": "    success: bool,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": ") -> Result<Option<(Arc<ItemDef>, u32)>, ()> {",
+    "left_tokens": [],
+    "right_no": 6,
+    "right_text": ") -> Result<Option<(Arc<ItemDef>, u32)>, ()> {",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "    if let Some(outcome) = ctx",
+    "left_tokens": [],
+    "right_no": 7,
+    "right_text": "    if let Some((outcome, kind)) = ctx.data.quests.get(quest_id).and_then(|q| {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    if let Some("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "outcome"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ") = ctx.data.quests.get(quest_id).and_then(|q| "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 8,
+    "left_text": "        .data",
+    "left_tokens": [],
+    "right_no": null,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "        .quests",
+    "left_tokens": [],
+    "right_no": null,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "        .get(quest_id)",
+    "left_tokens": [],
+    "right_no": null,
+    "right_text": "",
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "        .and_then(|q| q.resolve(ctx.npc_id, success))",
+    "left_tokens": [],
+    "right_no": 8,
+    "right_text": "        q.resolve(ctx.npc_id, success)",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 9,
+    "right_text": "            .map(|outcome| (outcome, QuestEventKind::from_kind(&q.kind)))",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "map"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "outcome"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "outcome"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "QuestEventKind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "::"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "from_kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "&"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "q"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 12,
+    "left_text": "    {",
+    "left_tokens": [],
+    "right_no": 10,
+    "right_text": "    }) {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ") {"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 11,
+    "right_text": "        ctx.controller.quest_events.push(OnQuestEvent {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "ctx"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "controller"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "quest_events"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "push"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "OnQuestEvent"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 12,
+    "right_text": "            kind,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "kind"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 13,
+    "right_text": "            event: QuestEvent::Resolved { success },",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "event"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "QuestEvent"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "::"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Resolved"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "success"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 14,
+    "right_text": "        });",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "right_no": 15,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "        // ...take the deposit back into our own inventory...",
+    "left_tokens": [],
+    "right_no": 16,
+    "right_text": "        // ...take the deposit back into our own inventory...",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "        if let Some((item, amount)) = &outcome.deposit",
+    "left_tokens": [],
+    "right_no": 17,
+    "right_text": "        if let Some((item, amount)) = &outcome.deposit",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "            && let Some(npc_entity) =",
+    "left_tokens": [],
+    "right_no": 18,
+    "right_text": "            && let Some(npc_entity) =",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "                ctx.system_data.id_maps.rtsim_entity(ctx.npc_id)",
+    "left_tokens": [],
+    "right_no": 19,
+    "right_text": "                ctx.system_data.id_maps.rtsim_entity(ctx.npc_id)",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "        {",
+    "left_tokens": [],
+    "right_no": 20,
+    "right_text": "        {",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 18,
+    "left_text": "            ctx.controller.give_item(npc_entity, item, *amount);",
+    "left_tokens": [],
+    "right_no": 21,
+    "right_text": "            ctx.controller.give_item(npc_entity, item, *amount);",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "        }",
+    "left_tokens": [],
+    "right_no": 22,
+    "right_text": "        }",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 20,
+    "left_text": "    }",
+    "left_tokens": [],
+    "right_no": 23,
+    "right_text": "    }",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 24,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 22,
+    "left_text": "    Ok(None)",
+    "left_tokens": [],
+    "right_no": 25,
+    "right_text": "    Ok(None)",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 23,
+    "left_text": "}",
+    "left_tokens": [],
+    "right_no": 26,
+    "right_text": "}",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]

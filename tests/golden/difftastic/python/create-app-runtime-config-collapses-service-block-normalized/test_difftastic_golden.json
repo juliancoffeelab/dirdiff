@@ -1022,8 +1022,45 @@
         "text": "("
       }
     ],
-    "right_no": null,
-    "right_text": "",
+    "right_no": 21,
+    "right_text": "    repo_path = Path(args.repo_path)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo_path"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": " = Path("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "args"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "repo_path"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
     "status": "replace"
   },
   {
@@ -1126,45 +1163,8 @@
         "text": "None"
       }
     ],
-    "right_no": 21,
-    "right_text": "    repo_path = Path(args.repo_path)",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "repo_path"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": " = Path("
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "args"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "insert",
-        "text": "repo_path"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ")"
-      }
-    ],
+    "right_no": null,
+    "right_text": "",
     "status": "replace"
   },
   {

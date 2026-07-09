@@ -15,6 +15,7 @@ import {
   type HeadDiffParams,
   type LazyInfoFile,
   type ManifestEntry,
+  type PreparedPullRequest,
   type PresetDiffParams,
   type PresetType,
   type RefChoices,
@@ -56,8 +57,17 @@ function nullableStringValue(
 function appQuery(
   diffParams: DiffParams,
   viewMode: DiffViewMode,
+  controls: ControlsState | null,
 ): URLSearchParams {
   const params = diffParamsQueryParams(diffParams);
+  if (
+    diffParams.mode === "branch-review" &&
+    controls !== null &&
+    controls.tab === "pull-request"
+  ) {
+    params.set("tab", "pull-request");
+    params.set("pull_request_url", controls.pullRequestUrl);
+  }
   params.set("view", viewMode);
   return params;
 }
@@ -318,7 +328,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     history.replaceState(
       {},
       "",
-      `/?${appQuery(diffParams, viewMode).toString()}${window.location.hash}`,
+      `/?${appQuery(diffParams, viewMode, options.controls()).toString()}${window.location.hash}`,
     );
   };
 
@@ -939,7 +949,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       return;
     }
     options.setControls((current) =>
-      current === null ? current : { ...current, mode: "head" },
+      current === null ? current : { ...current, tab: "head", mode: "head" },
     );
     const diffParams: HeadDiffParams = {
       repo_id: repoId,
@@ -966,6 +976,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
         ? current
         : {
             ...current,
+            tab: "preset",
             mode: "preset",
             presetType,
             preset,
@@ -993,7 +1004,9 @@ export function createDiffResources(options: DiffResourcesOptions) {
     const trimmedLeft = left.trim();
     const trimmedRight = right.trim();
     options.setControls((current) =>
-      current === null ? current : { ...current, mode: "refs", left, right },
+      current === null
+        ? current
+        : { ...current, tab: "refs", mode: "refs", left, right },
     );
     if (trimmedLeft.length === 0 || trimmedRight.length === 0) {
       failLoad("Enter both refs to compare them.");
@@ -1015,6 +1028,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     baseSelection: BranchSelection,
     reviewSelection: BranchSelection,
     selectedEngine: DiffEngine = engine(),
+    controlsPatch: Partial<ControlsState> = {},
   ) => {
     const repoId = selectedRepoIdOrIdle();
     if (repoId === null) {
@@ -1025,9 +1039,11 @@ export function createDiffResources(options: DiffResourcesOptions) {
         ? current
         : {
             ...current,
+            tab: "branch-review",
             mode: "branch-review",
             baseSelection,
             reviewSelection,
+            ...controlsPatch,
           },
     );
     if (baseSelection.source === "remote" && !baseSelection.remote.trim()) {
@@ -1062,6 +1078,27 @@ export function createDiffResources(options: DiffResourcesOptions) {
     startDiff(diffParams);
   };
 
+  const loadPullRequest = (
+    prepared: PreparedPullRequest,
+    selectedEngine: DiffEngine = engine(),
+  ) => {
+    setEngine(selectedEngine);
+    const baseSelection: BranchSelection = {
+      source: "remote",
+      remote: prepared.base_branch.remote,
+      branch: prepared.base_branch.branch,
+    };
+    const reviewSelection: BranchSelection = {
+      source: "remote",
+      remote: prepared.review_branch.remote,
+      branch: prepared.review_branch.branch,
+    };
+    loadBranchReview(baseSelection, reviewSelection, selectedEngine, {
+      tab: "pull-request",
+      pullRequestUrl: prepared.pull_request_url,
+    });
+  };
+
   const loadInitialControls = (
     nextControls: ControlsState,
     nextEngine: DiffEngine,
@@ -1074,6 +1111,12 @@ export function createDiffResources(options: DiffResourcesOptions) {
         nextControls.baseSelection,
         nextControls.reviewSelection,
         nextEngine,
+        nextControls.tab === "pull-request"
+          ? {
+              tab: "pull-request",
+              pullRequestUrl: nextControls.pullRequestUrl,
+            }
+          : {},
       );
     } else if (nextControls.mode === "preset") {
       loadPreset(nextControls.presetType, nextControls.preset, nextEngine);
@@ -1117,6 +1160,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
     loadPreset,
     loadRefs,
     loadBranchReview,
+    loadPullRequest,
     loadInitialControls,
     hydrateFile,
     reloadDiff,

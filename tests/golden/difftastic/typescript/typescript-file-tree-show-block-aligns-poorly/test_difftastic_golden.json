@@ -311,31 +311,32 @@
   },
   {
     "left_no": 12,
-    "left_text": "                  setDirectoryExpanded(",
+    "left_text": "                  setDirectoryExpanded(group, !directoryExpanded(group))",
+    "left_tokens": [],
     "right_no": 16,
     "right_text": "                    setDirectoryExpanded(",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 12,
-    "left_text": "                      group,",
+    "left_no": null,
+    "left_text": "",
     "right_no": 17,
     "right_text": "                      group,",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 12,
-    "left_text": "                      !directoryExpanded(group)",
+    "left_no": null,
+    "left_text": "",
     "right_no": 18,
     "right_text": "                      !directoryExpanded(group),",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 12,
-    "left_text": "                    )",
+    "left_no": null,
+    "left_text": "",
     "right_no": 19,
     "right_text": "                    )",
     "right_tokens": [],
@@ -631,15 +632,16 @@
   },
   {
     "left_no": 45,
-    "left_text": "                      added:",
+    "left_text": "                      added: fileKindStatus(file.file_kind) === \"added\",",
+    "left_tokens": [],
     "right_no": 52,
     "right_text": "                        added:",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 45,
-    "left_text": "                          fileKindStatus(file.file_kind) === \"added\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 53,
     "right_text": "                          fileKindStatus(file.file_kind) === \"added\",",
     "right_tokens": [],
@@ -692,15 +694,16 @@
   },
   {
     "left_no": 51,
-    "left_text": "                        fileKindStatus(file.file_kind) ===",
+    "left_text": "                        fileKindStatus(file.file_kind) === \"untracked\",",
+    "left_tokens": [],
     "right_no": 59,
     "right_text": "                          fileKindStatus(file.file_kind) ===",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 51,
-    "left_text": "                          \"untracked\",",
+    "left_no": null,
+    "left_text": "",
     "right_no": 60,
     "right_text": "                          \"untracked\",",
     "right_tokens": [],
@@ -1005,23 +1008,24 @@
   },
   {
     "left_no": 85,
-    "left_text": "                        fileIsActiveHunkFile(file)",
+    "left_text": "                        fileIsActiveHunkFile(file) ? \"true\" : undefined",
+    "left_tokens": [],
     "right_no": 94,
     "right_text": "                          fileIsActiveHunkFile(file)",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 85,
-    "left_text": "                            ? \"true\"",
+    "left_no": null,
+    "left_text": "",
     "right_no": 95,
     "right_text": "                            ? \"true\"",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 85,
-    "left_text": "                            : undefined",
+    "left_no": null,
+    "left_text": "",
     "right_no": 96,
     "right_text": "                            : undefined",
     "right_tokens": [],
