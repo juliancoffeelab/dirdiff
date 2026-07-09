@@ -6,6 +6,7 @@ import {
   PresetTypeSchema,
   deleteRepoMark,
   fetchPresets,
+  fetchRepoDefaults,
   fetchRepoRefs,
   fetchRepos,
   saveRepoMainBranch,
@@ -13,6 +14,7 @@ import {
   type PresetType,
   type DiffEngine,
   type RefChoices,
+  type RepoDefaults,
   type RepoId,
   type RepoMark,
   type RepoRefs,
@@ -123,20 +125,20 @@ function resolveTopLevelMode(
   return inferMode(search, left, right);
 }
 
-/** Build first-render control state from URL params plus repo ref metadata. */
-function initialControls(repoRefs: RepoRefs): ControlsState {
+/** Build first-render control state from URL params plus repo default metadata. */
+function initialControls(repoDefaults: RepoDefaults): ControlsState {
   const search = new URLSearchParams(window.location.search);
   const requestedLeft = searchValue(search, "left", "head");
   const requestedRight = searchValue(search, "right", "worktree");
   const baseSelection = branchSelectionFromSearch(
     search,
     "base",
-    baseSelectionFromDefault(repoRefs.default_base_selection),
+    baseSelectionFromDefault(repoDefaults.default_base_selection),
   );
   const reviewSelection = branchSelectionFromSearch(
     search,
     "review",
-    repoRefs.preferred_review_selection,
+    repoDefaults.preferred_review_selection,
   );
   const requestedMode = search.get("mode") as ControlsState["mode"] | null;
   const requestedPresetType = search.get("preset_type");
@@ -206,11 +208,11 @@ function initialEngine(): DiffEngine {
 }
 
 /**
- * Initial controls and engine inferred after repo refs are available.
+ * Initial controls and engine inferred after repo defaults are available.
  *
  * Repo initialization stops at this value on purpose. Starting the diff is a
- * cross-domain workflow owned by App, because it combines repo refs, controls,
- * diff params state, and URL state.
+ * cross-domain workflow owned by App, because it combines repo metadata,
+ * controls, diff params state, and URL state.
  */
 export type InitialRepoDiff = {
   controls: ControlsState;
@@ -222,11 +224,12 @@ type RepoResourcesOptions = {
 };
 
 /**
- * Owns repository discovery and repo-local ref metadata.
+ * Owns repository discovery and repo-local metadata.
  *
- * This primitive provides the selected repo id, marked repo list, repo refs,
- * loading/error state, and repo-selection actions. It may update the URL when a
- * repo is selected, because repo_id is part of the repo-selection contract.
+ * This primitive provides the selected repo id, marked repo list, repo defaults,
+ * repo refs, loading/error state, and repo-selection actions. It may update the
+ * URL when a repo is selected, because repo_id is part of the repo-selection
+ * contract.
  *
  * It does not start diffs, own controls, or mutate loaded diff state. Instead,
  * initializeRepo returns the initial controls/engine that App can hand to the
@@ -238,6 +241,9 @@ export function createRepoResources(options: RepoResourcesOptions) {
   const [repoList, setRepoList] = createSignal<RepoMark[] | null>(null);
   const [reposPending, setReposPending] = createSignal(true);
   const [reposError, setReposError] = createSignal<unknown>(null);
+  const [repoDefaults, setRepoDefaults] = createSignal<RepoDefaults | null>(
+    null,
+  );
   const [repoRefs, setRepoRefs] = createSignal<RepoRefs | null>(null);
   const [presetCatalogs, setPresetCatalogs] =
     createSignal<PresetCatalogs | null>(null);
@@ -343,16 +349,21 @@ export function createRepoResources(options: RepoResourcesOptions) {
     repoId: RepoId,
   ): Promise<InitialRepoDiff | null> {
     setRepoRefs(null);
+    setRepoDefaults(null);
     setRepoRefsError(null);
     setRepoRefsPending(true);
     try {
-      const refs = await fetchRepoRefs(repoId);
+      const [defaults, refs] = await Promise.all([
+        fetchRepoDefaults(repoId),
+        fetchRepoRefs(repoId),
+      ]);
       if (selectedRepoId() !== repoId) {
         return null;
       }
       const engine = initialEngine();
-      const controls = initialControls(refs);
+      const controls = initialControls(defaults);
       batch(() => {
+        setRepoDefaults(defaults);
         setRepoRefs(refs);
         setRepoRefsPending(false);
       });
@@ -440,7 +451,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     setMainBranchSaving(true);
     try {
       const saved = await saveRepoMainBranch(repoId, selection);
-      setRepoRefs((current) =>
+      setRepoDefaults((current) =>
         current === null
           ? current
           : {
@@ -468,6 +479,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
         if (selectedRepoId() === repoId) {
           history.replaceState({}, "", `/${window.location.hash}`);
           setSelectedRepoId(null);
+          setRepoDefaults(null);
           setRepoRefs(null);
           setPresetCatalogs(null);
           presetCatalogsRequest = null;
@@ -492,6 +504,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     batch(() => {
       setSelectedRepoId(repo.id);
       setRepoSelectionError("");
+      setRepoDefaults(null);
       setRepoRefs(null);
       setPresetCatalogs(null);
       presetCatalogsRequest = null;
@@ -504,6 +517,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     batch(() => {
       setSelectedRepoId(repoId);
       setRepoSelectionError("");
+      setRepoDefaults(null);
       setRepoRefs(null);
       setPresetCatalogs(null);
       presetCatalogsRequest = null;
@@ -518,6 +532,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     repoList,
     reposPending,
     reposError,
+    repoDefaults,
     repoRefs,
     presetCatalogs,
     presetCatalogsPending,

@@ -88,11 +88,15 @@ const RefChoicesSchema = z.strictObject({
 export type RefChoices = z.infer<typeof RefChoicesSchema>;
 
 const RepoRefsSchema = z.strictObject({
-  default_base_selection: DefaultBaseSelectionSchema,
-  preferred_review_selection: BranchSelectionSchema,
   ref_choices: RefChoicesSchema,
 });
 export type RepoRefs = z.infer<typeof RepoRefsSchema>;
+
+const RepoDefaultsSchema = z.strictObject({
+  default_base_selection: DefaultBaseSelectionSchema,
+  preferred_review_selection: BranchSelectionSchema,
+});
+export type RepoDefaults = z.infer<typeof RepoDefaultsSchema>;
 
 const RepoMainBranchSchema = z.strictObject({
   repo_id: z.number().int().positive(),
@@ -758,6 +762,17 @@ export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
     return parseErrorResponse(response);
   }
   return RepoRefsSchema.parse(await response.json());
+}
+
+export async function fetchRepoDefaults(repoId: RepoId): Promise<RepoDefaults> {
+  const params = new URLSearchParams({ repo_id: String(repoId) });
+  const response = await fetchJsonResponse(
+    `/api/repo-defaults?${params.toString()}`,
+  );
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+  return RepoDefaultsSchema.parse(await response.json());
 }
 
 export async function saveRepoMainBranch(

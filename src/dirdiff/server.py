@@ -28,12 +28,14 @@ from dirdiff.backend import (
     BranchSelection,
     BranchSource,
     CacheBackendProtocol,
+    DefaultBaseSelection,
     GitBackend,
     LoadedDiffSides,
     MemoryCacheBackend,
     PreparedPullRequest,
     PreparedPullRequestBranch,
     PresetBackend,
+    RefChoices,
     RepoDiffPath,
     RepoInfo,
     TextDiffError,
@@ -326,6 +328,19 @@ class RepoMainBranchResponse(ApiModel):
 
     repo_id: int
     selection: BranchSelection
+
+
+class RepoDefaultsResponse(ApiModel):
+    """Repository defaults used to seed branch-review controls."""
+
+    default_base_selection: DefaultBaseSelection
+    preferred_review_selection: BranchSelection
+
+
+class RepoRefsResponse(ApiModel):
+    """Repository ref choices used for autocomplete and ref selection."""
+
+    ref_choices: RefChoices
 
 
 class PullRequestPrepareRequest(ApiModel):
@@ -1223,13 +1238,13 @@ def create_app(
             status_code=503,
         )
 
-    @app.get("/api/repo-refs")
-    def serve_repo_refs(
+    @app.get("/api/repo-defaults")
+    def serve_repo_defaults(
         repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed refs.",
+            description="Marked repo id. Required for repo-backed defaults.",
         ),
-    ) -> dict[str, Any]:
-        """Return ref choices plus structured defaults for branch review."""
+    ) -> RepoDefaultsResponse:
+        """Return structured defaults for branch-review controls."""
         mark = db.get(repo_id)
         if mark is None:
             raise HTTPException(
@@ -1237,7 +1252,6 @@ def create_app(
                 detail=f"Invalid repo_id: {repo_id}",
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
-        ref_choices = backend.list_ref_choices()
         saved_main_branch = db.get_main_branch(repo_id)
         default_base_selection = (
             repo_main_branch_record_to_selection(saved_main_branch)
@@ -1247,11 +1261,30 @@ def create_app(
         preferred_review_selection = backend.preferred_review_selection(
             base_selection=default_base_selection
         )
-        return {
-            "default_base_selection": default_base_selection,
-            "preferred_review_selection": preferred_review_selection,
-            "ref_choices": ref_choices,
-        }
+        return RepoDefaultsResponse.model_validate(
+            {
+                "default_base_selection": default_base_selection,
+                "preferred_review_selection": preferred_review_selection,
+            }
+        )
+
+    @app.get("/api/repo-refs")
+    def serve_repo_refs(
+        repo_id: int = Query(
+            description="Marked repo id. Required for repo-backed refs.",
+        ),
+    ) -> RepoRefsResponse:
+        """Return ref choices for repo-backed controls."""
+        mark = db.get(repo_id)
+        if mark is None:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=f"Invalid repo_id: {repo_id}",
+            )
+        backend = GitBackend.discover(repo_root=Path(mark.path))
+        return RepoRefsResponse.model_validate(
+            {"ref_choices": backend.list_ref_choices()}
+        )
 
     @app.post(
         "/api/repos/{repo_id}/main-branch",

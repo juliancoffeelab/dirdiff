@@ -81,10 +81,10 @@ def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
     return tmp_path / "worktree"
 
 
-def test_repo_refs_defaults_base_to_remote_and_review_to_local(
+def test_repo_defaults_base_to_remote_and_review_to_local(
     tmp_path: Path,
 ) -> None:
-    """Repo refs expose structured branch-review defaults without legacy refs."""
+    """Repo defaults expose structured branch-review defaults without legacy refs."""
     repo_path = clone_test_remote(tmp_path)
     run_git(repo_path, "config", "user.name", "Test User")
     run_git(repo_path, "config", "user.email", "test@example.com")
@@ -95,7 +95,7 @@ def test_repo_refs_defaults_base_to_remote_and_review_to_local(
 
     client, repo_id = create_repo_client(repo_path)
 
-    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
     payload = response.json()
 
     assert response.status_code == 200
@@ -112,7 +112,7 @@ def test_repo_refs_defaults_base_to_remote_and_review_to_local(
     assert "preferred_review_branch" not in payload
 
 
-def test_repo_main_branch_save_overrides_repo_refs_default(
+def test_repo_main_branch_save_overrides_repo_defaults(
     tmp_path: Path,
 ) -> None:
     """Saved repo main branch controls future branch-review base defaults."""
@@ -129,14 +129,35 @@ def test_repo_main_branch_save_overrides_repo_refs_default(
         "selection": {"source": "local", "branch": "master"},
     }
 
-    refs_response = client.get("/api/repo-refs", params={"repo_id": repo_id})
-    payload = refs_response.json()
+    defaults_response = client.get(
+        "/api/repo-defaults", params={"repo_id": repo_id}
+    )
+    payload = defaults_response.json()
 
-    assert refs_response.status_code == 200
+    assert defaults_response.status_code == 200
     assert payload["default_base_selection"] == {
         "source": "local",
         "branch": "master",
     }
+
+
+def test_repo_refs_returns_ref_choices_without_defaults(tmp_path: Path) -> None:
+    """Repo refs expose autocomplete metadata separately from repo defaults."""
+    repo_path = clone_test_remote(tmp_path)
+    client, repo_id = create_repo_client(repo_path)
+
+    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert set(payload) == {"ref_choices"}
+    assert payload["ref_choices"]["builtins"] == ["HEAD", "index", "worktree"]
+    assert "master" in payload["ref_choices"]["local_branches"]
+    assert payload["ref_choices"]["remotes"] == ["origin"]
+    assert {
+        "structured": {"remote": "origin", "branch": "master"},
+        "gitref": "origin/master",
+    } in payload["ref_choices"]["remote_branches"]
 
 
 def test_repo_main_branch_save_rejects_remote_without_remote_name(
@@ -213,14 +234,14 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
     }
 
 
-def test_repo_refs_reports_unresolved_base_when_remote_head_is_missing(
+def test_repo_defaults_reports_unresolved_base_when_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
     """Remote defaults fail when local and remote HEAD discovery both fail."""
     repo_path = clone_test_remote_with_unknown_head(tmp_path)
     client, repo_id = create_repo_client(repo_path)
 
-    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
     payload = response.json()
 
     assert response.status_code == 200
@@ -230,7 +251,7 @@ def test_repo_refs_reports_unresolved_base_when_remote_head_is_missing(
     }
 
 
-def test_repo_refs_uses_remote_show_when_local_remote_head_is_missing(
+def test_repo_defaults_uses_remote_show_when_local_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
     """Remote defaults fall back to `git remote show` for missing origin/HEAD."""
@@ -238,7 +259,7 @@ def test_repo_refs_uses_remote_show_when_local_remote_head_is_missing(
     run_git(repo_path, "remote", "set-head", "origin", "-d")
     client, repo_id = create_repo_client(repo_path)
 
-    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
     payload = response.json()
 
     assert response.status_code == 200
@@ -249,7 +270,7 @@ def test_repo_refs_uses_remote_show_when_local_remote_head_is_missing(
     }
 
 
-def test_repo_refs_prefers_current_branch_upstream_remote(
+def test_repo_defaults_prefers_current_branch_upstream_remote(
     tmp_path: Path,
 ) -> None:
     """Default remote follows current branch upstream before origin."""
@@ -282,7 +303,7 @@ def test_repo_refs_prefers_current_branch_upstream_remote(
 
     client, repo_id = create_repo_client(origin_worktree)
 
-    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
     payload = response.json()
 
     assert response.status_code == 200
@@ -293,7 +314,7 @@ def test_repo_refs_prefers_current_branch_upstream_remote(
     }
 
 
-def test_repo_refs_defaults_local_only_repo_to_main(
+def test_repo_defaults_local_only_repo_to_main(
     tmp_path: Path,
 ) -> None:
     """Local-only defaults use main/master policy, not current HEAD guessing."""
@@ -301,7 +322,7 @@ def test_repo_refs_defaults_local_only_repo_to_main(
     run_git(tmp_path, "checkout", "-b", "feature")
     client, repo_id = create_repo_client(tmp_path)
 
-    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
     payload = response.json()
 
     assert response.status_code == 200
