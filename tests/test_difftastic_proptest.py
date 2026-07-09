@@ -19,11 +19,13 @@ import tree_sitter_rust
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
+from dirdiff.backend import GitBackend, TextDiffError, load_diff_sides
 from dirdiff.engines import DiffSide
 from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
 from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
 PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 Side = Literal["left", "right"]
 
 
@@ -32,6 +34,39 @@ __all__: list[str] = []
 
 def _preset_dirs() -> list[Path]:
     return [path for path in sorted(PRESETS_ROOT.glob("*/*")) if path.is_dir()]
+
+
+def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
+    backend = GitBackend.discover(cwd=REPO_ROOT)
+    cases: list[tuple[str, str, str, str, str]] = []
+    for entry in backend.list_repo_diff_paths(
+        left="head",
+        right="worktree",
+        show_untracked=True,
+    ):
+        try:
+            sides = load_diff_sides(
+                backend=backend,
+                left_path=entry.left_path,
+                right_path=entry.right_path,
+                left="head",
+                right="worktree",
+            )
+        except TextDiffError:
+            continue
+
+        left_version = sides["left_version"]
+        right_version = sides["right_version"]
+        left_text = left_version.text if left_version.exists else ""
+        right_text = right_version.text if right_version.exists else ""
+        assert left_text is not None
+        assert right_text is not None
+        left_name = entry.left_path or entry.display_name
+        right_name = entry.right_path or entry.display_name
+        cases.append(
+            (entry.display_name, left_name, right_name, left_text, right_text)
+        )
+    return cases
 
 
 def _side_text_key(side: Side) -> str:
@@ -918,3 +953,29 @@ def test_difftastic_preset_one_sided_changes_include_changed_tokens(
     rows, _, _ = _preset_rows(preset_dir)
 
     _assert_one_sided_changes_are_not_pure_unchanged_context(rows)
+
+
+@pytest.mark.parametrize(
+    "case", _current_diff_cases(), ids=lambda case: case[0]
+)
+def test_difftastic_current_diff_matches_preset_invariants(
+    case: tuple[str, str, str, str, str],
+    tmp_path: Path,
+) -> None:
+    display_name, left_name, right_name, left_text, right_text = case
+    suffix = Path(right_name).suffix or Path(left_name).suffix or ".txt"
+    current_case = tmp_path / display_name.replace("/", "__")
+    current_case.mkdir()
+    (current_case / f"old{suffix}").write_text(left_text)
+    (current_case / f"new{suffix}").write_text(right_text)
+
+    test_difftastic_preset_tokens_stay_in_source_order(current_case)
+    test_difftastic_preset_token_spans_match_difftastic_json(current_case)
+    test_difftastic_preset_line_status_matches_token_statuses(current_case)
+    test_difftastic_preset_line_alignment_matches_difftastic(current_case)
+    test_difftastic_preset_diff_replays_left_to_right(current_case)
+    test_difftastic_preset_diff_replays_right_to_left(current_case)
+    test_difftastic_preset_replace_tokens_are_paired_on_both_sides(current_case)
+    test_difftastic_preset_one_sided_changes_include_changed_tokens(
+        current_case
+    )
