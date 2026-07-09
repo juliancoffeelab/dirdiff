@@ -24,7 +24,7 @@ import typer
 from dirdiff.server import RuntimeConfig
 
 from . import marker_utils, server_launch
-from .marker_utils import DEFAULT_DB_PATH
+from .marker_utils import DB_PATH_ENV
 
 __all__ = ["main"]
 
@@ -60,7 +60,10 @@ def start(
     ctx: typer.Context,
     db_path: Annotated[
         Path | None,
-        typer.Option(help="Repo registry database path."),
+        typer.Option(
+            envvar=DB_PATH_ENV,
+            help="Repo registry database path.",
+        ),
     ] = None,
     presets_root: Annotated[
         str | None,
@@ -96,9 +99,7 @@ def start(
     selected.
     """
 
-    resolved_db_path = (
-        DEFAULT_DB_PATH if db_path is None else db_path.expanduser()
-    )
+    resolved_db_path = marker_utils.db_path_or_default(db_path)
     ctx.obj = server_launch.AppOptions(
         db_path=resolved_db_path,
         presets_root=presets_root,
@@ -211,7 +212,10 @@ def mark(
     ] = None,
     db_path: Annotated[
         Path | None,
-        typer.Option(help="Repo registry database path."),
+        typer.Option(
+            envvar=DB_PATH_ENV,
+            help="Repo registry database path.",
+        ),
     ] = None,
     list_marks: Annotated[
         bool,

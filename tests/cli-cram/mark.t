@@ -56,5 +56,23 @@ Let us show them.
   1. repo
      path: /tmp/dirdiff-cram-mark/repo
 
+You can select the registry with an environment variable too.
+  $ export DIRDIFF_DB_PATH=/tmp/dirdiff-cram-mark/env.sqlite
+  $ dirdiff mark --list
+  No marked repos.
+  $ dirdiff mark --path /tmp/dirdiff-cram-mark/other --name "env repo"
+  Marked repo 1: env repo
+  $ dirdiff mark --list
+  1. env repo
+     path: /tmp/dirdiff-cram-mark/other
+  $ unset DIRDIFF_DB_PATH
+  $ dirdiff mark --list
+  3. superabsolute
+     path: /tmp/dirdiff-cram-mark/superabsolute
+  2. work repo
+     path: /tmp/dirdiff-cram-mark/other
+  1. repo
+     path: /tmp/dirdiff-cram-mark/repo
+
 Let's remove it all at the end.
   $ rm -rf /tmp/dirdiff-cram-mark/home

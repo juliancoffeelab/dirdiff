@@ -25,8 +25,10 @@ from dirdiff.db import RepoMarkStore, open_sqlite_engine
 DEFAULT_DB_PATH = (
     Path.home() / ".local" / "share" / "dirdiff" / "dirdiff.sqlite"
 )
+DB_PATH_ENV = "DIRDIFF_DB_PATH"
 
 __all__ = [
+    "DB_PATH_ENV",
     "DEFAULT_DB_PATH",
     "absolute_repo_path",
     "db_path_or_default",
@@ -40,13 +42,17 @@ def db_path_or_default(db_path: Path | None) -> Path:
     """Resolve an optional CLI database path to the path dirdiff should use.
 
     CLI commands accept `--db-path` on operations that touch the repo
-    registry.  Omitting it means all commands share the same user-level
-    registry path.
+    registry.  `DIRDIFF_DB_PATH` provides the same selection for shell scripts
+    and cram transcripts that would otherwise have to repeat the option.
+    Omitting both means all commands share the same user-level registry path.
     """
 
-    if db_path is None:
-        return DEFAULT_DB_PATH
-    return db_path.expanduser()
+    if db_path is not None:
+        return db_path.expanduser()
+    configured = os.environ.get(DB_PATH_ENV)
+    if configured is not None and configured.strip() != "":
+        return Path(configured).expanduser()
+    return DEFAULT_DB_PATH
 
 
 def absolute_repo_path(repo_path: Path) -> Path:
