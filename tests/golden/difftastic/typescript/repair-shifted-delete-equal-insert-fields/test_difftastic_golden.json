@@ -1,0 +1,191 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "export type InlineToken = {",
+    "left_tokens": [],
+    "right_no": 1,
+    "right_text": "export type InlineToken = {",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  text: string;",
+    "left_tokens": [],
+    "right_no": 2,
+    "right_text": "  text: string;",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "  changed: boolean;",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "changed"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": boolean;"
+      }
+    ],
+    "right_no": 3,
+    "right_text": "  is_ws: boolean;",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "is_ws"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": boolean;"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 4,
+    "left_text": "  is_ws: boolean;",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "is_ws"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "boolean"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "right_no": 4,
+    "right_text": "  status: \"unchanged\" | \"replace\" | \"insert\" | \"delete\";",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "status"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ": "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"unchanged\""
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"replace\""
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"insert\""
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "|"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"delete\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 5,
+    "left_text": "};",
+    "left_tokens": [],
+    "right_no": 5,
+    "right_text": "};",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]

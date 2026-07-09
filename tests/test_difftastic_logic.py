@@ -1406,7 +1406,7 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
 
 def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
     rows = _preset_rows(
-        "borked/typescript-repo-fold-controls-show-placeholder-aligns-poorly"
+        "typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly"
     )
 
     condition_atoms = {"when", "ui", "displayFiles", "length", "0"}
