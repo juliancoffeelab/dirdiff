@@ -279,6 +279,22 @@ export function App() {
     void initializeRepo(repoMark.id);
   };
 
+  const removeRepo = async (repoMark: RepoMark) => {
+    diff.resetDiffState("loading", "Removing marked repo...", "top");
+    try {
+      await repo.removeRepo(repoMark.id);
+      diff.resetDiffState("idle", "Choose a repo.", "top");
+    } catch (error) {
+      diff.resetDiffState(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Failed to remove marked repo.",
+        "inline",
+      );
+    }
+  };
+
   const loadPullRequest = async (url: string) => {
     const pullRequestUrl = url.trim();
     if (pullRequestUrl.length === 0) {
@@ -352,6 +368,7 @@ export function App() {
         }}
         onRepoListOpen={repo.refreshRepos}
         onRepoChange={selectRepo}
+        onRepoRemove={removeRepo}
         onEngineChange={diff.loadEngine}
         onViewModeChange={setViewMode}
       />
@@ -379,6 +396,7 @@ export function App() {
           repos={repo.repoPickerRepos()!}
           error={repo.repoSelectionError()}
           onSelect={selectRepo}
+          onRemove={removeRepo}
           onPullRequest={loadPullRequest}
         />
       </Show>

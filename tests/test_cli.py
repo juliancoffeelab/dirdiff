@@ -98,6 +98,54 @@ def test_fastapi_docs_are_enabled() -> None:
     assert "Swagger UI" in response.text
 
 
+def test_repo_list_is_sorted_by_name_and_path(tmp_path: Path) -> None:
+    engine = open_ephemeral_engine()
+    store = RepoMarkStore(engine)
+    zeta_path = tmp_path / "zeta"
+    alpha_path = tmp_path / "alpha"
+    zeta_path.mkdir()
+    alpha_path.mkdir()
+    store.new_mark(path=zeta_path, name="zeta")
+    store.new_mark(path=alpha_path, name="alpha")
+    client = TestClient(create_app(store))
+
+    response = client.get("/api/repos")
+
+    assert response.status_code == 200
+    assert [repo["name"] for repo in response.json()] == ["alpha", "zeta"]
+
+
+def test_repo_mark_delete_removes_registry_state(tmp_path: Path) -> None:
+    engine = open_ephemeral_engine()
+    store = RepoMarkStore(engine)
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    mark = store.new_mark(path=repo_path, name="repo")
+    store.set_main_branch(
+        mark.id,
+        source="local",
+        remote=None,
+        branch="main",
+    )
+    client = TestClient(create_app(store))
+
+    response = client.delete(f"/api/repos/{mark.id}")
+
+    assert response.status_code == 204
+    assert store.get(mark.id) is None
+    assert store.get_main_branch(mark.id) is None
+    assert client.get("/api/repos").json() == []
+
+
+def test_repo_mark_delete_reports_missing_id() -> None:
+    client = TestClient(create_app(repo_mark_store()))
+
+    response = client.delete("/api/repos/404")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No marked repo with id: 404"
+
+
 def test_file_diff_response_schema_rejects_unknown_fields() -> None:
     TEXT_SUMMARY = {
         "changed_lines": 1,

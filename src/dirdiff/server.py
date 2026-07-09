@@ -1330,6 +1330,31 @@ def create_app(
             for mark in db.list()
         ]
 
+    @app.delete(
+        "/api/repos/{repo_id}",
+        status_code=HTTPStatus.NO_CONTENT,
+        responses={
+            HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
+            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+        },
+        summary="Remove a marked repository",
+    )
+    def delete_repo_mark(repo_id: int) -> None:
+        try:
+            if not db.delete(repo_id):
+                raise HTTPException(
+                    status_code=HTTPStatus.NOT_FOUND,
+                    detail=f"No marked repo with id: {repo_id}",
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            LOGGER.exception("Repo mark delete request crashed: %s", exc)
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail="Internal server error.",
+            ) from exc
+
     @app.post(
         "/api/pull-request/prepare",
         responses={

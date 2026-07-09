@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js";
+import { Trash2 } from "lucide-solid";
 import {
   DiffEngineSchema,
   type DiffEngine,
@@ -58,6 +59,7 @@ export function Header(props: {
   onHeaderMount: (element: HTMLElement) => void;
   onRepoListOpen: () => void;
   onRepoChange: (repo: RepoMark) => void;
+  onRepoRemove: (repo: RepoMark) => void | Promise<void>;
   onEngineChange: (engine: DiffEngine) => void;
   onViewModeChange: (viewMode: DiffViewMode) => void;
 }) {
@@ -84,6 +86,7 @@ export function Header(props: {
               selectedRepoId={props.selectedRepoId}
               onRepoListOpen={props.onRepoListOpen}
               onRepoChange={props.onRepoChange}
+              onRepoRemove={props.onRepoRemove}
             />
           </Show>
           <div class="header-actions">
@@ -140,6 +143,7 @@ function RepoSelect(props: {
   selectedRepoId: RepoId | null;
   onRepoListOpen: () => void;
   onRepoChange: (repo: RepoMark) => void;
+  onRepoRemove: (repo: RepoMark) => void | Promise<void>;
 }) {
   const handleRepoChange = (nextRepoIdRaw: string) => {
     const nextRepoId = Number(nextRepoIdRaw);
@@ -169,6 +173,13 @@ function RepoSelect(props: {
     return repo.name;
   };
 
+  const removeRepo = async (repo: RepoMark) => {
+    if (!confirm(`Remove ${repo.name} from marked repositories?`)) {
+      return;
+    }
+    await props.onRepoRemove(repo);
+  };
+
   return (
     <Select
       class="header-engine-select repo-select"
@@ -183,6 +194,25 @@ function RepoSelect(props: {
       }
       onOpen={props.onRepoListOpen}
       onChange={handleRepoChange}
+      optionAction={(option) => {
+        const repo = props.repos.find(
+          (candidate) => String(candidate.id) === option.value,
+        );
+        if (repo === undefined) {
+          throw new Error(`Unknown repo option: ${option.value}.`);
+        }
+        return (
+          <button
+            type="button"
+            class="ui-select-option-action"
+            title={`Remove ${repo.name}`}
+            aria-label={`Remove ${repo.name}`}
+            onClick={() => void removeRepo(repo)}
+          >
+            <Trash2 class="ui-select-option-action-icon" aria-hidden="true" />
+          </button>
+        );
+      }}
     />
   );
 }

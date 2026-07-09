@@ -1,4 +1,11 @@
-import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  type JSX,
+} from "solid-js";
 
 export type SelectOption = {
   value: string;
@@ -13,6 +20,7 @@ export function Select(props: {
   selectedValue: string;
   onChange: (value: string) => void;
   onOpen?: () => void;
+  optionAction?: (option: SelectOption) => JSX.Element;
 }) {
   let root: HTMLDivElement | undefined;
   let trigger: HTMLButtonElement | undefined;
@@ -92,20 +100,31 @@ export function Select(props: {
         <div class="ui-select-menu" role="listbox" aria-label={props.label}>
           <For each={props.options}>
             {(option) => (
-              <button
-                type="button"
-                class="ui-select-option"
-                data-selected={
-                  option.value === props.selectedValue ? "true" : "false"
+              <div
+                class={
+                  props.optionAction === undefined
+                    ? "ui-select-option-row ui-select-option-row-plain"
+                    : "ui-select-option-row"
                 }
-                role="option"
-                aria-selected={
-                  option.value === props.selectedValue ? "true" : "false"
-                }
-                onClick={() => select(option.value)}
               >
-                {option.label}
-              </button>
+                <button
+                  type="button"
+                  class="ui-select-option"
+                  data-selected={
+                    option.value === props.selectedValue ? "true" : "false"
+                  }
+                  role="option"
+                  aria-selected={
+                    option.value === props.selectedValue ? "true" : "false"
+                  }
+                  onClick={() => select(option.value)}
+                >
+                  {option.label}
+                </button>
+                <Show when={props.optionAction !== undefined}>
+                  {props.optionAction?.(option)}
+                </Show>
+              </div>
             )}
           </For>
         </div>

@@ -22,6 +22,7 @@ from sqlalchemy import (
     Engine,
     ForeignKey,
     String,
+    delete,
     insert,
     select,
 )
@@ -190,7 +191,11 @@ class RepoMarkStore:
                         RepoMarkMeta,
                         RepoMarkMeta.repo_id == RepoMark.id,
                     )
-                    .order_by(RepoMarkMeta.marked_at.desc())
+                    .order_by(
+                        RepoMarkMeta.name.asc(),
+                        RepoMark.path.asc(),
+                        RepoMark.id.asc(),
+                    )
                 )
                 .tuples()
                 .all()
@@ -239,6 +244,32 @@ class RepoMarkStore:
                 name=res[2],
                 marked_at=res[3],
             )
+
+    def delete(self, repo_id: int) -> bool:
+        """
+        Delete one marked repository and its registry metadata.
+
+        Returns `True` when a mark existed and was removed, or `False` when the
+        id was already absent.  Repository files on disk are never touched.
+        """
+
+        with Session(self.engine) as session, session.begin():
+            mark_exists = (
+                session.execute(
+                    select(RepoMark.id).where(RepoMark.id == repo_id)
+                ).one_or_none()
+                is not None
+            )
+            if not mark_exists:
+                return False
+            session.execute(
+                delete(RepoMarkMeta).where(RepoMarkMeta.repo_id == repo_id)
+            )
+            session.execute(
+                delete(RepoMainBranch).where(RepoMainBranch.repo_id == repo_id)
+            )
+            session.execute(delete(RepoMark).where(RepoMark.id == repo_id))
+            return True
 
     def get_main_branch(self, repo_id: int) -> RepoMainBranchRecord | None:
         """

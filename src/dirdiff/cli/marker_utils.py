@@ -35,6 +35,7 @@ __all__ = [
     "duplicate_repo_path_error",
     "mark_repo",
     "print_marked_repos",
+    "remove_marked_repo",
 ]
 
 
@@ -127,3 +128,18 @@ def print_marked_repos(*, db_path: Path | None) -> None:
     for mark_record in marks:
         print(f"{mark_record.id}. {mark_record.name}")
         print(f"   path: {mark_record.path}")
+
+
+def remove_marked_repo(*, repo_id: int, db_path: Path | None) -> None:
+    """Remove one repository mark from the selected registry database.
+
+    The mark id comes from `dirdiff mark --list`.  Removing a mark only updates
+    dirdiff's registry state; the repository directory and its Git data remain
+    untouched.
+    """
+
+    engine = open_sqlite_engine(db_path_or_default(db_path))
+    store = RepoMarkStore(engine)
+    if not store.delete(repo_id):
+        raise SystemExit(f"No marked repo with id: {repo_id}")
+    print(f"Removed repo mark {repo_id}", file=sys.stderr)

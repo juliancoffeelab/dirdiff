@@ -810,6 +810,15 @@ export async function fetchRepos(): Promise<RepoMark[]> {
   return z.array(RepoMarkSchema).parse(await response.json());
 }
 
+export async function deleteRepoMark(repoId: RepoId): Promise<void> {
+  const response = await fetchJsonResponse(`/api/repos/${repoId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    return parseErrorResponse(response);
+  }
+}
+
 export async function createUserProfile(
   username: string,
 ): Promise<UserProfile> {

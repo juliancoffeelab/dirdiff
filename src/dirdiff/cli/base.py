@@ -224,6 +224,14 @@ def mark(
             help="Print marked repositories.",
         ),
     ] = False,
+    remove_id: Annotated[
+        int | None,
+        typer.Option(
+            "--remove",
+            min=1,
+            help="Remove a marked repository by id.",
+        ),
+    ] = None,
 ) -> None:
     """Add or list repositories in the local dirdiff registry.
 
@@ -233,8 +241,13 @@ def mark(
     """
 
     configure_logging()
+    if list_marks and remove_id is not None:
+        raise typer.BadParameter("--list and --remove cannot be combined.")
     if list_marks:
         marker_utils.print_marked_repos(db_path=db_path)
+        return
+    if remove_id is not None:
+        marker_utils.remove_marked_repo(repo_id=remove_id, db_path=db_path)
         return
     marker_utils.mark_repo(repo_path=path, name=name, db_path=db_path)
 

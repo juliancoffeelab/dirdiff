@@ -1,16 +1,30 @@
 import { For, Show, createSignal } from "solid-js";
+import { Trash2 } from "lucide-solid";
 import type { RepoMark } from "./api";
 
 export function RepoPicker(props: {
   repos: RepoMark[];
   error: string;
   onSelect: (repo: RepoMark) => void;
+  onRemove: (repo: RepoMark) => void | Promise<void>;
   onPullRequest: (url: string) => void | Promise<void>;
 }) {
   const [pullRequestUrl, setPullRequestUrl] = createSignal("");
+  const [removingRepoId, setRemovingRepoId] = createSignal<number | null>(null);
   const submitPullRequest = (event: SubmitEvent) => {
     event.preventDefault();
     void props.onPullRequest(pullRequestUrl());
+  };
+  const removeRepo = async (repo: RepoMark) => {
+    if (!confirm(`Remove ${repo.name} from marked repositories?`)) {
+      return;
+    }
+    setRemovingRepoId(repo.id);
+    try {
+      await props.onRemove(repo);
+    } finally {
+      setRemovingRepoId(null);
+    }
   };
 
   return (
@@ -40,14 +54,26 @@ export function RepoPicker(props: {
       <div class="repo-list">
         <For each={props.repos}>
           {(repo) => (
-            <button
-              type="button"
-              class="repo-option"
-              onClick={() => props.onSelect(repo)}
-            >
-              <span class="repo-option-name">{repo.name}</span>
-              <span class="repo-option-path">{repo.path}</span>
-            </button>
+            <div class="repo-option-row">
+              <button
+                type="button"
+                class="repo-option"
+                onClick={() => props.onSelect(repo)}
+              >
+                <span class="repo-option-name">{repo.name}</span>
+                <span class="repo-option-path">{repo.path}</span>
+              </button>
+              <button
+                type="button"
+                class="repo-remove-button"
+                title={`Remove ${repo.name}`}
+                aria-label={`Remove ${repo.name}`}
+                disabled={removingRepoId() === repo.id}
+                onClick={() => void removeRepo(repo)}
+              >
+                <Trash2 class="repo-remove-icon" aria-hidden="true" />
+              </button>
+            </div>
           )}
         </For>
       </div>

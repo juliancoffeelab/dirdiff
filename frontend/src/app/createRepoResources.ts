@@ -4,6 +4,7 @@ import {
   type DefaultBaseSelection,
   DiffEngineSchema,
   PresetTypeSchema,
+  deleteRepoMark,
   fetchPresets,
   fetchRepoRefs,
   fetchRepos,
@@ -455,6 +456,31 @@ export function createRepoResources(options: RepoResourcesOptions) {
     }
   }
 
+  async function removeRepo(repoId: RepoId): Promise<void> {
+    try {
+      await deleteRepoMark(repoId);
+      batch(() => {
+        setRepoList((current) =>
+          current === null
+            ? current
+            : current.filter((repo) => repo.id !== repoId),
+        );
+        if (selectedRepoId() === repoId) {
+          history.replaceState({}, "", `/${window.location.hash}`);
+          setSelectedRepoId(null);
+          setRepoRefs(null);
+          setPresetCatalogs(null);
+          presetCatalogsRequest = null;
+          setPresetCatalogsError(null);
+          setPresetCatalogsPending(false);
+        }
+      });
+    } catch (error) {
+      options.addErrorToast("Failed to remove marked repo", error);
+      throw error;
+    }
+  }
+
   const selectRepo = (repo: RepoMark) => {
     const params = new URLSearchParams();
     params.set("repo_id", String(repo.id));
@@ -507,6 +533,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     loadPresetCatalogs,
     reloadPresetCatalogs,
     saveMainBranch,
+    removeRepo,
     selectRepo,
     selectRepoId,
   };
