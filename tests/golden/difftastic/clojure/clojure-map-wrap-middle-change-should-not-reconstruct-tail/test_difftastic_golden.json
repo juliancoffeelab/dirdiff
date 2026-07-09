@@ -4,6 +4,7 @@
     "left_text": "(render {",
     "right_no": 1,
     "right_text": "(render {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -45,6 +46,7 @@
     "left_text": "  :right baz",
     "right_no": 3,
     "right_text": "  :right baz",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -52,6 +54,7 @@
     "left_text": "})",
     "right_no": 4,
     "right_text": "})",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

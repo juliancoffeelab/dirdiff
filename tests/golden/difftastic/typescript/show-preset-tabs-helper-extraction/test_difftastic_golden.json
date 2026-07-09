@@ -2,8 +2,10 @@
   {
     "left_no": 1,
     "left_text": "function PresetControls(props) {",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "function PresetControls(props) {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -1240,253 +1242,19 @@
   {
     "left_no": 22,
     "left_text": "          <fieldset class=\"mode-tabs preset-tabs\">",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "      "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "fieldset"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "class"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=\""
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "mode"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "tabs"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "tabs"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\">"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "      <fieldset class=\"mode-tabs preset-tabs\">",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "      "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "fieldset"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "class"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=\""
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "mode"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "tabs"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "tabs"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\">"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 23,
     "left_text": "            <legend>Presets</legend>",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "        "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "legend"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "Presets"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "legend"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "        <legend>Presets</legend>",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "        "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "legend"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "Presets"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "legend"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -1522,1397 +1290,145 @@
   {
     "left_no": 25,
     "left_text": "              {(group) => (",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "          "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{("
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ")"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=>"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "("
-      }
-    ],
+    "left_tokens": [],
     "right_no": 11,
     "right_text": "          {(group) => (",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "          "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{("
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ")"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=>"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "("
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 26,
     "left_text": "                <button",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "            "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "button"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 12,
     "right_text": "            <button",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "            "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "<"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "button"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 27,
     "left_text": "                  type=\"button\"",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "type"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=\""
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "button"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\""
-      }
-    ],
+    "left_tokens": [],
     "right_no": 13,
     "right_text": "              type=\"button\"",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "type"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=\""
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "button"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\""
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 28,
     "left_text": "                  onClick={() => {",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "onClick"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "={()"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=>"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 14,
     "right_text": "              onClick={() => {",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "onClick"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "={()"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "=>"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 29,
     "left_text": "                    const nextDraft = { ...draft(), preset: group.name };",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "                "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "const"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "nextDraft"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "="
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "..."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "draft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "(),"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ":"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "name"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "};"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 15,
     "right_text": "                const nextDraft = { ...draft(), preset: group.name };",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "                "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "const"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "nextDraft"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "="
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "..."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "draft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "(),"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ":"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "name"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "};"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 30,
     "left_text": "                    setDraft(nextDraft);",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "                "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "setDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "("
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "nextDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ");"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 16,
     "right_text": "                setDraft(nextDraft);",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "                "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "setDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "("
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "nextDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ");"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 31,
     "left_text": "                    loadDraft(nextDraft);",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "                "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "loadDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "("
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "nextDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ");"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 17,
     "right_text": "                loadDraft(nextDraft);",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "                "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "loadDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "("
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "nextDraft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ");"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 32,
     "left_text": "                  }}",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}}"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 18,
     "right_text": "              }}",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}}"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 33,
     "left_text": "                  classList={{ \"is-active\": draft().preset === group.name }}",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "classList"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "={{"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "is"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "active"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\":"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "draft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "()."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "==="
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "name"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}}"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 19,
     "right_text": "              classList={{ \"is-active\": draft().preset === group.name }}",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "classList"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "={{"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "is"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "active"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "\":"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "draft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "()."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "==="
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "name"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}}"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 34,
     "left_text": "                  aria-pressed={draft().preset === group.name}",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "aria"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "pressed"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "={"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "draft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "()."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "==="
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "name"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 20,
     "right_text": "              aria-pressed={draft().preset === group.name}",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "aria"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "-"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "pressed"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "={"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "draft"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "()."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "preset"
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "==="
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "name"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 35,
     "left_text": "                >",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "            "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 21,
     "right_text": "            >",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "            "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 36,
     "left_text": "                  {group.display_name}",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "display_name"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 22,
     "right_text": "              {group.display_name}",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "              "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "{"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "group"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "."
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "display_name"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "}"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 37,
     "left_text": "                </button>",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "            "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "button"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 23,
     "right_text": "            </button>",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "            "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "button"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 38,
     "left_text": "              )}",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "          "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ")}"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 24,
     "right_text": "          )}",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "          "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ")}"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 39,
     "left_text": "            </For>",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "        "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "For"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 25,
     "right_text": "        </For>",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "        "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "For"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 40,
     "left_text": "          </fieldset>",
-    "left_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "      "
-      },
-      {
-        "is_ws": true,
-        "status": "delete",
-        "text": "    "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "fieldset"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "left_tokens": [],
     "right_no": 26,
     "right_text": "      </fieldset>",
-    "right_tokens": [
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "      "
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "</"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "fieldset"
-      },
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": ">"
-      }
-    ],
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -4080,8 +2596,10 @@
   {
     "left_no": 45,
     "left_text": "}",
+    "left_tokens": [],
     "right_no": 51,
     "right_text": "}",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

@@ -2,29 +2,37 @@
   {
     "left_no": 1,
     "left_text": "def create_app(service, defaults, *, services):",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "def create_app(service, defaults, *, services):",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "    return service, defaults, services",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "    return service, defaults, services",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -67,6 +75,7 @@
     "left_text": "    return create_app(",
     "right_no": 6,
     "right_text": "    return create_app(",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -74,6 +83,7 @@
     "left_text": "        service,",
     "right_no": 7,
     "right_text": "        service,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -81,6 +91,7 @@
     "left_text": "        defaults,",
     "right_no": 8,
     "right_text": "        defaults,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -137,6 +148,7 @@
     "left_text": "    )",
     "right_no": 10,
     "right_text": "    )",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

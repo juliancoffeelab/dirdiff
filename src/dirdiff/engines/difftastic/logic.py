@@ -1093,11 +1093,7 @@ def _row_status(
         return token_status
 
     if left_no is not None and right_no is not None:
-        return _paired_row_status(
-            left_text=left_text,
-            right_text=right_text,
-            allow_ws_only_equal=allow_ws_only_equal,
-        )
+        return "equal"
 
     if left_tokens == [] or right_tokens == []:
         return "equal"
@@ -1122,7 +1118,7 @@ def _token_row_status(
         token["status"] for tokens in token_lists for token in tokens
     ]
     if token_statuses == []:
-        return None
+        return "equal"
 
     changed_statuses = {
         status for status in token_statuses if status != "unchanged"

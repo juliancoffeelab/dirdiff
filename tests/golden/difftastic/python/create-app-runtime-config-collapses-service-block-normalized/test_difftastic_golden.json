@@ -2,8 +2,10 @@
   {
     "left_no": 1,
     "left_text": "from pathlib import Path",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "from pathlib import Path",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -68,15 +70,19 @@
   {
     "left_no": 3,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 5,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -2426,6 +2432,23 @@
   {
     "left_no": 29,
     "left_text": "        service,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "service"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
     "right_no": null,
     "right_text": "",
     "status": "delete"
@@ -2433,6 +2456,23 @@
   {
     "left_no": 30,
     "left_text": "        defaults,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "defaults"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
     "right_no": null,
     "right_text": "",
     "status": "delete"
@@ -2444,82 +2484,12 @@
       {
         "is_ws": true,
         "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
+        "text": "        "
       },
       {
         "is_ws": false,
         "status": "delete",
-        "text": "s"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "r"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "v"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "c"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
+        "text": "services"
       },
       {
         "is_ws": false,
@@ -2534,27 +2504,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "g"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "t"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "\""
+        "text": "\"git\""
       },
       {
         "is_ws": false,
@@ -2569,57 +2519,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "g"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "t"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "_"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "r"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "v"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "c"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
+        "text": "git_service"
       },
       {
         "is_ws": false,
@@ -2634,62 +2534,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "\""
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "d"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "t"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "a"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "t"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "c"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "\""
+        "text": "\"difftastic\""
       },
       {
         "is_ws": false,
@@ -2704,92 +2549,7 @@
       {
         "is_ws": false,
         "status": "delete",
-        "text": "d"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "f"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "t"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "a"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "t"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "c"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "_"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "r"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "v"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "c"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
+        "text": "difftastic_service"
       },
       {
         "is_ws": false,
@@ -2813,117 +2573,12 @@
       {
         "is_ws": true,
         "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
-      },
-      {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": " "
+        "text": "        "
       },
       {
         "is_ws": false,
         "status": "delete",
-        "text": "p"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "r"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "t"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "_"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "r"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "v"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "i"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "c"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "e"
-      },
-      {
-        "is_ws": false,
-        "status": "delete",
-        "text": "s"
+        "text": "preset_services"
       },
       {
         "is_ws": false,
@@ -2943,6 +2598,38 @@
   {
     "left_no": 33,
     "left_text": "            \"dirdiff\": preset_service,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"dirdiff\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_service"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
     "right_no": null,
     "right_text": "",
     "status": "delete"
@@ -2950,6 +2637,38 @@
   {
     "left_no": 34,
     "left_text": "            \"git\": preset_git_service,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"git\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_git_service"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      }
+    ],
     "right_no": null,
     "right_text": "",
     "status": "delete"
@@ -2957,6 +2676,33 @@
   {
     "left_no": 35,
     "left_text": "            \"difftastic\": preset_difftastic_service",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "            "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"difftastic\""
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "preset_difftastic_service"
+      }
+    ],
     "right_no": null,
     "right_text": "",
     "status": "delete"
@@ -2964,6 +2710,18 @@
   {
     "left_no": 36,
     "left_text": "        }",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      }
+    ],
     "right_no": null,
     "right_text": "",
     "status": "delete"

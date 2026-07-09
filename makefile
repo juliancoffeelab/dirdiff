@@ -56,9 +56,11 @@ resnapshot:
 		--snapshot-update \
 		--snapshot-warn-unused
 
-fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt flake-cst pytest
+fullcode: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt flake-cst
 
 fulltest: pytest cram
+
+fullcheck: fullcode fulltest
 
 format:
 	.venv/bin/ruff format

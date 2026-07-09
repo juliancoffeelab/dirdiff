@@ -2,85 +2,109 @@
   {
     "left_no": 1,
     "left_text": "import { Show } from \"solid-js\";",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "import { Show } from \"solid-js\";",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "type Repo = {",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "type Repo = {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "  selectedRepoId(): number | null;",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "  selectedRepoId(): number | null;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 5,
     "left_text": "  presetCatalog(): object | null;",
+    "left_tokens": [],
     "right_no": 5,
     "right_text": "  presetCatalog(): object | null;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 6,
     "left_text": "};",
+    "left_tokens": [],
     "right_no": 6,
     "right_text": "};",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 7,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 8,
     "left_text": "declare const repo: Repo;",
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "declare const repo: Repo;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 9,
     "left_text": "declare const controls: () => object | null;",
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "declare const controls: () => object | null;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 10,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 11,
     "left_text": "export function Example() {",
+    "left_tokens": [],
     "right_no": 11,
     "right_text": "export function Example() {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 12,
     "left_text": "  return (",
+    "left_tokens": [],
     "right_no": 12,
     "right_text": "  return (",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -88,6 +112,7 @@
     "left_text": "    <Show",
     "right_no": 13,
     "right_text": "    <Show",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -95,6 +120,7 @@
     "left_text": "      when={",
     "right_no": 14,
     "right_text": "      when={",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -102,6 +128,7 @@
     "left_text": "        repo.selectedRepoId() !== null &&",
     "right_no": 15,
     "right_text": "        repo.selectedRepoId() !== null &&",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -187,6 +214,7 @@
     "left_text": "      }",
     "right_no": 18,
     "right_text": "      }",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -194,34 +222,43 @@
     "left_text": "    >",
     "right_no": 19,
     "right_text": "    >",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 14,
     "left_text": "      <>ok</>",
+    "left_tokens": [],
     "right_no": 20,
     "right_text": "      <>ok</>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 15,
     "left_text": "    </Show>",
+    "left_tokens": [],
     "right_no": 21,
     "right_text": "    </Show>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 16,
     "left_text": "  );",
+    "left_tokens": [],
     "right_no": 22,
     "right_text": "  );",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 17,
     "left_text": "}",
+    "left_tokens": [],
     "right_no": 23,
     "right_text": "}",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

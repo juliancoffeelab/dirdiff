@@ -4,6 +4,7 @@
     "left_text": "RegionKind = Literal[",
     "right_no": 1,
     "right_text": "RegionKind = Literal[",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -11,6 +12,7 @@
     "left_text": "    \"function_like\",",
     "right_no": 2,
     "right_text": "    \"function_like\",",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -18,6 +20,7 @@
     "left_text": "    \"class_like\",",
     "right_no": 3,
     "right_text": "    \"class_like\",",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -25,6 +28,7 @@
     "left_text": "    \"container\",",
     "right_no": 4,
     "right_text": "    \"container\",",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -75,6 +79,7 @@
     "left_text": "]",
     "right_no": 7,
     "right_text": "]",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

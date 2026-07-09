@@ -2,15 +2,19 @@
   {
     "left_no": 1,
     "left_text": "def build_rows_payload(**kwargs):",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "def build_rows_payload(**kwargs):",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "    return kwargs",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "    return kwargs",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -220,15 +224,19 @@
   {
     "left_no": 3,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -264,29 +272,37 @@
   {
     "left_no": 6,
     "left_text": "    payload = build_rows_payload(",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "    payload = build_rows_payload(",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 7,
     "left_text": "        left_path_hint=\"left.py\",",
+    "left_tokens": [],
     "right_no": 11,
     "right_text": "        left_path_hint=\"left.py\",",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 8,
     "left_text": "        right_path_hint=normalized_right,",
+    "left_tokens": [],
     "right_no": 12,
     "right_text": "        right_path_hint=normalized_right,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 9,
     "left_text": "    )",
+    "left_tokens": [],
     "right_no": 13,
     "right_text": "    )",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -415,15 +431,19 @@
   {
     "left_no": 11,
     "left_text": "    payload[\"left_path\"] = normalized_left",
+    "left_tokens": [],
     "right_no": 18,
     "right_text": "    payload[\"left_path\"] = normalized_left",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 12,
     "left_text": "    return payload",
+    "left_tokens": [],
     "right_no": 19,
     "right_text": "    return payload",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

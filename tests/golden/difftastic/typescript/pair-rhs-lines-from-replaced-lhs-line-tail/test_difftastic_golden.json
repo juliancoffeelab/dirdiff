@@ -86,15 +86,19 @@
   {
     "left_no": 1,
     "left_text": "type SyntaxSpan = { start: number; end: number };",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "type SyntaxSpan = { start: number; end: number };",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -143,6 +147,7 @@
     "left_text": "  text: string,",
     "right_no": 5,
     "right_text": "  text: string,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -218,6 +223,7 @@
     "left_text": "): string[] {",
     "right_no": 8,
     "right_text": "): string[] {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -288,15 +294,19 @@
   {
     "left_no": 5,
     "left_text": "    return [text];",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "    return [text];",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 6,
     "left_text": "  }",
+    "left_tokens": [],
     "right_no": 11,
     "right_text": "  }",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -427,8 +437,10 @@
   {
     "left_no": 8,
     "left_text": "}",
+    "left_tokens": [],
     "right_no": 13,
     "right_text": "}",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

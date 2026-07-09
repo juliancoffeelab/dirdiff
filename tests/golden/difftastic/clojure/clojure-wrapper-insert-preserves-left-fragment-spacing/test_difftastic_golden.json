@@ -4,6 +4,7 @@
     "left_text": "(render {",
     "right_no": 1,
     "right_text": "(render {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -11,6 +12,7 @@
     "left_text": "  :on-click handle-click!",
     "right_no": 2,
     "right_text": "  :on-click handle-click!",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -52,6 +54,7 @@
     "left_text": "})",
     "right_no": 4,
     "right_text": "})",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

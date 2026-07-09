@@ -2,22 +2,28 @@
   {
     "left_no": 1,
     "left_text": "type FileEntry = { render_kind: string };",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "type FileEntry = { render_kind: string };",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "declare function Show(props: { when: boolean; fallback?: unknown; children: unknown }): unknown;",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "declare function Show(props: { when: boolean; fallback?: unknown; children: unknown }): unknown;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -142,78 +148,99 @@
   {
     "left_no": 5,
     "left_text": "declare function PlainSplitFileDiff(props: { file: FileEntry }): unknown;",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "declare function PlainSplitFileDiff(props: { file: FileEntry }): unknown;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 6,
     "left_text": "declare function DiffGrid(props: { file: FileEntry }): unknown;",
+    "left_tokens": [],
     "right_no": 5,
     "right_text": "declare function DiffGrid(props: { file: FileEntry }): unknown;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 7,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 6,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 8,
     "left_text": "export function FileCard(props: { file: FileEntry }) {",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "export function FileCard(props: { file: FileEntry }) {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 9,
     "left_text": "  const canRenderRows = () => true;",
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "  const canRenderRows = () => true;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 10,
     "left_text": "  const shouldRenderRichBody = () => true;",
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "  const shouldRenderRichBody = () => true;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 11,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 12,
     "left_text": "  return (",
+    "left_tokens": [],
     "right_no": 11,
     "right_text": "  return (",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 13,
     "left_text": "    <Show when={props.file.render_kind !== \"notebook\"}>",
+    "left_tokens": [],
     "right_no": 12,
     "right_text": "    <Show when={props.file.render_kind !== \"notebook\"}>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 14,
     "left_text": "      <Show",
+    "left_tokens": [],
     "right_no": 13,
-    "right_text": "      <Show",
+    "right_text": "      <Show when={canRenderRows()}>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 15,
     "left_text": "        when={canRenderRows()}",
-    "right_no": 13,
-    "right_text": "        when={canRenderRows()}",
+    "left_tokens": [],
+    "right_no": null,
+    "right_text": "",
     "status": "equal"
   },
   {
@@ -313,78 +340,99 @@
   {
     "left_no": 17,
     "left_text": "      >",
-    "right_no": 13,
-    "right_text": "      >",
+    "left_tokens": [],
+    "right_no": null,
+    "right_text": "",
     "status": "equal"
   },
   {
     "left_no": 18,
     "left_text": "        <Show",
+    "left_tokens": [],
     "right_no": 14,
     "right_text": "        <Show",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 19,
     "left_text": "          when={shouldRenderRichBody()}",
+    "left_tokens": [],
     "right_no": 15,
     "right_text": "          when={shouldRenderRichBody()}",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 20,
     "left_text": "          fallback={<PlainSplitFileDiff file={props.file} />}",
+    "left_tokens": [],
     "right_no": 16,
     "right_text": "          fallback={<PlainSplitFileDiff file={props.file} />}",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 21,
     "left_text": "        >",
+    "left_tokens": [],
     "right_no": 17,
     "right_text": "        >",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 22,
     "left_text": "          <DiffGrid file={props.file} />",
+    "left_tokens": [],
     "right_no": 18,
     "right_text": "          <DiffGrid file={props.file} />",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 23,
     "left_text": "        </Show>",
+    "left_tokens": [],
     "right_no": 19,
     "right_text": "        </Show>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 24,
     "left_text": "      </Show>",
+    "left_tokens": [],
     "right_no": 20,
     "right_text": "      </Show>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 25,
     "left_text": "    </Show>",
+    "left_tokens": [],
     "right_no": 21,
     "right_text": "    </Show>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 26,
     "left_text": "  );",
+    "left_tokens": [],
     "right_no": 22,
     "right_text": "  );",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 27,
     "left_text": "}",
+    "left_tokens": [],
     "right_no": 23,
     "right_text": "}",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

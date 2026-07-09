@@ -2,8 +2,10 @@
   {
     "left_no": 1,
     "left_text": "def alpha():",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "def alpha():",
+    "right_tokens": [],
     "status": "equal"
   },
   {

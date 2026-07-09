@@ -623,11 +623,15 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
     )
 
     expected: dict[Side, dict[int, set[int]]] = {"left": {}, "right": {}}
+    json_sides: tuple[tuple[str, Side], ...] = (
+        ("lhs", "left"),
+        ("rhs", "right"),
+    )
     for chunk in diff_json.get("chunks", []):
         assert isinstance(chunk, list)
         for entry in chunk:
             assert isinstance(entry, dict)
-            for json_side, side in (("lhs", "left"), ("rhs", "right")):
+            for json_side, side in json_sides:
                 side_data = entry.get(json_side)
                 if side_data is None:
                     continue
@@ -652,8 +656,9 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
     }
     cursors: dict[Side, dict[int, int]] = {"left": {}, "right": {}}
     diagnostics: list[str] = []
+    sides: tuple[Side, Side] = ("left", "right")
     for row_index, row in enumerate(rows):
-        for side in ("left", "right"):
+        for side in sides:
             line_no = row.get(_side_no_key(side))
             if line_no is None:
                 continue
@@ -691,7 +696,7 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
                 token_offset += len(token_text)
             cursors[side][line_no - 1] = start_offset + len(text)
 
-    for side in ("left", "right"):
+    for side in sides:
         for line_number in sorted(
             set(expected[side].keys()) | set(actual[side].keys())
         ):

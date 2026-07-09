@@ -458,8 +458,10 @@
   {
     "left_no": 8,
     "left_text": "  const parts: string[] = [];",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "  const parts: string[] = [];",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -1020,22 +1022,28 @@
   {
     "left_no": 14,
     "left_text": "  }",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "  }",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 15,
     "left_text": "  return parts;",
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "  return parts;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 16,
     "left_text": "}",
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "}",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

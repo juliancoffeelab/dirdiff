@@ -48,6 +48,7 @@
     "left_text": "    GitDiffService,",
     "right_no": 3,
     "right_text": "    GitDiffService,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -55,6 +56,7 @@
     "left_text": "    GitBackend,",
     "right_no": 4,
     "right_text": "    GitBackend,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -93,8 +95,10 @@
   {
     "left_no": 2,
     "left_text": "from dirdiff.server import create_app",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "from dirdiff.server import create_app",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

@@ -2,8 +2,10 @@
   {
     "left_no": 1,
     "left_text": "type LoadState = \"idle\" | \"loading\" | \"done\" | \"error\";",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "type LoadState = \"idle\" | \"loading\" | \"done\" | \"error\";",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -404,22 +406,28 @@
   {
     "left_no": 2,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 12,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "export function createDiffResources() {",
+    "left_tokens": [],
     "right_no": 13,
     "right_text": "export function createDiffResources() {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "  const [loadingRevision, setLoadingRevision] = createSignal(0);",
+    "left_tokens": [],
     "right_no": 14,
     "right_text": "  const [loadingRevision, setLoadingRevision] = createSignal(0);",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -733,64 +741,82 @@
   {
     "left_no": 7,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 21,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 8,
     "left_text": "  let toastedManifestErrorIdentity = \"\";",
+    "left_tokens": [],
     "right_no": 22,
     "right_text": "  let toastedManifestErrorIdentity = \"\";",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 9,
     "left_text": "  let activeLoadId = 0;",
+    "left_tokens": [],
     "right_no": 23,
     "right_text": "  let activeLoadId = 0;",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 10,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 24,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 11,
     "left_text": "  return {",
+    "left_tokens": [],
     "right_no": 25,
     "right_text": "  return {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 12,
     "left_text": "    loadingRevision,",
+    "left_tokens": [],
     "right_no": 26,
     "right_text": "    loadingRevision,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 13,
     "left_text": "    setLoadingRevision,",
+    "left_tokens": [],
     "right_no": 27,
     "right_text": "    setLoadingRevision,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 14,
     "left_text": "    status,",
+    "left_tokens": [],
     "right_no": 28,
     "right_text": "    status,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 15,
     "left_text": "    setStatus,",
+    "left_tokens": [],
     "right_no": 29,
     "right_text": "    setStatus,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -844,29 +870,37 @@
   {
     "left_no": 18,
     "left_text": "    toastedManifestErrorIdentity,",
+    "left_tokens": [],
     "right_no": 30,
     "right_text": "    toastedManifestErrorIdentity,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 19,
     "left_text": "    activeLoadId,",
+    "left_tokens": [],
     "right_no": 31,
     "right_text": "    activeLoadId,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 20,
     "left_text": "  };",
+    "left_tokens": [],
     "right_no": 32,
     "right_text": "  };",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 21,
     "left_text": "}",
+    "left_tokens": [],
     "right_no": 33,
     "right_text": "}",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

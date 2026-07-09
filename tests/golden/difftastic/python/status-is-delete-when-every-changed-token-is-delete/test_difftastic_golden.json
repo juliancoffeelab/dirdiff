@@ -2,8 +2,10 @@
   {
     "left_no": 1,
     "left_text": "value = arg",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "value = arg",
+    "right_tokens": [],
     "status": "equal"
   },
   {

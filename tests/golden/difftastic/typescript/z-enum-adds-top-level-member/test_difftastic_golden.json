@@ -2,22 +2,28 @@
   {
     "left_no": 1,
     "left_text": "const FoldHintSchema = z.strictObject({",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "const FoldHintSchema = z.strictObject({",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "  start_row: z.number().int(),",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "  start_row: z.number().int(),",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "  end_row: z.number().int(),",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "  end_row: z.number().int(),",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -25,6 +31,7 @@
     "left_text": "  kind: z.enum([",
     "right_no": 4,
     "right_text": "  kind: z.enum([",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -32,6 +39,7 @@
     "left_text": "    \"function_like\",",
     "right_no": 5,
     "right_text": "    \"function_like\",",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -39,6 +47,7 @@
     "left_text": "    \"class_like\",",
     "right_no": 6,
     "right_text": "    \"class_like\",",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -46,6 +55,7 @@
     "left_text": "    \"container\",",
     "right_no": 7,
     "right_text": "    \"container\",",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -96,20 +106,25 @@
     "left_text": "  ]),",
     "right_no": 10,
     "right_text": "  ]),",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 5,
     "left_text": "  label: z.string(),",
+    "left_tokens": [],
     "right_no": 11,
     "right_text": "  label: z.string(),",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 6,
     "left_text": "});",
+    "left_tokens": [],
     "right_no": 12,
     "right_text": "});",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

@@ -2,29 +2,37 @@
   {
     "left_no": 1,
     "left_text": "basedpyright:",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "basedpyright:",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "\t.venv/bin/basedpyright -p pyrightcheck.json",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "\t.venv/bin/basedpyright -p pyrightcheck.json",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "flake-sbt:",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "flake-sbt:",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -61,15 +69,19 @@
   {
     "left_no": 6,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 6,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 7,
     "left_text": "flake-human:",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "flake-human:",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -106,15 +118,19 @@
   {
     "left_no": 9,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 10,
     "left_text": "humancheck: basedpyright flake-human eslint-human",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "humancheck: basedpyright flake-human eslint-human",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

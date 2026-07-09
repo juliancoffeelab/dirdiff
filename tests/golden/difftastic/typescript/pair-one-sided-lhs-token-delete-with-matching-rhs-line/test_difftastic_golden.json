@@ -2,36 +2,46 @@
   {
     "left_no": 1,
     "left_text": "import { createEffect } from \"solid-js\";",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "import { createEffect } from \"solid-js\";",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 2,
     "left_text": "import type {",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "import type {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "  DiffRow,",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "  DiffRow,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "  FileEntry,",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "  FileEntry,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 5,
     "left_text": "  InlineToken,",
+    "left_tokens": [],
     "right_no": 5,
     "right_text": "  InlineToken,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -57,8 +67,10 @@
   {
     "left_no": 7,
     "left_text": "} from \"./api\";",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "} from \"./api\";",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

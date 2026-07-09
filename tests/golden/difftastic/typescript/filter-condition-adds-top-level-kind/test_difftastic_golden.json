@@ -2,8 +2,10 @@
   {
     "left_no": 1,
     "left_text": "const parsed = foldHints",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "const parsed = foldHints",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -11,6 +13,7 @@
     "left_text": "  .filter(",
     "right_no": 2,
     "right_text": "  .filter(",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -18,6 +21,7 @@
     "left_text": "    (hint) =>",
     "right_no": 3,
     "right_text": "    (hint) =>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -25,6 +29,7 @@
     "left_text": "      aggressiveFolds ||",
     "right_no": 4,
     "right_text": "      aggressiveFolds ||",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -111,55 +116,70 @@
     "left_text": "  )",
     "right_no": 6,
     "right_text": "  )",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 3,
     "left_text": "  .map((hint, index) => parseFoldHint(hint, index, rowCount))",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "  .map((hint, index) => parseFoldHint(hint, index, rowCount))",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 4,
     "left_text": "  .sort(",
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "  .sort(",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 5,
     "left_text": "    (left, right) =>",
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "    (left, right) =>",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 6,
     "left_text": "      left.startRow - right.startRow || right.endRow - left.endRow,",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "      left.startRow - right.startRow || right.endRow - left.endRow,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 7,
     "left_text": "  );",
+    "left_tokens": [],
     "right_no": 11,
     "right_text": "  );",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 8,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 12,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 9,
     "left_text": "return nestFoldHints(parsed);",
+    "left_tokens": [],
     "right_no": 13,
     "right_text": "return nestFoldHints(parsed);",
+    "right_tokens": [],
     "status": "equal"
   }
 ]

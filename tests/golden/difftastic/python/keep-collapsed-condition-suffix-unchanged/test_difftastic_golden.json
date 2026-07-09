@@ -2,8 +2,10 @@
   {
     "left_no": 1,
     "left_text": "from dataclasses import dataclass",
+    "left_tokens": [],
     "right_no": 1,
     "right_text": "from dataclasses import dataclass",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -50,64 +52,82 @@
   {
     "left_no": 4,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 5,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 6,
     "left_text": "@dataclass",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "@dataclass",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 7,
     "left_text": "class Entry:",
+    "left_tokens": [],
     "right_no": 5,
     "right_text": "class Entry:",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 8,
     "left_text": "    left_path: str",
+    "left_tokens": [],
     "right_no": 6,
     "right_text": "    left_path: str",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 9,
     "left_text": "    right_path: str",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "    right_path: str",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 10,
     "left_text": "    change_type: str",
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "    change_type: str",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 11,
     "left_text": "    changed_lines: int | None",
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "    changed_lines: int | None",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 12,
     "left_text": "    display_name: str",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "    display_name: str",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -569,43 +589,55 @@
   {
     "left_no": 13,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 21,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 14,
     "left_text": "",
+    "left_tokens": [],
     "right_no": 22,
     "right_text": "",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 15,
     "left_text": "def to_lazy_repo_manifest_file_entry(entry: Entry) -> dict[str, object]:",
+    "left_tokens": [],
     "right_no": 23,
     "right_text": "def to_lazy_repo_manifest_file_entry(entry: Entry) -> dict[str, object]:",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 16,
     "left_text": "    payload: dict[str, object] = {",
+    "left_tokens": [],
     "right_no": 24,
     "right_text": "    payload: dict[str, object] = {",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 17,
     "left_text": "        \"left_path\": entry.left_path,",
+    "left_tokens": [],
     "right_no": 25,
     "right_text": "        \"left_path\": entry.left_path,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
     "left_no": 18,
     "left_text": "        \"right_path\": entry.right_path,",
+    "left_tokens": [],
     "right_no": 26,
     "right_text": "        \"right_path\": entry.right_path,",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -731,8 +763,10 @@
   {
     "left_no": 21,
     "left_text": "    }",
+    "left_tokens": [],
     "right_no": 28,
     "right_text": "    }",
+    "right_tokens": [],
     "status": "equal"
   },
   {
@@ -1053,8 +1087,10 @@
   {
     "left_no": 30,
     "left_text": "    return payload",
+    "left_tokens": [],
     "right_no": 32,
     "right_text": "    return payload",
+    "right_tokens": [],
     "status": "equal"
   }
 ]
