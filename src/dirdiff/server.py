@@ -31,6 +31,8 @@ from dirdiff.backend import (
     GitBackend,
     LoadedDiffSides,
     MemoryCacheBackend,
+    PreparedPullRequest,
+    PreparedPullRequestBranch,
     PresetBackend,
     RepoDiffPath,
     RepoInfo,
@@ -41,6 +43,7 @@ from dirdiff.backend import (
     display_name_for_repo_paths,
     file_kind_for_change_type,
     load_diff_sides,
+    prepare_pull_request,
 )
 from dirdiff.db import (
     PreferencesStore,
@@ -323,6 +326,53 @@ class RepoMainBranchResponse(ApiModel):
 
     repo_id: int
     selection: BranchSelection
+
+
+class PullRequestPrepareRequest(ApiModel):
+    """Request body for preparing a pull request URL for diffing."""
+
+    url: str
+
+
+class PullRequestBranchResponse(ApiModel):
+    """Remote branch data prepared for a pull request diff."""
+
+    remote: str
+    branch: str
+
+
+class PullRequestPrepareResponse(ApiModel):
+    """Prepared pull request data returned after the PR ref has been fetched."""
+
+    repo_id: int
+    pull_request_url: str
+    base_branch: PullRequestBranchResponse
+    review_branch: PullRequestBranchResponse
+
+
+def pull_request_branch_response(
+    branch: PreparedPullRequestBranch,
+) -> PullRequestBranchResponse:
+    """Serialize prepared pull request branch data for the HTTP API."""
+    return PullRequestBranchResponse.model_validate(
+        {"remote": branch.remote, "branch": branch.branch}
+    )
+
+
+def pull_request_prepare_response(
+    prepared: PreparedPullRequest,
+) -> PullRequestPrepareResponse:
+    """Serialize prepared pull request data for the HTTP API."""
+    return PullRequestPrepareResponse.model_validate(
+        {
+            "repo_id": prepared.repo_id,
+            "pull_request_url": prepared.pull_request_url,
+            "base_branch": pull_request_branch_response(prepared.base_branch),
+            "review_branch": pull_request_branch_response(
+                prepared.review_branch
+            ),
+        }
+    )
 
 
 class RepoMarkResponse(ApiModel):
@@ -1279,6 +1329,36 @@ def create_app(
             RepoMarkResponse.model_validate(mark, from_attributes=True)
             for mark in db.list()
         ]
+
+    @app.post(
+        "/api/pull-request/prepare",
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+        },
+        summary="Fetch a pull request ref into a matching marked repository",
+    )
+    def prepare_pull_request_endpoint(
+        request: PullRequestPrepareRequest,
+    ) -> PullRequestPrepareResponse:
+        try:
+            return pull_request_prepare_response(
+                prepare_pull_request(
+                    url=request.url,
+                    repo_marks=db.list(),
+                )
+            )
+        except TextDiffError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            LOGGER.exception("Pull request prepare request crashed: %s", exc)
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail="Internal server error.",
+            ) from exc
 
     @app.post(
         "/api/user-profile",

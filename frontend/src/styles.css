@@ -539,6 +539,10 @@ h1 {
   grid-column: 1 / -1;
 }
 
+.pull-request-field {
+  grid-column: 1 / -1;
+}
+
 .field,
 .summary-group {
   display: flex;
@@ -941,6 +945,19 @@ h1 {
   margin-bottom: 12px;
   color: #8e1f1f;
   font-weight: 700;
+}
+
+.repo-picker-pr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+  margin-bottom: 16px;
+}
+
+.repo-picker-pr .load-button {
+  grid-column: auto;
+  min-width: 96px;
 }
 
 .repo-list {

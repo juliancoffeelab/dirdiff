@@ -17,7 +17,14 @@ import type {
 import type { DiffViewMode } from "./DiffGrid";
 
 export type LoadState = "idle" | "loading" | "done" | "error";
+export type ControlsTab =
+  | "head"
+  | "refs"
+  | "branch-review"
+  | "pull-request"
+  | "preset";
 export type ControlsState = {
+  tab: ControlsTab;
   mode: DiffMode;
   left: string;
   right: string;
@@ -25,6 +32,7 @@ export type ControlsState = {
   preset: string;
   baseSelection: BranchSelection;
   reviewSelection: BranchSelection;
+  pullRequestUrl: string;
 };
 
 export type RenderedFileEntry = FileEntry & {
@@ -64,16 +72,24 @@ export const modeLabels: Record<DiffMode, string> = {
   "branch-review": "Branch review",
   preset: "Preset",
 };
+export const controlsTabLabels: Record<ControlsTab, string> = {
+  head: "Diff against HEAD",
+  refs: "Compare refs",
+  "branch-review": "Branch review",
+  "pull-request": "PR",
+  preset: "Preset",
+};
 export const presetTypeLabels: Record<PresetType, string> = {
   diff: "Diff Presets",
   fold: "Fold Presets",
   gumtree: "GumTree Presets",
 };
 export const presetTypes: PresetType[] = ["diff", "fold", "gumtree"];
-export const topLevelModes: DiffMode[] = [
+export const topLevelTabs: ControlsTab[] = [
   "head",
   "refs",
   "branch-review",
+  "pull-request",
   "preset",
 ];
 export const engineLabels: Record<DiffEngine, string> = {

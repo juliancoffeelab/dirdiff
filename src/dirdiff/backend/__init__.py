@@ -49,6 +49,11 @@ from dirdiff.backend.manifest import (
     file_kind_for_change_type,
 )
 from dirdiff.backend.preset import PresetBackend
+from dirdiff.backend.pull_request import (
+    PreparedPullRequest,
+    PreparedPullRequestBranch,
+    prepare_pull_request,
+)
 
 __all__ = [
     "BUILTIN_SIDES",
@@ -61,6 +66,8 @@ __all__ = [
     "LoadedDiffSides",
     "LocalBranchSelection",
     "MemoryCacheBackend",
+    "PreparedPullRequest",
+    "PreparedPullRequestBranch",
     "PresetBackend",
     "RefChoices",
     "RemoteBranchRef",
@@ -80,5 +87,6 @@ __all__ = [
     "file_kind_for_change_type",
     "git_diff_args_with_direction",
     "load_diff_sides",
+    "prepare_pull_request",
     "unified_diff_lines",
 ]

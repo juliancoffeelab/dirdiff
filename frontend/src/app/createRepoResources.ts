@@ -17,6 +17,7 @@ import {
   type RepoRefs,
 } from "../api";
 import { type ControlsState } from "../fileUtils";
+import type { ControlsTab } from "../fileUtils";
 
 function searchValue(
   search: URLSearchParams,
@@ -150,6 +151,17 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
     requestedLeft,
     requestedRight,
   );
+  const requestedTab = search.get("tab");
+  const tab: ControlsTab =
+    requestedTab === "pull-request"
+      ? "pull-request"
+      : mode === "refs" ||
+          mode === "branch-review" ||
+          mode === "head" ||
+          mode === "preset"
+        ? mode
+        : "head";
+  const pullRequestUrl = searchValue(search, "pull_request_url", "");
   const [defaultLeft, defaultRight] =
     mode === "refs" ? defaultRefsSides : modeSides.head;
   const left = searchValue(search, "left", defaultLeft);
@@ -158,6 +170,7 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
   if (mode in modeSides) {
     const [modeLeft, modeRight] = modeSides[mode as keyof typeof modeSides];
     return {
+      tab,
       mode,
       left: modeLeft,
       right: modeRight,
@@ -165,10 +178,12 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
       preset,
       baseSelection,
       reviewSelection,
+      pullRequestUrl,
     };
   }
 
   return {
+    tab,
     mode,
     left,
     right,
@@ -176,6 +191,7 @@ function initialControls(repoRefs: RepoRefs): ControlsState {
     preset,
     baseSelection,
     reviewSelection,
+    pullRequestUrl,
   };
 }
 
@@ -458,6 +474,18 @@ export function createRepoResources(options: RepoResourcesOptions) {
     });
   };
 
+  const selectRepoId = (repoId: RepoId) => {
+    batch(() => {
+      setSelectedRepoId(repoId);
+      setRepoSelectionError("");
+      setRepoRefs(null);
+      setPresetCatalogs(null);
+      presetCatalogsRequest = null;
+      setPresetCatalogsError(null);
+      setPresetCatalogsPending(false);
+    });
+  };
+
   return {
     selectedRepoId,
     repoSelectionError,
@@ -480,6 +508,7 @@ export function createRepoResources(options: RepoResourcesOptions) {
     reloadPresetCatalogs,
     saveMainBranch,
     selectRepo,
+    selectRepoId,
   };
 }
 
