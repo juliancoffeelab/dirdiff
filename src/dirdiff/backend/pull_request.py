@@ -36,6 +36,9 @@ __all__ = [
 GITHUB_PULL_REQUEST_RE = re.compile(
     r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)(?:[/?#].*)?$"
 )
+GITLAB_MERGE_REQUEST_RE = re.compile(
+    r"^(?P<scheme>https?)://(?P<host>[^/]+)/(?P<project>.+)/-/merge_requests/(?P<iid>\d+)(?:[/?#].*)?$"
+)
 
 
 class RepoMarkLike(Protocol):
@@ -80,19 +83,51 @@ class _GitHubPullRequest:
     base_repo_key: str
 
 
+@dataclass(frozen=True)
+class _GitLabMergeRequest:
+    url: str
+    scheme: str
+    host: str
+    project_path: str
+    iid: int
+    target_branch: str
+    target_repo_key: str
+
+
 def prepare_pull_request(
     *,
     url: str,
     repo_marks: Iterable[RepoMarkLike],
 ) -> PreparedPullRequest:
-    """Fetch a GitHub pull request into a matching marked repository.
+    """Fetch a forge pull request into a matching marked repository.
 
-    The URL must point at a GitHub pull request.  The pull request base
-    repository must match at least one configured remote in the registered repo
-    list.  The review ref is fetched into `refs/remotes/<remote>/pull/<number>`
-    so existing branch comparison code can diff it without checking out or
-    creating a local branch.
+    The URL must point at a supported GitHub pull request or GitLab merge
+    request.  The request base repository must match at least one configured
+    remote in the registered repo list.  The review ref is fetched into a
+    remote-tracking ref so existing branch comparison code can diff it without
+    checking out or creating a local branch.
     """
+    value = url.strip()
+    if GITHUB_PULL_REQUEST_RE.match(value) is not None:
+        return _prepare_github_pull_request(
+            url=value,
+            repo_marks=repo_marks,
+        )
+    if GITLAB_MERGE_REQUEST_RE.match(value) is not None:
+        return _prepare_gitlab_merge_request(
+            url=value,
+            repo_marks=repo_marks,
+        )
+    raise TextDiffError(
+        "Only GitHub pull request and GitLab merge request URLs are supported."
+    )
+
+
+def _prepare_github_pull_request(
+    *,
+    url: str,
+    repo_marks: Iterable[RepoMarkLike],
+) -> PreparedPullRequest:
     pull_request = _load_github_pull_request(url)
     for mark in repo_marks:
         repo_path = Path(mark.path)
@@ -129,6 +164,50 @@ def prepare_pull_request(
         )
     raise TextDiffError(
         "No marked repository has a remote for this pull request."
+    )
+
+
+def _prepare_gitlab_merge_request(
+    *,
+    url: str,
+    repo_marks: Iterable[RepoMarkLike],
+) -> PreparedPullRequest:
+    merge_request = _load_gitlab_merge_request(url)
+    for mark in repo_marks:
+        repo_path = Path(mark.path)
+        remote = _matching_remote(
+            repo_path=repo_path,
+            remote_repo_key=merge_request.target_repo_key,
+        )
+        if remote is None:
+            continue
+        review_branch = f"merge-requests/{merge_request.iid}"
+        _fetch_ref(
+            repo_path=repo_path,
+            remote=remote,
+            source_ref=merge_request.target_branch,
+            target_ref=f"refs/remotes/{remote}/{merge_request.target_branch}",
+        )
+        _fetch_ref(
+            repo_path=repo_path,
+            remote=remote,
+            source_ref=f"merge-requests/{merge_request.iid}/head",
+            target_ref=f"refs/remotes/{remote}/{review_branch}",
+        )
+        return PreparedPullRequest(
+            repo_id=mark.id,
+            pull_request_url=merge_request.url,
+            base_branch=PreparedPullRequestBranch(
+                remote=remote,
+                branch=merge_request.target_branch,
+            ),
+            review_branch=PreparedPullRequestBranch(
+                remote=remote,
+                branch=review_branch,
+            ),
+        )
+    raise TextDiffError(
+        "No marked repository has a remote for this merge request."
     )
 
 
@@ -190,6 +269,64 @@ def _parse_github_pull_request_url(url: str) -> tuple[str, str, int]:
     repo = urllib.parse.unquote(match.group("repo")).removesuffix(".git")
     number = int(match.group("number"))
     return owner, repo, number
+
+
+def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
+    parsed = _parse_gitlab_merge_request_url(url)
+    scheme, host, project_path, iid = parsed
+    encoded_project_path = urllib.parse.quote(project_path, safe="")
+    request = urllib.request.Request(
+        f"{scheme}://{host}/api/v4/projects/{encoded_project_path}/merge_requests/{iid}",
+        headers={
+            "accept": "application/json",
+            "user-agent": "dirdiff",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise TextDiffError(
+            f"GitLab merge request request failed: {exc.code} {exc.reason}"
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise TextDiffError(
+            f"GitLab merge request request failed: {exc.reason}"
+        ) from exc
+
+    try:
+        target_branch = payload["target_branch"]
+    except KeyError as exc:
+        raise TextDiffError(
+            "GitLab merge request response is missing target branch data."
+        ) from exc
+    if not isinstance(target_branch, str) or target_branch.strip() == "":
+        raise TextDiffError(
+            "GitLab merge request response has an empty target branch."
+        )
+    return _GitLabMergeRequest(
+        url=url.strip(),
+        scheme=scheme,
+        host=host,
+        project_path=project_path,
+        iid=iid,
+        target_branch=target_branch,
+        target_repo_key=_repo_key(host=host, path=project_path),
+    )
+
+
+def _parse_gitlab_merge_request_url(url: str) -> tuple[str, str, str, int]:
+    value = url.strip()
+    match = GITLAB_MERGE_REQUEST_RE.match(value)
+    if match is None:
+        raise TextDiffError("Only GitLab merge request URLs are supported.")
+    scheme = match.group("scheme")
+    host = match.group("host")
+    project_path = urllib.parse.unquote(match.group("project")).removesuffix(
+        ".git"
+    )
+    iid = int(match.group("iid"))
+    return scheme, host, project_path, iid
 
 
 def _matching_remote(*, repo_path: Path, remote_repo_key: str) -> str | None:

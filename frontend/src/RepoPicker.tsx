@@ -38,7 +38,7 @@ export function RepoPicker(props: {
           <span>Pull request</span>
           <input
             value={pullRequestUrl()}
-            placeholder="https://github.com/org/repo/pull/123"
+            placeholder="GitHub PR or GitLab MR URL"
             spellcheck={false}
             autocomplete="off"
             onInput={(event) => setPullRequestUrl(event.currentTarget.value)}
