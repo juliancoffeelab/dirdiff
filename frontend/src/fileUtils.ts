@@ -1,3 +1,4 @@
+import { diffParamsIdentity } from "./app/diffParams";
 import type {
   DiffEngine,
   DiffMode,
@@ -12,6 +13,7 @@ import type {
   ManifestEntry,
   NotebookSummary,
   PresetType,
+  RepoMark,
   Summary,
 } from "./api";
 import type { DiffViewMode } from "./DiffGrid";
@@ -23,6 +25,38 @@ export type ControlsTab =
   | "branch-review"
   | "pull-request"
   | "preset";
+export type BranchSelectionDraft =
+  | {
+      /**
+       * Branch-review metadata has not provided a branch selection yet, and the
+       * user has not typed one. This is an explicit UI draft state, not a
+       * fallback branch value.
+       */
+      state: "missing";
+    }
+  | {
+      /**
+       * The draft has concrete local/remote fields from the URL, metadata, or
+       * user input. The fields may still be empty or invalid; load/save
+       * boundaries remain responsible for validating the branch text.
+       */
+      state: "selected";
+      value: BranchSelection;
+    };
+export type RepoListStatus =
+  | {
+      /**
+       * The marked-repo list is not available to this UI boundary yet. This can
+       * mean the request is pending or failed; callers pass the concrete error
+       * separately when they want to render one.
+       */
+      state: "missing";
+    }
+  | {
+      /** The marked-repo list request completed. Empty means no repos are marked. */
+      state: "loaded";
+      repos: RepoMark[];
+    };
 export type ControlsState = {
   tab: ControlsTab;
   mode: DiffMode;
@@ -30,8 +64,14 @@ export type ControlsState = {
   right: string;
   presetType: PresetType;
   preset: string;
-  baseSelection: BranchSelection;
-  reviewSelection: BranchSelection;
+  /**
+   * Branch-review selections are drafts because the UI may render before
+   * `/api/repo-defaults` has returned and before the user has typed a value.
+   * Diff requests must validate both the draft state and branch contents before
+   * reaching the backend.
+   */
+  baseSelection: BranchSelectionDraft;
+  reviewSelection: BranchSelectionDraft;
   pullRequestUrl: string;
 };
 
@@ -64,14 +104,6 @@ export type FileTreeDirectoryNode = {
   entries: FileTreeNode[];
 };
 
-export const modeLabels: Record<DiffMode, string> = {
-  files: "Diff files",
-  staged: "Diff staged",
-  head: "Diff against HEAD",
-  refs: "Compare refs",
-  "branch-review": "Branch review",
-  preset: "Preset",
-};
 export const controlsTabLabels: Record<ControlsTab, string> = {
   head: "Diff against HEAD",
   refs: "Compare refs",
@@ -228,7 +260,7 @@ export function fileDiffQueryKey(
 ) {
   return [
     "file-diff",
-    diffParams.repo_id,
+    diffParamsIdentity(diffParams),
     diffParams.engine,
     cacheId,
     entry.left_path,

@@ -247,7 +247,7 @@ def mark(
         marker_utils.print_marked_repos(db_path=db_path)
         return
     if remove_id is not None:
-        marker_utils.remove_marked_repo(repo_id=remove_id, db_path=db_path)
+        marker_utils.remove_marked_repo(project_id=remove_id, db_path=db_path)
         return
     marker_utils.mark_repo(repo_path=path, name=name, db_path=db_path)
 

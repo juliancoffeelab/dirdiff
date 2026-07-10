@@ -143,7 +143,7 @@ def test_repo_mark_delete_reports_missing_id() -> None:
     response = client.delete("/api/repos/404")
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "No marked repo with id: 404"
+    assert response.json()["detail"] == "No marked project with id: 404"
 
 
 def test_file_diff_response_schema_rejects_unknown_fields() -> None:

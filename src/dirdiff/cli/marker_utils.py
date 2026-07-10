@@ -8,7 +8,7 @@ user's shell directory, and `duplicate_repo_path_error` converts the repo-path
 uniqueness constraint into a readable command failure.
 
 FastAPI routes do not use this module.  Server code receives already-selected
-repo ids and should call `RepoMarkStore` directly.
+project ids and should call `RepoMarkStore` directly.
 """
 
 from __future__ import annotations
@@ -130,7 +130,7 @@ def print_marked_repos(*, db_path: Path | None) -> None:
         print(f"   path: {mark_record.path}")
 
 
-def remove_marked_repo(*, repo_id: int, db_path: Path | None) -> None:
+def remove_marked_repo(*, project_id: int, db_path: Path | None) -> None:
     """Remove one repository mark from the selected registry database.
 
     The mark id comes from `dirdiff mark --list`.  Removing a mark only updates
@@ -140,6 +140,6 @@ def remove_marked_repo(*, repo_id: int, db_path: Path | None) -> None:
 
     engine = open_sqlite_engine(db_path_or_default(db_path))
     store = RepoMarkStore(engine)
-    if not store.delete(repo_id):
-        raise SystemExit(f"No marked repo with id: {repo_id}")
-    print(f"Removed repo mark {repo_id}", file=sys.stderr)
+    if not store.delete(project_id):
+        raise SystemExit(f"No marked repo with id: {project_id}")
+    print(f"Removed repo mark {project_id}", file=sys.stderr)

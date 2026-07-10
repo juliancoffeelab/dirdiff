@@ -12,6 +12,7 @@ import type {
 import { fetchNotebookSection } from "./api";
 import { DiffGrid, type DiffViewMode } from "./DiffGrid";
 import { fileDisplayName } from "./fileUtils";
+import { diffParamsIdentity } from "./app/diffParams";
 
 function notebookSummary(entry: FileEntry): NotebookSummary {
   const summary = entry.summary;
@@ -432,7 +433,7 @@ function notebookSectionQueryKey(
 ) {
   return [
     "notebook-section",
-    diffParams.repo_id,
+    diffParamsIdentity(diffParams),
     cacheId,
     entry.left_path,
     entry.right_path,

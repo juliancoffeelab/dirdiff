@@ -14,10 +14,14 @@ import type {
   PresetCatalogs,
   PresetType,
   RefChoices,
+  RepoMark,
 } from "./api";
+import { RepoPicker } from "./RepoPicker";
 import {
   type AutocompleteGroup,
+  type BranchSelectionDraft,
   type ControlsState,
+  type RepoListStatus,
   controlsTabLabels,
   presetTypeLabels,
   presetTypes,
@@ -25,11 +29,14 @@ import {
   topLevelTabs,
 } from "./fileUtils";
 
-const builtinRefDescriptions: Record<string, string> = {
-  head: "Current commit on this branch.",
+// This table intentionally mirrors the exact `/api/repo-refs` built-in values.
+// Keep the lookup strict so a backend/frontend contract drift fails loudly
+// instead of silently dropping autocomplete descriptions.
+const builtinRefDescriptions = {
+  HEAD: "Current commit on this branch.",
   index: "Staged snapshot, what the next commit would include.",
   worktree: "Files on disk, including unstaged changes.",
-};
+} as const;
 const defaultRefsDraft = {
   left: "head~1",
   right: "head",
@@ -37,22 +44,64 @@ const defaultRefsDraft = {
 
 type RemoteBranchSelection = Extract<BranchSelection, { source: "remote" }>;
 
+export type RefChoicesStatus =
+  | {
+      /**
+       * Ref metadata is unavailable. The user may still type freeform refs and
+       * branches; only autocomplete/suggestions are missing in this state.
+       */
+      state: "missing";
+    }
+  | {
+      /** Ref metadata is loaded and may be used for autocomplete only. */
+      state: "loaded";
+      value: RefChoices;
+    };
+
+export type RepoSelectionStatus =
+  | {
+      /**
+       * No project id is selected yet. Repo-backed tabs may still show their draft
+       * controls, but loading a repo diff must be blocked with a clear prompt.
+       */
+      state: "missing";
+    }
+  | {
+      /** A project id is available for repo-backed diff requests. */
+      state: "selected";
+      projectId: number;
+    };
+
+export type PresetCatalogsStatus =
+  | {
+      /** Preset catalogs have not been requested or have not returned yet. */
+      state: "missing";
+    }
+  | {
+      /** Preset catalogs are loaded and can seed preset controls. */
+      state: "loaded";
+      value: PresetCatalogs;
+    };
+
 /** Switch a BranchSelection between local and remote while preserving branch text. */
 function selectionWithSource(
-  selection: BranchSelection,
+  selection: BranchSelectionDraft,
   source: BranchSelection["source"],
-  refChoices: RefChoices,
+  refChoices: RefChoices | null,
 ): BranchSelection {
+  const currentSelection =
+    selection.state === "selected" ? selection.value : null;
   if (source === "local") {
-    return { source, branch: selection.branch };
+    return { source, branch: currentSelection?.branch ?? "" };
   }
   return {
     source,
     remote:
-      selection.source === "remote" && selection.remote.length > 0
-        ? selection.remote
+      currentSelection?.source === "remote" &&
+      currentSelection.remote.length > 0
+        ? currentSelection.remote
         : firstRemoteName(refChoices),
-    branch: selection.branch,
+    branch: currentSelection?.branch ?? "",
   };
 }
 
@@ -66,19 +115,32 @@ function selectionWithRemote(
 
 /** Update only the branch text while preserving the local/remote variant. */
 function selectionWithBranch(
-  selection: BranchSelection,
+  selection: BranchSelectionDraft,
   branch: string,
 ): BranchSelection {
-  if (selection.source === "local") {
+  if (selection.state === "missing" || selection.value.source === "local") {
     return { source: "local", branch };
   }
-  return { ...selection, branch };
+  return { ...selection.value, branch };
+}
+
+function selectedBranchDraft(selection: BranchSelection): BranchSelectionDraft {
+  return { state: "selected", value: selection };
+}
+
+function branchDraftValue(
+  selection: BranchSelectionDraft,
+): BranchSelection | null {
+  return selection.state === "selected" ? selection.value : null;
 }
 
 export function Controls(props: {
   controls: ControlsState;
-  refChoices: RefChoices;
-  presetCatalogs: PresetCatalogs | null;
+  repoSelection: RepoSelectionStatus;
+  repos: RepoListStatus;
+  repoSelectionError: string;
+  refChoices: RefChoicesStatus;
+  presetCatalogs: PresetCatalogsStatus;
   presetCatalogsError: unknown;
   onPresetMode: () => Promise<PresetCatalogs | null>;
   onAgainstHead: () => void;
@@ -86,17 +148,57 @@ export function Controls(props: {
   onRefs: (left: string, right: string) => void;
   onPullRequest: (url: string) => void | Promise<void>;
   onBranchReview: (
-    baseSelection: BranchSelection,
-    reviewSelection: BranchSelection,
+    baseSelection: BranchSelectionDraft,
+    reviewSelection: BranchSelectionDraft,
   ) => void;
   mainBranchSaving: boolean;
   onSaveMainBranch: (selection: BranchSelection) => void | Promise<void>;
+  onBranchSelectionEdit: (slot: "base" | "review") => void;
+  /**
+   * Mirrors user-edited draft state into App.
+   *
+   * Controls keeps a local draft for immediate typing, but App owns delayed
+   * startup after `/api/repos` validates a URL project id. Without this callback,
+   * delayed startup can accidentally load the mount-time URL draft after the
+   * user has already changed tabs, refs, branches, preset, or PR input.
+   */
+  onControlsDraftChange: (controls: ControlsState) => void;
+  onRepoSelect: (repo: RepoMark) => void;
+  onRepoRemove: (repo: RepoMark) => void | Promise<void>;
+  onRefsMode: () => void;
+  onBranchReviewMode: () => void;
 }) {
   const [draft, setDraft] = createSignal<ControlsState>(props.controls);
+  // Keep the local draft in sync with App-owned state so typing stays immediate,
+  // while delayed repo/default loads can still patch missing fields centrally.
   createEffect(() => setDraft(props.controls));
 
+  const refChoicesOrNull = (): RefChoices | null =>
+    props.refChoices.state === "loaded" ? props.refChoices.value : null;
+  const presetCatalogsOrNull = (): PresetCatalogs | null =>
+    props.presetCatalogs.state === "loaded" ? props.presetCatalogs.value : null;
+
+  const repoBackedModeSelected = () => {
+    const tab = draft().tab;
+    // Only these tabs load Git-backed workspace diffs directly. PR first
+    // prepares its own repo from the URL, and Preset uses checked-in fixture
+    // catalogs, so neither tab should show the repo picker or block Load when
+    // the header has no selected repo.
+    return tab === "head" || tab === "refs" || tab === "branch-review";
+  };
+  const repoBackedLoadBlocked = () =>
+    repoBackedModeSelected() && props.repoSelection.state === "missing";
+  const branchReviewMissingRepo = () =>
+    draft().tab === "branch-review" && props.repoSelection.state === "missing";
+
+  const commitDraft = (nextDraft: ControlsState) => {
+    setDraft(nextDraft);
+    props.onControlsDraftChange(nextDraft);
+  };
+
   const updateDraft = (patch: Partial<ControlsState>) => {
-    setDraft((current) => ({ ...current, ...patch }));
+    const nextDraft = { ...draft(), ...patch };
+    commitDraft(nextDraft);
   };
 
   const loadDefaultPresetWhenCatalogArrives = async (
@@ -108,6 +210,8 @@ export function Controls(props: {
     }
     const currentDraft = draft();
     if (currentDraft.mode !== "preset") {
+      // The user may leave the preset tab while catalogs are loading. In that
+      // case the late catalog result is cache state only, not a draft update.
       return;
     }
     const nextDraft = {
@@ -115,8 +219,10 @@ export function Controls(props: {
       presetType,
       preset: catalogs[presetType].default_preset,
     };
-    setDraft(nextDraft);
-    loadDraft(nextDraft);
+    commitDraft(nextDraft);
+    if (!repoBackedLoadBlocked()) {
+      loadDraft(nextDraft);
+    }
   };
 
   const loadDraft = (value: ControlsState) => {
@@ -129,11 +235,13 @@ export function Controls(props: {
       return;
     }
     if (value.mode === "branch-review") {
+      // Branch-review draft selections are allowed to be missing while rendered;
+      // the diff loader is the single boundary that turns missing into an error.
       props.onBranchReview(value.baseSelection, value.reviewSelection);
       return;
     }
     if (value.mode === "preset") {
-      const catalogs = props.presetCatalogs;
+      const catalogs = presetCatalogsOrNull();
       if (catalogs === null) {
         void loadDefaultPresetWhenCatalogArrives(value.presetType);
         return;
@@ -153,6 +261,9 @@ export function Controls(props: {
 
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
+    if (repoBackedLoadBlocked()) {
+      return;
+    }
     loadDraft(draft());
   };
 
@@ -164,10 +275,14 @@ export function Controls(props: {
       title="Save main branch"
       disabled={
         props.mainBranchSaving ||
+        props.repoSelection.state === "missing" ||
         !mainBranchSelectionSavable(draft().baseSelection)
       }
       onClick={() => {
-        void props.onSaveMainBranch(draft().baseSelection);
+        const selection = draft().baseSelection;
+        if (selection.state === "selected") {
+          void props.onSaveMainBranch(selection.value);
+        }
       }}
     >
       <Save class="field-icon" aria-hidden="true" />
@@ -186,11 +301,13 @@ export function Controls(props: {
               aria-pressed={draft().tab === tab}
               onClick={() => {
                 if (tab === "pull-request") {
-                  setDraft({ ...draft(), tab });
+                  // PR mode does not require a selected repo; the URL prepare
+                  // call will select one when the user explicitly loads.
+                  commitDraft({ ...draft(), tab });
                   return;
                 }
                 if (tab === "preset") {
-                  const catalogs = props.presetCatalogs;
+                  const catalogs = presetCatalogsOrNull();
                   const nextDraft =
                     catalogs === null
                       ? { ...draft(), tab, mode: "preset" as const }
@@ -200,22 +317,36 @@ export function Controls(props: {
                           mode: "preset" as const,
                           preset: catalogs[draft().presetType].default_preset,
                         };
-                  setDraft(nextDraft);
+                  commitDraft(nextDraft);
                   if (catalogs === null) {
                     void loadDefaultPresetWhenCatalogArrives(
                       nextDraft.presetType,
                     );
                     return;
                   }
-                  loadDraft(nextDraft);
+                  if (!repoBackedLoadBlocked()) {
+                    loadDraft(nextDraft);
+                  }
                   return;
                 }
                 const nextDraft =
                   tab === "refs"
                     ? { ...draft(), tab, mode: tab, ...defaultRefsDraft }
                     : { ...draft(), tab, mode: tab };
-                setDraft(nextDraft);
-                loadDraft(nextDraft);
+                commitDraft(nextDraft);
+                if (tab === "refs") {
+                  // Refs are autocomplete metadata only. Start loading them when
+                  // the user visits the tab, but keep the freeform inputs usable.
+                  props.onRefsMode();
+                }
+                if (tab === "branch-review") {
+                  // Defaults can fill missing branch drafts, and refs can power
+                  // autocomplete, but the tab itself remains clickable without them.
+                  props.onBranchReviewMode();
+                }
+                if (!repoBackedLoadBlocked()) {
+                  loadDraft(nextDraft);
+                }
               }}
             >
               {controlsTabLabels[tab]}
@@ -229,7 +360,7 @@ export function Controls(props: {
           label="Old ref"
           value={draft().left}
           groups={(query) =>
-            filterRefChoices(props.refChoices, query, [
+            filterRefChoices(refChoicesOrNull(), query, [
               "builtins",
               "local_branches",
               "remote_branches",
@@ -241,7 +372,7 @@ export function Controls(props: {
           label="New ref"
           value={draft().right}
           groups={(query) =>
-            filterRefChoices(props.refChoices, query, [
+            filterRefChoices(refChoicesOrNull(), query, [
               "builtins",
               "local_branches",
               "remote_branches",
@@ -251,51 +382,70 @@ export function Controls(props: {
         />
       </Show>
 
-      <Show when={draft().tab === "branch-review"}>
+      <Show
+        when={draft().tab === "branch-review" && !branchReviewMissingRepo()}
+      >
         <BranchSourceField
           label="Base remote"
           selection={draft().baseSelection}
-          refChoices={props.refChoices}
-          onSelection={(baseSelection) => updateDraft({ baseSelection })}
+          refChoices={refChoicesOrNull()}
+          onSelection={(baseSelection) => {
+            props.onBranchSelectionEdit("base");
+            updateDraft({ baseSelection: selectedBranchDraft(baseSelection) });
+          }}
           action={saveMainBranchButton()}
         />
         <AutocompleteField
           label="Base branch"
-          value={draft().baseSelection.branch}
+          value={branchDraftValue(draft().baseSelection)?.branch ?? ""}
+          placeholder="base branch"
           groups={(query) =>
-            filterBranchChoices(props.refChoices, draft().baseSelection, query)
+            filterBranchChoices(
+              refChoicesOrNull(),
+              draft().baseSelection,
+              query,
+            )
           }
-          onValue={(branch) =>
+          onValue={(branch) => {
+            props.onBranchSelectionEdit("base");
             updateDraft({
-              baseSelection: selectionWithBranch(draft().baseSelection, branch),
-            })
-          }
+              baseSelection: selectedBranchDraft(
+                selectionWithBranch(draft().baseSelection, branch),
+              ),
+            });
+          }}
           action={saveMainBranchButton()}
         />
         <BranchSourceField
           label="Branch remote"
           selection={draft().reviewSelection}
-          refChoices={props.refChoices}
-          onSelection={(reviewSelection) => updateDraft({ reviewSelection })}
+          refChoices={refChoicesOrNull()}
+          onSelection={(reviewSelection) => {
+            props.onBranchSelectionEdit("review");
+            updateDraft({
+              reviewSelection: selectedBranchDraft(reviewSelection),
+            });
+          }}
         />
         <AutocompleteField
           label="Branch to review"
-          value={draft().reviewSelection.branch}
+          value={branchDraftValue(draft().reviewSelection)?.branch ?? ""}
+          placeholder="review branch"
           groups={(query) =>
             filterBranchChoices(
-              props.refChoices,
+              refChoicesOrNull(),
               draft().reviewSelection,
               query,
             )
           }
-          onValue={(branch) =>
+          onValue={(branch) => {
+            props.onBranchSelectionEdit("review");
             updateDraft({
-              reviewSelection: selectionWithBranch(
-                draft().reviewSelection,
-                branch,
+              reviewSelection: selectedBranchDraft(
+                selectionWithBranch(draft().reviewSelection, branch),
               ),
-            })
-          }
+            });
+          }}
         />
       </Show>
 
@@ -327,7 +477,7 @@ export function Controls(props: {
               <button
                 type="button"
                 onClick={() => {
-                  const catalogs = props.presetCatalogs;
+                  const catalogs = presetCatalogsOrNull();
                   if (catalogs === null) {
                     void loadDefaultPresetWhenCatalogArrives(presetType);
                     return;
@@ -338,7 +488,7 @@ export function Controls(props: {
                     presetType,
                     preset: catalog.default_preset,
                   };
-                  setDraft(nextDraft);
+                  commitDraft(nextDraft);
                   loadDraft(nextDraft);
                 }}
                 classList={{
@@ -351,7 +501,7 @@ export function Controls(props: {
             )}
           </For>
         </fieldset>
-        <Show when={props.presetCatalogs}>
+        <Show when={presetCatalogsOrNull()}>
           {(catalogs) => (
             <fieldset class="mode-tabs preset-tabs">
               <legend>Presets</legend>
@@ -360,12 +510,12 @@ export function Controls(props: {
                   <button
                     type="button"
                     onClick={() => {
-                      const nextDraft = { ...draft(), preset: group.name };
-                      setDraft(nextDraft);
+                      const nextDraft = { ...draft(), preset: group.id };
+                      commitDraft(nextDraft);
                       loadDraft(nextDraft);
                     }}
-                    classList={{ "is-active": draft().preset === group.name }}
-                    aria-pressed={draft().preset === group.name}
+                    classList={{ "is-active": draft().preset === group.id }}
+                    aria-pressed={draft().preset === group.id}
                   >
                     {group.display_name}
                   </button>
@@ -376,9 +526,21 @@ export function Controls(props: {
         </Show>
       </Show>
 
-      <button class="load-button" type="submit">
-        Load
-      </button>
+      <Show when={repoBackedLoadBlocked()}>
+        {/* Repo-backed modes can be edited without a repo, but the actual Load
+        action is replaced by repo selection until a project id exists. */}
+        <RepoPicker
+          repos={props.repos}
+          error={props.repoSelectionError}
+          onSelect={props.onRepoSelect}
+          onRemove={props.onRepoRemove}
+        />
+      </Show>
+      <Show when={!repoBackedLoadBlocked()}>
+        <button class="load-button" type="submit">
+          Load
+        </button>
+      </Show>
     </form>
   );
 }
@@ -391,22 +553,29 @@ export function Controls(props: {
  */
 function BranchSourceField(props: {
   label: string;
-  selection: BranchSelection;
-  refChoices: RefChoices;
+  selection: BranchSelectionDraft;
+  refChoices: RefChoices | null;
   onSelection: (selection: BranchSelection) => void;
   action?: JSX.Element;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [blurTimer, setBlurTimer] = createSignal<number | undefined>();
   const remoteSelection = createMemo((): RemoteBranchSelection | null =>
-    props.selection.source === "remote" ? props.selection : null,
+    props.selection.state === "selected" &&
+    props.selection.value.source === "remote"
+      ? props.selection.value
+      : null,
   );
   const groups = createMemo(() => {
     const selection = remoteSelection();
     if (!focused() || selection === null) {
       return [];
     }
-    const values = filterValues(props.refChoices.remotes, selection.remote);
+    const refs = props.refChoices;
+    if (refs === null) {
+      return [];
+    }
+    const values = filterValues(refs.remotes, selection.remote);
     return values.length ? [["remotes", values] as AutocompleteGroup] : [];
   });
 
@@ -432,7 +601,10 @@ function BranchSourceField(props: {
   const toggleSource = () => {
     const nextSelection = selectionWithSource(
       props.selection,
-      props.selection.source === "local" ? "remote" : "local",
+      props.selection.state === "selected" &&
+        props.selection.value.source === "remote"
+        ? "local"
+        : "remote",
       props.refChoices,
     );
     props.onSelection(nextSelection);
@@ -445,16 +617,24 @@ function BranchSourceField(props: {
       <div
         classList={{
           "branch-source-control": true,
-          "is-remote": props.selection.source === "remote",
+          "is-remote":
+            props.selection.state === "selected" &&
+            props.selection.value.source === "remote",
         }}
       >
         <button
           type="button"
           class="branch-source-toggle"
-          aria-pressed={props.selection.source === "remote"}
+          aria-pressed={
+            props.selection.state === "selected" &&
+            props.selection.value.source === "remote"
+          }
           onClick={toggleSource}
         >
-          {props.selection.source === "remote" ? "Remote" : "Local"}
+          {props.selection.state === "selected" &&
+          props.selection.value.source === "remote"
+            ? "Remote"
+            : "Local"}
         </button>
         <Show when={remoteSelection()}>
           {(selection) => (
@@ -528,6 +708,7 @@ function BranchSourceField(props: {
 function AutocompleteField(props: {
   label: string;
   value: string;
+  placeholder?: string;
   groups: (query: string) => AutocompleteGroup[];
   onValue: (value: string) => void;
   action?: JSX.Element;
@@ -584,6 +765,7 @@ function AutocompleteField(props: {
       <input
         ref={input}
         value={props.value}
+        placeholder={props.placeholder}
         spellcheck={false}
         autocomplete="off"
         onClick={() => {
@@ -651,12 +833,18 @@ function AutocompleteField(props: {
   );
 }
 
-function mainBranchSelectionSavable(selection: BranchSelection): boolean {
-  const branch = selection.branch.trim();
+function mainBranchSelectionSavable(selection: BranchSelectionDraft): boolean {
+  if (selection.state === "missing") {
+    return false;
+  }
+  const branch = selection.value.branch.trim();
   if (branch.length === 0) {
     return false;
   }
-  return selection.source === "local" || selection.remote.trim().length > 0;
+  return (
+    selection.value.source === "local" ||
+    selection.value.remote.trim().length > 0
+  );
 }
 
 function filterValues(values: string[], query: string): string[] {
@@ -670,10 +858,13 @@ function filterValues(values: string[], query: string): string[] {
 }
 
 function filterRefChoices(
-  refChoices: RefChoices,
+  refChoices: RefChoices | null,
   query: string,
   sections: (keyof RefChoices)[],
 ): AutocompleteGroup[] {
+  if (refChoices === null) {
+    return [];
+  }
   const filtered: AutocompleteGroup[] = [];
   for (const section of sections) {
     const values =
@@ -693,17 +884,20 @@ function filterRefChoices(
 }
 
 function filterBranchChoices(
-  refChoices: RefChoices,
-  selection: BranchSelection,
+  refChoices: RefChoices | null,
+  selection: BranchSelectionDraft,
   query: string,
 ): AutocompleteGroup[] {
+  if (refChoices === null || selection.state === "missing") {
+    return [];
+  }
   // Branch autocomplete follows the current selection variant: local branches
   // for local selections, remote branch names within the selected remote.
-  if (selection.source === "local") {
+  if (selection.value.source === "local") {
     return filterRefChoices(refChoices, query, ["local_branches"]);
   }
   const values = filterValues(
-    listRemoteBranchChoices(refChoices, selection.remote),
+    listRemoteBranchChoices(refChoices, selection.value.remote),
     query,
   );
   return values.length > 0 ? [["remote_branches", values]] : [];
@@ -729,8 +923,8 @@ function listRemoteBranchChoices(
   return [...branches].sort();
 }
 
-function firstRemoteName(refChoices: RefChoices): string {
-  const first = refChoices.remotes[0];
+function firstRemoteName(refChoices: RefChoices | null): string {
+  const first = refChoices?.remotes[0];
   if (first === undefined) {
     return "";
   }
@@ -741,11 +935,10 @@ function autocompleteOptionDescription(section: string, value: string): string {
   if (section !== "builtins") {
     return "";
   }
-  const description = builtinRefDescriptions[value];
-  if (description === undefined) {
+  if (!Object.hasOwn(builtinRefDescriptions, value)) {
     throw new Error(`Missing description for built-in ref ${value}.`);
   }
-  return description;
+  return builtinRefDescriptions[value as keyof typeof builtinRefDescriptions];
 }
 
 function autocompleteSectionLabel(section: string): string {

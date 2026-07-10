@@ -326,7 +326,7 @@ class RepoMainBranchRequest(ApiModel):
 class RepoMainBranchResponse(ApiModel):
     """Persisted repository main branch selection."""
 
-    repo_id: int
+    project_id: int
     selection: BranchSelection
 
 
@@ -359,7 +359,7 @@ class PullRequestBranchResponse(ApiModel):
 class PullRequestPrepareResponse(ApiModel):
     """Prepared pull request data returned after the PR ref has been fetched."""
 
-    repo_id: int
+    project_id: int
     pull_request_url: str
     base_branch: PullRequestBranchResponse
     review_branch: PullRequestBranchResponse
@@ -380,7 +380,7 @@ def pull_request_prepare_response(
     """Serialize prepared pull request data for the HTTP API."""
     return PullRequestPrepareResponse.model_validate(
         {
-            "repo_id": prepared.repo_id,
+            "project_id": prepared.project_id,
             "pull_request_url": prepared.pull_request_url,
             "base_branch": pull_request_branch_response(prepared.base_branch),
             "review_branch": pull_request_branch_response(
@@ -416,7 +416,7 @@ class PreferencesUpdateRequest(ApiModel):
 
 
 class PresetGroupResponse(ApiModel):
-    name: str
+    id: str
     display_name: str
 
 
@@ -820,6 +820,46 @@ def build_repo_info_for_request(
     )
 
 
+def preset_project_parts(
+    *,
+    project_id: str | None,
+    preset_subset: str | None,
+) -> tuple[PresetTypeParam, str]:
+    """Parse a preset project id from `/api/manifest` and follow-up requests.
+
+    Preset mode uses `project_id` as the catalog discriminator (`diff`, `fold`,
+    or `gumtree`) and `preset_subset` as the selected group within that catalog.
+    The preset backend still owns validating the subset itself, including
+    traversal and unknown-group checks.
+    """
+    if project_id is None or project_id.strip() == "":
+        raise TextDiffError("project_id is required for preset mode.")
+    if preset_subset is None or preset_subset.strip() == "":
+        raise TextDiffError("preset_subset is required for preset mode.")
+    if project_id == "diff":
+        preset_type: PresetTypeParam = "diff"
+    elif project_id == "fold":
+        preset_type = "fold"
+    elif project_id == "gumtree":
+        preset_type = "gumtree"
+    else:
+        raise TextDiffError(f"Unknown preset project_id: {project_id}")
+    return preset_type, preset_subset
+
+
+def marked_project_id(project_id: str | None) -> int:
+    """Parse the marked project id carried by repo-backed manifest requests."""
+    if project_id is None or project_id.strip() == "":
+        raise TextDiffError("project_id is required for repo-backed modes.")
+    try:
+        parsed_project_id = int(project_id)
+    except ValueError as exc:
+        raise TextDiffError(f"Invalid project_id: {project_id}") from exc
+    if parsed_project_id <= 0:
+        raise TextDiffError(f"Invalid project_id: {project_id}")
+    return parsed_project_id
+
+
 def cached_path_for_request(
     *,
     repo_info: RepoInfo,
@@ -954,9 +994,10 @@ def create_app(
         renderer.
         """
         preset_backend = preset_backend_for_type(preset_type)
+        default_preset = preset_backend.default_preset_name()
         return PresetCatalogResponse.model_validate(
             {
-                "default_preset": preset_backend.default_preset_name(),
+                "default_preset": default_preset,
                 "groups": preset_backend.list_preset_groups(),
             }
         )
@@ -964,28 +1005,31 @@ def create_app(
     def backend_for_request(
         *,
         mode: ModeParam,
-        repo_id: int,
-        preset_type: PresetTypeParam | None,
+        project_id: str | None,
+        preset_subset: str | None,
     ) -> WorkspaceBackendProtocol:
         """Resolve the file/ref loader for a request.
 
-        Preset mode uses a `PresetBackend` rooted at the selected preset
-        catalog.  Repo-backed modes look up the marked repository and create a
-        `GitBackend`.  Engines stay out of this decision because they render
-        loaded text; they do not know where refs, presets, or repo paths come
-        from.
+        Preset requests use `project_id` as the preset catalog (`diff`, `fold`,
+        or `gumtree`) and `preset_subset` as the concrete fixture group.
+        Repo-backed project ids are marked project ids encoded as query strings.
+        Engines stay out of this decision because they render loaded text; they
+        do not know where refs, presets, or repo paths come from.
 
         Keeping backend resolution separate from renderer construction is also
         what lets notebook routing happen before text diff rendering.
         """
         if mode == "preset":
-            if preset_type is None:
-                raise TextDiffError("preset_type is required for preset mode.")
+            preset_type, _preset = preset_project_parts(
+                project_id=project_id,
+                preset_subset=preset_subset,
+            )
             return preset_backend_for_type(preset_type)
 
-        mark = db.get(repo_id)
+        parsed_project_id = marked_project_id(project_id)
+        mark = db.get(parsed_project_id)
         if mark is None:
-            raise TextDiffError(f"Invalid repo_id: {repo_id}")
+            raise TextDiffError(f"Invalid project_id: {parsed_project_id}")
         return GitBackend.discover(repo_root=Path(mark.path))
 
     def looks_like_notebook_path(path: str | None) -> bool:
@@ -1240,19 +1284,19 @@ def create_app(
 
     @app.get("/api/repo-defaults")
     def serve_repo_defaults(
-        repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed defaults.",
+        project_id: int = Query(
+            description="Marked project id. Required for repo-backed defaults.",
         ),
     ) -> RepoDefaultsResponse:
         """Return structured defaults for branch-review controls."""
-        mark = db.get(repo_id)
+        mark = db.get(project_id)
         if mark is None:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Invalid repo_id: {repo_id}",
+                detail=f"Invalid project_id: {project_id}",
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
-        saved_main_branch = db.get_main_branch(repo_id)
+        saved_main_branch = db.get_main_branch(project_id)
         default_base_selection = (
             repo_main_branch_record_to_selection(saved_main_branch)
             if saved_main_branch is not None
@@ -1270,16 +1314,16 @@ def create_app(
 
     @app.get("/api/repo-refs")
     def serve_repo_refs(
-        repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed refs.",
+        project_id: int = Query(
+            description="Marked project id. Required for repo-backed refs.",
         ),
     ) -> RepoRefsResponse:
         """Return ref choices for repo-backed controls."""
-        mark = db.get(repo_id)
+        mark = db.get(project_id)
         if mark is None:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Invalid repo_id: {repo_id}",
+                detail=f"Invalid project_id: {project_id}",
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
         return RepoRefsResponse.model_validate(
@@ -1287,7 +1331,7 @@ def create_app(
         )
 
     @app.post(
-        "/api/repos/{repo_id}/main-branch",
+        "/api/repos/{project_id}/main-branch",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
@@ -1295,16 +1339,16 @@ def create_app(
         summary="Save the repository main branch selection",
     )
     def save_repo_main_branch(
-        repo_id: int,
+        project_id: int,
         request: RepoMainBranchRequest,
     ) -> RepoMainBranchResponse:
         # Future auth belongs here: setting shared repository main remote/branch
         # should be admin-only once dirdiff has real users/permissions.
-        mark = db.get(repo_id)
+        mark = db.get(project_id)
         if mark is None:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
-                detail=f"Invalid repo_id: {repo_id}",
+                detail=f"Invalid project_id: {project_id}",
             )
         try:
             selection = branch_selection_request_to_selection(request.selection)
@@ -1312,7 +1356,7 @@ def create_app(
                 selection["remote"] if selection["source"] == "remote" else None
             )
             record = db.set_main_branch(
-                repo_id,
+                project_id,
                 source=selection["source"],
                 remote=remote,
                 branch=selection["branch"],
@@ -1324,7 +1368,7 @@ def create_app(
             ) from exc
         selection = repo_main_branch_record_to_selection(record)
         return RepoMainBranchResponse.model_validate(
-            {"repo_id": record.repo_id, "selection": selection}
+            {"project_id": record.project_id, "selection": selection}
         )
 
     @app.get(
@@ -1364,7 +1408,7 @@ def create_app(
         ]
 
     @app.delete(
-        "/api/repos/{repo_id}",
+        "/api/repos/{project_id}",
         status_code=HTTPStatus.NO_CONTENT,
         responses={
             HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
@@ -1372,12 +1416,12 @@ def create_app(
         },
         summary="Remove a marked repository",
     )
-    def delete_repo_mark(repo_id: int) -> None:
+    def delete_repo_mark(project_id: int) -> None:
         try:
-            if not db.delete(repo_id):
+            if not db.delete(project_id):
                 raise HTTPException(
                     status_code=HTTPStatus.NOT_FOUND,
-                    detail=f"No marked repo with id: {repo_id}",
+                    detail=f"No marked project with id: {project_id}",
                 )
         except HTTPException:
             raise
@@ -1522,8 +1566,8 @@ def create_app(
         summary="Load a repository diff manifest",
     )
     def serve_manifest(
-        repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed modes.",
+        project_id: str = Query(
+            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
@@ -1536,13 +1580,9 @@ def create_app(
         right: str | None = Query(
             default=None, description="Right ref or diff side."
         ),
-        preset: str | None = Query(
+        preset_subset: str | None = Query(
             default=None,
-            description="Preset name for preset mode.",
-        ),
-        preset_type: PresetTypeParam | None = Query(
-            default=None,
-            description="Preset catalog type for preset mode.",
+            description="Preset subset/group id for preset mode.",
         ),
         show_untracked: bool = Query(
             default=False,
@@ -1550,10 +1590,19 @@ def create_app(
         ),
     ) -> RepoManifestResponse:
         try:
+            preset_name: str | None = None
+            parsed_project_id: int | None = None
+            if mode == "preset":
+                _preset_type, preset_name = preset_project_parts(
+                    project_id=project_id,
+                    preset_subset=preset_subset,
+                )
+            else:
+                parsed_project_id = marked_project_id(project_id)
             backend = backend_for_request(
                 mode=mode,
-                repo_id=repo_id,
-                preset_type=preset_type,
+                project_id=project_id,
+                preset_subset=preset_subset,
             )
             repo_info = build_repo_info_for_request(
                 backend=backend,
@@ -1561,13 +1610,20 @@ def create_app(
                 branch_selections=branch_selections,
                 left=left,
                 right=right,
-                preset=preset,
+                preset=preset_name,
                 show_untracked=show_untracked,
             )
-            cache_id = cache.store_repo_info(
-                repo_id=repo_id,
-                repo_info=repo_info,
-            )
+            if mode == "preset":
+                # Presets are fixture-backed and cheap to resolve from
+                # project_id + preset_subset on follow-up requests, so they do
+                # not occupy the repo cache.
+                cache_id = ""
+            else:
+                assert parsed_project_id is not None
+                cache_id = cache.store_repo_info(
+                    project_id=parsed_project_id,
+                    repo_info=repo_info,
+                )
             payload = build_repo_manifest_for_paths(
                 left_label=repo_info.left_label,
                 right_label=repo_info.right_label,
@@ -1599,17 +1655,43 @@ def create_app(
         summary="Load repository lazy file metadata",
     )
     def serve_lazy_info(
-        repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed modes.",
+        project_id: str = Query(
+            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
+        ),
+        mode: ModeParam = Query(description="UI diff mode."),
+        preset_subset: str | None = Query(
+            default=None,
+            description="Preset subset/group id for preset mode.",
         ),
         cache_id: str = Query(
-            description="Backend cache id returned by /api/manifest.",
+            default="",
+            description="Backend cache id returned by /api/manifest for repo-backed modes.",
         ),
     ) -> LazyInfoResponse:
         try:
-            repo_info = cache.repo_info(repo_id=repo_id, cache_id=cache_id)
-            if repo_info is None:
-                raise TextDiffError(f"Unknown cache id: {cache_id}")
+            repo_info: RepoInfo
+            if mode == "preset":
+                preset_type, preset_name = preset_project_parts(
+                    project_id=project_id,
+                    preset_subset=preset_subset,
+                )
+                repo_info = build_repo_info_for_request(
+                    backend=preset_backend_for_type(preset_type),
+                    mode=mode,
+                    branch_selections=(None, None),
+                    left=None,
+                    right=None,
+                    preset=preset_name,
+                    show_untracked=False,
+                )
+            else:
+                parsed_project_id = marked_project_id(project_id)
+                cached_repo_info = cache.repo_info(
+                    project_id=parsed_project_id, cache_id=cache_id
+                )
+                if cached_repo_info is None:
+                    raise TextDiffError(f"Unknown cache id: {cache_id}")
+                repo_info = cached_repo_info
             payload = build_lazy_info_for_paths(paths=repo_info.paths)
         except TextDiffError as exc:
             raise HTTPException(
@@ -1634,17 +1716,18 @@ def create_app(
         summary="Load a single file diff",
     )
     def serve_file_diff(
-        repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed modes.",
+        project_id: str = Query(
+            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
         ),
         cache_id: str = Query(
-            description="Backend cache id returned by /api/manifest.",
+            default="",
+            description="Backend cache id returned by /api/manifest for repo-backed modes.",
         ),
         engine: EngineParam = Query(description="Diff engine."),
         mode: ModeParam = Query(description="UI diff mode."),
-        preset_type: PresetTypeParam | None = Query(
+        preset_subset: str | None = Query(
             default=None,
-            description="Preset catalog type for preset mode.",
+            description="Preset subset/group id for preset mode.",
         ),
         left_path: str | None = Query(
             default=None, description="Repo-relative path on the left side."
@@ -1654,15 +1737,37 @@ def create_app(
         ),
     ) -> TextFileDiffResponse | NotebookFileDiffResponse:
         try:
-            backend = backend_for_request(
-                mode=mode,
-                repo_id=repo_id,
-                preset_type=preset_type,
-            )
+            backend: WorkspaceBackendProtocol
+            repo_info: RepoInfo
+            if mode == "preset":
+                preset_type, preset_name = preset_project_parts(
+                    project_id=project_id,
+                    preset_subset=preset_subset,
+                )
+                backend = preset_backend_for_type(preset_type)
+                repo_info = build_repo_info_for_request(
+                    backend=backend,
+                    mode=mode,
+                    branch_selections=(None, None),
+                    left=None,
+                    right=None,
+                    preset=preset_name,
+                    show_untracked=False,
+                )
+            else:
+                parsed_project_id = marked_project_id(project_id)
+                backend = backend_for_request(
+                    mode=mode,
+                    project_id=project_id,
+                    preset_subset=preset_subset,
+                )
+                cached_repo_info = cache.repo_info(
+                    project_id=parsed_project_id, cache_id=cache_id
+                )
+                if cached_repo_info is None:
+                    raise TextDiffError(f"Unknown cache id: {cache_id}")
+                repo_info = cached_repo_info
             renderer = service_for_engine(engine, cwd=backend.cwd)
-            repo_info = cache.repo_info(repo_id=repo_id, cache_id=cache_id)
-            if repo_info is None:
-                raise TextDiffError(f"Unknown cache id: {cache_id}")
             cached_path = cached_path_for_request(
                 repo_info=repo_info,
                 left_path=left_path,
@@ -1720,16 +1825,17 @@ def create_app(
         summary="Load notebook metadata or output rows for a specific cell",
     )
     def serve_notebook_section(
-        repo_id: int = Query(
-            description="Marked repo id. Required for repo-backed modes.",
+        project_id: str = Query(
+            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
         ),
         cache_id: str = Query(
-            description="Backend cache id returned by /api/manifest.",
+            default="",
+            description="Backend cache id returned by /api/manifest for repo-backed modes.",
         ),
         mode: ModeParam = Query(description="UI diff mode."),
-        preset_type: PresetTypeParam | None = Query(
+        preset_subset: str | None = Query(
             default=None,
-            description="Preset catalog type for preset mode.",
+            description="Preset subset/group id for preset mode.",
         ),
         section: str | None = Query(
             default=None,
@@ -1746,14 +1852,36 @@ def create_app(
         ),
     ) -> NotebookSectionDiffResponse:
         try:
-            backend = backend_for_request(
-                mode=mode,
-                repo_id=repo_id,
-                preset_type=preset_type,
-            )
-            repo_info = cache.repo_info(repo_id=repo_id, cache_id=cache_id)
-            if repo_info is None:
-                raise TextDiffError(f"Unknown cache id: {cache_id}")
+            backend: WorkspaceBackendProtocol
+            repo_info: RepoInfo
+            if mode == "preset":
+                preset_type, preset_name = preset_project_parts(
+                    project_id=project_id,
+                    preset_subset=preset_subset,
+                )
+                backend = preset_backend_for_type(preset_type)
+                repo_info = build_repo_info_for_request(
+                    backend=backend,
+                    mode=mode,
+                    branch_selections=(None, None),
+                    left=None,
+                    right=None,
+                    preset=preset_name,
+                    show_untracked=False,
+                )
+            else:
+                parsed_project_id = marked_project_id(project_id)
+                backend = backend_for_request(
+                    mode=mode,
+                    project_id=project_id,
+                    preset_subset=preset_subset,
+                )
+                cached_repo_info = cache.repo_info(
+                    project_id=parsed_project_id, cache_id=cache_id
+                )
+                if cached_repo_info is None:
+                    raise TextDiffError(f"Unknown cache id: {cache_id}")
+                repo_info = cached_repo_info
             cached_path = cached_path_for_request(
                 repo_info=repo_info,
                 left_path=left_path,

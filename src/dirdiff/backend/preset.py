@@ -95,7 +95,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         """Build catalog entries for the preset picker."""
         return [
             {
-                "name": group_dir.name,
+                "id": group_dir.name,
                 "display_name": group_dir.name.replace("-", " ").title(),
             }
             for group_dir in self._preset_group_dirs()

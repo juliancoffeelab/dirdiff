@@ -21,7 +21,7 @@ export type DiffEngine = z.infer<typeof DiffEngineSchema>;
 export const PresetTypeSchema = z.enum(["diff", "fold", "gumtree"]);
 export type PresetType = z.infer<typeof PresetTypeSchema>;
 
-export type RepoId = number;
+export type ProjectId = number;
 
 const RepoMarkSchema = z.strictObject({
   id: z.number().int(),
@@ -99,7 +99,7 @@ const RepoDefaultsSchema = z.strictObject({
 export type RepoDefaults = z.infer<typeof RepoDefaultsSchema>;
 
 const RepoMainBranchSchema = z.strictObject({
-  repo_id: z.number().int().positive(),
+  project_id: z.number().int().positive(),
   selection: BranchSelectionSchema,
 });
 export type RepoMainBranch = z.infer<typeof RepoMainBranchSchema>;
@@ -108,12 +108,9 @@ const PreparedPullRequestBranchSchema = z.strictObject({
   remote: z.string(),
   branch: z.string(),
 });
-export type PreparedPullRequestBranch = z.infer<
-  typeof PreparedPullRequestBranchSchema
->;
 
 const PreparedPullRequestSchema = z.strictObject({
-  repo_id: z.number().int().positive(),
+  project_id: z.number().int().positive(),
   pull_request_url: z.string(),
   base_branch: PreparedPullRequestBranchSchema,
   review_branch: PreparedPullRequestBranchSchema,
@@ -121,10 +118,9 @@ const PreparedPullRequestSchema = z.strictObject({
 export type PreparedPullRequest = z.infer<typeof PreparedPullRequestSchema>;
 
 const PresetGroupSchema = z.strictObject({
-  name: z.string(),
+  id: z.string(),
   display_name: z.string(),
 });
-export type PresetGroup = z.infer<typeof PresetGroupSchema>;
 
 const PresetCatalogSchema = z.strictObject({
   default_preset: z.string(),
@@ -139,34 +135,35 @@ const PresetCatalogsSchema = z.strictObject({
 });
 export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
 
-type DiffParamsBase = {
-  repo_id: RepoId;
+type RepoBackedDiffParamsBase = {
+  project_id: ProjectId;
   engine: DiffEngine;
 };
 
-export type HeadDiffParams = DiffParamsBase & {
+export type HeadDiffParams = RepoBackedDiffParamsBase & {
   mode: "head";
   left: "head";
   right: "worktree";
   show_untracked: true;
 };
 
-export type RefsDiffParams = DiffParamsBase & {
+export type RefsDiffParams = RepoBackedDiffParamsBase & {
   mode: "refs";
   left: string;
   right: string;
 };
 
-export type BranchReviewDiffParams = DiffParamsBase & {
+export type BranchReviewDiffParams = RepoBackedDiffParamsBase & {
   mode: "branch-review";
   base_selection: BranchSelection;
   review_selection: BranchSelection;
 };
 
-export type PresetDiffParams = DiffParamsBase & {
+export type PresetDiffParams = {
+  project_id: PresetType;
+  engine: DiffEngine;
   mode: "preset";
-  preset_type: PresetType;
-  preset: string;
+  preset_subset: string;
 };
 
 export type DiffParams =
@@ -753,8 +750,8 @@ async function fetchJsonResponse(
   }
 }
 
-export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
-  const params = new URLSearchParams({ repo_id: String(repoId) });
+export async function fetchRepoRefs(projectId: ProjectId): Promise<RepoRefs> {
+  const params = new URLSearchParams({ project_id: String(projectId) });
   const response = await fetchJsonResponse(
     `/api/repo-refs?${params.toString()}`,
   );
@@ -764,8 +761,10 @@ export async function fetchRepoRefs(repoId: RepoId): Promise<RepoRefs> {
   return RepoRefsSchema.parse(await response.json());
 }
 
-export async function fetchRepoDefaults(repoId: RepoId): Promise<RepoDefaults> {
-  const params = new URLSearchParams({ repo_id: String(repoId) });
+export async function fetchRepoDefaults(
+  projectId: ProjectId,
+): Promise<RepoDefaults> {
+  const params = new URLSearchParams({ project_id: String(projectId) });
   const response = await fetchJsonResponse(
     `/api/repo-defaults?${params.toString()}`,
   );
@@ -776,16 +775,19 @@ export async function fetchRepoDefaults(repoId: RepoId): Promise<RepoDefaults> {
 }
 
 export async function saveRepoMainBranch(
-  repoId: RepoId,
+  projectId: ProjectId,
   selection: BranchSelection,
 ): Promise<RepoMainBranch> {
-  const response = await fetchJsonResponse(`/api/repos/${repoId}/main-branch`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
+  const response = await fetchJsonResponse(
+    `/api/repos/${projectId}/main-branch`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ selection }),
     },
-    body: JSON.stringify({ selection }),
-  });
+  );
   if (!response.ok) {
     return parseErrorResponse(response);
   }
@@ -825,8 +827,8 @@ export async function fetchRepos(): Promise<RepoMark[]> {
   return z.array(RepoMarkSchema).parse(await response.json());
 }
 
-export async function deleteRepoMark(repoId: RepoId): Promise<void> {
-  const response = await fetchJsonResponse(`/api/repos/${repoId}`, {
+export async function deleteRepoMark(projectId: ProjectId): Promise<void> {
+  const response = await fetchJsonResponse(`/api/repos/${projectId}`, {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -901,12 +903,11 @@ export async function updatePreferences(
 
 export function diffParamsQueryParams(diffParams: DiffParams): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("repo_id", String(diffParams.repo_id));
   params.set("engine", diffParams.engine);
   params.set("mode", diffParams.mode);
+  params.set("project_id", String(diffParams.project_id));
   if (diffParams.mode === "preset") {
-    params.set("preset_type", diffParams.preset_type);
-    params.set("preset", diffParams.preset);
+    params.set("preset_subset", diffParams.preset_subset);
     return params;
   }
   if (diffParams.mode === "branch-review") {
@@ -935,11 +936,12 @@ function cachedDiffQueryParams(
   cacheId: string,
 ): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("repo_id", String(diffParams.repo_id));
   params.set("mode", diffParams.mode);
   params.set("cache_id", cacheId);
+  params.set("project_id", String(diffParams.project_id));
   if (diffParams.mode === "preset") {
-    params.set("preset_type", diffParams.preset_type);
+    params.set("preset_subset", diffParams.preset_subset);
+    return params;
   }
   return params;
 }
@@ -962,13 +964,11 @@ export async function fetchManifest(
 }
 
 export async function fetchLazyInfo(
-  repoId: RepoId,
+  diffParams: DiffParams,
   cacheId: string,
   signal?: AbortSignal,
 ): Promise<LazyInfoPayload> {
-  const params = new URLSearchParams();
-  params.set("repo_id", String(repoId));
-  params.set("cache_id", cacheId);
+  const params = cachedDiffQueryParams(diffParams, cacheId);
   const response = await fetchJsonResponse(
     `/api/lazy-info?${params.toString()}`,
     {

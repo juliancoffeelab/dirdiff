@@ -67,7 +67,7 @@ class PreparedPullRequestBranch:
 class PreparedPullRequest:
     """Prepared pull request state returned to the API layer."""
 
-    repo_id: int
+    project_id: int
     pull_request_url: str
     base_branch: PreparedPullRequestBranch
     review_branch: PreparedPullRequestBranch
@@ -151,7 +151,7 @@ def _prepare_github_pull_request(
             target_ref=f"refs/remotes/{remote}/{review_branch}",
         )
         return PreparedPullRequest(
-            repo_id=mark.id,
+            project_id=mark.id,
             pull_request_url=pull_request.url,
             base_branch=PreparedPullRequestBranch(
                 remote=remote,
@@ -195,7 +195,7 @@ def _prepare_gitlab_merge_request(
             target_ref=f"refs/remotes/{remote}/{review_branch}",
         )
         return PreparedPullRequest(
-            repo_id=mark.id,
+            project_id=mark.id,
             pull_request_url=merge_request.url,
             base_branch=PreparedPullRequestBranch(
                 remote=remote,

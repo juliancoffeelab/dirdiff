@@ -10,14 +10,17 @@ modules under `dirdiff.db`.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
+from alembic.config import Config
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import StaticPool
 
+from alembic import command
+
 __all__ = [
     "TableBase",
-    "bootstrap_tables",
     "open_ephemeral_engine",
     "open_sqlite_engine",
 ]
@@ -31,12 +34,21 @@ class TableBase(DeclarativeBase):
     pass
 
 
-def bootstrap_tables(engine: Engine) -> None:
+def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
     """
     Ensure all declared tables exist on the provided engine.
+
+    Migrate takes a path to db you want to run migrations on.
     """
 
-    TableBase.metadata.create_all(engine)
+    db_path = migrate
+    if db_path is not None:
+        project_root = Path(__file__).parents[3]
+        config = Config(project_root / "alembic.ini")
+        config.attributes["db_path"] = db_path
+        command.upgrade(config, "head")
+    else:
+        TableBase.metadata.create_all(engine)
 
 
 def open_sqlite_engine(db_path: Path) -> Engine:
@@ -47,7 +59,7 @@ def open_sqlite_engine(db_path: Path) -> Engine:
     expanded_path = db_path.expanduser()
     expanded_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{expanded_path}")
-    bootstrap_tables(engine)
+    bootstrap_tables(engine, migrate=expanded_path)
     return engine
 
 

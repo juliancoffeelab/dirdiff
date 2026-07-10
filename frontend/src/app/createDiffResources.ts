@@ -18,12 +18,12 @@ import {
   type PreparedPullRequest,
   type PresetDiffParams,
   type PresetType,
-  type RefChoices,
   type RefsDiffParams,
-  type RepoId,
+  type ProjectId,
 } from "../api";
 import type { DiffViewMode } from "../DiffGrid";
 import {
+  type BranchSelectionDraft,
   type ControlsState,
   type LoadState,
   type RenderedFileEntry,
@@ -85,13 +85,13 @@ function statusLabel(
   }
   if (diffParams.mode === "preset") {
     let kind = "Diff";
-    if (diffParams.preset_type === "fold") {
+    if (diffParams.project_id === "fold") {
       kind = "Fold";
     }
-    if (diffParams.preset_type === "gumtree") {
+    if (diffParams.project_id === "gumtree") {
       kind = "GumTree";
     }
-    return `${kind} preset ${diffParams.preset}`;
+    return `${kind} preset ${diffParams.preset_subset}`;
   }
   return `${nullableStringValue(leftLabel, diffParams.left)} vs ${nullableStringValue(rightLabel, diffParams.right)}`;
 }
@@ -196,7 +196,7 @@ function stringMapSnapshot(map: StringMap): Record<string, string> {
  * state inside this primitive.
  */
 type DiffResourcesOptions = {
-  selectedRepoId: Accessor<RepoId | null>;
+  selectedProjectId: Accessor<ProjectId | null>;
   controls: Accessor<ControlsState | null>;
   setControls: Setter<ControlsState | null>;
   diffViewMode: Accessor<DiffViewMode>;
@@ -224,7 +224,6 @@ type DiffResourcesOptions = {
   directoryLabelForFileKey: (key: string) => string;
   setDirectoryExpansion: ExpansionSetter;
   setFileExpansion: ExpansionSetter;
-  refChoices: () => RefChoices;
   addErrorToast: (title: string, error: unknown) => void;
 };
 
@@ -414,14 +413,14 @@ export function createDiffResources(options: DiffResourcesOptions) {
     void loadDiff(diffParams, loadId, "reconcile", hydratedLazyKeys);
   };
 
-  const selectedRepoIdOrIdle = (): RepoId | null => {
-    const repoId = options.selectedRepoId();
-    if (repoId === null) {
+  const selectedProjectIdOrIdle = (): ProjectId | null => {
+    const projectId = options.selectedProjectId();
+    if (projectId === null) {
       clearCurrentParams();
       resetDiffState("idle", "Choose a repo to load a diff.", "inline");
       return null;
     }
-    return repoId;
+    return projectId;
   };
 
   async function loadDiff(
@@ -594,11 +593,11 @@ export function createDiffResources(options: DiffResourcesOptions) {
     }
     try {
       const result = await queryClient.fetchQuery({
-        queryKey: lazyInfoParamsQueryKey(diffParams.repo_id, cacheId),
+        queryKey: lazyInfoParamsQueryKey(diffParams, cacheId),
         queryFn: async ({ signal }): Promise<LazyInfoQueryPayload> => ({
           diffParams,
           paramsIdentity,
-          payload: await fetchLazyInfo(diffParams.repo_id, cacheId, signal),
+          payload: await fetchLazyInfo(diffParams, cacheId, signal),
         }),
         staleTime: 0,
       });
@@ -944,15 +943,17 @@ export function createDiffResources(options: DiffResourcesOptions) {
   };
 
   const loadAgainstHead = (selectedEngine: DiffEngine = engine()) => {
-    const repoId = selectedRepoIdOrIdle();
-    if (repoId === null) {
+    const projectId = selectedProjectIdOrIdle();
+    if (projectId === null) {
       return;
     }
+    // Keep controls reflecting the attempted load even when validation below
+    // fails. That lets the user fix the visible draft instead of losing edits.
     options.setControls((current) =>
       current === null ? current : { ...current, tab: "head", mode: "head" },
     );
     const diffParams: HeadDiffParams = {
-      repo_id: repoId,
+      project_id: projectId,
       engine: selectedEngine,
       mode: "head",
       left: "head",
@@ -967,10 +968,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
     preset: string,
     selectedEngine: DiffEngine = engine(),
   ) => {
-    const repoId = selectedRepoIdOrIdle();
-    if (repoId === null) {
-      return;
-    }
     options.setControls((current) =>
       current === null
         ? current
@@ -983,11 +980,10 @@ export function createDiffResources(options: DiffResourcesOptions) {
           },
     );
     const diffParams: PresetDiffParams = {
-      repo_id: repoId,
+      project_id: presetType,
       engine: selectedEngine,
       mode: "preset",
-      preset_type: presetType,
-      preset,
+      preset_subset: preset,
     };
     startDiff(diffParams);
   };
@@ -997,8 +993,8 @@ export function createDiffResources(options: DiffResourcesOptions) {
     right: string,
     selectedEngine: DiffEngine = engine(),
   ) => {
-    const repoId = selectedRepoIdOrIdle();
-    if (repoId === null) {
+    const projectId = selectedProjectIdOrIdle();
+    if (projectId === null) {
       return;
     }
     const trimmedLeft = left.trim();
@@ -1013,7 +1009,7 @@ export function createDiffResources(options: DiffResourcesOptions) {
       return;
     }
     const diffParams: RefsDiffParams = {
-      repo_id: repoId,
+      project_id: projectId,
       engine: selectedEngine,
       mode: "refs",
       left: trimmedLeft,
@@ -1025,13 +1021,13 @@ export function createDiffResources(options: DiffResourcesOptions) {
   // Branch-review loading validates tagged control state and sends that
   // structure through the API. Remote and branch are not joined in frontend.
   const loadBranchReview = (
-    baseSelection: BranchSelection,
-    reviewSelection: BranchSelection,
+    baseSelection: BranchSelectionDraft,
+    reviewSelection: BranchSelectionDraft,
     selectedEngine: DiffEngine = engine(),
     controlsPatch: Partial<ControlsState> = {},
   ) => {
-    const repoId = selectedRepoIdOrIdle();
-    if (repoId === null) {
+    const projectId = selectedProjectIdOrIdle();
+    if (projectId === null) {
       return;
     }
     options.setControls((current) =>
@@ -1046,33 +1042,42 @@ export function createDiffResources(options: DiffResourcesOptions) {
             ...controlsPatch,
           },
     );
-    if (baseSelection.source === "remote" && !baseSelection.remote.trim()) {
+    if (
+      baseSelection.state === "missing" ||
+      reviewSelection.state === "missing"
+    ) {
+      failLoad("Pick branches to compare.");
+      return;
+    }
+    const selectedBase = baseSelection.value;
+    const selectedReview = reviewSelection.value;
+    if (selectedBase.source === "remote" && !selectedBase.remote.trim()) {
       failLoad("Pick a base remote.");
       return;
     }
-    if (!baseSelection.branch.trim()) {
+    if (!selectedBase.branch.trim()) {
       failLoad("Pick a base branch.");
       return;
     }
-    if (reviewSelection.source === "remote" && !reviewSelection.remote.trim()) {
+    if (selectedReview.source === "remote" && !selectedReview.remote.trim()) {
       failLoad("Pick a branch remote.");
       return;
     }
-    if (!reviewSelection.branch.trim()) {
+    if (!selectedReview.branch.trim()) {
       failLoad("Pick a branch to compare against the base branch.");
       return;
     }
     const diffParams: BranchReviewDiffParams = {
-      repo_id: repoId,
+      project_id: projectId,
       engine: selectedEngine,
       mode: "branch-review",
       base_selection: {
-        ...baseSelection,
-        branch: baseSelection.branch.trim(),
+        ...selectedBase,
+        branch: selectedBase.branch.trim(),
       },
       review_selection: {
-        ...reviewSelection,
-        branch: reviewSelection.branch.trim(),
+        ...selectedReview,
+        branch: selectedReview.branch.trim(),
       },
     };
     startDiff(diffParams);
@@ -1083,15 +1088,21 @@ export function createDiffResources(options: DiffResourcesOptions) {
     selectedEngine: DiffEngine = engine(),
   ) => {
     setEngine(selectedEngine);
-    const baseSelection: BranchSelection = {
-      source: "remote",
-      remote: prepared.base_branch.remote,
-      branch: prepared.base_branch.branch,
+    const baseSelection: BranchSelectionDraft = {
+      state: "selected",
+      value: {
+        source: "remote",
+        remote: prepared.base_branch.remote,
+        branch: prepared.base_branch.branch,
+      },
     };
-    const reviewSelection: BranchSelection = {
-      source: "remote",
-      remote: prepared.review_branch.remote,
-      branch: prepared.review_branch.branch,
+    const reviewSelection: BranchSelectionDraft = {
+      state: "selected",
+      value: {
+        source: "remote",
+        remote: prepared.review_branch.remote,
+        branch: prepared.review_branch.branch,
+      },
     };
     loadBranchReview(baseSelection, reviewSelection, selectedEngine, {
       tab: "pull-request",
@@ -1107,6 +1118,13 @@ export function createDiffResources(options: DiffResourcesOptions) {
     if (nextControls.mode === "refs") {
       loadRefs(nextControls.left, nextControls.right, nextEngine);
     } else if (nextControls.mode === "branch-review") {
+      if (
+        nextControls.baseSelection.state === "missing" ||
+        nextControls.reviewSelection.state === "missing"
+      ) {
+        failLoad("Pick branches to compare.");
+        return;
+      }
       loadBranchReview(
         nextControls.baseSelection,
         nextControls.reviewSelection,

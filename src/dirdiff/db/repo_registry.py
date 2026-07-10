@@ -1,7 +1,7 @@
 """Persistence for repositories that dirdiff can open by id.
 
 `RepoMarkStore` is used by `dirdiff mark`, `dirdiff refs`, and FastAPI repo
-routes in `dirdiff.server`.  It maps a stable integer repo id to a filesystem
+routes in `dirdiff.server`.  It maps a stable integer project id to a filesystem
 path, a user-facing repo name, the mark timestamp, and an optional main-branch
 selection.  The exported records are read models for those concepts:
 `RepoMarkRecord` and `RepoMainBranchRecord`.
@@ -42,7 +42,7 @@ class RepoMark(TableBase):
     """
     Operational repository mark table.
 
-    Stores the synthetic repo id and the filesystem path used by repo-backed
+    Stores the synthetic project id and the filesystem path used by repo-backed
     diff requests.
     """
 
@@ -61,7 +61,7 @@ class RepoMarkMeta(TableBase):
 
     __tablename__ = "repo_mark_meta"
 
-    repo_id: Mapped[int] = mapped_column(
+    project_id: Mapped[int] = mapped_column(
         ForeignKey("repo_mark.id"),
         primary_key=True,
     )
@@ -81,7 +81,7 @@ class RepoMainBranch(TableBase):
 
     __tablename__ = "repo_main_branch"
 
-    repo_id: Mapped[int] = mapped_column(
+    project_id: Mapped[int] = mapped_column(
         ForeignKey("repo_mark.id"),
         primary_key=True,
     )
@@ -111,7 +111,7 @@ class RepoMarkRecord:
 class RepoMainBranchRecord:
     """Persisted default branch-review base for one registered repository."""
 
-    repo_id: int
+    project_id: int
     """Repository id this branch selection belongs to."""
 
     source: str
@@ -128,7 +128,7 @@ class RepoMarkStore:
     """
     SQLite-backed repository registry.
 
-    Maps synthetic integer repo ids to filesystem paths and display metadata.
+    Maps synthetic integer project ids to filesystem paths and display metadata.
     """
 
     def __init__(self, engine: Engine) -> None:
@@ -144,7 +144,7 @@ class RepoMarkStore:
         """
         Persist a repository mark.
 
-        The database assigns the synthetic repo id.
+        The database assigns the synthetic project id.
         """
 
         assert path.is_absolute(), f"repo path must be absolute: {path}"
@@ -153,18 +153,18 @@ class RepoMarkStore:
         assert display_name != "", "repo name cannot be empty"
         marked_at = datetime.now(UTC)
         with Session(self.engine) as session, session.begin():
-            repo_id = session.execute(
+            project_id = session.execute(
                 insert(RepoMark).values(path=str(path)).returning(RepoMark.id)
             ).scalar_one()
             session.execute(
                 insert(RepoMarkMeta).values(
-                    repo_id=repo_id,
+                    project_id=project_id,
                     name=display_name,
                     marked_at=marked_at,
                 )
             )
             return RepoMarkRecord(
-                id=repo_id,
+                id=project_id,
                 path=str(path),
                 name=display_name,
                 marked_at=marked_at,
@@ -189,7 +189,7 @@ class RepoMarkStore:
                     .join_from(
                         RepoMark,
                         RepoMarkMeta,
-                        RepoMarkMeta.repo_id == RepoMark.id,
+                        RepoMarkMeta.project_id == RepoMark.id,
                     )
                     .order_by(
                         RepoMarkMeta.name.asc(),
@@ -202,15 +202,15 @@ class RepoMarkStore:
             )
             return tuple(
                 RepoMarkRecord(
-                    id=repo_id,
+                    id=project_id,
                     path=path,
                     name=name,
                     marked_at=marked_at,
                 )
-                for repo_id, path, name, marked_at in rows
+                for project_id, path, name, marked_at in rows
             )
 
-    def get(self, repo_id: int) -> RepoMarkRecord | None:
+    def get(self, project_id: int) -> RepoMarkRecord | None:
         """
         Return one marked repository by synthetic id.
 
@@ -229,9 +229,9 @@ class RepoMarkStore:
                     .join_from(
                         RepoMark,
                         RepoMarkMeta,
-                        RepoMarkMeta.repo_id == RepoMark.id,
+                        RepoMarkMeta.project_id == RepoMark.id,
                     )
-                    .where(RepoMark.id == repo_id)
+                    .where(RepoMark.id == project_id)
                 )
                 .tuples()
                 .one_or_none()
@@ -245,7 +245,7 @@ class RepoMarkStore:
                 marked_at=res[3],
             )
 
-    def delete(self, repo_id: int) -> bool:
+    def delete(self, project_id: int) -> bool:
         """
         Delete one marked repository and its registry metadata.
 
@@ -256,22 +256,26 @@ class RepoMarkStore:
         with Session(self.engine) as session, session.begin():
             mark_exists = (
                 session.execute(
-                    select(RepoMark.id).where(RepoMark.id == repo_id)
+                    select(RepoMark.id).where(RepoMark.id == project_id)
                 ).one_or_none()
                 is not None
             )
             if not mark_exists:
                 return False
             session.execute(
-                delete(RepoMarkMeta).where(RepoMarkMeta.repo_id == repo_id)
+                delete(RepoMarkMeta).where(
+                    RepoMarkMeta.project_id == project_id
+                )
             )
             session.execute(
-                delete(RepoMainBranch).where(RepoMainBranch.repo_id == repo_id)
+                delete(RepoMainBranch).where(
+                    RepoMainBranch.project_id == project_id
+                )
             )
-            session.execute(delete(RepoMark).where(RepoMark.id == repo_id))
+            session.execute(delete(RepoMark).where(RepoMark.id == project_id))
             return True
 
-    def get_main_branch(self, repo_id: int) -> RepoMainBranchRecord | None:
+    def get_main_branch(self, project_id: int) -> RepoMainBranchRecord | None:
         """
         Return the persisted main branch for one marked repository.
         """
@@ -279,16 +283,16 @@ class RepoMarkStore:
         with Session(self.engine) as session:
             row = session.execute(
                 select(
-                    RepoMainBranch.repo_id,
+                    RepoMainBranch.project_id,
                     RepoMainBranch.source,
                     RepoMainBranch.remote,
                     RepoMainBranch.branch,
-                ).where(RepoMainBranch.repo_id == repo_id)
+                ).where(RepoMainBranch.project_id == project_id)
             ).one_or_none()
             if row is None:
                 return None
             return RepoMainBranchRecord(
-                repo_id=row[0],
+                project_id=row[0],
                 source=row[1],
                 remote=row[2],
                 branch=row[3],
@@ -296,7 +300,7 @@ class RepoMarkStore:
 
     def set_main_branch(
         self,
-        repo_id: int,
+        project_id: int,
         *,
         source: str,
         remote: str | None,
@@ -306,19 +310,19 @@ class RepoMarkStore:
         Persist the main branch for one marked repository.
         """
 
-        mark = self.get(repo_id)
-        assert mark is not None, f"repo mark must exist: {repo_id}"
+        mark = self.get(project_id)
+        assert mark is not None, f"repo mark must exist: {project_id}"
         with Session(self.engine) as session, session.begin():
             row = session.execute(
                 sqlite_insert(RepoMainBranch)
                 .values(
-                    repo_id=repo_id,
+                    project_id=project_id,
                     source=source,
                     remote=remote,
                     branch=branch,
                 )
                 .on_conflict_do_update(
-                    index_elements=[RepoMainBranch.repo_id],
+                    index_elements=[RepoMainBranch.project_id],
                     set_={
                         "source": source,
                         "remote": remote,
@@ -326,14 +330,14 @@ class RepoMarkStore:
                     },
                 )
                 .returning(
-                    RepoMainBranch.repo_id,
+                    RepoMainBranch.project_id,
                     RepoMainBranch.source,
                     RepoMainBranch.remote,
                     RepoMainBranch.branch,
                 )
             ).one()
             return RepoMainBranchRecord(
-                repo_id=row[0],
+                project_id=row[0],
                 source=row[1],
                 remote=row[2],
                 branch=row[3],

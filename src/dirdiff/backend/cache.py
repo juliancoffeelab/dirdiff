@@ -46,14 +46,14 @@ class RepoInfo:
 class CacheBackendProtocol(Protocol):
     """Process-local storage boundary for backend request cache entries."""
 
-    def store_repo_info(self, *, repo_id: int, repo_info: RepoInfo) -> str:
+    def store_repo_info(self, *, project_id: int, repo_info: RepoInfo) -> str:
         """Store a new repo cache entry and invalidate the previous one for that repo."""
         ...
 
     def repo_info(
         self,
         *,
-        repo_id: int,
+        project_id: int,
         cache_id: str,
     ) -> RepoInfo | None:
         """Return repo cache entry only when the id still belongs to that repo."""
@@ -75,7 +75,7 @@ class MemoryCacheBackend(CacheBackendProtocol):
         self._latest_cache_id_by_repo: dict[int, str] = {}
 
     @override
-    def store_repo_info(self, *, repo_id: int, repo_info: RepoInfo) -> str:
+    def store_repo_info(self, *, project_id: int, repo_info: RepoInfo) -> str:
         """Create the only live cache id for a repo.
 
         A new manifest load means later file fetches must use the newly resolved
@@ -84,24 +84,24 @@ class MemoryCacheBackend(CacheBackendProtocol):
         """
         cache_id = uuid4().hex
         with self._lock:
-            previous_id = self._latest_cache_id_by_repo.get(repo_id)
+            previous_id = self._latest_cache_id_by_repo.get(project_id)
             if previous_id is not None:
-                _ = self._repo_info_by_key.pop((repo_id, previous_id), None)
-            self._latest_cache_id_by_repo[repo_id] = cache_id
-            self._repo_info_by_key[(repo_id, cache_id)] = repo_info
+                _ = self._repo_info_by_key.pop((project_id, previous_id), None)
+            self._latest_cache_id_by_repo[project_id] = cache_id
+            self._repo_info_by_key[(project_id, cache_id)] = repo_info
         return cache_id
 
     @override
     def repo_info(
         self,
         *,
-        repo_id: int,
+        project_id: int,
         cache_id: str,
     ) -> RepoInfo | None:
         """Look up repo info by both repo and cache id.
 
-        The repo id is part of the key so an opaque id from one marked repo
+        The project id is part of the key so an opaque id from one marked repo
         cannot be replayed against another repo's follow-up endpoints.
         """
         with self._lock:
-            return self._repo_info_by_key.get((repo_id, cache_id))
+            return self._repo_info_by_key.get((project_id, cache_id))

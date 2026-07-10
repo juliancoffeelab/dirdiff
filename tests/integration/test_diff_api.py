@@ -93,9 +93,11 @@ def test_repo_defaults_base_to_remote_and_review_to_local(
     tracked_file.write_text("two\n", encoding="utf-8")
     run_git(repo_path, "commit", "-am", "feature")
 
-    client, repo_id = create_repo_client(repo_path)
+    client, project_id = create_repo_client(repo_path)
 
-    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
+    response = client.get(
+        "/api/repo-defaults", params={"project_id": project_id}
+    )
     payload = response.json()
 
     assert response.status_code == 200
@@ -117,20 +119,20 @@ def test_repo_main_branch_save_overrides_repo_defaults(
 ) -> None:
     """Saved repo main branch controls future branch-review base defaults."""
     repo_path = clone_test_remote(tmp_path)
-    client, repo_id = create_repo_client(repo_path)
+    client, project_id = create_repo_client(repo_path)
 
     save_response = client.post(
-        f"/api/repos/{repo_id}/main-branch",
+        f"/api/repos/{project_id}/main-branch",
         json={"selection": {"source": "local", "branch": "master"}},
     )
     assert save_response.status_code == 200
     assert save_response.json() == {
-        "repo_id": repo_id,
+        "project_id": project_id,
         "selection": {"source": "local", "branch": "master"},
     }
 
     defaults_response = client.get(
-        "/api/repo-defaults", params={"repo_id": repo_id}
+        "/api/repo-defaults", params={"project_id": project_id}
     )
     payload = defaults_response.json()
 
@@ -144,9 +146,9 @@ def test_repo_main_branch_save_overrides_repo_defaults(
 def test_repo_refs_returns_ref_choices_without_defaults(tmp_path: Path) -> None:
     """Repo refs expose autocomplete metadata separately from repo defaults."""
     repo_path = clone_test_remote(tmp_path)
-    client, repo_id = create_repo_client(repo_path)
+    client, project_id = create_repo_client(repo_path)
 
-    response = client.get("/api/repo-refs", params={"repo_id": repo_id})
+    response = client.get("/api/repo-refs", params={"project_id": project_id})
     payload = response.json()
 
     assert response.status_code == 200
@@ -165,10 +167,10 @@ def test_repo_main_branch_save_rejects_remote_without_remote_name(
 ) -> None:
     """Remote main branch saves require both remote and branch fields."""
     repo_path = clone_test_remote(tmp_path)
-    client, repo_id = create_repo_client(repo_path)
+    client, project_id = create_repo_client(repo_path)
 
     response = client.post(
-        f"/api/repos/{repo_id}/main-branch",
+        f"/api/repos/{project_id}/main-branch",
         json={
             "selection": {
                 "source": "remote",
@@ -187,7 +189,7 @@ def test_repo_main_branch_save_rejects_remote_without_remote_name(
 def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
     """User preferences are keyed by user profile id, not first row."""
     create_committed_repo(tmp_path, branch="main")
-    client, _repo_id = create_repo_client(tmp_path)
+    client, _project_id = create_repo_client(tmp_path)
 
     first_user = client.post(
         "/api/user-profile", json={"username": "first"}
@@ -239,9 +241,11 @@ def test_repo_defaults_reports_unresolved_base_when_remote_head_is_missing(
 ) -> None:
     """Remote defaults fail when local and remote HEAD discovery both fail."""
     repo_path = clone_test_remote_with_unknown_head(tmp_path)
-    client, repo_id = create_repo_client(repo_path)
+    client, project_id = create_repo_client(repo_path)
 
-    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
+    response = client.get(
+        "/api/repo-defaults", params={"project_id": project_id}
+    )
     payload = response.json()
 
     assert response.status_code == 200
@@ -257,9 +261,11 @@ def test_repo_defaults_uses_remote_show_when_local_remote_head_is_missing(
     """Remote defaults fall back to `git remote show` for missing origin/HEAD."""
     repo_path = clone_test_remote(tmp_path, branch="main")
     run_git(repo_path, "remote", "set-head", "origin", "-d")
-    client, repo_id = create_repo_client(repo_path)
+    client, project_id = create_repo_client(repo_path)
 
-    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
+    response = client.get(
+        "/api/repo-defaults", params={"project_id": project_id}
+    )
     payload = response.json()
 
     assert response.status_code == 200
@@ -301,9 +307,11 @@ def test_repo_defaults_prefers_current_branch_upstream_remote(
     run_git(origin_worktree, "remote", "set-head", "upstream", "--auto")
     run_git(origin_worktree, "checkout", "-b", "feature", "upstream/feature")
 
-    client, repo_id = create_repo_client(origin_worktree)
+    client, project_id = create_repo_client(origin_worktree)
 
-    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
+    response = client.get(
+        "/api/repo-defaults", params={"project_id": project_id}
+    )
     payload = response.json()
 
     assert response.status_code == 200
@@ -320,9 +328,11 @@ def test_repo_defaults_local_only_repo_to_main(
     """Local-only defaults use main/master policy, not current HEAD guessing."""
     create_committed_repo(tmp_path, branch="main")
     run_git(tmp_path, "checkout", "-b", "feature")
-    client, repo_id = create_repo_client(tmp_path)
+    client, project_id = create_repo_client(tmp_path)
 
-    response = client.get("/api/repo-defaults", params={"repo_id": repo_id})
+    response = client.get(
+        "/api/repo-defaults", params={"project_id": project_id}
+    )
     payload = response.json()
 
     assert response.status_code == 200
@@ -342,12 +352,12 @@ def test_branch_review_query_validation_returns_bad_request(
         check=True,
         capture_output=True,
     )
-    client, repo_id = create_repo_client(tmp_path)
+    client, project_id = create_repo_client(tmp_path)
 
     response = client.get(
         "/api/manifest",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
             "engine": "dirdiff",
             "mode": "branch-review",
             "base_branch": "master",
@@ -399,12 +409,12 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     )
     lockfile.write_text("version = 2\n", encoding="utf-8")
 
-    client, repo_id = create_repo_client(tmp_path)
+    client, project_id = create_repo_client(tmp_path)
 
     repo_response = client.get(
         "/api/manifest",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
             "engine": "dirdiff",
             "mode": "files",
             "left": "index",
@@ -431,7 +441,8 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     lazy_info_response = client.get(
         "/api/lazy-info",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
+            "mode": "files",
             "cache_id": cache_id,
         },
     )
@@ -451,7 +462,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     response = client.get(
         "/api/file-diff",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
             "cache_id": cache_id,
             "engine": "dirdiff",
             "mode": "files",
@@ -470,7 +481,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     reloaded_manifest_response = client.get(
         "/api/manifest",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
             "engine": "dirdiff",
             "mode": "files",
             "left": "index",
@@ -485,7 +496,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     stale_response = client.get(
         "/api/file-diff",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
             "cache_id": cache_id,
             "engine": "dirdiff",
             "mode": "files",
@@ -496,7 +507,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     fresh_response = client.get(
         "/api/file-diff",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
             "cache_id": reloaded_cache_id,
             "engine": "dirdiff",
             "mode": "files",
@@ -508,6 +519,164 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     assert stale_response.status_code == 400
     assert stale_response.json()["detail"] == f"Unknown cache id: {cache_id}"
     assert fresh_response.status_code == 200
+
+
+def test_preset_manifest_and_file_diff_do_not_require_project_id(
+    tmp_path: Path,
+) -> None:
+    """Preset mode is a checked-in fixture workflow, not a marked-repo workflow."""
+    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    repo_marks = RepoMarkStore(engine)
+    user_profile = UserProfileStore(engine)
+    client = TestClient(
+        create_app(
+            repo_marks,
+            user_profile,
+            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+        )
+    )
+
+    manifest_response = client.get(
+        "/api/manifest",
+        params={
+            "engine": "dirdiff",
+            "mode": "preset",
+            "project_id": "diff",
+            "preset_subset": "python",
+        },
+    )
+    manifest = manifest_response.json()
+
+    assert manifest_response.status_code == 200
+    assert manifest["display_name"] == "python"
+    assert manifest["cache_id"] == ""
+    assert manifest["tree"] != []
+
+    stack = list(manifest["tree"])
+    file_entry = None
+    while len(stack) > 0:
+        node = stack.pop()
+        if node["type"] == "file":
+            file_entry = node["entry"]
+            break
+        stack.extend(node["entries"])
+    assert file_entry is not None
+
+    lazy_info_response = client.get(
+        "/api/lazy-info",
+        params={
+            "mode": "preset",
+            "project_id": "diff",
+            "preset_subset": "python",
+            "cache_id": manifest["cache_id"],
+        },
+    )
+    file_diff_response = client.get(
+        "/api/file-diff",
+        params={
+            "cache_id": manifest["cache_id"],
+            "engine": "dirdiff",
+            "mode": "preset",
+            "project_id": "diff",
+            "preset_subset": "python",
+            "left_path": file_entry["left_path"],
+            "right_path": file_entry["right_path"],
+        },
+    )
+    file_diff = file_diff_response.json()
+
+    assert lazy_info_response.status_code == 200
+    assert lazy_info_response.json() == {"files": []}
+    assert file_diff_response.status_code == 200
+    assert file_diff["display_name"] != ""
+    assert file_diff["rows"] != []
+
+
+def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
+    """Every preset catalog is repo-less, even though catalogs use different roots."""
+    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    repo_marks = RepoMarkStore(engine)
+    user_profile = UserProfileStore(engine)
+    client = TestClient(
+        create_app(
+            repo_marks,
+            user_profile,
+            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+        )
+    )
+
+    for project_id, preset_subset in [
+        ("diff", "python"),
+        ("fold", "python"),
+        ("gumtree", "python"),
+    ]:
+        response = client.get(
+            "/api/manifest",
+            params={
+                "engine": "dirdiff",
+                "mode": "preset",
+                "project_id": project_id,
+                "preset_subset": preset_subset,
+            },
+        )
+        payload = response.json()
+
+        assert response.status_code == 200
+        assert payload["display_name"] == preset_subset
+        assert payload["cache_id"] == ""
+        assert payload["tree"] != []
+
+
+def test_preset_manifest_validates_required_preset_fields(
+    tmp_path: Path,
+) -> None:
+    """Repo-less preset loading still validates the preset-specific inputs."""
+    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    repo_marks = RepoMarkStore(engine)
+    user_profile = UserProfileStore(engine)
+    client = TestClient(
+        create_app(
+            repo_marks,
+            user_profile,
+            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+        )
+    )
+
+    missing_subset = client.get(
+        "/api/manifest",
+        params={
+            "engine": "dirdiff",
+            "mode": "preset",
+            "project_id": "diff",
+        },
+    )
+    missing_project = client.get(
+        "/api/manifest",
+        params={
+            "engine": "dirdiff",
+            "mode": "preset",
+            "preset_subset": "python",
+        },
+    )
+    traversal = client.get(
+        "/api/manifest",
+        params={
+            "engine": "dirdiff",
+            "mode": "preset",
+            "project_id": "diff",
+            "preset_subset": "../python",
+        },
+    )
+
+    assert missing_subset.status_code == 400
+    assert missing_subset.json()["detail"] == (
+        "preset_subset is required for preset mode."
+    )
+    assert missing_project.status_code == 422
+    assert traversal.status_code == 400
+    assert traversal.json()["detail"] == (
+        "Preset name must stay inside the presets root."
+    )
 
 
 def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
@@ -547,12 +716,12 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
     )
     deleted_file.unlink()
 
-    client, repo_id = create_repo_client(tmp_path)
+    client, project_id = create_repo_client(tmp_path)
 
     response = client.get(
         "/api/manifest",
         params={
-            "repo_id": repo_id,
+            "project_id": str(project_id),
             "engine": "dirdiff",
             "mode": "files",
             "left": "index",

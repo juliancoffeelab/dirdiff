@@ -4,18 +4,28 @@ import {
   DiffEngineSchema,
   type DiffEngine,
   type Preferences,
-  type RepoId,
+  type ProjectId,
   type RepoMark,
   type Summary,
 } from "./api";
 import type { LoadedFilesStatus } from "./app/createDiffResources";
 import type { DiffViewMode } from "./DiffGrid";
-import { diffViewLabels, engineLabels, type LoadState } from "./fileUtils";
+import {
+  diffViewLabels,
+  engineLabels,
+  type LoadState,
+  type RepoListStatus,
+} from "./fileUtils";
 import { Profile } from "./Profile";
 import { Select } from "./Select";
 import type { StoredProfile } from "./storage";
 
-type LoadingNoticeId = "marked-repos" | "preferences" | "presets" | "repo-refs";
+type LoadingNoticeId =
+  | "marked-repos"
+  | "preferences"
+  | "presets"
+  | "repo-defaults"
+  | "repo-refs";
 
 export type LoadingAppNotice = {
   id: LoadingNoticeId;
@@ -45,8 +55,8 @@ export function Header(props: {
   preferences: Preferences | null;
   preferencesPending: boolean;
   preferencesError: string | null;
-  repos: RepoMark[] | null;
-  selectedRepoId: RepoId | null;
+  repos: RepoListStatus;
+  selectedProjectId: ProjectId | null;
   engine: DiffEngine;
   viewMode: DiffViewMode;
   summary: Summary;
@@ -80,15 +90,13 @@ export function Header(props: {
               onReloadPreferences={props.onReloadPreferences}
             />
           </div>
-          <Show when={props.repos !== null}>
-            <RepoSelect
-              repos={loadedRepos(props.repos)}
-              selectedRepoId={props.selectedRepoId}
-              onRepoListOpen={props.onRepoListOpen}
-              onRepoChange={props.onRepoChange}
-              onRepoRemove={props.onRepoRemove}
-            />
-          </Show>
+          <RepoSelect
+            repos={props.repos}
+            selectedProjectId={props.selectedProjectId}
+            onRepoListOpen={props.onRepoListOpen}
+            onRepoChange={props.onRepoChange}
+            onRepoRemove={props.onRepoRemove}
+          />
           <div class="header-actions">
             <EngineSelect
               engine={props.engine}
@@ -139,36 +147,46 @@ function EngineSelect(props: {
 }
 
 function RepoSelect(props: {
-  repos: RepoMark[];
-  selectedRepoId: RepoId | null;
+  repos: RepoListStatus;
+  selectedProjectId: ProjectId | null;
   onRepoListOpen: () => void;
   onRepoChange: (repo: RepoMark) => void;
   onRepoRemove: (repo: RepoMark) => void | Promise<void>;
 }) {
-  const handleRepoChange = (nextRepoIdRaw: string) => {
-    const nextRepoId = Number(nextRepoIdRaw);
-    if (!Number.isInteger(nextRepoId)) {
-      throw new Error(`Invalid repo id selected: ${nextRepoIdRaw}.`);
+  const handleRepoChange = (nextProjectIdRaw: string) => {
+    const nextProjectId = Number(nextProjectIdRaw);
+    if (!Number.isInteger(nextProjectId)) {
+      throw new Error(`Invalid project id selected: ${nextProjectIdRaw}.`);
     }
-    const repo = props.repos.find((candidate) => candidate.id === nextRepoId);
+    if (props.repos.state === "missing") {
+      throw new Error("Cannot change repo before marked repos are loaded.");
+    }
+    const repo = props.repos.repos.find(
+      (candidate) => candidate.id === nextProjectId,
+    );
     if (repo === undefined) {
-      throw new Error(`Unknown repo id selected: ${nextRepoId}.`);
+      throw new Error(`Unknown project id selected: ${nextProjectId}.`);
     }
-    if (repo.id === props.selectedRepoId) {
+    if (repo.id === props.selectedProjectId) {
       return;
     }
     props.onRepoChange(repo);
   };
 
   const selectedRepoName = () => {
-    if (props.selectedRepoId === null) {
+    if (props.selectedProjectId === null) {
       return "Choose repo";
     }
-    const repo = props.repos.find(
-      (candidate) => candidate.id === props.selectedRepoId,
+    if (props.repos.state === "missing") {
+      return "Loading repo";
+    }
+    const repo = props.repos.repos.find(
+      (candidate) => candidate.id === props.selectedProjectId,
     );
     if (repo === undefined) {
-      throw new Error(`Unknown selected repo id: ${props.selectedRepoId}.`);
+      throw new Error(
+        `Unknown selected project id: ${props.selectedProjectId}.`,
+      );
     }
     return repo.name;
   };
@@ -185,17 +203,24 @@ function RepoSelect(props: {
       class="header-engine-select repo-select"
       label="Repo"
       valueLabel={selectedRepoName()}
-      options={props.repos.map((repo) => ({
-        value: String(repo.id),
-        label: repo.name,
-      }))}
+      options={
+        props.repos.state === "loaded"
+          ? props.repos.repos.map((repo) => ({
+              value: String(repo.id),
+              label: repo.name,
+            }))
+          : []
+      }
       selectedValue={
-        props.selectedRepoId === null ? "" : String(props.selectedRepoId)
+        props.selectedProjectId === null ? "" : String(props.selectedProjectId)
       }
       onOpen={props.onRepoListOpen}
       onChange={handleRepoChange}
       optionAction={(option) => {
-        const repo = props.repos.find(
+        if (props.repos.state === "missing") {
+          throw new Error("Cannot remove repo before marked repos are loaded.");
+        }
+        const repo = props.repos.repos.find(
           (candidate) => String(candidate.id) === option.value,
         );
         if (repo === undefined) {
@@ -297,13 +322,6 @@ function LineSummaryMetric(props: { added: number; removed: number }) {
   );
 }
 
-function loadedRepos(repos: RepoMark[] | null): RepoMark[] {
-  if (repos === null) {
-    throw new Error("Repo select rendered before repos loaded.");
-  }
-  return repos;
-}
-
 function loadedFilesStatusText(
   status: LoadedFilesStatus | null,
 ): string | null {
@@ -344,6 +362,8 @@ function noticeText(notice: TopNotice | InlineDiffNotice): string {
       return "Loading preferences...";
     case "presets":
       return "Loading presets...";
+    case "repo-defaults":
+      return "Loading repo defaults...";
     case "repo-refs":
       return "Loading refs...";
     default:

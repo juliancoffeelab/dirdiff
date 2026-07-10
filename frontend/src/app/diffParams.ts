@@ -10,16 +10,15 @@ import type { DiffParams, LazyInfoPayload, RepoManifestPayload } from "../api";
 function diffParamsParts(diffParams: DiffParams) {
   if (diffParams.mode === "preset") {
     return [
-      diffParams.repo_id,
       diffParams.engine,
       diffParams.mode,
-      diffParams.preset_type,
-      diffParams.preset,
+      diffParams.project_id,
+      diffParams.preset_subset,
     ] as const;
   }
   if (diffParams.mode === "branch-review") {
     return [
-      diffParams.repo_id,
+      diffParams.project_id,
       diffParams.engine,
       diffParams.mode,
       diffParams.base_selection,
@@ -27,7 +26,7 @@ function diffParamsParts(diffParams: DiffParams) {
     ] as const;
   }
   return [
-    diffParams.repo_id,
+    diffParams.project_id,
     diffParams.engine,
     diffParams.mode,
     diffParams.left,
@@ -44,8 +43,11 @@ export function manifestParamsQueryKey(diffParams: DiffParams) {
   return ["manifest", diffParamsIdentity(diffParams)] as const;
 }
 
-export function lazyInfoParamsQueryKey(repoId: number, cacheId: string) {
-  return ["lazy-info", repoId, cacheId] as const;
+export function lazyInfoParamsQueryKey(
+  diffParams: DiffParams,
+  cacheId: string,
+) {
+  return ["lazy-info", diffParamsIdentity(diffParams), cacheId] as const;
 }
 
 export type ManifestQueryPayload = {
