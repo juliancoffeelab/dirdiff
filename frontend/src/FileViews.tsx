@@ -53,6 +53,9 @@ type LineStats = {
   moved: number | null;
 };
 
+const RICH_RENDER_ENTER_ROOT_MARGIN = "1500px 0px";
+const RICH_RENDER_EXIT_ROOT_MARGIN = "2500px 0px";
+
 function expansionValue(
   current: BooleanMap,
   key: string,
@@ -633,18 +636,40 @@ function FileCard(props: {
       return;
     }
 
-    const observer = new IntersectionObserver(
+    const enterObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (entry === undefined) {
-          throw new Error("Intersection observer did not provide an entry.");
+          throw new Error(
+            "Rich-render enter observer did not provide an entry.",
+          );
         }
-        setNearViewport(entry.isIntersecting);
+        if (entry.isIntersecting) {
+          setNearViewport(true);
+        }
       },
-      { rootMargin: "1500px 0px" },
+      { rootMargin: RICH_RENDER_ENTER_ROOT_MARGIN },
     );
-    observer.observe(bodyViewport);
-    onCleanup(() => observer.disconnect());
+    const exitObserver = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry === undefined) {
+          throw new Error(
+            "Rich-render exit observer did not provide an entry.",
+          );
+        }
+        if (!entry.isIntersecting) {
+          setNearViewport(false);
+        }
+      },
+      { rootMargin: RICH_RENDER_EXIT_ROOT_MARGIN },
+    );
+    enterObserver.observe(bodyViewport);
+    exitObserver.observe(bodyViewport);
+    onCleanup(() => {
+      enterObserver.disconnect();
+      exitObserver.disconnect();
+    });
   });
 
   const expand = () => {
