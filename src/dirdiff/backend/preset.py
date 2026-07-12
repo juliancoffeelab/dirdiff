@@ -8,14 +8,16 @@ and file loading for those fixtures.
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path, PurePosixPath
-from typing import override
+from typing import TypeIs, override
 
 from dirdiff.backend.base import (
     BranchSelection,
     DefaultBaseSelection,
     RefChoices,
     RepoDiffPath,
+    RepoLazyReason,
     SideName,
     TextDiffError,
     TextVersion,
@@ -26,6 +28,23 @@ from dirdiff.backend.base import (
 __all__ = [
     "PresetBackend",
 ]
+
+_REPO_LAZY_REASONS: tuple[RepoLazyReason, ...] = (
+    "too_big",
+    "generated",
+    "deleted",
+    "untracked",
+    "pure_renamed",
+)
+
+
+def _is_repo_lazy_reason(value: object) -> TypeIs[RepoLazyReason]:
+    """Narrow untyped preset metadata to a supported lazy reason.
+
+    TOML values enter as `Any`, so membership validation must also provide the
+    static type boundary promised by `_lazy_reason_override`.
+    """
+    return isinstance(value, str) and value in _REPO_LAZY_REASONS
 
 
 class PresetBackend(WorkspaceBackendProtocol):
@@ -139,6 +158,29 @@ class PresetBackend(WorkspaceBackendProtocol):
                 f"Preset {preset_dir.name} must contain exactly one old.* and one new.* file."
             )
         return old_files[0], new_files[0]
+
+    def _lazy_reason_override(self, preset_dir: Path) -> RepoLazyReason | None:
+        """Read an explicit lazy classification from optional fixture metadata.
+
+        A fixture may contain `preset.toml` with only a `lazy_reason` key. This
+        lets browser scenarios exercise placeholder hydration independently of
+        production size and filename heuristics; it must not configure timing
+        or frontend behavior.
+        """
+        metadata_path = preset_dir / "preset.toml"
+        if not metadata_path.exists():
+            return None
+        metadata = tomllib.loads(metadata_path.read_text(encoding="utf-8"))
+        if set(metadata) != {"lazy_reason"}:
+            raise TextDiffError(
+                f"Preset metadata must contain only lazy_reason: {metadata_path}"
+            )
+        lazy_reason = metadata["lazy_reason"]
+        if not _is_repo_lazy_reason(lazy_reason):
+            raise TextDiffError(
+                f"Unsupported preset lazy_reason: {lazy_reason!r}"
+            )
+        return lazy_reason
 
     def _path_for_side(self, path: str, side: SideName) -> Path:
         """Resolve a preset-relative manifest path to the requested side file."""
@@ -268,6 +310,7 @@ class PresetBackend(WorkspaceBackendProtocol):
                         f"{normalized_left}/{preset_dir.name}/{new_path.name}"
                     ),
                     change_type="modify",
+                    lazy_reason_override=self._lazy_reason_override(preset_dir),
                     changed_lines=added + removed + replaced,
                     added_lines=added + replaced,
                     removed_lines=removed + replaced,

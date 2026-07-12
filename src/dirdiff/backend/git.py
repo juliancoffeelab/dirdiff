@@ -537,6 +537,7 @@ class GitBackend(WorkspaceBackendProtocol):
                             left_path, right_path
                         ),
                         change_type="rename" if change_kind == "R" else "copy",
+                        lazy_reason_override=None,
                     )
                 )
                 continue
@@ -565,6 +566,7 @@ class GitBackend(WorkspaceBackendProtocol):
                         current_left_path, current_right_path
                     ),
                     change_type=change_type,
+                    lazy_reason_override=None,
                 )
             )
 
@@ -629,6 +631,7 @@ class GitBackend(WorkspaceBackendProtocol):
                     right_path=path,
                     display_name=path,
                     change_type="add",
+                    lazy_reason_override=None,
                     untracked=True,
                 )
             )
@@ -677,6 +680,7 @@ class GitBackend(WorkspaceBackendProtocol):
                     right_path=entry.right_path,
                     display_name=entry.display_name,
                     change_type=entry.change_type,
+                    lazy_reason_override=None,
                     changed_lines=added_lines + removed_lines,
                     added_lines=added_lines,
                     removed_lines=removed_lines,

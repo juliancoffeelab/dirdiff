@@ -129,4 +129,6 @@ ignore = [
     "PLR0915",
     # TODO: some functions are super branchy
     "PLR0912",
+    # Too many returns has too many false positives and no obvious benefit
+    "PLR0911",
 ]

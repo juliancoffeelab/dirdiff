@@ -87,6 +87,8 @@ def _looks_generated_path(path: str | None) -> bool:
 
 def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
     """Classify files that should be represented by lazy placeholders."""
+    if entry.lazy_reason_override is not None:
+        return entry.lazy_reason_override
     if entry.untracked:
         return "untracked"
     if entry.change_type == "delete":

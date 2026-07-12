@@ -1,0 +1,508 @@
+import { Show, batch, createMemo, createSignal, onMount } from "solid-js";
+import {
+  fetchPreferences,
+  preparePullRequest,
+  type Preferences,
+  type RepoId,
+  type RepoMark,
+} from "./api";
+import type { DiffViewMode } from "./DiffGrid";
+import {
+  Header,
+  type AppNotice,
+  type InlineDiffNotice,
+  type LoadingAppNotice,
+} from "./Header";
+import { Controls } from "./Controls";
+import { FileList, FileTreeSidebar } from "./FileViews";
+import { HunkNav } from "./Hud";
+import { RepoPicker } from "./RepoPicker";
+import { createDiffNavigation } from "./app/createDiffNavigation";
+import { createDiffResources } from "./app/createDiffResources";
+import { createDiffUiState } from "./app/createDiffUiState";
+import {
+  type InitialRepoDiff,
+  createRepoResources,
+} from "./app/createRepoResources";
+import { type ControlsState } from "./fileUtils";
+import { GracefulErrorBoundary, useToasts } from "./Toasts";
+import { loadStoredProfile, type StoredProfile } from "./storage";
+import "./styles.css";
+
+function initialDiffViewMode(): DiffViewMode {
+  const view = new URLSearchParams(window.location.search).get("view");
+  if (view === "split" || view === "inline") {
+    return view;
+  }
+  return "inline";
+}
+
+function isInlineDiffNotice(notice: AppNotice): notice is InlineDiffNotice {
+  return notice.id === "diff" && notice.placement === "inline";
+}
+
+function pullRequestUrlFromSearch(): string {
+  const search = new URLSearchParams(window.location.search);
+  if (search.get("tab") !== "pull-request") {
+    return "";
+  }
+  return search.get("pull_request_url") ?? "";
+}
+
+export function App() {
+  const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>(
+    initialDiffViewMode(),
+  );
+  const [controls, setControls] = createSignal<ControlsState | null>(null);
+  const [storedProfile, setStoredProfile] = createSignal<StoredProfile | null>(
+    loadStoredProfile(),
+  );
+  const [preferences, setPreferences] = createSignal<Preferences | null>(null);
+  const [preferencesPending, setPreferencesPending] = createSignal(false);
+  const [preferencesError, setPreferencesError] = createSignal<string | null>(
+    null,
+  );
+  let appRoot: HTMLElement | undefined;
+  let appHeader: HTMLElement | undefined;
+  const { addErrorToast } = useToasts();
+
+  const repo = createRepoResources({ addErrorToast });
+  const ui = createDiffUiState();
+  const diff = createDiffResources({
+    selectedRepoId: repo.selectedRepoId,
+    controls,
+    setControls,
+    diffViewMode,
+    resetViewState: ui.resetViewState,
+    clearLoadedDiff: ui.clearLoadedDiff,
+    applyManifest: ui.applyManifest,
+    upsertFile: ui.upsertFile,
+    upsertFiles: ui.upsertFiles,
+    currentHydratedLazyKeys: ui.currentHydratedLazyKeys,
+    directoryLabelForFileKey: ui.directoryLabelForFileKey,
+    setDirectoryExpansion: ui.setDirectoryExpansion,
+    setFileExpansion: ui.setFileExpansion,
+    refChoices: repo.refChoices,
+    addErrorToast,
+  });
+
+  const setViewMode = (viewMode: DiffViewMode) => {
+    setDiffViewMode(viewMode);
+    diff.replaceUrlForCurrentParams(viewMode);
+  };
+
+  const toggleDiffViewMode = () => {
+    switch (diffViewMode()) {
+      case "split":
+        setViewMode("inline");
+        return;
+      case "inline":
+        setViewMode("split");
+        return;
+      default:
+        setViewMode("split");
+    }
+  };
+
+  const summary = () => ui.summary();
+  const notices = createMemo<AppNotice[]>(() => {
+    const nextNotices: AppNotice[] = [];
+    const pushLoadingNotice = (id: LoadingAppNotice["id"]): void => {
+      nextNotices.push({
+        id,
+        placement: "top",
+        state: "loading",
+      });
+    };
+    if (repo.selectedRepoId() !== null && repo.repoRefsPending()) {
+      pushLoadingNotice("repo-refs");
+    }
+    if (repo.reposPending()) {
+      pushLoadingNotice("marked-repos");
+    }
+    if (preferencesPending()) {
+      pushLoadingNotice("preferences");
+    }
+    if (repo.presetCatalogsPending()) {
+      pushLoadingNotice("presets");
+    }
+    const diffStatus = diff.status();
+    nextNotices.push({
+      id: "diff",
+      placement: diffStatus.placement,
+      state: diffStatus.state,
+      text: diffStatus.text,
+    });
+    return nextNotices;
+  });
+  const inlineDiffNotice = createMemo(
+    () => notices().find(isInlineDiffNotice) ?? null,
+  );
+
+  const loadPreferences = async (
+    profile: StoredProfile | null = storedProfile(),
+  ) => {
+    if (profile === null) {
+      batch(() => {
+        setPreferences(null);
+        setPreferencesError(null);
+        setPreferencesPending(false);
+      });
+      return;
+    }
+    setPreferencesPending(true);
+    try {
+      const loadedPreferences = await fetchPreferences(profile.id);
+      setPreferences(loadedPreferences);
+      setPreferencesError(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to load preferences.";
+      setPreferencesError(message);
+      addErrorToast("Failed to load preferences", error);
+    } finally {
+      setPreferencesPending(false);
+    }
+  };
+
+  const saveStoredProfileState = (profile: StoredProfile) => {
+    setStoredProfile(profile);
+    void loadPreferences(profile);
+  };
+
+  const forgetStoredProfileState = () => {
+    batch(() => {
+      setStoredProfile(null);
+      setPreferences(null);
+      setPreferencesError(null);
+      setPreferencesPending(false);
+    });
+  };
+
+  const aggressiveFolds = () => preferences()?.aggressive_folds ?? true;
+
+  const reloadDiff = async () => {
+    const diffParams = diff.currentParams();
+    const paramsIdentity = diff.currentParamsIdentity();
+    if (
+      diffParams !== null &&
+      paramsIdentity !== null &&
+      diffParams.mode === "preset"
+    ) {
+      try {
+        await repo.reloadPresetCatalogs();
+      } catch {
+        diff.resetDiffState("error", "Failed to reload presets.", "inline");
+        return;
+      }
+      if (diff.currentParamsIdentity() !== paramsIdentity) {
+        return;
+      }
+    }
+    diff.reloadDiff();
+  };
+
+  const navigation = createDiffNavigation({
+    appRoot: () => appRoot,
+    appHeader: () => appHeader,
+    displayFiles: ui.displayFiles,
+    isFileVirtualized: ui.isFileVirtualized,
+    layoutRevision: ui.layoutRevision,
+    virtualizationRevision: ui.virtualizationRevision,
+    loadingRevision: diff.loadingRevision,
+    diffViewMode,
+    setDirectoryExpansion: ui.setDirectoryExpansion,
+    setFileExpansion: ui.setFileExpansion,
+    setForcedRichPreloadIds: ui.setForcedRichPreloadIds,
+    forceRichFileId: ui.forceRichFileId,
+    setActiveHunkFileId: ui.setActiveHunkFileId,
+    reloadDiff,
+    toggleDiffViewMode,
+    setAllFilesExpanded: ui.setAllFilesExpanded,
+    openFileExpansion: ui.openFileExpansion,
+    openTreeDirectoryExpansion: ui.openTreeDirectoryExpansion,
+    directoryLabelForFileKey: ui.directoryLabelForFileKey,
+  });
+
+  const loadInitialDiff = (initial: InitialRepoDiff) => {
+    batch(() => {
+      setControls(initial.controls);
+    });
+    if (
+      initial.controls.tab === "pull-request" &&
+      initial.controls.pullRequestUrl.length > 0
+    ) {
+      void loadPullRequest(initial.controls.pullRequestUrl);
+      return;
+    }
+    if (initial.controls.mode === "preset") {
+      void repo.loadPresetCatalogs();
+      if (initial.controls.preset.length === 0) {
+        diff.resetDiffState(
+          "idle",
+          "Choose a preset to load a diff.",
+          "inline",
+        );
+        return;
+      }
+    }
+    diff.loadInitialControls(initial.controls, initial.engine);
+  };
+
+  const initializeRepo = async (repoId: RepoId) => {
+    diff.resetDiffState("idle", "Loading refs...", "top");
+    try {
+      const initial = await repo.initializeRepo(repoId);
+      if (initial !== null) {
+        loadInitialDiff(initial);
+      }
+    } catch (error) {
+      addErrorToast("Failed to load repo refs", error);
+      batch(() => {
+        diff.clearCurrentParams();
+        diff.resetDiffState(
+          "error",
+          error instanceof Error ? error.message : "Failed to load repo refs.",
+          "inline",
+        );
+      });
+    }
+  };
+
+  const selectRepo = (repoMark: RepoMark) => {
+    repo.selectRepo(repoMark);
+    batch(() => {
+      setControls(null);
+      diff.clearCurrentParams();
+      diff.resetDiffState("idle", "Preparing diff...", "top");
+    });
+    void initializeRepo(repoMark.id);
+  };
+
+  const removeRepo = async (repoMark: RepoMark) => {
+    diff.resetDiffState("loading", "Removing marked repo...", "top");
+    try {
+      await repo.removeRepo(repoMark.id);
+      diff.resetDiffState("idle", "Choose a repo.", "top");
+    } catch (error) {
+      diff.resetDiffState(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Failed to remove marked repo.",
+        "inline",
+      );
+    }
+  };
+
+  const loadPullRequest = async (url: string) => {
+    const pullRequestUrl = url.trim();
+    if (pullRequestUrl.length === 0) {
+      diff.resetDiffState("error", "Enter a pull request URL.", "inline");
+      return;
+    }
+    diff.resetDiffState("loading", "Preparing pull request...", "top");
+    try {
+      const prepared = await preparePullRequest(pullRequestUrl);
+      repo.selectRepoId(prepared.repo_id);
+      const initial = await repo.initializeRepo(prepared.repo_id);
+      if (initial === null) {
+        return;
+      }
+      setControls({
+        ...initial.controls,
+        tab: "pull-request",
+        mode: "branch-review",
+        pullRequestUrl: prepared.pull_request_url,
+      });
+      diff.loadPullRequest(prepared, initial.engine);
+    } catch (error) {
+      addErrorToast("Failed to prepare pull request", error);
+      diff.resetDiffState(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Failed to prepare pull request.",
+        "inline",
+      );
+    }
+  };
+
+  onMount(() => {
+    void loadPreferences();
+    void (async () => {
+      const repoId = await repo.loadReposFromUrl();
+      if (repoId === null) {
+        const pullRequestUrl = pullRequestUrlFromSearch();
+        if (pullRequestUrl.length > 0) {
+          void loadPullRequest(pullRequestUrl);
+          return;
+        }
+        diff.resetDiffState("idle", "Choose a repo to load a diff.", "inline");
+        return;
+      }
+      await initializeRepo(repoId);
+    })();
+  });
+
+  return (
+    <main ref={appRoot} class="app-shell">
+      <Header
+        storedProfile={storedProfile()}
+        preferences={preferences()}
+        preferencesPending={preferencesPending()}
+        preferencesError={preferencesError()}
+        onProfileSaved={saveStoredProfileState}
+        onProfileForgotten={forgetStoredProfileState}
+        onPreferencesSaved={setPreferences}
+        onReloadPreferences={loadPreferences}
+        repos={repo.repoList()}
+        selectedRepoId={repo.selectedRepoId()}
+        engine={diff.engine()}
+        viewMode={diffViewMode()}
+        summary={summary()}
+        loadedFilesStatus={diff.status().loadedFiles}
+        notices={notices()}
+        onHeaderMount={(element) => {
+          appHeader = element;
+        }}
+        onRepoListOpen={repo.refreshRepos}
+        onRepoChange={selectRepo}
+        onRepoRemove={removeRepo}
+        onEngineChange={diff.loadEngine}
+        onViewModeChange={setViewMode}
+      />
+
+      <Show when={repo.repoRefsError() !== null}>
+        <section class="notice error">
+          Failed to load refs: {String(repo.repoRefsError())}
+        </section>
+      </Show>
+
+      <Show when={repo.reposError() !== null}>
+        <section class="notice error">
+          Failed to load marked repos: {String(repo.reposError())}
+        </section>
+      </Show>
+
+      <Show when={preferencesError() !== null}>
+        <section class="notice error">
+          Failed to load preferences: {preferencesError()}
+        </section>
+      </Show>
+
+      <Show when={repo.repoPickerRepos() !== null}>
+        <RepoPicker
+          repos={repo.repoPickerRepos()!}
+          error={repo.repoSelectionError()}
+          onSelect={selectRepo}
+          onRemove={removeRepo}
+          onPullRequest={loadPullRequest}
+        />
+      </Show>
+
+      <Show when={repo.selectedRepoId() !== null && controls() !== null}>
+        <>
+          <Controls
+            controls={controls()!}
+            refChoices={repo.refChoices()}
+            presetCatalogs={repo.presetCatalogs()}
+            presetCatalogsError={repo.presetCatalogsError()}
+            onPresetMode={repo.loadPresetCatalogs}
+            onAgainstHead={diff.loadAgainstHead}
+            onPreset={diff.loadPreset}
+            onRefs={diff.loadRefs}
+            onPullRequest={loadPullRequest}
+            onBranchReview={diff.loadBranchReview}
+            mainBranchSaving={repo.mainBranchSaving()}
+            onSaveMainBranch={repo.saveMainBranch}
+          />
+          <Show when={inlineDiffNotice()}>
+            {(notice) => (
+              <p class={`status ${notice().state}`}>{notice().text}</p>
+            )}
+          </Show>
+          <div class="repo-fold-controls">
+            <Show
+              when={ui.displayFiles().length > 0}
+              fallback={
+                <>
+                  <button type="button" disabled>
+                    Fold all
+                  </button>
+                  <button type="button" disabled>
+                    Show all
+                  </button>
+                </>
+              }
+            >
+              <button
+                type="button"
+                onClick={() => ui.setAllFilesExpanded(false)}
+              >
+                Fold all
+              </button>
+              <button
+                type="button"
+                onClick={() => ui.setAllFilesExpanded(true)}
+              >
+                Show all
+              </button>
+            </Show>
+          </div>
+          <div
+            class="diff-workspace"
+            classList={{
+              "diff-workspace-inline": diffViewMode() === "inline",
+              "diff-workspace-tree-open": navigation.fileTreeOpen(),
+            }}
+          >
+            <GracefulErrorBoundary title="Could not render file tree">
+              <FileTreeSidebar
+                files={ui.displayFiles()}
+                tree={ui.displayFileTree()}
+                directoryExpansion={ui.directoryExpansion}
+                fileExpansion={ui.fileExpansion}
+                activeHunkFileId={ui.activeHunkFileId()}
+                isActiveHunkFileId={ui.isActiveHunkFileId}
+                isFileVirtualized={ui.isFileVirtualized}
+                viewMode={diffViewMode()}
+                open={navigation.fileTreeOpen()}
+                onOpenChange={navigation.setFileTreeOpen}
+                setDirectoryExpansion={ui.setDirectoryExpansion}
+                setFileExpansion={ui.setFileExpansion}
+                onScrollToDirectory={navigation.scrollToTreeDirectory}
+                onScrollToFile={navigation.scrollToFile}
+              />
+            </GracefulErrorBoundary>
+            <GracefulErrorBoundary title="Could not render diff">
+              <FileList
+                files={ui.displayFiles()}
+                cacheId={diff.cacheId()}
+                hunkPosition={navigation.hunkPosition()}
+                fileExpansion={ui.fileExpansion}
+                loadingFiles={diff.loadingFiles}
+                fileErrors={diff.fileErrors}
+                linePin={navigation.linePin()}
+                isForcedRichFileId={ui.isForcedRichFileId}
+                aggressiveFolds={aggressiveFolds()}
+                onFileVirtualizedChange={ui.setFileVirtualized}
+                onHydrateFile={diff.hydrateFile}
+                diffViewMode={diffViewMode()}
+                setFileExpansion={ui.setFileExpansion}
+              />
+            </GracefulErrorBoundary>
+          </div>
+          <HunkNav
+            debugOpen={navigation.debugMenuOpen()}
+            helpOpen={navigation.helpOpen()}
+            hunkPosition={navigation.hunkPosition()}
+            onHelpOpenChange={navigation.setHelpOpen}
+            onNext={navigation.scrollNext}
+            onPrev={navigation.scrollPrev}
+          />
+        </>
+      </Show>
+    </main>
+  );
+}

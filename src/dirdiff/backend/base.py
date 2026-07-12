@@ -20,6 +20,9 @@ from typing import Literal, Protocol, TypedDict
 
 SideName = str
 BranchSource = Literal["local", "remote"]
+RepoLazyReason = Literal[
+    "too_big", "generated", "deleted", "untracked", "pure_renamed"
+]
 BUILTIN_SIDES = frozenset({"head", "index", "worktree"})
 UNIFIED_HUNK_HEADER_PATTERN = re.compile(
     r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
@@ -38,6 +41,7 @@ __all__ = [
     "RemoteBranchRef",
     "RemoteBranchSelection",
     "RepoDiffPath",
+    "RepoLazyReason",
     "SideName",
     "StructuredRemoteBranchRef",
     "TextDiffError",
@@ -68,6 +72,7 @@ class RepoDiffPath:
     right_path: str | None
     display_name: str
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
+    lazy_reason_override: RepoLazyReason | None
     changed_lines: int | None = None
     added_lines: int | None = None
     removed_lines: int | None = None

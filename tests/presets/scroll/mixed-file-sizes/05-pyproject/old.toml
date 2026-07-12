@@ -1,0 +1,130 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dirdiff"
+version = "0.1.0"
+description = "Standalone browser diff viewer for real-world files"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.136.3",
+    "sqlalchemy>=2.0.50",
+    "tree-sitter>=0.25.2",
+    "tree-sitter-bash>=0.25.1",
+    "tree-sitter-clojure",
+    "tree-sitter-css>=0.25.0",
+    "tree-sitter-html>=0.23.2",
+    "tree-sitter-javascript>=0.25.0",
+    "tree-sitter-json>=0.24.8",
+    "tree-sitter-markdown>=0.5.1",
+    "tree-sitter-ocaml>=0.25.0",
+    "tree-sitter-python>=0.25.0",
+    "tree-sitter-rust>=0.24.2",
+    "tree-sitter-toml>=0.7.0",
+    "tree-sitter-typescript>=0.23.2",
+    "tree-sitter-yaml>=0.7.2",
+    "typer>=0.26.7",
+    "uvicorn>=0.49.0",
+    "watchfiles>=1.2.0",
+]
+
+[project.scripts]
+dirdiff = "dirdiff.cli:main"
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.8",
+    "cram>=0.7",
+    "flake8>=7.3.0",
+    "httpx2>=2.3.0",
+    "mypy>=2.1.0",
+    "pyrefly>=1.0.0",
+    "pytest>=8.0",
+    "ruff>=0.15.17",
+    "syrupy>=5.3.2",
+    "ty>=0.0.49",
+]
+
+[tool.uv]
+exclude-newer = "24 hours"
+
+[tool.uv.sources]
+tree-sitter-clojure = { git = "ssh://git@github.com/juliancoffeelab/tree-sitter-clojure-py.git", rev = "main" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dirdiff"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--snapshot-warn-unused"]
+
+[tool.mypy]
+exclude = ["tests/presets/"]
+python_version = "3.14"
+warn_unused_configs = true
+check_untyped_defs = true
+strict = true
+enable_error_code = ["explicit-override"]
+
+[tool.ruff]
+line-length = 80
+extend-exclude = ["tests/presets/"]
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # pyflakes,
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    # ruff specific
+    "RUF",
+    # type checking
+    "TC",
+    # pylint
+    "PL",
+    # datetime
+    "DTZ",
+    # simplify lint
+    "SIM",
+]
+ignore = [
+    # I don't agree that Optional should be deprecated
+    "UP007",
+    # use f-string instead of .format
+    # I know they both exist, now shut up
+    "UP032",
+    # ruff should re-format long lines anyway, if possible
+    "E501",
+    # because this one is annoying
+    # if I want a lambda, I want a lambda
+    "E731",
+    # move type imports under TYPE_CHECKING
+    # ok, this one is a bit insane, sorry
+    "TC002",
+    "TC001",
+    # same as the previous one but for stdlib
+    "TC003",
+    # ok, some magic values are just .. values
+    "PLR2004",
+    # Replacing logic with set theory doesn't help readability
+    "PLR1714",
+    # TODO: some functions take a lot of arguments, figure out what to do
+    # about that
+    "PLR0913",
+    # fastapi uses function calls in arugments, deal with that
+    "B008",
+    # i'm not a fan of small functions
+    "PLR0915",
+    # TODO: some functions are super branchy
+    "PLR0912",
+]

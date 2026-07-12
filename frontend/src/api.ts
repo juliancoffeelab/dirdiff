@@ -18,7 +18,7 @@ export const DiffEngineSchema = z.enum([
 ]);
 export type DiffEngine = z.infer<typeof DiffEngineSchema>;
 
-export const PresetTypeSchema = z.enum(["diff", "fold", "gumtree"]);
+export const PresetTypeSchema = z.enum(["diff", "fold", "gumtree", "scroll"]);
 export type PresetType = z.infer<typeof PresetTypeSchema>;
 
 export type ProjectId = number;
@@ -132,6 +132,7 @@ const PresetCatalogsSchema = z.strictObject({
   diff: PresetCatalogSchema,
   fold: PresetCatalogSchema,
   gumtree: PresetCatalogSchema,
+  scroll: PresetCatalogSchema,
 });
 export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
 

@@ -115,8 +115,9 @@ export const presetTypeLabels: Record<PresetType, string> = {
   diff: "Diff Presets",
   fold: "Fold Presets",
   gumtree: "GumTree Presets",
+  scroll: "Scroll Presets",
 };
-export const presetTypes: PresetType[] = ["diff", "fold", "gumtree"];
+export const presetTypes: PresetType[] = ["diff", "fold", "gumtree", "scroll"];
 export const topLevelTabs: ControlsTab[] = [
   "head",
   "refs",

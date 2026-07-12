@@ -7,6 +7,7 @@ import type {
   SyntaxSpan,
 } from "./api";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
+import { clamp } from "./utils";
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -1167,8 +1168,4 @@ function isSuppressedSyntaxClass(className: string): boolean {
   return suppressedSyntaxClassPrefixes.some(
     (prefix) => className === prefix || className.startsWith(`${prefix}-`),
   );
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }

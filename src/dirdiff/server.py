@@ -157,7 +157,7 @@ ModeParam = Literal[
     "files", "staged", "head", "refs", "branch-review", "preset"
 ]
 EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
-PresetTypeParam = Literal["diff", "fold", "gumtree"]
+PresetTypeParam = Literal["diff", "fold", "gumtree", "scroll"]
 BranchSourceParam = BranchSource
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 LazyReason = (
@@ -429,6 +429,7 @@ class PresetCatalogsResponse(ApiModel):
     diff: PresetCatalogResponse
     fold: PresetCatalogResponse
     gumtree: PresetCatalogResponse
+    scroll: PresetCatalogResponse
 
 
 class SyntaxSpanResponse(ApiModel):
@@ -828,7 +829,8 @@ def preset_project_parts(
     """Parse a preset project id from `/api/manifest` and follow-up requests.
 
     Preset mode uses `project_id` as the catalog discriminator (`diff`, `fold`,
-    or `gumtree`) and `preset_subset` as the selected group within that catalog.
+    `gumtree`, or `scroll`) and `preset_subset` as the selected group within that
+    catalog.
     The preset backend still owns validating the subset itself, including
     traversal and unknown-group checks.
     """
@@ -842,6 +844,8 @@ def preset_project_parts(
         preset_type = "fold"
     elif project_id == "gumtree":
         preset_type = "gumtree"
+    elif project_id == "scroll":
+        preset_type = "scroll"
     else:
         raise TextDiffError(f"Unknown preset project_id: {project_id}")
     return preset_type, preset_subset
@@ -967,8 +971,8 @@ def create_app(
     def preset_backend_for_type(preset_type: PresetTypeParam) -> PresetBackend:
         """Resolve which preset catalog backs a preset request.
 
-        Diff, fold, and GumTree presets live in separate catalogs because they
-        exercise different product surfaces.  Keeping that split here means
+        Diff, fold, GumTree, and scroll presets live in separate catalogs because
+        they exercise different product surfaces. Keeping that split here means
         `/api/presets` can expose all catalogs without asking any rendering
         engine to know about fixture layout.
         """
@@ -980,8 +984,12 @@ def create_app(
             return PresetBackend.discover(
                 presets_root=Path.cwd() / "tests" / "presets" / "folds"
             )
+        if preset_type == "gumtree":
+            return PresetBackend.discover(
+                presets_root=Path.cwd() / "tests" / "presets" / "gumtree"
+            )
         return PresetBackend.discover(
-            presets_root=Path.cwd() / "tests" / "presets" / "gumtree"
+            presets_root=Path.cwd() / "tests" / "presets" / "scroll"
         )
 
     def preset_catalog_for_type(
@@ -1386,6 +1394,7 @@ def create_app(
                     "diff": preset_catalog_for_type("diff"),
                     "fold": preset_catalog_for_type("fold"),
                     "gumtree": preset_catalog_for_type("gumtree"),
+                    "scroll": preset_catalog_for_type("scroll"),
                 }
             )
         except TextDiffError as exc:

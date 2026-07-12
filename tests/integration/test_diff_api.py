@@ -609,6 +609,7 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
         ("diff", "python"),
         ("fold", "python"),
         ("gumtree", "python"),
+        ("scroll", "mixed-file-sizes"),
     ]:
         response = client.get(
             "/api/manifest",
@@ -625,6 +626,49 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
         assert payload["display_name"] == preset_subset
         assert payload["cache_id"] == ""
         assert payload["tree"] != []
+
+
+def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
+    """Preset metadata should model lazy placement without giant fixture files."""
+    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    client = TestClient(
+        create_app(
+            RepoMarkStore(engine),
+            UserProfileStore(engine),
+            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+        )
+    )
+
+    manifest_response = client.get(
+        "/api/manifest",
+        params={
+            "engine": "dirdiff",
+            "mode": "preset",
+            "project_id": "scroll",
+            "preset_subset": "lazy-files",
+        },
+    )
+    lazy_info_response = client.get(
+        "/api/lazy-info",
+        params={
+            "mode": "preset",
+            "project_id": "scroll",
+            "preset_subset": "lazy-files",
+            "cache_id": "",
+        },
+    )
+
+    assert manifest_response.status_code == 200
+    assert lazy_info_response.status_code == 200
+    lazy_files = lazy_info_response.json()["files"]
+    assert [file["display_name"] for file in lazy_files] == [
+        "lazy-files/02-uv-lock/new.lock",
+        "lazy-files/04-frontend-src-RepoPicker/new.tsx",
+    ]
+    assert [file["lazy"] for file in lazy_files] == [
+        "generated",
+        "too_big",
+    ]
 
 
 def test_preset_manifest_validates_required_preset_fields(
