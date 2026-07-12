@@ -8,6 +8,11 @@ frontend/dist/
 frontend/node_modules/
 frontend/.vite
 
+# temporary test and report artifacts
+output/
+tests/e2e_temp/
+tmp/
+
 # docs
 todo.md
 findings.md
