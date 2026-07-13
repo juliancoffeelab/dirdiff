@@ -172,7 +172,7 @@ class GitBackend(WorkspaceBackendProtocol):
     def normalize_side(self, raw_side: str) -> SideName:
         """Normalize built-in diff sides while validating explicit Git refs."""
         side = raw_side.strip()
-        if not side:
+        if side == "":
             raise TextDiffError("Diff side is required.")
         if side in BUILTIN_SIDES:
             return side
@@ -342,7 +342,7 @@ class GitBackend(WorkspaceBackendProtocol):
     def branch_upstream_name(self, branch_name: str) -> str:
         """Read the upstream ref configured for a local branch."""
         normalized_branch = branch_name.strip()
-        if not normalized_branch or self.repo_root is None:
+        if normalized_branch == "" or self.repo_root is None:
             return ""
         result = self._run_git_text(
             [
@@ -487,7 +487,7 @@ class GitBackend(WorkspaceBackendProtocol):
             ["merge-base", normalized_base, normalized_branch],
             check=False,
         )
-        if merge_base.returncode != 0 or not merge_base.stdout.strip():
+        if merge_base.returncode != 0 or merge_base.stdout.strip() == "":
             raise TextDiffError(
                 f"Could not find a merge base between {normalized_base} and {normalized_branch}."
             )
@@ -698,7 +698,7 @@ class GitBackend(WorkspaceBackendProtocol):
         """Normalize and validate a repo-relative path without escaping root."""
         if self.repo_root is None:
             raise TextDiffError("Git-backed diff mode requires a Git repo.")
-        if not raw_path.strip():
+        if raw_path.strip() == "":
             raise TextDiffError("Repo path is required.")
         if raw_path.endswith("/"):
             raise TextDiffError("Repo path must point to a file.")

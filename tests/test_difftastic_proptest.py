@@ -429,7 +429,7 @@ def test_difftastic_preset_tokens_stay_in_source_order(
             if tokens is None:
                 continue
             assert isinstance(tokens, list)
-            if not tokens:
+            if tokens == []:
                 continue
             text = row.get(text_key)
             assert isinstance(text, str)
@@ -952,7 +952,7 @@ def test_difftastic_preset_replace_tokens_are_paired_on_both_sides(
     rows, _, _ = _preset_rows(preset_dir)
 
     diagnostics = _unpaired_replace_token_diagnostics(rows)
-    assert not diagnostics, diagnostics
+    assert diagnostics == [], diagnostics
 
 
 @pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)

@@ -321,7 +321,7 @@ class PresetBackend(WorkspaceBackendProtocol):
     @override
     def normalize_repo_path(self, raw_path: str) -> str:
         """Validate the <group>/<fixture>/<file> path shape used by presets."""
-        if not raw_path.strip():
+        if raw_path.strip() == "":
             raise TextDiffError("Preset path is required.")
         if raw_path.endswith("/"):
             raise TextDiffError("Preset path must point to a file.")
