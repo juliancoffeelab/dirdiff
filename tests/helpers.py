@@ -32,8 +32,6 @@ from dirdiff.engines import (
 )
 from dirdiff.notebooks import (
     build_notebook_diff_payload,
-    build_notebook_section_payload,
-    normalize_notebook_document,
 )
 from dirdiff.rendering import (
     default_expanded_for_payload,
@@ -199,12 +197,9 @@ def build_loaded_diff(
             "right_exists": right_exists,
         },
         "rows": display["rows"],
+        "hunk_count": display["hunk_count"],
         "default_expanded": False,
     }
-    if "render_mode" in display:
-        payload["render_mode"] = display["render_mode"]
-    if "truncated_rows" in display:
-        payload["truncated_rows"] = display["truncated_rows"]
     if "fold_hints" in display:
         payload["fold_hints"] = display["fold_hints"]
     payload["default_expanded"] = default_expanded_for_payload(payload)
@@ -307,10 +302,6 @@ def build_workspace_file_payload(
     }
     if "engine_warning" in rendered:
         payload["engine_warning"] = rendered["engine_warning"]
-    if "render_mode" in display:
-        payload["render_mode"] = display["render_mode"]
-    if "truncated_rows" in display:
-        payload["truncated_rows"] = display["truncated_rows"]
     if "fold_hints" in display:
         payload["fold_hints"] = display["fold_hints"]
     payload["default_expanded"] = default_expanded_for_payload(payload)
@@ -384,44 +375,6 @@ class WorkspaceDiffServiceAdapter:
 
     def normalize_side(self, raw_side: str) -> str:
         return self.backend.normalize_side(raw_side)
-
-    def build_notebook_section_diff(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        section: str | None,
-        cell_key: str | None = None,
-    ) -> dict[str, Any]:
-        context = load_diff_sides(
-            backend=self.backend,
-            left_path=left_path,
-            right_path=right_path,
-            left=left,
-            right=right,
-        )
-        left_version = context["left_version"]
-        right_version = context["right_version"]
-        left_notebook = (
-            normalize_notebook_document(left_version.text)
-            if left_version.exists and left_version.text is not None
-            else None
-        )
-        right_notebook = (
-            normalize_notebook_document(right_version.text)
-            if right_version.exists and right_version.text is not None
-            else None
-        )
-        return build_notebook_section_payload(
-            left_notebook=left_notebook,
-            right_notebook=right_notebook,
-            left_label=context["left_label"],
-            right_label=context["right_label"],
-            section=section,
-            cell_key=cell_key,
-        )
 
 
 class TextDiffService(WorkspaceDiffServiceAdapter):

@@ -17,10 +17,13 @@ import type {
 } from "../api";
 import {
   type FileTreeDirectoryNode,
+  type RenderedFile,
   type RenderedFileEntry,
+  type RenderedFileSlot,
   addHydratedNotebookSummary,
   fileTreeFromManifestTree,
   fileEntryIsHydrated,
+  fileElementId,
   fileKey,
   manifestDirectoryLabelsByFileKey,
   manifestFileEntriesFromTree,
@@ -63,10 +66,10 @@ type DiffDataState = {
   // /api/file-diff and /api/lazy-info fetch order; this stored copy is read
   // only for rendering and expansion lookups.
   manifestTree: ManifestTreeEntry[];
-  // Results from /api/file-diff and /api/lazy-info, keyed by fileKey().
-  // upsertFile()/upsertFiles() write it as fetches finish; displayFiles() and
-  // displayFileTree() read it without changing depth-first manifest order.
-  filesByKey: Record<string, RenderedFileEntry | undefined>;
+  // Manifest slots are keyed by fileKey(). Each tuple owns the snapshot-local
+  // depth-first index even before its /api/file-diff or /api/lazy-info payload
+  // arrives; payload hydration replaces only the tuple's second item.
+  filesByKey: Record<string, RenderedFileSlot | undefined>;
   // Summary from the fetched /api/manifest response. summary() starts here and
   // adds client-side counts from hydrated notebook files in filesByKey.
   baseSummary: Summary;
@@ -222,18 +225,25 @@ export function createDiffUiState() {
   };
 
   const displayFiles = createMemo(() => {
-    const files: RenderedFileEntry[] = [];
+    const files: RenderedFile[] = [];
     // Main diff cards follow the same depth-first manifest walk used for
     // fetching, then skip entries whose file payload has not arrived yet.
     for (const entry of manifestFileEntriesFromTree(diffData.manifestTree)) {
       const key = fileKey(entry);
-      const file = diffData.filesByKey[key];
-      if (file !== undefined) {
-        files.push(file);
+      const slot = diffData.filesByKey[key];
+      if (slot !== undefined && slot[1] !== null) {
+        files.push(slot);
       }
     }
     return files;
   });
+
+  /** Count every upfront manifest file, including unresolved lazy files. */
+  const manifestFileCount = createMemo(
+    () => Object.keys(diffData.filesByKey).length,
+  );
+  /** Expose the load id that namespaces all snapshot-local hunk identities. */
+  const diffRevision = createMemo(() => diffData.loadId);
 
   const displayFileTree = createMemo(() =>
     fileTreeFromManifestTree(diffData.manifestTree, diffData.filesByKey),
@@ -245,7 +255,7 @@ export function createDiffUiState() {
 
   const summary = createMemo(() => {
     let nextSummary = diffData.baseSummary;
-    for (const file of displayFiles()) {
+    for (const [, file] of displayFiles()) {
       if (file.sourceLoadId === diffData.loadId) {
         nextSummary = addHydratedNotebookSummary(nextSummary, file);
       }
@@ -253,16 +263,27 @@ export function createDiffUiState() {
     return nextSummary;
   });
 
-  /**
-   * Seed the rich-render preload window until navigation chooses a concrete
-   * hunk/file target. Once a user/navigation action forces rich files, that
-   * explicit choice wins until the view state is reset.
+  /** Keep preload ids valid while preserving still-relevant rich file cards.
+   *
+   * Reloads may replace or reorder the manifest without resetting view state.
+   * Stale ids must not suppress the new boundary preload, while ids that still
+   * name rendered files remain forced to avoid introducing a reload layout
+   * jump, including hydrated lazy files explicitly materialized by navigation.
    */
   createEffect(() => {
-    if (stringSetSnapshot(viewState.forcedRichFileIds).length > 0) {
-      return;
+    const files = displayFiles();
+    const validIds = new Set(
+      files.map(([, file]) => fileElementId(fileKey(file))),
+    );
+    const nextIds = stringSetSnapshot(viewState.forcedRichFileIds).filter(
+      (id) => validIds.has(id),
+    );
+    for (const id of richPreloadFileIdsForFileId(activeHunkFileId(), files)) {
+      if (!nextIds.includes(id)) {
+        nextIds.push(id);
+      }
     }
-    setForcedRichPreloadIds(richPreloadFileIdsForFileId(null, displayFiles()));
+    setForcedRichPreloadIds(nextIds);
   });
 
   const clearLoadedDiff = () => {
@@ -277,40 +298,44 @@ export function createDiffUiState() {
     mode: "replace" | "reconcile",
   ) => {
     const manifestFiles = manifestFileEntriesFromTree(payload.tree);
-    const activeKeys = new Set(manifestFiles.map((entry) => fileKey(entry)));
     const lazyKeys = new Set(
       manifestFiles.flatMap((entry) =>
         entry.lazy === null ? [] : [fileKey(entry)],
       ),
     );
+    const currentFilesByKey = unwrap(diffData.filesByKey);
+    const nextFilesByKey = Object.fromEntries(
+      manifestFiles.map((entry, fileIndex) => {
+        const key = fileKey(entry);
+        const currentSlot = currentFilesByKey[key];
+        let retainedFile: RenderedFileEntry | null = null;
+        if (mode === "reconcile") {
+          const currentFile = currentSlot?.[1] ?? null;
+          if (currentFile !== null) {
+            const retainEagerFile =
+              !lazyKeys.has(key) && !renderedFileIsPendingLazy(currentFile);
+            const retainHydratedLazyFile =
+              lazyKeys.has(key) && renderedFileIsHydratedLazy(currentFile);
+            if (retainEagerFile || retainHydratedLazyFile) {
+              retainedFile = currentFile;
+            }
+          }
+        }
+        if (
+          currentSlot !== undefined &&
+          currentSlot[0] === fileIndex &&
+          currentSlot[1] === retainedFile
+        ) {
+          return [key, currentSlot];
+        }
+        return [key, [fileIndex, retainedFile] satisfies RenderedFileSlot];
+      }),
+    );
     batch(() => {
       setDiffData("loadId", loadId);
       setDiffData("baseSummary", payload.summary);
       setDiffData("manifestTree", reconcile(payload.tree));
-      if (mode === "replace") {
-        setDiffData("filesByKey", reconcile({}));
-      } else {
-        for (const key of Object.keys(unwrap(diffData.filesByKey))) {
-          const currentFile = diffData.filesByKey[key];
-          if (currentFile === undefined) {
-            continue;
-          }
-          if (!activeKeys.has(key)) {
-            setDiffData("filesByKey", key, undefined);
-            continue;
-          }
-          if (!lazyKeys.has(key)) {
-            if (renderedFileIsPendingLazy(currentFile)) {
-              setDiffData("filesByKey", key, undefined);
-            }
-            continue;
-          }
-          if (renderedFileIsHydratedLazy(currentFile)) {
-            continue;
-          }
-          setDiffData("filesByKey", key, undefined);
-        }
-      }
+      setDiffData("filesByKey", reconcile(nextFilesByKey));
       bumpLayoutRevision();
     });
   };
@@ -321,6 +346,11 @@ export function createDiffUiState() {
     sourceLoadId: number,
     originalLazyReason: LazyReason | null,
   ) => {
+    const key = fileKey(entry);
+    const slot = diffData.filesByKey[key];
+    if (slot === undefined) {
+      throw new Error(`Missing manifest file slot for ${key}.`);
+    }
     const file = renderedFileEntry(
       entry,
       sourceParams,
@@ -328,7 +358,7 @@ export function createDiffUiState() {
       originalLazyReason,
     );
     batch(() => {
-      setDiffData("filesByKey", file.renderedKey, file);
+      setDiffData("filesByKey", file.renderedKey, [slot[0], file]);
       bumpLayoutRevision();
     });
   };
@@ -352,7 +382,7 @@ export function createDiffUiState() {
   };
 
   const currentHydratedLazyKeys = (): string[] =>
-    displayFiles().flatMap((file) =>
+    displayFiles().flatMap(([, file]) =>
       renderedFileIsHydratedLazy(file) ? [file.renderedKey] : [],
     );
 
@@ -410,7 +440,7 @@ export function createDiffUiState() {
         "fileExpansion",
         reconcile(
           Object.fromEntries(
-            currentFiles.map((file) => [fileKey(file), expanded]),
+            currentFiles.map(([, file]) => [fileKey(file), expanded]),
           ),
         ),
       );
@@ -473,6 +503,8 @@ export function createDiffUiState() {
     layoutRevision,
     virtualizationRevision,
     displayFiles,
+    manifestFileCount,
+    diffRevision,
     displayFileTree,
     directoryLabelForFileKey,
     resetViewState,

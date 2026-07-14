@@ -9,15 +9,22 @@
  * a hunk outside both the visible viewport and the file at the reading line.
  */
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
-import type { FileEntry } from "./api";
-import { fileElementId, fileKey } from "./fileUtils";
-import { clamp, wrapIndex } from "./utils";
+import {
+  type RenderedFile,
+  type RenderedFileEntry,
+  fileElementId,
+  fileKey,
+} from "./fileUtils";
+import { wrapIndex } from "./utils";
 
 type HunkNavigationOptions = {
-  afterReconcile?: () => void;
+  files: Accessor<RenderedFile[]>;
+  manifestFileCount: Accessor<number>;
+  diffRevision: Accessor<number>;
+  onDevirtualizeFile: (file: RenderedFile) => void;
+  onSelectionClear: () => void;
   onSelectionChange?: (selection: {
-    anchors: HunkAnchor[];
-    index: number;
+    target: HunkSelection;
     selected: HTMLElement;
   }) => void;
 };
@@ -26,38 +33,26 @@ const READING_LINE_RATIO = 0.5;
 const RICH_PRELOAD_FILE_RADIUS = 2;
 
 type HunkAnchor = HTMLElement;
-type HunkPosition = {
+export type HunkIdentity = {
+  fileIndex: number;
+  hunkIndex: number;
+};
+export type HunkSelection =
+  | {
+      fileIndex: number;
+      hunkIndex: number;
+    }
+  | {
+      fileIndex: number;
+      hunkIndex: null;
+      entryDirection: 1 | -1;
+    };
+export type HunkPosition = {
   current: number;
   total: number;
+  incomplete: boolean;
+  selected: HunkSelection | null;
 };
-
-/**
- * Return the DOM id of the file card containing `anchor`.
- *
- * Callers may pass a virtual or rich hunk anchor. An anchor outside a mounted
- * `.file-card` returns `null`, allowing preload calculation to fall back to its
- * boundary files instead of inventing a file association.
- */
-export function fileIdForHunkAnchor(anchor: HTMLElement): string | null {
-  const fileCard = anchor.closest<HTMLElement>(".file-card");
-  if (fileCard === null) {
-    return null;
-  }
-  return fileCard.id;
-}
-
-/**
- * Return the eager file-card ids that should remain rich around `anchor`.
- *
- * Lazy files are intentionally excluded because their content is unavailable;
- * the first and last eager files remain included for boundary navigation.
- */
-export function richPreloadFileIdsForAnchor(
-  anchor: HTMLElement,
-  files: FileEntry[],
-): string[] {
-  return richPreloadFileIdsForFileId(fileIdForHunkAnchor(anchor), files);
-}
 
 /**
  * Return the eager file-card ids kept rich around `activeFileId`.
@@ -68,11 +63,11 @@ export function richPreloadFileIdsForAnchor(
  */
 export function richPreloadFileIdsForFileId(
   activeFileId: string | null,
-  files: FileEntry[],
+  files: RenderedFile[],
 ): string[] {
   const preloadFileIds = files
-    .filter((file) => file.lazy === null)
-    .map((file) => fileElementId(fileKey(file)));
+    .filter(([, file]) => file.lazy === null)
+    .map(([, file]) => fileElementId(fileKey(file)));
   if (!preloadFileIds.length) {
     return [];
   }
@@ -127,9 +122,8 @@ export function shouldIgnoreGlobalHotkeyEvent(event: KeyboardEvent): boolean {
 /**
  * Return every mounted hunk anchor below `root`, in document order.
  *
- * DOM order is the canonical global hunk order used by both navigation and the
- * visible `current/total` number; this function performs no visibility or
- * selectability filtering.
+ * DOM order is used only for viewport geometry. Identity, navigation order,
+ * and counters come from backend file/hunk coordinates.
  */
 function hunkAnchorElements(root: ParentNode | undefined): HTMLElement[] {
   return [
@@ -152,13 +146,21 @@ function hunkAnchorRoot(root: ParentNode | undefined): ParentNode {
 }
 
 /**
- * Return the ordered hunk anchors used for indexing and the hunk number.
+ * Return the currently mounted hunk anchors used for geometry and resolution.
  *
  * The alias gives navigation code the `HunkAnchor` vocabulary while delegating
  * the actual DOM query and root fallback to the functions above.
  */
 function hunkAnchors(root: ParentNode | undefined): HunkAnchor[] {
   return hunkAnchorElements(root);
+}
+
+/** Return every DOM element that can carry explicit navigation selection. */
+function selectionAnchorElements(root: ParentNode | undefined): HTMLElement[] {
+  return [
+    ...hunkAnchorElements(root),
+    ...hunkAnchorRoot(root).querySelectorAll<HTMLElement>(".lazy-hunk-anchor"),
+  ];
 }
 
 /**
@@ -176,7 +178,7 @@ function anchorIsVisible(anchor: HTMLElement): boolean {
 /**
  * Report whether navigation may select an anchor.
  *
- * `.hunk-skip` anchors preserve global indexing and layout but are deliberately
+ * `.hunk-skip` anchors preserve folded/collapsed geometry but are deliberately
  * excluded as navigation destinations and scroll-follow results.
  */
 function anchorIsSelectable(anchor: HTMLElement): boolean {
@@ -184,41 +186,141 @@ function anchorIsSelectable(anchor: HTMLElement): boolean {
 }
 
 /**
- * Return the selectable anchor at the clamped index, or `null` for a skipped or
- * missing anchor.
+ * Read and validate the snapshot-local identity rendered on a hunk anchor.
  *
- * Callers must provide at least one anchor so the clamp interval is valid.
- * Explicit navigation uses this to distinguish "re-center the current hunk"
- * from "advance to another hunk" after virtualization changes mounted nodes.
+ * Every rich, virtual, inline, split, or folded representation must expose
+ * both non-negative coordinates. Missing or malformed data is an application
+ * error rather than permission to infer identity from DOM order.
  */
-function currentSelectableAnchor(
-  anchors: HunkAnchor[],
-  index: number,
-): HTMLElement | null {
-  const anchor = anchors[clamp(index, 0, anchors.length - 1)];
-  if (anchor === undefined || !anchorIsSelectable(anchor)) {
-    return null;
+function hunkIdentityForAnchor(anchor: HunkAnchor): HunkIdentity {
+  const fileIndex = Number(anchor.dataset.fileIndex);
+  const hunkIndex = Number(anchor.dataset.hunkIndex);
+  if (
+    !Number.isInteger(fileIndex) ||
+    fileIndex < 0 ||
+    !Number.isInteger(hunkIndex) ||
+    hunkIndex < 0
+  ) {
+    throw new Error("Hunk anchor has an invalid file/hunk identity.");
   }
-  return anchor;
+  return { fileIndex, hunkIndex };
 }
 
 /**
- * Apply the active-hunk DOM state at `options.index` and optionally center it.
+ * Return whether two snapshot-local identities name the same hunk.
  *
- * Callers must provide a root containing at least one hunk anchor. The returned
- * element is the exact node marked with `active-hunk` and `aria-current`.
+ * Equality deliberately ignores DOM nodes and derived global positions, both
+ * of which may change while the file/hunk coordinates remain selected.
+ */
+function hunkIdentitiesEqual(
+  left: HunkSelection | null,
+  right: HunkSelection | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  if (
+    left.fileIndex !== right.fileIndex ||
+    left.hunkIndex !== right.hunkIndex
+  ) {
+    return false;
+  }
+  if (left.hunkIndex !== null && right.hunkIndex !== null) {
+    return true;
+  }
+  if (left.hunkIndex === null && right.hunkIndex === null) {
+    return left.entryDirection === right.entryDirection;
+  }
+  return false;
+}
+
+/**
+ * Resolve one identity against the current DOM and reject duplicate anchors.
+ *
+ * Node replacement is expected, so callers query on demand. At most one
+ * selectable representation may exist for a hunk in the active view.
+ */
+function anchorForHunkIdentity(
+  root: ParentNode | undefined,
+  identity: HunkIdentity,
+): HunkAnchor | null {
+  const selector = [
+    ".hunk-anchor:not(.hunk-skip)",
+    `[data-file-index="${identity.fileIndex}"]`,
+    `[data-hunk-index="${identity.hunkIndex}"]`,
+  ].join("");
+  const matches = [
+    ...hunkAnchorRoot(root).querySelectorAll<HTMLElement>(selector),
+  ];
+  if (matches.length > 1) {
+    throw new Error(
+      `Duplicate selectable hunk identity: ${identity.fileIndex}:${identity.hunkIndex}.`,
+    );
+  }
+  return matches[0] ?? null;
+}
+
+/**
+ * Resolve the visible lazy plank representing one unresolved file.
+ *
+ * Lazy planks are navigation-only pseudo-hunks. They deliberately are not
+ * `.hunk-anchor` elements, so ordinary scroll-follow does not mistake a file
+ * with unknown hunks for a backend hunk.
+ */
+function anchorForLazyFile(
+  root: ParentNode | undefined,
+  fileIndex: number,
+): HTMLElement | null {
+  const selector = `.lazy-hunk-anchor[data-file-index="${fileIndex}"]`;
+  const matches = [
+    ...hunkAnchorRoot(root).querySelectorAll<HTMLElement>(selector),
+  ];
+  if (matches.length > 1) {
+    throw new Error(`Duplicate lazy pseudo-hunk for file ${fileIndex}.`);
+  }
+  return matches[0] ?? null;
+}
+
+/** Return the mounted DOM target for a real hunk or lazy pseudo-hunk. */
+function anchorForSelection(
+  root: ParentNode | undefined,
+  selection: HunkSelection,
+): HTMLElement | null {
+  if (selection.hunkIndex === null) {
+    return anchorForLazyFile(root, selection.fileIndex);
+  }
+  return anchorForHunkIdentity(root, selection);
+}
+
+/**
+ * Return the exact backend hunk count, or `null` for an unresolved file.
+ *
+ * Zero is a completed file diff with no hunks. `null` is kept distinct so the
+ * global counter can display `+` and navigation can request lazy hydration.
+ */
+function fileHunkCount(file: RenderedFileEntry): number | null {
+  if (file.hunk_count === undefined) {
+    return null;
+  }
+  return file.hunk_count;
+}
+
+/**
+ * Apply the active-hunk DOM state for one identity and optionally center it.
+ *
+ * Returns `null` when its representation is not mounted yet. The returned
+ * element is otherwise the exact node marked `active-hunk` and `aria-current`.
  */
 function selectCurrentHunk(options: {
-  index: number;
+  selection: HunkSelection;
   scroll: boolean;
   root: ParentNode | undefined;
-}): HTMLElement {
-  const anchors = hunkAnchors(options.root);
-  const anchorElements = hunkAnchorElements(options.root);
-  if (anchors.length === 0) {
-    throw new Error("Cannot select hunk without mounted hunk anchors.");
+}): HTMLElement | null {
+  const anchorElements = selectionAnchorElements(options.root);
+  const selected = anchorForSelection(options.root, options.selection);
+  if (selected === null) {
+    return null;
   }
-  const selected = anchors[clamp(options.index, 0, anchors.length - 1)];
   for (const anchor of anchorElements) {
     anchor.classList.remove("active-hunk");
     anchor.removeAttribute("aria-current");
@@ -232,31 +334,6 @@ function selectCurrentHunk(options: {
     });
   }
   return selected;
-}
-
-/**
- * Find the next selectable anchor while wrapping in `direction`.
- *
- * Navigation must step over structural `.hunk-skip` anchors without changing
- * the global index space. Returns `null` only when no selectable destination is
- * mounted.
- */
-function nextSelectableIndex(
-  anchors: HunkAnchor[],
-  startIndex: number,
-  direction: 1 | -1,
-): number | null {
-  if (!anchors.some(anchorIsSelectable)) {
-    return null;
-  }
-  let index = wrapIndex(startIndex, anchors.length);
-  for (let steps = 0; steps < anchors.length; steps += 1) {
-    if (anchorIsSelectable(anchors[index])) {
-      return index;
-    }
-    index = wrapIndex(index + direction, anchors.length);
-  }
-  return null;
 }
 
 /**
@@ -276,14 +353,18 @@ function nextSelectableIndex(
  */
 export function createHunkNavigation(
   root: () => ParentNode | undefined,
-  options: HunkNavigationOptions = {},
+  options: HunkNavigationOptions,
 ) {
-  const [currentIndex, setCurrentIndex] = createSignal(0);
+  const [currentIdentity, setCurrentIdentity] =
+    createSignal<HunkSelection | null>(null);
   const [position, setPosition] = createSignal<HunkPosition>({
     current: 0,
     total: 0,
+    incomplete: false,
+    selected: null,
   });
   let reconcileTimer: number | null = null;
+  let selectedRevision = options.diffRevision();
   // A `scroll` event may follow user input, `scrollIntoView`, browser anchoring,
   // or a virtualization layout change. This flag is set only by recognized
   // user input and remains set through browser momentum until `scrollend`.
@@ -302,62 +383,98 @@ export function createHunkNavigation(
   const anchors = () => hunkAnchors(root());
 
   /**
-   * Update the public one-based hunk number without changing DOM selection.
+   * Derive the public global counter from backend-owned per-file hunk counts.
    *
-   * An empty rendered diff is reported as `0/0`; otherwise the supplied global
-   * index is converted to the number shown in each visible file header.
+   * Each unresolved rendered file contributes exactly one provisional lazy
+   * pseudo-hunk and marks the counter incomplete. The selected target remains
+   * stable when a directly hydrated earlier file replaces its provisional slot
+   * with exact backend hunks.
    */
-  const syncPosition = (
-    currentAnchors: HunkAnchor[],
-    selectedIndex: number,
-  ) => {
-    if (currentAnchors.length === 0) {
-      setPosition({ current: 0, total: 0 });
-      return;
+  const syncPosition = (identity: HunkSelection | null) => {
+    const currentFiles = options.files();
+    let total = 0;
+    let current = 0;
+    let identityFound = false;
+    for (const [fileIndex, file] of currentFiles) {
+      const hunkCount = fileHunkCount(file);
+      if (hunkCount === null) {
+        if (identity !== null && fileIndex === identity.fileIndex) {
+          if (identity.hunkIndex !== null) {
+            throw new Error(
+              `Selected real hunk ${identity.fileIndex}:${identity.hunkIndex} belongs to an unresolved file.`,
+            );
+          }
+          current = total + 1;
+          identityFound = true;
+        }
+        total += 1;
+        continue;
+      }
+      if (identity !== null && fileIndex === identity.fileIndex) {
+        if (identity.hunkIndex === null) {
+          if (hunkCount > 0) {
+            current = total + (identity.entryDirection === 1 ? 1 : hunkCount);
+            identityFound = true;
+          }
+        } else if (identity.hunkIndex >= hunkCount) {
+          throw new Error(
+            `Hunk ${identity.fileIndex}:${identity.hunkIndex} exceeds its file hunk count.`,
+          );
+        } else {
+          current = total + identity.hunkIndex + 1;
+          identityFound = true;
+        }
+      }
+      total += hunkCount;
     }
+    const resolvedFiles = currentFiles.filter(
+      ([, file]) => fileHunkCount(file) !== null,
+    ).length;
+    const incomplete = resolvedFiles < options.manifestFileCount();
     setPosition({
-      current: selectedIndex + 1,
-      total: currentAnchors.length,
+      current: identityFound ? current : 0,
+      total,
+      incomplete,
+      selected: identityFound ? identity : null,
     });
   };
 
   /**
-   * Apply one indexed selection and optionally notify the application.
+   * Apply one real or lazy pseudo-hunk target and optionally notify the app.
    *
-   * Hunk selection and `currentIndex` writes are allowed only from:
+   * Hunk selection and `currentIdentity` writes are allowed only from:
    *
    * 1. `scrollNext`.
    * 2. `scrollPrev`.
    * 3. The functional `scroll` handler inside `followScroll`.
    *
    * Reconciliation, virtualization, rendering, and layout effects must not
-   * choose a hunk. With no mounted anchors, this function reports `0/0` and
-   * leaves selection unchanged.
+   * choose a different hunk. If the requested target has no mounted
+   * selectable representation, this function returns `false` and leaves the
+   * selection unchanged.
    */
   const select = (selectionOptions: {
-    index: number;
+    target: HunkSelection;
     notify: boolean;
     scroll: boolean;
   }) => {
-    const currentAnchors = anchors();
-    if (!currentAnchors.length) {
-      setPosition({ current: 0, total: 0 });
-      return;
-    }
-    const index = clamp(selectionOptions.index, 0, currentAnchors.length - 1);
     const selected = selectCurrentHunk({
-      index,
+      selection: selectionOptions.target,
       scroll: selectionOptions.scroll,
       root: root(),
     });
-    syncPosition(currentAnchors, index);
+    if (selected === null) {
+      return false;
+    }
+    setCurrentIdentity(selectionOptions.target);
+    syncPosition(selectionOptions.target);
     if (selectionOptions.notify) {
       options.onSelectionChange?.({
-        anchors: currentAnchors,
-        index,
+        target: selectionOptions.target,
         selected,
       });
     }
+    return true;
   };
 
   /**
@@ -375,6 +492,29 @@ export function createHunkNavigation(
   };
 
   /**
+   * Clear selection immediately when a new diff snapshot replaces the old one.
+   *
+   * Snapshot-local file/hunk coordinates cannot survive a revision change.
+   * This invalidation must not share the delayed reconciliation timer: file
+   * payloads may keep restarting that timer throughout a long reload, leaving
+   * an old coordinate attached to unrelated content in the new snapshot.
+   */
+  const invalidateSelectionForRevision = () => {
+    const revision = options.diffRevision();
+    if (revision === selectedRevision) {
+      return;
+    }
+    selectedRevision = revision;
+    setCurrentIdentity(null);
+    options.onSelectionClear();
+    for (const anchor of selectionAnchorElements(root())) {
+      anchor.classList.remove("active-hunk");
+      anchor.removeAttribute("aria-current");
+    }
+    syncPosition(null);
+  };
+
+  /**
    * Find the hunk represented at the viewport reading line.
    *
    * Candidates must be selectable, visible, and inside the file card crossing
@@ -389,10 +529,8 @@ export function createHunkNavigation(
     }
 
     const readingLineY = window.innerHeight * READING_LINE_RATIO;
-    const candidateAnchorEntries = currentAnchors.flatMap((anchor, index) =>
-      anchorIsSelectable(anchor) && anchorIsVisible(anchor)
-        ? [{ anchor, index }]
-        : [],
+    const candidateAnchorEntries = currentAnchors.flatMap((anchor) =>
+      anchorIsSelectable(anchor) && anchorIsVisible(anchor) ? [{ anchor }] : [],
     );
     if (candidateAnchorEntries.length === 0) {
       return null;
@@ -419,76 +557,163 @@ export function createHunkNavigation(
     );
     const eligibleAnchors =
       precedingAnchors.length > 0 ? precedingAnchors : readingFileAnchors;
-    return eligibleAnchors.reduce((selected, candidate) => {
+    const selected = eligibleAnchors.reduce((selected, candidate) => {
       const selectedTop = selected.anchor.getBoundingClientRect().top;
       const candidateTop = candidate.anchor.getBoundingClientRect().top;
       if (precedingAnchors.length > 0) {
         return candidateTop > selectedTop ? candidate : selected;
       }
       return candidateTop < selectedTop ? candidate : selected;
-    }).index;
+    });
+    return hunkIdentityForAnchor(selected.anchor);
   };
 
   /**
    * Refresh the public hunk total after rendered anchors settle.
    *
    * The short delay coalesces Solid DOM updates. Reconciliation clamps the
-   * displayed value to the mounted anchor count but never selects another hunk
-   * or moves the viewport.
+   * displayed value from backend file counts without selecting a hunk or
+   * moving the viewport.
+   *
+   * Invariant: reconciliation must never call `select`, explicit navigation,
+   * `scrollIntoView`, or any other code that can choose a hunk or move the
+   * viewport. Selection is changed only by Next, Previous, or recognized user
+   * scrolling.
    */
   const reconcile = () => {
     cancelReconcileTimer();
     reconcileTimer = window.setTimeout(() => {
       reconcileTimer = null;
-      const currentAnchors = anchors();
-      if (currentAnchors.length === 0) {
-        setPosition({ current: 0, total: 0 });
-        options.afterReconcile?.();
-        return;
-      }
-
-      const nextIndex = clamp(currentIndex(), 0, currentAnchors.length - 1);
-      syncPosition(currentAnchors, nextIndex);
-      options.afterReconcile?.();
+      const identity = currentIdentity();
+      syncPosition(identity);
     }, 120);
   };
 
   /**
-   * Resolve the target for explicit next/previous navigation.
+   * Return the rich DOM anchor for one real hunk navigation candidate.
    *
-   * A selected hunk that became off-screen is re-centered before advancing.
-   * Otherwise navigation wraps to the next selectable mounted anchor. Calling
-   * without mounted anchors is an application error.
+   * A virtual anchor identifies the target but is never selected or scrolled.
+   * The file is forced rich first, then the same backend identity is resolved
+   * again. Solid rendering is synchronous here; retaining a virtual or missing
+   * anchor after devirtualization is an application error.
    */
-  const explicitScrollTarget = (direction: 1 | -1) => {
-    const currentAnchors = anchors();
-    if (!currentAnchors.length) {
-      console.error(
-        "[dirdiff] Hunk navigation requested with no mounted hunk anchors.",
-      );
+  const richAnchorForNavigation = (
+    file: RenderedFile,
+    identity: HunkIdentity,
+  ): HunkAnchor | null => {
+    let anchor = anchorForHunkIdentity(root(), identity);
+    if (anchor === null) {
+      return null;
+    }
+    if (!anchor.classList.contains("virtual-hunk-anchor")) {
+      return anchor;
+    }
+    options.onDevirtualizeFile(file);
+    anchor = anchorForHunkIdentity(root(), identity);
+    if (anchor === null || anchor.classList.contains("virtual-hunk-anchor")) {
       throw new Error(
-        "Hunk navigation requested with no mounted hunk anchors.",
+        `File ${identity.fileIndex} did not render rich hunk ${identity.hunkIndex} synchronously.`,
       );
     }
+    return anchor;
+  };
 
-    const currentAnchor = currentSelectableAnchor(
-      currentAnchors,
-      currentIndex(),
+  /**
+   * Return the next/previous navigation target in manifest and hunk order.
+   *
+   * Real hunk targets are forced rich before they can be returned. Folded
+   * targets have only `.hunk-skip` anchors and are skipped. An unresolved lazy
+   * file contributes one pseudo-hunk that scrolls to its plank without
+   * hydrating it.
+   */
+  const explicitNavigationTarget = (
+    direction: 1 | -1,
+  ): HunkSelection | null => {
+    const identity = currentIdentity();
+    const filesByIndex = new Map(
+      options.files().map(([fileIndex, file]) => [fileIndex, file] as const),
     );
-    if (currentAnchor !== null && !anchorIsVisible(currentAnchor)) {
-      return { index: currentIndex(), scroll: true };
+    if (identity !== null && identity.hunkIndex !== null) {
+      const currentFile = filesByIndex.get(identity.fileIndex);
+      if (currentFile === undefined) {
+        return null;
+      }
+      const currentAnchor = richAnchorForNavigation(
+        [identity.fileIndex, currentFile],
+        identity,
+      );
+      if (currentAnchor !== null && !anchorIsVisible(currentAnchor)) {
+        return identity;
+      }
+    } else if (identity !== null) {
+      const currentAnchor = anchorForLazyFile(root(), identity.fileIndex);
+      if (currentAnchor !== null && !anchorIsVisible(currentAnchor)) {
+        return identity;
+      }
     }
 
-    const nextIndex = nextSelectableIndex(
-      currentAnchors,
-      currentIndex() + direction,
-      direction,
-    );
-    if (nextIndex === null) {
-      return { index: 0, scroll: false };
+    const fileCount = options.manifestFileCount();
+    if (fileCount === 0) {
+      throw new Error("Hunk navigation requires a loaded file manifest.");
     }
+    const initialFileIndex =
+      identity?.fileIndex ?? (direction === 1 ? 0 : fileCount - 1);
+    const visitedFileSteps = fileCount + (identity === null ? 0 : 1);
+    for (let fileStep = 0; fileStep < visitedFileSteps; fileStep += 1) {
+      const fileIndex = wrapIndex(
+        initialFileIndex + direction * fileStep,
+        fileCount,
+      );
+      const file = filesByIndex.get(fileIndex);
+      if (file === undefined) {
+        return null;
+      }
+      const hunkCount = fileHunkCount(file);
+      if (hunkCount === null) {
+        if (
+          identity !== null &&
+          identity.hunkIndex === null &&
+          identity.fileIndex === fileIndex &&
+          fileStep === 0
+        ) {
+          continue;
+        }
+        if (anchorForLazyFile(root(), fileIndex) === null) {
+          return null;
+        }
+        return { fileIndex, hunkIndex: null, entryDirection: direction };
+      }
+      if (hunkCount === 0) {
+        continue;
+      }
 
-    return { index: nextIndex, scroll: true };
+      let startHunkIndex = direction === 1 ? 0 : hunkCount - 1;
+      if (
+        identity !== null &&
+        fileIndex === identity.fileIndex &&
+        fileStep === 0
+      ) {
+        if (identity.hunkIndex === null) {
+          if (direction !== identity.entryDirection) {
+            continue;
+          }
+        } else {
+          startHunkIndex = identity.hunkIndex + direction;
+        }
+      }
+      for (
+        let hunkIndex = startHunkIndex;
+        hunkIndex >= 0 && hunkIndex < hunkCount;
+        hunkIndex += direction
+      ) {
+        const candidate = { fileIndex, hunkIndex };
+        if (richAnchorForNavigation([fileIndex, file], candidate) === null) {
+          continue;
+        }
+        return candidate;
+      }
+    }
+    return null;
   };
 
   /**
@@ -500,13 +725,11 @@ export function createHunkNavigation(
   const scrollNext = () => {
     // Its `scrollIntoView` must not be processed as continued user scrolling.
     userScrollActive = false;
-    const nextTarget = explicitScrollTarget(1);
-    setCurrentIndex(nextTarget.index);
-    select({
-      index: nextTarget.index,
-      notify: true,
-      scroll: nextTarget.scroll,
-    });
+    const target = explicitNavigationTarget(1);
+    if (target === null) {
+      return;
+    }
+    select({ target, notify: true, scroll: true });
   };
 
   /**
@@ -518,13 +741,11 @@ export function createHunkNavigation(
   const scrollPrev = () => {
     // Its `scrollIntoView` must not be processed as continued user scrolling.
     userScrollActive = false;
-    const nextTarget = explicitScrollTarget(-1);
-    setCurrentIndex(nextTarget.index);
-    select({
-      index: nextTarget.index,
-      notify: true,
-      scroll: nextTarget.scroll,
-    });
+    const target = explicitNavigationTarget(-1);
+    if (target === null) {
+      return;
+    }
+    select({ target, notify: true, scroll: true });
   };
 
   /**
@@ -545,8 +766,8 @@ export function createHunkNavigation(
    * 2. If that file has visible selectable anchors, select its last anchor at
    *    or above the reading line, or its first anchor if none has reached it.
    * 3. If the file has no visible selectable anchor, exit.
-   * 4. Reapply selection when the index changed or the indexed anchor is not
-   *    the active DOM hunk.
+   * 4. Reapply selection when the identity changed or its current anchor is
+   *    not the active DOM hunk.
    * 5. Update selection without moving the viewport.
    *
    * Stop conditions:
@@ -597,23 +818,23 @@ export function createHunkNavigation(
           return;
         }
         const currentAnchors = anchors();
-        const nextIndex = hunkIndexAtReadingLine(currentAnchors);
-        if (nextIndex === null) {
+        const nextIdentity = hunkIndexAtReadingLine(currentAnchors);
+        if (nextIdentity === null) {
           return;
         }
+        const selectedAnchor = anchorForHunkIdentity(root(), nextIdentity);
         if (
-          nextIndex === currentIndex() &&
-          currentAnchors[nextIndex]?.classList.contains("active-hunk") === true
+          hunkIdentitiesEqual(nextIdentity, currentIdentity()) &&
+          selectedAnchor?.classList.contains("active-hunk") === true
         ) {
           return;
         }
 
-        // Virtual/rich replacement may replace the DOM node at the same numeric
-        // index. Re-select that node so the header, file-tree highlight, and
+        // Virtual/rich replacement may replace the DOM node for the same
+        // identity. Re-select that node so the header, file-tree highlight, and
         // preload files match what the user sees. `scroll: false` preserves the
         // user's viewport.
-        setCurrentIndex(nextIndex);
-        select({ index: nextIndex, notify: true, scroll: false });
+        select({ target: nextIdentity, notify: true, scroll: false });
       },
       passiveListener,
     );
@@ -718,6 +939,7 @@ export function createHunkNavigation(
       for (const dependency of dependencies) {
         dependency();
       }
+      invalidateSelectionForRevision();
       reconcile();
     });
   };

@@ -561,6 +561,8 @@ def test_preset_manifest_and_file_diff_do_not_require_project_id(
             break
         stack.extend(node["entries"])
     assert file_entry is not None
+    assert "hunk_count" not in file_entry
+    assert "hunks" not in file_entry
 
     lazy_info_response = client.get(
         "/api/lazy-info",
@@ -590,6 +592,22 @@ def test_preset_manifest_and_file_diff_do_not_require_project_id(
     assert file_diff_response.status_code == 200
     assert file_diff["display_name"] != ""
     assert file_diff["rows"] != []
+    assert "render_mode" not in file_diff
+    assert "truncated_rows" not in file_diff
+    assert all(
+        row["status"] in {"equal", "replace", "insert", "delete", "move"}
+        for row in file_diff["rows"]
+    )
+    assert all(
+        "foldedRows" not in row and "count" not in row and "label" not in row
+        for row in file_diff["rows"]
+    )
+    assert file_diff["hunk_count"] >= 1
+    assert [
+        row["hunk_index"]
+        for row in file_diff["rows"]
+        if row["hunk_index"] is not None
+    ] == list(range(file_diff["hunk_count"]))
 
 
 def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:

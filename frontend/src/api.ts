@@ -267,8 +267,6 @@ export const RowStatusSchema = z.enum([
   "insert",
   "delete",
   "move",
-  "fold",
-  "elided",
 ]);
 export type RowStatus = z.infer<typeof RowStatusSchema>;
 
@@ -296,12 +294,11 @@ export type DiffRow = {
   right_tokens: InlineToken[];
   left_syntax: SyntaxSpan[];
   right_syntax: SyntaxSpan[];
-  count?: number | null;
-  foldedRows?: DiffRow[];
-  label?: string | null;
+  hunk_index: number | null;
 };
 
-const DiffRowCommonSchema = {
+const DiffRowSchema: z.ZodType<DiffRow> = z.strictObject({
+  status: RowStatusSchema,
   left_no: z.number().int().nullable(),
   right_no: z.number().int().nullable(),
   left_text: z.string().nullable(),
@@ -310,52 +307,8 @@ const DiffRowCommonSchema = {
   right_tokens: z.array(InlineTokenSchema),
   left_syntax: z.array(SyntaxSpanSchema),
   right_syntax: z.array(SyntaxSpanSchema),
-  count: z.number().int().nullable().optional(),
-  label: z.string().nullable().optional(),
-};
-
-const DiffRowSchema: z.ZodType<DiffRow> = z.lazy(() =>
-  z.discriminatedUnion("status", [
-    z.strictObject({
-      status: z.literal("equal"),
-      ...DiffRowCommonSchema,
-      foldedRows: z.array(DiffRowSchema).optional(),
-    }),
-    z.strictObject({
-      status: z.literal("replace"),
-      ...DiffRowCommonSchema,
-      foldedRows: z.array(DiffRowSchema).optional(),
-    }),
-    z.strictObject({
-      status: z.literal("insert"),
-      ...DiffRowCommonSchema,
-      foldedRows: z.array(DiffRowSchema).optional(),
-    }),
-    z.strictObject({
-      status: z.literal("delete"),
-      ...DiffRowCommonSchema,
-      foldedRows: z.array(DiffRowSchema).optional(),
-    }),
-    z.strictObject({
-      status: z.literal("move"),
-      ...DiffRowCommonSchema,
-      foldedRows: z.array(DiffRowSchema).optional(),
-    }),
-    z.strictObject({
-      status: z.literal("fold"),
-      ...DiffRowCommonSchema,
-      count: z.number().int(),
-      foldedRows: z.array(DiffRowSchema),
-    }),
-    z.strictObject({
-      status: z.literal("elided"),
-      ...DiffRowCommonSchema,
-      count: z.number().int(),
-      label: z.string(),
-      foldedRows: z.array(DiffRowSchema).optional(),
-    }),
-  ]),
-);
+  hunk_index: z.number().int().nonnegative().nullable(),
+});
 
 const FoldHintSchema = z.strictObject({
   start_row: z.number().int(),
@@ -427,20 +380,14 @@ const FileEntrySchema = z.strictObject({
   removed_lines: z.number().int().nullable().optional(),
   moved_lines: z.number().int().nullable().optional(),
   rows: z.array(DiffRowSchema).optional(),
+  hunk_count: z.number().int().nonnegative().optional(),
   fold_hints: z.array(FoldHintSchema).optional(),
   engine_warning: EngineWarningSchema.nullable().optional(),
   lazy: LazyStateSchema.nullable().optional(),
   lazy_reason: LazyReasonSchema.optional(),
   default_expanded: z.boolean().optional(),
   render_kind: z.literal("notebook").optional(),
-  render_mode: z.literal("plain").nullable().optional(),
-  truncated_rows: z.number().int().nullable().optional(),
-  notebook_metadata_rows: z.array(DiffRowSchema).optional(),
   notebook_metadata_changed_lines: z.number().int().optional(),
-  notebook_metadata_hunk_count: z.number().int().optional(),
-  notebook_metadata_lazy: z.boolean().optional(),
-  notebook_metadata_render_mode: z.literal("plain").nullable().optional(),
-  notebook_metadata_truncated_rows: z.number().int().optional(),
   cells: z.array(z.lazy(() => NotebookCellEntrySchema)).optional(),
 });
 export type FileEntry = z.infer<typeof FileEntrySchema>;
@@ -492,13 +439,12 @@ const TextFileDiffResponseSchema = z.strictObject({
   right_label: z.string(),
   summary: FileSummarySchema,
   rows: z.array(DiffRowSchema),
+  hunk_count: z.number().int().nonnegative(),
   file_kind: FileKindSchema,
   left_path: z.string().nullable(),
   right_path: z.string().nullable(),
   lazy: LazyReasonSchema.nullable(),
   default_expanded: z.boolean(),
-  render_mode: z.literal("plain").nullable(),
-  truncated_rows: z.number().int().nullable(),
   fold_hints: z.array(FoldHintSchema),
   engine_warning: EngineWarningSchema.nullable(),
 });
@@ -516,32 +462,21 @@ const NotebookCellEntrySchema = z.strictObject({
   metadata_changed: z.boolean(),
   outputs_changed: z.boolean(),
   source_rows: z.array(DiffRowSchema),
+  source_hunk_count: z.number().int().nonnegative(),
   source_changed_lines: z.number().int(),
   source_modified_lines: z.number().int(),
   source_added_lines: z.number().int(),
   source_removed_lines: z.number().int(),
   source_moved_lines: z.number().int(),
   source_fold_hints: z.array(FoldHintSchema),
-  metadata_rows: z.array(DiffRowSchema),
-  outputs_rows: z.array(DiffRowSchema),
   metadata_changed_lines: z.number().int(),
   metadata_modified_lines: z.number().int(),
   metadata_added_lines: z.number().int(),
   metadata_removed_lines: z.number().int(),
-  metadata_hunk_count: z.number().int(),
-  metadata_lazy: z.boolean(),
   outputs_changed_lines: z.number().int(),
   outputs_modified_lines: z.number().int(),
   outputs_added_lines: z.number().int(),
   outputs_removed_lines: z.number().int(),
-  outputs_hunk_count: z.number().int(),
-  outputs_lazy: z.boolean(),
-  source_render_mode: z.literal("plain").nullable(),
-  source_truncated_rows: z.number().int().nullable(),
-  metadata_render_mode: z.literal("plain").nullable(),
-  metadata_truncated_rows: z.number().int().nullable(),
-  outputs_render_mode: z.literal("plain").nullable(),
-  outputs_truncated_rows: z.number().int().nullable(),
 });
 export type NotebookCellEntry = z.infer<typeof NotebookCellEntrySchema>;
 
@@ -552,10 +487,8 @@ const NotebookFileDiffResponseSchema = z.strictObject({
   left_label: z.string(),
   right_label: z.string(),
   summary: NotebookSummarySchema,
-  notebook_metadata_rows: z.array(DiffRowSchema),
+  hunk_count: z.number().int().nonnegative(),
   notebook_metadata_changed_lines: z.number().int(),
-  notebook_metadata_hunk_count: z.number().int(),
-  notebook_metadata_lazy: z.boolean(),
   cells: z.array(NotebookCellEntrySchema),
   file_kind: FileKindSchema,
   left_path: z.string().nullable(),
@@ -584,20 +517,6 @@ const LazyInfoPayloadSchema = z.strictObject({
   files: z.array(LazyInfoFileSchema),
 });
 
-const NotebookSectionSchema = z.strictObject({
-  section: z.string(),
-  cell_key: z.string().nullable(),
-  left_index: z.number().int().nullable(),
-  right_index: z.number().int().nullable(),
-  left_label: z.string(),
-  right_label: z.string(),
-  rows: z.array(DiffRowSchema),
-  render_mode: z.literal("plain").nullable(),
-  truncated_rows: z.number().int(),
-  fold_hints: z.array(FoldHintSchema),
-});
-export type NotebookSection = z.infer<typeof NotebookSectionSchema>;
-
 const ErrorResponseSchema = z.strictObject({
   error: z.string(),
 });
@@ -607,7 +526,7 @@ const HttpExceptionResponseSchema = z.strictObject({
 });
 
 export const REQUEST_TIMEOUT_MS = 8_000;
-const SLOW_FILE_DIFF_TIMEOUT_MS = 20_000;
+const SLOW_DIFF_TIMEOUT_MS = 20_000;
 
 type FetchJsonInit = RequestInit & {
   timeoutMs?: number;
@@ -1001,8 +920,8 @@ export async function fetchFileDiff(
   }
 
   let requestTimeoutMs = REQUEST_TIMEOUT_MS;
-  if (usesSlowFileDiffTimeout(diffParams.engine)) {
-    requestTimeoutMs = SLOW_FILE_DIFF_TIMEOUT_MS;
+  if (usesSlowDiffTimeout(diffParams.engine)) {
+    requestTimeoutMs = SLOW_DIFF_TIMEOUT_MS;
   }
   if (timeoutMs !== undefined) {
     requestTimeoutMs = timeoutMs;
@@ -1022,7 +941,8 @@ export async function fetchFileDiff(
   return FileDiffResponseSchema.parse(await response.json());
 }
 
-function usesSlowFileDiffTimeout(engine: DiffEngine): boolean {
+/** Report whether an external diff engine needs the extended request timeout. */
+function usesSlowDiffTimeout(engine: DiffEngine): boolean {
   switch (engine) {
     case "difftastic":
     case "gumtree":
@@ -1033,35 +953,4 @@ function usesSlowFileDiffTimeout(engine: DiffEngine): boolean {
     default:
       return engine satisfies never;
   }
-}
-
-export async function fetchNotebookSection(
-  diffParams: DiffParams,
-  entry: FileEntry,
-  cacheId: string,
-  options: { section: string; cellKey?: string | null },
-  signal?: AbortSignal,
-): Promise<NotebookSection> {
-  const params = cachedDiffQueryParams(diffParams, cacheId);
-  if (entry.left_path !== null && entry.left_path.length > 0) {
-    params.set("left_path", entry.left_path);
-  }
-  if (entry.right_path !== null && entry.right_path.length > 0) {
-    params.set("right_path", entry.right_path);
-  }
-  params.set("section", options.section);
-  if (options.cellKey !== null && options.cellKey !== undefined) {
-    params.set("cell_key", options.cellKey);
-  }
-
-  const response = await fetchJsonResponse(
-    `/api/notebook-section?${params.toString()}`,
-    {
-      signal,
-    },
-  );
-  if (!response.ok) {
-    return parseErrorResponse(response);
-  }
-  return NotebookSectionSchema.parse(await response.json());
 }

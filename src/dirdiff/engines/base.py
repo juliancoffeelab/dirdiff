@@ -211,8 +211,8 @@ class DiffEngineRow(TypedDict):
     """
     Line-level row status produced by the engine.
 
-    This is limited to real aligned diff rows.  Synthetic UI statuses such as
-    `fold` and `elided` are not legal engine output.
+    This is limited to real aligned diff rows. Frontend fold placeholders are
+    derived later from fold hints and are not legal engine output.
     """
 
     left_no: int | None
@@ -254,27 +254,13 @@ class DiffRow(TypedDict):
     """One row in the rendered text diff grid.
 
     This is the display/API row shape after engine rows have been enriched for
-    syntax highlighting, folding, and plain-render degradation.
+    syntax highlighting and backend-owned hunk identity. Frontend fold rows
+    are derived separately from `FoldHint` ranges and never enter this shape.
     """
 
-    status: Literal[
-        "equal",
-        "replace",
-        "insert",
-        "delete",
-        "move",
-        "fold",
-        "elided",
-    ]
+    status: Literal["equal", "replace", "insert", "delete", "move"]
     """
-    Display row status.
-
-    TODO: part of fold micro-optimisation, investigate for removal.
-
-    `fold` is a client-expandable placeholder for hidden rows that are still
-    included in `foldedRows`.  `elided` is a non-expandable placeholder for
-    rows omitted from a large plain render.  These synthetic row statuses should
-    probably be removed from the core diff row shape.
+    Display status of the real aligned engine row.
     """
 
     left_no: NotRequired[int | None]
@@ -324,19 +310,12 @@ class DiffRow(TypedDict):
     Syntax-highlight spans for the new/right line.
     """
 
-    count: NotRequired[int]
+    hunk_index: int | None
     """
-    Number of hidden rows represented by a synthetic fold/elided row.
-    """
+    Zero-based file-local identity on the first row of a changed hunk.
 
-    foldedRows: NotRequired[list[DiffRow]]
-    """
-    Hidden rows kept in the payload for fold mode.
-    """
-
-    label: NotRequired[str]
-    """
-    Label displayed during fold/elided rendering.
+    Every other row carries `None`. Display enrichment assigns this field
+    before the row enters an API payload.
     """
 
 

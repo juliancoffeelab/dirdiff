@@ -1743,7 +1743,8 @@ h1 {
   line-height: 1.2;
 }
 
-.file-card-hunks {
+.file-card-hunks,
+.file-card-file-hunks {
   border: 1px solid #ded8cc;
   background: #f4f1ea;
   color: #4b4841;
@@ -1751,6 +1752,11 @@ h1 {
   font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
+}
+
+.file-card-file-hunks {
+  background: #faf8f3;
+  color: #68645c;
 }
 
 .file-stats {
@@ -1795,6 +1801,11 @@ h1 {
 
 .virtual-hunk-anchor.active-hunk::before {
   content: none;
+}
+
+.lazy-hunk-anchor.active-hunk {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .hunk-skip-anchors,
@@ -1868,7 +1879,6 @@ h1 {
 }
 
 .notebook-section-heading,
-.notebook-section-note,
 .notebook-details-message {
   margin: 0;
   color: #6a665d;

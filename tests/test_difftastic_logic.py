@@ -220,7 +220,8 @@ def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
         right_path_hint=new_path.name,
     )
 
-    assert display["render_mode"] == "plain"
+    assert "render_mode" not in display
+    assert "truncated_rows" not in display
     assert display["rows"][0]["right_tokens"] == [
         {
             "text": "fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt ",

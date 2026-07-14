@@ -23,7 +23,6 @@ from typing import Any
 from dirdiff.backend import TextDiffError
 from dirdiff.engines import (
     DiffEngineProtocol,
-    DiffEngineRow,
     DiffSide,
     TextDiffEngine,
 )
@@ -38,7 +37,6 @@ NOTEBOOK_SECONDARY_TEXT_RENDERER = TextDiffEngine()
 __all__ = [
     "NOTEBOOK_SECONDARY_TEXT_RENDERER",
     "build_notebook_diff_payload",
-    "build_notebook_section_payload",
     "normalize_notebook_document",
 ]
 
@@ -279,30 +277,6 @@ def _find_notebook_cell_pair(
     raise TextDiffError(f"Unknown notebook cell: {cell_key}")
 
 
-def _row_has_changed_tokens(row: DiffEngineRow) -> bool:
-    for token in row["left_tokens"]:
-        if token["status"] != "unchanged":
-            return True
-    return any(token["status"] != "unchanged" for token in row["right_tokens"])
-
-
-def _row_has_change(row: DiffEngineRow) -> bool:
-    if row["status"] != "equal":
-        return True
-    return _row_has_changed_tokens(row)
-
-
-def _changed_hunk_count(rows: list[DiffEngineRow]) -> int:
-    hunk_count = 0
-    in_changed_run = False
-    for row in rows:
-        changed = _row_has_change(row)
-        if changed and not in_changed_run:
-            hunk_count += 1
-        in_changed_run = changed
-    return hunk_count
-
-
 def _render_notebook_text_payload(
     *,
     renderer: DiffEngineProtocol,
@@ -337,7 +311,7 @@ def _render_notebook_text_payload(
         "added_lines": rendered["summary"]["added_lines"],
         "removed_lines": rendered["summary"]["removed_lines"],
         "moved_lines": rendered["summary"]["moved_lines"],
-        "hunk_count": _changed_hunk_count(rendered["rows"]),
+        "hunk_count": display["hunk_count"],
     }
 
 
@@ -365,8 +339,6 @@ def _build_notebook_cell_diff(
     left_index: int | None,
     right_index: int | None,
     pair_kind: str,
-    include_metadata_rows: bool = False,
-    include_outputs_rows: bool = False,
 ) -> dict[str, Any] | None:
     identity = _cell_identity(
         left_cell=left_cell,
@@ -428,13 +400,6 @@ def _build_notebook_cell_diff(
         if outputs_changed
         else None
     )
-    metadata_payload = None
-    if metadata_changed and include_metadata_rows:
-        metadata_payload = metadata_stats
-    outputs_payload = None
-    if outputs_changed and include_outputs_rows:
-        outputs_payload = outputs_stats
-
     payload = {
         "kind": (
             "removed"
@@ -454,14 +419,13 @@ def _build_notebook_cell_diff(
         "metadata_changed": metadata_changed,
         "outputs_changed": outputs_changed,
         "source_rows": source_payload["rows"],
+        "source_hunk_count": source_payload["hunk_count"],
         "source_changed_lines": source_payload["changed_lines"],
         "source_modified_lines": source_payload["modified_lines"],
         "source_added_lines": source_payload["added_lines"],
         "source_removed_lines": source_payload["removed_lines"],
         "source_moved_lines": source_payload["moved_lines"],
         "source_fold_hints": source_payload.get("fold_hints", []),
-        "metadata_rows": metadata_payload["rows"] if metadata_payload else [],
-        "outputs_rows": outputs_payload["rows"] if outputs_payload else [],
         "metadata_changed_lines": (
             metadata_stats["changed_lines"] if metadata_stats else 0
         ),
@@ -474,10 +438,6 @@ def _build_notebook_cell_diff(
         "metadata_removed_lines": (
             metadata_stats["removed_lines"] if metadata_stats else 0
         ),
-        "metadata_hunk_count": (
-            metadata_stats["hunk_count"] if metadata_stats else 0
-        ),
-        "metadata_lazy": metadata_changed and not include_metadata_rows,
         "outputs_changed_lines": (
             outputs_stats["changed_lines"] if outputs_stats else 0
         ),
@@ -490,24 +450,37 @@ def _build_notebook_cell_diff(
         "outputs_removed_lines": (
             outputs_stats["removed_lines"] if outputs_stats else 0
         ),
-        "outputs_hunk_count": (
-            outputs_stats["hunk_count"] if outputs_stats else 0
-        ),
-        "outputs_lazy": outputs_changed and not include_outputs_rows,
     }
-    if "render_mode" in source_payload:
-        payload["source_render_mode"] = source_payload["render_mode"]
-    if "truncated_rows" in source_payload:
-        payload["source_truncated_rows"] = source_payload["truncated_rows"]
-    if metadata_payload is not None and "render_mode" in metadata_payload:
-        payload["metadata_render_mode"] = metadata_payload["render_mode"]
-    if metadata_payload is not None and "truncated_rows" in metadata_payload:
-        payload["metadata_truncated_rows"] = metadata_payload["truncated_rows"]
-    if outputs_payload is not None and "render_mode" in outputs_payload:
-        payload["outputs_render_mode"] = outputs_payload["render_mode"]
-    if outputs_payload is not None and "truncated_rows" in outputs_payload:
-        payload["outputs_truncated_rows"] = outputs_payload["truncated_rows"]
     return payload
+
+
+def _offset_row_hunk_indices(rows: list[dict[str, Any]], offset: int) -> None:
+    """Move section-local markers into one file-wide notebook index space.
+
+    Backend rows are flat and complete. Rows without a marker stay unchanged;
+    frontend-only fold rows are created later and never enter this function.
+    """
+    for row in rows:
+        hunk_index = row.get("hunk_index")
+        if isinstance(hunk_index, int):
+            row["hunk_index"] = hunk_index + offset
+
+
+def _assign_notebook_source_hunk_ranges(cells: list[dict[str, Any]]) -> int:
+    """Assign one file-local hunk range across rendered cell sources.
+
+    Notebook metadata and outputs are summary-only until notebook rendering has
+    a snapshot-safe design. They therefore contribute no hunk identities and
+    cannot disturb navigation through the source rows returned by file-diff.
+    """
+    next_hunk_index = 0
+    for cell in cells:
+        source_rows = cell["source_rows"]
+        if not isinstance(source_rows, list):
+            raise TypeError("Notebook cell source_rows must be a list.")
+        _offset_row_hunk_indices(source_rows, next_hunk_index)
+        next_hunk_index += int(cell["source_hunk_count"])
+    return next_hunk_index
 
 
 def build_notebook_diff_payload(
@@ -527,9 +500,9 @@ def build_notebook_diff_payload(
     The returned dictionary is validated by `NotebookFileDiffResponse` in the
     server and consumed by `NotebookViews` in the frontend.  Cell source rows
     are included eagerly because they are the primary notebook diff surface.
-    Notebook-level metadata, cell metadata, and cell outputs are summarized here
-    but kept lazy when changed; the frontend asks `/api/notebook-section` for
-    those rows only when the user expands the relevant section.
+    Notebook-level metadata, cell metadata, and cell outputs are summarized but
+    are not renderable until notebook support has a snapshot-safe design. Only
+    eager cell-source rows participate in the file-local hunk order.
 
     `None` means the supplied text should not be treated as a notebook.  The
     server uses that signal to preserve the old behavior for malformed
@@ -634,6 +607,8 @@ def build_notebook_diff_payload(
         )
         moved_lines += cell_diff["source_moved_lines"]
 
+    hunk_count = _assign_notebook_source_hunk_ranges(cells)
+
     payload = {
         "display_name": display_name,
         "mode": mode,
@@ -658,127 +633,13 @@ def build_notebook_diff_payload(
             ),
             "notebook_metadata_changed": notebook_metadata_stats is not None,
         },
-        "notebook_metadata_rows": [],
+        "hunk_count": hunk_count,
         "notebook_metadata_changed_lines": (
             notebook_metadata_stats["changed_lines"]
             if notebook_metadata_stats is not None
             else 0
         ),
-        "notebook_metadata_hunk_count": (
-            notebook_metadata_stats["hunk_count"]
-            if notebook_metadata_stats is not None
-            else 0
-        ),
-        "notebook_metadata_lazy": notebook_metadata_stats is not None,
         "cells": cells,
     }
     payload["default_expanded"] = default_expanded_for_payload(payload)
     return payload
-
-
-def build_notebook_section_payload(
-    *,
-    left_notebook: dict[str, Any] | None,
-    right_notebook: dict[str, Any] | None,
-    left_label: str,
-    right_label: str,
-    section: str | None,
-    cell_key: str | None = None,
-) -> dict[str, Any]:
-    """Build rows for a lazy notebook metadata or output section.
-
-    `section` selects one of the secondary notebook surfaces:
-    `notebook-metadata` for top-level notebook metadata, `cell-metadata` for
-    one cell's metadata, or `cell-outputs` for one code cell's outputs.
-    `cell_key` is required for cell-local sections and is the stable key
-    returned by `build_notebook_diff_payload`.
-
-    This function receives already-parsed notebook dictionaries.  It does not
-    load files or resolve refs; that orchestration belongs to the server.  It
-    raises `TextDiffError` for unchanged or unknown sections so the REST
-    endpoint can return the same error model used by ordinary file diffs.
-
-    The section endpoint exists to keep the initial file payload reasonably
-    small.  Source rows are eager because they are the primary notebook diff,
-    but metadata and outputs can be verbose and rarely needed immediately.
-    This helper builds those secondary row payloads through the native text
-    renderer, regardless of the selected engine.
-    """
-    if section == "notebook-metadata":
-        left_metadata = (
-            left_notebook["metadata"] if left_notebook is not None else {}
-        )
-        right_metadata = (
-            right_notebook["metadata"] if right_notebook is not None else {}
-        )
-        if left_metadata == right_metadata:
-            raise TextDiffError("Notebook metadata is unchanged.")
-        payload = _render_notebook_secondary_payload(
-            left_text=canonical_json(left_metadata),
-            right_text=canonical_json(right_metadata),
-            left_path_hint="notebook-metadata.json",
-            right_path_hint="notebook-metadata.json",
-        )
-        return {
-            "section": section,
-            "left_label": left_label,
-            "right_label": right_label,
-            "rows": payload["rows"],
-            "render_mode": payload.get("render_mode"),
-            "truncated_rows": payload.get("truncated_rows", 0),
-            "fold_hints": payload.get("fold_hints", []),
-        }
-
-    if cell_key is None:
-        raise TextDiffError("Notebook cell key is required.")
-
-    left_cells = (
-        list(left_notebook["cells"]) if left_notebook is not None else []
-    )
-    right_cells = (
-        list(right_notebook["cells"]) if right_notebook is not None else []
-    )
-    _, left_index, right_index, left_cell, right_cell = (
-        _find_notebook_cell_pair(
-            left_cells,
-            right_cells,
-            cell_key=cell_key,
-        )
-    )
-
-    left_value: dict[str, Any] | list[Any]
-    right_value: dict[str, Any] | list[Any]
-    if section == "cell-metadata":
-        left_value = _cell_metadata(left_cell)
-        right_value = _cell_metadata(right_cell)
-        left_hint = "cell-metadata.json"
-        right_hint = "cell-metadata.json"
-    elif section == "cell-outputs":
-        left_value = _cell_outputs(left_cell)
-        right_value = _cell_outputs(right_cell)
-        left_hint = "cell-outputs.json"
-        right_hint = "cell-outputs.json"
-    else:
-        raise TextDiffError(f"Unknown notebook section: {section}")
-
-    if left_value == right_value:
-        raise TextDiffError("Notebook section is unchanged.")
-
-    payload = _render_notebook_secondary_payload(
-        left_text=canonical_json(left_value),
-        right_text=canonical_json(right_value),
-        left_path_hint=left_hint,
-        right_path_hint=right_hint,
-    )
-    return {
-        "section": section,
-        "cell_key": cell_key,
-        "left_index": left_index,
-        "right_index": right_index,
-        "left_label": left_label,
-        "right_label": right_label,
-        "rows": payload["rows"],
-        "render_mode": payload.get("render_mode"),
-        "truncated_rows": payload.get("truncated_rows", 0),
-        "fold_hints": payload.get("fold_hints", []),
-    }

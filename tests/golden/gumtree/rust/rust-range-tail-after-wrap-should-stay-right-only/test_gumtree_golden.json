@@ -2,6 +2,7 @@
   "engine_warning": null,
   "rows": [
     {
+      "hunk_index": 0,
       "left_no": 1,
       "left_syntax": [
         {
@@ -139,6 +140,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],
@@ -213,6 +215,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],
@@ -238,6 +241,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],

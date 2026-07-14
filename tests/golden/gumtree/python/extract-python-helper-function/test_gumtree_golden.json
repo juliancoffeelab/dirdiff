@@ -2,6 +2,7 @@
   "engine_warning": null,
   "rows": [
     {
+      "hunk_index": 0,
       "left_no": 1,
       "left_syntax": [
         {
@@ -169,6 +170,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 2,
       "left_syntax": [
         {
@@ -264,6 +266,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 3,
       "left_syntax": [
         {
@@ -316,6 +319,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": 1,
       "left_no": 4,
       "left_syntax": [
         {
@@ -410,6 +414,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 5,
       "left_syntax": [
         {
@@ -519,6 +524,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 6,
       "left_syntax": [
         {
@@ -683,6 +689,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 7,
       "left_text": "            {",
       "left_tokens": [
@@ -754,6 +761,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 8,
       "left_syntax": [
         {
@@ -785,6 +793,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 9,
       "left_syntax": [
         {
@@ -816,6 +825,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": 2,
       "left_no": 10,
       "left_text": "            }",
       "left_tokens": [
@@ -936,6 +946,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 11,
       "left_text": "        )",
       "left_tokens": [
@@ -1001,6 +1012,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 12,
       "left_text": "",
       "left_tokens": [],
@@ -1053,6 +1065,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": 3,
       "left_no": 13,
       "left_syntax": [
         {
@@ -1147,6 +1160,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 14,
       "left_syntax": [
         {
@@ -1256,6 +1270,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 15,
       "left_syntax": [
         {
@@ -1420,6 +1435,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": 16,
       "left_syntax": [
         {
@@ -1491,6 +1507,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],
@@ -1522,6 +1539,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],
@@ -1553,6 +1571,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],
@@ -1568,6 +1587,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": null,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],
@@ -1583,6 +1603,7 @@
       "status": "equal"
     },
     {
+      "hunk_index": 4,
       "left_no": null,
       "left_text": "",
       "left_tokens": [],

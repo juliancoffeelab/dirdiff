@@ -83,6 +83,13 @@ export type RenderedFileEntry = FileEntry & {
   sourceLoadId: number;
   originalLazyReason: LazyReason | null;
 };
+export type RenderedFile = readonly [
+  fileIndex: number,
+  file: RenderedFileEntry,
+];
+export type RenderedFileSlot =
+  | RenderedFile
+  | readonly [fileIndex: number, file: null];
 
 export type AutocompleteGroup = [string, string[]];
 export type LinePin = {
@@ -269,7 +276,7 @@ export function fileDiffQueryKey(
   ] as const;
 }
 
-type FilesByKey = Record<string, RenderedFileEntry | undefined>;
+type FilesByKey = Record<string, RenderedFileSlot | undefined>;
 
 function fileTreeFilesForNodes(nodes: FileTreeNode[]): RenderedFileEntry[] {
   return nodes.flatMap((node) => {
@@ -285,8 +292,9 @@ function fileTreeNodeFromManifestEntry(
   filesByKey: FilesByKey,
 ): FileTreeNode | null {
   if (entry.type === "file") {
-    const file = filesByKey[fileKey(entry.entry)];
-    return file === undefined ? null : { type: "file", name: entry.name, file };
+    const slot = filesByKey[fileKey(entry.entry)];
+    const file = slot?.[1] ?? null;
+    return file === null ? null : { type: "file", name: entry.name, file };
   }
 
   const entries = entry.entries.flatMap((child) => {

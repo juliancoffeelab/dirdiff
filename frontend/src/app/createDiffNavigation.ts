@@ -1,5 +1,6 @@
 import {
   batch,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -10,8 +11,6 @@ import type { DiffViewMode } from "../DiffGrid";
 import type { FileEntry } from "../api";
 import {
   createHunkNavigation,
-  fileIdForHunkAnchor,
-  richPreloadFileIdsForAnchor,
   richPreloadFileIdsForFileId,
   shouldIgnoreGlobalHotkeyEvent,
 } from "../hunkNavigation";
@@ -26,6 +25,7 @@ import {
 import {
   type FileTreeDirectoryNode,
   type LinePin,
+  type RenderedFile,
   fileBodyAnchorElementId,
   fileDisplayName,
   fileElementId,
@@ -36,7 +36,9 @@ import {
 type DiffNavigationOptions = {
   appRoot: Accessor<HTMLElement | undefined>;
   appHeader: Accessor<HTMLElement | undefined>;
-  displayFiles: Accessor<FileEntry[]>;
+  displayFiles: Accessor<RenderedFile[]>;
+  manifestFileCount: Accessor<number>;
+  diffRevision: Accessor<number>;
   isFileVirtualized: (fileId: string) => boolean;
   layoutRevision: Accessor<number>;
   virtualizationRevision: Accessor<number>;
@@ -56,7 +58,7 @@ type DiffNavigationOptions = {
 };
 
 type FileTreeNavigationOptions = {
-  displayFiles: Accessor<FileEntry[]>;
+  displayFiles: Accessor<RenderedFile[]>;
   isFileVirtualized: (fileId: string) => boolean;
   forceRichFileId: (fileId: string) => void;
   openFileExpansion: (file: FileEntry) => void;
@@ -222,35 +224,69 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
     openTreeDirectoryExpansion: options.openTreeDirectoryExpansion,
   });
   let restoredLinePinKey = "";
+  let restorePinnedLineTimer: number | null = null;
   const hunkNav = createHunkNavigation(options.appRoot, {
-    afterReconcile: () => {
-      const root = options.appRoot();
-      if (root === undefined) {
-        return;
-      }
-      restorePinnedLine(root, restoredLinePinKey, (pinKey) => {
-        restoredLinePinKey = pinKey;
-      });
+    files: options.displayFiles,
+    manifestFileCount: options.manifestFileCount,
+    diffRevision: options.diffRevision,
+    onDevirtualizeFile: ([, file]) => {
+      options.forceRichFileId(fileElementId(fileKey(file)));
     },
-    onSelectionChange: ({ selected }) => {
-      if (selected === null) {
-        options.setActiveHunkFileId(null);
-        return;
+    onSelectionClear: () => options.setActiveHunkFileId(null),
+    onSelectionChange: ({ target }) => {
+      const renderedFile = options
+        .displayFiles()
+        .find(([fileIndex]) => fileIndex === target.fileIndex);
+      if (renderedFile === undefined) {
+        throw new Error(`Selected unknown file index ${target.fileIndex}.`);
       }
-      options.setActiveHunkFileId(fileIdForHunkAnchor(selected));
+      const [, file] = renderedFile;
+      const fileId = fileElementId(fileKey(file));
+      options.setActiveHunkFileId(fileId);
       options.setForcedRichPreloadIds(
-        richPreloadFileIdsForAnchor(selected, options.displayFiles()),
+        richPreloadFileIdsForFileId(fileId, options.displayFiles()),
       );
     },
   });
 
   hunkNav.reconcileWhen([
     options.displayFiles,
+    options.diffRevision,
     options.layoutRevision,
     options.virtualizationRevision,
     options.loadingRevision,
     options.diffViewMode,
   ]);
+
+  // Hash-pin restoration is navigation and may intentionally move the
+  // viewport. Keep it structurally separate from hunk reconciliation, which is
+  // forbidden from calling any viewport-moving code.
+  createEffect(() => {
+    options.displayFiles();
+    options.diffRevision();
+    options.layoutRevision();
+    options.virtualizationRevision();
+    options.loadingRevision();
+    options.diffViewMode();
+    if (restorePinnedLineTimer !== null) {
+      clearTimeout(restorePinnedLineTimer);
+    }
+    restorePinnedLineTimer = window.setTimeout(() => {
+      restorePinnedLineTimer = null;
+      const root = options.appRoot();
+      if (root === undefined || getLinePinFromHash() === null) {
+        return;
+      }
+      restorePinnedLine(root, restoredLinePinKey, (pinKey) => {
+        restoredLinePinKey = pinKey;
+      });
+    }, 120);
+  });
+  onCleanup(() => {
+    if (restorePinnedLineTimer !== null) {
+      clearTimeout(restorePinnedLineTimer);
+    }
+  });
   hunkNav.followScroll();
 
   onMount(() => {
@@ -420,12 +456,13 @@ export function createDiffNavigation(options: DiffNavigationOptions) {
   };
 
   const openPinnedFile = (pin: LinePin) => {
-    const file = options
+    const renderedFile = options
       .displayFiles()
-      .find((entry) => fileMatchesLinePin(entry, pin));
-    if (file === undefined) {
+      .find(([, file]) => fileMatchesLinePin(file, pin));
+    if (renderedFile === undefined) {
       return;
     }
+    const [, file] = renderedFile;
     const key = fileKey(file);
     const directory = options.directoryLabelForFileKey(key);
     batch(() => {

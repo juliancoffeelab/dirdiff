@@ -6,6 +6,7 @@ import {
   onMount,
   type JSX,
 } from "solid-js";
+import type { HunkPosition } from "./hunkNavigation";
 
 type DebugMetrics = {
   fps: string;
@@ -21,10 +22,7 @@ const emptyDebugMetrics: DebugMetrics = {
   hunks: "--/--",
 };
 
-function DebugHud(props: {
-  open: boolean;
-  hunkPosition: { current: number; total: number };
-}) {
+function DebugHud(props: { open: boolean; hunkPosition: HunkPosition }) {
   const [metrics, setMetrics] = createSignal<DebugMetrics>(emptyDebugMetrics);
   let frame = 0;
   let sampleStartedAt = performance.now();
@@ -41,9 +39,9 @@ function DebugHud(props: {
       nodes: formatCount(document.querySelectorAll("*").length),
       spans: formatCount(document.querySelectorAll("span").length),
       hunks:
-        hunkPosition.total === 0
+        hunkPosition.total === 0 && !hunkPosition.incomplete
           ? "--/--"
-          : `${hunkPosition.current}/${hunkPosition.total}`,
+          : `${hunkPosition.current}/${hunkPosition.total}${hunkPosition.incomplete ? "+" : ""}`,
     });
   };
 
@@ -99,7 +97,7 @@ function DebugMetric(props: { label: string; value: string }) {
 export function HunkNav(props: {
   debugOpen: boolean;
   helpOpen: boolean;
-  hunkPosition: { current: number; total: number };
+  hunkPosition: HunkPosition;
   onHelpOpenChange: (open: boolean) => void;
   onNext: () => void;
   onPrev: () => void;

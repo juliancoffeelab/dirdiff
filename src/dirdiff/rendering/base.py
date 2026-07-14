@@ -2,7 +2,7 @@
 
 This module does not choose an engine and does not own native text comparison.
 It receives already-computed neutral rows, then attaches display-only details:
-syntax spans, fold hints, plain-render elision, and default expansion.
+syntax spans, fold hints, backend-owned hunk identities, and default expansion.
 """
 
 from __future__ import annotations
@@ -26,10 +26,6 @@ __all__ = [
     "default_expanded_for_payload",
     "enrich_rows_for_display",
 ]
-
-PLAIN_RENDER_CONTEXT_ROWS = 3
-PLAIN_RENDER_MIN_FOLD_ROWS = 24
-PLAIN_RENDER_MAX_VISIBLE_ROWS = 1000
 
 
 @dataclass(frozen=True)
@@ -181,30 +177,6 @@ _LANGUAGE_SPECS: tuple[_SyntaxLanguageSpec, ...] = (
 )
 
 
-def _payload_size_bytes(payload: dict[str, Any]) -> int:
-    """Return the serialized size used by lazy-rendering safeguards.
-
-    The API ultimately sends JSON, so the useful limit is not the number of
-    Python rows or characters in memory.  This helper gives engines a shared
-    measurement when deciding whether a fully-rendered payload is too large to
-    keep expanded by default.
-    """
-    return len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-
-
-def _strip_syntax_markup(rows: list[dict[str, Any]]) -> None:
-    """Remove syntax decorations from rows in-place.
-
-    Plain fallback means there is no syntax highlighter or fold query for this
-    file type.  It must not discard diff tokens: those are engine output, and
-    the frontend needs them to render inline changes for unsupported languages
-    such as Makefiles.
-    """
-    for row in rows:
-        row.pop("left_syntax", None)
-        row.pop("right_syntax", None)
-
-
 def _highlight_lines_for_path(
     path: str | None,
     text: str,
@@ -214,7 +186,7 @@ def _highlight_lines_for_path(
     Highlighting is part of the rendered row payload, not part of diff-engine
     comparison.  The renderer uses the path hint only to choose a tree-sitter
     language and query; unsupported languages, missing parsers, and missing
-    query files all produce `None` so callers can fall back to a plain render.
+    query files all produce `None`; callers then leave that side undecorated.
     """
     if path is None:
         return None
@@ -458,73 +430,6 @@ def default_expanded_for_payload(payload: dict[str, Any]) -> bool:
     return not payload.get("lazy")
 
 
-def _collapse_equal_rows_for_large_diff(
-    rows: list[dict[str, Any]],
-    *,
-    context_rows: int = PLAIN_RENDER_CONTEXT_ROWS,
-    min_fold_rows: int = PLAIN_RENDER_MIN_FOLD_ROWS,
-) -> list[dict[str, Any]]:
-    collapsed: list[dict[str, Any]] = []
-    index = 0
-
-    while index < len(rows):
-        if rows[index].get("status") != "equal":
-            collapsed.append(rows[index])
-            index += 1
-            continue
-
-        run_start = index
-        while index < len(rows) and rows[index].get("status") == "equal":
-            index += 1
-        run_end = index
-        run_rows = rows[run_start:run_end]
-
-        if len(run_rows) < min_fold_rows:
-            collapsed.extend(run_rows)
-            continue
-
-        leading = run_rows[:context_rows]
-        trailing = run_rows[-context_rows:] if context_rows != 0 else []
-        middle = run_rows[context_rows : len(run_rows) - len(trailing)]
-
-        collapsed.extend(leading)
-        if middle != []:
-            collapsed.append(
-                {
-                    "status": "fold",
-                    "count": len(middle),
-                    "foldedRows": middle,
-                    "label": "unchanged context",
-                }
-            )
-        collapsed.extend(trailing)
-
-    return collapsed
-
-
-def _truncate_large_render_rows(
-    rows: list[dict[str, Any]],
-    *,
-    max_visible_rows: int = PLAIN_RENDER_MAX_VISIBLE_ROWS,
-) -> tuple[list[dict[str, Any]], int]:
-    if len(rows) <= max_visible_rows:
-        return rows, 0
-
-    head_count = max_visible_rows // 2
-    tail_count = max_visible_rows - head_count
-    omitted_count = len(rows) - max_visible_rows
-    truncated_rows = [
-        *rows[:head_count],
-        {
-            "status": "elided",
-            "count": omitted_count,
-            "label": "rows omitted for performance",
-        },
-        *rows[-tail_count:],
-    ]
-    return truncated_rows, omitted_count
-
-
 def enrich_rows_for_display(
     *,
     rows: list[dict[str, Any]],
@@ -535,53 +440,82 @@ def enrich_rows_for_display(
 ) -> dict[str, Any]:
     """Attach display-only row metadata without calculating diff summary.
 
-    This helper is responsible for syntax spans, fold hints, and plain-render
-    degradation.  It may strip rich token/syntax markup or collapse/truncate
-    rows for display, but it does not decide changed/added/removed/moved line
-    counts.  Engines calculate summaries before calling this helper.
+    This helper preserves every engine row while assigning hunk identities,
+    syntax spans, and optional syntax-aware fold hints. It does not decide
+    changed/added/removed/moved line counts; engines calculate summaries before
+    calling it.
     """
+    hunk_count = _assign_hunk_indices(rows)
     left_syntax_lines = _highlight_lines_for_path(left_path_hint, left_text)
     right_syntax_lines = _highlight_lines_for_path(right_path_hint, right_text)
-    plain_render = left_syntax_lines is None and right_syntax_lines is None
-    fold_hints: list[FoldHint] = []
+    fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
+    for row in rows:
+        left_no = row.get("left_no")
+        if (
+            isinstance(left_no, int)
+            and left_syntax_lines is not None
+            and left_no - 1 < len(left_syntax_lines)
+            and left_syntax_lines[left_no - 1] != []
+        ):
+            row["left_syntax"] = left_syntax_lines[left_no - 1]
 
-    if plain_render:
-        _strip_syntax_markup(rows)
-    else:
-        fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
-        for row in rows:
-            left_no = row.get("left_no")
-            if (
-                isinstance(left_no, int)
-                and left_syntax_lines is not None
-                and left_no - 1 < len(left_syntax_lines)
-                and left_syntax_lines[left_no - 1] != []
-            ):
-                row["left_syntax"] = left_syntax_lines[left_no - 1]
-
-            right_no = row.get("right_no")
-            if (
-                isinstance(right_no, int)
-                and right_syntax_lines is not None
-                and right_no - 1 < len(right_syntax_lines)
-                and right_syntax_lines[right_no - 1] != []
-            ):
-                row["right_syntax"] = right_syntax_lines[right_no - 1]
-
-    payload_rows = (
-        _collapse_equal_rows_for_large_diff(rows) if plain_render else rows
-    )
-    truncated_rows = 0
-    if plain_render:
-        payload_rows, truncated_rows = _truncate_large_render_rows(payload_rows)
+        right_no = row.get("right_no")
+        if (
+            isinstance(right_no, int)
+            and right_syntax_lines is not None
+            and right_no - 1 < len(right_syntax_lines)
+            and right_syntax_lines[right_no - 1] != []
+        ):
+            row["right_syntax"] = right_syntax_lines[right_no - 1]
 
     payload: dict[str, Any] = {
-        "rows": payload_rows,
+        "hunk_count": hunk_count,
+        "rows": rows,
     }
-    if plain_render:
-        payload["render_mode"] = "plain"
-    if truncated_rows != 0:
-        payload["truncated_rows"] = truncated_rows
     if fold_hints != []:
         payload["fold_hints"] = fold_hints
     return payload
+
+
+def _assign_hunk_indices(rows: list[dict[str, Any]]) -> int:
+    """Mark each changed-run start with its zero-based file-local hunk index.
+
+    `/api/file-diff` owns hunk identity independently of the frontend's
+    fold/virtualization representation. Equal rows carry `None`; only the first
+    row of each contiguous changed run carries an index.
+    """
+    hunk_count = 0
+    previous_changed = False
+    for row in rows:
+        changed = _row_has_rendered_change(row)
+        row["hunk_index"] = (
+            hunk_count if changed and not previous_changed else None
+        )
+        if changed and not previous_changed:
+            hunk_count += 1
+        previous_changed = changed
+    return hunk_count
+
+
+def _row_has_rendered_change(row: dict[str, Any]) -> bool:
+    """Return whether a rendered row belongs to a changed hunk.
+
+    Structural engines can encode movement or replacement entirely in inline
+    token statuses while leaving the aligned row status `equal`. Hunk identity
+    must therefore use both row and token status, matching what the user sees.
+    """
+    status = row.get("status")
+    if not isinstance(status, str):
+        raise TypeError("Rendered row is missing a string status.")
+    if status in {"replace", "insert", "delete", "move"}:
+        return True
+    for side in ("left_tokens", "right_tokens"):
+        tokens = row.get(side, [])
+        if not isinstance(tokens, list):
+            raise TypeError(f"Rendered row {side} must be a list.")
+        for token in tokens:
+            if not isinstance(token, dict):
+                raise TypeError(f"Rendered row {side} must contain mappings.")
+            if token.get("status") != "unchanged":
+                return True
+    return False

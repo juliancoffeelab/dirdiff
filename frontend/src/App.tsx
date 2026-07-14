@@ -248,6 +248,8 @@ export function App() {
     appRoot: () => appRoot,
     appHeader: () => appHeader,
     displayFiles: ui.displayFiles,
+    manifestFileCount: ui.manifestFileCount,
+    diffRevision: ui.diffRevision,
     isFileVirtualized: ui.isFileVirtualized,
     layoutRevision: ui.layoutRevision,
     virtualizationRevision: ui.virtualizationRevision,

@@ -362,7 +362,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
     void queryClient.cancelQueries({ queryKey: ["manifest"] });
     void queryClient.cancelQueries({ queryKey: ["lazy-info"] });
     void queryClient.cancelQueries({ queryKey: ["file-diff"] });
-    void queryClient.cancelQueries({ queryKey: ["notebook-section"] });
     setCurrentParams(null);
   };
 
@@ -375,7 +374,6 @@ export function createDiffResources(options: DiffResourcesOptions) {
     void queryClient.cancelQueries({ queryKey: ["manifest"] });
     void queryClient.cancelQueries({ queryKey: ["lazy-info"] });
     void queryClient.cancelQueries({ queryKey: ["file-diff"] });
-    void queryClient.cancelQueries({ queryKey: ["notebook-section"] });
   };
 
   const startDiff = (diffParams: DiffParams) => {

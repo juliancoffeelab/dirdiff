@@ -68,8 +68,6 @@ from dirdiff.engines import (
 )
 from dirdiff.notebooks import (
     build_notebook_diff_payload,
-    build_notebook_section_payload,
-    normalize_notebook_document,
 )
 from dirdiff.rendering import (
     default_expanded_for_payload,
@@ -206,6 +204,11 @@ class DiffPayload(TypedDict):
     Display/API rows after engine rows have been syntax/fold enriched.
     """
 
+    hunk_count: int
+    """
+    Number of backend-identified hunks in this file diff.
+    """
+
     default_expanded: bool
     """
     Whether the frontend should initially expand this file.
@@ -229,16 +232,6 @@ class DiffPayload(TypedDict):
     right_label: str
     """
     Human-facing label for the new/right side.
-    """
-
-    render_mode: NotRequired[Literal["plain"]]
-    """
-    Present when display enrichment had to fall back to plain rendering.
-    """
-
-    truncated_rows: NotRequired[int]
-    """
-    Number of rows elided from a large plain render.
     """
 
     fold_hints: NotRequired[list[FoldHint]]
@@ -458,18 +451,9 @@ class FoldHintResponse(ApiModel):
 
 
 class DiffRowResponse(ApiModel):
-    status: Literal[
-        "equal", "replace", "insert", "delete", "move", "fold", "elided"
-    ]
+    status: Literal["equal", "replace", "insert", "delete", "move"]
     """
-    Display row status.
-
-    TODO: part of fold micro-optimisation, investigate for removal.
-
-    `fold` is a client-expandable placeholder for hidden rows that are still
-    included in `foldedRows`.  `elided` is a non-expandable placeholder for
-    rows omitted from a large plain render.  These synthetic row statuses should
-    probably be removed from the core diff row shape.
+    Display status of one real aligned engine row.
     """
 
     left_no: int | None = None
@@ -480,19 +464,13 @@ class DiffRowResponse(ApiModel):
     right_tokens: list[InlineTokenResponse] = Field(default_factory=list)
     left_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
     right_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
-    count: int | None = None
+    hunk_index: int | None
     """
-    Number of hidden rows represented by a synthetic fold/elided row.
-    """
+    Zero-based file-local hunk identity on a hunk's first rendered row.
 
-    foldedRows: list[DiffRowResponse] = Field(default_factory=list)
-    """
-    Hidden rows kept in the payload for fold mode.
-    """
-
-    label: str | None = None
-    """
-    Label displayed during fold/elided rendering.
+    Other rows carry `None`. The value is assigned by `/api/file-diff` before
+    frontend folding and virtualization and is therefore independent of DOM
+    layout.
     """
 
 
@@ -556,13 +534,12 @@ class TextFileDiffResponse(ApiModel):
     right_label: str
     summary: DiffSummaryResponse
     rows: list[DiffRowResponse]
+    hunk_count: int
     file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
     lazy: LazyReason = None
     default_expanded: bool = True
-    render_mode: Literal["plain"] | None = None
-    truncated_rows: int | None = None
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
     engine_warning: EngineWarningResponse | None = None
 
@@ -580,32 +557,21 @@ class NotebookCellDiffResponse(ApiModel):
     metadata_changed: bool
     outputs_changed: bool
     source_rows: list[DiffRowResponse]
+    source_hunk_count: int
     source_changed_lines: int
     source_modified_lines: int
     source_added_lines: int
     source_removed_lines: int
     source_moved_lines: int
     source_fold_hints: list[FoldHintResponse] = Field(default_factory=list)
-    metadata_rows: list[DiffRowResponse] = Field(default_factory=list)
-    outputs_rows: list[DiffRowResponse] = Field(default_factory=list)
     metadata_changed_lines: int
     metadata_modified_lines: int
     metadata_added_lines: int
     metadata_removed_lines: int
-    metadata_hunk_count: int
-    metadata_lazy: bool
     outputs_changed_lines: int
     outputs_modified_lines: int
     outputs_added_lines: int
     outputs_removed_lines: int
-    outputs_hunk_count: int
-    outputs_lazy: bool
-    source_render_mode: Literal["plain"] | None = None
-    source_truncated_rows: int | None = None
-    metadata_render_mode: Literal["plain"] | None = None
-    metadata_truncated_rows: int | None = None
-    outputs_render_mode: Literal["plain"] | None = None
-    outputs_truncated_rows: int | None = None
 
 
 class NotebookFileDiffResponse(ApiModel):
@@ -615,10 +581,8 @@ class NotebookFileDiffResponse(ApiModel):
     left_label: str
     right_label: str
     summary: NotebookDiffSummaryResponse
-    notebook_metadata_rows: list[DiffRowResponse] = Field(default_factory=list)
+    hunk_count: int
     notebook_metadata_changed_lines: int
-    notebook_metadata_hunk_count: int
-    notebook_metadata_lazy: bool
     cells: list[NotebookCellDiffResponse]
     file_kind: FileKindResponse
     left_path: str | None = None
@@ -664,19 +628,6 @@ class LazyInfoFileResponse(ApiModel):
     lazy: LazyReason = None
 
 
-class NotebookSectionDiffResponse(ApiModel):
-    section: str
-    cell_key: str | None = None
-    left_index: int | None = None
-    right_index: int | None = None
-    left_label: str
-    right_label: str
-    rows: list[DiffRowResponse]
-    render_mode: Literal["plain"] | None = None
-    truncated_rows: int = 0
-    fold_hints: list[FoldHintResponse] = Field(default_factory=list)
-
-
 class RepoManifestResponse(ApiModel):
     cache_id: str
     display_name: str
@@ -689,9 +640,6 @@ class RepoManifestResponse(ApiModel):
 
 class LazyInfoResponse(ApiModel):
     files: list[LazyInfoFileResponse]
-
-
-DiffRowResponse.model_rebuild()
 
 
 def selected_branch_selections(
@@ -1095,6 +1043,7 @@ def create_app(
             "left_label": context["left_label"],
             "right_label": context["right_label"],
             "rows": display["rows"],
+            "hunk_count": display["hunk_count"],
             "summary": {
                 **rendered["summary"],
                 "left_exists": left_version.exists,
@@ -1104,10 +1053,6 @@ def create_app(
         }
         if "engine_warning" in rendered:
             payload["engine_warning"] = rendered["engine_warning"]
-        if "render_mode" in display:
-            payload["render_mode"] = display["render_mode"]
-        if "truncated_rows" in display:
-            payload["truncated_rows"] = display["truncated_rows"]
         if "fold_hints" in display:
             payload["fold_hints"] = display["fold_hints"]
         payload["default_expanded"] = default_expanded_for_payload(
@@ -1186,57 +1131,6 @@ def create_app(
         payload["left_path"] = context["left_path"]
         payload["right_path"] = context["right_path"]
         return payload
-
-    def build_notebook_section_for_request(
-        *,
-        section: str | None,
-        cell_key: str | None,
-        context: LoadedDiffSides,
-    ) -> dict[str, Any]:
-        """Load notebook files and build one lazy section payload.
-
-        Notebook parsing and section selection stay in the REST orchestration
-        layer. The section body itself is rendered by the notebook module's
-        secondary text renderer.
-
-        Unlike top-level notebook file rendering, invalid notebook JSON is an
-        error here.  A section request can only be made after the frontend has
-        seen a notebook payload with a section key, so failure to parse either
-        side means the lazy section cannot be fulfilled honestly.
-        """
-        left_version = context["left_version"]
-        right_version = context["right_version"]
-        left_notebook = None
-        if left_version.exists:
-            if left_version.text is None:
-                raise TextDiffError(
-                    f"Could not load notebook on {context['left_label']}."
-                )
-            left_notebook = normalize_notebook_document(left_version.text)
-
-        right_notebook = None
-        if right_version.exists:
-            if right_version.text is None:
-                raise TextDiffError(
-                    f"Could not load notebook on {context['right_label']}."
-                )
-            right_notebook = normalize_notebook_document(right_version.text)
-        if left_version.exists and left_notebook is None:
-            raise TextDiffError(
-                f"Could not parse notebook on {context['left_label']}."
-            )
-        if right_version.exists and right_notebook is None:
-            raise TextDiffError(
-                f"Could not parse notebook on {context['right_label']}."
-            )
-        return build_notebook_section_payload(
-            left_notebook=left_notebook,
-            right_notebook=right_notebook,
-            left_label=context["left_label"],
-            right_label=context["right_label"],
-            section=section,
-            cell_key=cell_key,
-        )
 
     @app.get("/", response_class=HTMLResponse)
     def serve_frontend_missing() -> HTMLResponse:
@@ -1824,105 +1718,6 @@ def create_app(
         if payload.get("render_kind") == "notebook":
             return NotebookFileDiffResponse.model_validate(payload)
         return TextFileDiffResponse.model_validate(payload)
-
-    @app.get(
-        "/api/notebook-section",
-        responses={
-            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
-            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
-        },
-        summary="Load notebook metadata or output rows for a specific cell",
-    )
-    def serve_notebook_section(
-        project_id: str = Query(
-            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
-        ),
-        cache_id: str = Query(
-            default="",
-            description="Backend cache id returned by /api/manifest for repo-backed modes.",
-        ),
-        mode: ModeParam = Query(description="UI diff mode."),
-        preset_subset: str | None = Query(
-            default=None,
-            description="Preset subset/group id for preset mode.",
-        ),
-        section: str | None = Query(
-            default=None,
-            description="Notebook section name, for example `notebook-metadata`, `cell-metadata`, or `cell-outputs`.",
-        ),
-        cell_key: str | None = Query(
-            default=None, description="Stable notebook cell key."
-        ),
-        left_path: str | None = Query(
-            default=None, description="Repo-relative path on the left side."
-        ),
-        right_path: str | None = Query(
-            default=None, description="Repo-relative path on the right side."
-        ),
-    ) -> NotebookSectionDiffResponse:
-        try:
-            backend: WorkspaceBackendProtocol
-            repo_info: RepoInfo
-            if mode == "preset":
-                preset_type, preset_name = preset_project_parts(
-                    project_id=project_id,
-                    preset_subset=preset_subset,
-                )
-                backend = preset_backend_for_type(preset_type)
-                repo_info = build_repo_info_for_request(
-                    backend=backend,
-                    mode=mode,
-                    branch_selections=(None, None),
-                    left=None,
-                    right=None,
-                    preset=preset_name,
-                    show_untracked=False,
-                )
-            else:
-                parsed_project_id = marked_project_id(project_id)
-                backend = backend_for_request(
-                    mode=mode,
-                    project_id=project_id,
-                    preset_subset=preset_subset,
-                )
-                cached_repo_info = cache.repo_info(
-                    project_id=parsed_project_id, cache_id=cache_id
-                )
-                if cached_repo_info is None:
-                    raise TextDiffError(f"Unknown cache id: {cache_id}")
-                repo_info = cached_repo_info
-            cached_path = cached_path_for_request(
-                repo_info=repo_info,
-                left_path=left_path,
-                right_path=right_path,
-            )
-            context = load_diff_sides(
-                backend=backend,
-                left_path=cached_path.left_path,
-                right_path=cached_path.right_path,
-                left=repo_info.left_side,
-                right=repo_info.right_side,
-            )
-            context["left_label"] = repo_info.left_label
-            context["right_label"] = repo_info.right_label
-            payload = build_notebook_section_for_request(
-                section=section,
-                cell_key=cell_key,
-                context=context,
-            )
-        except TextDiffError as exc:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
-        except Exception as exc:
-            LOGGER.exception("Notebook section diff request crashed: %s", exc)
-            raise HTTPException(
-                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                detail="Internal server error.",
-            ) from exc
-
-        return NotebookSectionDiffResponse.model_validate(payload)
 
     return app
 

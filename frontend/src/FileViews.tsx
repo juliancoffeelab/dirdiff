@@ -23,10 +23,12 @@ import {
 } from "./DiffGrid";
 import { addFoldRows, isFoldRow, type RenderRow } from "./folds";
 import { NotebookFile } from "./NotebookViews";
+import type { HunkPosition } from "./hunkNavigation";
 import {
   type FileTreeDirectoryNode,
   type FileTreeNode,
   type LinePin,
+  type RenderedFile,
   type RenderedFileEntry,
   fileBodyAnchorElementId,
   fileDisplayName,
@@ -42,10 +44,6 @@ type ExpansionSetter = (
 ) => void;
 type BooleanMap = Record<string, boolean | undefined>;
 type StringMap = Record<string, string | undefined>;
-type HunkPosition = {
-  current: number;
-  total: number;
-};
 type LineStats = {
   added: number | null;
   modified: number | null;
@@ -219,7 +217,7 @@ function TreeLineStats(props: { stats: LineStats }) {
  * fetches.
  */
 export function FileList(props: {
-  files: RenderedFileEntry[];
+  files: RenderedFile[];
   cacheId: string | null;
   hunkPosition: HunkPosition;
   diffViewMode: DiffViewMode;
@@ -253,11 +251,12 @@ export function FileList(props: {
       >
         <div class="directory-groups">
           <For each={props.files}>
-            {(file) => {
+            {([fileIndex, file]) => {
               const key = fileKey(file);
               return (
                 <FileCard
                   file={file}
+                  fileIndex={fileIndex}
                   cacheId={props.cacheId}
                   hunkPosition={props.hunkPosition}
                   expanded={expansionValue(
@@ -290,7 +289,7 @@ export function FileList(props: {
 }
 
 export function FileTreeSidebar(props: {
-  files: RenderedFileEntry[];
+  files: RenderedFile[];
   tree: FileTreeNode[];
   directoryExpansion: BooleanMap;
   fileExpansion: BooleanMap;
@@ -305,7 +304,9 @@ export function FileTreeSidebar(props: {
   onScrollToDirectory: (directory: FileTreeDirectoryNode) => void;
   onScrollToFile: (file: FileEntry) => void;
 }) {
-  const lineStats = createMemo(() => filesLineStats(props.files));
+  const lineStats = createMemo(() =>
+    filesLineStats(props.files.map(([, file]) => file)),
+  );
   const directoryExpanded = (directory: FileTreeDirectoryNode) =>
     expansionValue(props.directoryExpansion, directory.label, true);
   const fileExpanded = (file: FileEntry) =>
@@ -540,6 +541,7 @@ function FileTreeFile(props: {
 }
 
 function FileCard(props: {
+  fileIndex: number;
   file: RenderedFileEntry;
   cacheId: string | null;
   hunkPosition: HunkPosition;
@@ -559,7 +561,11 @@ function FileCard(props: {
   const key = () => fileKey(props.file);
   const lineStats = () => fileLineStats(props.file);
   const displayName = () => fileDisplayName(props.file);
+  /** Read the provisional global counter shared by visible file headers. */
   const hunkText = () => hunkPositionText(props.hunkPosition);
+  /** Read this card's exact backend count and selected local position. */
+  const fileHunkText = () =>
+    fileHunkPositionText(props.hunkPosition, props.fileIndex, props.file);
   const needsHydration = () => !fileEntryIsHydrated(props.file);
   const isPinnedFile = () =>
     props.linePin !== null && fileMatchesLinePin(props.file, props.linePin);
@@ -672,8 +678,14 @@ function FileCard(props: {
     });
   });
 
+  /** Expand the card without loading unresolved lazy content. */
   const expand = () => {
     props.setExpanded(true);
+  };
+
+  /** Hydrate an unresolved lazy file only from its visible plank click. */
+  const hydrateFromLazyPlank = () => {
+    expand();
     if (!needsHydration()) {
       return;
     }
@@ -728,6 +740,9 @@ function FileCard(props: {
             <Show when={hunkText() !== null}>
               <span class="file-card-hunks">{hunkText()}</span>
             </Show>
+            <Show when={fileHunkText() !== null}>
+              <span class="file-card-file-hunks">{fileHunkText()}</span>
+            </Show>
           </span>
         </span>
         <span class="file-stats">
@@ -748,6 +763,7 @@ function FileCard(props: {
       />
       <Show when={!props.expanded && canRenderRows()}>
         <HunkSkipAnchors
+          fileIndex={props.fileIndex}
           file={props.file}
           aggressiveFolds={props.aggressiveFolds}
         />
@@ -768,9 +784,8 @@ function FileCard(props: {
           <Show when={!props.loading && props.error === ""}>
             <Show when={props.file.render_kind === "notebook"}>
               <NotebookFile
+                fileIndex={props.fileIndex}
                 file={props.file}
-                diffParams={props.file.sourceParams}
-                cacheId={loadedCacheId(props.cacheId)}
                 diffViewMode={props.diffViewMode}
                 aggressiveFolds={props.aggressiveFolds}
               />
@@ -781,12 +796,14 @@ function FileCard(props: {
                   when={shouldRenderRichBody()}
                   fallback={
                     <PlainSplitFileDiff
+                      fileIndex={props.fileIndex}
                       file={props.file}
                       aggressiveFolds={props.aggressiveFolds}
                     />
                   }
                 >
                   <DiffGrid
+                    fileIndex={props.fileIndex}
                     displayName={displayName()}
                     leftLabel={requiredSideLabel(props.file, "left")}
                     rightLabel={requiredSideLabel(props.file, "right")}
@@ -814,7 +831,8 @@ function FileCard(props: {
       >
         <button
           type="button"
-          class="file-lazy-load-toggle"
+          class="file-lazy-load-toggle lazy-hunk-anchor"
+          data-file-index={props.fileIndex}
           classList={{
             "is-error": lazyIsError(props.file.lazy),
             "is-untracked": lazyOriginalReason(props.file.lazy) === "untracked",
@@ -824,7 +842,7 @@ function FileCard(props: {
             "is-pure-renamed":
               lazyOriginalReason(props.file.lazy) === "pure_renamed",
           }}
-          onClick={expand}
+          onClick={hydrateFromLazyPlank}
         >
           <span class="file-lazy-load-toggle-title">{lazyTitle()}</span>
           <span class="file-lazy-load-toggle-meta">{lazyMeta()}</span>
@@ -835,7 +853,8 @@ function FileCard(props: {
 }
 
 function PlainSplitFileDiff(props: {
-  file: FileEntry;
+  fileIndex: number;
+  file: RenderedFileEntry;
   aggressiveFolds: boolean;
 }) {
   const text = () => plainSplitText(fileRows(props.file));
@@ -854,6 +873,8 @@ function PlainSplitFileDiff(props: {
               "hunk-skip": anchor.skipped,
             }}
             style={{ top: `${virtualHunkAnchorTop(anchor.rowIndex)}px` }}
+            data-file-index={props.fileIndex}
+            data-hunk-index={anchor.hunkIndex}
             aria-hidden="true"
           />
         )}
@@ -879,20 +900,31 @@ function requiredSideLabel(file: FileEntry, side: "left" | "right"): string {
   throw new Error(`${fileDisplayName(file)} is missing ${side} label.`);
 }
 
-function HunkSkipAnchors(props: { file: FileEntry; aggressiveFolds: boolean }) {
+function HunkSkipAnchors(props: {
+  fileIndex: number;
+  file: RenderedFileEntry;
+  aggressiveFolds: boolean;
+}) {
   const hunkAnchors = () =>
     virtualHunkAnchors(hunkRenderRows(props.file, props.aggressiveFolds));
 
   return (
     <div class="hunk-skip-anchors" aria-hidden="true">
       <For each={hunkAnchors()}>
-        {() => <span class="diff-row hunk-anchor hunk-skip" />}
+        {(anchor) => (
+          <span
+            class="diff-row hunk-anchor hunk-skip"
+            data-file-index={props.fileIndex}
+            data-hunk-index={anchor.hunkIndex}
+          />
+        )}
       </For>
     </div>
   );
 }
 
 type VirtualHunkAnchor = {
+  hunkIndex: number;
   rowIndex: number;
   skipped: boolean;
 };
@@ -926,7 +958,14 @@ function virtualHunkAnchors(
       continue;
     }
     if ((row as HunkDiffRow).isHunkAnchor === true) {
-      anchors.push({ rowIndex: cursor, skipped: false });
+      if (row.hunk_index === null) {
+        throw new Error("Virtual hunk anchor is missing its backend index.");
+      }
+      anchors.push({
+        hunkIndex: row.hunk_index,
+        rowIndex: cursor,
+        skipped: false,
+      });
     }
     cursor += 1;
   }
@@ -957,12 +996,6 @@ function plainSplitText(rows: DiffRow[]): { left: string; right: string } {
 }
 
 function plainSideText(row: DiffRow, side: "left" | "right"): string {
-  if (row.status === "fold") {
-    return foldRowLabel(row);
-  }
-  if (row.status === "elided") {
-    return elidedRowLabel(row);
-  }
   const text = side === "left" ? row.left_text : row.right_text;
   if (text === null) {
     return "";
@@ -993,11 +1026,40 @@ function loadedCacheId(cacheId: string | null): string {
   return cacheId;
 }
 
+/**
+ * Return the global known-hunk counter shown in file headers.
+ *
+ * The suffix remains `+` while any manifest file lacks a file-diff response,
+ * because both the current global position and total may still grow.
+ */
 function hunkPositionText(position: HunkPosition): string | null {
-  if (position.total === 0) {
+  if (position.total === 0 && !position.incomplete) {
     return null;
   }
-  return `${position.current}/${position.total} hunks`;
+  return `${position.current}/${position.total}${position.incomplete ? "+" : ""} hunks`;
+}
+
+/**
+ * Return this card's exact file-local hunk count.
+ *
+ * A processed file always has an exact total. Its local current position is
+ * included only when the selected composite identity belongs to this file.
+ */
+function fileHunkPositionText(
+  position: HunkPosition,
+  fileIndex: number,
+  file: RenderedFileEntry,
+): string | null {
+  if (file.hunk_count === undefined) {
+    return null;
+  }
+  if (
+    position.selected?.fileIndex === fileIndex &&
+    position.selected.hunkIndex !== null
+  ) {
+    return `${position.selected.hunkIndex + 1}/${file.hunk_count} in file`;
+  }
+  return `${file.hunk_count} in file`;
 }
 
 function engineWarningMessage(file: FileEntry): string {
@@ -1023,23 +1085,6 @@ function engineWarningLabel(file: FileEntry): string {
     default:
       return warning.type satisfies never;
   }
-}
-
-function foldRowLabel(row: DiffRow): string {
-  if (typeof row.label === "string" && row.label.length > 0) {
-    return row.label;
-  }
-  if (typeof row.count !== "number") {
-    throw new Error("Fold row is missing count.");
-  }
-  return `... ${row.count} lines`;
-}
-
-function elidedRowLabel(row: DiffRow): string {
-  if (typeof row.label !== "string" || row.label.length === 0) {
-    throw new Error("Elided row is missing label.");
-  }
-  return row.label;
 }
 
 function unsupportedLazyReason(value: unknown): never {

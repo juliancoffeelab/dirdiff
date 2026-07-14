@@ -25,6 +25,7 @@ type InlineRowStatus = "equal" | "delete" | "insert" | "replace" | "move";
 export type DiffViewMode = "split" | "inline";
 
 export function DiffGrid(props: {
+  fileIndex: number;
   displayName: string;
   leftLabel: string;
   rightLabel: string;
@@ -56,6 +57,7 @@ export function DiffGrid(props: {
         />
       )}
       <ImperativeDiffLines
+        fileIndex={props.fileIndex}
         displayName={props.displayName}
         rows={props.rows}
         foldHints={props.foldHints}
@@ -103,6 +105,7 @@ type InlineLineNumberState = {
 };
 
 function ImperativeDiffLines(props: {
+  fileIndex: number;
   displayName: string;
   rows: DiffRow[];
   foldHints: FoldHint[];
@@ -156,15 +159,21 @@ function ImperativeDiffLines(props: {
     const fragment =
       props.viewMode === "inline" &&
       props.collapseInsertOnlyReplaceRows === true
-        ? renderCollapsedInlineRowsDom(rows, fileLabel, expandedFolds)
+        ? renderCollapsedInlineRowsDom(
+            rows,
+            fileLabel,
+            expandedFolds,
+            props.fileIndex,
+          )
         : props.viewMode === "inline"
-          ? renderInlineRowsDom(rows, fileLabel, expandedFolds)
+          ? renderInlineRowsDom(rows, fileLabel, expandedFolds, props.fileIndex)
           : renderSplitRowsDom(
               rows,
               fileLabel,
               props.leftLabel,
               props.rightLabel,
               expandedFolds,
+              props.fileIndex,
             );
     root.replaceChildren(fragment);
   };
@@ -180,6 +189,7 @@ function renderSplitRowsDom(
   leftLabel: string,
   rightLabel: string,
   expandedFolds: Set<number>,
+  fileIndex: number,
   startRow = 0,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -195,14 +205,14 @@ function renderSplitRowsDom(
           leftLabel,
           rightLabel,
           expandedFolds,
+          fileIndex,
         ),
       );
       cursor += row.count;
-    } else if (row.status === "elided") {
-      fragment.append(renderSplitElidedRowDom(row, leftLabel, rightLabel));
-      cursor += 1;
     } else {
-      fragment.append(renderSplitDiffRowDom(row, rowIndex, fileLabel));
+      fragment.append(
+        renderSplitDiffRowDom(row, rowIndex, fileLabel, fileIndex),
+      );
       cursor += 1;
     }
   });
@@ -213,6 +223,7 @@ function renderInlineRowsDom(
   rows: HunkRenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
+  fileIndex: number,
   startRow = 0,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -225,7 +236,7 @@ function renderInlineRowsDom(
     const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
       fragment.append(
-        renderInlineFoldDom(row, rowIndex, fileLabel, expandedFolds),
+        renderInlineFoldDom(row, rowIndex, fileLabel, expandedFolds, fileIndex),
       );
       lineNumberState.leftNo = null;
       lineNumberState.rightNo = null;
@@ -236,6 +247,7 @@ function renderInlineRowsDom(
           row,
           rowIndex,
           fileLabel,
+          fileIndex,
           undefined,
           lineNumberState,
         ),
@@ -250,6 +262,7 @@ function renderCollapsedInlineRowsDom(
   rows: HunkRenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
+  fileIndex: number,
   startRow = 0,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -262,7 +275,14 @@ function renderCollapsedInlineRowsDom(
     const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
       fragment.append(
-        renderInlineFoldDom(row, rowIndex, fileLabel, expandedFolds, true),
+        renderInlineFoldDom(
+          row,
+          rowIndex,
+          fileLabel,
+          expandedFolds,
+          fileIndex,
+          true,
+        ),
       );
       lineNumberState.leftNo = null;
       lineNumberState.rightNo = null;
@@ -273,6 +293,7 @@ function renderCollapsedInlineRowsDom(
           row,
           rowIndex,
           fileLabel,
+          fileIndex,
           undefined,
           lineNumberState,
         ),
@@ -290,6 +311,7 @@ function renderSplitFoldDom(
   leftLabel: string,
   rightLabel: string,
   expandedFolds: Set<number>,
+  fileIndex: number,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
@@ -312,6 +334,7 @@ function renderSplitFoldDom(
         leftLabel,
         rightLabel,
         expandedFolds,
+        fileIndex,
         row.startRow,
       );
       attachExpandedFoldToggle(fragment, toggle);
@@ -329,7 +352,10 @@ function renderSplitFoldDom(
       createFoldSideDom(row.count, row.label, leftLabel),
       createFoldSideDom(row.count, row.label, rightLabel),
     );
-    wrapper.replaceChildren(...hunkSkipAnchors(row.foldedRows), button);
+    wrapper.replaceChildren(
+      ...hunkSkipAnchors(row.foldedRows, fileIndex),
+      button,
+    );
   };
 
   renderFold();
@@ -341,6 +367,7 @@ function renderInlineFoldDom(
   rowIndex: number,
   fileLabel: string,
   expandedFolds: Set<number>,
+  fileIndex: number,
   collapseInsertOnlyReplaceRows = false,
 ): HTMLElement {
   const wrapper = document.createElement("div");
@@ -365,9 +392,16 @@ function renderInlineFoldDom(
               rows,
               fileLabel,
               expandedFolds,
+              fileIndex,
               row.startRow,
             )
-          : renderInlineRowsDom(rows, fileLabel, expandedFolds, row.startRow);
+          : renderInlineRowsDom(
+              rows,
+              fileLabel,
+              expandedFolds,
+              fileIndex,
+              row.startRow,
+            );
       attachExpandedFoldToggle(fragment, toggle);
       wrapper.replaceChildren(fragment);
       return;
@@ -388,7 +422,10 @@ function renderInlineFoldDom(
         foldLabel(row),
       ),
     );
-    wrapper.replaceChildren(...hunkSkipAnchors(row.foldedRows), button);
+    wrapper.replaceChildren(
+      ...hunkSkipAnchors(row.foldedRows, fileIndex),
+      button,
+    );
   };
 
   renderFold();
@@ -402,7 +439,7 @@ function attachExpandedFoldToggle(
   onToggle: () => void,
 ) {
   const row = fragment.querySelector(
-    ".diff-row:not(.fold-bar):not(.inline-fold-bar):not(.elided)",
+    ".diff-row:not(.fold-bar):not(.inline-fold-bar)",
   );
   if (!(row instanceof HTMLElement)) {
     return;
@@ -417,14 +454,15 @@ function attachExpandedFoldToggle(
   }
 }
 
-function hunkSkipAnchors(rows: RenderRow[]): HTMLElement[] {
+function hunkSkipAnchors(rows: RenderRow[], fileIndex: number): HTMLElement[] {
   return rows.flatMap((row) => {
     if (isFoldRow(row)) {
-      return hunkSkipAnchors(row.foldedRows);
+      return hunkSkipAnchors(row.foldedRows, fileIndex);
     }
     if ((row as HunkDiffRow).isHunkAnchor === true) {
       const anchor = document.createElement("span");
       anchor.className = "diff-row hunk-anchor hunk-skip";
+      applyHunkIdentity(anchor, row as HunkDiffRow, fileIndex);
       anchor.setAttribute("aria-hidden", "true");
       return [anchor];
     }
@@ -436,11 +474,13 @@ function renderSplitDiffRowDom(
   row: DiffRow & { isHunkAnchor?: boolean },
   rowIndex: number,
   fileLabel: string,
+  fileIndex: number,
   foldToggle?: FoldToggle,
 ): HTMLElement {
   const element = document.createElement("div");
   element.className = diffRowClass(row.status, row, foldToggle);
   element.dataset.rowIndex = String(rowIndex);
+  applyHunkIdentity(element, row, fileIndex);
   if (foldToggle !== undefined) {
     element.title = "Collapse folded rows";
     element.addEventListener("click", foldToggle.onToggle);
@@ -456,6 +496,7 @@ function renderInlineDiffRowsDom(
   row: DiffRow & { isHunkAnchor?: boolean },
   rowIndex: number,
   fileLabel: string,
+  fileIndex: number,
   foldToggle?: FoldToggle,
   lineNumberState?: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
@@ -477,6 +518,7 @@ function renderInlineDiffRowsDom(
         syntax: sharedSyntax,
         rowIndex,
         fileLabel,
+        fileIndex,
         sourceRow: row,
         foldToggle,
         lineNumberState,
@@ -492,6 +534,7 @@ function renderInlineDiffRowsDom(
         syntax: row.left_syntax,
         rowIndex,
         fileLabel,
+        fileIndex,
         sourceRow: row,
         foldToggle,
         lineNumberState,
@@ -507,6 +550,7 @@ function renderInlineDiffRowsDom(
         syntax: row.right_syntax,
         rowIndex,
         fileLabel,
+        fileIndex,
         sourceRow: row,
         foldToggle,
         lineNumberState,
@@ -527,6 +571,7 @@ function renderInlineDiffRowsDom(
             syntax: row.left_syntax,
             rowIndex,
             fileLabel,
+            fileIndex,
             sourceRow: row,
             foldToggle,
             lineNumberState,
@@ -546,6 +591,7 @@ function renderInlineDiffRowsDom(
             syntax: row.right_syntax,
             rowIndex,
             fileLabel,
+            fileIndex,
             sourceRow: { ...row, isHunkAnchor: !hasLeftSide },
             foldToggle: hasLeftSide ? undefined : foldToggle,
             lineNumberState,
@@ -571,6 +617,7 @@ function renderInlineDiffRowsDom(
             syntax: row.left_syntax,
             rowIndex,
             fileLabel,
+            fileIndex,
             sourceRow: row,
             foldToggle,
             lineNumberState,
@@ -589,6 +636,7 @@ function renderInlineDiffRowsDom(
             syntax: row.right_syntax,
             rowIndex,
             fileLabel,
+            fileIndex,
             sourceRow: { ...row, isHunkAnchor: !hasLeftSide },
             foldToggle: hasLeftSide ? undefined : foldToggle,
             lineNumberState,
@@ -597,23 +645,6 @@ function renderInlineDiffRowsDom(
       }
       return fragment;
     }
-    case "elided":
-      return renderInlineDiffRowDom({
-        status: "equal",
-        marker: " ",
-        leftNo: null,
-        rightNo: null,
-        text: elidedLabel(row),
-        tokens: [],
-        syntax: [],
-        rowIndex,
-        fileLabel,
-        sourceRow: row,
-        foldToggle,
-        lineNumberState,
-      });
-    case "fold":
-      throw new Error("Fold rows must be rendered by the fold renderer.");
     default:
       throwUnhandledRowStatus(row.status);
   }
@@ -648,6 +679,7 @@ function renderCollapsedInlineDiffRowsDom(
   row: DiffRow & { isHunkAnchor?: boolean },
   rowIndex: number,
   fileLabel: string,
+  fileIndex: number,
   foldToggle?: FoldToggle,
   lineNumberState?: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
@@ -656,6 +688,7 @@ function renderCollapsedInlineDiffRowsDom(
       row,
       rowIndex,
       fileLabel,
+      fileIndex,
       foldToggle,
       lineNumberState,
     );
@@ -672,6 +705,7 @@ function renderCollapsedInlineDiffRowsDom(
     syntax: row.right_syntax,
     rowIndex,
     fileLabel,
+    fileIndex,
     sourceRow: row,
     foldToggle,
     lineNumberState,
@@ -707,6 +741,7 @@ function renderInlineDiffRowDom(props: {
   syntax: SyntaxSpan[];
   rowIndex: number;
   fileLabel: string;
+  fileIndex: number;
   sourceRow: DiffRow & { isHunkAnchor?: boolean };
   foldToggle?: FoldToggle;
   lineNumberState?: InlineLineNumberState;
@@ -720,6 +755,7 @@ function renderInlineDiffRowDom(props: {
     "inline-diff-row",
   );
   element.dataset.rowIndex = String(props.rowIndex);
+  applyHunkIdentity(element, props.sourceRow, props.fileIndex);
   if (props.foldToggle !== undefined) {
     element.title = "Collapse folded rows";
     element.addEventListener("click", props.foldToggle.onToggle);
@@ -803,6 +839,28 @@ function diffRowClass(
   return classes.join(" ");
 }
 
+/**
+ * Attach the backend-provided snapshot-local identity to one anchor element.
+ *
+ * Rendering modes may replace the element, but every replacement must expose
+ * the same `(fileIndex, hunkIndex)` pair. Non-anchor rows are left untouched;
+ * an anchor without a backend hunk index is an invalid file-diff payload.
+ */
+function applyHunkIdentity(
+  element: HTMLElement,
+  row: HunkDiffRow,
+  fileIndex: number,
+): void {
+  if (row.isHunkAnchor !== true) {
+    return;
+  }
+  if (row.hunk_index === null) {
+    throw new Error("Hunk anchor is missing its backend hunk index.");
+  }
+  element.dataset.fileIndex = String(fileIndex);
+  element.dataset.hunkIndex = String(row.hunk_index);
+}
+
 function createDiffSideDom(
   row: DiffRow,
   side: Side,
@@ -824,48 +882,12 @@ function createDiffSideDom(
   return element;
 }
 
-function renderSplitElidedRowDom(
-  row: DiffRow,
-  leftLabel: string,
-  rightLabel: string,
-): HTMLElement {
-  const element = document.createElement("div");
-  element.className = "diff-row elided";
-  element.append(
-    createFoldSideDom(
-      requiredRowCount(row, "elided"),
-      elidedLabel(row),
-      leftLabel,
-    ),
-    createFoldSideDom(
-      requiredRowCount(row, "elided"),
-      elidedLabel(row),
-      rightLabel,
-    ),
-  );
-  return element;
-}
-
 function sideText(row: DiffRow, side: Side): string {
   const text = side === "left" ? row.left_text : row.right_text;
   if (text === null) {
     return "";
   }
   return text;
-}
-
-function requiredRowCount(row: DiffRow, status: string): number {
-  if (typeof row.count !== "number") {
-    throw new Error(`${status} row is missing count.`);
-  }
-  return row.count;
-}
-
-function elidedLabel(row: DiffRow): string {
-  if (typeof row.label !== "string" || row.label.length === 0) {
-    throw new Error("Elided row is missing label.");
-  }
-  return row.label;
 }
 
 function throwUnhandledRowStatus(status: never): never {
@@ -1051,14 +1073,18 @@ function isChangedRowStatus(status: string): boolean {
   return ["replace", "insert", "delete", "move"].includes(status);
 }
 
+/**
+ * Project backend hunk markers into the render-only anchor flag.
+ *
+ * This function does not discover hunk boundaries. Every non-null
+ * `hunk_index` came from the file-diff response and survives folding and view
+ * replacement as the identity rendered on the resulting anchor.
+ */
 export function markHunkAnchors(rows: DiffRow[]): HunkDiffRow[] {
-  let previousChanged = false;
-  return rows.map((row) => {
-    const changed = isChangedRowStatus(row.status);
-    const isHunkAnchor = changed && !previousChanged;
-    previousChanged = changed;
-    return { ...row, isHunkAnchor };
-  });
+  return rows.map((row) => ({
+    ...row,
+    isHunkAnchor: row.hunk_index !== null,
+  }));
 }
 
 function isWhitespaceOnlyChange(row: DiffRow): boolean {

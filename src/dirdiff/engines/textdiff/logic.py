@@ -4,7 +4,7 @@
 `TextDiffEngine`: it aligns lines, tokenizes inline changes, assigns token
 statuses, and returns native text summary counts.  `row_has_any_change` is the
 shared predicate for detecting changed inline tokens.  This module does not
-attach syntax highlighting, fold hints, plain-render elision, request labels,
+attach syntax highlighting, fold hints, hunk identities, request labels,
 repository paths, or HTTP payload metadata.
 """
 
