@@ -26,8 +26,8 @@ there is no line on that side.
 
 `DifftasticJson.chunks` contains changed ranges keyed by difftastic side names:
 `lhs` for the left/old document and `rhs` for the right/new document. The range
-offsets are treated as Python string slice offsets into the corresponding source
-line.
+offsets are UTF-8 byte positions. The adapter converts them to Python string
+offsets before constructing its internal change index.
 
 The `language` field is opaque except for known difftastic fallback labels that
 may be exposed through `DifftasticAst.engine_warning`.
@@ -290,13 +290,47 @@ def _side_statuses_for_entry(
 
 def _change_tuple(
     side: DifftasticJsonSide | None,
+    *,
+    source_lines: list[str],
 ) -> tuple[DifftasticJsonChange, ...]:
+    """Return one side's spans with offsets normalized for Python slicing.
+
+    Difftastic exposes UTF-8 byte positions, while every consumer after the
+    adapter works with Python `str` indices. Converting once here keeps that
+    external representation out of tokenization, pairing, and row rendering.
+    """
     if side is None:
         return ()
     changes = side.get("changes")
     if not isinstance(changes, list):
         return ()
-    return tuple(changes)
+    if changes == []:
+        return ()
+    line_number = _line_number(side)
+    assert line_number is not None
+    assert 0 <= line_number < len(source_lines)
+    line = source_lines[line_number]
+    byte_to_character_offset = {0: 0}
+    byte_offset = 0
+    for character_offset, character in enumerate(line, start=1):
+        byte_offset += len(character.encode("utf-8"))
+        byte_to_character_offset[byte_offset] = character_offset
+
+    normalized: list[DifftasticJsonChange] = []
+    for change in changes:
+        start = change["start"]
+        end = change["end"]
+        assert start in byte_to_character_offset
+        assert end in byte_to_character_offset
+        normalized_change: DifftasticJsonChange = {
+            "start": byte_to_character_offset[start],
+            "end": byte_to_character_offset[end],
+        }
+        content = change.get("content")
+        if content is not None:
+            normalized_change["content"] = content
+        normalized.append(normalized_change)
+    return tuple(normalized)
 
 
 def _line_number(side: DifftasticJsonSide | None) -> int | None:
@@ -318,7 +352,12 @@ def _entry_side(
     return None
 
 
-def _change_index(diff_json: DifftasticJson) -> _ChangeIndex:
+def _change_index(
+    diff_json: DifftasticJson,
+    *,
+    left_lines: list[str],
+    right_lines: list[str],
+) -> _ChangeIndex:
     left_intervals: dict[int, list[_ChangeInterval]] = {}
     right_intervals: dict[int, list[_ChangeInterval]] = {}
     touched_left_lines: set[int] = set()
@@ -333,8 +372,8 @@ def _change_index(diff_json: DifftasticJson) -> _ChangeIndex:
             rhs = _entry_side(entry, "rhs")
             left_line = _line_number(lhs)
             right_line = _line_number(rhs)
-            left_changes = _change_tuple(lhs)
-            right_changes = _change_tuple(rhs)
+            left_changes = _change_tuple(lhs, source_lines=left_lines)
+            right_changes = _change_tuple(rhs, source_lines=right_lines)
             if _changes_have_content(left_changes):
                 has_change_content = True
             if _changes_have_content(right_changes):
@@ -2836,7 +2875,11 @@ def _difftastic_rows_from_json(
 ) -> list[DifftasticRow]:
     left_lines = _source_lines(left_text)
     right_lines = _source_lines(right_text)
-    change_index = _change_index(diff_json)
+    change_index = _change_index(
+        diff_json,
+        left_lines=left_lines,
+        right_lines=right_lines,
+    )
     specs = _normalized_row_specs(
         diff_json,
         left_count=len(left_lines),

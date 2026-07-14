@@ -377,13 +377,6 @@ def test_difftastic_preset_tokens_stay_in_source_order(
 def test_difftastic_preset_token_spans_match_difftastic_json(
     preset_dir: Path,
 ) -> None:
-    if preset_dir.name in {
-        "notebook-views-current-diff-token-offsets",
-        "unicode-byte-offsets-are-not-character-offsets",
-    }:
-        pytest.xfail(
-            "The adapter treats Difftastic UTF-8 byte offsets as character offsets."
-        )
     old_path = _single_file("old.*", preset_dir)
     new_path = _single_file("new.*", preset_dir)
     old_text = old_path.read_text()
@@ -400,6 +393,10 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
         left_text=old_text,
         right_text=new_text,
     )
+    source_lines = {
+        "left": old_text.splitlines(),
+        "right": new_text.splitlines(),
+    }
 
     expected: dict[Side, dict[int, set[int]]] = {"left": {}, "right": {}}
     json_sides: tuple[tuple[str, Side], ...] = (
@@ -426,13 +423,14 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
                     end = change.get("end")
                     assert isinstance(start, int)
                     assert isinstance(end, int)
-                    line_spans.update(range(start, end))
+                    source_bytes = source_lines[side][line_number].encode(
+                        "utf-8"
+                    )
+                    character_start = len(source_bytes[:start].decode("utf-8"))
+                    character_end = len(source_bytes[:end].decode("utf-8"))
+                    line_spans.update(range(character_start, character_end))
 
     actual: dict[Side, dict[int, set[int]]] = {"left": {}, "right": {}}
-    source_lines = {
-        "left": old_text.splitlines(),
-        "right": new_text.splitlines(),
-    }
     cursors: dict[Side, dict[int, int]] = {"left": {}, "right": {}}
     diagnostics: list[str] = []
     sides: tuple[Side, Side] = ("left", "right")
@@ -589,10 +587,6 @@ def test_difftastic_preset_diff_replays_left_to_right(
     preset_dir: Path,
 ) -> None:
     """Token statuses should replay the old file into the new file."""
-    if preset_dir.name == "unicode-byte-offsets-are-not-character-offsets":
-        pytest.xfail(
-            "Incorrect Unicode token offsets cannot replay old text to new."
-        )
     old_path = _single_file("old.*", preset_dir)
     new_path = _single_file("new.*", preset_dir)
     source_texts = {
@@ -736,10 +730,6 @@ def test_difftastic_preset_diff_replays_right_to_left(
     preset_dir: Path,
 ) -> None:
     """Token statuses should replay the new file back into the old file."""
-    if preset_dir.name == "unicode-byte-offsets-are-not-character-offsets":
-        pytest.xfail(
-            "Incorrect Unicode token offsets cannot replay new text to old."
-        )
     old_path = _single_file("old.*", preset_dir)
     new_path = _single_file("new.*", preset_dir)
     source_texts = {

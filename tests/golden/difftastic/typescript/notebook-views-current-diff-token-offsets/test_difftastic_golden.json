@@ -1,0 +1,43 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "const value = \" \u00b7 \";",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\" \u00b7 \""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "const value = \"\u2014\";",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\"\u2014\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  }
+]

@@ -1,0 +1,43 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "const message = \"plain\";",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const message = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\"plain\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "const message = \"\u201cbeware unicode quotes, they screw up byte/character offsets\u201d\";",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const message = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\"\u201cbeware unicode quotes, they screw up byte/character offsets\u201d\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  }
+]
