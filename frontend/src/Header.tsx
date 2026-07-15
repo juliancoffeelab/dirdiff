@@ -51,6 +51,7 @@ export type AppNotice = LoadingAppNotice | TopDiffNotice | InlineDiffNotice;
 type TopNotice = LoadingAppNotice | TopDiffNotice;
 
 export function Header(props: {
+  onSwitchFrontend: () => void;
   storedProfile: StoredProfile | null;
   preferences: Preferences | null;
   preferencesPending: boolean;
@@ -78,7 +79,17 @@ export function Header(props: {
       <div class="app-title-block">
         <div class="app-title-row">
           <div class="app-brand">
-            <h1>dirdiff</h1>
+            <h1>
+              <button
+                type="button"
+                class="app-brand-switch"
+                title="Switch to v_new"
+                aria-label="Switch to v_new"
+                onClick={props.onSwitchFrontend}
+              >
+                dirdiff
+              </button>
+            </h1>
             <Profile
               storedProfile={props.storedProfile}
               preferences={props.preferences}

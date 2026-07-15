@@ -32,7 +32,6 @@ import {
 import { type ControlsState, type RepoListStatus } from "./fileUtils";
 import { GracefulErrorBoundary, useToasts } from "./Toasts";
 import { loadStoredProfile, type StoredProfile } from "./storage";
-import "./styles.css";
 
 function initialDiffViewMode(): DiffViewMode {
   const view = new URLSearchParams(window.location.search).get("view");
@@ -54,7 +53,7 @@ function pullRequestUrlFromSearch(): string {
   return search.get("pull_request_url") ?? "";
 }
 
-export function App() {
+export function App(props: { onSwitchFrontend: () => void }) {
   const [diffViewMode, setDiffViewMode] = createSignal<DiffViewMode>(
     initialDiffViewMode(),
   );
@@ -496,6 +495,7 @@ export function App() {
   return (
     <main ref={appRoot} class="app-shell">
       <Header
+        onSwitchFrontend={props.onSwitchFrontend}
         storedProfile={storedProfile()}
         preferences={preferences()}
         preferencesPending={preferencesPending()}

@@ -1,0 +1,181 @@
+/**
+ * Defines application-wide layout and presentation rules.
+ *
+ * The stylesheet owns the page shell, persistent header, brand control,
+ * notification viewport, and root-error presentation used by the application
+ * components. Component behavior, state, and accessibility semantics remain in
+ * TSX rather than being encoded through styling.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #fbfaf7;
+  color: #24231f;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+}
+
+.app-shell {
+  --header-control-height: 34px;
+  --app-gutter: 24px;
+
+  width: 100vw;
+  margin: 0 auto;
+  padding: 0 0 72px;
+}
+
+.app-shell > * {
+  margin-right: var(--app-gutter);
+  margin-left: var(--app-gutter);
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 6px 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #ded8cc;
+  background: #fbfaf7;
+}
+
+.app-title-block {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.app-title-row {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--header-control-height);
+}
+
+.app-brand {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-right: 2px;
+}
+
+.app-title-row h1 {
+  flex: 0 0 auto;
+}
+
+.app-brand-switch {
+  display: block;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+}
+
+.app-brand-switch-new {
+  color: #18794e;
+}
+
+.app-brand-switch:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid currentcolor;
+  outline-offset: 2px;
+}
+
+.rewrite-under-construction {
+  border: 1px solid #ded8cc;
+  background: #fffdf8;
+  padding: 12px;
+}
+
+.toast-viewport {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 36px));
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+
+.notice.error {
+  color: #8e1f1f;
+}
+
+.notice {
+  border: 1px solid #ded8cc;
+  background: #fffdf8;
+  padding: 12px;
+}
+
+.render-error-message {
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid #ded8cc;
+  background: #fbfaf7;
+  color: #24231f;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-crash {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+
+.app-crash-notice {
+  width: min(560px, 100%);
+}
+
+.app-crash-notice h1 {
+  margin-bottom: 8px;
+}
+
+.app-crash-notice button {
+  margin-top: 14px;
+  border: 1px solid #8e1f1f;
+  background: #fffdf8;
+  color: #8e1f1f;
+  padding: 7px 10px;
+  font-weight: 700;
+}
