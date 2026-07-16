@@ -91,6 +91,12 @@ type FileCardState = HuskFileState | FullFileState | LazyFileState;
 type FileCardProps = {
   state: FileCardState;
   expanded: boolean;
+  /**
+   * Allows this FileCard to mount its expensive FileBody after the file lane yields.
+   *
+   * TODO: Consider cooperative yields inside FileBody for expensive in-file rendering.
+   */
+  admitted: boolean;
   engine: DiffEngine;
   view: DiffViewMode;
   aggressiveFolds: boolean;
@@ -111,6 +117,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
       <FileCardContent
         state={props.state}
         expanded={props.expanded}
+        admitted={props.admitted}
         engine={props.engine}
         view={props.view}
         aggressiveFolds={props.aggressiveFolds}
@@ -148,6 +155,7 @@ function FileCardContent(props: FileCardProps): JSX.Element {
           <FullFile
             state={state}
             expanded={props.expanded}
+            admitted={props.admitted}
             engine={props.engine}
             view={props.view}
             aggressiveFolds={props.aggressiveFolds}
@@ -216,6 +224,7 @@ function HuskFileHeader(props: { state: HuskFileState }): JSX.Element {
 function FullFile(props: {
   state: FullFileState;
   expanded: boolean;
+  admitted: boolean;
   engine: DiffEngine;
   view: DiffViewMode;
   aggressiveFolds: boolean;
@@ -228,7 +237,7 @@ function FullFile(props: {
         expanded={props.expanded}
         onExpandedChange={props.onExpandedChange}
       />
-      <Show when={props.expanded}>
+      <Show when={props.expanded && props.admitted}>
         <div class="file-card-body" data-file-body>
           <FileBody
             fileIndex={props.state.fileIndex}

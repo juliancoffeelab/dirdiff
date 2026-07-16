@@ -15,6 +15,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  requestCallback,
   type JSX,
 } from "solid-js";
 import { createStore, type SetStoreFunction } from "solid-js/store";
@@ -48,6 +49,19 @@ import { FileCard } from "./FileCard";
 import type { StoredProfile } from "./Profile";
 
 const SLOW_FILE_THRESHOLD_MS = 8_000;
+
+/**
+ * Yields one async continuation through Solid's cooperative scheduler.
+ *
+ * Callers await the returned Promise to end the current rendering loop turn and
+ * let the main thread process browser work before continuing. The scheduled
+ * callback has no side effects and requires no cancellation lifecycle.
+ */
+function schedulerYield(): Promise<void> {
+  return new Promise((resolve) => {
+    requestCallback(resolve);
+  });
+}
 
 /**
  * Defines every complete input needed to identify and activate one ChangeSet.
@@ -387,6 +401,11 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     };
   });
 
+  // Synthetic backpressure set to break the rendering loop and let the main thread breathe.
+  const [admittedFiles, setAdmittedFiles] = createStore<Record<number, true>>(
+    {},
+  );
+
   /**
    * Synchronizes one mounted manifest generation with its imperative request lane.
    *
@@ -507,6 +526,11 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 
           try {
             await queryClient.fetchQuery(options);
+            await schedulerYield();
+            if (stopped) {
+              return;
+            }
+            setAdmittedFiles(fileIndex, true);
           } catch (error) {
             if (stopped || isCancelledError(error)) {
               return;
@@ -716,6 +740,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
                                   currentState(),
                                   props.state.fileExpansion,
                                 )}
+                                admitted={admittedFiles[fileIndex()] === true}
                                 engine={props.params.engine}
                                 view={props.view}
                                 aggressiveFolds={aggressiveFolds()}
