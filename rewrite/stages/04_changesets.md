@@ -4,7 +4,11 @@ Read [guidance.md](guidance.md) before implementing this chapter; it governs eve
 
 Everything in this chapter must be implemented according to `../spec/01_tanstack_query.md`, `../spec/03_file_presentation.md`, `../spec/05_errors_and_toasts.md`, and `../spec/06_components_and_modules.md`. This chapter defines implementation order and the temporary no-navigation boundary; it does not define alternative behavior or architecture.
 
+Repository cache lifetime and missing preset snapshot identity are backend concerns explicitly recorded in [followups.md](followups.md). They do not block this frontend chapter and must not cause backend or integration-test changes during its implementation.
+
 Every visible component implemented in this chapter must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. New ownership, state and component boundaries must not change layout, dimensions, spacing, typography, colors, borders, shadows, sticky behavior, overflow, responsive behavior or control states.
+
+App routes the selected profile identity through Tabs into ChangeSet. ChangeSet observes the same canonical preferences query as Profile and derives `aggressiveFolds` reactively, defaulting to `true` when no profile is selected or preference data is unavailable. It does not copy preferences into App or local signals, and preference changes do not restart manifest or file requests.
 
 Implemented in this order:
 
@@ -14,7 +18,9 @@ Implemented in this order:
 
 2. File presentation
 
-   FileTree, ChangeSetTitle, HuskFile, FullFile, LazyFile, their separate headers, FileBody, DiffGrid, folds, notebooks, Portals, and localized boundaries.
+   FileTree, ChangeSetTitle, HuskFile, FullFile, LazyFile, their separate headers, FileBody, DiffGrid, folds, notebooks, Portals, and localized boundaries. Every manifest entry appears immediately as a FileTree entry and stable FileCard; an ordinary queued or fetching entry uses its HuskFile presentation until its canonical file query succeeds.
+
+   This immediate Husk/FileTree loading presentation is the final Chapter 4 design. It remains authoritative unless a later explicit review decides to replace it. Chapter 5 provides the first useful opportunity for that review because Husk pseudo-hunks, selected-hunk repair, counters and navigation transitions work together there; Chapter 4 does not attempt to judge interactions that do not exist yet.
 
 3. Rich-only rendering
 

@@ -14,6 +14,7 @@ import {
   Show,
   createContext,
   createSignal,
+  createUniqueId,
   onCleanup,
   onMount,
   useContext,
@@ -60,6 +61,22 @@ export type PresentedError = {
  */
 export type ToastCommands = {
   showError(title: string, error: unknown): void;
+};
+
+/**
+ * Defines the complete compact-trigger error popover contract.
+ *
+ * Callers provide the visible trigger, its classes and accessible label, the
+ * original error, and an explicit retry operation. The popover owns only native
+ * top-layer presentation and never changes caller-owned failure state.
+ */
+export type ErrorPopoverProps = {
+  title: string;
+  error: unknown;
+  onRetry: () => void;
+  trigger: JSX.Element;
+  triggerClass: string;
+  triggerLabel: string;
 };
 
 /**
@@ -161,16 +178,6 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
   }
 
   /**
-   * Removes exactly one provider-owned notification.
-   *
-   * Callers provide an ID previously assigned by this provider. Missing IDs
-   * are harmless because dismissal is an idempotent projection of queue state.
-   */
-  function dismissToast(id: number): void {
-    setToasts((current) => current.filter((toast) => toast.id !== id));
-  }
-
-  /**
    * Presents one browser ErrorEvent through the global queue.
    *
    * The browser supplies the event. The handler prefers its thrown value and
@@ -193,14 +200,20 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
     showError("Unhandled promise rejection", event.reason);
   }
 
+  /**
+   * Installs browser-level error reporting for exactly this provider lifetime.
+   *
+   * The non-tracking mount hook runs once after ToastProvider renders. Owner
+   * cleanup removes both global listeners when the provider is disposed, so a
+   * replacement provider cannot duplicate reports.
+   */
   onMount(() => {
     window.addEventListener("error", onWindowError);
     window.addEventListener("unhandledrejection", onUnhandledRejection);
-  });
-
-  onCleanup(() => {
-    window.removeEventListener("error", onWindowError);
-    window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    onCleanup(() => {
+      window.removeEventListener("error", onWindowError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    });
   });
 
   const commands: ToastCommands = { showError };
@@ -208,7 +221,13 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
   return (
     <ToastContext.Provider value={commands}>
       {props.children}
-      <ToastViewport toasts={toasts} onDismiss={dismissToast} />
+      <ToastViewport
+        toasts={toasts}
+        onDismiss={(id) => {
+          // Dismissal is an idempotent projection of the provider-owned queue.
+          setToasts((current) => current.filter((toast) => toast.id !== id));
+        }}
+      />
     </ToastContext.Provider>
   );
 }
@@ -273,6 +292,36 @@ export function RetryButton(props: { onRetry: () => void }): JSX.Element {
 }
 
 /**
+ * Keeps a localized error compact until the user requests complete details.
+ *
+ * The trigger remains in the constrained owner layout. Activating it opens a
+ * native top-layer popover containing the complete ErrorPanel and RetryButton,
+ * so traceback visibility and user recovery never alter surrounding geometry.
+ */
+export function ErrorPopover(props: ErrorPopoverProps): JSX.Element {
+  const popoverId = createUniqueId();
+
+  return (
+    <>
+      <button
+        type="button"
+        class={props.triggerClass}
+        aria-label={props.triggerLabel}
+        title={props.triggerLabel}
+        popovertarget={popoverId}
+      >
+        {props.trigger}
+      </button>
+      <div id={popoverId} class="error-popover" popover="auto">
+        <ErrorPanel title={props.title} error={props.error}>
+          <RetryButton onRetry={props.onRetry} />
+        </ErrorPanel>
+      </div>
+    </>
+  );
+}
+
+/**
  * Contains unexpected rendering or reactive failures for one trusted owner.
  *
  * Callers provide a stable error title and the subtree whose correctness is
@@ -312,6 +361,13 @@ export function ApplicationErrorPanel(props: {
 }): JSX.Element {
   const toast = useToasts();
 
+  /**
+   * Reports this root failure exactly once for the mounted failed attempt.
+   *
+   * Retry disposes this panel before a later failure can mount another one. The
+   * hook is deliberately non-reactive: changing arbitrary error object internals
+   * must not enqueue duplicate Toasts, and no external resource needs cleanup.
+   */
   onMount(() => {
     toast.showError("Application error", props.error);
   });
@@ -364,6 +420,13 @@ function ToastCard(props: {
   toast: ErrorToast;
   onDismiss: () => void;
 }): JSX.Element {
+  /**
+   * Starts expiration only for the exact mounted timeout Toast.
+   *
+   * The immutable Toast reason is sampled once at mount. Non-timeout Toasts own
+   * no timer; timeout Toasts clear their timer if manually dismissed or if the
+   * provider is disposed before the ten-second deadline.
+   */
   onMount(() => {
     if (props.toast.reason !== "timeout") {
       return;
@@ -413,6 +476,13 @@ function UnexpectedErrorPanel(props: {
 }): JSX.Element {
   const toast = useToasts();
 
+  /**
+   * Reports this localized failed attempt exactly once when its panel mounts.
+   *
+   * The owning ErrorBoundary disposes the panel on Retry. The hook intentionally
+   * does not track props, preventing repeated Toasts for the same failed mount;
+   * there is no external resource requiring cleanup.
+   */
   onMount(() => {
     toast.showError(props.title, props.error);
   });

@@ -8,7 +8,7 @@ The rewritten frontend is built beside the existing frontend. Existing files und
 
 This is not a gradual movement of `v_old` application functions into new files. `v_new` implements the architecture specified by the topic files in `../spec/` as an independent frontend.
 
-Visual parity is a hard rewrite requirement. At the same viewport, URL, backend data and UI state, every surface and behavior implemented by this chapter must be a pixel-perfect 1:1 visual copy of its `v_old` counterpart, except for the four differences authorized by Appendix A. Functionality assigned to later chapters may remain absent or use only the placeholder boundary explicitly required by this chapter. Architectural improvement does not authorize visual redesign, approximation or cleanup of implemented functionality.
+Visual parity, intermediate-stage scope and every authorized exception are governed by [guidance.md](guidance.md). This setup chapter defines no additional visual policy.
 
 `frontend/src/main.tsx` remains the sole Vite entrypoint. It attaches Solid to the root DOM element and temporarily selects which complete frontend to mount. It owns no workspace or domain state.
 

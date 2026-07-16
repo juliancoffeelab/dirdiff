@@ -385,11 +385,11 @@ A query failure damages only the query’s actual owner.
 
 | Failure | Local result |
 |---|---|
-| repository list | RepoSelect and RepoGate show their error state |
-| refs | affected autocomplete remains usable as free-form input and shows the refs error |
-| repository defaults | affected default-dependent controls show the error without overwriting user input |
-| preset catalogs | Preset controls show their error |
-| preferences | Preferences UI shows its complete error |
+| repository list | RepoSelect and RepoGate show their compact error state with complete details available through ErrorPopover |
+| refs | affected autocomplete remains usable as free-form input and shows the compact refs error with complete details available through ErrorPopover |
+| repository defaults | affected default-dependent controls show the compact error without overwriting user input; complete details remain available through ErrorPopover |
+| preset catalogs | Preset controls show their compact error with complete details available through ErrorPopover |
+| preferences | Preferences UI preserves its compact constrained error presentation with complete details available through ErrorPopover |
 | manifest | owning ChangeSet shows ErrorPanel; no FileSequence starts |
 | lazy metadata | affected entries become error-flavoured LazyFiles; normal file loading continues |
 | file query | that FileCard becomes an error-flavoured LazyFile; later files continue |
@@ -448,6 +448,51 @@ export function ErrorPanel(props: {
 ```
 
 Unlike the Toast details, the local ErrorPanel stack is open initially.
+
+Shell metadata owners with constrained layout do not place the complete ErrorPanel inline. They use `ErrorPopover`, which renders a caller-supplied compact trigger and places the complete ErrorPanel in the browser top layer:
+
+```tsx
+export function ErrorPopover(props: {
+  title: string;
+  error: unknown;
+  onRetry: () => void;
+  trigger: JSX.Element;
+  triggerClass: string;
+  triggerLabel: string;
+}) {
+  const id = createUniqueId();
+
+  return (
+    <>
+      <button
+        type="button"
+        class={props.triggerClass}
+        aria-label={props.triggerLabel}
+        popovertarget={id}
+      >
+        {props.trigger}
+      </button>
+
+      <div
+        id={id}
+        class="error-popover"
+        popover="auto"
+      >
+        <ErrorPanel
+          title={props.title}
+          error={props.error}
+        >
+          <RetryButton onRetry={props.onRetry} />
+        </ErrorPanel>
+      </div>
+    </>
+  );
+}
+```
+
+The compact trigger preserves the old owner’s layout footprint. It is keyboard and click accessible and remains visibly red while the owner remains failed. The popover consumes no document layout space, light-dismisses through the browser’s native popover behavior, and contains the complete message, initially open stack when available, and explicit RetryButton.
+
+For a failed metadata refresh control, the red refresh icon becomes the ErrorPopover trigger. Activating the failed icon opens details; retry occurs only through RetryButton inside the popover. During an ordinary or successful state, the same icon retains its direct refresh behavior.
 
 The ErrorPanel never:
 

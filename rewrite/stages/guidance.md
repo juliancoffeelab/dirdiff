@@ -2,13 +2,15 @@
 
 This file governs implementation of every practical chapter in this directory. The topic files under `../spec/` define frontend behavior and architecture; the chapter files define implementation order. The two `full.md` files are frozen original references rather than maintained authorities.
 
+Items in [followups.md](followups.md) are explicit post-rewrite work, not deferred implementation inside a practical chapter. Do not pull a TODO or FIXME from that file into Chapters 1–6 without a separate user decision.
+
 `AGENTS.md` continues to apply except where this guidance explicitly narrows a rule for the specification-driven frontend rewrite.
 
 ## Visual contract
 
 At the same viewport, URL, backend data and UI state, every surface and behavior implemented by the current practical chapter must be a pixel-perfect 1:1 copy of its `v_old` counterpart. Architectural improvement never authorizes visual redesign, approximation, cleanup or a merely similar result.
 
-Functionality explicitly assigned to a later practical chapter is not implemented yet and is outside the current chapter's parity comparison. An intermediate chapter may therefore omit later surfaces entirely or render only the placeholder boundary that its chapter explicitly requires. This is not a visual exception for implemented functionality. Once the final implementation chapter is complete, the complete application must satisfy pixel-perfect parity except for the four authorized differences below.
+Functionality explicitly assigned to a later practical chapter is not implemented yet and is outside the current chapter's parity comparison. An intermediate chapter may therefore omit later surfaces entirely or render only the placeholder boundary that its chapter explicitly requires. This is not a visual exception for implemented functionality. Once the final implementation chapter is complete, the complete application must satisfy pixel-perfect parity except for the six authorized differences below.
 
 Only the following visual differences are authorized:
 
@@ -26,7 +28,15 @@ Only the following visual differences are authorized:
 
 4. Three Tab-local metadata refresh buttons are added.
 
-   Refs receives a refs refresh button, Branch Review receives a branches-and-remotes refresh button, and Preset receives a preset-catalog refresh button. This exception authorizes those three controls only. Their exact placement, dimensions and appearance remain to be approved when the Tabs UI is implemented; an implementing agent must not invent them before that review. There is no visible ChangeSet reload button.
+   Refs receives a refs refresh button at the top-right of its open autocomplete suggestion panel, and Branch Review places its branches-and-remotes refresh button in the same location. Preset places its preset-catalog refresh button beside the preset-kind tabs. Each icon rotates and is disabled while fetching, becomes enabled error red after failure, and returns to its ordinary treatment only after success. This exception authorizes those three controls only. There is no visible ChangeSet reload button.
+
+5. Compact shell errors can open complete details in a top-layer popover.
+
+   Repository, refs/defaults, preset and profile failures preserve their compact `v_old` layout footprint. The compact red error presentation is keyboard and click accessible and opens an ErrorPopover containing the complete message, initially open stack when available, and RetryButton. The popover consumes no document layout space. In the failed state, a metadata refresh icon opens this popover and retry occurs inside it.
+
+6. Manifest entries appear immediately during sequential file loading.
+
+   Once a manifest is available, `v_new` renders its complete FileTree and one stable FileCard per manifest entry instead of waiting for each file result before inserting that entry. Ordinary queued or fetching files use their state-specific HuskFile and HuskFileHeader until they become FullFile or LazyFile. This exception applies only to the in-progress file-loading presentation; loaded FileTree entries, FullFile rendering, dimensions, typography, colors, sticky behavior and final layout remain subject to pixel-perfect parity.
 
 No other visual difference is permitted. Visual behavior must be reviewed in the running browser with screenshots at matching state; DOM structure or computed measurements alone are not visual verification.
 
@@ -41,6 +51,13 @@ When the specification names a module, create and retain that module even when i
 Outside explicit specification boundaries, the original `AGENTS.md` module rule applies.
 
 ## Documentation inside `new/`
+
+Before adding a function shorter than five lines of code, inspect every use. A
+single-use implementation detail should normally be inlined at that use with a
+plain inline comment explaining the operation. A short function used multiple
+times only within one owning function should be nested inside that owner. A
+separate short function remains appropriate only when it is a genuine reusable
+interface or an explicit domain operation whose name is part of the design.
 
 Every JavaScript, TypeScript and TSX module under `frontend/src/new/` must begin with a thorough module JSDoc that explains:
 
@@ -65,6 +82,10 @@ This documentation requirement does not authorize retrofitting `v_old`. Existing
 
 - Assert required data at its boundary. Do not make required inputs optional to avoid handling an invariant.
 - Do not create compatibility shims. When an interface changes, update every in-scope caller.
+- The temporary frontend toggle in `frontend/src/main.tsx` is the sole authorized
+  transition exception: immediately before reload it translates old browser
+  `project_id` into new `repo_id` or `preset_type`, and performs the inverse when
+  switching back. Neither frontend tree may accept the other tree's URL vocabulary.
 - Do not import `v_old` application modules into `v_new`.
 - Implement only the current practical chapter. Do not pull later-stage behavior forward merely because its eventual location is already known.
 - Do not change test behavior without explicit user approval, and do not add test-only helpers.

@@ -117,6 +117,29 @@ params.project_id === workspace.repo.projectId
 
 The Header `RepoSelect` and Tab `RepoGate` both call the same `selectRepo` command.
 
+Browser workspace URLs and Python API URLs use distinct vocabulary:
+
+```text
+browser workspace URL
+├── repo_id=<numeric selected repository>
+├── preset_type=diff|fold|gumtree|scroll
+└── never uses project_id
+
+Python API URL
+└── project_id=<numeric repository ID or preset project kind>
+```
+
+`repo_id` preserves the global selected repository independently of the active
+Tab. `preset_type` preserves the Preset Tab kind. When a Tab constructs complete
+`DiffParams`, it translates browser state into the stable backend contract:
+
+- repository-backed Tabs map numeric `repo_id` to numeric `project_id`;
+- Preset maps `preset_type` to its string `project_id` and leaves the selected
+  repository out of `PresetDiffParams`.
+
+This distinction applies only to browser workspace serialization. It does not
+rename or otherwise change the Python API contract.
+
 Changing the global repository is a complete workspace reset boundary:
 
 ```text
@@ -303,7 +326,7 @@ Changing view:
 
 All lightweight Tabs, Controls and Inputs remain mounted until the workspace reaches an explicit reset boundary.
 
-`App` renders one shared AppHeader outside Tabs. Tabs never render their own Header. Only the active Tab displays its Controls; cheap Controls remain mounted under the HTML `hidden` attribute so their component-owned input survives ordinary Tab switches. The active ChangeSet may contribute status and summary presentation to AppHeader through its specified Portal outlets.
+`App` renders one shared AppHeader outside Tabs. Tabs never render their own Header. Only the active Tab displays its Controls; cheap Controls remain mounted under the HTML `hidden` attribute so their component-owned input survives ordinary Tab switches. The active ChangeSet may contribute status and summary presentation to AppHeader through its specified Portal outlets. Tabs and Profile retain ownership of their canonical metadata queries and Portal only compact pending/error presentation into AppHeader's stable workspace-metadata status target. Repo refs and defaults project background warmup state even while their owning Tab is inactive; Preset and Pull Request remain active-gated.
 
 The Tab’s `ChangeSet` instance remains mounted while its Tab is inactive so that the ChangeSet can preserve its own small client state. Its expensive content is only mounted while active.
 
@@ -468,18 +491,20 @@ The application must not turn those independent lifecycles into one global loadi
 
 | Missing backend data | Required UI behavior |
 |---|---|
-| selected repository | Only the repo-dependent action shows `RepoGate`; the rest of the Tab remains alive |
+| selected repository | Head shows `RepoGate` in place of Load; Refs keeps both free-form inputs and shows `RepoGate` in place of Load; Branch Review shows only `RepoGate` and does not mount its four controls; Pull Request and Preset do not require a preselected repo |
 | repository list | Header selector or `RepoGate` shows its own pending/error state |
-| refs, branches and remotes | Inputs remain usable as free-form inputs; autocomplete choices wait locally |
+| refs, branches and remotes | Once their required repo exists, inputs remain usable as free-form inputs while autocomplete choices wait locally |
 | repository defaults | Inputs render without the realtime default; an untouched input may adopt it when it arrives |
 | preset catalogs | Preset controls wait locally; the Preset Tab itself remains alive |
 | manifest | The owning `ChangeSet` shows its own pending/error state |
 | rendered file | The owning `FileCard` derives its own HuskFile, FullFile or LazyFile presentation |
-| preferences | Only the Profile preferences UI waits or reports the error |
+| preferences | Profile waits or reports the error; ChangeSet continues with `aggressive_folds: true` until its canonical preferences observer has data |
 
-The rule is:
+The general rule is:
 
 > Missing data gates the smallest component or action that actually requires it.
+
+Branch Review has one explicit selected-repository boundary: its complete four-control workflow depends on a concrete repo for structured branch sources and defaults. Without a selected repo, the Tab renders only `RepoGate`. Selecting a repo reconstructs the workspace and mounts Branch Review controls with that concrete project identity. Refs is intentionally different: its two git-ref inputs remain useful as free-form text without repo metadata, so only its Load action becomes `RepoGate`.
 
 When a repository becomes known, including when it is reconstructed from the URL, the workspace immediately starts the cheap repo-scoped metadata that later controls are likely to need:
 
@@ -660,9 +685,9 @@ Only these controls receive metadata refresh buttons:
 
 | Location | Action |
 |---|---|
-| Refs Tab | refresh refs |
-| Branch Review | refresh branches and remotes |
-| Preset Tab | refresh preset catalogs |
+| Refs autocomplete suggestion panel | refresh refs |
+| Branch Review autocomplete suggestion panel | refresh branches and remotes |
+| Beside the Preset kind tabs | refresh preset catalogs |
 
 The buttons call the exact observer’s `refetch()`:
 
@@ -686,6 +711,18 @@ The buttons call the exact observer’s `refetch()`:
 ```
 
 `cancelRefetch: false` prevents repeated clicks from cancelling and restarting an existing request.
+
+The Refs and Branch Review controls appear at the top-right of the open autocomplete suggestion panel. Activating one keeps the panel open, preserves input focus and user text, and leaves existing choices visible while refetching. The Preset control appears beside the preset-kind tabs; activating it preserves the active kind and selected preset.
+
+All three controls have the same visible lifecycle:
+
+- idle uses the ordinary refresh treatment;
+- fetching disables the button and continuously rotates the refresh icon;
+- failure stops rotation and changes the control to the established error red;
+- the failed red control remains enabled so the user can retry;
+- only a successful refresh returns the control to its ordinary treatment.
+
+The global Error Toast exposes the complete failure. The red refresh control is the persistent local indication and must not be cleared merely by closing an autocomplete suggestion panel, changing input text, or switching Tabs.
 
 A metadata refresh button must be visually and semantically distinct from reloading the current `ChangeSet`.
 
@@ -726,6 +763,10 @@ api.profile.preferences(profileId)
 Changing the selected profile changes the preferences query key.
 
 Saving preferences places the mutation response into the exact preferences cache entry. Preferences are not copied into App signals.
+
+App routes only the selected profile identity through Tabs into each ChangeSet. ChangeSet observes `api.profile.preferences(profileId)` under the same canonical query key as Profile and derives `aggressiveFolds` directly from that query result. It does not receive or copy a preferences entity from Profile or App.
+
+A missing selected profile is a real absence and selects the literal default `aggressiveFolds: true`; it is never passed to `api.profile.preferences`. Pending or failed preference data also leaves that default active while the existing Profile status and global Toast paths expose the failure. When preference data arrives, or saving preferences replaces the exact cache entry, renderer projections that consume `aggressiveFolds` update reactively. Manifest and file HTTP work, ChangeSet expansion, and FileSequence do not reset.
 
 Profile UI state is local and tagged:
 
@@ -879,7 +920,7 @@ The client-state design conforms to this specification when:
 12. Switching Tabs preserves mounted lightweight Tab, Controls, input and ChangeSet state.
 13. Changing engine derives new `DiffParams` and queries without remounting Controls, Inputs or the outer ChangeSet layout state.
 14. Backend data exists only in TanStack Query.
-15. Missing backend data gates only the smallest dependent component or action.
+15. Missing backend data gates the boundary specified in Section 24.13: Refs retains its two free-form inputs without a repo, while Branch Review displays only `RepoGate` until a repo is selected.
 16. Refs and defaults are prefetched when a repository becomes known without blocking Tab rendering.
 17. Refs and Branch Review share one refs query per repo.
 18. Typing filters locally and may request a stale-time-guarded warmup of the complete refs query.

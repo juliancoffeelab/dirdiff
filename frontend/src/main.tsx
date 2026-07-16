@@ -12,6 +12,12 @@ type FrontendVersion = "v_old" | "v_new";
 
 const FRONTEND_VERSION_STORAGE_KEY = "dirdiff:frontend-version";
 
+/**
+ * Returns the complete frontend tree selected by browser-local preference.
+ *
+ * An absent or unrecognized stored value selects the established default tree;
+ * callers always receive one valid FrontendVersion.
+ */
 function selectedFrontendVersion(): FrontendVersion {
   const storedVersion = window.localStorage.getItem(
     FRONTEND_VERSION_STORAGE_KEY,
@@ -19,11 +25,64 @@ function selectedFrontendVersion(): FrontendVersion {
   return storedVersion === "v_new" ? "v_new" : "v_old";
 }
 
+/**
+ * Persists another complete frontend tree and reloads into its URL vocabulary.
+ *
+ * The destination is required. Translation is limited to browser field names at
+ * this entrypoint boundary; neither mounted application receives mixed state.
+ */
 function switchFrontend(destination: FrontendVersion): void {
+  // The temporary two-tree toggle translates browser workspace vocabulary at
+  // the cutover boundary. Neither application accepts the other tree's URL.
+  const search = new URLSearchParams(window.location.search);
+  if (destination === "v_new") {
+    const projectId = search.get("project_id");
+    if (projectId !== null) {
+      if (/^[1-9]\d*$/.test(projectId)) {
+        search.set("repo_id", projectId);
+      } else if (
+        projectId === "diff" ||
+        projectId === "fold" ||
+        projectId === "gumtree" ||
+        projectId === "scroll"
+      ) {
+        search.set("preset_type", projectId);
+      }
+    }
+    search.delete("project_id");
+  } else {
+    const tab = search.get("tab");
+    const mode = search.get("mode");
+    if (tab === "preset" || mode === "preset") {
+      const presetType = search.get("preset_type");
+      if (presetType !== null) {
+        search.set("project_id", presetType);
+      }
+    } else {
+      const repoId = search.get("repo_id");
+      if (repoId !== null) {
+        search.set("project_id", repoId);
+      }
+    }
+    search.delete("repo_id");
+    search.delete("preset_type");
+  }
+  const query = search.toString();
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${query.length === 0 ? "" : `?${query}`}${window.location.hash}`,
+  );
   window.localStorage.setItem(FRONTEND_VERSION_STORAGE_KEY, destination);
   window.location.reload();
 }
 
+/**
+ * Mounts the established application as one isolated provider and style tree.
+ *
+ * The caller supplies the concrete root element. The returned promise resolves
+ * after every tree-specific module has loaded and Solid has mounted the tree.
+ */
 async function mountOld(root: HTMLElement): Promise<void> {
   await import("./styles.css");
   const [solid, query, app, queryClientModule, toasts] = await Promise.all([
@@ -53,6 +112,12 @@ async function mountOld(root: HTMLElement): Promise<void> {
   );
 }
 
+/**
+ * Mounts the replacement application as one isolated provider and style tree.
+ *
+ * The caller supplies the concrete root element. The returned promise resolves
+ * after every tree-specific module has loaded and Solid has mounted the tree.
+ */
 async function mountNew(root: HTMLElement): Promise<void> {
   await import("./new/styles.css");
   const [solid, app, queries, toasts] = await Promise.all([
@@ -62,7 +127,13 @@ async function mountNew(root: HTMLElement): Promise<void> {
     import("./new/comp/Toasts"),
   ]);
 
-  function Root() {
+  /**
+   * Connects the toast owner to query failures and the root error boundary.
+   *
+   * The component owns provider composition only; application and toast state
+   * remain in their respective descendants and ancestors.
+   */
+  function Root(): ReturnType<typeof app.App> {
     const toast = toasts.useToasts();
 
     return (
@@ -88,6 +159,12 @@ async function mountNew(root: HTMLElement): Promise<void> {
   );
 }
 
+/**
+ * Resolves the required browser mount and starts exactly one application tree.
+ *
+ * A missing root is a programming error. Dynamic tree loading prevents providers
+ * or styles from the unselected application from entering the mounted runtime.
+ */
 async function main(): Promise<void> {
   const root = document.getElementById("root");
   if (root === null) {

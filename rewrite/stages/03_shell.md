@@ -2,7 +2,7 @@
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
-Everything in this chapter must be implemented according to `../spec/01_tanstack_query.md`, `../spec/02_client_state.md`, and `../spec/06_components_and_modules.md`. This chapter defines implementation order and the temporary empty-ChangeSet boundary; it does not define alternative behavior or architecture.
+Everything in this chapter must be implemented according to `../spec/01_tanstack_query.md`, `../spec/02_client_state.md`, `../spec/05_errors_and_toasts.md`, and `../spec/06_components_and_modules.md`. This chapter defines implementation order and the temporary empty-ChangeSet boundary; it does not define alternative behavior or architecture.
 
 Every visible component implemented in this chapter must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. New ownership, state and component boundaries must not change layout, dimensions, spacing, typography, colors, borders, shadows, sticky behavior, overflow, responsive behavior or control states.
 

@@ -20,6 +20,8 @@ Implemented in this order:
 
    Connect HuskFile, LazyFile, FullFile, folding, FileTree targets, FileTree highlighting, headers, counters, and `waitToEnrich` to Navigation.
 
+   Once Husk pseudo-hunks, selected-hunk repair, local/global counters, Next/Previous wrapping and Husk-to-Full replacement all work, stop for a loading-presentation review. Evaluate the approved complete FileTree plus immediate Husk-card presentation in those real interactions. The approved design remains in force unless that review explicitly decides to replace it with progressively appearing file presentation; Chapter 4 visuals alone are not sufficient evidence for such a change.
+
 4. Scrolling and line pins
 
    Implement the scroll-source gate, throttled scroll-follow, navigation scrolling, and independent line-pin restoration.

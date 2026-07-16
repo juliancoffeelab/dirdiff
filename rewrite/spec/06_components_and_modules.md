@@ -207,6 +207,7 @@ Contains the complete domain-independent error presentation system:
 - `useToasts`;
 - `ToastViewport`;
 - `ErrorPanel`;
+- `ErrorPopover`;
 - `RetryButton`;
 - the reusable unexpected-error boundary.
 
@@ -233,9 +234,10 @@ Contains:
 - header `RepoSelect`;
 - engine and view controls;
 - Profile placement;
-- stable Portal targets for ChangeSet status and summary.
+- stable Portal targets for ChangeSet status and summary;
+- one stable workspace-metadata status target for compact presentations owned by Tabs and Profile.
 
-It does not own manifest statistics or loading progress. ChangeSet supplies those through Portals.
+It does not own manifest statistics, loading progress, or metadata queries. ChangeSet, Tabs, and Profile supply those presentations through Portals while retaining their logical ownership. Repo refs and defaults may project workspace warmup state from inactive eternal Tabs; Preset and Pull Request remain active-gated.
 
 #### `hud/Tabs.tsx`
 
@@ -293,6 +295,7 @@ It owns:
 - strict FileSequence;
 - combined progress;
 - expansion state;
+- observing the selected profile's canonical preferences query and deriving the reactive `aggressiveFolds` renderer input;
 - `ChangeSetTitle`;
 - `FileTree`;
 - AppHeader Portal contributions;
