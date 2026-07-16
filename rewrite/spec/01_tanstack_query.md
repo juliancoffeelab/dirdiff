@@ -90,7 +90,7 @@ Rejected because:
 
 - individual files have no independent cache entry;
 - one file error affects the whole query;
-- individual FileCards cannot observe isolated state;
+- individual files have no isolated query state to supply to FileCard or FileTree;
 - a large result update places more pressure on the complete ChangeSet;
 - retry and cancellation are too coarse.
 
@@ -101,7 +101,7 @@ Selected.
 - Manifest, lazy metadata and every file have independent query keys.
 - `api.ts` defines every query.
 - `ChangeSet` owns one small sequential loop using `queryClient.fetchQuery`.
-- Each FileCard subscribes only to its own query entry.
+- `ChangeSet` owns the ordered file-query observers and supplies their reactive results to both FileTree and FileCard.
 - The loop contains no backend data and creates no second cache.
 
 `fetchQuery` is appropriate here because it fetches and caches one canonical query while returning a Promise that can be awaited sequentially. [TanStack QueryClient reference](https://tanstack.com/query/v5/docs/reference/QueryClient)
@@ -191,36 +191,37 @@ export type ManifestNode = ManifestFile | ManifestDirectory;
 export type Manifest = {
   cache_id: string;
   display_name: string;
+  mode: "repo";
   left_label: string;
   right_label: string;
-  summary: Summary;
+  summary: ManifestSummary;
   tree: ManifestNode[];
 };
 ```
 
-The current optional-field-heavy `FileEntry` should not survive the rewrite. The backend response should be a proper discriminated union:
+The current optional-field-heavy `FileEntry` should not survive the rewrite, but the stable backend response contract does not change. Notebook responses carry `render_kind: "notebook"`; text responses do not carry a `render_kind` field. The frontend validates the two existing response shapes as a Zod union:
 
 ```ts
-export type FileDiff = TextFileDiff | NotebookFileDiff;
+const TextFileDiffResponseSchema = z.strictObject({
+  // Exact required fields returned by the existing text response.
+});
 
-export type TextFileDiff = {
-  render_kind: "text";
-  // Required text-file response fields.
-};
+const NotebookFileDiffResponseSchema = z.strictObject({
+  render_kind: z.literal("notebook"),
+  // Exact required fields returned by the existing notebook response.
+});
 
-export type NotebookFileDiff = {
-  render_kind: "notebook";
-  // Required notebook response fields.
-};
-```
+const FileDiffResponseSchema = z.union([
+  NotebookFileDiffResponseSchema,
+  TextFileDiffResponseSchema,
+]);
 
-Every field required by its renderer must be required by that variant. The Python response must add `render_kind: "text"` for text files so the frontend does not infer the variant from the presence or absence of optional fields.
-
-Zod schemas in `api.ts` remain the runtime authority:
-
-```ts
+export type TextFileDiff = z.infer<typeof TextFileDiffResponseSchema>;
+export type NotebookFileDiff = z.infer<typeof NotebookFileDiffResponseSchema>;
 export type FileDiff = z.infer<typeof FileDiffResponseSchema>;
 ```
+
+Every field required by its renderer is required by the corresponding schema. Narrowing may check for the existing notebook discriminator; it must not require a new text discriminator or any other backend response change.
 
 ## 6. HTTP naming
 
@@ -362,7 +363,7 @@ export const api = {
       return queryOptions({
         queryKey: ["presets"] as const,
         queryFn: ({ signal }) => requestPresets(signal),
-        staleTime: Infinity,
+        staleTime: 5_000,
       });
     },
   },
@@ -415,22 +416,24 @@ Consequently, `diffParamsIdentity` and `currentParamsIdentity` are removed.
 
 ## 8. QueryClient configuration
 
-```ts
-import { QueryClient } from "@tanstack/solid-query";
+`QueryProvider` constructs one QueryClient for each mounted provider. It does not export a QueryClient singleton. Consumers obtain the mounted client through TanStack Query's `useQueryClient()`.
 
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-    },
-    mutations: {
-      retry: false,
-    },
+The constructed client uses:
+
+```ts
+defaultOptions: {
+  queries: {
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   },
-});
+  mutations: {
+    retry: false,
+  },
+}
 ```
+
+Section 64.8 defines the complete `QueryProvider` construction, including its `QueryCache` and `MutationCache` error callbacks.
 
 Rationale:
 
@@ -641,26 +644,37 @@ A lazy-info failure leaves the FileCards present and produces error-flavoured `L
 
 `LazyFile` never calls a private HTTP handler directly and never starts a concurrent request.
 
-## 14. FileCard query observation
+## 14. ChangeSet file-query observation
 
-A FileCard subscribes to its own canonical file query but does not initiate automatic fetching. The ChangeSet request lane initiates both automatic and explicitly selected requests.
+`ChangeSet` owns one ordered collection of canonical file-query observers. Neither FileTree nor FileCard creates a query observer. The ChangeSet request lane initiates both automatic and explicitly selected requests.
 
 ```ts
-const file = useQuery(() => ({
-  ...api.changeSet.file(
-    props.params,
-    props.cacheId,
-    props.entry,
-  ),
-  enabled: false,
+const fileQueries = createQueries(() => ({
+  queries: orderedFiles().map((entry) => ({
+    ...api.changeSet.file(
+      props.params,
+      manifest.data!.cache_id,
+      entry,
+    ),
+    enabled: false,
+  })),
 }));
 ```
 
-Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observer is read-only, while the single request lane performs the canonical fetch through `fetchQuery`. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
+Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only projections of the cache, while the single request lane performs canonical fetches through `fetchQuery`. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
 
-The query observer still receives cache updates for its exact key.
+Each observer still receives cache updates for its exact key. `ChangeSet` pairs every observer with the manifest entry at the same index and derives that entry's reactive `FileCardState` from the query result and lazy metadata. It passes those same per-file states to FileTree and FileCard; it does not copy file results into a `filesByKey` store.
 
-Therefore loading one file updates its own FileCard without replacing a ChangeSet-wide `filesByKey` object.
+FileCard receives its state and an explicit-load callback from ChangeSet:
+
+```tsx
+<FileCard
+  state={fileStates[fileIndex]}
+  onLoad={() => enqueueExplicitFile(entry)}
+/>
+```
+
+The clickable LazyFile plank invokes `onLoad`. It does not refetch independently. `enqueueExplicitFile` submits that exact canonical file key to the ChangeSet request lane, which preserves the sequencing rules from Section 11.
 
 ## 15. Derived file state
 
@@ -831,9 +845,13 @@ Reload is explicit:
 
 ```ts
 async function reloadChangeSet(): Promise<void> {
+  stopFileSequence();
+  resetChangeSetState();
   await manifest.refetch();
 }
 ```
+
+Reload targets the active manifest observer directly. It does not invalidate the manifest cache as an indirect request trigger.
 
 A new manifest normally produces a new `cache_id`.
 
@@ -873,7 +891,7 @@ Routine reloads must not call `removeQueries`.
 - Cancellation is not presented as an error.
 - The old sequence stops silently.
 
-Toast deduplication should not require load IDs. A query error belongs to one key and can be presented at the component boundary that owns that query.
+Toast deduplication does not require load IDs. QueryCache and MutationCache callbacks produce one global Toast for each failed attempt, even when several components observe the same query. The component that owns the failed operation renders only its complete localized ErrorPanel and does not produce another Toast.
 
 ## 21. Ordinary queries and commands
 
@@ -958,7 +976,7 @@ The implementation conforms to this specification when:
 7. Lazy entries are visited in order but are not fetched automatically.
 8. Selecting a LazyFile may run it after the active request without reordering the remaining automatic files.
 9. Every manifest entry gets a DOM-resident FileCard.
-10. Each FileCard observes only its own file query.
+10. ChangeSet owns the ordered file-query observers and supplies each derived file state to FileTree and its corresponding FileCard.
 11. File data is never copied into another store.
 12. File failures remain query errors, derive error-flavoured LazyFiles and do not stop the sequence.
 13. Changing snapshots is isolated through `cache_id`.

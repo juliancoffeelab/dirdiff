@@ -560,7 +560,7 @@ Selecting a Husk or Lazy pseudo-hunk:
 - does not enrich;
 - does not alter FileSequence order.
 
-Only activating a LazyFile plank starts its explicit canonical file request.
+Only activating a LazyFile plank asks ChangeSet to submit that file's explicit canonical request to the single request lane.
 
 ### 66.16 FileTree interaction
 
@@ -620,10 +620,10 @@ This applies to:
 - selected LazyFile becoming FullFile;
 - folding a selected file;
 - folding a directory containing selection;
-- code-fold participation removing selection;
 - future notebook region replacement.
 
 Representation-only rich/virtual or split/inline replacement does not call Navigation.
+Code-line fold expansion and collapse also do not call Navigation because code folds contain no hunk targets and cannot remove selection.
 
 ### 66.18 FileCard-local representation operations
 
@@ -838,6 +838,8 @@ type HotkeysProps = {
 
 It receives concrete callbacks rather than grouped owner interfaces.
 
+ChangeSet reload intentionally has no dedicated visible control. `R` is its only standing reload binding. An error-state `RetryButton` may still invoke reload as the explicit retry action.
+
 ```tsx
 function Hotkeys(
   props: HotkeysProps,
@@ -1001,9 +1003,6 @@ FileTree row
 
 Header view control
     → workspace view setter
-
-Reload button
-    → ChangeSet reload
 
 Help button
     → setHelpOpen

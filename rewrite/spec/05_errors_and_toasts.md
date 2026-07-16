@@ -291,7 +291,7 @@ This preserves the exact timeout behavior:
 
 TanStack Query remains the authority for backend query and mutation error state.
 
-Every query and mutation definition provides an error title:
+Query and mutation definitions may provide a specific user-visible error title:
 
 ```ts
 type ErrorMeta = {
@@ -310,7 +310,7 @@ queryOptions({
 });
 ```
 
-The QueryClient uses `QueryCache` and `MutationCache` error callbacks to produce one Toast for each failed query or mutation attempt:
+TanStack permits metadata to be absent. The QueryClient therefore uses the specific metadata title when present and the generic “Query failed” or “Mutation failed” title otherwise. `QueryCache` and `MutationCache` error callbacks produce one Toast for each failed query or mutation attempt:
 
 ```tsx
 export function QueryProvider(props: {
@@ -327,19 +327,23 @@ export function QueryProvider(props: {
           return;
         }
 
-        props.onError(
-          errorTitle(query.meta),
-          error,
-        );
+        const title =
+          query.meta === undefined
+            ? "Query failed"
+            : query.meta.errorTitle;
+
+        props.onError(title, error);
       },
     }),
 
     mutationCache: new MutationCache({
       onError(error, _variables, _result, mutation) {
-        props.onError(
-          errorTitle(mutation.meta),
-          error,
-        );
+        const title =
+          mutation.meta === undefined
+            ? "Mutation failed"
+            : mutation.meta.errorTitle;
+
+        props.onError(title, error);
       },
     }),
 
@@ -365,7 +369,7 @@ export function QueryProvider(props: {
 
 `QueryProvider` does not import or call `useToasts`. Its required callback is supplied by the private `Root()` component in `main.tsx`.
 
-Cache-level error callbacks are used because one backend query may have several observers. A cache callback reports the failed query once rather than requiring every observer to synchronize the same error into Toast state. TanStack exposes `meta` on query definitions and global error callbacks on `QueryCache` and `MutationCache` for this purpose. [Solid Query options](https://tanstack.com/query/latest/docs/framework/solid/reference/useQuery), [QueryCache](https://tanstack.com/query/latest/docs/reference/QueryCache), [MutationCache](https://tanstack.com/query/latest/docs/reference/MutationCache)
+Cache-level error callbacks are used because one backend query may have several observers. A cache callback reports the failed query once rather than requiring every observer to synchronize the same error into Toast state. TanStack exposes optional `meta` on query definitions and global error callbacks on `QueryCache` and `MutationCache` for this purpose. [Solid Query options](https://tanstack.com/query/latest/docs/framework/solid/reference/useQuery), [QueryCache](https://tanstack.com/query/latest/docs/reference/QueryCache), [MutationCache](https://tanstack.com/query/latest/docs/reference/MutationCache)
 
 Components do not use `createEffect` merely to copy query errors into Toasts.
 

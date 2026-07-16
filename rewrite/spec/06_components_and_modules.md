@@ -173,8 +173,6 @@ main → comp
 api  ↛ comp
 ```
 
-This slightly refines the earlier hypothetical claim that `queryClient.tsx` exports only a configured singleton.
-
 #### `comp/Select.tsx`
 
 Exports:
@@ -289,6 +287,9 @@ It owns:
 
 - manifest observation;
 - lazy-info observation;
+- the ordered file-query observer collection;
+- deriving and supplying the shared per-file states used by FileTree and FileCard;
+- explicit file-load and retry operations invoked by LazyFile planks;
 - strict FileSequence;
 - combined progress;
 - expansion state;
@@ -328,8 +329,8 @@ VirtualFile
 
 It owns:
 
-- observing its canonical file query;
-- deriving Husk/Full/Lazy state;
+- projecting the reactive state supplied by ChangeSet into Husk/Full/Lazy presentation;
+- invoking the ChangeSet-supplied explicit-load callback from the LazyFile plank;
 - rich/virtual transitions;
 - geometry preservation;
 - local fold responsibility;

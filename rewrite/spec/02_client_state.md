@@ -303,7 +303,7 @@ Changing view:
 
 All lightweight Tabs, Controls and Inputs remain mounted until the workspace reaches an explicit reset boundary.
 
-Only the active Tab displays its Header and Controls. Cheap Controls remain mounted under the HTML `hidden` attribute so their component-owned input survives ordinary Tab switches.
+`App` renders one shared AppHeader outside Tabs. Tabs never render their own Header. Only the active Tab displays its Controls; cheap Controls remain mounted under the HTML `hidden` attribute so their component-owned input survives ordinary Tab switches. The active ChangeSet may contribute status and summary presentation to AppHeader through its specified Portal outlets.
 
 The Tab’s `ChangeSet` instance remains mounted while its Tab is inactive so that the ChangeSet can preserve its own small client state. Its expensive content is only mounted while active.
 
@@ -339,15 +339,6 @@ function RefsTab(props: RefsTabProps) {
 
   return (
     <>
-      <Show when={props.active}>
-        <Header
-          engine={props.engine}
-          view={props.view}
-          repo={props.repo}
-        />
-
-      </Show>
-
       <section hidden={!props.active}>
         <RefsControls
           active={props.active}
@@ -390,10 +381,13 @@ It also owns:
 - the manifest observer;
 - derived manifest traversal;
 - the FileSequence;
-- file query observers;
+- the ordered file-query observer collection;
 - lazy metadata;
+- deriving one reactive HuskFile, FullFile or LazyFile state for every manifest entry;
+- supplying the same per-file states to FileTree and FileCard;
+- explicit file-load and retry operations invoked by LazyFile planks;
 - FileTree rendering;
-- FileCard rendering and its derived HuskFile, FullFile and LazyFile states;
+- FileCard rendering;
 - reload behavior;
 - later hunk and DOM state.
 
@@ -448,11 +442,13 @@ Reload belongs to `ChangeSet`, not to the Tab.
 Reloading:
 
 1. resets the ChangeSet-owned tree and expansion state;
-2. invalidates the manifest query for the current `DiffParams`;
+2. calls `refetch()` on the active manifest observer for the current `DiffParams`;
 3. allows the new manifest to produce its new `cache_id`;
 4. restarts strict manifest-order loading.
 
-The reload control may be visually placed in shared HUD, but its command targets the active `ChangeSet`.
+The explicit reload does not invalidate the manifest cache. Invalidation is reserved for cases where an external operation makes cached data untrustworthy; here the owning ChangeSet directly requests a fresh snapshot.
+
+ChangeSet reload has no visible button. The existing `R` hotkey targets the active ChangeSet directly.
 
 ### 24.13 Backend-data lifecycle
 

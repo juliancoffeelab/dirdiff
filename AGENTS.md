@@ -35,6 +35,10 @@ what it should not do.
 If this docstring is hard to write, it means that such file should not exist
 and the code should just live elsewhere.
 - Same about functions. Either docstings with reasoning, or no function at all.
+- Every declared type, type alias, interface, class, and enum must have a
+thorough docstring explaining the contract it represents, the meaning and
+requirements of its fields or variants, and what it must not be used to
+represent. Public types must document what callers may provide and rely on.
 - Public function docstrings should explain what callers can expect and need to
 comply with, not the internals.
 - Modules, classes should explain both. Private functions if reasonable, but

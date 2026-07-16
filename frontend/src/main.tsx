@@ -2,6 +2,12 @@
 // frontend tree; all providers, application state, and CSS stay branch-owned.
 import { render } from "solid-js/web";
 
+/**
+ * Identifies one complete frontend tree that the browser entrypoint may mount.
+ *
+ * The entrypoint persists exactly one of these values and uses it only to select
+ * a root tree. It is not workspace, domain, or component state.
+ */
 type FrontendVersion = "v_old" | "v_new";
 
 const FRONTEND_VERSION_STORAGE_KEY = "dirdiff:frontend-version";
@@ -56,19 +62,26 @@ async function mountNew(root: HTMLElement): Promise<void> {
     import("./new/comp/Toasts"),
   ]);
 
+  function Root() {
+    const toast = toasts.useToasts();
+
+    return (
+      <queries.QueryProvider onError={toast.showError}>
+        <solid.ErrorBoundary
+          fallback={(error, reset) => (
+            <toasts.ApplicationErrorPanel error={error} onRetry={reset} />
+          )}
+        >
+          <app.App onSwitchFrontend={() => switchFrontend("v_old")} />
+        </solid.ErrorBoundary>
+      </queries.QueryProvider>
+    );
+  }
+
   render(
     () => (
       <toasts.ToastProvider>
-        <queries.QueryProvider>
-          <solid.ErrorBoundary
-            fallback={(error, reset) => (
-              <toasts.RootErrorFallback error={error} reset={reset} />
-            )}
-          >
-            <app.App onSwitchFrontend={() => switchFrontend("v_old")} />
-          </solid.ErrorBoundary>
-        </queries.QueryProvider>
-        <toasts.ToastViewport />
+        <Root />
       </toasts.ToastProvider>
     ),
     root,

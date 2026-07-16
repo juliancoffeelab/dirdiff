@@ -37,7 +37,7 @@ The system genuinely must handle:
 3. HuskFiles and LazyFiles do not yet know their real hunk structure.
 4. Rich FileBody DOM may be removed and recreated.
 5. Inline/split changes may replace rich row DOM.
-6. Code folds may hide individual hunk targets.
+6. Code folds replace unchanged row DOM without changing the hunk-target set.
 7. A file folded directly or through its directory leaves navigation.
 8. A structural owner may destroy the currently selected hunk.
 9. User scrolling, programmatic scrolling, browser anchoring, and layout movement all produce browser scroll events.
@@ -211,7 +211,7 @@ The frontend does not infer hunks by grouping changed rows.
 
 Rich and virtual representations of the same FullFile structure must expose the same participating real-hunk identities.
 
-Code folds may intentionally exclude hidden hunks from participation.
+Code folds contain only unchanged rows between hunks. They never exclude a real hunk from participation. A fold range that contains a hunk target violates the backend/fold invariant rather than defining a supported navigation state.
 
 Pseudo-hunks are frontend navigation entities:
 
@@ -273,7 +273,6 @@ The following are structural transitions:
 - LazyFile → FullFile;
 - folding a file;
 - folding a directory containing files;
-- changing code-fold participation;
 - future notebook raw/rich structure changes;
 - replacing the complete ChangeSet snapshot.
 
@@ -305,14 +304,9 @@ The folding operation never scrolls merely because it repaired selection.
 
 ### Code folds
 
-The initial architecture keeps current behavior:
+Code folds contain unchanged lines between hunks. Expanding or collapsing one changes only unchanged row presentation. It never changes hunk participation, selected identity, local or global counters, or FileTree highlighting, and it never invokes structural selection repair.
 
-- hidden hunks do not participate;
-- navigation skips them;
-- user-scroll following cannot select them;
-- explicit hunk navigation does not expand a code fold.
-
-If collapsing a code fold removes the selected hunk, the fold owner applies the same adjacent-target repair before removing it.
+The frontend must reject or expose as an invariant violation any fold range that contains a real hunk target. It must not implement navigation behavior for that impossible shape.
 
 ### Representation replacement
 
@@ -798,7 +792,8 @@ The global sequence includes:
 It excludes:
 
 - folded files;
-- real hunks hidden inside code folds.
+
+Code-line folds exclude no real hunk targets.
 
 The `+` suffix means one or more pseudo-hunks may later become a different number of real hunks.
 
@@ -1351,7 +1346,7 @@ The rewrite retains:
 2. Every HuskFile exposes exactly one pseudo-hunk.
 3. Every expanded LazyFile exposes exactly one pseudo-hunk.
 4. Every folded file exposes no hunk target.
-5. Every expanded FullFile exposes its participating real-hunk targets.
+5. Every expanded FullFile exposes all of its real-hunk targets; code-line folds do not change that set.
 6. Rich and virtual representations expose identical real-hunk identities.
 7. Inline and split rich representations expose identical real-hunk identities.
 8. VirtualFile always contains complete old and new text in split form.

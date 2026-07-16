@@ -14,4 +14,8 @@ Only the following visual differences between `v_old` and `v_new` are authorized
 
    Status shown while files are being loaded may use the compact AppHeader presentation specified in `../spec/03_file_presentation.md`. This exception applies only to file-loading progress, failure and long-running-file status. It does not authorize unrelated Header, status, summary or layout changes.
 
+4. Three Tab-local metadata refresh buttons are added.
+
+   Refs receives a refs refresh button, Branch Review receives a branches-and-remotes refresh button, and Preset receives a preset-catalog refresh button. This exception authorizes those three controls only. Their exact placement, dimensions and appearance remain to be approved when the Tabs UI is implemented. There is no visible ChangeSet reload button.
+
 No other visual difference is permitted. Everything not listed above must remain a pixel-perfect 1:1 copy of `v_old`.

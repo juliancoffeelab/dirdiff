@@ -230,7 +230,7 @@ There is no persisted browser query cache.
 
 The QueryClient owns one `QueryCache` and one `MutationCache`.
 
-Every query and mutation definition supplies:
+Query and mutation definitions may supply a specific user-visible failure title:
 
 ```ts
 type ErrorMeta = {
@@ -238,7 +238,7 @@ type ErrorMeta = {
 };
 ```
 
-The cache callbacks use that metadata to report one Toast for each failed attempt.
+The cache callbacks use that metadata when present. A failed query without metadata uses “Query failed”; a failed mutation without metadata uses “Mutation failed”. Every failed attempt still produces one Toast.
 
 Query cancellation produces no Toast.
 

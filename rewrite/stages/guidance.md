@@ -6,7 +6,9 @@ This file governs implementation of every practical chapter in this directory. T
 
 ## Visual contract
 
-At the same viewport, URL, backend data and UI state, `v_new` must be a pixel-perfect 1:1 copy of `v_old`. Architectural improvement never authorizes visual redesign, approximation, cleanup or a merely similar result.
+At the same viewport, URL, backend data and UI state, every surface and behavior implemented by the current practical chapter must be a pixel-perfect 1:1 copy of its `v_old` counterpart. Architectural improvement never authorizes visual redesign, approximation, cleanup or a merely similar result.
+
+Functionality explicitly assigned to a later practical chapter is not implemented yet and is outside the current chapter's parity comparison. An intermediate chapter may therefore omit later surfaces entirely or render only the placeholder boundary that its chapter explicitly requires. This is not a visual exception for implemented functionality. Once the final implementation chapter is complete, the complete application must satisfy pixel-perfect parity except for the four authorized differences below.
 
 Only the following visual differences are authorized:
 
@@ -21,6 +23,10 @@ Only the following visual differences are authorized:
 3. File-loading status is more compact.
 
    Status shown while files are being loaded may use the compact AppHeader presentation specified in `../spec/03_file_presentation.md`. This exception applies only to file-loading progress, failure and long-running-file status. It does not authorize unrelated Header, status, summary or layout changes.
+
+4. Three Tab-local metadata refresh buttons are added.
+
+   Refs receives a refs refresh button, Branch Review receives a branches-and-remotes refresh button, and Preset receives a preset-catalog refresh button. This exception authorizes those three controls only. Their exact placement, dimensions and appearance remain to be approved when the Tabs UI is implemented; an implementing agent must not invent them before that review. There is no visible ChangeSet reload button.
 
 No other visual difference is permitted. Visual behavior must be reviewed in the running browser with screenshots at matching state; DOM structure or computed measurements alone are not visual verification.
 
@@ -44,6 +50,8 @@ Every JavaScript, TypeScript and TSX module under `frontend/src/new/` must begin
 - what it must not own or do.
 
 Every function under `frontend/src/new/` must have JSDoc explaining its purpose and caller contract. Public functions must state what callers provide, what callers may expect, and the constraints callers must respect. A title-only or restatement-of-the-name comment is not sufficient.
+
+Every named type alias, interface, class and enum under `frontend/src/new/` must have JSDoc explaining the contract it represents, the meaning and requirements of its fields or variants, and what it must not represent. Public types must state what callers may provide and rely on. Declaration-merging interfaces must document both the shape they register and whether they change field presence or only field contents.
 
 Docblocks document the code's actual interface and enduring ownership contract. They must not discuss migration versions, implementation stages, temporary status, future work, historical context, or justify why an incomplete implementation is acceptable. Those are implementation notes, not API documentation.
 

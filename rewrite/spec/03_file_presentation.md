@@ -28,7 +28,7 @@ ChangeSet
                 └── explicit-fetch plank
 ```
 
-`FileCard` is the stable manifest-position wrapper. The three file states own different presentations and different headers.
+`FileCard` is the stable manifest-position wrapper. It receives its reactive file state and explicit-load callback from ChangeSet; it does not observe a query. The three file states own different presentations and different headers. The LazyFile plank invokes the supplied callback so ChangeSet can submit that file to its single request lane.
 
 The ChangeSet title remains with the ChangeSet. It is not placed in AppHeader because AppHeader space is limited.
 
@@ -37,36 +37,44 @@ The ChangeSet title remains with the ChangeSet. It is not placed in AppHeader be
 The manifest remains thin even though it carries compact aggregate statistics. The backend already obtains these values while listing changed paths; they are snapshot metadata, not rendered file content.
 
 ```ts
-export type ManifestSummary = {
-  changed_files: number;
-  added_files: number;
-  removed_files: number;
-  updated_files: number;
-  added_lines: number;
-  removed_lines: number;
-  skipped_files: number;
-};
+const ManifestSummarySchema = z.strictObject({
+  changed_files: z.number().int(),
+  added_files: z.number().int(),
+  removed_files: z.number().int(),
+  updated_files: z.number().int(),
+  added_lines: z.number().int(),
+  removed_lines: z.number().int(),
+  skipped_files: z.number().int(),
+  changed_cells: z.number().int().nullable(),
+  added_cells: z.number().int().nullable(),
+  removed_cells: z.number().int().nullable(),
+  modified_cells: z.number().int().nullable(),
+});
+
+const TextFileSummarySchema = z.strictObject({
+  changed_lines: z.number().int(),
+  modified_lines: z.number().int(),
+  added_lines: z.number().int(),
+  removed_lines: z.number().int(),
+  moved_lines: z.number().int(),
+  left_exists: z.boolean(),
+  right_exists: z.boolean(),
+});
+
+const NotebookFileSummarySchema = TextFileSummarySchema.extend({
+  changed_cells: z.number().int(),
+  added_cells: z.number().int(),
+  removed_cells: z.number().int(),
+  modified_cells: z.number().int(),
+  notebook_metadata_changed: z.boolean(),
+});
+
+export type ManifestSummary = z.infer<typeof ManifestSummarySchema>;
+export type TextFileSummary = z.infer<typeof TextFileSummarySchema>;
+export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
 ```
 
-The summary is immutable for one manifest/cache ID and is never recomputed from loaded FullFiles.
-
-The generic optional-field-heavy `Summary` concept must become distinct types:
-
-```ts
-export type ManifestSummary = {
-  // Aggregate snapshot information.
-};
-
-export type TextFileSummary = {
-  // Complete text-file statistics.
-};
-
-export type NotebookFileSummary = {
-  // Complete notebook-file statistics.
-};
-```
-
-Notebook cell totals do not progressively mutate `ManifestSummary`. They remain in the notebook FullFile presentation for now. If aggregate notebook statistics are needed later, they require either a separate backend summary or an explicitly partial metric.
+These schemas preserve the stable backend response fields while giving each frontend consumer one precise type. `ManifestSummary` is immutable for one manifest/cache ID and is never recomputed or progressively mutated from loaded FullFiles. Nullable aggregate notebook fields remain whatever the manifest response supplied; complete per-file notebook statistics belong to `NotebookFileSummary`.
 
 ### 25.4 File-specific headers
 
