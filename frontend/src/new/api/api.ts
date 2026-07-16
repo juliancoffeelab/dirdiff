@@ -5,7 +5,7 @@
  * canonical TanStack query and mutation definitions. It privately owns runtime
  * response validation, HTTP request construction, timeout handling, query keys,
  * and request functions. It must not own UI state, component behavior, query
- * observers, Toast presentation, or ChangeSet request sequencing.
+ * observers, Toast presentation, or ChangeSet file-fetch sequencing.
  */
 import { mutationOptions, queryOptions } from "@tanstack/solid-query";
 import { z } from "zod";

@@ -338,7 +338,7 @@ It owns:
 - geometry preservation;
 - local fold responsibility;
 - `projectSelectedHunk`;
-- responding to `waitToEnrich` requests;
+- responding to `waitToEnrich` calls;
 - rendering DiffGrid or NotebookFile;
 - FileCard-level error containment.
 

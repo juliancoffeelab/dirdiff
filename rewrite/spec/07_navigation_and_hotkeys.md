@@ -560,7 +560,7 @@ Selecting a Husk or Lazy pseudo-hunk:
 - does not enrich;
 - does not alter FileSequence order.
 
-Only activating a LazyFile plank asks ChangeSet to submit that file's explicit canonical request to the single request lane.
+Only activating a LazyFile plank asks ChangeSet to submit that file's explicit canonical fetch to the single file-fetch lane.
 
 ### 66.16 FileTree interaction
 

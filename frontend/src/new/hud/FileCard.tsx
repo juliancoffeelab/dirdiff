@@ -64,8 +64,8 @@ type LazyFile =
 /**
  * Describes a file whose content starts only through explicit user activation.
  *
- * Retry and delayed hydration use the same ChangeSet-supplied request-lane
- * command; the state itself owns no request or copied loading flag.
+ * Retry and delayed hydration use the same ChangeSet-supplied file-load
+ * callback; the state itself owns no query state or copied loading flag.
  */
 type LazyFileState = {
   state: "lazy";
@@ -415,7 +415,7 @@ function LazyFileHeader(props: {
  * Renders the colored explicit-fetch plank for one backend delay reason.
  *
  * The complete LazyInfoFile is required. Activation reports only the supplied
- * command, leaving request ordering and fetching presentation with ChangeSet.
+ * callback, leaving file-fetch ordering and loading presentation with ChangeSet.
  */
 function DeferredFilePlank(props: {
   info: LazyInfoFile;

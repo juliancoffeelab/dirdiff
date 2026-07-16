@@ -172,7 +172,7 @@ function initialView(search: URLSearchParams): DiffViewMode {
  * Writes one complete branch selection into canonical browser fields.
  *
  * Local selections remove a stale remote field. Remote selections require and
- * preserve their exact remote; no backend request naming is changed.
+ * preserve their exact remote; no backend field or parameter naming is changed.
  */
 function writeBranchSelection(
   search: URLSearchParams,

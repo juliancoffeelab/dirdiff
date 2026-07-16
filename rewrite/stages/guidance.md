@@ -88,6 +88,11 @@ This documentation requirement does not authorize retrofitting `v_old`. Existing
   switching back. Neither frontend tree may accept the other tree's URL vocabulary.
 - Do not import `v_old` application modules into `v_new`.
 - Implement only the current practical chapter. Do not pull later-stage behavior forward merely because its eventual location is already known.
+- In project-owned terminology, `request` means an HTTP request, ordinary use as
+  a verb, or `pull_request`. No other project-owned type, variable, state, lane,
+  callback, command, or concept may be named `request`. External APIs such as
+  Solid's `requestCallback` and the browser's `requestAnimationFrame` retain
+  their required names.
 - Do not change test behavior without explicit user approval, and do not add test-only helpers.
 - Use the existing hot-reloadable dirdiff/Vite session for browser verification. Do not start an alternative server.
 - Run `make format` and `make tscheck` after changes.

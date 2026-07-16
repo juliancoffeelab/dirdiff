@@ -28,7 +28,7 @@ ChangeSet
                 └── explicit-fetch plank
 ```
 
-`FileCard` is the stable manifest-position wrapper. It receives its reactive file state and explicit-load callback from ChangeSet; it does not observe a query. The three file states own different presentations and different headers. The LazyFile plank invokes the supplied callback so ChangeSet can submit that file to its single request lane.
+`FileCard` is the stable manifest-position wrapper. It receives its reactive file state and explicit-load callback from ChangeSet; it does not observe a query. The three file states own different presentations and different headers. The LazyFile plank invokes the supplied callback so ChangeSet can submit that file to its single file-fetch lane.
 
 The ChangeSet title remains with the ChangeSet. It is not placed in AppHeader because AppHeader space is limited.
 
@@ -205,22 +205,22 @@ The status region is compact and fixed-height:
 
 - the spinner and fraction show automatic progress;
 - the failure icon shows the number of files needing attention;
-- the clock appears only after the active request crosses the slow threshold;
+- the clock appears only after the active file load crosses the slow threshold;
 - long paths appear only in hover/focus tooltips.
 
-The slow-file indicator does not show a live seconds counter. The request lane uses one timeout to set `slow: true`, then clears it when the request settles.
+The slow-file indicator does not show a live seconds counter. The file-fetch lane uses one timeout to set `slow: true`, then clears it when the file load settles.
 
 ```tsx
-<Show when={slowRequest()}>
-  {(request) => (
+<Show when={slowFile()}>
+  {(file) => (
     <button
       type="button"
       class="app-header-slow-file"
-      aria-label={`${request().path} is taking longer than expected`}
+      aria-label={`${file().path} is taking longer than expected`}
     >
       <ClockIcon />
       <Tooltip>
-        {request().path} is taking longer than expected
+        {file().path} is taking longer than expected
       </Tooltip>
     </button>
   )}

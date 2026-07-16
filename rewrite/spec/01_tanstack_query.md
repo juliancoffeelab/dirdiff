@@ -13,7 +13,7 @@ Status: proposed for approval.
 - `FullFile` is a successfully loaded file with its complete header and `FileBody`.
 - `LazyFile` is an intentionally delayed or failed file with an explicit-fetch plank.
 - `FileBody` is the expensive rendered content of a `FullFile`.
-- `FileSequence` is the single file-request lane: normal files retain manifest order, while explicitly selected lazy files may run after the active request.
+- `FileSequence` is the single file-fetch lane: normal files retain manifest order, while explicitly selected lazy files may run after the active fetch.
 - `FileDiff` is the backend result for one rendered file.
 
 “Comparison” is not an architectural term.
@@ -153,7 +153,7 @@ Framework functions such as Solid’s `createMemo` and `createEffect` retain the
 
 `DiffParams` remains exactly `DiffParams`.
 
-It is a complete immutable backend-request value. A Tab derives it from its local selection and the workspace-owned engine. Live control input is not `DiffParams`; every required field must exist before the value is constructed.
+It is a complete immutable `DiffParams` value. A Tab derives it from its local selection and the workspace-owned engine. Live control input is not `DiffParams`; every required field must exist before the value is constructed.
 
 ```ts
 export type DiffParams =
@@ -504,7 +504,7 @@ There is never more than one `/api/file-diff` request in flight.
 
 Lazy entries are visited in their correct position but do not start a file request.
 
-The same request lane also accepts explicit `LazyFile` selections. An explicit selection:
+The same file-fetch lane also accepts explicit `LazyFile` selections. An explicit selection:
 
 1. waits for the currently active request;
 2. becomes the next request;
@@ -640,13 +640,13 @@ The lazy metadata query may run concurrently with the normal FileSequence becaus
 
 A lazy-info failure leaves the FileCards present and produces error-flavoured `LazyFile` states. It does not stop normal file loading.
 
-`LazyFile` renders a colored clickable plank. Selecting the plank submits an explicit file request to the single request lane. The `LazyFile` becomes a fetching `HuskFile`, then becomes `FullFile` on success or an error-flavoured `LazyFile` on failure.
+`LazyFile` renders a colored clickable plank. Selecting the plank submits an explicit file request to the single file-fetch lane. The `LazyFile` becomes a fetching `HuskFile`, then becomes `FullFile` on success or an error-flavoured `LazyFile` on failure.
 
 `LazyFile` never calls a private HTTP handler directly and never starts a concurrent request.
 
 ## 14. ChangeSet file-query observation
 
-`ChangeSet` owns one ordered collection of canonical file-query observers. Neither FileTree nor FileCard creates a query observer. The ChangeSet request lane initiates both automatic and explicitly selected requests.
+`ChangeSet` owns one ordered collection of canonical file-query observers. Neither FileTree nor FileCard creates a query observer. The ChangeSet file-fetch lane initiates both automatic and explicitly selected requests.
 
 ```ts
 const fileQueries = createQueries(() => ({
@@ -661,7 +661,7 @@ const fileQueries = createQueries(() => ({
 }));
 ```
 
-Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only projections of the cache, while the single request lane performs canonical fetches through `fetchQuery`. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
+Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only projections of the cache, while the single file-fetch lane performs canonical fetches through `fetchQuery`. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
 
 Each observer still receives cache updates for its exact key. `ChangeSet` pairs every observer with the manifest entry at the same index and derives that entry's reactive `FileCardState` from the query result and lazy metadata. It passes those same per-file states to FileTree and FileCard; it does not copy file results into a `filesByKey` store.
 
@@ -674,7 +674,7 @@ FileCard receives its state and an explicit-load callback from ChangeSet:
 />
 ```
 
-The clickable LazyFile plank invokes `onLoad`. It does not refetch independently. `enqueueExplicitFile` submits that exact canonical file key to the ChangeSet request lane, which preserves the sequencing rules from Section 11.
+The clickable LazyFile plank invokes `onLoad`. It does not refetch independently. `enqueueExplicitFile` submits that exact canonical file key to the ChangeSet file-fetch lane, which preserves the sequencing rules from Section 11.
 
 ## 15. Derived file state
 
@@ -751,7 +751,7 @@ TanStack distinguishes data status from fetch status: `status` describes whether
 
 ## 16. Sequence progress
 
-One combined client entity describes the request lane:
+One combined client entity describes the file-fetch lane:
 
 ```ts
 export type FileSequenceState =
@@ -760,7 +760,7 @@ export type FileSequenceState =
       processed: number;
       automaticTotal: number;
       failed: number;
-      active: ActiveFileRequest;
+      active: FileLaneActivity;
     }
   | {
       state: "ready";
@@ -769,7 +769,7 @@ export type FileSequenceState =
       failed: number;
     };
 
-export type ActiveFileRequest = {
+export type FileLaneActivity = {
   kind: "sequence" | "selected";
   fileIndex: number;
   path: string;
@@ -779,7 +779,7 @@ export type ActiveFileRequest = {
 
 `automaticTotal` counts only files included in the automatic sequence. Manifest-lazy files therefore do not leave progress permanently incomplete.
 
-When a request begins, one timeout may mark its existing active value as `slow: true`. The timeout is cleared when the request settles. There is no elapsed-seconds interval and no status string rewritten every second.
+When file-lane activity begins, one timeout may mark its existing active value as `slow: true`. The timeout is cleared when that activity settles. There is no elapsed-seconds interval and no status string rewritten every second.
 
 There are no separate `loadedFiles`, `failedFiles`, `loadingRevision`, placement or mutable status-string signals.
 
@@ -960,7 +960,7 @@ The rewrite removes rather than renames:
 - separate manual aggregate status counters and mutable status strings;
 - routine `removeQueries`;
 - fake `FileEntry` error placeholders;
-- direct click-triggered HTTP paths outside the single file-request lane;
+- direct click-triggered HTTP paths outside the single file-fetch lane;
 - application-level `create*` abstractions.
 
 ## 23. Acceptance criteria

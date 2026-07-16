@@ -3,7 +3,7 @@
  *
  * The module exports ChangeSet. Its lightweight outer lifetime owns FileTree and
  * file-expansion state; its active inner lifetime owns the manifest, lazy-info,
- * ordered file observers, strict sequential request lane, compact AppHeader
+ * ordered file observers, strict sequential file-fetch lane, compact AppHeader
  * Portals, ChangeSet title, FileTree, and FileCards. It must not copy backend
  * results into Solid state, start concurrent file-diff requests, own workspace or
  * Tab selections, or implement navigation and virtualization in this boundary.
@@ -66,7 +66,7 @@ function schedulerYield(): Promise<void> {
 /**
  * Defines every complete input needed to identify and activate one ChangeSet.
  *
- * `params` is a selected backend request value, `view` is the global reactive
+ * `params` is a selected complete DiffParams value, `view` is the global reactive
  * renderer input, `profile` is genuine nullable profile identity, and `active`
  * controls expensive observation. No field may represent live control input.
  */
@@ -91,12 +91,12 @@ type ChangeSetState = {
 };
 
 /**
- * Describes the active request presented by the single file lane.
+ * Describes the active work presented by the single file lane.
  *
  * `kind` distinguishes ordinary manifest progress from an explicit LazyFile
  * selection. Slow is a one-shot threshold flag rather than elapsed-time state.
  */
-type ActiveFileRequest = {
+type FileLaneActivity = {
   kind: "sequence" | "selected";
   fileIndex: number;
   path: string;
@@ -116,7 +116,7 @@ type FileSequenceState =
       processed: number;
       automaticTotal: number;
       failed: number;
-      active: ActiveFileRequest;
+      active: FileLaneActivity;
     }
   | {
       state: "ready";
@@ -193,8 +193,9 @@ type ChangeSetContentProps = {
 function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   const queryClient = useQueryClient();
   const [processed, setProcessed] = createSignal(0);
-  const [activeRequest, setActiveRequest] =
-    createSignal<ActiveFileRequest | null>(null);
+  const [laneActivity, setLaneActivity] = createSignal<FileLaneActivity | null>(
+    null,
+  );
   const [laneError, setLaneError] = createSignal<Error | null>(null);
   let enqueueSelectedFile: ((fileIndex: number) => void) | null = null;
   let stopFileSequence: (() => Promise<void>) | null = null;
@@ -383,7 +384,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
       ).length,
   );
   const sequenceState = createMemo<FileSequenceState>(() => {
-    const active = activeRequest();
+    const active = laneActivity();
     if (active !== null) {
       return {
         state: "loading",
@@ -407,7 +408,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   );
 
   /**
-   * Synchronizes one mounted manifest generation with its imperative request lane.
+   * Synchronizes one mounted manifest generation with its imperative file-fetch lane.
    *
    * The effect starts after manifest success and reruns only for a new reactive
    * manifest/parameter generation. Cleanup stops scheduling, clears the public
@@ -422,7 +423,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
       enqueueSelectedFile = null;
       stopFileSequence = null;
       setProcessed(0);
-      setActiveRequest(null);
+      setLaneActivity(null);
       return;
     }
     if (dataUpdatedAt <= 0) {
@@ -441,7 +442,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     let stopPromise: Promise<void> | null = null;
 
     setProcessed(0);
-    setActiveRequest(null);
+    setLaneActivity(null);
     setLaneError(null);
 
     /**
@@ -475,7 +476,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
       running = true;
       try {
         while (!stopped) {
-          let kind: ActiveFileRequest["kind"] = "selected";
+          let kind: FileLaneActivity["kind"] = "selected";
           let fileIndex = selectedQueue.shift();
           if (fileIndex !== undefined) {
             selectedSet.delete(fileIndex);
@@ -509,7 +510,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             snapshot.cache_id,
             file.entry,
           );
-          const request: ActiveFileRequest = {
+          const activity: FileLaneActivity = {
             kind,
             fileIndex,
             path: fileDisplayName(file.entry),
@@ -517,10 +518,10 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
           };
           activeIndex = fileIndex;
           activeKey = options.queryKey;
-          setActiveRequest(request);
+          setLaneActivity(activity);
           const slowTimer = window.setTimeout(() => {
             if (!stopped && activeIndex === fileIndex) {
-              setActiveRequest({ ...request, slow: true });
+              setLaneActivity({ ...activity, slow: true });
             }
           }, SLOW_FILE_THRESHOLD_MS);
 
@@ -541,7 +542,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             window.clearTimeout(slowTimer);
             activeIndex = null;
             activeKey = null;
-            setActiveRequest(null);
+            setLaneActivity(null);
             if (kind === "sequence" && !stopped) {
               setProcessed((current) => current + 1);
             }
@@ -565,7 +566,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
       }
       stopped = true;
       enqueueSelectedFile = null;
-      setActiveRequest(null);
+      setLaneActivity(null);
       const queryKey = activeKey;
       stopPromise =
         queryKey === null
@@ -606,7 +607,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   });
 
   /**
-   * Submits one LazyFile or failed FileCard to the current single request lane.
+   * Submits one LazyFile or failed FileCard to the current single file-fetch lane.
    *
    * A mounted manifest generation is required. The callback never calls refetch
    * or transport directly and therefore cannot bypass sequencing.
@@ -621,7 +622,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   /**
    * Performs one explicit ChangeSet reload against the active manifest observer.
    *
-   * The current file lane is stopped and its exact request cancellation settles
+   * The current file lane is stopped and its active file-query cancellation settles
    * before durable layout and progress reset. The canonical manifest observer
    * owns the next attempt and its query-level Toast behavior.
    */
@@ -630,7 +631,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
       await stopFileSequence();
     }
     setProcessed(0);
-    setActiveRequest(null);
+    setLaneActivity(null);
     props.setState({
       treeOpen: false,
       directoryExpansion: {},
@@ -779,7 +780,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 /**
  * Defines the structural state shape FileTree consumes from ChangeSet.
  *
- * The tree reads presentation only. Query objects, backend request commands, and
+ * The tree reads presentation only. Query objects, backend fetch controls, and
  * mutable aggregates are excluded from this contract.
  */
 type FileTreeState =
@@ -1041,15 +1042,15 @@ function AppHeaderFileStatus(props: { state: FileSequenceState }): JSX.Element {
           }
           keyed
         >
-          {(request) => (
+          {(slowFile) => (
             <button
               type="button"
               class="app-header-slow-file"
-              aria-label={`${request.path} is taking longer than expected`}
+              aria-label={`${slowFile.path} is taking longer than expected`}
             >
               <Clock3 aria-hidden="true" />
               <span class="app-header-slow-file-tooltip" role="tooltip">
-                {request.path} is taking longer than expected
+                {slowFile.path} is taking longer than expected
               </span>
             </button>
           )}
