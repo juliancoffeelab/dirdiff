@@ -590,6 +590,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
           repoId={selectedRepoId()}
           engine={workspace.engine}
           view={workspace.view}
+          selectedProfile={props.selectedProfile}
           appHeaderOutlets={appHeaderOutlets}
           metadataTarget={metadataTarget()}
           onRepoSelected={selectRepo}

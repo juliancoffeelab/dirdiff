@@ -42,6 +42,7 @@ import { ErrorPopover, UnexpectedErrorBoundary } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets } from "./AppHeader";
 import { ChangeSet } from "./ChangeSet";
+import type { StoredProfile } from "./Profile";
 
 /**
  * Identifies one user-visible application Tab.
@@ -134,6 +135,7 @@ type TabsProps = {
   repoId: ProjectId | null;
   engine: DiffEngine;
   view: DiffViewMode;
+  selectedProfile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
   onRepoSelected: (projectId: ProjectId) => void;
@@ -164,6 +166,7 @@ type TabProps = {
   repoId: ProjectId | null;
   engine: DiffEngine;
   view: DiffViewMode;
+  selectedProfile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
   onRepoSelected: (projectId: ProjectId) => void;
@@ -180,6 +183,7 @@ type RepoTabProps = {
   projectId: ProjectId;
   engine: DiffEngine;
   view: DiffViewMode;
+  selectedProfile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
 };
@@ -269,6 +273,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
@@ -283,6 +288,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
@@ -297,6 +303,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
@@ -311,6 +318,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
@@ -326,6 +334,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
@@ -449,6 +458,7 @@ function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
                   } satisfies HeadDiffParams
                 }
                 view={props.view}
+                profile={props.selectedProfile}
                 appHeaderOutlets={props.appHeaderOutlets}
               />
             )}
@@ -486,6 +496,7 @@ function RefsTab(
           projectId={projectId}
           engine={props.engine}
           view={props.view}
+          selectedProfile={props.selectedProfile}
           appHeaderOutlets={props.appHeaderOutlets}
           metadataTarget={props.metadataTarget}
           onSelected={props.onSelected}
@@ -723,6 +734,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
               } satisfies RefsDiffParams
             }
             view={props.view}
+            profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
           />
         )}
@@ -792,6 +804,7 @@ function BranchReviewTab(
           projectId={projectId}
           engine={props.engine}
           view={props.view}
+          selectedProfile={props.selectedProfile}
           appHeaderOutlets={props.appHeaderOutlets}
           metadataTarget={props.metadataTarget}
           onSelected={props.onSelected}
@@ -1196,6 +1209,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
               } satisfies BranchReviewDiffParams
             }
             view={props.view}
+            profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
           />
         )}
@@ -1467,6 +1481,7 @@ function PullRequestTab(
                   } satisfies BranchReviewDiffParams
                 }
                 view={props.view}
+                profile={props.selectedProfile}
                 appHeaderOutlets={props.appHeaderOutlets}
               />
             )}
@@ -1680,6 +1695,7 @@ function PresetTab(
               } satisfies PresetDiffParams
             }
             view={props.view}
+            profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
           />
         )}

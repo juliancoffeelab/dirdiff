@@ -37,6 +37,8 @@ button {
 
 .app-shell {
   --header-control-height: 34px;
+  --app-header-height: 47px;
+  --app-header-sticky-offset: var(--app-header-height);
   --app-gutter: 24px;
 
   width: 100vw;
@@ -54,10 +56,11 @@ button {
   top: 0;
   z-index: 50;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
+  height: var(--app-header-height);
   padding: 6px 0;
   margin-bottom: 14px;
   border-bottom: 1px solid #ded8cc;
@@ -1533,7 +1536,7 @@ h1 {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 4px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .file-tree-directory-target {
@@ -1735,8 +1738,22 @@ h1 {
 
 .file-card-body {
   padding: 0 14px 14px;
-  content-visibility: auto;
-  contain-intrinsic-size: 180px;
+}
+
+.file-state-spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.file-state-spinner.is-spinning {
+  animation: file-state-spin 900ms linear infinite;
+}
+
+@keyframes file-state-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .file-card h2 {
@@ -2076,6 +2093,16 @@ h1 {
 
 .file-lazy-load-toggle.is-pure-renamed .file-lazy-load-toggle-meta {
   color: #38699f;
+}
+
+.file-lazy-error-panel {
+  margin: 12px;
+  border: 2px solid #c75555;
+  background: #fff;
+}
+
+.file-lazy-error-panel > .notice {
+  border: 0;
 }
 
 .diff-grid {
@@ -2780,6 +2807,18 @@ h1 {
   display: none !important;
 }
 
+.change-set-title,
+.change-set-error,
+.controls .diff-workspace {
+  grid-column: 1 / -1;
+}
+
+.controls .diff-workspace {
+  width: calc(100% + 2 * var(--app-gutter));
+  margin-right: calc(-1 * var(--app-gutter));
+  margin-left: calc(-1 * var(--app-gutter));
+}
+
 /* Portal targets are layout-neutral owners of ordered compact header status. */
 .app-header-portal-target,
 .app-header-portal-target > div {
@@ -2787,32 +2826,92 @@ h1 {
 }
 
 .summary-group-status {
-  order: 60;
+  order: -10;
+}
+
+.change-set-file-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-progress,
+.file-failure-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.file-failure-count {
+  color: #971d28 !important;
+}
+
+.file-failure-count svg,
+.app-header-slow-file svg {
+  width: 15px;
+  height: 15px;
+}
+
+.app-header-slow-file {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: #7b4a0c;
+  padding: 0;
+}
+
+.app-header-slow-file-tooltip {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 90;
+  display: none;
+  width: max-content;
+  max-width: 360px;
+  border: 1px solid #d8d0c2;
+  background: #24231f;
+  color: #fffdf8;
+  padding: 6px 8px;
+  box-shadow: 0 6px 16px rgb(36 35 31 / 18%);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.app-header-slow-file:hover .app-header-slow-file-tooltip,
+.app-header-slow-file:focus-visible .app-header-slow-file-tooltip {
+  display: block;
 }
 
 .summary-status-defaults {
-  order: 10;
+  order: -60;
 }
 
 .summary-status-refs {
-  order: 20;
+  order: -50;
 }
 
 .summary-status-marked {
-  order: 30;
+  order: -40;
 }
 
 .summary-status-preferences {
-  order: 40;
+  order: -30;
 }
 
 .summary-status-presets {
-  order: 50;
+  order: -20;
 }
 
 .summary-status-pull-request,
 .summary-status-repo-removal {
-  order: 60;
+  order: -10;
 }
 
 /* Autocomplete composes an optional prefix and its native input as one field. */
