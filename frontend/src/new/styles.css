@@ -1740,6 +1740,21 @@ h1 {
   padding: 0 14px 14px;
 }
 
+/*
+ * Preserves measured rich geometry while distant text remains searchable.
+ * Only VirtualFile owns fixed height and internal overflow; rich bodies retain
+ * natural document height and the ordinary page scroll container.
+ */
+.virtual-file-body {
+  overflow: auto;
+  overscroll-behavior: auto;
+  scrollbar-width: none;
+}
+
+.virtual-file-body::-webkit-scrollbar {
+  display: none;
+}
+
 .file-state-spinner {
   width: 16px;
   height: 16px;

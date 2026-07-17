@@ -8,13 +8,21 @@
  * not observe queries, schedule HTTP work, own ChangeSet progress, or navigate
  * hunks. File representation changes remain internal to this owner.
  */
-import { Show, type JSX } from "solid-js";
+import {
+  Show,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Accessor,
+  type JSX,
+} from "solid-js";
 import { LoaderCircle } from "lucide-solid";
 import type {
   DiffEngine,
   EngineWarning,
   FileDiff,
   LazyInfoFile,
+  TextFileDiff,
 } from "../api/api";
 import {
   ErrorPanel,
@@ -24,6 +32,86 @@ import {
 import type { DiffViewMode } from "./App";
 import { DiffGrid } from "./DiffGrid";
 import { NotebookFile } from "./NotebookFile";
+
+/**
+ * Classifies one hydrated text file by the cost of fully rendering its rows.
+ *
+ * `small` means 0–250 rows, `medium` means 251–1000 rows, and `large` means
+ * 1001 or more rows. The value controls viewport lead distance and must not
+ * encode hunk, selection, or global state.
+ */
+type FileCost = "small" | "medium" | "large";
+
+/**
+ * Defines the two viewport distances governing one text-file cost band.
+ *
+ * `enterViewports` is the distance at which the whole file becomes rich;
+ * `exitViewports` is the larger distance beyond which it becomes virtual.
+ */
+type RichZone = {
+  enterViewports: number;
+  exitViewports: number;
+};
+
+/**
+ * Represents the complete local body representation owned by one FullFile.
+ *
+ * Rich means the natural interactive renderer; virtual means complete plain
+ * split text. The mode must never represent loading, folding, or navigation.
+ */
+type FileRenderMode = "rich" | "virtual";
+
+/**
+ * Returns the specified rich-entry and virtual-exit distances for one row count.
+ *
+ * Callers provide the exact backend row count. Invalid counts violate the
+ * hydrated text-file contract and throw instead of selecting a cost band.
+ */
+function richZone(rowCount: number): RichZone {
+  if (!Number.isInteger(rowCount) || rowCount < 0) {
+    throw new Error("Virtualization requires a non-negative row count.");
+  }
+  const cost: FileCost =
+    rowCount <= 250 ? "small" : rowCount <= 1_000 ? "medium" : "large";
+  switch (cost) {
+    case "small":
+      return { enterViewports: 2, exitViewports: 3 };
+    case "medium":
+      return { enterViewports: 4, exitViewports: 6 };
+    case "large":
+      return { enterViewports: 8, exitViewports: 12 };
+  }
+}
+
+/**
+ * Chooses the first representation from current FileCard geometry.
+ *
+ * A card intersecting its cost-dependent entry zone begins rich. Unreadable
+ * geometry begins virtual and is corrected by the mounted observers.
+ */
+function initialRenderMode(
+  card: HTMLElement,
+  rowCount: number,
+): FileRenderMode {
+  const viewportHeight = window.innerHeight;
+  const rect = card.getBoundingClientRect();
+  if (viewportHeight <= 0) {
+    return "virtual";
+  }
+  if (!Number.isFinite(rect.top)) {
+    return "virtual";
+  }
+  if (!Number.isFinite(rect.bottom)) {
+    return "virtual";
+  }
+  if (rect.width === 0 && rect.height === 0) {
+    return "virtual";
+  }
+  const margin = richZone(rowCount).enterViewports * viewportHeight;
+  return rect.bottom >= -margin && rect.top <= viewportHeight + margin
+    ? "rich"
+    : "virtual";
+}
 
 /**
  * Describes the ordinary pre-result presentation of one manifest file.
@@ -136,8 +224,10 @@ export function FileCard(props: FileCardProps): JSX.Element {
  * the card or retaining partial content from the prior branch.
  */
 function FileCardContent(props: FileCardProps): JSX.Element {
+  let card!: HTMLElement;
   return (
     <article
+      ref={card}
       class="file-card"
       classList={{
         "is-collapsed": props.state.state === "husk" || !props.expanded,
@@ -145,20 +235,24 @@ function FileCardContent(props: FileCardProps): JSX.Element {
       data-file-card
       data-file-index={props.state.fileIndex}
       data-file-state={props.state.state}
-      data-file-render={props.state.state === "full" ? "rich" : undefined}
     >
       <Show when={props.state.state === "husk" ? props.state : null} keyed>
         {(state) => <HuskFile state={state} />}
       </Show>
-      <Show when={props.state.state === "full" ? props.state : null} keyed>
-        {(state) => (
+      <Show when={props.state.state === "full" ? props.state.file : null} keyed>
+        {(file) => (
           <FullFile
-            state={state}
+            state={{
+              state: "full",
+              fileIndex: props.state.fileIndex,
+              file,
+            }}
             expanded={props.expanded}
             admitted={props.admitted}
             engine={props.engine}
             view={props.view}
             aggressiveFolds={props.aggressiveFolds}
+            card={() => card}
             onExpandedChange={props.onExpandedChange}
           />
         )}
@@ -228,27 +322,207 @@ function FullFile(props: {
   engine: DiffEngine;
   view: DiffViewMode;
   aggressiveFolds: boolean;
+  card: Accessor<HTMLElement>;
   onExpandedChange: (expanded: boolean) => void;
 }): JSX.Element {
+  const textFile = "render_kind" in props.state.file ? null : props.state.file;
+  const [renderMode, setRenderMode] = createSignal<FileRenderMode>(
+    textFile === null
+      ? "rich"
+      : initialRenderMode(props.card(), textFile.rows.length),
+  );
+  const [reservedRichHeight, setReservedRichHeight] = createSignal<
+    number | null
+  >(null);
+
+  /**
+   * Changes only this FullFile's representation and records usable rich height.
+   *
+   * Observer callbacks call this operation directly. Zero or non-finite DOM
+   * measurements are unusable and leave prior or natural geometry intact. It
+   * owns no navigation, selected-hunk, ChangeSet, or scrolling behavior.
+   */
+  function changeRenderMode(mode: FileRenderMode): void {
+    if (renderMode() === mode) {
+      return;
+    }
+    if (mode === "virtual") {
+      const richBody = props
+        .card()
+        .querySelector<HTMLElement>(".rich-file-body");
+      if (richBody !== null) {
+        const measuredHeight = richBody.getBoundingClientRect().height;
+        if (Number.isFinite(measuredHeight) && measuredHeight > 0) {
+          setReservedRichHeight(measuredHeight);
+        }
+      }
+    }
+    setRenderMode(mode);
+    props.card().dataset.fileRender = mode;
+  }
+
+  onMount(() => {
+    const card = props.card();
+    const observedFile = textFile;
+    card.dataset.fileRender = renderMode();
+    if (observedFile === null) {
+      onCleanup(() => delete card.dataset.fileRender);
+      return;
+    }
+    const rowCount = observedFile.rows.length;
+    let enterObserver: IntersectionObserver | null = null;
+    let exitObserver: IntersectionObserver | null = null;
+
+    /**
+     * Rebuilds both cost-zone observers from the current viewport height.
+     *
+     * The mount lifecycle calls this initially and after each window resize.
+     * Existing observers are disconnected before their replacements attach.
+     */
+    function observeCurrentZones(): void {
+      if (enterObserver !== null) {
+        enterObserver.disconnect();
+      }
+      if (exitObserver !== null) {
+        exitObserver.disconnect();
+      }
+      const zone = richZone(rowCount);
+      enterObserver = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (entry === undefined) {
+            throw new Error("Rich-zone observer omitted its FileCard entry.");
+          }
+          if (entry.isIntersecting) {
+            changeRenderMode("rich");
+          }
+        },
+        {
+          rootMargin: `${zone.enterViewports * window.innerHeight}px 0px`,
+        },
+      );
+      exitObserver = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (entry === undefined) {
+            throw new Error(
+              "Virtual-zone observer omitted its FileCard entry.",
+            );
+          }
+          if (!entry.isIntersecting) {
+            changeRenderMode("virtual");
+          }
+        },
+        {
+          rootMargin: `${zone.exitViewports * window.innerHeight}px 0px`,
+        },
+      );
+      enterObserver.observe(card);
+      exitObserver.observe(card);
+    }
+
+    observeCurrentZones();
+    window.addEventListener("resize", observeCurrentZones);
+    onCleanup(() => {
+      if (enterObserver !== null) {
+        enterObserver.disconnect();
+      }
+      if (exitObserver !== null) {
+        exitObserver.disconnect();
+      }
+      window.removeEventListener("resize", observeCurrentZones);
+      delete card.dataset.fileRender;
+    });
+  });
+
   return (
     <>
       <FullFileHeader
         state={props.state}
         expanded={props.expanded}
+        virtualized={props.expanded && renderMode() === "virtual"}
         onExpandedChange={props.onExpandedChange}
       />
       <Show when={props.expanded && props.admitted}>
-        <div class="file-card-body" data-file-body>
-          <FileBody
-            fileIndex={props.state.fileIndex}
-            file={props.state.file}
-            engine={props.engine}
-            view={props.view}
-            aggressiveFolds={props.aggressiveFolds}
-          />
-        </div>
+        <Show
+          when={textFile}
+          keyed
+          fallback={
+            <div class="file-card-body rich-file-body" data-file-body>
+              <FileBody
+                fileIndex={props.state.fileIndex}
+                file={props.state.file}
+                engine={props.engine}
+                view={props.view}
+                aggressiveFolds={props.aggressiveFolds}
+              />
+            </div>
+          }
+        >
+          {(file) => (
+            <Show
+              when={renderMode() === "rich"}
+              fallback={
+                <VirtualFile
+                  file={file}
+                  reservedRichHeight={reservedRichHeight()}
+                />
+              }
+            >
+              <div class="file-card-body rich-file-body" data-file-body>
+                <FileBody
+                  fileIndex={props.state.fileIndex}
+                  file={file}
+                  engine={props.engine}
+                  view={props.view}
+                  aggressiveFolds={props.aggressiveFolds}
+                />
+              </div>
+            </Show>
+          )}
+        </Show>
       </Show>
     </>
+  );
+}
+
+/**
+ * Renders complete undecorated old/new text for one distant hydrated text file.
+ *
+ * The representation is always split and contains only two aligned text nodes
+ * beneath the stable FullFileHeader. It owns no hunk targets, selection,
+ * navigation, syntax spans, inline tokens, rich rows, or row virtualization.
+ */
+function VirtualFile(props: {
+  file: TextFileDiff;
+  reservedRichHeight: number | null;
+}): JSX.Element {
+  /**
+   * Projects one complete backend side into aligned searchable plain text.
+   *
+   * Callers choose the required old or new field. Missing text is an intentional
+   * blank row, so both returned sides preserve identical backend row positions.
+   */
+  function sideText(side: "left_text" | "right_text"): string {
+    return props.file.rows.map((row) => row[side] ?? "").join("\n");
+  }
+
+  return (
+    <div
+      class="file-card-body virtual-file-body"
+      data-file-body
+      style={{
+        height:
+          props.reservedRichHeight === null
+            ? undefined
+            : `${props.reservedRichHeight}px`,
+      }}
+    >
+      <div class="plain-split-diff" aria-label="Virtualized plain split diff">
+        <pre>{sideText("left_text")}</pre>
+        <pre>{sideText("right_text")}</pre>
+      </div>
+    </div>
   );
 }
 
@@ -262,6 +536,7 @@ function FullFile(props: {
 function FullFileHeader(props: {
   state: FullFileState;
   expanded: boolean;
+  virtualized: boolean;
   onExpandedChange: (expanded: boolean) => void;
 }): JSX.Element {
   return (
@@ -272,7 +547,10 @@ function FullFileHeader(props: {
       onClick={() => props.onExpandedChange(!props.expanded)}
     >
       <span class="file-card-heading">
-        <VisibilityIndicator visible={props.expanded} />
+        <VisibilityIndicator
+          visible={props.expanded && !props.virtualized}
+          virtualized={props.virtualized}
+        />
         <span class="file-card-title-row">
           <h2>{props.state.file.display_name}</h2>
           <span class="file-card-status">
@@ -387,7 +665,7 @@ function LazyFileHeader(props: {
       onClick={() => props.onExpandedChange(!props.expanded)}
     >
       <span class="file-card-heading">
-        <VisibilityIndicator visible={props.expanded} />
+        <VisibilityIndicator visible={props.expanded} virtualized={false} />
         <span class="file-card-title-row">
           <h2>
             {props.state.file.kind === "deferred"
@@ -571,15 +849,24 @@ function LazyStatistics(props: { info: LazyInfoFile }): JSX.Element {
 /**
  * Renders the established card expansion indicator for one file header.
  *
- * The indicator reflects only ChangeSet-owned expansion. File representation
- * changes must preserve that selected expansion and cannot alter its meaning.
+ * The indicator reflects ChangeSet-owned expansion and FileCard-local mode.
+ * Virtual text uses the established V marker without exporting render mode;
+ * ordinary rich and lazy content retain the existing expansion presentation.
  */
-function VisibilityIndicator(props: { visible: boolean }): JSX.Element {
+function VisibilityIndicator(props: {
+  visible: boolean;
+  virtualized: boolean;
+}): JSX.Element {
   return (
     <span
       class="visibility-indicator large"
-      classList={{ visible: props.visible }}
+      classList={{
+        visible: props.visible,
+        virtualized: props.virtualized,
+      }}
       aria-hidden="true"
-    />
+    >
+      {props.virtualized ? "V" : ""}
+    </span>
   );
 }

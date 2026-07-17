@@ -20,13 +20,13 @@ Implemented in this order:
 
    FileTree, ChangeSetTitle, HuskFile, FullFile, LazyFile, their separate headers, FileBody, DiffGrid, folds, notebooks, Portals, and localized boundaries. Every manifest entry appears immediately as a FileTree entry and stable FileCard; an ordinary queued or fetching entry uses its HuskFile presentation until its canonical file query succeeds.
 
-   This immediate Husk/FileTree loading presentation is the final Chapter 4 design. It remains authoritative unless a later explicit review decides to replace it. Chapter 5 provides the first useful opportunity for that review because Husk pseudo-hunks, selected-hunk repair, counters and navigation transitions work together there; Chapter 4 does not attempt to judge interactions that do not exist yet.
+   This immediate Husk/FileTree loading presentation is the final Chapter 4 design. It remains authoritative unless a later explicit review decides to replace it. Chapter 6 provides the first useful opportunity for that review because provisional hunk tokens, counters and navigation transitions work together there; Chapter 4 does not attempt to judge interactions that do not exist yet.
 
 3. Rich-only rendering
 
    Every loaded text file remains rich temporarily. There is no temporary virtualization mechanism.
 
-Explicitly absent until Chapter 5:
+Explicitly absent until Chapter 6:
 
 - `NavigationProvider`;
 - selected hunk;
@@ -39,8 +39,9 @@ Explicitly absent until Chapter 5:
 - navigation hotkeys;
 - HintHud;
 - DebugHud hunk projection;
-- whole-file virtualization.
+
+Whole-file virtualization remains absent until Chapter 5.
 
 At the end of Chapter 4, `v_new` can load and display real ChangeSets through every Tab, but it cannot navigate hunks yet.
 
-Chapter 5 can then implement navigation, selection, virtualization, HintHud, DebugHud, HelpModal, and direct hotkeys as one interconnected subsystem.
+Chapter 5 can implement whole-file virtualization as a separate FileCard-local subsystem. Chapter 6 can then implement navigation, selection, HintHud, DebugHud, HelpModal and direct hotkeys without making virtualization depend on hunk state.

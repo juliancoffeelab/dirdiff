@@ -2,7 +2,7 @@
 
 This file governs implementation of every practical chapter in this directory. The topic files under `../spec/` define frontend behavior and architecture; the chapter files define implementation order. The two `full.md` files are frozen original references rather than maintained authorities.
 
-Items in [followups.md](followups.md) are explicit post-rewrite work, not deferred implementation inside a practical chapter. Do not pull a TODO or FIXME from that file into Chapters 1–6 without a separate user decision.
+Items in [followups.md](followups.md) are explicit post-rewrite work, not deferred implementation inside a practical chapter. Do not pull a TODO or FIXME from that file into Chapters 1–7 without a separate user decision.
 
 `AGENTS.md` continues to apply except where this guidance explicitly narrows a rule for the specification-driven frontend rewrite.
 
