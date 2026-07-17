@@ -40,7 +40,7 @@ Explicitly absent until Chapter 7:
 - scroll-follow;
 - navigation-specific hotkeys;
 - HintHud;
-- DebugHud hunk projection;
+- DebugHud hunk calculation and display;
 
 Whole-file virtualization remains absent until Chapter 5.
 

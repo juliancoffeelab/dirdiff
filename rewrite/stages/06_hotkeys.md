@@ -46,7 +46,7 @@ Explicitly absent until Chapter 7:
 - `n` and `N` bindings;
 - DebugHud and the `d` binding;
 - HintHud;
-- FileTree selected-hunk projection;
+- FileTree selected-hunk calculation and display;
 - scroll-follow and `waitToEnrich` routing;
 - line-pin restoration;
 - navigation-specific browser listeners or observers.

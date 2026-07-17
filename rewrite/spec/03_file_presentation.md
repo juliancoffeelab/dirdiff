@@ -109,7 +109,7 @@ The exact counter authority and navigation behavior remain deferred.
 
 ### 25.5 FileTree
 
-FileTree receives its tree projection from ChangeSet. It owns no backend data and starts no queries.
+FileTree receives its tree data from ChangeSet. It owns no backend data and starts no queries.
 
 It may derive progressively available row or directory statistics from file states supplied by ChangeSet, but those values are presentation only and never become another aggregate authority.
 

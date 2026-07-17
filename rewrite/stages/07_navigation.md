@@ -1,51 +1,40 @@
-## 7. Navigation and completion
+## 7. Explicit hunk navigation
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
-Everything in this chapter must be implemented according to `../spec/04_navigation_virtualization.md`, `../spec/06_components_and_modules.md`, and `../spec/07_navigation_and_hotkeys.md`. This chapter defines implementation order; it does not redefine navigation behavior.
+Everything in this chapter must be implemented according to `../spec/08_hunk_navigation.md`, the whole-file virtualization contract in `../spec/04_navigation_virtualization.md`, the module boundaries in `../spec/06_components_and_modules.md`, and the existing hotkey/HUD composition in `../spec/07_navigation_and_hotkeys.md`.
 
-Before implementation begins, the topic specification must contain the explicitly approved DOM hunk-token, folding, provisional-token transition and line-pin designs. If older repair or reconciliation requirements conflict with that approved direction, stop and present the exact contradiction rather than implementing an inferred compromise.
+Every implemented visible result must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. Chapter 5 virtualization remains FileCard-local and hunk-blind. Chapter 6's one hotkey listener and HelpModal remain intact.
 
-Every visible navigation, selection and HUD result must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. The virtualization mechanism completed in Chapter 5 remains FileCard-local and hunk-blind. The direct hotkey listener and HelpModal completed in Chapter 6 remain intact.
+Implement in this order:
 
-Implemented in this order:
+1. Render concrete real, Husk, Lazy, zero, and skip identity objects directly into their specified DOM attributes.
 
-1. DOM hunk tokens and selection
+2. Add one coordinate-preserving `skip` pseudo for every real hunk removed by explicit FullFile collapse. Apply `.skip` directly for explicitly collapsed Husk, Lazy, and zero targets. A queued or loading Husk remains a participating pseudo-target.
 
-   Implement the approved stable DOM token model for real, provisional and skipped positions. Selection, participation, ordering and folding behavior come from those DOM tokens rather than duplicated Solid navigation state or generic structural observation.
+3. Store selected identity only on FileCard DOM. Initialize every non-empty ChangeSet by selecting its first participating target exactly once.
 
-2. Navigation controller
+4. Implement the ChangeSet-scoped NavigationProvider, checked `useNavigation()`, NavigationCommand, and one private target-based `selectHunk()`.
 
-   Implement `navigation.tsx`, NavigationProvider, useNavigation, NavigationCommand, Next, Previous, wrapping, direct-hunk navigation and Top against current DOM token order.
+5. Implement Next and Previous with off-screen scroll-back, wrapping, strict DOM participation, and `waitToEnrich()`. Re-resolve the rich target before final selection and scrolling.
 
-3. File integration
+6. Enable the existing HintHud Next/Previous buttons and the existing `n`/`N` bindings. Route `p` through Navigation's Top operation without mounting another hotkey listener.
 
-   Connect HuskFile, LazyFile, FullFile, FileTree, headers, counters and the Chapter 5 rich/virtual representations to the approved token model. Integrating tokens must not make virtualization depend on selected-hunk state.
+7. Render HintHud and DebugHud exactly as specified and preserve their adjacent source and rendered placement.
 
-4. Scrolling
+8. Implement DOM-derived counters and the narrow ChangeSet MutationObserver. Counts exclude `.skip`; zero is exact; only Husk and Lazy add `+`.
 
-   Implement the scroll-source gate, throttled scroll-follow, navigation scrolling and enrichment required for exact rich geometry.
+9. Implement read-only FileTree highlighting from selected FileCard DOM. FileTree rows remain non-navigating in this chapter.
 
-5. Line pins
+Explicitly absent from Chapter 7:
 
-   Implement line pins only from their separately approved design. Do not treat pin restoration as a generic consequence of hunk-token, folding or virtualization actions.
+- user-scroll following;
+- FileTree file-row navigation;
+- line pins;
+- notebook region-key extensions;
+- selection changes outside initialization and explicit navigation actions;
+- any additional selected-hunk state outside FileCard DOM.
 
-6. HUD and navigation hotkeys
-
-   Implement adjacent HintHud and DebugHud with their required placement and remove Show All/Fold All behavior. Extend the one Chapter 6 hotkey listener with `n`, `N` and `d`; do not mount a second listener. Route the existing `p` binding through Navigation's Top operation. HelpModal and the existing `h`, `t`, `i` and `r` bindings remain owned exactly as established in Chapter 6.
-
-7. Remaining DOM behavior
-
-   Preserve browser text-side selection and keep notebook navigation extensible without implementing the post-rewrite region-key TODO.
-
-8. Final integration
-
-   Connect the complete navigation subsystem to the finished application without changing the Chapter 5 virtualization heuristic, ownership or layout contract.
-
-9. Wrapped-Previous virtualization stress test
-
-   After navigation integration, execute every setup step, interaction and observation required by Section 47 of `../spec/04_navigation_virtualization.md`. This includes wrapping Previous from the first available hunk to the final manifest target while files still load, walking backward through HuskFile, LazyFile, VirtualFile and rich FullFile targets, exercising both explicit Previous commands and ordinary backward scrolling, and comparing the intrinsic-size optimization enabled and disabled. Use the required elaborate preset derived from real diffs; do not replace the scenario with a smaller synthetic approximation.
-
-At the end of Chapter 7, `v_new` is a complete working frontend with the approved DOM hunk-token model, hunk selection, counters, Next/Previous navigation, wrapping, FileTree projection, folding participation, line pins, whole-file virtualization, HintHud, DebugHud, HelpModal and the complete direct hotkey set.
+At the end of Chapter 7, HintHud, DebugHud, Next, Previous, wrapping, off-screen return, Top, counters, selected FileTree highlighting, collapse participation, and rich materialization work without scroll-follow or FileTree click navigation.
 
 `v_old` remains available until final cutover is explicitly authorized.

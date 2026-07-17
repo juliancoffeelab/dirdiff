@@ -1,6 +1,6 @@
 # Explicit follow-ups after the frontend rewrite
 
-This file records work deliberately kept outside practical rewrite Chapters 1–7. These items are not hidden implementation tasks and must not be pulled into a frontend stage merely because that stage exposes the existing backend behavior. Each follow-up requires a separate user decision before implementation, especially where the current integration tests assert the existing contract.
+This file records work deliberately kept outside practical rewrite Chapters 1–9. These items are not hidden implementation tasks and must not be pulled into a frontend stage merely because that stage exposes the existing backend behavior. Each follow-up requires a separate user decision before implementation, especially where the current integration tests assert the existing contract.
 
 ## TODO — repository manifest cache lifetime
 

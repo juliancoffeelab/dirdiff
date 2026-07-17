@@ -333,7 +333,7 @@ It owns:
 - rich/virtual transitions;
 - geometry preservation;
 - local fold responsibility;
-- `projectSelectedHunk`;
+- direct rendering of the approved real and pseudo hunk identity attributes once Chapter 7 integrates hunk navigation;
 - responding to `waitToEnrich` calls;
 - rendering DiffGrid or NotebookFile;
 - FileCard-level error containment.
@@ -361,15 +361,15 @@ It owns:
 - the ChangeSet root reference;
 - DOM hunk traversal;
 - `selectHunk`;
-- `clearHunkSelection`;
 - Next/Previous;
 - direct-hunk and return-to-top navigation;
 - the non-reactive `idle | user | navigation` scroll-source gate;
 - throttled scroll-follow;
-- navigation listener and animation-frame lifecycle;
-- isolated line-pin parsing, highlighting, retry and restoration.
+- navigation listener and animation-frame lifecycle.
 
-The controller stores only ephemeral coordination state: root, scroll source, scheduled frame, listeners, and line-pin retry/stabilization bookkeeping. Selected hunk identity, target order, counters and FileTree highlighting remain in or are derived from DOM. Line-pin identity remains in the URL. Rich/virtual state and `waitToEnrich` remain FileCard-owned.
+The controller stores only ephemeral browser-work state: root, scroll source, scheduled frame, and listeners. Selected hunk identity, target order, counters and FileTree highlighting remain in or are calculated from DOM. Rich/virtual state and `waitToEnrich` remain FileCard-owned.
+
+Line pins are a separate system with a separate design and implementation stage. `navigation.tsx` does not own line-pin parsing, identity, highlighting, retries, timers, restoration, or cleanup. The future line-pin module destination remains undecided until that design is explicitly approved.
 
 The Context exposes Navigation operations but no controller state. There is no copied global hunk index, selected-hunk signal, selected-file state, generic setter or backend data.
 
@@ -379,13 +379,13 @@ The Context exposes Navigation operations but no controller state. There is no c
 type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
-  | { kind: "hunk"; hunk: HunkIdentity }
+  | { kind: "hunk"; target: HTMLElement }
   | { kind: "top" };
 ```
 
 Navigation does not own hotkeys, Help, Debug, tree visibility, view changes, reload, file expansion or backend work. Hotkeys merely call `navigation.navigate(...)` for `n`, `N` and `p`.
 
-Provider cleanup cancels every navigation-owned listener, frame, timer, retry and observer. A disposed controller performs no later DOM mutation or scrolling.
+Provider cleanup removes every navigation-owned listener and scheduled frame. A disposed controller performs no later DOM mutation or scrolling.
 
 #### `hud/DiffGrid.tsx` and `hud/folds.ts`
 
@@ -423,7 +423,7 @@ No file-tree helpers, hunk helpers, API helpers, or diff helpers belong here.
 | `RepoPicker.tsx` | `RepoSelect` in `hud/AppHeader.tsx` and `RepoGate` in `hud/Tabs.tsx` |
 | `fileUtils.ts` | functions colocated with their actual owners |
 | `hunkNavigation.ts` | `hud/navigation.tsx` |
-| `linePins.ts` | `hud/navigation.tsx` |
+| `linePins.ts` | separate line-pin design; destination not yet approved |
 | `storage.ts` | private profile/workspace persistence |
 | `queryClient.ts` at root | `api/queryClient.tsx` |
 | entire `app/` directory | removed |
