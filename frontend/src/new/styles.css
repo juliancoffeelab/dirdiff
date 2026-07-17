@@ -2696,6 +2696,16 @@ h1 {
   font-weight: 600;
 }
 
+.help-hud-row.is-disabled {
+  border-color: #e5e0d7;
+  background: #f4f1ea;
+}
+
+.help-hud-row.is-disabled kbd,
+.help-hud-row.is-disabled span {
+  color: #9b968c;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     --app-gutter: 12px;

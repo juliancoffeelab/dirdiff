@@ -36,6 +36,8 @@ Implemented in this order:
 
    Add independent ChangeSet-owned Help visibility and the private `HelpModal` in `ChangeSet.tsx`. HelpModal remains an overlay under `hud/`; it is not a HUD-stack component and this chapter does not introduce HintHud merely to open it.
 
+   Preserve the final Help row order. The removed `s` and `f` rows do not exist. The `n`, `N` and `d` rows remain visible but are disabled and gray until Chapter 7 implements those bindings. The working `p`, `t`, `i`, `r` and `h` rows retain their ordinary presentation.
+
 Explicitly absent until Chapter 7:
 
 - `navigation.tsx`, NavigationProvider and useNavigation;

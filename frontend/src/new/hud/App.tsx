@@ -600,6 +600,10 @@ function Workspace(props: WorkspaceProps): JSX.Element {
           onPresetSelected={selectPreset}
           onPullRequestSelected={selectPreparedPullRequest}
           onPullRequestPrepared={applyPreparedPullRequest}
+          onToggleView={() => {
+            // The workspace owner changes both reactive view and canonical URL.
+            selectView(workspace.view === "inline" ? "split" : "inline");
+          }}
         />
       </section>
     </main>

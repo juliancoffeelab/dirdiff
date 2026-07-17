@@ -892,6 +892,8 @@ async function throwResponseError(response: Response): Promise<never> {
     const parsedDetail = HttpExceptionResponseSchema.safeParse(payload);
     if (parsedDetail.success) {
       throw new RequestError(
+        // TODO: Have the backend return a stable machine-readable cache-expiration
+        // code and classify that code here instead of parsing human-readable detail.
         parsedDetail.data.detail.startsWith("Unknown cache id: ")
           ? "repository-cache-expired"
           : "other",

@@ -1,12 +1,13 @@
 /**
  * Owns one selected ChangeSet's backend observers, file lane, and presentation.
  *
- * The module exports ChangeSet. Its lightweight outer lifetime owns FileTree and
- * file-expansion state; its active inner lifetime owns the manifest, lazy-info,
- * ordered file observers, strict sequential file-fetch lane, compact AppHeader
- * Portals, ChangeSet title, FileTree, and FileCards. It must not copy backend
- * results into Solid state, start concurrent file-diff requests, own workspace or
- * Tab selections, or implement navigation and virtualization in this boundary.
+ * The module exports ChangeSet. Its lightweight outer lifetime owns FileTree,
+ * file-expansion, and local Help state; its active inner lifetime owns manifest,
+ * ordered file observers, strict sequential file-fetch lane, direct hotkeys,
+ * Help overlay, compact AppHeader Portals, ChangeSet title, FileTree, and
+ * FileCards. It must not copy backend results into Solid state, start concurrent
+ * file-diff requests, own workspace or Tab selections, or implement hunk
+ * navigation and virtualization in this boundary.
  */
 import {
   For,
@@ -15,6 +16,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  onMount,
   requestCallback,
   type JSX,
 } from "solid-js";
@@ -69,7 +71,8 @@ function schedulerYield(): Promise<void> {
  *
  * `params` is a selected complete DiffParams value, `view` is the global reactive
  * renderer input, `profile` is genuine nullable profile identity, and `active`
- * controls expensive observation. No field may represent live control input.
+ * controls expensive observation. The view callback reports a direct workspace
+ * action. No field may represent live control input.
  */
 type ChangeSetProps = {
   active: boolean;
@@ -77,6 +80,7 @@ type ChangeSetProps = {
   view: DiffViewMode;
   profile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
+  onToggleView: () => void;
 };
 
 /**
@@ -144,10 +148,11 @@ type TreeLineStats = {
  *
  * Callers keep this boundary mounted across Tab switches and global view/engine
  * changes. Only active content observes queries and renders expensive file DOM;
- * the outer expansion store survives inactive periods and is destroyed with the
- * selected Tab value or workspace reset.
+ * outer layout and local HUD state survive inactive periods and are destroyed
+ * with the selected Tab value or workspace reset.
  */
 export function ChangeSet(props: ChangeSetProps): JSX.Element {
+  const [helpOpen, setHelpOpen] = createSignal(false);
   const [state, setState] = createStore<ChangeSetState>({
     treeOpen: false,
     directoryExpansion: {},
@@ -223,6 +228,9 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
             view={props.view}
             profile={props.profile}
             appHeaderOutlets={props.appHeaderOutlets}
+            onToggleView={props.onToggleView}
+            helpOpen={helpOpen()}
+            onHelpOpenChange={setHelpOpen}
             state={state}
             setState={setState}
           />
@@ -236,13 +244,17 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
  * Defines the complete active-owner inputs for one ChangeSet content lifetime.
  *
  * The outer component supplies durable client state; this inner lifetime owns all
- * query observers and external async work and is disposed whenever the Tab hides.
+ * query observers, direct hotkeys, Help presentation and external async work and
+ * is disposed whenever the Tab hides. The outer owner supplies durable Help state.
  */
 type ChangeSetContentProps = {
   params: DiffParams;
   view: DiffViewMode;
   profile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
+  onToggleView: () => void;
+  helpOpen: boolean;
+  onHelpOpenChange: (open: boolean) => void;
   state: ChangeSetState;
   setState: SetStoreFunction<ChangeSetState>;
 };
@@ -307,6 +319,26 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 
   return (
     <>
+      <Hotkeys
+        onTop={() => {
+          // Top is a direct page operation and owns no selected DOM entity.
+          window.scrollTo({ top: 0, behavior: "instant" });
+        }}
+        onToggleTree={() => {
+          // FileTree visibility belongs to the lightweight outer ChangeSet store.
+          props.setState("treeOpen", (current) => !current);
+        }}
+        onToggleView={props.onToggleView}
+        onReload={() => {
+          // Reload replaces the complete snapshot and resets outer layout state.
+          void replaceSnapshot(true);
+        }}
+        onToggleHelp={() => {
+          // The persistent outer ChangeSet owns local HUD visibility.
+          props.onHelpOpenChange(!props.helpOpen);
+        }}
+      />
+      <HelpModal open={props.helpOpen} onOpenChange={props.onHelpOpenChange} />
       <Show when={manifest.isPending || replacingSnapshot()}>
         <p class="status change-set-title">Loading ChangeSet...</p>
       </Show>
@@ -345,14 +377,221 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 }
 
 /**
+ * Defines the direct operations available to the active ChangeSet hotkey listener.
+ *
+ * Every callback is required and belongs to its actual state owner. The contract
+ * contains no command value, navigation state, Debug operation, or grouped owner.
+ */
+type HotkeysProps = {
+  onTop: () => void;
+  onToggleTree: () => void;
+  onToggleView: () => void;
+  onReload: () => void;
+  onToggleHelp: () => void;
+};
+
+/**
+ * Installs the single direct keyboard listener for one active ChangeSet lifetime.
+ *
+ * Callers provide concrete operations. Editable controls and modified browser
+ * shortcuts retain native behavior; recognized keys prevent their default only
+ * before invoking the corresponding operation. Cleanup removes the listener.
+ */
+function Hotkeys(props: HotkeysProps): null {
+  onMount(() => {
+    /**
+     * Routes one unmodified non-editable key event to its concrete owner action.
+     *
+     * Unsupported keys remain untouched. Shift is deliberately not treated as a
+     * global modifier exclusion and therefore does not suppress recognized keys.
+     */
+    function onKeyDown(event: KeyboardEvent): void {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target;
+      // Let editable controls handle their own keystrokes instead of treating
+      // user input as a ChangeSet hotkey.
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement)
+      ) {
+        return;
+      }
+
+      if (event.code === "KeyP") {
+        event.preventDefault();
+        props.onTop();
+        return;
+      }
+      if (event.code === "KeyT") {
+        event.preventDefault();
+        props.onToggleTree();
+        return;
+      }
+      if (event.code === "KeyI") {
+        event.preventDefault();
+        props.onToggleView();
+        return;
+      }
+      if (event.code === "KeyR") {
+        event.preventDefault();
+        props.onReload();
+        return;
+      }
+      if (event.code === "KeyH") {
+        event.preventDefault();
+        props.onToggleHelp();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    onCleanup(() => document.removeEventListener("keydown", onKeyDown));
+  });
+
+  return null;
+}
+
+/**
+ * Renders the ChangeSet-owned hotkey reference as the established modal overlay.
+ *
+ * Callers provide explicit visibility and update ownership. Unavailable hunk and
+ * Debug operations remain visible but disabled; removed file-wide fold operations
+ * are absent. Backdrop and Close actions report `false` to the owner.
+ */
+function HelpModal(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}): JSX.Element {
+  return (
+    <Show when={props.open}>
+      <div
+        class="help-modal-backdrop"
+        onClick={() => props.onOpenChange(false)}
+      >
+        <section
+          class="help-modal"
+          aria-label="Hotkey help"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div class="help-modal-header">
+            <strong>Hotkeys</strong>
+            <button type="button" onClick={() => props.onOpenChange(false)}>
+              Close
+            </button>
+          </div>
+          <HotkeyHelpSection title="Navigation">
+            <HotkeyHelpRow
+              keys="n"
+              label="Go to the next hunk"
+              disabled={true}
+            />
+            <HotkeyHelpRow
+              keys="N"
+              label="Go to the previous hunk"
+              disabled={true}
+            />
+            <HotkeyHelpRow keys="p" label="Go to the top" disabled={false} />
+          </HotkeyHelpSection>
+          <HotkeyHelpSection title="UI">
+            <HotkeyHelpRow
+              keys="t"
+              label="Toggle the file tree"
+              disabled={false}
+            />
+            <HotkeyHelpRow
+              keys="i"
+              label="Toggle inline diff view"
+              disabled={false}
+            />
+          </HotkeyHelpSection>
+          <HotkeyHelpSection title="Misc">
+            <HotkeyHelpRow
+              keys="r"
+              label="Reload the current diff"
+              disabled={false}
+            />
+            <HotkeyHelpRow
+              keys="d"
+              label="Toggle developer metrics"
+              disabled={true}
+            />
+            <HotkeyHelpRow
+              keys="h"
+              label="Toggle this help panel"
+              disabled={false}
+            />
+          </HotkeyHelpSection>
+        </section>
+      </div>
+    </Show>
+  );
+}
+
+/**
+ * Groups one titled set of Help rows using the established modal geometry.
+ *
+ * Callers provide visible row content only. The component owns no hotkey state,
+ * enablement policy, or interaction and preserves child order exactly.
+ */
+function HotkeyHelpSection(props: {
+  title: string;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <section class="help-modal-section">
+      <h2>{props.title}</h2>
+      <div class="help-modal-grid">{props.children}</div>
+    </section>
+  );
+}
+
+/**
+ * Presents one hotkey and label with explicit availability.
+ *
+ * Disabled rows remain visible, gray, and semantically disabled. The row is
+ * descriptive rather than interactive and never invokes the represented action.
+ */
+function HotkeyHelpRow(props: {
+  keys: string;
+  label: string;
+  disabled: boolean;
+}): JSX.Element {
+  return (
+    <div
+      class="help-hud-row"
+      classList={{ "is-disabled": props.disabled }}
+      aria-disabled={props.disabled}
+    >
+      <kbd>{props.keys}</kbd>
+      <span>{props.label}</span>
+    </div>
+  );
+}
+
+/**
  * Defines every immutable backend input and reactive presentation input for one snapshot.
  *
  * Params and manifest never change during this component lifetime. View, profile,
  * and durable outer layout state remain reactive without retargeting backend work.
  * The callbacks expose only the two lifecycle actions owned by ChangeSetContent.
  */
-type ChangeSetSnapshotProps = ChangeSetContentProps & {
+type ChangeSetSnapshotProps = {
+  params: DiffParams;
   manifest: Manifest;
+  view: DiffViewMode;
+  profile: StoredProfile | null;
+  appHeaderOutlets: AppHeaderOutlets;
+  state: ChangeSetState;
+  setState: SetStoreFunction<ChangeSetState>;
   onRepositoryCacheExpiration(): void;
   onFileSequenceChange(stop: (() => Promise<void>) | null): void;
 };

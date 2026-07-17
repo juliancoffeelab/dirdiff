@@ -152,6 +152,7 @@ type TabsProps = {
     review: BranchSelection,
   ) => void;
   onPullRequestPrepared: (prepared: PreparedPullRequest) => void;
+  onToggleView: () => void;
 };
 
 /**
@@ -170,6 +171,7 @@ type TabProps = {
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
   onRepoSelected: (projectId: ProjectId) => void;
+  onToggleView: () => void;
 };
 
 /**
@@ -186,6 +188,7 @@ type RepoTabProps = {
   selectedProfile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
+  onToggleView: () => void;
 };
 
 /**
@@ -278,6 +281,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onHeadSelected}
+            onToggleView={props.onToggleView}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -293,6 +297,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onRefsSelected}
+            onToggleView={props.onToggleView}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -308,6 +313,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onBranchReviewSelected}
+            onToggleView={props.onToggleView}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -324,6 +330,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onPullRequestSelected}
             onPrepared={props.onPullRequestPrepared}
+            onToggleView={props.onToggleView}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -339,6 +346,7 @@ export function Tabs(props: TabsProps): JSX.Element {
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onPresetSelected}
+            onToggleView={props.onToggleView}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -460,6 +468,7 @@ function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
                 view={props.view}
                 profile={props.selectedProfile}
                 appHeaderOutlets={props.appHeaderOutlets}
+                onToggleView={props.onToggleView}
               />
             )}
           </Show>
@@ -500,6 +509,7 @@ function RefsTab(
           appHeaderOutlets={props.appHeaderOutlets}
           metadataTarget={props.metadataTarget}
           onSelected={props.onSelected}
+          onToggleView={props.onToggleView}
         />
       )}
     </Show>
@@ -736,6 +746,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
             view={props.view}
             profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
+            onToggleView={props.onToggleView}
           />
         )}
       </Show>
@@ -808,6 +819,7 @@ function BranchReviewTab(
           appHeaderOutlets={props.appHeaderOutlets}
           metadataTarget={props.metadataTarget}
           onSelected={props.onSelected}
+          onToggleView={props.onToggleView}
         />
       )}
     </Show>
@@ -1211,6 +1223,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
             view={props.view}
             profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
+            onToggleView={props.onToggleView}
           />
         )}
       </Show>
@@ -1483,6 +1496,7 @@ function PullRequestTab(
                 view={props.view}
                 profile={props.selectedProfile}
                 appHeaderOutlets={props.appHeaderOutlets}
+                onToggleView={props.onToggleView}
               />
             )}
           </Show>
@@ -1697,6 +1711,7 @@ function PresetTab(
             view={props.view}
             profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
+            onToggleView={props.onToggleView}
           />
         )}
       </Show>

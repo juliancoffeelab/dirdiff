@@ -10,6 +10,10 @@ The frontend handles this disposable backend lifetime through the complete Chang
 
 A separate follow-up may still reconsider process-lifetime retention, bounded retention, request-identity retention, or an explicit lease/release contract. The current integration test requires older repository cache IDs to fail, so changing the backend policy also requires explicit approval to change that tested behavior.
 
+## TODO — structured repository cache expiration
+
+The HTTP transport currently recognizes repository cache expiration by matching the human-readable `detail` prefix `"Unknown cache id: "`. The backend should return a stable machine-readable cache-expiration code, and `api.ts` should classify that code instead. Display text must not determine ChangeSet lifecycle behavior; the existing complete-snapshot restart remains unchanged.
+
 ## TODO — synthetic file admission
 
 Re-evaluate whether correct snapshot disposal and sequential network-backed file loading make `schedulerYield`, `admittedFiles`, and the `admitted` FileCard contract unnecessary. Do not remove them during the current lifecycle correction.
