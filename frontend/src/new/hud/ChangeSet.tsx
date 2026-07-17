@@ -211,23 +211,24 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   const lazyInfoQueries = createQueries<
     Array<ReturnType<typeof api.changeSet.lazyInfo>>
   >(() => {
-    const data = manifest.data;
-    if (data === undefined || !manifestContainsLazyFiles(data.tree)) {
+    if (
+      manifest.data === undefined ||
+      !manifestContainsLazyFiles(manifest.data.tree)
+    ) {
       return { queries: [] };
     }
     return {
-      queries: [api.changeSet.lazyInfo(props.params, data.cache_id)],
+      queries: [api.changeSet.lazyInfo(props.params, manifest.data.cache_id)],
     };
   });
 
   const fileQueries = createQueries(() => {
-    const data = manifest.data;
-    if (data === undefined) {
+    if (manifest.data === undefined) {
       return { queries: [] };
     }
     return {
       queries: orderedFiles().map((file) => ({
-        ...api.changeSet.file(props.params, data.cache_id, file.entry),
+        ...api.changeSet.file(props.params, manifest.data.cache_id, file.entry),
         enabled: false,
       })),
     };
@@ -417,9 +418,8 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
    * Solid so the owning ErrorBoundary can contain and Toast them.
    */
   createEffect(() => {
-    const data = manifest.data;
     const dataUpdatedAt = manifest.dataUpdatedAt;
-    if (data === undefined) {
+    if (manifest.data === undefined) {
       enqueueSelectedFile = null;
       stopFileSequence = null;
       setProcessed(0);
@@ -429,7 +429,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     if (dataUpdatedAt <= 0) {
       throw new Error("A loaded manifest requires a positive update time.");
     }
-    const snapshot = data;
+    const snapshot = manifest.data;
     const params = props.params;
     const files = manifestFilesInOrder(snapshot.tree);
     const selectedQueue: number[] = [];
