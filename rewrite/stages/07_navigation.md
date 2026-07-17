@@ -1,4 +1,4 @@
-## 6. Navigation and completion
+## 7. Navigation and completion
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
@@ -6,7 +6,7 @@ Everything in this chapter must be implemented according to `../spec/04_navigati
 
 Before implementation begins, the topic specification must contain the explicitly approved DOM hunk-token, folding, provisional-token transition and line-pin designs. If older repair or reconciliation requirements conflict with that approved direction, stop and present the exact contradiction rather than implementing an inferred compromise.
 
-Every visible navigation, selection, HUD and hotkey result must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. The virtualization mechanism completed in Chapter 5 remains FileCard-local and hunk-blind.
+Every visible navigation, selection and HUD result must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. The virtualization mechanism completed in Chapter 5 remains FileCard-local and hunk-blind. The direct hotkey listener and HelpModal completed in Chapter 6 remain intact.
 
 Implemented in this order:
 
@@ -30,9 +30,9 @@ Implemented in this order:
 
    Implement line pins only from their separately approved design. Do not treat pin restoration as a generic consequence of hunk-token, folding or virtualization actions.
 
-6. HUD and hotkeys
+6. HUD and navigation hotkeys
 
-   Implement HintHud, DebugHud, HelpModal, their required placement, direct hotkeys and removal of Show All/Fold All behavior.
+   Implement adjacent HintHud and DebugHud with their required placement and remove Show All/Fold All behavior. Extend the one Chapter 6 hotkey listener with `n`, `N` and `d`; do not mount a second listener. Route the existing `p` binding through Navigation's Top operation. HelpModal and the existing `h`, `t`, `i` and `r` bindings remain owned exactly as established in Chapter 6.
 
 7. Remaining DOM behavior
 
@@ -46,6 +46,6 @@ Implemented in this order:
 
    After navigation integration, execute every setup step, interaction and observation required by Section 47 of `../spec/04_navigation_virtualization.md`. This includes wrapping Previous from the first available hunk to the final manifest target while files still load, walking backward through HuskFile, LazyFile, VirtualFile and rich FullFile targets, exercising both explicit Previous commands and ordinary backward scrolling, and comparing the intrinsic-size optimization enabled and disabled. Use the required elaborate preset derived from real diffs; do not replace the scenario with a smaller synthetic approximation.
 
-At the end of Chapter 6, `v_new` is a complete working frontend with the approved DOM hunk-token model, hunk selection, counters, Next/Previous navigation, wrapping, FileTree projection, folding participation, line pins, whole-file virtualization, HintHud, DebugHud, HelpModal and direct hotkeys.
+At the end of Chapter 7, `v_new` is a complete working frontend with the approved DOM hunk-token model, hunk selection, counters, Next/Previous navigation, wrapping, FileTree projection, folding participation, line pins, whole-file virtualization, HintHud, DebugHud, HelpModal and the complete direct hotkey set.
 
 `v_old` remains available until final cutover is explicitly authorized.

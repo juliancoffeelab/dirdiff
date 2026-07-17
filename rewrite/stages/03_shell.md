@@ -45,7 +45,7 @@ Explicitly absent until Chapter 4:
 - FileBody, DiffGrid, folds and notebooks;
 - ChangeSet Portals and localized file boundaries.
 
-Virtualization remains absent until Chapter 5. Navigation and hunk selection remain absent until Chapter 6.
+Virtualization remains absent until Chapter 5. Direct non-hunk hotkeys and Help remain absent until Chapter 6; navigation and hunk selection remain absent until Chapter 7.
 
 At the end of Chapter 3, `v_new` has its complete application shell, metadata behavior, Tabs and controls. Every Tab owns an empty ChangeSet boundary, but no ChangeSet data is loaded or displayed.
 

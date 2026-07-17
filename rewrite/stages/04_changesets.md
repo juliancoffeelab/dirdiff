@@ -22,13 +22,13 @@ Implemented in this order:
 
    FileTree, ChangeSetTitle, HuskFile, FullFile, LazyFile, their separate headers, FileBody, DiffGrid, folds, notebooks, Portals, and localized boundaries. Every manifest entry appears immediately as a FileTree entry and stable FileCard; an ordinary queued or fetching entry uses its HuskFile presentation until its canonical file query succeeds.
 
-   This immediate Husk/FileTree loading presentation is the final Chapter 4 design. It remains authoritative unless a later explicit review decides to replace it. Chapter 6 provides the first useful opportunity for that review because provisional hunk tokens, counters and navigation transitions work together there; Chapter 4 does not attempt to judge interactions that do not exist yet.
+   This immediate Husk/FileTree loading presentation is the final Chapter 4 design. It remains authoritative unless a later explicit review decides to replace it. Chapter 7 provides the first useful opportunity for that review because provisional hunk tokens, counters and navigation transitions work together there; Chapter 4 does not attempt to judge interactions that do not exist yet.
 
 3. Rich-only rendering
 
    Every loaded text file remains rich temporarily. There is no temporary virtualization mechanism.
 
-Explicitly absent until Chapter 6:
+Explicitly absent until Chapter 7:
 
 - `NavigationProvider`;
 - selected hunk;
@@ -38,7 +38,7 @@ Explicitly absent until Chapter 6:
 - FileTree selected-hunk highlighting;
 - line-pin restoration;
 - scroll-follow;
-- navigation hotkeys;
+- navigation-specific hotkeys;
 - HintHud;
 - DebugHud hunk projection;
 
@@ -48,4 +48,4 @@ At the end of Chapter 4, `v_new` can load and display real ChangeSets through ev
 
 The current `schedulerYield`, `admittedFiles`, and `admitted` FileCard contract remain unchanged during this lifecycle correction. Their possible removal belongs only to the explicit follow-up in [followups.md](followups.md).
 
-Chapter 5 can implement whole-file virtualization as a separate FileCard-local subsystem. Chapter 6 can then implement navigation, selection, HintHud, DebugHud, HelpModal and direct hotkeys without making virtualization depend on hunk state.
+Chapter 5 can implement whole-file virtualization as a separate FileCard-local subsystem. Chapter 6 then implements only the direct non-hunk hotkeys and HelpModal. Chapter 7 implements navigation, selection, HintHud, DebugHud and navigation-specific hotkeys without making virtualization depend on hunk state.

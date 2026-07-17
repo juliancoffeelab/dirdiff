@@ -2,9 +2,9 @@
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
-Everything in this chapter must be implemented according to the whole-file virtualization requirements in Sections 34–46 of `../spec/04_navigation_virtualization.md`, the virtualization-only parts of Section 47, and the module boundaries in `../spec/06_components_and_modules.md`. Section 47's navigation-dependent wrapped-Previous scenario belongs to Chapter 6 after navigation integration. This chapter defines implementation order; it does not redefine virtualization behavior.
+Everything in this chapter must be implemented according to the whole-file virtualization requirements in Sections 34–46 of `../spec/04_navigation_virtualization.md`, the virtualization-only parts of Section 47, and the module boundaries in `../spec/06_components_and_modules.md`. Section 47's navigation-dependent wrapped-Previous scenario belongs to Chapter 7 after navigation integration. This chapter defines implementation order; it does not redefine virtualization behavior.
 
-The eventual VirtualFile hunk requirements remain in the specification. They belong to Chapter 6 integration and are not implemented by making the virtualization mechanism observe or own hunk state.
+The eventual VirtualFile hunk requirements remain in the specification. They belong to Chapter 7 integration and are not implemented by making the virtualization mechanism observe or own hunk state.
 
 Every visible rich/virtual result must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. Virtualization must not introduce an unauthorized visual redesign.
 
@@ -32,9 +32,9 @@ Implemented in this order:
 
 6. Layout-focused verification
 
-   Exercise ordinary forward and reverse scrolling, transitions above and below the viewport, tiny and huge files, native search, view changes while virtual, document-end behavior, and the intrinsic-size optimization comparison required by the specification. The complete wrapped-Previous stress test remains assigned to Chapter 6 because Previous does not exist in this chapter.
+   Exercise ordinary forward and reverse scrolling, transitions above and below the viewport, tiny and huge files, native search, view changes while virtual, document-end behavior, and the intrinsic-size optimization comparison required by the specification. The complete wrapped-Previous stress test remains assigned to Chapter 7 because Previous does not exist in this chapter.
 
-Explicitly absent until Chapter 6:
+Explicitly absent until Chapter 7:
 
 - `navigation.tsx`, NavigationProvider and useNavigation;
 - hunk tokens or targets in either representation;
@@ -44,8 +44,8 @@ Explicitly absent until Chapter 6:
 - pseudo-hunk behavior and folding participation rules;
 - `waitToEnrich` routing from Navigation;
 - line-pin restoration changes;
-- HintHud, DebugHud hunk projection, HelpModal and navigation hotkeys.
+- HintHud, DebugHud hunk projection and navigation-specific hotkeys.
 
 At the end of Chapter 5, loaded text files switch between rich and virtual presentation with the specified cost heuristic and geometry behavior. Hunk navigation remains entirely absent.
 
-Chapter 6 integrates the already-working virtualization boundary with the separately designed DOM hunk-token and navigation system. It must not move virtualization policy or render mode into Navigation.
+Chapter 6 adds only direct non-hunk hotkeys and HelpModal. Chapter 7 integrates the already-working virtualization boundary with the separately designed DOM hunk-token and navigation system. It must not move virtualization policy or render mode into Navigation.
