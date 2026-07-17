@@ -15,6 +15,7 @@ import {
   isCancelledError,
 } from "@tanstack/solid-query";
 import type { JSX } from "solid-js";
+import { isRepositoryCacheExpiration } from "./api";
 
 /**
  * Describes the application-specific TanStack metadata recognized on failure.
@@ -53,8 +54,9 @@ declare module "@tanstack/query-core" {
  *
  * Callers provide the complete application subtree and an error reporter. Each
  * failed query or mutation attempt invokes `onError` once using its metadata
- * title when present and a generic operation title otherwise; intentional query
- * cancellation is silent. Descendants must access the mounted client through
+ * title when present and a generic operation title otherwise. Intentional query
+ * cancellation and repository-cache expiration are silent because their owners
+ * handle lifecycle directly. Descendants access the mounted client through
  * TanStack Query's `useQueryClient()`.
  */
 export function QueryProvider(props: {
@@ -64,7 +66,7 @@ export function QueryProvider(props: {
   const queryClient = new QueryClient({
     queryCache: new QueryCache({
       onError(error, query) {
-        if (isCancelledError(error)) {
+        if (isCancelledError(error) || isRepositoryCacheExpiration(error)) {
           return;
         }
         // Register augmentation narrows present metadata to ErrorMeta, but

@@ -303,12 +303,13 @@ Changing an engine:
 
 - updates the workspace engine;
 - causes every Tab with a selection to derive new immutable `DiffParams`;
-- starts a new backend diff generation for the active `ChangeSet`;
+- recreates the active `ChangeSetContent` for those complete `DiffParams`;
+- disposes the previous manifest observer and `ChangeSetSnapshot`;
 - preserves mounted Tabs, Controls, Inputs and the outer `ChangeSet` instance;
 - preserves ChangeSet-owned layout state, such as tree visibility and path-based expansion, where it remains valid;
 - never presents old-engine file results as results of the new engine.
 
-The API contract continues to use complete `DiffParams` for manifest, lazy-info and file queries. Although the current Python manifest handler does not use engine, the frontend does not introduce a second parameter contract to special-case that fact. An engine change therefore selects a new manifest query and then restarts strict sequential file queries.
+The API contract continues to use complete `DiffParams` for manifest, lazy-info and file queries. Although the current Python manifest handler does not use engine, the frontend does not introduce a second parameter contract to special-case that fact. An engine change recreates the active manifest owner; once the replacement manifest succeeds, its new `ChangeSetSnapshot` restarts strict sequential file loading.
 
 An engine change is therefore much more expensive than a view change, but it is not a reason to discard unrelated client state or collapse the page layout.
 
@@ -383,13 +384,13 @@ function RefsTab(props: RefsTabProps) {
 }
 ```
 
-The keyed boundary recreates the `ChangeSet` whenever the Tab receives a new selection. Changing the global engine changes `params()` but not `state.selected`, so the outer `ChangeSet` remains mounted and retains its client-owned layout state while its manifest and file query generation changes.
+The keyed boundary recreates the `ChangeSet` whenever the Tab receives a new selection. Changing the global engine changes `params()` but not `state.selected`, so the outer `ChangeSet` remains mounted and retains its client-owned layout state while its active `ChangeSetContent` is recreated.
 
 Keeping Controls mounted is not restoration caching. Their state continues to exist because their owning components continue to exist. When the workspace is recreated, the Controls and all their local input are destroyed and reconstructed from URL state, static defaults and realtime query data.
 
 ### 24.11 ChangeSet ownership
 
-`ChangeSet` owns all state internal to one displayed result:
+`ChangeSet` owns the lightweight layout state internal to one displayed result:
 
 ```ts
 export type ChangeSetState = {
@@ -399,22 +400,14 @@ export type ChangeSetState = {
 };
 ```
 
-It also owns:
+Its private active boundaries own the backend content:
 
-- the manifest observer;
-- derived manifest traversal;
-- the FileSequence;
-- the ordered file-query observer collection;
-- lazy metadata;
-- deriving one reactive HuskFile, FullFile or LazyFile state for every manifest entry;
-- supplying the same per-file states to FileTree and FileCard;
-- explicit file-load and retry operations invoked by LazyFile planks;
-- FileTree rendering;
-- FileCard rendering;
-- reload behavior;
-- later hunk and DOM state.
+- `ChangeSetContent` owns exactly one manifest observer for immutable complete `DiffParams`;
+- `ChangeSetSnapshot` owns immutable manifest traversal, lazy metadata observation, the ordered file-query observer collection, FileSequence, progress, explicit file loading, FileTree, FileCards and rendered file DOM;
+- replacing complete `DiffParams` recreates `ChangeSetContent`;
+- replacing manifest data recreates `ChangeSetSnapshot`.
 
-The public `ChangeSet` boundary stays mounted while inactive. Its internal active content mounts only while the Tab is active:
+The public `ChangeSet` boundary stays mounted while inactive. Its internal active content mounts only while the Tab is active and is recreated whenever complete `DiffParams` changes:
 
 ```tsx
 function ChangeSet(props: {
@@ -425,34 +418,40 @@ function ChangeSet(props: {
     createStore<ChangeSetState>(initialChangeSetState);
 
   return (
-    <Show when={props.active}>
-      <ChangeSetContent
-        params={props.params}
-        state={state}
-        setState={setState}
-      />
+    <Show
+      when={props.active ? props.params : null}
+      keyed
+    >
+      {(params) => (
+        <ChangeSetContent
+          params={params}
+          state={state}
+          setState={setState}
+        />
+      )}
     </Show>
   );
 }
 ```
 
-`ChangeSetContent` is a private component boundary inside the same module. It exists so inactive ChangeSets retain lightweight client state without retaining:
+`ChangeSetContent` and `ChangeSetSnapshot` are private component boundaries inside the same module. They ensure that inactive ChangeSets retain lightweight client state without retaining:
 
 - rendered file DOM;
 - active manifest observers;
-- active file observers;
+- active lazy-info or file observers;
 - a running FileSequence.
 
-It is not a separate application abstraction or separate resource owner.
+`ChangeSetContent` owns manifest observation. Its keyed manifest result mounts `ChangeSetSnapshot`, which owns all manifest-dependent observation, sequencing and rendering. No manifest-dependent query or derivation lives above that snapshot boundary.
 
 Consequently:
 
 - switching Tabs preserves ChangeSet expansion;
 - switching Tabs removes expensive ChangeSet DOM;
 - switching Tabs stops the inactive FileSequence;
-- returning may reuse TanStack-cached backend data;
+- returning mounts new active ChangeSet content and obtains a current manifest;
 - selecting new Tab values recreates the ChangeSet and its state;
-- changing engine preserves the outer ChangeSet and layout state while replacing its manifest and file query generation;
+- changing engine preserves the outer ChangeSet and layout state while recreating active `ChangeSetContent`;
+- changing manifest data disposes the previous `ChangeSetSnapshot` before mounting its replacement;
 - recreating the workspace destroys every ChangeSet;
 - explicit reload resets state from inside the ChangeSet.
 
@@ -464,10 +463,12 @@ Reload belongs to `ChangeSet`, not to the Tab.
 
 Reloading:
 
-1. resets the ChangeSet-owned tree and expansion state;
-2. calls `refetch()` on the active manifest observer for the current `DiffParams`;
-3. allows the new manifest to produce its new `cache_id`;
-4. restarts strict manifest-order loading.
+1. stops the current FileSequence;
+2. calls `refetch()` on the active manifest observer for the current immutable `DiffParams`;
+3. lets the keyed manifest-result boundary replace `ChangeSetSnapshot`;
+4. applies the existing outer ChangeSet tree and expansion reset policy.
+
+The replacement snapshot restarts strict manifest-order loading from its own manifest.
 
 The explicit reload does not invalidate the manifest cache. Invalidation is reserved for cases where an external operation makes cached data untrustworthy; here the owning ChangeSet directly requests a fresh snapshot.
 
@@ -475,7 +476,7 @@ ChangeSet reload has no visible button. The existing `R` hotkey targets the acti
 
 ### 24.13 Backend-data lifecycle
 
-TanStack Query owns the lifecycle of every backend entity:
+TanStack Query owns backend entity state while Solid component boundaries own which observers exist:
 
 ```text
 not needed

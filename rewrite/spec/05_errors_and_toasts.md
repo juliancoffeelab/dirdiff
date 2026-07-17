@@ -30,6 +30,7 @@ The following are not errors and do not produce Toasts:
 
 - intentional TanStack Query cancellation;
 - a result discarded because its owner was intentionally replaced;
+- an unknown repository `cache_id`, which is an expected snapshot-expiration signal and restarts the owning ChangeSet;
 - ordinary input validation, such as an empty required PR URL;
 - content intentionally represented by a normal LazyFile reason;
 - unavailable autocomplete data while its query is still pending.
@@ -323,7 +324,10 @@ export function QueryProvider(props: {
   const queryClient = new QueryClient({
     queryCache: new QueryCache({
       onError(error, query) {
-        if (isCancelledError(error)) {
+        if (
+          isCancelledError(error) ||
+          isRepositoryCacheExpiration(error)
+        ) {
           return;
         }
 
@@ -371,6 +375,8 @@ export function QueryProvider(props: {
 
 Cache-level error callbacks are used because one backend query may have several observers. A cache callback reports the failed query once rather than requiring every observer to synchronize the same error into Toast state. TanStack exposes optional `meta` on query definitions and global error callbacks on `QueryCache` and `MutationCache` for this purpose. [Solid Query options](https://tanstack.com/query/latest/docs/framework/solid/reference/useQuery), [QueryCache](https://tanstack.com/query/latest/docs/reference/QueryCache), [MutationCache](https://tanstack.com/query/latest/docs/reference/MutationCache)
 
+The QueryCache callback recognizes an unknown repository `cache_id` as the snapshot-expiration signal defined in `01_tanstack_query.md` and does not present it as an error or produce a Toast. The owning `ChangeSetContent` replaces the expired snapshot. A failure to obtain the replacement manifest is a new manifest failure and follows the normal manifest error path.
+
 Components do not use `createEffect` merely to copy query errors into Toasts.
 
 Components continue to read query or mutation error state to render their local damage.
@@ -398,6 +404,8 @@ A query failure damages only the query’s actual owner.
 A FileSequence never stops because one file failed.
 
 Every failed FileCard remains represented at its manifest position.
+
+Repository cache expiration is not a file failure. It disposes the complete expired `ChangeSetSnapshot`, uses the existing compact ChangeSet loading presentation while the replacement manifest loads, and never produces an error-flavoured LazyFile for the unknown cache response.
 
 An error-flavoured LazyFile displays:
 
@@ -591,9 +599,10 @@ ToastProvider
 │                   └── Tab ErrorBoundary
 │                       ├── Controls
 │                       └── ChangeSet ErrorBoundary
-│                           ├── FileTree ErrorBoundary
-│                           └── FileCards
-│                               └── FileCard ErrorBoundary
+│                           └── ChangeSetSnapshot ErrorBoundary
+│                               ├── FileTree ErrorBoundary
+│                               └── FileCards
+│                                   └── FileCard ErrorBoundary
 └── ToastViewport
 ```
 
@@ -612,6 +621,8 @@ The nearest boundary owns the damage:
 There is no boundary inside FileBody merely to preserve a partially rendered file. FileCard is the smallest trustworthy file-rendering unit.
 
 Portalled AppHeader contributions remain logically owned by ChangeSet and are caught by the ChangeSet boundary despite their physical DOM location.
+
+The snapshot rendering ErrorBoundary belongs to its `ChangeSetSnapshot` and is disposed with it. An unexpected rendering error from an expired or replaced snapshot cannot remain mounted over its replacement.
 
 ### 64.14 Root application error
 
@@ -666,6 +677,8 @@ try {
 }
 ```
 
+Restarting a ChangeSet after an unknown repository `cache_id` is the specified response to a non-error cache-expiration signal. It is not programmer-controlled error recovery or an automatic retry of the failed file query.
+
 It must not:
 
 - catch an error and only log it;
@@ -714,3 +727,4 @@ Every `catch` must do at least one of:
 23. No programmer-controlled default or placeholder conceals an error.
 24. Global browser error listeners remain installed while ToastProvider is mounted.
 25. Global browser listeners do not replace normal query, mutation or boundary ownership.
+26. Repository cache expiration produces no error presentation and restarts the complete owning ChangeSet snapshot.

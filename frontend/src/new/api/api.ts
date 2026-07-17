@@ -765,9 +765,10 @@ type RequestSignal = {
 /**
  * Classifies transport errors for Toast expiration policy.
  *
- * Timeout failures may expire; every other request failure remains persistent.
+ * Timeout failures may expire, repository-cache expiration drives snapshot
+ * replacement without error UI, and every other request failure remains visible.
  */
-type RequestErrorReason = "timeout" | "other";
+type RequestErrorReason = "timeout" | "repository-cache-expired" | "other";
 
 /**
  * Represents a browser or backend HTTP failure with its Toast lifetime reason.
@@ -793,6 +794,20 @@ class RequestError extends Error {
     this.name = "RequestError";
     this.error_reason = errorReason;
   }
+}
+
+/**
+ * Identifies the backend signal that a repository snapshot handle expired.
+ *
+ * Query presentation and lifecycle owners use this predicate to suppress normal
+ * error UI and replace the complete ChangeSet snapshot. Every other classified
+ * HTTP failure returns false and retains ordinary localized error damage.
+ */
+export function isRepositoryCacheExpiration(error: unknown): boolean {
+  return (
+    error instanceof RequestError &&
+    error.error_reason === "repository-cache-expired"
+  );
 }
 
 /**
@@ -876,7 +891,13 @@ async function throwResponseError(response: Response): Promise<never> {
     }
     const parsedDetail = HttpExceptionResponseSchema.safeParse(payload);
     if (parsedDetail.success) {
-      throw new RequestError("other", parsedDetail.data.detail, null);
+      throw new RequestError(
+        parsedDetail.data.detail.startsWith("Unknown cache id: ")
+          ? "repository-cache-expired"
+          : "other",
+        parsedDetail.data.detail,
+        null,
+      );
     }
   } catch (error) {
     if (!(error instanceof SyntaxError)) {
@@ -1336,6 +1357,7 @@ function requestFileDiff(
 
 const snapshotQuery = {
   staleTime: Infinity,
+  gcTime: 0,
   retry: false,
 } as const;
 

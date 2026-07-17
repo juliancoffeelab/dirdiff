@@ -4,13 +4,15 @@ This file records work deliberately kept outside practical rewrite Chapters 1–
 
 ## TODO — repository manifest cache lifetime
 
-This is a backend lifetime limitation, not a frontend-rewrite bug.
+The process-local repository cache currently retains only the newest manifest `cache_id` for each marked repository. Requesting another manifest for the same repository deletes the previous cache entry.
 
-The process-local repository cache currently retains only the newest manifest `cache_id` for each marked repository. Requesting another manifest for the same repository deletes the previous cache entry. An eternal inactive ChangeSet may therefore retain a TanStack-cached manifest whose unloaded, lazy, or retried file requests later fail with `Unknown cache id` after another Tab loads a newer manifest for that repository.
+The frontend handles this disposable backend lifetime through the complete ChangeSet snapshot replacement specified in `../spec/01_tanstack_query.md`. An unknown repository cache ID is an expected expiration signal rather than one localized file failure.
 
-The frontend rewrite must preserve the existing backend contract and expose any resulting file failure through the specified localized error and Toast behavior. It must not add automatic manifest recovery, fabricated client generations, compatibility handling, or backend cache changes as part of Chapters 1–7.
+A separate follow-up may still reconsider process-lifetime retention, bounded retention, request-identity retention, or an explicit lease/release contract. The current integration test requires older repository cache IDs to fail, so changing the backend policy also requires explicit approval to change that tested behavior.
 
-A separate follow-up may reconsider process-lifetime retention, bounded retention, request-identity retention, or an explicit lease/release contract. The current integration test requires older repository cache IDs to fail, so changing the policy also requires explicit approval to change that tested behavior.
+## TODO — synthetic file admission
+
+Re-evaluate whether correct snapshot disposal and sequential network-backed file loading make `schedulerYield`, `admittedFiles`, and the `admitted` FileCard contract unnecessary. Do not remove them during the current lifecycle correction.
 
 ## FIXME — preset manifests have no snapshot identity
 

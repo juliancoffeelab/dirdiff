@@ -57,6 +57,17 @@ Review and correction continue in this order:
 5. Recheck the affected behavior in the browser.
 6. Continue responding to feedback until the user explicitly accepts the rewritten frontend.
 
+Query-lifecycle review includes:
+
+- Dirdiff → Git → Dirdiff;
+- Tab A → Tab B → Tab A;
+- manifest refetch replacing the complete snapshot;
+- no old lazy/file observer crossing a manifest change;
+- repository cache expiration replacing the complete snapshot;
+- ordinary file failure remaining localized;
+- view change causing no backend work;
+- outer layout state surviving only at the agreed boundaries.
+
 `v_old` remains available as the stable alternative throughout this chapter.
 
 This chapter does not authorize:
@@ -69,4 +80,3 @@ This chapter does not authorize:
 - treating `v_new` as accepted merely because Chapters 1–6 were implemented.
 
 Deletion of `v_old` and final cutover happen only in a separate, explicitly authorized follow-up.
-

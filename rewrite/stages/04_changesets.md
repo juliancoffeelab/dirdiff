@@ -4,7 +4,7 @@ Read [guidance.md](guidance.md) before implementing this chapter; it governs eve
 
 Everything in this chapter must be implemented according to `../spec/01_tanstack_query.md`, `../spec/03_file_presentation.md`, `../spec/05_errors_and_toasts.md`, and `../spec/06_components_and_modules.md`. This chapter defines implementation order and the temporary no-navigation boundary; it does not define alternative behavior or architecture.
 
-Repository cache lifetime and missing preset snapshot identity are backend concerns explicitly recorded in [followups.md](followups.md). They do not block this frontend chapter and must not cause backend or integration-test changes during its implementation.
+Repository cache IDs remain disposable backend handles. The frontend handles their expiration through the snapshot replacement specified in `../spec/01_tanstack_query.md`; longer backend retention remains an explicit follow-up. Missing preset snapshot identity remains the existing separate FIXME in [followups.md](followups.md) and must not cause preset, backend, or integration-test changes during this chapter.
 
 Every visible component implemented in this chapter must preserve the pixel-perfect visual parity required by Chapter 1 and Appendix A. New ownership, state and component boundaries must not change layout, dimensions, spacing, typography, colors, borders, shadows, sticky behavior, overflow, responsive behavior or control states.
 
@@ -14,7 +14,9 @@ Implemented in this order:
 
 1. ChangeSet loading
 
-   Manifest query, lazy metadata, strict FileSequence, canonical file queries, progress, cancellation, and reload.
+   Implement the ownership boundary from `../spec/01_tanstack_query.md`: persistent lightweight `ChangeSet`, active `ChangeSetContent` for one immutable complete `DiffParams`, and manifest-keyed `ChangeSetSnapshot` for all manifest-dependent observation, sequencing and rendering. Inactive Tabs retain none of those backend observers or rendered files. Manifest replacement and repository-cache expiration dispose the complete old snapshot before loading restarts.
+
+   Then implement manifest observation, lazy metadata, strict FileSequence, canonical file queries, progress, cancellation, reload, and repository-cache-expiration restart inside those boundaries.
 
 2. File presentation
 
@@ -43,5 +45,7 @@ Explicitly absent until Chapter 6:
 Whole-file virtualization remains absent until Chapter 5.
 
 At the end of Chapter 4, `v_new` can load and display real ChangeSets through every Tab, but it cannot navigate hunks yet.
+
+The current `schedulerYield`, `admittedFiles`, and `admitted` FileCard contract remain unchanged during this lifecycle correction. Their possible removal belongs only to the explicit follow-up in [followups.md](followups.md).
 
 Chapter 5 can implement whole-file virtualization as a separate FileCard-local subsystem. Chapter 6 can then implement navigation, selection, HintHud, DebugHud, HelpModal and direct hotkeys without making virtualization depend on hunk state.

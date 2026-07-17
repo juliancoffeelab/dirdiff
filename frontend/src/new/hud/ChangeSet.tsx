@@ -29,6 +29,7 @@ import { isCancelledError, type QueryKey } from "@tanstack/query-core";
 import { CircleAlert, Clock3, LoaderCircle } from "lucide-solid";
 import {
   api,
+  isRepositoryCacheExpiration,
   type DiffParams,
   type FileDiff,
   type LazyInfoFile,
@@ -152,25 +153,87 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
     directoryExpansion: {},
     fileExpansion: {},
   });
+  // JSX may preserve the params object's identity while making its fields
+  // reactive. Materialize every identity field so complete DiffParams changes,
+  // including engine and nested branch selections, replace active content.
+  const params = createMemo<DiffParams>(() => {
+    const current = props.params;
+    switch (current.mode) {
+      case "head":
+        return {
+          project_id: current.project_id,
+          engine: current.engine,
+          mode: current.mode,
+          left: current.left,
+          right: current.right,
+          show_untracked: current.show_untracked,
+        };
+      case "refs":
+        return {
+          project_id: current.project_id,
+          engine: current.engine,
+          mode: current.mode,
+          left: current.left,
+          right: current.right,
+        };
+      case "branch-review":
+        return {
+          project_id: current.project_id,
+          engine: current.engine,
+          mode: current.mode,
+          base_selection:
+            current.base_selection.source === "local"
+              ? {
+                  source: current.base_selection.source,
+                  branch: current.base_selection.branch,
+                }
+              : {
+                  source: current.base_selection.source,
+                  remote: current.base_selection.remote,
+                  branch: current.base_selection.branch,
+                },
+          review_selection:
+            current.review_selection.source === "local"
+              ? {
+                  source: current.review_selection.source,
+                  branch: current.review_selection.branch,
+                }
+              : {
+                  source: current.review_selection.source,
+                  remote: current.review_selection.remote,
+                  branch: current.review_selection.branch,
+                },
+        };
+      case "preset":
+        return {
+          project_id: current.project_id,
+          engine: current.engine,
+          mode: current.mode,
+          preset_subset: current.preset_subset,
+        };
+    }
+  });
 
   return (
-    <Show when={props.active}>
-      <UnexpectedErrorBoundary title="Could not render ChangeSet">
-        <ChangeSetContent
-          params={props.params}
-          view={props.view}
-          profile={props.profile}
-          appHeaderOutlets={props.appHeaderOutlets}
-          state={state}
-          setState={setState}
-        />
-      </UnexpectedErrorBoundary>
+    <Show when={props.active ? params() : null} keyed>
+      {(activeParams) => (
+        <UnexpectedErrorBoundary title="Could not render ChangeSet">
+          <ChangeSetContent
+            params={activeParams}
+            view={props.view}
+            profile={props.profile}
+            appHeaderOutlets={props.appHeaderOutlets}
+            state={state}
+            setState={setState}
+          />
+        </UnexpectedErrorBoundary>
+      )}
     </Show>
   );
 }
 
 /**
- * Defines the complete active-owner inputs for one ChangeSet generation.
+ * Defines the complete active-owner inputs for one ChangeSet content lifetime.
  *
  * The outer component supplies durable client state; this inner lifetime owns all
  * query observers and external async work and is disposed whenever the Tab hides.
@@ -185,12 +248,123 @@ type ChangeSetContentProps = {
 };
 
 /**
- * Observes one active manifest and renders its complete file presentation.
+ * Owns one active manifest observer and replaces its complete rendered snapshot.
  *
- * Every query uses the canonical api facade. Solid state contains only lane
- * bookkeeping and expansion; immutable backend values remain in TanStack Query.
+ * The component exists only for one immutable DiffParams value. It mounts no
+ * manifest-dependent observer before manifest success, disposes the current
+ * snapshot before reload or cache-expiration refetch, and never retains an old
+ * manifest merely because TanStack still exposes its previous data.
  */
 function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
+  const [replacingSnapshot, setReplacingSnapshot] = createSignal(false);
+  const manifest = createQuery(() => api.changeSet.manifest(props.params));
+  const visibleManifest = createMemo(() => {
+    if (replacingSnapshot() || manifest.isError) {
+      return undefined;
+    }
+    return manifest.data;
+  });
+  let stopFileSequence: (() => Promise<void>) | null = null;
+  let replacement: Promise<void> | null = null;
+
+  /**
+   * Replaces the complete manifest-dependent lifetime through one refetch.
+   *
+   * Calling the registered stop operation synchronously closes the current lane.
+   * The keyed snapshot is then disposed before cancellation settles and before
+   * the manifest refetch begins. Concurrent expiration signals share this exact
+   * operation and cannot start parallel replacement manifests.
+   */
+  async function replaceSnapshot(resetLayout: boolean): Promise<void> {
+    if (replacement !== null) {
+      await replacement;
+      return;
+    }
+    const stopPromise =
+      stopFileSequence === null ? Promise.resolve() : stopFileSequence();
+    setReplacingSnapshot(true);
+    if (resetLayout) {
+      props.setState({
+        treeOpen: false,
+        directoryExpansion: {},
+        fileExpansion: {},
+      });
+    }
+    const currentReplacement = (async () => {
+      await stopPromise;
+      await manifest.refetch();
+    })();
+    replacement = currentReplacement;
+    try {
+      await currentReplacement;
+    } finally {
+      if (replacement === currentReplacement) {
+        replacement = null;
+        setReplacingSnapshot(false);
+      }
+    }
+  }
+
+  return (
+    <>
+      <Show when={manifest.isPending || replacingSnapshot()}>
+        <p class="status change-set-title">Loading ChangeSet...</p>
+      </Show>
+      <Show when={!replacingSnapshot() && manifest.error} keyed>
+        {(error) => (
+          <div class="change-set-error">
+            <ErrorPanel title="Failed to load ChangeSet" error={error}>
+              <RetryButton onRetry={() => replaceSnapshot(true)} />
+            </ErrorPanel>
+          </div>
+        )}
+      </Show>
+      <Show when={visibleManifest()} keyed>
+        {(snapshot) => (
+          <UnexpectedErrorBoundary title="Could not render ChangeSet snapshot">
+            <ChangeSetSnapshot
+              params={props.params}
+              manifest={snapshot}
+              view={props.view}
+              profile={props.profile}
+              appHeaderOutlets={props.appHeaderOutlets}
+              state={props.state}
+              setState={props.setState}
+              onRepositoryCacheExpiration={() => {
+                void replaceSnapshot(false);
+              }}
+              onFileSequenceChange={(stop) => {
+                stopFileSequence = stop;
+              }}
+            />
+          </UnexpectedErrorBoundary>
+        )}
+      </Show>
+    </>
+  );
+}
+
+/**
+ * Defines every immutable backend input and reactive presentation input for one snapshot.
+ *
+ * Params and manifest never change during this component lifetime. View, profile,
+ * and durable outer layout state remain reactive without retargeting backend work.
+ * The callbacks expose only the two lifecycle actions owned by ChangeSetContent.
+ */
+type ChangeSetSnapshotProps = ChangeSetContentProps & {
+  manifest: Manifest;
+  onRepositoryCacheExpiration(): void;
+  onFileSequenceChange(stop: (() => Promise<void>) | null): void;
+};
+
+/**
+ * Owns every observer, lane value, derivation, and rendered node for one manifest.
+ *
+ * All query definitions use the same immutable params and manifest cache ID. The
+ * component reports cache expiration to its owner, while ordinary file failures
+ * remain localized. Disposal cancels the lane and releases every snapshot query.
+ */
+function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   const queryClient = useQueryClient();
   const [processed, setProcessed] = createSignal(0);
   const [laneActivity, setLaneActivity] = createSignal<FileLaneActivity | null>(
@@ -198,41 +372,37 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   );
   const [laneError, setLaneError] = createSignal<Error | null>(null);
   let enqueueSelectedFile: ((fileIndex: number) => void) | null = null;
-  let stopFileSequence: (() => Promise<void>) | null = null;
-
-  const manifest = createQuery(() => api.changeSet.manifest(props.params));
-  const orderedFiles = createMemo(() =>
-    manifest.data === undefined ? [] : manifestFilesInOrder(manifest.data.tree),
-  );
+  const orderedFiles = manifestFilesInOrder(props.manifest.tree);
   const automaticTotal = createMemo(
-    () => orderedFiles().filter((file) => file.entry.lazy === null).length,
+    () => orderedFiles.filter((file) => file.entry.lazy === null).length,
   );
 
-  const lazyInfoQueries = createQueries<
-    Array<ReturnType<typeof api.changeSet.lazyInfo>>
-  >(() => {
-    if (
-      manifest.data === undefined ||
-      !manifestContainsLazyFiles(manifest.data.tree)
-    ) {
-      return { queries: [] };
-    }
-    return {
-      queries: [api.changeSet.lazyInfo(props.params, manifest.data.cache_id)],
-    };
-  });
+  // The manifest is immutable for this component, so this setup-time branch
+  // creates exactly one lazy-info observer when the entity exists and none when
+  // it does not. It is not a reactive zero-or-one observer collection.
+  const lazyInfo = manifestContainsLazyFiles(props.manifest.tree)
+    ? createQuery(() =>
+        api.changeSet.lazyInfo(props.params, props.manifest.cache_id),
+      )
+    : null;
 
-  const fileQueries = createQueries(() => {
-    if (manifest.data === undefined) {
-      return { queries: [] };
-    }
-    return {
-      queries: orderedFiles().map((file) => ({
-        ...api.changeSet.file(props.params, manifest.data.cache_id, file.entry),
-        enabled: false,
-      })),
-    };
-  });
+  if (lazyInfo !== null) {
+    // This effect has one lifecycle purpose: translate the asynchronous backend
+    // expiration signal into disposal of this immutable snapshot. It neither
+    // copies query data nor repairs file state, and dies with the snapshot.
+    createEffect(() => {
+      if (isRepositoryCacheExpiration(lazyInfo.error)) {
+        props.onRepositoryCacheExpiration();
+      }
+    });
+  }
+
+  const fileQueries = createQueries(() => ({
+    queries: orderedFiles.map((file) => ({
+      ...api.changeSet.file(props.params, props.manifest.cache_id, file.entry),
+      enabled: false,
+    })),
+  }));
 
   const preferenceQueries = createQueries<
     Array<ReturnType<typeof api.profile.preferences>>
@@ -250,12 +420,12 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 
   const lazyInfoByKey = createMemo(() => {
     const result = new Map<string, LazyInfoFile>();
-    const query = lazyInfoQueries[0];
-    if (query === undefined || query.data === undefined) {
+    const query = lazyInfo;
+    if (query === null || query.data === undefined) {
       return result;
     }
     const expected = new Map<string, ManifestFile>();
-    for (const file of orderedFiles()) {
+    for (const file of orderedFiles) {
       if (file.entry.lazy === null) {
         continue;
       }
@@ -297,7 +467,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   });
 
   const fileStates = createMemo(() =>
-    orderedFiles().map((manifestFile, fileIndex) => {
+    orderedFiles.map((manifestFile, fileIndex) => {
       const query = fileQueries[fileIndex];
       const path = fileDisplayName(manifestFile.entry);
       if (query === undefined) {
@@ -326,6 +496,15 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
         };
       }
       if (query.isError) {
+        if (isRepositoryCacheExpiration(query.error)) {
+          return {
+            state: "husk" as const,
+            fileIndex,
+            name: manifestFile.name,
+            path,
+            activity: "queued" as const,
+          };
+        }
         if (!(query.error instanceof Error)) {
           throw new Error(`File query ${path} failed without an Error value.`);
         }
@@ -341,8 +520,17 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
         };
       }
       if (manifestFile.entry.lazy !== null) {
-        const lazyInfoQuery = lazyInfoQueries[0];
-        if (lazyInfoQuery !== undefined && lazyInfoQuery.isError) {
+        const lazyInfoQuery = lazyInfo;
+        if (lazyInfoQuery !== null && lazyInfoQuery.isError) {
+          if (isRepositoryCacheExpiration(lazyInfoQuery.error)) {
+            return {
+              state: "husk" as const,
+              fileIndex,
+              name: manifestFile.name,
+              path,
+              activity: "queued" as const,
+            };
+          }
           if (!(lazyInfoQuery.error instanceof Error)) {
             throw new Error(
               `Lazy-info query for ${path} failed without an Error value.`,
@@ -408,30 +596,12 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     {},
   );
 
-  /**
-   * Synchronizes one mounted manifest generation with its imperative file-fetch lane.
-   *
-   * The effect starts after manifest success and reruns only for a new reactive
-   * manifest/parameter generation. Cleanup stops scheduling, clears the public
-   * enqueue closure, and cancels the exact active canonical query. Query failures
-   * remain query state; unexpected orchestration failures are projected back into
-   * Solid so the owning ErrorBoundary can contain and Toast them.
-   */
-  createEffect(() => {
-    const dataUpdatedAt = manifest.dataUpdatedAt;
-    if (manifest.data === undefined) {
-      enqueueSelectedFile = null;
-      stopFileSequence = null;
-      setProcessed(0);
-      setLaneActivity(null);
-      return;
-    }
-    if (dataUpdatedAt <= 0) {
-      throw new Error("A loaded manifest requires a positive update time.");
-    }
-    const snapshot = manifest.data;
+  // This imperative lane is born with one immutable snapshot and dies with it.
+  // No effect can retarget its closures to later params, manifests, or queries.
+  {
     const params = props.params;
-    const files = manifestFilesInOrder(snapshot.tree);
+    const snapshot = props.manifest;
+    const files = orderedFiles;
     const selectedQueue: number[] = [];
     const selectedSet = new Set<number>();
     let automaticCursor = 0;
@@ -465,7 +635,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     /**
      * Drains explicit selections before resuming strict automatic manifest order.
      *
-     * The closure belongs to this exact manifest generation. It catches only
+     * The closure belongs to this exact immutable snapshot. It catches only
      * query-owned failure/cancellation so the canonical observer retains damage;
      * its launch callback projects unexpected orchestration errors into Solid.
      */
@@ -536,6 +706,10 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             if (stopped || isCancelledError(error)) {
               return;
             }
+            if (isRepositoryCacheExpiration(error)) {
+              props.onRepositoryCacheExpiration();
+              return;
+            }
             // The canonical query owns and presents this failed attempt. The lane
             // intentionally proceeds so one file cannot damage later files.
           } finally {
@@ -554,7 +728,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     }
 
     /**
-     * Stops this exact manifest generation and cancels its active canonical query.
+     * Stops this exact immutable snapshot and cancels its active canonical query.
      *
      * The operation is idempotent and returns the same Promise to concurrent
      * callers. It prevents further scheduling synchronously, then waits for the
@@ -575,7 +749,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
       return stopPromise;
     }
 
-    stopFileSequence = stopLane;
+    props.onFileSequenceChange(stopLane);
 
     enqueueSelectedFile = (fileIndex) => {
       const file = files[fileIndex];
@@ -599,17 +773,15 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     void runLane().catch(reportLaneFailure);
 
     onCleanup(() => {
-      if (stopFileSequence === stopLane) {
-        stopFileSequence = null;
-      }
+      props.onFileSequenceChange(null);
       void stopLane().catch(reportLaneFailure);
     });
-  });
+  }
 
   /**
    * Submits one LazyFile or failed FileCard to the current single file-fetch lane.
    *
-   * A mounted manifest generation is required. The callback never calls refetch
+   * A mounted snapshot lane is required. The callback never calls refetch
    * or transport directly and therefore cannot bypass sequencing.
    */
   function loadSelectedFile(fileIndex: number): void {
@@ -619,27 +791,6 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     enqueueSelectedFile(fileIndex);
   }
 
-  /**
-   * Performs one explicit ChangeSet reload against the active manifest observer.
-   *
-   * The current file lane is stopped and its active file-query cancellation settles
-   * before durable layout and progress reset. The canonical manifest observer
-   * owns the next attempt and its query-level Toast behavior.
-   */
-  async function reloadChangeSet(): Promise<void> {
-    if (stopFileSequence !== null) {
-      await stopFileSequence();
-    }
-    setProcessed(0);
-    setLaneActivity(null);
-    props.setState({
-      treeOpen: false,
-      directoryExpansion: {},
-      fileExpansion: {},
-    });
-    await manifest.refetch();
-  }
-
   return (
     <>
       <Show when={laneError()} keyed>
@@ -647,132 +798,106 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
           throw error;
         }}
       </Show>
-      <Show when={manifest.isPending}>
-        <p class="status change-set-title">Loading ChangeSet...</p>
-      </Show>
-      <Show when={manifest.error} keyed>
-        {(error) => (
-          <div class="change-set-error">
-            <ErrorPanel title="Failed to load ChangeSet" error={error}>
-              <RetryButton onRetry={reloadChangeSet} />
-            </ErrorPanel>
-          </div>
-        )}
-      </Show>
-      <Show when={manifest.data} keyed>
-        {(data) => (
-          <>
-            <Portal mount={props.appHeaderOutlets.status()}>
-              <AppHeaderFileStatus state={sequenceState()} />
-            </Portal>
-            <Portal mount={props.appHeaderOutlets.summary()}>
-              <ManifestStatistics summary={data.summary} />
-            </Portal>
-            <p class="status change-set-title">
-              {changeSetTitle(props.params, data)}
-            </p>
-            <div
-              class="diff-workspace"
-              classList={{
-                "diff-workspace-inline": props.view === "inline",
-                "diff-workspace-tree-open": props.state.treeOpen,
-              }}
-            >
-              <UnexpectedErrorBoundary title="Could not render file tree">
-                <FileTree
-                  tree={data.tree}
-                  states={fileStates()}
-                  open={props.state.treeOpen}
-                  view={props.view}
-                  directoryExpansion={props.state.directoryExpansion}
-                  fileExpansion={props.state.fileExpansion}
-                  onOpenChange={(open) => props.setState("treeOpen", open)}
-                  onDirectoryExpandedChange={(directory, expanded) => {
-                    props.setState(
-                      "directoryExpansion",
-                      directory.path,
-                      expanded,
-                    );
-                    for (const file of manifestFilesInOrder(
-                      directory.entries,
-                    )) {
-                      props.setState(
-                        "fileExpansion",
-                        manifestEntryKey(file.entry),
-                        expanded,
-                      );
-                    }
-                  }}
-                  onFileExpandedChange={(file, expanded) =>
-                    props.setState(
-                      "fileExpansion",
-                      manifestEntryKey(file.entry),
-                      expanded,
-                    )
-                  }
-                />
-              </UnexpectedErrorBoundary>
-              <section class="file-list" aria-label="Changed files">
-                <Show
-                  when={orderedFiles().length > 0}
-                  fallback={
-                    <div class="directory-groups">
-                      <section
-                        class="directory-group file-list-empty-shell"
-                        aria-label="No changed files"
-                      >
-                        <p class="empty file-list-empty">
-                          No files loaded yet.
-                        </p>
-                      </section>
-                    </div>
-                  }
+      <Portal mount={props.appHeaderOutlets.status()}>
+        <AppHeaderFileStatus state={sequenceState()} />
+      </Portal>
+      <Portal mount={props.appHeaderOutlets.summary()}>
+        <ManifestStatistics summary={props.manifest.summary} />
+      </Portal>
+      <p class="status change-set-title">
+        {changeSetTitle(props.params, props.manifest)}
+      </p>
+      <div
+        class="diff-workspace"
+        classList={{
+          "diff-workspace-inline": props.view === "inline",
+          "diff-workspace-tree-open": props.state.treeOpen,
+        }}
+      >
+        <UnexpectedErrorBoundary title="Could not render file tree">
+          <FileTree
+            tree={props.manifest.tree}
+            states={fileStates()}
+            open={props.state.treeOpen}
+            view={props.view}
+            directoryExpansion={props.state.directoryExpansion}
+            fileExpansion={props.state.fileExpansion}
+            onOpenChange={(open) => props.setState("treeOpen", open)}
+            onDirectoryExpandedChange={(directory, expanded) => {
+              props.setState("directoryExpansion", directory.path, expanded);
+              for (const file of manifestFilesInOrder(directory.entries)) {
+                props.setState(
+                  "fileExpansion",
+                  manifestEntryKey(file.entry),
+                  expanded,
+                );
+              }
+            }}
+            onFileExpandedChange={(file, expanded) =>
+              props.setState(
+                "fileExpansion",
+                manifestEntryKey(file.entry),
+                expanded,
+              )
+            }
+          />
+        </UnexpectedErrorBoundary>
+        <section class="file-list" aria-label="Changed files">
+          <Show
+            when={orderedFiles.length > 0}
+            fallback={
+              <div class="directory-groups">
+                <section
+                  class="directory-group file-list-empty-shell"
+                  aria-label="No changed files"
                 >
-                  <div class="directory-groups">
-                    <For each={orderedFiles()}>
-                      {(file, fileIndex) => {
-                        return (
-                          <Show when={fileStates()[fileIndex()]}>
-                            {(currentState) => (
-                              <FileCard
-                                state={currentState()}
-                                expanded={fileExpanded(
-                                  file,
-                                  currentState(),
-                                  props.state.fileExpansion,
-                                )}
-                                admitted={admittedFiles[fileIndex()] === true}
-                                engine={props.params.engine}
-                                view={props.view}
-                                aggressiveFolds={aggressiveFolds()}
-                                onExpandedChange={(expanded) =>
-                                  props.setState(
-                                    "fileExpansion",
-                                    manifestEntryKey(file.entry),
-                                    expanded,
-                                  )
-                                }
-                                onLoad={() => {
-                                  props.setState(
-                                    "fileExpansion",
-                                    manifestEntryKey(file.entry),
-                                    true,
-                                  );
-                                  loadSelectedFile(fileIndex());
-                                }}
-                              />
-                            )}
-                          </Show>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </Show>
-              </section>
+                  <p class="empty file-list-empty">No files loaded yet.</p>
+                </section>
+              </div>
+            }
+          >
+            <div class="directory-groups">
+              <For each={orderedFiles}>
+                {(file, fileIndex) => {
+                  return (
+                    <Show when={fileStates()[fileIndex()]}>
+                      {(currentState) => (
+                        <FileCard
+                          state={currentState()}
+                          expanded={fileExpanded(
+                            file,
+                            currentState(),
+                            props.state.fileExpansion,
+                          )}
+                          admitted={admittedFiles[fileIndex()] === true}
+                          engine={props.params.engine}
+                          view={props.view}
+                          aggressiveFolds={aggressiveFolds()}
+                          onExpandedChange={(expanded) =>
+                            props.setState(
+                              "fileExpansion",
+                              manifestEntryKey(file.entry),
+                              expanded,
+                            )
+                          }
+                          onLoad={() => {
+                            props.setState(
+                              "fileExpansion",
+                              manifestEntryKey(file.entry),
+                              true,
+                            );
+                            loadSelectedFile(fileIndex());
+                          }}
+                        />
+                      )}
+                    </Show>
+                  );
+                }}
+              </For>
             </div>
-          </>
-        )}
-      </Show>
+          </Show>
+        </section>
+      </div>
     </>
   );
 }

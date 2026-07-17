@@ -285,27 +285,23 @@ The small profile storage operations can remain private here or in `hud/App.tsx`
 
 Exports only `ChangeSet`.
 
-It owns:
+Its private ownership boundaries are:
 
-- manifest observation;
-- lazy-info observation;
-- the ordered file-query observer collection;
-- deriving and supplying the shared per-file states used by FileTree and FileCard;
-- explicit file-load and retry operations invoked by LazyFile planks;
-- strict FileSequence;
-- combined progress;
-- expansion state;
-- observing the selected profile's canonical preferences query and deriving the reactive `aggressiveFolds` renderer input;
-- `ChangeSetTitle`;
-- `FileTree`;
-- AppHeader Portal contributions;
-- mapping manifest files to `FileCard`;
-- mounting the ChangeSet-scoped `NavigationProvider`;
-- one private active hotkey listener;
-- independent Help and Debug visibility;
-- adjacent private `HintHud` and `DebugHud` components;
-- a separate private `HelpModal`;
-- ChangeSet reload.
+```text
+ChangeSet
+└── ChangeSetContent
+    └── ChangeSetSnapshot
+```
+
+- `ChangeSet` owns lightweight layout state, ChangeSet-scoped navigation and local HUD state.
+- `ChangeSetContent` owns manifest observation for one immutable complete `DiffParams`, manifest loading and error presentation, reload, and repository-cache-expiration restart.
+- `ChangeSetSnapshot` owns immutable manifest traversal, lazy-info observation, the ordered file-query observer collection, strict FileSequence, explicit file loading, combined progress, the existing admission behavior, `ChangeSetTitle`, `FileTree`, AppHeader Portal contributions, mapping manifest files to `FileCard`, and rendered file DOM.
+
+The module also observes the selected profile's canonical preferences query and derives the reactive `aggressiveFolds` renderer input. It mounts the ChangeSet-scoped `NavigationProvider`, one private active hotkey listener, independent Help and Debug visibility, adjacent private `HintHud` and `DebugHud` components, and a separate private `HelpModal`.
+
+`ChangeSetContent` is recreated when complete `DiffParams` changes. `ChangeSetSnapshot` is recreated when manifest data changes. No manifest-dependent observation, sequencing, or rendering lives above `ChangeSetSnapshot`.
+
+All three boundaries remain private to `hud/ChangeSet.tsx`; no new module is required.
 
 `FileSequence` is a section of this owner’s implementation, not another exported abstraction or file.
 

@@ -30,6 +30,8 @@ ChangeSet
 
 `FileCard` is the stable manifest-position wrapper. It receives its reactive file state and explicit-load callback from ChangeSet; it does not observe a query. The three file states own different presentations and different headers. The LazyFile plank invokes the supplied callback so ChangeSet can submit that file to its single file-fetch lane.
 
+Ordinary file errors produce the existing error-flavoured `LazyFile`. Repository cache expiration does not produce one file error plank; it disposes the complete expired `ChangeSetSnapshot` and restarts the ChangeSet as specified in `01_tanstack_query.md`. No other FileCard presentation changes.
+
 The ChangeSet title remains with the ChangeSet. It is not placed in AppHeader because AppHeader space is limited.
 
 ### 25.3 Manifest summary authority

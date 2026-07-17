@@ -24,8 +24,13 @@ Status: proposed for approval.
 
 ## 2. Core ownership rule
 
-TanStack Query owns all state received from the Python backend:
+TanStack Query owns:
 
+- canonical backend query entries;
+- request execution and deduplication;
+- pending, error and data state;
+- cancellation through query signals;
+- reactive observation by mounted components;
 - manifest data;
 - lazy-file metadata;
 - individual file diffs;
@@ -34,6 +39,19 @@ TanStack Query owns all state received from the Python backend:
 - presets;
 - profiles and preferences;
 - query loading, success and error states.
+
+TanStack Query does not own:
+
+- whether a component should exist;
+- whether a manifest is applicable;
+- Tab lifetime;
+- ChangeSet layout state;
+- engine selection;
+- view selection;
+- file rendering admission;
+- snapshot expiration policy.
+
+Solid component ownership decides which TanStack observers exist.
 
 Solid owns client-only state:
 
@@ -55,14 +73,16 @@ App
     ├── Controls and Inputs        Solid component state
     ├── selected values            Solid state
     └── ChangeSet
-        ├── Manifest               TanStack Query
-        ├── lazy metadata          TanStack Query
-        ├── file queries           TanStack Query
-        ├── FileTree               derived from Manifest
-        ├── FileCards              derived from Manifest
-        ├── expansion              Solid state
-        ├── FileSequence           ChangeSet-local orchestration
-        └── HunkNavigation         DOM/local state
+        ├── layout state            Solid state
+        └── ChangeSetContent
+            ├── Manifest           TanStack Query
+            └── ChangeSetSnapshot
+                ├── lazy metadata  TanStack Query
+                ├── file queries   TanStack Query
+                ├── FileTree       derived from Manifest
+                ├── FileCards      derived from Manifest
+                ├── FileSequence   snapshot-local orchestration
+                └── rendered DOM
 ```
 
 TanStack Query is specifically intended to own, cache, synchronize, and expose asynchronous server state. Solid signals and stores remain appropriate for client-owned state. [TanStack Solid Query overview](https://tanstack.com/query/v5/docs/framework/solid/overview)
@@ -100,8 +120,9 @@ Selected.
 
 - Manifest, lazy metadata and every file have independent query keys.
 - `api.ts` defines every query.
-- `ChangeSet` owns one small sequential loop using `queryClient.fetchQuery`.
-- `ChangeSet` owns the ordered file-query observers and supplies their reactive results to both FileTree and FileCard.
+- `ChangeSetContent` owns one manifest observer for one immutable complete `DiffParams` value.
+- `ChangeSetSnapshot` owns one small sequential loop using `queryClient.fetchQuery`.
+- `ChangeSetSnapshot` owns the ordered file-query observers and supplies their reactive results to both FileTree and FileCard.
 - The loop contains no backend data and creates no second cache.
 
 `fetchQuery` is appropriate here because it fetches and caches one canonical query while returning a Promise that can be awaited sequentially. [TanStack QueryClient reference](https://tanstack.com/query/v5/docs/reference/QueryClient)
@@ -128,7 +149,7 @@ In that structure:
 
 - `api/api.ts` owns schemas, API types, HTTP handlers, query definitions and mutation definitions;
 - `api/queryClient.tsx` owns QueryClient construction and exports `QueryProvider`;
-- `hud/ChangeSet.tsx` owns the manifest observer, FileSequence, derived file state and ChangeSet rendering.
+- `hud/ChangeSet.tsx` keeps the public `ChangeSet` and its private `ChangeSetContent` and `ChangeSetSnapshot` boundaries together. Those boundaries own manifest observation, FileSequence, derived file state and ChangeSet rendering.
 
 The API facade follows these rules:
 
@@ -265,6 +286,7 @@ import {
 
 const snapshotQuery = {
   staleTime: Infinity,
+  gcTime: 0,
   retry: false,
 } as const;
 
@@ -412,6 +434,8 @@ export const api = {
 
 Query keys contain every value used by their query function. TanStack Query supports serializable objects in keys and hashes object keys deterministically, so a separate JSON identity string is unnecessary. [TanStack query-key guide](https://tanstack.com/query/v5/docs/framework/solid/guides/query-keys)
 
+ChangeSet snapshot queries remain fresh while their owning component is mounted. With `gcTime: 0`, their cache entries are not retained for later Tab or engine reuse after that owner disappears. Metadata queries such as repository lists, refs, defaults, catalogs and preferences keep their separately specified freshness policies.
+
 Consequently, `diffParamsIdentity` and `currentParamsIdentity` are removed.
 
 ## 8. QueryClient configuration
@@ -451,10 +475,29 @@ No persisted browser query cache is required.
 A Tab derives complete `DiffParams` from its local selection and the workspace-owned engine:
 
 ```tsx
-<ChangeSet params={params()} />
+<ChangeSet
+  active={props.active}
+  params={params()}
+/>
 ```
 
-`ChangeSet` starts exactly one manifest query:
+The ownership boundary is:
+
+```text
+ChangeSet
+│   owns lightweight layout state
+│
+└── ChangeSetContent
+    mounted only while its Tab is active
+    recreated when complete DiffParams changes
+    owns the manifest observer
+    │
+    └── ChangeSetSnapshot
+        recreated when manifest.data changes
+        owns everything derived from that manifest
+```
+
+`ChangeSetContent` starts exactly one manifest query for one immutable complete `DiffParams` value:
 
 ```ts
 const manifest = useQuery(() =>
@@ -462,7 +505,33 @@ const manifest = useQuery(() =>
 );
 ```
 
-Changing `DiffParams` changes the manifest, lazy-info and file query keys. The Tab’s keyed boundary—not `DiffParams` object identity—determines whether the outer `ChangeSet` is recreated.
+Before that manifest succeeds:
+
+- no `ChangeSetSnapshot` exists;
+- no lazy-info observer exists;
+- no file observer exists;
+- no FileSequence exists;
+- manifest loading or error presentation remains local to `ChangeSetContent`.
+
+Once the manifest succeeds, a keyed manifest-result boundary mounts `ChangeSetSnapshot`. The snapshot owns:
+
+- immutable `DiffParams`;
+- immutable manifest;
+- ordered manifest files;
+- lazy-info observation;
+- the ordered file-query observer collection;
+- FileSequence;
+- progress;
+- existing `admittedFiles` behavior;
+- FileTree;
+- FileCards;
+- rendered file DOM.
+
+No manifest-dependent query or derivation lives above `ChangeSetSnapshot`. No code inside it combines live workspace params with a separately changing manifest.
+
+The Tab’s keyed selected-value boundary—not `DiffParams` object identity—determines whether the outer `ChangeSet` is recreated. Changing complete `DiffParams` while that outer boundary remains mounted recreates active `ChangeSetContent`.
+
+Inactive Tabs retain only Controls, input state, selected values and lightweight outer `ChangeSet` layout state. They retain no manifest, lazy-info or file observer, no FileSequence and no rendered file DOM. Reactivating a Tab mounts new ChangeSet content and obtains a current manifest.
 
 There is no:
 
@@ -476,6 +545,17 @@ There is no:
 
 Selecting a different global engine derives new complete `DiffParams`. The existing API contract includes engine in the manifest request, so this selects a new manifest query and then new sequential file queries. The outer `ChangeSet` remains mounted and preserves its client-owned layout state.
 
+Specifically, an engine change:
+
+- updates the workspace engine and URL;
+- recreates active `ChangeSetContent`;
+- disposes the previous manifest observer and snapshot;
+- preserves Controls, Inputs and outer ChangeSet layout state.
+
+`App` performs no query choreography beyond changing engine state.
+
+View changes are presentation-only. They do not recreate any query owner or perform backend work.
+
 ## 10. Manifest behavior
 
 Before the manifest resolves:
@@ -486,17 +566,22 @@ Before the manifest resolves:
 
 After the manifest resolves:
 
+- one `ChangeSetSnapshot` exists for that immutable manifest;
 - its tree is rendered directly;
 - a depth-first traversal produces the canonical ordered file list;
 - every manifest entry receives a FileCard immediately;
 - FileTree navigation targets those shells;
 - loading begins at manifest index zero.
 
+When `manifest.data` changes, the keyed manifest-result boundary disposes the old `ChangeSetSnapshot` and mounts a new one. Every old manifest-dependent observer, sequence state and rendered file disappears with the old snapshot. Observer arrays are never reactively mutated from one manifest into another inside the same snapshot owner.
+
 The manifest is never copied into a Solid store.
 
 Derived maps, flattened arrays and directory labels may use `createMemo`. A memo is a derived view, not another authoritative store.
 
 ## 11. Strict FileSequence
+
+`ChangeSetSnapshot` owns the single FileSequence for its immutable manifest.
 
 File entries are visited strictly from first to last in manifest order.
 
@@ -569,66 +654,60 @@ The sequence must not:
 
 The sequence owns only cancellation bookkeeping, its automatic cursor, the explicit selection queue and one combined progress value. Backend data and file errors remain in the query cache.
 
+The current `schedulerYield`, `admittedFiles`, and `admitted` FileCard behavior remains unchanged during this lifecycle correction.
+
 ## 12. Cancellation
 
 Every query function passes TanStack Query’s `AbortSignal` into the actual HTTP request.
 
 TanStack Query supplies this signal specifically so query cancellation can abort the underlying fetch and revert the query to its previous state. [TanStack cancellation guide](https://tanstack.com/query/latest/docs/framework/solid/guides/query-cancellation)
 
-When a ChangeSet is replaced or unmounted, or when its engine changes:
+When a `ChangeSetSnapshot` is disposed because its Tab deactivates, its manifest is replaced, its complete `DiffParams` changes, or its outer ChangeSet is unmounted:
 
 1. its local sequence is marked stopped;
 2. the exact currently active file query is cancelled;
 3. no subsequent file query starts.
 
 ```ts
-createEffect(() => {
-  const data = manifest.data;
-  if (data === undefined) {
-    return;
+let stopped = false;
+let activeKey: readonly unknown[] | null = null;
+
+onCleanup(() => {
+  stopped = true;
+
+  if (activeKey !== null) {
+    void queryClient.cancelQueries({
+      queryKey: activeKey,
+      exact: true,
+    });
   }
-
-  let stopped = false;
-  let activeKey: readonly unknown[] | null = null;
-
-  onCleanup(() => {
-    stopped = true;
-
-    if (activeKey !== null) {
-      void queryClient.cancelQueries({
-        queryKey: activeKey,
-        exact: true,
-      });
-    }
-  });
-
-  void loadFilesInOrder(
-    props.params,
-    data,
-    () => stopped,
-    (key) => {
-      activeKey = key;
-    },
-  );
 });
+
+void loadFilesInOrder(
+  props.params,
+  props.manifest,
+  () => stopped,
+  (key) => {
+    activeKey = key;
+  },
+);
 ```
 
-No `activeLoadId` is required. Solid cleanup determines whether the sequence still belongs to the mounted ChangeSet.
+This code lives inside `ChangeSetSnapshot`, after the manifest exists. It contains no effect that can retarget the lane to a later manifest. No `activeLoadId` is required; Solid cleanup determines whether the sequence still belongs to the mounted snapshot.
 
 ## 13. Lazy metadata and LazyFile
 
-After the manifest loads, `ChangeSet` starts `lazyInfo` only if at least one manifest entry is lazy.
+After the manifest loads, `ChangeSetSnapshot` mounts one `lazyInfo` observer only if at least one entry in its immutable manifest is lazy. The conditional component boundary decides whether the observer exists; this is not represented as a zero-or-one `createQueries` array.
 
-```ts
-const lazyInfo = useQuery(() => ({
-  ...api.changeSet.lazyInfo(
-    props.params,
-    manifest.data!.cache_id,
-  ),
-  enabled:
-    manifest.data !== undefined &&
-    manifestContainsLazyFiles(manifest.data.tree),
-}));
+```tsx
+<Show
+  when={manifestContainsLazyFiles(props.manifest.tree)}
+>
+  <LazyInfoObserver
+    params={props.params}
+    cacheId={props.manifest.cache_id}
+  />
+</Show>
 ```
 
 The lazy metadata query may run concurrently with the normal FileSequence because:
@@ -638,7 +717,7 @@ The lazy metadata query may run concurrently with the normal FileSequence becaus
 - it cannot start a FileBody render;
 - it only describes intentionally delayed files.
 
-A lazy-info failure leaves the FileCards present and produces error-flavoured `LazyFile` states. It does not stop normal file loading.
+An ordinary lazy-info failure leaves the FileCards present and produces error-flavoured `LazyFile` states. It does not stop normal file loading. An unknown repository `cache_id` is not an ordinary lazy-info failure; Section 20 defines the complete-snapshot restart.
 
 `LazyFile` renders a colored clickable plank. Selecting the plank submits an explicit file request to the single file-fetch lane. The `LazyFile` becomes a fetching `HuskFile`, then becomes `FullFile` on success or an error-flavoured `LazyFile` on failure.
 
@@ -646,14 +725,14 @@ A lazy-info failure leaves the FileCards present and produces error-flavoured `L
 
 ## 14. ChangeSet file-query observation
 
-`ChangeSet` owns one ordered collection of canonical file-query observers. Neither FileTree nor FileCard creates a query observer. The ChangeSet file-fetch lane initiates both automatic and explicitly selected requests.
+`ChangeSetSnapshot` owns one ordered collection of canonical file-query observers for its immutable manifest. Neither FileTree nor FileCard creates a query observer. The snapshot’s file-fetch lane initiates both automatic and explicitly selected requests.
 
 ```ts
 const fileQueries = createQueries(() => ({
-  queries: orderedFiles().map((entry) => ({
+  queries: props.orderedFiles.map((entry) => ({
     ...api.changeSet.file(
       props.params,
-      manifest.data!.cache_id,
+      props.manifest.cache_id,
       entry,
     ),
     enabled: false,
@@ -661,11 +740,11 @@ const fileQueries = createQueries(() => ({
 }));
 ```
 
-Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only projections of the cache, while the single file-fetch lane performs canonical fetches through `fetchQuery`. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
+Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only projections of the cache, while the single file-fetch lane performs canonical fetches through `fetchQuery`. This is the only plural observer collection required by ChangeSet loading. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
 
-Each observer still receives cache updates for its exact key. `ChangeSet` pairs every observer with the manifest entry at the same index and derives that entry's reactive `FileCardState` from the query result and lazy metadata. It passes those same per-file states to FileTree and FileCard; it does not copy file results into a `filesByKey` store.
+Each observer still receives cache updates for its exact key. `ChangeSetSnapshot` pairs every observer with the manifest entry at the same index and derives that entry's reactive `FileCardState` from the query result and lazy metadata. It passes those same per-file states to FileTree and FileCard; it does not copy file results into a `filesByKey` store.
 
-FileCard receives its state and an explicit-load callback from ChangeSet:
+FileCard receives its state and an explicit-load callback from `ChangeSetSnapshot`:
 
 ```tsx
 <FileCard
@@ -674,7 +753,7 @@ FileCard receives its state and an explicit-load callback from ChangeSet:
 />
 ```
 
-The clickable LazyFile plank invokes `onLoad`. It does not refetch independently. `enqueueExplicitFile` submits that exact canonical file key to the ChangeSet file-fetch lane, which preserves the sequencing rules from Section 11.
+The clickable LazyFile plank invokes `onLoad`. It does not refetch independently. `enqueueExplicitFile` submits that exact canonical file key to the snapshot’s file-fetch lane, which preserves the sequencing rules from Section 11.
 
 ## 15. Derived file state
 
@@ -710,6 +789,8 @@ export type LazyFile =
 ```
 
 The state is derived from the manifest handle, the canonical file query and lazy metadata. It is not stored separately. An active fetch takes precedence so retrying an error or explicitly loading a delayed file immediately produces a fetching `HuskFile`.
+
+The error branch below applies only to ordinary file-specific failures. An unknown repository `cache_id` triggers the snapshot-expiration lifecycle before it can become an error-flavoured `LazyFile`.
 
 ```ts
 function fileCardState(
@@ -751,7 +832,7 @@ TanStack distinguishes data status from fetch status: `status` describes whether
 
 ## 16. Sequence progress
 
-One combined client entity describes the file-fetch lane:
+One combined `ChangeSetSnapshot`-local client entity describes the file-fetch lane:
 
 ```ts
 export type FileSequenceState =
@@ -841,31 +922,44 @@ Those concerns belong to the later navigation section. The only retained hunk pr
 
 ## 19. Reloading a ChangeSet
 
-Reload is explicit:
+Reload is explicit and belongs to the active `ChangeSetContent`:
+
+1. stop the current FileSequence;
+2. refetch the active manifest observer;
+3. let the keyed manifest-result boundary dispose the old `ChangeSetSnapshot` and mount its replacement;
+4. apply the existing outer layout reset policy.
 
 ```ts
 async function reloadChangeSet(): Promise<void> {
   stopFileSequence();
-  resetChangeSetState();
   await manifest.refetch();
+  resetChangeSetState();
 }
 ```
 
-Reload targets the active manifest observer directly. It does not invalidate the manifest cache as an indirect request trigger.
+The replacement snapshot restarts lazy-info observation and strict manifest-order file loading from its own manifest and `cache_id`.
 
-A new manifest normally produces a new `cache_id`.
+Because file query keys contain `cache_id`, the replacement snapshot observes only file entries belonging to its own manifest. Snapshot ownership and disposal—not manual file-cache mutation—prevent old file results from appearing in the replacement.
 
-Because file query keys contain `cache_id`:
-
-- a new snapshot receives new file cache entries automatically;
-- old file responses cannot appear in the new ChangeSet;
-- no manual file cache clearing is required.
-
-If the backend returns the same `cache_id`, it is declaring the snapshot unchanged, and existing file results may be reused.
-
-Routine reloads must not call `removeQueries`.
+Reload targets the active manifest observer directly. It does not invalidate the manifest cache as an indirect request trigger, manually mutate individual file observer results, or routinely call `removeQueries`.
 
 ## 20. Error policy
+
+### Repository cache expiration
+
+Repository `cache_id` is a disposable backend handle. An unknown `cache_id` response is an expected cache-expiration signal, not an error, and must not be presented as one or allowed to continue loading with the expired cache ID.
+
+Instead, `ChangeSetContent` restarts the complete ChangeSet:
+
+1. Stop the current FileSequence.
+2. Dispose the current `ChangeSetSnapshot`.
+3. Refetch the manifest using the same immutable `DiffParams`.
+4. Mount a new `ChangeSetSnapshot` from the replacement manifest.
+5. Restart lazy-info observation and sequential file loading from the beginning using the replacement manifest’s `cache_id`.
+
+The expired snapshot, including its loaded files, is never restored. Multiple unknown-cache responses from the same snapshot trigger only one restart.
+
+If the replacement manifest fails, that manifest failure is an error and uses the normal manifest ErrorPanel and Toast. Ordinary file-specific failures remain localized and do not restart the ChangeSet.
 
 ### Manifest failure
 
@@ -875,12 +969,14 @@ Routine reloads must not call `removeQueries`.
 
 ### Lazy-info failure
 
+- This section applies to ordinary lazy-info failures, not repository cache expiration.
 - FileCards remain.
 - Affected entries become error-flavoured `LazyFile` values.
 - Normal file loading continues.
 
 ### File failure
 
+- This section applies to ordinary file-specific failures, not repository cache expiration.
 - That file query stays in the error state.
 - Its FileCard derives an error-flavoured `LazyFile` with an explicit retry plank.
 - The FileSequence continues to the next entry.
@@ -891,7 +987,7 @@ Routine reloads must not call `removeQueries`.
 - Cancellation is not presented as an error.
 - The old sequence stops silently.
 
-Toast deduplication does not require load IDs. QueryCache and MutationCache callbacks produce one global Toast for each failed attempt, even when several components observe the same query. The component that owns the failed operation renders only its complete localized ErrorPanel and does not produce another Toast.
+Toast deduplication does not require load IDs. QueryCache and MutationCache callbacks produce one global Toast for each ordinary failed attempt, even when several components observe the same query. Cancellation and repository cache expiration produce no Toast. The component that owns an ordinary failed operation renders only its complete localized ErrorPanel and does not produce another Toast.
 
 ## 21. Ordinary queries and commands
 
@@ -976,14 +1072,23 @@ The implementation conforms to this specification when:
 7. Lazy entries are visited in order but are not fetched automatically.
 8. Selecting a LazyFile may run it after the active request without reordering the remaining automatic files.
 9. Every manifest entry gets a DOM-resident FileCard.
-10. ChangeSet owns the ordered file-query observers and supplies each derived file state to FileTree and its corresponding FileCard.
+10. `ChangeSetSnapshot` owns the ordered file-query observers and supplies each derived file state to FileTree and its corresponding FileCard.
 11. File data is never copied into another store.
 12. File failures remain query errors, derive error-flavoured LazyFiles and do not stop the sequence.
-13. Changing snapshots is isolated through `cache_id`.
+13. Every `ChangeSetSnapshot` owns one immutable manifest and uses only that manifest’s `cache_id`.
 14. Expensive FileBody rendering is isolated from unrelated state.
 15. `HuskFile`, `FullFile` and `LazyFile` own distinct headers.
 16. FullFileHeader contains local and global hunk counters, but navigation behavior remains deferred.
 17. No application-level `create*` files or abstractions remain.
+18. One active manifest owner exists per active ChangeSet.
+19. No manifest-dependent observer exists before manifest success.
+20. Inactive Tabs retain no ChangeSet observer, FileSequence or rendered file DOM.
+21. Complete `DiffParams` changes recreate active `ChangeSetContent` while preserving the outer ChangeSet layout state.
+22. View changes do not recreate query owners or perform backend work.
+23. Manifest replacement disposes the previous complete `ChangeSetSnapshot`.
+24. Repository cache expiration replaces the complete snapshot and produces no error presentation.
+25. Snapshot queries use `staleTime: Infinity`, `gcTime: 0` and `retry: false`.
+26. The existing yield/admission behavior remains unchanged by this lifecycle correction.
 
 The two most material proposed corrections beyond the earlier draft are:
 
