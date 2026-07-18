@@ -47,6 +47,7 @@ The existing three-button visual component remains:
 
 ```tsx
 type HintHudProps = {
+  helpOpen: boolean;
   onToggleHelp: () => void;
 };
 ```
@@ -56,6 +57,7 @@ function HintHud(
   props: HintHudProps,
 ) {
   const navigation = useNavigation();
+  const toast = useToasts();
 
   return (
     <nav
@@ -65,9 +67,14 @@ function HintHud(
       <button
         type="button"
         onClick={() =>
-          void navigation.navigate({
-            kind: "next-hunk",
-          })
+          void navigation
+            .navigate({ kind: "next-hunk" })
+            .catch((error) =>
+              toast.showError(
+                "Navigation failed",
+                error,
+              )
+            )
         }
         title="Next hunk (n)"
       >
@@ -77,9 +84,14 @@ function HintHud(
       <button
         type="button"
         onClick={() =>
-          void navigation.navigate({
-            kind: "previous-hunk",
-          })
+          void navigation
+            .navigate({ kind: "previous-hunk" })
+            .catch((error) =>
+              toast.showError(
+                "Navigation failed",
+                error,
+              )
+            )
         }
         title="Previous hunk (N)"
       >
@@ -88,6 +100,7 @@ function HintHud(
 
       <button
         type="button"
+        aria-expanded={props.helpOpen}
         onClick={props.onToggleHelp}
         title="Hotkey help (h)"
       >
@@ -101,6 +114,8 @@ function HintHud(
 Next and Previous use Navigation.
 
 Help remains an explicit callback because Help visibility is not navigation.
+
+Every HintHud navigation Promise is handled at this UI boundary. A rejection produces one persistent “Navigation failed” Toast and no `unhandledrejection`.
 
 ### 66.23 Help and Debug state
 
@@ -118,15 +133,19 @@ const [debugOpen, setDebugOpen] =
 
 They are not variants of one union and are not grouped under a HUD owner.
 
-Debug sampling remains owned by `DebugHud` lifetime:
+Debug FPS, node, and span sampling remains owned by `DebugHud` lifetime:
 
 ```tsx
 <Show when={debugOpen()}>
-  <DebugHud />
+  <DebugHud
+    globalSelectedHunk={() =>
+      hunkDisplay().globalSelectedHunk
+    }
+  />
 </Show>
 ```
 
-Closed Debug performs no RAF sampling or DOM counting.
+Closed Debug performs no RAF sampling. Its Hunk value comes from the ChangeSet-owned `HunkDisplay.globalSelectedHunk`; DebugHud performs no separate hunk DOM count.
 
 Help remains an overlay under `hud/`.
 
@@ -157,6 +176,7 @@ function Hotkeys(
   props: HotkeysProps,
 ) {
   const navigation = useNavigation();
+  const toast = useToasts();
 
   onMount(() => {
     function onKeyDown(
@@ -172,9 +192,14 @@ function Hotkeys(
       ) {
         event.preventDefault();
 
-        void navigation.navigate({
-          kind: "next-hunk",
-        });
+        void navigation
+          .navigate({ kind: "next-hunk" })
+          .catch((error) =>
+            toast.showError(
+              "Navigation failed",
+              error,
+            )
+          );
 
         return;
       }
@@ -185,9 +210,14 @@ function Hotkeys(
       ) {
         event.preventDefault();
 
-        void navigation.navigate({
-          kind: "previous-hunk",
-        });
+        void navigation
+          .navigate({ kind: "previous-hunk" })
+          .catch((error) =>
+            toast.showError(
+              "Navigation failed",
+              error,
+            )
+          );
 
         return;
       }
@@ -195,9 +225,14 @@ function Hotkeys(
       if (event.code === "KeyP") {
         event.preventDefault();
 
-        void navigation.navigate({
-          kind: "top",
-        });
+        void navigation
+          .navigate({ kind: "top" })
+          .catch((error) =>
+            toast.showError(
+              "Navigation failed",
+              error,
+            )
+          );
 
         return;
       }
@@ -367,16 +402,25 @@ export function ChangeSet(
 
         <ChangeSetTitle />
 
-        <FileTree />
+        <FileTree
+          selectedFileIndex={() =>
+            hunkDisplay().selectedFileIndex
+          }
+        />
 
         <FileCards />
 
         <div class="hud-stack">
           <Show when={debugOpen()}>
-            <DebugHud />
+            <DebugHud
+              globalSelectedHunk={() =>
+                hunkDisplay().globalSelectedHunk
+              }
+            />
           </Show>
 
           <HintHud
+            helpOpen={helpOpen()}
             onToggleHelp={toggleHelp}
           />
         </div>

@@ -24,6 +24,8 @@ failure
         └── RetryButton
 ```
 
+This ordinary recoverable-error shape does not apply to an unexpected FullFile renderer exception. That programmer failure uses the separately specified critical unrecoverable strip and has no RetryButton.
+
 ### 64.2 Non-errors
 
 The following are not errors and do not produce Toasts:
@@ -405,6 +407,8 @@ A FileSequence never stops because one file failed.
 
 Every failed FileCard remains represented at its manifest position.
 
+An unexpected FullFile renderer exception is different from an HTTP file failure. It leaves the stable FileCard article mounted where possible and replaces only the failed renderer subtree with a critical unrecoverable strip. The strip presents the complete error, marks its terminal DOM with `data-file-render-error`, and produces one persistent Toast, but it is not a LazyFile, has no hunk target, and offers no RetryButton. Navigation initialization and HunkDisplay observation stop when they encounter that marker; they do not emit another Toast or promote the localized failure. The boundary does not preserve failed DOM, synthesize replacement hunks, remap selection, choose another hunk, or attempt automatic recovery.
+
 Repository cache expiration is not a file failure. It disposes the complete expired `ChangeSetSnapshot`, uses the existing compact ChangeSet loading presentation while the replacement manifest loads, and never produces an error-flavoured LazyFile for the unknown cache response.
 
 An error-flavoured LazyFile displays:
@@ -536,6 +540,8 @@ export function RetryButton(props: {
 - `ErrorBoundary`’s `reset` function for an unexpected rendering error;
 - a ChangeSet reload command where reload is the real user action.
 
+Unexpected FullFile renderer failures are the explicit exception: their critical strip is unrecoverable and therefore contains no RetryButton or ErrorBoundary reset action.
+
 The callback is always supplied. RetryButton has no generic default behavior.
 
 The program never invokes `onRetry` itself.
@@ -544,7 +550,7 @@ The program never invokes `onRetry` itself.
 
 Solid ErrorBoundary contains unexpected errors thrown while rendering or reactively updating its subtree. It does not catch event-handler errors or unrelated scheduled callbacks. [Solid ErrorBoundary documentation](https://docs.solidjs.com/reference/components/error-boundary)
 
-An unexpected error mounts `UnexpectedErrorPanel`:
+Unexpected errors outside the FullFile renderer boundary mount `UnexpectedErrorPanel`:
 
 ```tsx
 function UnexpectedErrorPanel(props: {
@@ -583,6 +589,8 @@ If the user retries and the owner fails again:
 3. a new persistent Toast is appended;
 4. the complete local error remains visible.
 
+A FullFile renderer exception instead mounts its critical unrecoverable strip inside the stable FileCard article where possible. It produces one Toast but exposes no reset action, hunk target, selection repair, or automatic recovery.
+
 ### 64.13 ErrorBoundary placement
 
 Boundaries follow meaningful damage ownership.
@@ -602,13 +610,13 @@ ToastProvider
 │                           └── ChangeSetSnapshot ErrorBoundary
 │                               ├── FileTree ErrorBoundary
 │                               └── FileCards
-│                                   └── FileCard ErrorBoundary
+│                                   └── FullFile renderer ErrorBoundary
 └── ToastViewport
 ```
 
 The nearest boundary owns the damage:
 
-- A FileBody or FileHeader exception replaces only that FileCard.
+- A FullFile renderer or header exception replaces only that FileCard's rendered presentation with its critical unrecoverable strip.
 - A FileTree exception replaces only FileTree.
 - A ChangeSet-wide exception replaces only that ChangeSet.
 - A Tab workflow exception replaces only that Tab’s content.
@@ -618,7 +626,7 @@ The nearest boundary owns the damage:
 - Other FileCards remain available when one FileCard fails.
 - ToastViewport remains available when the App fails.
 
-There is no boundary inside FileBody merely to preserve a partially rendered file. FileCard is the smallest trustworthy file-rendering unit.
+There is no boundary inside DiffGrid, NotebookFile, or another renderer merely to preserve partially rendered content. The FullFile renderer subtree is the smallest contained renderer unit. Its stable outer FileCard article remains where possible, but the failed renderer DOM is not cached or repaired.
 
 Portalled AppHeader contributions remain logically owned by ChangeSet and are caught by the ChangeSet boundary despite their physical DOM location.
 
@@ -663,7 +671,7 @@ These listeners are the final visibility boundary for errors outside Solid’s r
 
 They are not the normal path for query or mutation failures.
 
-Every `mutateAsync` or other intentionally awaited Promise must be handled by its owner. Allowing a handled mutation failure to reach `unhandledrejection` and create a duplicate Toast is a bug.
+Every `mutateAsync` or other intentionally awaited Promise must be handled by its owner. Navigation callers catch a rejected `navigation.navigate(...)`, show one persistent “Navigation failed” Toast, and stop that operation. Allowing an owned failure to reach `unhandledrejection` and create a duplicate Toast is a bug.
 
 ### 64.16 Prohibited error handling
 

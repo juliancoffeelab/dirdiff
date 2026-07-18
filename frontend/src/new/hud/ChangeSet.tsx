@@ -2,12 +2,12 @@
  * Owns one selected ChangeSet's backend observers, file lane, and presentation.
  *
  * The module exports ChangeSet. Its lightweight outer lifetime owns FileTree,
- * file-expansion, and local Help state; its active inner lifetime owns manifest,
- * ordered file observers, strict sequential file-fetch lane, direct hotkeys,
- * Help overlay, compact AppHeader Portals, ChangeSet title, FileTree, and
- * FileCards. It must not copy backend results into Solid state, start concurrent
- * file-diff requests, own workspace or Tab selections, or implement hunk
- * navigation and virtualization in this boundary.
+ * file-expansion, and local Help/Debug state; its active inner lifetime owns
+ * manifest and file observers, strict sequential file-fetch lane, scoped
+ * Navigation composition, direct hotkeys, passive hunk displays, Help overlay,
+ * compact AppHeader Portals, ChangeSet title, FileTree, and FileCards. It must
+ * not copy backend results into Solid state, start concurrent file-diff requests,
+ * own workspace or Tab selections, follow user scrolling, or own line pins.
  */
 import {
   For,
@@ -18,6 +18,7 @@ import {
   onCleanup,
   onMount,
   requestCallback,
+  type Accessor,
   type JSX,
 } from "solid-js";
 import { createStore, type SetStoreFunction } from "solid-js/store";
@@ -45,10 +46,12 @@ import {
   ErrorPanel,
   RetryButton,
   UnexpectedErrorBoundary,
+  useToasts,
 } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets } from "./AppHeader";
-import { FileCard } from "./FileCard";
+import { FileCard, type HunkPosition } from "./FileCard";
+import { NavigationProvider, useNavigation } from "./navigation";
 import type { StoredProfile } from "./Profile";
 
 const SLOW_FILE_THRESHOLD_MS = 8_000;
@@ -144,6 +147,26 @@ type TreeLineStats = {
 };
 
 /**
+ * Mirrors navigation information from the mounted ChangeSet DOM.
+ *
+ * The snapshot must be exact, but Navigation and selection logic must continue
+ * using DOM directly. Consumers format its numeric values and may not mutate it
+ * or treat it as an independent source of hunk identity. A terminal renderer
+ * failure stops further snapshots rather than publishing an inexact value.
+ */
+type HunkDisplay = {
+  /** Manifest file index used for declarative FileTree highlighting. */
+  selectedFileIndex: number | null;
+  /** Global selected position and whether more targets can become available. */
+  globalSelectedHunk: {
+    position: HunkPosition;
+    hasMore: boolean;
+  };
+  /** Per-file selected positions keyed by manifest file index. */
+  fileSelectedHunks: ReadonlyMap<number, HunkPosition>;
+};
+
+/**
  * Establishes one stable ChangeSet lifetime for a Tab's selected parameters.
  *
  * Callers keep this boundary mounted across Tab switches and global view/engine
@@ -153,6 +176,7 @@ type TreeLineStats = {
  */
 export function ChangeSet(props: ChangeSetProps): JSX.Element {
   const [helpOpen, setHelpOpen] = createSignal(false);
+  const [debugOpen, setDebugOpen] = createSignal(false);
   const [state, setState] = createStore<ChangeSetState>({
     treeOpen: false,
     directoryExpansion: {},
@@ -231,6 +255,8 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
             onToggleView={props.onToggleView}
             helpOpen={helpOpen()}
             onHelpOpenChange={setHelpOpen}
+            debugOpen={debugOpen()}
+            onDebugOpenChange={setDebugOpen}
             state={state}
             setState={setState}
           />
@@ -244,8 +270,8 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
  * Defines the complete active-owner inputs for one ChangeSet content lifetime.
  *
  * The outer component supplies durable client state; this inner lifetime owns all
- * query observers, direct hotkeys, Help presentation and external async work and
- * is disposed whenever the Tab hides. The outer owner supplies durable Help state.
+ * query observers, direct hotkeys, HUD presentation and external async work and
+ * is disposed whenever the Tab hides. The outer owner supplies durable HUD state.
  */
 type ChangeSetContentProps = {
   params: DiffParams;
@@ -255,6 +281,8 @@ type ChangeSetContentProps = {
   onToggleView: () => void;
   helpOpen: boolean;
   onHelpOpenChange: (open: boolean) => void;
+  debugOpen: boolean;
+  onDebugOpenChange: (open: boolean) => void;
   state: ChangeSetState;
   setState: SetStoreFunction<ChangeSetState>;
 };
@@ -319,57 +347,84 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 
   return (
     <>
-      <Hotkeys
-        onTop={() => {
-          // Top is a direct page operation and owns no selected DOM entity.
-          window.scrollTo({ top: 0, behavior: "instant" });
-        }}
-        onToggleTree={() => {
-          // FileTree visibility belongs to the lightweight outer ChangeSet store.
-          props.setState("treeOpen", (current) => !current);
-        }}
-        onToggleView={props.onToggleView}
-        onReload={() => {
-          // Reload replaces the complete snapshot and resets outer layout state.
-          void replaceSnapshot(true);
-        }}
-        onToggleHelp={() => {
-          // The persistent outer ChangeSet owns local HUD visibility.
-          props.onHelpOpenChange(!props.helpOpen);
-        }}
-      />
-      <HelpModal open={props.helpOpen} onOpenChange={props.onHelpOpenChange} />
-      <Show when={manifest.isPending || replacingSnapshot()}>
-        <p class="status change-set-title">Loading ChangeSet...</p>
-      </Show>
-      <Show when={!replacingSnapshot() && manifest.error} keyed>
-        {(error) => (
-          <div class="change-set-error">
-            <ErrorPanel title="Failed to load ChangeSet" error={error}>
-              <RetryButton onRetry={() => replaceSnapshot(true)} />
-            </ErrorPanel>
-          </div>
-        )}
-      </Show>
-      <Show when={visibleManifest()} keyed>
+      <Show
+        when={visibleManifest()}
+        keyed
+        fallback={
+          <ChangeSetShell
+            helpOpen={props.helpOpen}
+            debugOpen={props.debugOpen}
+            onToggleTree={() => {
+              // FileTree visibility belongs to the lightweight outer ChangeSet store.
+              props.setState("treeOpen", (current) => !current);
+            }}
+            onToggleView={props.onToggleView}
+            onReload={() => {
+              // Reload replaces the complete snapshot and resets outer layout state.
+              void replaceSnapshot(true);
+            }}
+            onToggleHelp={() => props.onHelpOpenChange(!props.helpOpen)}
+            onHelpOpenChange={props.onHelpOpenChange}
+            onToggleDebug={() => props.onDebugOpenChange(!props.debugOpen)}
+          >
+            {() => (
+              <>
+                <Show when={manifest.isPending || replacingSnapshot()}>
+                  <p class="status change-set-title">Loading ChangeSet...</p>
+                </Show>
+                <Show when={!replacingSnapshot() && manifest.error} keyed>
+                  {(error) => (
+                    <div class="change-set-error">
+                      <ErrorPanel
+                        title="Failed to load ChangeSet"
+                        error={error}
+                      >
+                        <RetryButton onRetry={() => replaceSnapshot(true)} />
+                      </ErrorPanel>
+                    </div>
+                  )}
+                </Show>
+              </>
+            )}
+          </ChangeSetShell>
+        }
+      >
         {(snapshot) => (
-          <UnexpectedErrorBoundary title="Could not render ChangeSet snapshot">
-            <ChangeSetSnapshot
-              params={props.params}
-              manifest={snapshot}
-              view={props.view}
-              profile={props.profile}
-              appHeaderOutlets={props.appHeaderOutlets}
-              state={props.state}
-              setState={props.setState}
-              onRepositoryCacheExpiration={() => {
-                void replaceSnapshot(false);
-              }}
-              onFileSequenceChange={(stop) => {
-                stopFileSequence = stop;
-              }}
-            />
-          </UnexpectedErrorBoundary>
+          <ChangeSetShell
+            helpOpen={props.helpOpen}
+            debugOpen={props.debugOpen}
+            onToggleTree={() => {
+              props.setState("treeOpen", (current) => !current);
+            }}
+            onToggleView={props.onToggleView}
+            onReload={() => {
+              void replaceSnapshot(true);
+            }}
+            onToggleHelp={() => props.onHelpOpenChange(!props.helpOpen)}
+            onHelpOpenChange={props.onHelpOpenChange}
+            onToggleDebug={() => props.onDebugOpenChange(!props.debugOpen)}
+          >
+            {(hunkDisplay) => (
+              <UnexpectedErrorBoundary title="Could not render ChangeSet snapshot">
+                <ChangeSetSnapshot
+                  params={props.params}
+                  manifest={snapshot}
+                  view={props.view}
+                  profile={props.profile}
+                  appHeaderOutlets={props.appHeaderOutlets}
+                  hunkDisplay={hunkDisplay}
+                  state={props.state}
+                  setState={props.setState}
+                  onRepositoryCacheExpiration={() => {
+                    void replaceSnapshot(false);
+                  }}
+                  onFileSequenceChange={(stop) => {
+                    stopFileSequence = stop;
+                  }}
+                />
+              </UnexpectedErrorBoundary>
+            )}
+          </ChangeSetShell>
         )}
       </Show>
     </>
@@ -377,17 +432,82 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 }
 
 /**
- * Defines the direct operations available to the active ChangeSet hotkey listener.
+ * Defines the complete active UI operations surrounding one ChangeSet body.
  *
- * Every callback is required and belongs to its actual state owner. The contract
- * contains no command value, navigation state, Debug operation, or grouped owner.
+ * All callbacks are required and belong to their actual owners. Children are
+ * rendered inside the same root served by the scoped Navigation instance.
  */
-type HotkeysProps = {
-  onTop: () => void;
+type ChangeSetShellProps = {
+  helpOpen: boolean;
+  debugOpen: boolean;
   onToggleTree: () => void;
   onToggleView: () => void;
   onReload: () => void;
   onToggleHelp: () => void;
+  onHelpOpenChange: (open: boolean) => void;
+  onToggleDebug: () => void;
+  children: (hunkDisplay: Accessor<HunkDisplay | null>) => JSX.Element;
+};
+
+/**
+ * Binds one visible ChangeSet body, hotkey listener, and HUD to one DOM root.
+ *
+ * A ready snapshot receives a fresh Provider and therefore one initial hunk
+ * selection. Loading and error bodies retain shell operations but contain no
+ * targets. The wrapper has no layout box and owns no backend state.
+ */
+function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
+  let root!: HTMLElement;
+  const [hunkDisplay, setHunkDisplay] = createSignal<HunkDisplay | null>(null);
+  return (
+    <section ref={root} class="change-set-root" data-change-set-root>
+      <NavigationProvider root={() => root}>
+        <Hotkeys
+          onToggleTree={props.onToggleTree}
+          onToggleView={props.onToggleView}
+          onReload={props.onReload}
+          onToggleHelp={props.onToggleHelp}
+          onToggleDebug={props.onToggleDebug}
+        />
+        {props.children(hunkDisplay)}
+        <HunkDisplayObserver
+          root={() => root}
+          onDisplayChange={(display) => setHunkDisplay(display)}
+        />
+        <div class="hud-stack">
+          <Show when={props.debugOpen}>
+            <DebugHud
+              globalSelectedHunk={() =>
+                hunkDisplay()?.globalSelectedHunk ?? null
+              }
+            />
+          </Show>
+          <HintHud
+            helpOpen={props.helpOpen}
+            onToggleHelp={props.onToggleHelp}
+          />
+        </div>
+        <HelpModal
+          open={props.helpOpen}
+          onOpenChange={props.onHelpOpenChange}
+        />
+      </NavigationProvider>
+    </section>
+  );
+}
+
+/**
+ * Defines the direct operations available to the active ChangeSet hotkey listener.
+ *
+ * Every callback is required and belongs to its actual state owner. Hunk and
+ * Top operations are obtained from the enclosing ChangeSet Navigation instance.
+ */
+type HotkeysProps = {
+  onToggleTree: () => void;
+  onToggleView: () => void;
+  onReload: () => void;
+  onToggleHelp: () => void;
+  onToggleDebug: () => void;
 };
 
 /**
@@ -398,6 +518,8 @@ type HotkeysProps = {
  * before invoking the corresponding operation. Cleanup removes the listener.
  */
 function Hotkeys(props: HotkeysProps): null {
+  const navigation = useNavigation();
+  const toast = useToasts();
   onMount(() => {
     /**
      * Routes one unmodified non-editable key event to its concrete owner action.
@@ -406,30 +528,58 @@ function Hotkeys(props: HotkeysProps): null {
      * global modifier exclusion and therefore does not suppress recognized keys.
      */
     function onKeyDown(event: KeyboardEvent): void {
-      if (
-        event.defaultPrevented ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      ) {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (event.metaKey || event.ctrlKey) {
+        return;
+      }
+      if (event.altKey) {
         return;
       }
       const target = event.target;
       // Let editable controls handle their own keystrokes instead of treating
       // user input as a ChangeSet hotkey.
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
+      if (target instanceof HTMLElement) {
+        if (target.isContentEditable) {
+          return;
+        }
+        if (
           target instanceof HTMLInputElement ||
-          target instanceof HTMLTextAreaElement ||
-          target instanceof HTMLSelectElement)
-      ) {
-        return;
+          target instanceof HTMLTextAreaElement
+        ) {
+          return;
+        }
+        if (target instanceof HTMLSelectElement) {
+          return;
+        }
       }
 
+      if (event.code === "KeyN" && event.shiftKey) {
+        event.preventDefault();
+        void navigation
+          .navigate({ kind: "previous-hunk" })
+          .catch((error: unknown) =>
+            toast.showError("Navigation failed", error),
+          );
+        return;
+      }
+      if (event.code === "KeyN") {
+        event.preventDefault();
+        void navigation
+          .navigate({ kind: "next-hunk" })
+          .catch((error: unknown) =>
+            toast.showError("Navigation failed", error),
+          );
+        return;
+      }
       if (event.code === "KeyP") {
         event.preventDefault();
-        props.onTop();
+        void navigation
+          .navigate({ kind: "top" })
+          .catch((error: unknown) =>
+            toast.showError("Navigation failed", error),
+          );
         return;
       }
       if (event.code === "KeyT") {
@@ -447,6 +597,11 @@ function Hotkeys(props: HotkeysProps): null {
         props.onReload();
         return;
       }
+      if (event.code === "KeyD") {
+        event.preventDefault();
+        props.onToggleDebug();
+        return;
+      }
       if (event.code === "KeyH") {
         event.preventDefault();
         props.onToggleHelp();
@@ -461,11 +616,435 @@ function Hotkeys(props: HotkeysProps): null {
 }
 
 /**
+ * Describes the sampled values shown by the established developer HUD.
+ *
+ * Values are presentation strings sampled only while DebugHud is mounted. Hunk
+ * position is reactive `HunkDisplay` data and is deliberately not sampled.
+ */
+type DebugMetrics = {
+  fps: string;
+  nodes: string;
+  spans: string;
+};
+
+/**
+ * Defines the exact reactive hunk value displayed by DebugHud.
+ *
+ * Null exists only before the first DOM calculation. The HUD may format this
+ * value but must not query hunk DOM, calculate navigation state, or mutate it.
+ */
+type DebugHudProps = {
+  globalSelectedHunk: Accessor<HunkDisplay["globalSelectedHunk"] | null>;
+};
+
+/**
+ * Defines the independent Help operation required by the fixed HintHud.
+ *
+ * Navigation comes from context; this contract must not carry hunk state,
+ * destinations, counters, or grouped HUD ownership.
+ */
+type HintHudProps = {
+  helpOpen: boolean;
+  onToggleHelp: () => void;
+};
+
+/**
+ * Renders the established three-button explicit-navigation HUD.
+ *
+ * Next and Previous call the enclosing ChangeSet Navigation instance. Help
+ * remains an independent UI operation owned by the outer ChangeSet.
+ */
+function HintHud(props: HintHudProps): JSX.Element {
+  const navigation = useNavigation();
+  const toast = useToasts();
+  return (
+    <nav class="hunk-nav" aria-label="Hunk navigation">
+      <button
+        type="button"
+        onClick={() =>
+          void navigation
+            .navigate({ kind: "next-hunk" })
+            .catch((error: unknown) =>
+              toast.showError("Navigation failed", error),
+            )
+        }
+        title="Next hunk (n)"
+      >
+        Next <kbd>n</kbd>
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void navigation
+            .navigate({ kind: "previous-hunk" })
+            .catch((error: unknown) =>
+              toast.showError("Navigation failed", error),
+            )
+        }
+        title="Previous hunk (N)"
+      >
+        Prev <kbd>N</kbd>
+      </button>
+      <button
+        type="button"
+        aria-expanded={props.helpOpen}
+        onClick={props.onToggleHelp}
+        title="Hotkey help (h)"
+      >
+        Help <kbd>h</kbd>
+      </button>
+    </nav>
+  );
+}
+
+/**
+ * Renders the established developer metrics panel while its owner enables it.
+ *
+ * The component samples frame rate and document element counts. Its hunk value
+ * formats the exact reactive mirror calculated from the ChangeSet DOM. Cleanup
+ * cancels its animation frame and it owns no navigation or selected identity.
+ */
+function DebugHud(props: DebugHudProps): JSX.Element {
+  const [metrics, setMetrics] = createSignal<DebugMetrics>({
+    fps: "--",
+    nodes: "--",
+    spans: "--",
+  });
+  let frame = 0;
+  let sampleStartedAt = performance.now();
+  let sampleFrames = 0;
+  let displayUpdatedAt = sampleStartedAt;
+  let currentFps = 0;
+
+  onMount(() => {
+    /**
+     * Samples current visible document metrics without changing application state.
+     */
+    function updateMetrics(): void {
+      setMetrics({
+        fps: currentFps ? String(Math.round(currentFps)) : "--",
+        nodes: document.querySelectorAll("*").length.toLocaleString(),
+        spans: document.querySelectorAll("span").length.toLocaleString(),
+      });
+    }
+
+    /**
+     * Advances the frame sample and refreshes visible text at the stable cadence.
+     *
+     * The callback schedules exactly one successor until component cleanup.
+     */
+    function tick(now: number): void {
+      sampleFrames += 1;
+      const sampleElapsed = now - sampleStartedAt;
+      if (sampleElapsed >= 400) {
+        currentFps = (sampleFrames * 1000) / sampleElapsed;
+        sampleStartedAt = now;
+        sampleFrames = 0;
+      }
+      if (now - displayUpdatedAt >= 900) {
+        updateMetrics();
+        displayUpdatedAt = now;
+      }
+      frame = requestAnimationFrame(tick);
+    }
+
+    updateMetrics();
+    frame = requestAnimationFrame(tick);
+    onCleanup(() => cancelAnimationFrame(frame));
+  });
+
+  return (
+    <div class="debug-hud" aria-label="Developer metrics">
+      <DebugMetric label="FPS" value={metrics().fps} />
+      <DebugMetric label="Nodes" value={metrics().nodes} />
+      <DebugMetric label="Spans" value={metrics().spans} />
+      <DebugMetric
+        label="Hunks"
+        value={
+          props.globalSelectedHunk() === null
+            ? "--/--"
+            : `${props.globalSelectedHunk()?.position.current ?? "—"}/${
+                props.globalSelectedHunk()?.position.total ?? 0
+              }${props.globalSelectedHunk()?.hasMore === true ? "+" : ""}`
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Renders one label/value pair inside the established developer HUD grid.
+ *
+ * Callers provide final display strings. The component owns no sampling or
+ * state and preserves the exact existing visual structure.
+ */
+function DebugMetric(props: { label: string; value: string }): JSX.Element {
+  return (
+    <div class="debug-metric">
+      <span class="debug-metric-label">{props.label}</span>
+      <strong class="debug-metric-value">{props.value}</strong>
+    </div>
+  );
+}
+
+/**
+ * Defines the one-way DOM mirror callback owned by ChangeSetShell.
+ *
+ * `root` is the mounted ChangeSet root. `onDisplayChange` receives every
+ * complete immutable replacement value. The observer must never write DOM or
+ * expose data to Navigation.
+ */
+type HunkDisplayObserverProps = {
+  root: Accessor<HTMLElement>;
+  onDisplayChange: (display: HunkDisplay) => void;
+};
+
+/**
+ * Mirrors exact hunk display data from primitive FileCard DOM attributes.
+ *
+ * One subtree observer watches only `data-hunk-set` and selected identity. It
+ * performs no selection, navigation, scrolling, enrichment, expansion, fetch,
+ * counter write, or FileTree write. Its first calculation runs after the
+ * Navigation provider has synchronously selected the initial target. A terminal
+ * file-render marker disconnects observation and retains only the last exact
+ * snapshot without producing another failure notification.
+ */
+function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
+  const toast = useToasts();
+  onMount(() => {
+    const root = props.root();
+
+    /**
+     * Parses one FileCard's complete semantic hunk set.
+     *
+     * The parsed kind and participation state determine only `hasMore`.
+     * Concrete position and total calculation continues to walk hunk targets.
+     */
+    function parseHunkSet(card: HTMLElement): {
+      kind: "husk" | "lazy" | "zero" | "real";
+      skipped: boolean;
+    } {
+      const hunkSet = card.dataset.hunkSet;
+      if (hunkSet === undefined) {
+        throw new Error("Every FileCard requires data-hunk-set.");
+      }
+      const pseudo = /^(husk|lazy|zero)(:skip)?$/.exec(hunkSet);
+      if (pseudo !== null) {
+        const kind = pseudo[1];
+        switch (kind) {
+          case "husk":
+          case "lazy":
+          case "zero":
+            return { kind, skipped: pseudo[2] === ":skip" };
+        }
+        throw new Error("FileCard has an invalid pseudo-hunk set.");
+      }
+      const real = /^real:([1-9]\d*)(:skip)?$/.exec(hunkSet);
+      if (real === null) {
+        throw new Error(`FileCard has invalid hunk set ${hunkSet}.`);
+      }
+      return { kind: "real", skipped: real[2] === ":skip" };
+    }
+
+    /**
+     * Calculates the complete exact display mirror from current FileCard DOM.
+     *
+     * The calculation walks concrete targets in DOM order and reads semantic
+     * hunk sets only for `hasMore`. It does not audit redundant renderer counts,
+     * classes, or target invariants; Navigation validates the target involved in
+     * each action. Stable positions include skipped identities, while displayed
+     * totals count participating targets only.
+     */
+    function calculateDisplay(): HunkDisplay {
+      const cards = Array.from(
+        root.querySelectorAll<HTMLElement>("[data-file-card]"),
+      );
+      const selectedCards = cards.filter(
+        (card) => card.dataset.selectedHunkKind !== undefined,
+      );
+      if (cards.length === 0) {
+        if (selectedCards.length !== 0) {
+          throw new Error("Empty ChangeSet contains a selected FileCard.");
+        }
+        return {
+          selectedFileIndex: null,
+          globalSelectedHunk: {
+            position: { current: null, total: 0 },
+            hasMore: false,
+          },
+          fileSelectedHunks: new Map(),
+        };
+      }
+      if (selectedCards.length !== 1) {
+        throw new Error(
+          "A non-empty ChangeSet requires exactly one selected FileCard.",
+        );
+      }
+
+      let stablePositionOffset = 0;
+      let participatingTotal = 0;
+      let selectedCurrent: number | null = null;
+      let selectedFileIndex: number | null = null;
+      let hasMore = false;
+      const fileSelectedHunks = new Map<number, HunkPosition>();
+
+      cards.forEach((card) => {
+        const fileIndex = Number(card.dataset.fileIndex);
+        if (!Number.isInteger(fileIndex) || fileIndex < 0) {
+          throw new Error("FileCard has an invalid manifest file index.");
+        }
+        const hunkSet = parseHunkSet(card);
+        const targets = Array.from(
+          card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
+        );
+        const participatingTargets = targets.filter(
+          (target) => !target.classList.contains("skip"),
+        );
+        hasMore ||=
+          hunkSet.kind === "husk" || hunkSet.kind === "lazy" || hunkSet.skipped;
+        let localCurrent: number | null = null;
+        if (card === selectedCards[0]) {
+          selectedFileIndex = fileIndex;
+          const selectedKind = card.dataset.selectedHunkKind;
+          const selectedIndexText = card.dataset.selectedHunkIndex;
+          let selectedTarget: HTMLElement | undefined;
+          if (selectedKind === "real" || selectedKind === "skip") {
+            if (selectedIndexText === undefined) {
+              throw new Error("Selected coordinate has no hunk index.");
+            }
+            selectedTarget = targets.find(
+              (target) =>
+                (target.dataset.hunkKind === "real" ||
+                  target.dataset.hunkKind === "skip") &&
+                target.dataset.hunkIndex === selectedIndexText,
+            );
+          } else if (
+            selectedKind === "husk" ||
+            selectedKind === "lazy" ||
+            selectedKind === "zero"
+          ) {
+            if (selectedIndexText !== undefined) {
+              throw new Error("Selected pseudo-hunk has a coordinate.");
+            }
+            selectedTarget = targets.find(
+              (target) => target.dataset.hunkKind === selectedKind,
+            );
+            if (
+              selectedTarget === undefined &&
+              (selectedKind === "husk" || selectedKind === "lazy")
+            ) {
+              // A loaded FullFile leaves its stale selected pseudo identity on
+              // the FileCard; both explicit directions continue at target zero.
+              selectedTarget = targets[0];
+            }
+          } else {
+            throw new Error("FileCard has an invalid selected hunk kind.");
+          }
+          if (selectedTarget === undefined) {
+            throw new Error("Selected hunk has no calculable DOM position.");
+          }
+          localCurrent = targets.indexOf(selectedTarget) + 1;
+          selectedCurrent = stablePositionOffset + localCurrent;
+        }
+        const localTotal = participatingTargets.length;
+        fileSelectedHunks.set(fileIndex, {
+          current: localCurrent,
+          total: localTotal,
+        });
+        stablePositionOffset += targets.length;
+        participatingTotal += localTotal;
+      });
+
+      if (selectedFileIndex === null || selectedCurrent === null) {
+        throw new Error("Selected hunk has no calculable DOM position.");
+      }
+      return {
+        selectedFileIndex,
+        globalSelectedHunk: {
+          position: { current: selectedCurrent, total: participatingTotal },
+          hasMore,
+        },
+        fileSelectedHunks,
+      };
+    }
+
+    let alive = true;
+    let observer: MutationObserver | null = null;
+    let calculationQueued = false;
+    onCleanup(() => {
+      alive = false;
+      observer?.disconnect();
+    });
+
+    /**
+     * Coalesces one complete display calculation after renderer mount work.
+     *
+     * DiffGrid places its imperative row targets during mount after FileCard has
+     * updated `data-hunk-set`. The extra microtask observes the completed owner
+     * operation instead of interpreting that internal transition as invalid DOM.
+     */
+    function queueDisplayCalculation(): void {
+      if (calculationQueued) {
+        return;
+      }
+      calculationQueued = true;
+      queueMicrotask(() => {
+        calculationQueued = false;
+        if (!alive) {
+          return;
+        }
+        if (root.querySelector("[data-file-render-error]") !== null) {
+          // The renderer already exposed terminal local damage and its Toast.
+          // Preserve the last successful display without repair or duplication.
+          observer?.disconnect();
+          return;
+        }
+        try {
+          props.onDisplayChange(calculateDisplay());
+        } catch (error) {
+          observer?.disconnect();
+          toast.showError(
+            "Could not calculate hunk display",
+            error instanceof Error
+              ? error
+              : new Error("Hunk display calculation threw a non-Error value."),
+          );
+        }
+      });
+    }
+
+    // Navigation selects the first target synchronously during mount. Deferring
+    // observer attachment one microtask makes the first mirror include it.
+    queueMicrotask(() => {
+      if (!alive || !root.isConnected) {
+        return;
+      }
+      observer = new MutationObserver(() => {
+        queueDisplayCalculation();
+      });
+      observer.observe(root, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: [
+          "data-hunk-set",
+          "data-selected-hunk-kind",
+          "data-selected-hunk-index",
+          "data-file-render-error",
+        ],
+      });
+      queueDisplayCalculation();
+    });
+  });
+  return null;
+}
+
+/**
  * Renders the ChangeSet-owned hotkey reference as the established modal overlay.
  *
- * Callers provide explicit visibility and update ownership. Unavailable hunk and
- * Debug operations remain visible but disabled; removed file-wide fold operations
- * are absent. Backdrop and Close actions report `false` to the owner.
+ * Callers provide explicit visibility and update ownership. Implemented hunk and
+ * Debug operations are enabled, later navigation operations remain disabled, and
+ * removed file-wide fold operations are absent. Backdrop and Close actions report
+ * `false` to the owner.
  */
 function HelpModal(props: {
   open: boolean;
@@ -492,12 +1071,12 @@ function HelpModal(props: {
             <HotkeyHelpRow
               keys="n"
               label="Go to the next hunk"
-              disabled={true}
+              disabled={false}
             />
             <HotkeyHelpRow
               keys="N"
               label="Go to the previous hunk"
-              disabled={true}
+              disabled={false}
             />
             <HotkeyHelpRow keys="p" label="Go to the top" disabled={false} />
           </HotkeyHelpSection>
@@ -522,7 +1101,7 @@ function HelpModal(props: {
             <HotkeyHelpRow
               keys="d"
               label="Toggle developer metrics"
-              disabled={true}
+              disabled={false}
             />
             <HotkeyHelpRow
               keys="h"
@@ -590,6 +1169,7 @@ type ChangeSetSnapshotProps = {
   view: DiffViewMode;
   profile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
+  hunkDisplay: Accessor<HunkDisplay | null>;
   state: ChangeSetState;
   setState: SetStoreFunction<ChangeSetState>;
   onRepositoryCacheExpiration(): void;
@@ -1059,6 +1639,9 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             states={fileStates()}
             open={props.state.treeOpen}
             view={props.view}
+            selectedFileIndex={() =>
+              props.hunkDisplay()?.selectedFileIndex ?? null
+            }
             directoryExpansion={props.state.directoryExpansion}
             fileExpansion={props.state.fileExpansion}
             onOpenChange={(open) => props.setState("treeOpen", open)}
@@ -1072,6 +1655,9 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                 );
               }
             }}
+            onDirectoryReveal={(directory) =>
+              props.setState("directoryExpansion", directory.path, true)
+            }
             onFileExpandedChange={(file, expanded) =>
               props.setState(
                 "fileExpansion",
@@ -1108,10 +1694,23 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                             currentState(),
                             props.state.fileExpansion,
                           )}
+                          explicitlyCollapsed={
+                            props.state.fileExpansion[
+                              manifestEntryKey(file.entry)
+                            ] === false
+                          }
                           admitted={admittedFiles[fileIndex()] === true}
                           engine={props.params.engine}
                           view={props.view}
                           aggressiveFolds={aggressiveFolds()}
+                          globalSelectedHunk={() =>
+                            props.hunkDisplay()?.globalSelectedHunk ?? null
+                          }
+                          fileSelectedHunk={() =>
+                            props
+                              .hunkDisplay()
+                              ?.fileSelectedHunks.get(fileIndex()) ?? null
+                          }
                           onExpandedChange={(expanded) =>
                             props.setState(
                               "fileExpansion",
@@ -1175,6 +1774,7 @@ type FileTreeProps = {
   states: FileTreeState[];
   open: boolean;
   view: DiffViewMode;
+  selectedFileIndex: Accessor<number | null>;
   directoryExpansion: Record<string, boolean | undefined>;
   fileExpansion: Record<string, boolean | undefined>;
   onOpenChange: (open: boolean) => void;
@@ -1182,6 +1782,7 @@ type FileTreeProps = {
     directory: ManifestDirectory,
     expanded: boolean,
   ) => void;
+  onDirectoryReveal: (directory: ManifestDirectory) => void;
   onFileExpandedChange: (file: ManifestFile, expanded: boolean) => void;
 };
 
@@ -1193,6 +1794,7 @@ type FileTreeProps = {
  * stable across progressively available file statistics.
  */
 function FileTree(props: FileTreeProps): JSX.Element {
+  let shell!: HTMLDivElement;
   const files = createMemo(() => manifestFilesInOrder(props.tree));
   const indexByKey = createMemo(
     () =>
@@ -1201,16 +1803,26 @@ function FileTree(props: FileTreeProps): JSX.Element {
       ),
   );
   /**
-   * Resolves one manifest file to the exact shared ChangeSet projection.
+   * Resolves one manifest file to its required manifest-order file index.
+   *
+   * FileTree highlighting and progressive state lookup share this exact index.
+   * Missing identity violates the immutable manifest ordering and throws.
+   */
+  const indexForFile = (file: ManifestFile): number => {
+    const index = indexByKey().get(manifestEntryKey(file.entry));
+    if (index === undefined) {
+      throw new Error(`FileTree cannot index ${fileDisplayName(file.entry)}.`);
+    }
+    return index;
+  };
+  /**
+   * Resolves one manifest file to the exact shared ChangeSet file state.
    *
    * Missing indices or states violate the required parallel manifest/state
    * ordering and throw rather than producing an incomplete tree row.
    */
   const stateForFile = (file: ManifestFile): FileTreeState => {
-    const index = indexByKey().get(manifestEntryKey(file.entry));
-    if (index === undefined) {
-      throw new Error(`FileTree cannot index ${fileDisplayName(file.entry)}.`);
-    }
+    const index = indexForFile(file);
     const state = props.states[index];
     if (state === undefined) {
       throw new Error(
@@ -1218,6 +1830,94 @@ function FileTree(props: FileTreeProps): JSX.Element {
       );
     }
     return state;
+  };
+  /**
+   * Reveals the DOM-highlighted file inside only the FileTree scroll container.
+   *
+   * Opening completes synchronously before this microtask reads the selected
+   * file index. Collapsed tree-only ancestors are revealed without
+   * expanding any FileCard. The operation never changes hunk selection or
+   * main-page scroll position and stops if the tree was disposed meanwhile.
+   */
+  const revealSelectedFile = (): void => {
+    queueMicrotask(() => {
+      if (!shell.isConnected) {
+        return;
+      }
+      const sidebar = shell.querySelector<HTMLElement>(".file-tree-sidebar");
+      if (sidebar === null) {
+        return;
+      }
+      const numericFileIndex = props.selectedFileIndex();
+      if (numericFileIndex === null) {
+        return;
+      }
+      if (!Number.isInteger(numericFileIndex) || numericFileIndex < 0) {
+        throw new Error("Selected hunk display has an invalid file index.");
+      }
+      const selectedFile = files()[numericFileIndex];
+      if (selectedFile === undefined) {
+        throw new Error(
+          "Selected hunk display is outside the manifest file order.",
+        );
+      }
+
+      /**
+       * Returns the manifest directory chain containing one concrete file.
+       *
+       * The returned order is outermost to innermost so revealing the chain
+       * mounts each nested FileTree group before the selected row is measured.
+       */
+      function directoryPathToFile(
+        nodes: ManifestNode[],
+        target: ManifestFile,
+      ): ManifestDirectory[] | null {
+        for (const node of nodes) {
+          if (node.type === "file") {
+            if (
+              manifestEntryKey(node.entry) === manifestEntryKey(target.entry)
+            ) {
+              return [];
+            }
+            continue;
+          }
+          const childPath = directoryPathToFile(node.entries, target);
+          if (childPath !== null) {
+            return [node, ...childPath];
+          }
+        }
+        return null;
+      }
+
+      const directoryPath = directoryPathToFile(props.tree, selectedFile);
+      if (directoryPath === null) {
+        throw new Error("Selected FileCard is absent from the manifest tree.");
+      }
+      for (const directory of directoryPath) {
+        if (props.directoryExpansion[directory.path] === false) {
+          props.onDirectoryReveal(directory);
+        }
+      }
+
+      queueMicrotask(() => {
+        if (!shell.isConnected) {
+          return;
+        }
+        const selectedRow = sidebar.querySelector<HTMLElement>(
+          `[data-file-tree-index="${numericFileIndex}"]`,
+        );
+        if (selectedRow === null) {
+          throw new Error("FileTree did not reveal its selected file row.");
+        }
+        const sidebarRect = sidebar.getBoundingClientRect();
+        const rowRect = selectedRow.getBoundingClientRect();
+        if (rowRect.top < sidebarRect.top) {
+          sidebar.scrollTop -= sidebarRect.top - rowRect.top;
+        } else if (rowRect.bottom > sidebarRect.bottom) {
+          sidebar.scrollTop += rowRect.bottom - sidebarRect.bottom;
+        }
+      });
+    });
   };
   /**
    * Recursively renders one immutable manifest node at its required tree depth.
@@ -1273,10 +1973,16 @@ function FileTree(props: FileTreeProps): JSX.Element {
       state.state === "lazy" && state.file.kind === "deferred"
         ? state.file.info.lazy
         : node.entry.lazy;
+    const fileIndex = indexForFile(node);
     return (
       <div
         class="file-tree-file"
+        data-file-tree-index={fileIndex}
+        aria-current={
+          props.selectedFileIndex() === fileIndex ? "true" : undefined
+        }
         classList={{
+          "active-hunk-file": props.selectedFileIndex() === fileIndex,
           added: fileStatus === "added",
           removed: fileStatus === "deleted",
           renamed: fileStatus === "renamed",
@@ -1312,6 +2018,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
   return (
     <Show when={files().length > 0 || props.view === "inline"}>
       <div
+        ref={shell}
         class="file-tree-shell"
         classList={{
           open: props.open,
@@ -1332,7 +2039,13 @@ function FileTree(props: FileTreeProps): JSX.Element {
         <button
           type="button"
           class="file-tree-toggle"
-          onClick={() => props.onOpenChange(!props.open)}
+          onClick={() => {
+            const opening = !props.open;
+            props.onOpenChange(opening);
+            if (opening) {
+              revealSelectedFile();
+            }
+          }}
           aria-expanded={props.open}
           aria-controls="fileTreeSidebar"
           aria-label={props.open ? "Close file tree" : "Open file tree"}

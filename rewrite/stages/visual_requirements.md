@@ -27,3 +27,7 @@ Only the following visual differences between `v_old` and `v_new` are authorized
    Once a manifest is available, `v_new` renders its complete FileTree and one stable FileCard per manifest entry instead of waiting for each file result before inserting that entry. Ordinary queued or fetching files use their state-specific HuskFile and HuskFileHeader until they become FullFile or LazyFile. This exception applies only to the in-progress file-loading presentation; loaded FileTree entries, FullFile rendering, dimensions, typography, colors, sticky behavior and final layout remain subject to pixel-perfect parity.
 
 No other visual difference is permitted. Everything not listed above must remain a pixel-perfect 1:1 copy of `v_old`.
+
+## Appendix B. Explicitly forbidden selection rectangles
+
+Hunk selection must not draw a rectangular outline around the complete FileCard or around a LazyFile explicit-load plank. Selected real or virtual hunk-row decoration remains governed by the hunk specification. This prohibition is tracked separately from the added or changed surfaces in Appendix A and makes no claim that such rectangles are part of the stable visual contract.

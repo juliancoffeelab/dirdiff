@@ -1,14 +1,17 @@
 /**
  * Renders one stable manifest-position file owner and its complete state branch.
  *
- * The module exports FileCard. It owns HuskFile, LazyFile, FullFile, their
- * distinct headers, FileBody dispatch, per-card rendering containment, and the
- * explicit lazy-load affordance. Callers provide a reactive derived state,
- * ChangeSet-owned expansion, and the single-lane load command. This module must
- * not observe queries, schedule HTTP work, own ChangeSet progress, or navigate
+ * The module exports FileCard and its HunkPosition display contract. It owns
+ * HuskFile, LazyFile, FullFile, their distinct headers, FileBody dispatch,
+ * per-card rendering containment, and the explicit lazy-load affordance.
+ * Callers provide a reactive derived state, ChangeSet-owned expansion, hunk
+ * display accessors, and the single-lane load command. This module must not
+ * observe queries, schedule HTTP work, own ChangeSet progress, or navigate
  * hunks. File representation changes remain internal to this owner.
  */
 import {
+  ErrorBoundary,
+  For,
   Show,
   createSignal,
   onCleanup,
@@ -27,11 +30,13 @@ import type {
 import {
   ErrorPanel,
   RetryButton,
-  UnexpectedErrorBoundary,
+  presentError,
+  useToasts,
 } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import { DiffGrid } from "./DiffGrid";
 import { NotebookFile } from "./NotebookFile";
+import type { PseudoHunkIdentity, RealHunkIdentity } from "./navigation";
 
 /**
  * Classifies one hydrated text file by the cost of fully rendering its rows.
@@ -60,6 +65,46 @@ type RichZone = {
  * split text. The mode must never represent loading, folding, or navigation.
  */
 type FileRenderMode = "rich" | "virtual";
+
+/**
+ * Describes the direct rich-materialization operation attached by FullFile.
+ *
+ * Navigation may call the method on a virtual FileCard and await mounted rich
+ * DOM. The operation changes no selected identity, counter, or scroll position.
+ */
+type EnrichableFileCard = HTMLElement & {
+  waitToEnrich: () => Promise<void>;
+};
+
+/**
+ * Represents selected position data within one global or file-local scope.
+ *
+ * `current` is the selected identity's one-based stable DOM position and is
+ * null only when that scope has no selected position. `total` counts currently
+ * participating targets only. A skipped selection keeps its stable position,
+ * so `current` may exceed `total`. Consumers format these numbers and must not
+ * use them for navigation.
+ */
+export type HunkPosition = {
+  current: number | null;
+  total: number;
+};
+
+/**
+ * Defines the exact derived hunk data required by every FileCard header.
+ *
+ * Null access results exist only before the ChangeSet performs its initial DOM
+ * calculation. The global value also reports whether more hunk targets can
+ * become available. FileCard formats the values but never changes or navigates
+ * from them.
+ */
+type HunkCounterProps = {
+  globalSelectedHunk: Accessor<{
+    position: HunkPosition;
+    hasMore: boolean;
+  } | null>;
+  fileSelectedHunk: Accessor<HunkPosition | null>;
+};
 
 /**
  * Returns the specified rich-entry and virtual-exit distances for one row count.
@@ -173,12 +218,15 @@ type FileCardState = HuskFileState | FullFileState | LazyFileState;
  * Defines every input required by one stable FileCard owner.
  *
  * Expansion remains ChangeSet-owned so it survives active-content replacement.
+ * `explicitlyCollapsed` distinguishes a user/directory collapse from the
+ * bodyless default Husk presentation, which still participates in navigation.
  * FileCard may only request an explicit load and expansion change; it cannot
  * mutate its state or begin a query independently.
  */
 type FileCardProps = {
   state: FileCardState;
   expanded: boolean;
+  explicitlyCollapsed: boolean;
   /**
    * Allows this FileCard to mount its expensive FileBody after the file lane yields.
    *
@@ -190,29 +238,30 @@ type FileCardProps = {
   aggressiveFolds: boolean;
   onExpandedChange: (expanded: boolean) => void;
   onLoad: () => void;
-};
+} & HunkCounterProps;
 
 /**
- * Contains one file renderer failure without damaging sibling FileCards.
+ * Renders one stable manifest-position file owner and contains its renderer.
  *
  * Callers keep this component mounted at one manifest position and replace only
- * its reactive state. Unexpected header or body failures produce one complete
- * local panel and Toast through the shared boundary.
+ * its reactive state. FullFile renderer failures remain inside the stable
+ * article; ordinary backend failures arrive as the explicit LazyFile state.
  */
 export function FileCard(props: FileCardProps): JSX.Element {
   return (
-    <UnexpectedErrorBoundary title="Could not render file">
-      <FileCardContent
-        state={props.state}
-        expanded={props.expanded}
-        admitted={props.admitted}
-        engine={props.engine}
-        view={props.view}
-        aggressiveFolds={props.aggressiveFolds}
-        onExpandedChange={props.onExpandedChange}
-        onLoad={props.onLoad}
-      />
-    </UnexpectedErrorBoundary>
+    <FileCardContent
+      state={props.state}
+      expanded={props.expanded}
+      explicitlyCollapsed={props.explicitlyCollapsed}
+      admitted={props.admitted}
+      engine={props.engine}
+      view={props.view}
+      aggressiveFolds={props.aggressiveFolds}
+      globalSelectedHunk={props.globalSelectedHunk}
+      fileSelectedHunk={props.fileSelectedHunk}
+      onExpandedChange={props.onExpandedChange}
+      onLoad={props.onLoad}
+    />
   );
 }
 
@@ -225,6 +274,31 @@ export function FileCard(props: FileCardProps): JSX.Element {
  */
 function FileCardContent(props: FileCardProps): JSX.Element {
   let card!: HTMLElement;
+
+  /**
+   * Describes this FileCard's complete semantic hunk target set.
+   *
+   * The value changes only with target identity or participation. Full files
+   * awaiting body admission retain one Husk target, while collapsed real files
+   * retain their complete coordinate-preserving skipped target count.
+   */
+  function hunkSet(): string {
+    if (props.state.state === "husk") {
+      return props.explicitlyCollapsed ? "husk:skip" : "husk";
+    }
+    if (props.state.state === "lazy") {
+      return props.expanded ? "lazy" : "lazy:skip";
+    }
+    const count = props.state.file.hunk_count;
+    if (count === 0) {
+      return props.expanded ? "zero" : "zero:skip";
+    }
+    if (!props.expanded) {
+      return `real:${count}:skip`;
+    }
+    return props.admitted ? `real:${count}` : "husk";
+  }
+
   return (
     <article
       ref={card}
@@ -235,26 +309,41 @@ function FileCardContent(props: FileCardProps): JSX.Element {
       data-file-card
       data-file-index={props.state.fileIndex}
       data-file-state={props.state.state}
+      data-hunk-set={hunkSet()}
+      data-hunk-count={
+        props.state.state === "full" ? props.state.file.hunk_count : undefined
+      }
     >
       <Show when={props.state.state === "husk" ? props.state : null} keyed>
-        {(state) => <HuskFile state={state} />}
+        {(state) => (
+          <HuskFile
+            state={state}
+            explicitlyCollapsed={props.explicitlyCollapsed}
+            globalSelectedHunk={props.globalSelectedHunk}
+            fileSelectedHunk={props.fileSelectedHunk}
+          />
+        )}
       </Show>
       <Show when={props.state.state === "full" ? props.state.file : null} keyed>
         {(file) => (
-          <FullFile
-            state={{
-              state: "full",
-              fileIndex: props.state.fileIndex,
-              file,
-            }}
-            expanded={props.expanded}
-            admitted={props.admitted}
-            engine={props.engine}
-            view={props.view}
-            aggressiveFolds={props.aggressiveFolds}
-            card={() => card}
-            onExpandedChange={props.onExpandedChange}
-          />
+          <FileRendererBoundary card={() => card} path={file.display_name}>
+            <FullFile
+              state={{
+                state: "full",
+                fileIndex: props.state.fileIndex,
+                file,
+              }}
+              expanded={props.expanded}
+              admitted={props.admitted}
+              engine={props.engine}
+              view={props.view}
+              aggressiveFolds={props.aggressiveFolds}
+              globalSelectedHunk={props.globalSelectedHunk}
+              fileSelectedHunk={props.fileSelectedHunk}
+              card={() => card}
+              onExpandedChange={props.onExpandedChange}
+            />
+          </FileRendererBoundary>
         )}
       </Show>
       <Show when={props.state.state === "lazy" ? props.state : null} keyed>
@@ -262,6 +351,8 @@ function FileCardContent(props: FileCardProps): JSX.Element {
           <LazyFileView
             state={state}
             expanded={props.expanded}
+            globalSelectedHunk={props.globalSelectedHunk}
+            fileSelectedHunk={props.fileSelectedHunk}
             onExpandedChange={props.onExpandedChange}
             onLoad={props.onLoad}
           />
@@ -272,14 +363,93 @@ function FileCardContent(props: FileCardProps): JSX.Element {
 }
 
 /**
+ * Contains an unexpected FullFile renderer failure at its stable FileCard.
+ *
+ * Callers provide the manifest path and complete renderer subtree. A failure
+ * replaces only that subtree with unrecoverable critical damage. The boundary
+ * does not retry, preserve failed DOM, synthesize hunks, or change selection.
+ */
+function FileRendererBoundary(props: {
+  card: Accessor<HTMLElement>;
+  path: string;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <ErrorBoundary
+      fallback={(error) => (
+        <FileRendererErrorStrip
+          card={props.card}
+          path={props.path}
+          error={error}
+        />
+      )}
+    >
+      {props.children}
+    </ErrorBoundary>
+  );
+}
+
+/**
+ * Presents complete unrecoverable damage for one failed file renderer.
+ *
+ * The mounted strip reports the original failure once through global Toasts
+ * and exposes its complete local message and stack. It offers no retry and is
+ * deliberately not a LazyFile or hunk target.
+ */
+function FileRendererErrorStrip(props: {
+  card: Accessor<HTMLElement>;
+  path: string;
+  error: unknown;
+}): JSX.Element {
+  const toast = useToasts();
+  const presented = presentError(props.error);
+
+  onMount(() => {
+    const card = props.card();
+    card.setAttribute("data-file-render-error", "");
+    toast.showError(`Could not render ${props.path}`, props.error);
+    onCleanup(() => card.removeAttribute("data-file-render-error"));
+  });
+
+  return (
+    <section
+      class="file-render-critical-error"
+      data-file-render-error
+      role="alert"
+    >
+      <strong>Critical renderer error in {props.path}</strong>
+      <pre class="render-error-message">{presented.message}</pre>
+      <Show when={presented.details !== null}>
+        <details class="error-traceback" open>
+          <summary>Stack</summary>
+          <pre>{presented.details}</pre>
+        </details>
+      </Show>
+    </section>
+  );
+}
+
+/**
  * Renders a queued or actively fetching file without reserving body height.
  *
  * The header uses only manifest path and activity. It exposes no body or
  * expansion control while no file or lazy-info result exists, and therefore
  * never reserves the eventual rendered height.
  */
-function HuskFile(props: { state: HuskFileState }): JSX.Element {
-  return <HuskFileHeader state={props.state} />;
+function HuskFile(
+  props: {
+    state: HuskFileState;
+    explicitlyCollapsed: boolean;
+  } & HunkCounterProps,
+): JSX.Element {
+  return (
+    <HuskFileHeader
+      state={props.state}
+      explicitlyCollapsed={props.explicitlyCollapsed}
+      globalSelectedHunk={props.globalSelectedHunk}
+      fileSelectedHunk={props.fileSelectedHunk}
+    />
+  );
 }
 
 /**
@@ -288,15 +458,34 @@ function HuskFile(props: { state: HuskFileState }): JSX.Element {
  * Callers provide stable manifest presentation and exact lane activity. The
  * header exposes neither file statistics nor expansion before content exists.
  */
-function HuskFileHeader(props: { state: HuskFileState }): JSX.Element {
+function HuskFileHeader(
+  props: {
+    state: HuskFileState;
+    explicitlyCollapsed: boolean;
+  } & HunkCounterProps,
+): JSX.Element {
+  const identity: PseudoHunkIdentity = {
+    fileIndex: props.state.fileIndex,
+    kind: "husk",
+  };
   return (
-    <header class="file-card-header husk-file-header">
+    <header
+      class="file-card-header husk-file-header"
+      classList={{ skip: props.explicitlyCollapsed }}
+      data-hunk-target
+      data-hunk-kind={identity.kind}
+      data-file-index={identity.fileIndex}
+    >
       <span class="file-card-heading">
         <span class="file-card-title-row">
           <h2>{props.state.path}</h2>
           <span class="file-card-status">
             {props.state.activity === "fetching" ? "loading" : "queued"}
           </span>
+          <HunkCounterBadges
+            globalSelectedHunk={props.globalSelectedHunk}
+            fileSelectedHunk={props.fileSelectedHunk}
+          />
         </span>
       </span>
       <LoaderCircle
@@ -309,23 +498,92 @@ function HuskFileHeader(props: { state: HuskFileState }): JSX.Element {
 }
 
 /**
+ * Reserves the established global and file-local counter positions in a header.
+ *
+ * ChangeSet owns their exact numeric data. This component formats that data for
+ * the established header labels and never reads DOM or navigation state.
+ */
+function HunkCounterBadges(props: HunkCounterProps): JSX.Element {
+  return (
+    <>
+      <span
+        class="file-card-hunks"
+        hidden={props.globalSelectedHunk() === null}
+      >
+        <Show when={props.globalSelectedHunk()}>
+          {(global) => (
+            <>
+              {global().position.current ?? "—"}/{global().position.total}
+              {global().hasMore ? "+" : ""} hunks
+            </>
+          )}
+        </Show>
+      </span>
+      <span
+        class="file-card-file-hunks"
+        hidden={props.fileSelectedHunk() === null}
+      >
+        <Show when={props.fileSelectedHunk()}>
+          {(local) => (
+            <>
+              {local().current === null ? "" : `${local().current}/`}
+              {local().total} in file
+            </>
+          )}
+        </Show>
+      </span>
+    </>
+  );
+}
+
+/**
  * Renders a complete file header and rich body from one immutable query result.
  *
  * View and aggressive-fold changes are read reactively by the renderer. They do
  * not replace query data or transfer global progress and navigation ownership
  * into FileBody.
  */
-function FullFile(props: {
-  state: FullFileState;
-  expanded: boolean;
-  admitted: boolean;
-  engine: DiffEngine;
-  view: DiffViewMode;
-  aggressiveFolds: boolean;
-  card: Accessor<HTMLElement>;
-  onExpandedChange: (expanded: boolean) => void;
-}): JSX.Element {
-  const textFile = "render_kind" in props.state.file ? null : props.state.file;
+function FullFile(
+  props: {
+    state: FullFileState;
+    expanded: boolean;
+    admitted: boolean;
+    engine: DiffEngine;
+    view: DiffViewMode;
+    aggressiveFolds: boolean;
+    card: Accessor<HTMLElement>;
+    onExpandedChange: (expanded: boolean) => void;
+  } & HunkCounterProps,
+): JSX.Element {
+  const file = props.state.file;
+  const textFile = "render_kind" in file ? null : file;
+  const hunkIndices =
+    "render_kind" in file
+      ? file.cells.flatMap((cell) =>
+          cell.source_rows.flatMap((row) =>
+            row.hunk_index === null ? [] : [row.hunk_index],
+          ),
+        )
+      : file.rows.flatMap((row) =>
+          row.hunk_index === null ? [] : [row.hunk_index],
+        );
+  if (hunkIndices.length !== props.state.file.hunk_count) {
+    throw new Error(
+      `${props.state.file.display_name} returned ${hunkIndices.length} hunk targets for hunk_count ${props.state.file.hunk_count}.`,
+    );
+  }
+  const uniqueHunkIndices = new Set(hunkIndices);
+  for (
+    let hunkIndex = 0;
+    hunkIndex < props.state.file.hunk_count;
+    hunkIndex += 1
+  ) {
+    if (!uniqueHunkIndices.has(hunkIndex)) {
+      throw new Error(
+        `${props.state.file.display_name} omitted hunk index ${hunkIndex}.`,
+      );
+    }
+  }
   const [renderMode, setRenderMode] = createSignal<FileRenderMode>(
     textFile === null
       ? "rich"
@@ -361,12 +619,37 @@ function FullFile(props: {
     props.card().dataset.fileRender = mode;
   }
 
-  onMount(() => {
+  /**
+   * Materializes this FullFile's rich body for one explicit navigation action.
+   *
+   * The method changes only local representation and resolves after Solid has
+   * mounted rich DOM. It never selects, calculates counters, scrolls, or fetches.
+   */
+  async function waitToEnrich(): Promise<void> {
     const card = props.card();
+    changeRenderMode("rich");
+    await Promise.resolve();
+    if (!card.isConnected) {
+      return;
+    }
+    if (props.expanded && props.admitted) {
+      const richBody = card.querySelector<HTMLElement>(".rich-file-body");
+      if (richBody === null) {
+        throw new Error("FullFile did not mount its rich body.");
+      }
+    }
+  }
+
+  onMount(() => {
+    const card = props.card() as EnrichableFileCard;
     const observedFile = textFile;
     card.dataset.fileRender = renderMode();
+    card.waitToEnrich = waitToEnrich;
     if (observedFile === null) {
-      onCleanup(() => delete card.dataset.fileRender);
+      onCleanup(() => {
+        delete card.dataset.fileRender;
+        Reflect.deleteProperty(card, "waitToEnrich");
+      });
       return;
     }
     const rowCount = observedFile.rows.length;
@@ -432,6 +715,7 @@ function FullFile(props: {
       }
       window.removeEventListener("resize", observeCurrentZones);
       delete card.dataset.fileRender;
+      Reflect.deleteProperty(card, "waitToEnrich");
     });
   });
 
@@ -441,8 +725,40 @@ function FullFile(props: {
         state={props.state}
         expanded={props.expanded}
         virtualized={props.expanded && renderMode() === "virtual"}
+        awaitingAdmission={
+          props.expanded && !props.admitted && props.state.file.hunk_count > 0
+        }
+        globalSelectedHunk={props.globalSelectedHunk}
+        fileSelectedHunk={props.fileSelectedHunk}
         onExpandedChange={props.onExpandedChange}
       />
+      <Show when={!props.expanded && props.state.file.hunk_count > 0}>
+        <div class="hunk-skip-anchors" aria-hidden="true">
+          <For
+            each={Array.from(
+              { length: props.state.file.hunk_count },
+              (_, hunkIndex) => hunkIndex,
+            )}
+          >
+            {(hunkIndex) => {
+              const identity: PseudoHunkIdentity = {
+                fileIndex: props.state.fileIndex,
+                kind: "skip",
+                hunkIndex,
+              };
+              return (
+                <span
+                  class="hunk-skip skip"
+                  data-hunk-target
+                  data-hunk-kind={identity.kind}
+                  data-file-index={identity.fileIndex}
+                  data-hunk-index={identity.hunkIndex}
+                />
+              );
+            }}
+          </For>
+        </div>
+      </Show>
       <Show when={props.expanded && props.admitted}>
         <Show
           when={textFile}
@@ -464,6 +780,7 @@ function FullFile(props: {
               when={renderMode() === "rich"}
               fallback={
                 <VirtualFile
+                  fileIndex={props.state.fileIndex}
                   file={file}
                   reservedRichHeight={reservedRichHeight()}
                 />
@@ -489,11 +806,13 @@ function FullFile(props: {
 /**
  * Renders complete undecorated old/new text for one distant hydrated text file.
  *
- * The representation is always split and contains only two aligned text nodes
- * beneath the stable FullFileHeader. It owns no hunk targets, selection,
- * navigation, syntax spans, inline tokens, rich rows, or row virtualization.
+ * The representation is always split and contains two aligned searchable text
+ * nodes beneath the stable FullFileHeader. It writes one transparent real-hunk
+ * target for every backend boundary, but owns no selection, navigation, syntax
+ * spans, inline tokens, rich rows, or row virtualization.
  */
 function VirtualFile(props: {
+  fileIndex: number;
   file: TextFileDiff;
   reservedRichHeight: number | null;
 }): JSX.Element {
@@ -519,6 +838,30 @@ function VirtualFile(props: {
       }}
     >
       <div class="plain-split-diff" aria-label="Virtualized plain split diff">
+        <For each={props.file.rows}>
+          {(row, rowIndex) => {
+            const hunkIndex = row.hunk_index;
+            if (hunkIndex === null) {
+              return null;
+            }
+            const identity: RealHunkIdentity = {
+              fileIndex: props.fileIndex,
+              kind: "real",
+              hunkIndex,
+            };
+            return (
+              <span
+                class="virtual-hunk-anchor hunk-anchor"
+                style={{ top: `${10 + rowIndex() * 17.4}px` }}
+                data-hunk-target
+                data-hunk-kind={identity.kind}
+                data-file-index={identity.fileIndex}
+                data-hunk-index={identity.hunkIndex}
+                aria-hidden="true"
+              />
+            );
+          }}
+        </For>
         <pre>{sideText("left_text")}</pre>
         <pre>{sideText("right_text")}</pre>
       </div>
@@ -533,17 +876,42 @@ function VirtualFile(props: {
  * The header shows only file-local statistics and warnings and reports expansion
  * changes without owning them.
  */
-function FullFileHeader(props: {
-  state: FullFileState;
-  expanded: boolean;
-  virtualized: boolean;
-  onExpandedChange: (expanded: boolean) => void;
-}): JSX.Element {
+function FullFileHeader(
+  props: {
+    state: FullFileState;
+    expanded: boolean;
+    virtualized: boolean;
+    awaitingAdmission: boolean;
+    onExpandedChange: (expanded: boolean) => void;
+  } & HunkCounterProps,
+): JSX.Element {
+  const zeroHunkFile = props.state.file.hunk_count === 0;
+
+  /**
+   * Constructs the file-level target currently placed by this header.
+   *
+   * Zero files retain their permanent identity. A loaded file awaiting body
+   * admission temporarily exposes a Husk identity; an admitted nonzero file
+   * leaves all real identities to its body renderer.
+   */
+  function targetIdentity(): PseudoHunkIdentity | null {
+    if (zeroHunkFile) {
+      return { fileIndex: props.state.fileIndex, kind: "zero" };
+    }
+    return props.awaitingAdmission
+      ? { fileIndex: props.state.fileIndex, kind: "husk" }
+      : null;
+  }
+
   return (
     <button
       type="button"
       class="file-card-header full-file-header"
+      classList={{ skip: zeroHunkFile && !props.expanded }}
       aria-expanded={props.expanded}
+      data-hunk-target={targetIdentity() === null ? undefined : ""}
+      data-hunk-kind={targetIdentity()?.kind}
+      data-file-index={targetIdentity()?.fileIndex}
       onClick={() => props.onExpandedChange(!props.expanded)}
     >
       <span class="file-card-heading">
@@ -572,6 +940,10 @@ function FullFileHeader(props: {
               </span>
             )}
           </Show>
+          <HunkCounterBadges
+            globalSelectedHunk={props.globalSelectedHunk}
+            fileSelectedHunk={props.fileSelectedHunk}
+          />
         </span>
       </span>
       <FileStatistics summary={props.state.file.summary} />
@@ -603,26 +975,48 @@ function engineWarningLabel(warning: EngineWarning): string {
  * the complete message, open stack, and RetryButton; neither branch invokes the
  * command without direct user activation.
  */
-function LazyFileView(props: {
-  state: LazyFileState;
-  expanded: boolean;
-  onExpandedChange: (expanded: boolean) => void;
-  onLoad: () => void;
-}): JSX.Element {
+function LazyFileView(
+  props: {
+    state: LazyFileState;
+    expanded: boolean;
+    onExpandedChange: (expanded: boolean) => void;
+    onLoad: () => void;
+  } & HunkCounterProps,
+): JSX.Element {
+  const identity: PseudoHunkIdentity = {
+    fileIndex: props.state.fileIndex,
+    kind: "lazy",
+  };
   return (
     <>
       <LazyFileHeader
         state={props.state}
         expanded={props.expanded}
+        globalSelectedHunk={props.globalSelectedHunk}
+        fileSelectedHunk={props.fileSelectedHunk}
         onExpandedChange={props.onExpandedChange}
       />
+      <Show when={!props.expanded}>
+        <div class="hunk-skip-anchors" aria-hidden="true">
+          <span
+            class="hunk-skip skip"
+            data-hunk-target
+            data-hunk-kind={identity.kind}
+            data-file-index={identity.fileIndex}
+          />
+        </div>
+      </Show>
       <Show when={props.expanded}>
         <Show
           when={props.state.file.kind === "deferred" ? props.state.file : null}
           keyed
         >
           {(deferred) => (
-            <DeferredFilePlank info={deferred.info} onLoad={props.onLoad} />
+            <DeferredFilePlank
+              fileIndex={props.state.fileIndex}
+              info={deferred.info}
+              onLoad={props.onLoad}
+            />
           )}
         </Show>
         <Show
@@ -630,7 +1024,12 @@ function LazyFileView(props: {
           keyed
         >
           {(failure) => (
-            <div class="file-lazy-error-panel is-error">
+            <div
+              class="file-lazy-error-panel is-error lazy-hunk-anchor"
+              data-hunk-target
+              data-hunk-kind={identity.kind}
+              data-file-index={identity.fileIndex}
+            >
               <ErrorPanel
                 title={`Failed to load ${failure.path}`}
                 error={failure.error}
@@ -652,11 +1051,13 @@ function LazyFileView(props: {
  * status without hiding the full body error. Expansion remains ChangeSet-owned
  * and determines whether the explicit action or error body participates.
  */
-function LazyFileHeader(props: {
-  state: LazyFileState;
-  expanded: boolean;
-  onExpandedChange: (expanded: boolean) => void;
-}): JSX.Element {
+function LazyFileHeader(
+  props: {
+    state: LazyFileState;
+    expanded: boolean;
+    onExpandedChange: (expanded: boolean) => void;
+  } & HunkCounterProps,
+): JSX.Element {
   return (
     <button
       type="button"
@@ -677,6 +1078,10 @@ function LazyFileHeader(props: {
               ? "failed"
               : props.state.file.info.lazy}
           </span>
+          <HunkCounterBadges
+            globalSelectedHunk={props.globalSelectedHunk}
+            fileSelectedHunk={props.fileSelectedHunk}
+          />
         </span>
       </span>
       <Show
@@ -696,9 +1101,14 @@ function LazyFileHeader(props: {
  * callback, leaving file-fetch ordering and loading presentation with ChangeSet.
  */
 function DeferredFilePlank(props: {
+  fileIndex: number;
   info: LazyInfoFile;
   onLoad: () => void;
 }): JSX.Element {
+  const identity: PseudoHunkIdentity = {
+    fileIndex: props.fileIndex,
+    kind: "lazy",
+  };
   /**
    * Returns the complete action label for the required backend delay reason.
    *
@@ -747,7 +1157,7 @@ function DeferredFilePlank(props: {
   return (
     <button
       type="button"
-      class="file-lazy-load-toggle"
+      class="file-lazy-load-toggle lazy-hunk-anchor"
       classList={{
         "is-untracked": props.info.lazy === "untracked",
         "is-generated": props.info.lazy === "generated",
@@ -755,6 +1165,9 @@ function DeferredFilePlank(props: {
         "is-too-big": props.info.lazy === "too_big",
         "is-pure-renamed": props.info.lazy === "pure_renamed",
       }}
+      data-hunk-target
+      data-hunk-kind={identity.kind}
+      data-file-index={identity.fileIndex}
       onClick={props.onLoad}
     >
       <span class="file-lazy-load-toggle-title">{title()}</span>

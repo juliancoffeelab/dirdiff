@@ -2,7 +2,7 @@
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
-After Chapter 9, `v_new` remains available for continued review, correction and direct user feedback.
+Chapter 10 begins only after the required gated Chapters 8 and 9 have approved designs and completed implementations. At that point, `v_new` remains available for continued review, correction and direct user feedback.
 
 Every visual difference from `v_old` that is not explicitly authorized by Appendix A is a defect. “Similar,” “close,” “equivalent,” or “improved” is not sufficient; review compares the two implementations at matching viewport, URL, backend data and UI state.
 

@@ -40,6 +40,10 @@ Only the following visual differences are authorized:
 
 No other visual difference is permitted. Visual behavior must be reviewed in the running browser with screenshots at matching state; DOM structure or computed measurements alone are not visual verification.
 
+### Explicitly forbidden selection rectangles
+
+Hunk selection must not draw a rectangular outline around the complete FileCard or around a LazyFile explicit-load plank. Selected real or virtual hunk-row decoration remains governed by the hunk specification. This prohibition is tracked separately from the added or changed surfaces in the numbered exception list above and makes no claim that such rectangles are part of the stable visual contract.
+
 This rewrite is not a mobile application. Pixel-perfect parity is required at supported desktop viewports. Mobile and narrow responsive layouts are out of scope and must not drive implementation work.
 
 ## Specification-driven module boundaries

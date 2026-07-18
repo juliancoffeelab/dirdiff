@@ -291,12 +291,14 @@ For a file with three real hunks:
 
 Each skipped pseudo preserves the real hunk's coordinates. The selected real identity on FileCard remains unchanged.
 
+Expansion replaces a coordinate-preserving `skip` pseudo with the real target carrying the same `fileIndex` and `hunkIndex`. Navigation matches those primitive coordinates directly. The selected FileCard identity is not rewritten, transferred, or mapped during that replacement.
+
 A skipped target:
 
 - remains DOM;
 - is excluded from Next and Previous destinations;
 - is excluded from scroll-follow;
-- is excluded from counters;
+- retains its position in `HunkDisplay`;
 - is not a FileTree navigation destination;
 - may be used as the scroll-back anchor matching a selected real hunk.
 
@@ -358,7 +360,8 @@ Rich/virtual and inline/split replacement preserve real `fileIndex` and `hunkInd
 
 ## File-state replacement
 
-HuskFile contributes exactly one participating Husk pseudo-target.
+HuskFile contributes exactly one Husk pseudo-target. It participates unless the
+file is explicitly collapsed, in which case the same target carries `.skip`.
 
 An expanded LazyFile, including its localized error presentation, contributes exactly one participating Lazy pseudo-target. Collapsing it adds `.skip`; selecting or traversing it never fetches it.
 
@@ -375,6 +378,13 @@ When HuskFile or LazyFile becomes FullFile:
 - no scrolling occurs.
 
 A later explicit Next, Previous, FileTree, or recognized user-scroll action may select a resulting target. Rendering itself performs no mapping.
+
+In particular, an initially selected Husk identity remains `kind="husk"` on the
+stable FileCard after FullFile replaces the Husk target. It does not implicitly
+become real hunk zero merely because the resulting real sequence starts at zero.
+The implementation must document this directly at the replacement or
+selected-location boundary with a TODO to reconsider the policy; until that TODO
+is explicitly redesigned, replacement performs no selection mapping.
 
 ## Navigation module and Provider
 
@@ -435,15 +445,31 @@ const NavigationContext =
 
 ## Initial selection and the selection operation
 
-Once a non-empty ChangeSet has mounted its manifest FileCards and participating targets, it selects the first participating target exactly once.
+Every ordinarily rendered FileCard exposes at least one hunk target. The initial presentation is
+normally a Husk pseudo-target; Lazy, zero, real, and skipped targets obey the
+same DOM contract. A zero-hunk FullFile satisfies this invariant with its zero
+pseudo-target. Only an empty manifest has no FileCard and therefore no target.
+An unexpected FullFile renderer exception is outside this ordinary navigation
+contract: its critical unrecoverable strip has no hunk target, and the renderer
+boundary marks its terminal DOM with `data-file-render-error`. Navigation
+initialization stops when that marker exists. It does not assert a missing
+target, select another file, repair selection, or promote the localized failure.
+
+Once those initial FileCards have rendered, the ChangeSet selects the first
+FileCard's first `[data-hunk-target]` exactly once. Initial selection may select a
+target carrying `.skip`; selecting it does not make it participate.
 
 The same rule applies after F5, a repository/reset boundary, different DiffParams, or recreation of disposed ChangeSet content.
 
-An empty manifest is the only ordinary state with no selected hunk. Next and Previous therefore require an existing selected identity whenever the manifest is non-empty.
+A manual ChangeSet reload and repository cache-expiration replacement are destructive boundaries. They dispose the previous rendered snapshot and its selected DOM before the replacement ChangeSet selects its own first target through the same initialization rule.
+
+> **TODO:** Investigate how destructive cache-expiration and reload should be. Until then, complete destructive replacement is permitted when required for correctness.
+
+An empty manifest is the only ordinary state with no selected hunk. A non-empty ChangeSet containing `data-file-render-error` is the explicit unrecoverable exception: initialization may stop without a selected identity. Next and Previous require an existing selected identity whenever the manifest is non-empty and no terminal renderer marker exists.
 
 Initial selection is an explicit ChangeSet-initialization action. File loading and later DOM replacement never repeat it.
 
-The private selection operation receives the concrete participating target:
+The private selection operation receives the concrete hunk target:
 
 ```ts
 function selectHunk(
@@ -454,7 +480,7 @@ function selectHunk(
 
 It:
 
-1. asserts that `target` matches `[data-hunk-target]:not(.skip)` inside `root`;
+1. asserts that `target` matches `[data-hunk-target]` inside `root`;
 2. removes selected identity from the previous FileCard;
 3. removes previous visible selected decoration;
 4. copies the target's concrete `data-hunk-kind` and `data-hunk-index`, where present, directly onto the owning FileCard's selected attributes;
@@ -473,6 +499,10 @@ It also does not:
 - change participation.
 
 After initialization, rendering, file loading, file collapse, file expansion, virtualization, inline/split replacement, counters, Debug, and line pins never select or clear a hunk.
+
+Ordinary navigation callers still resolve only participating destinations.
+Initial selection is the sole operation that may deliberately pass a skipped
+target when the first FileCard is collapsed.
 
 ## Next and Previous
 
@@ -522,12 +552,14 @@ The stable FileCard header is the scroll-back element.
 After the scroll-back rule is satisfied:
 
 - Next enters that file at its first real target;
-- Previous enters that file at its last real target;
+- Previous also enters that file at its first real target;
 - a zero-hunk result selects its zero target.
 
 This behavior belongs only to the active user navigation operation. File-state replacement performs no mapping.
 
 ## Direct hunk navigation and FileTree
+
+> **TODO design gate — do not implement FileTree navigation from this section yet.** The FileTree behavior below records the current direction, but it is unreliable until the existing implementation, DOM expansion lifecycle, LazyFile behavior, enrichment, scrolling, and layout failure cases have been re-investigated together. Present a corrected complete design and obtain explicit user approval before implementation.
 
 Direct navigation resolves one concrete participating hunk token and uses the same enrichment, selection, and scrolling path as Next and Previous.
 
@@ -601,6 +633,8 @@ Navigation does not need access to FileCard’s render-mode signal.
 
 ## User-scroll following
 
+> **TODO design gate — do not implement scroll-follow from this section yet.** The behavior below records the current direction, but it is unreliable until the stable implementation, browser input classification, throttling, `scrollend`, layout changes, selection timing, and interaction with explicit navigation have been re-investigated together. Present a corrected complete design and obtain explicit user approval before implementation.
+
 User-scroll following retains the stable implementation’s selection heuristic.
 
 Only recognized user input enables it:
@@ -649,154 +683,200 @@ On `scrollend`:
 
 Layout changes while user-scroll following is idle never change selection.
 
-## Hunk counter calculation
+## HunkDisplay
 
-Hunk counters are a separate read-only calculation over the current DOM.
+One `HunkDisplay` signal belongs to the mounted ChangeSet shell.
 
-Navigation operations do not calculate counters.
-
-The calculation reads:
-
-- participating hunk tokens;
-- selected identity attributes;
-- backend `hunk_count` rendered on FullFile DOM;
-- currently mounted Husk, Lazy, and zero pseudo-targets.
-
-It calculates:
-
-- exact local position for a selected real hunk;
-- current global position when the selected identity has a participating token;
-- current participating total;
-- whether the total remains provisional.
-
-The global total is:
+It contains an exact derived mirror of the hunk state currently represented by the ChangeSet DOM:
 
 ```ts
-root.querySelectorAll(
-  "[data-hunk-target]:not(.skip)",
-).length;
+export type HunkPosition = {
+  current: number | null;
+  total: number;
+};
+
+/**
+ * Mirrors navigation information from the DOM.
+ *
+ * Must be exact, but must not be used by navigation or selection logic; those
+ * continue using the DOM.
+ */
+type HunkDisplay = {
+  /**
+   * File index into the manifest, used for FileTree highlighting.
+   *
+   * Can be `null` only when the ChangeSet has no files.
+   */
+  selectedFileIndex: number | null;
+
+  /**
+   * Global selected position.
+   *
+   * `hasMore` indicates that more hunks can arrive later because they are still
+   * loading, some files are lazy and can be expanded later by the user, or some
+   * files are collapsed by the user.
+   */
+  globalSelectedHunk: {
+    position: HunkPosition;
+    hasMore: boolean;
+  };
+
+  /**
+   * Same as `globalSelectedHunk`, but per file.
+   *
+   * The map key is the file index into the manifest.
+   */
+  fileSelectedHunks: ReadonlyMap<number, HunkPosition>;
+};
 ```
 
-The total includes:
+`HunkPosition` is exported by `hud/FileCard.tsx`, alongside `FileCard`, because it is the required shared file-header display contract. `HunkDisplay` remains private to `hud/ChangeSet.tsx`. No separate hunk-display module exists.
 
-- participating real tokens;
-- participating Husk pseudo-tokens;
-- participating Lazy pseudo-targets;
-- participating zero pseudo-targets.
+`current: null` means that the represented scope has no selected position to mirror. For the global scope, that occurs when the ChangeSet is empty and has no FileCards. A local scope may have no current position when the selected identity belongs to another file.
 
-The total excludes:
+A selected skipped target retains its position. A selected identity whose original target has been replaced also retains the position from which Next or Previous can continue. Neither case permits `current` to become `null`.
 
-- skipped tokens;
-- collapsed-file tokens;
-- collapsed LazyFile pseudo-tokens.
+`total` counts only currently participating, non-`.skip` targets. Stable position calculation still includes skipped identities, so a selected skipped hunk keeps its exact `current` position and `current` may be greater than `total`. `hasMore` communicates that the participating denominator is incomplete.
 
-The `+` suffix is present whenever at least one participating Husk or Lazy pseudo-target remains. A zero target is exact and does not add `+`.
+Consumers format these numbers for their own presentation. No formatted counter strings exist in `HunkDisplay`.
 
-Global positions and totals are display-only. Navigation never reads counter text or calculated counter values.
+This signal does not own hunk truth. Selection, identity, ordering and participation remain in DOM, and `HunkDisplay` must mirror those facts exactly after every calculation. It is derived data, not decoration and not an independent approximation of DOM state.
 
-If selected identity has no matching participating token, the global numerator is unavailable:
+Navigation never reads `HunkDisplay`.
+
+## FileCard target-set attribute
+
+Every stable FileCard exposes one semantic attribute describing its current target set:
 
 ```text
-Global —/42+
+data-hunk-set="husk"
+data-hunk-set="husk:skip"
+data-hunk-set="lazy"
+data-hunk-set="lazy:skip"
+data-hunk-set="zero"
+data-hunk-set="zero:skip"
+data-hunk-set="real:35"
+data-hunk-set="real:35:skip"
 ```
 
-For a selected real identity whose FullFile data remains known, the local counter may remain exact even when its token is collapsed:
+It changes only when the FileCard's target set or participation changes.
 
-```text
-Local 2/5
-```
+It does not change for:
 
-For a selected stale pseudo-identity after FullFile appears, no real local hunk has been selected:
+- syntax highlighting;
+- diff-row rendering;
+- inline/split replacement with the same identities;
+- rich/virtual replacement with the same identities;
+- ordinary status text;
+- selection decoration.
 
-```text
-Local —/5
-```
+`data-hunk-set` is the semantic DOM change marker and `hasMore` input. Position and total calculation walks current hunk targets in DOM order. `HunkDisplay` does not audit redundant renderer counts, classes, duplicate identities, or navigation invariants. Navigation validates the concrete target involved in each action.
 
-## Automatic counter updates
+## HunkDisplay calculation
 
-One private, ChangeSet-scoped `MutationObserver` runs hunk counter calculation when relevant DOM truth changes.
+When relevant DOM truth changes, one calculation produces a complete replacement `HunkDisplay` value:
 
-It observes only changes that can alter calculated values:
+1. Read the FileCards and their current hunk targets in DOM order.
+2. Count non-skipped targets for displayed totals while retaining skipped targets in stable position offsets.
+3. Assert only the attributes required to perform the calculation.
+4. Find the unique FileCard carrying selected identity.
+5. Calculate the selected identity's position from the same DOM identity and ordering facts that allow Next or Previous to continue from it.
+6. Calculate `globalSelectedHunk`, including whether more hunks can arrive later.
+7. Calculate `fileSelectedHunks` for every FileCard.
+8. Calculate `selectedFileIndex`.
+9. Replace the complete `HunkDisplay` signal once.
 
-- hunk tokens added or removed;
-- `.skip` added or removed from a hunk token;
-- selected-hunk identity attributes added, changed, or removed;
-- FileHeader and counter elements mounted or replaced.
+`.skip` excludes a target from traversal but does not erase its position or the selected identity attached to its FileCard. Collapsed files make `globalSelectedHunk.hasMore` true because their hunks can become participating targets again when the user expands them.
 
-The observer does not treat every DOM mutation as relevant. Syntax highlighting, ordinary row text, line selection, Toasts, and unrelated class changes do not run hunk counter calculation.
+When a selected Husk or Lazy target is replaced by FullFile targets, the selected identity remains unchanged as specified by the hunk contract. Its calculated position is the position of the file's first resulting target, which is where both Next and Previous continue. This calculates the existing identity's position; it does not map or replace that identity with a real hunk.
 
-Relevant synchronous mutations are received as one observer batch. The calculation runs once for that batch.
+`globalSelectedHunk.hasMore` is also true while Husk targets remain or while Lazy targets can still be loaded explicitly. A zero target is exact and does not independently make `hasMore` true.
 
-Conceptually:
+## Automatic HunkDisplay updates
+
+One private, ChangeSet-scoped `MutationObserver` triggers `HunkDisplay` calculation when relevant DOM truth changes:
 
 ```ts
-const hunkDisplayObserver =
-  new MutationObserver((records) => {
-    if (!records.some(hunkCalculationChanged)) {
-      return;
-    }
-
-    const counters =
-      calculateHunkCounters(root);
-
-    renderHunkCounters(root, counters);
-    updateFileTreeHighlight(root);
-  });
+observer.observe(root, {
+  subtree: true,
+  attributes: true,
+  attributeFilter: [
+    "data-hunk-set",
+    "data-selected-hunk-kind",
+    "data-selected-hunk-index",
+    "data-file-render-error",
+  ],
+});
 ```
 
-The implementation must ignore mutations produced by writing counter text or FileTree highlighting, so its own output cannot schedule itself indefinitely.
+The observer does not observe:
 
-On mount:
+- `childList`;
+- `class`;
+- `data-selected`;
+- hunk-target insertion;
+- syntax spans;
+- text;
+- FileTree rows;
+- counter elements.
 
-1. attach the observer to the active ChangeSet root;
-2. run the initial counter calculation;
-3. update the initial FileTree highlight.
+Every owner that changes target identity or participation updates `data-hunk-set` in the same render. The browser filters attribute names before delivering records, and relevant synchronous attribute mutations arrive as one observer batch. The calculation runs once for that batch.
+
+If the calculation cannot parse the required semantic DOM, the observer reports one persistent “Could not calculate hunk display” Toast directly and disconnects. It does not transfer the failure through another signal, throw from a reactive rendering branch, repair DOM, or continue producing repeated Toasts.
+
+`data-file-render-error` is different from malformed hunk DOM: the renderer boundary already presented the critical failure and its one Toast. When that marker appears, the observer disconnects without another calculation, signal write, or Toast. The last successfully calculated display may remain visible as part of the preserved surrounding UI, but the unrecoverable renderer failure ends the ordinary exact-mirror contract for that damaged ChangeSet lifetime.
+
+After the explicit initial-hunk selection has run:
+
+1. attach the observer;
+2. calculate the current DOM once;
+3. set the initial signal.
+
+The initial-hunk selection itself uses no `MutationObserver`. Running it before the initial calculation ensures that a non-empty ChangeSet's first `HunkDisplay` already contains its required selected position and `selectedFileIndex`.
 
 On cleanup:
 
 1. disconnect the observer;
-2. allow no later counter or FileTree DOM writes.
+2. dispose the signal with its Solid owner;
+3. permit no later calculation or DOM write.
 
-The observer:
+The observer and `HunkDisplay` never:
 
-- never selects or clears a hunk;
-- never scrolls;
-- never calls Navigation;
-- never expands a file;
-- never changes `.skip`;
-- never changes hunk identity;
-- never owns a Solid selection signal;
-- never exposes calculated counters as navigation state.
+- select or clear a hunk;
+- scroll;
+- choose a navigation destination;
+- call Navigation;
+- expand or load a file;
+- change `.skip`;
+- change hunk identity;
+- decide rich/virtual rendering;
+- become an input to Navigation.
 
-## FileTree highlighting calculation
+## Rendering HunkDisplay
 
-FileTree highlighting is calculated independently from selected identity stored on FileCard.
+Solid renders every consumer declaratively from the signal.
 
-It does not require selected-file state.
+FileCard receives required accessors for its global and per-file position data. Consumers format the two numbers themselves.
 
-When selected identity attributes change, or when FileTree DOM is mounted:
+FileTree compares each row's manifest index with:
 
-1. find the unique FileCard containing selected identity;
-2. read its `data-file-index`;
-3. find the corresponding FileTree row;
-4. apply `aria-current` to that row;
-5. remove stale `aria-current` from the previous row.
+```ts
+hunkDisplay().selectedFileIndex
+```
 
-If no FileCard contains selected identity, no FileTree row is highlighted.
+FileTree applies its highlight class and `aria-current` declaratively. Newly mounted FileTree rows immediately render from the existing signal and do not require another calculation.
 
-If the selected token is collapsed, skipped, absent, or being replaced, the FileTree may remain highlighted because the stable selected identity remains on its FileCard.
+If the selected target is collapsed, skipped, absent, or being replaced, the FileTree remains highlighted because selected identity remains on its stable FileCard and `selectedFileIndex` continues to mirror that FileCard.
 
-Opening FileTree additionally reveals the highlighted row inside the FileTree’s own scroll container. That sidebar movement does not move the main page.
+Opening FileTree additionally reveals the highlighted row inside the FileTree's own scroll container. That sidebar movement does not move the main page.
 
 FileTree highlighting never changes selection.
 
+There are no imperative writes to counter `textContent`, counter `hidden`, FileTree highlight classes, or FileTree `aria-current`.
+
 ## HintHud and DebugHud
 
-HintHud reads the counter text produced by hunk counter calculation.
-
-Its Next and Previous buttons invoke ordinary Navigation operations.
-
-HintHud does not calculate destinations or maintain selected state.
+HintHud remains the existing three-button visual component. Its Next and Previous buttons invoke ordinary Navigation operations. It does not read `HunkDisplay`, calculate destinations, or maintain selected state.
 
 DebugHud retains its existing visible contents:
 
@@ -805,9 +885,7 @@ DebugHud retains its existing visible contents:
 - Spans;
 - Hunks.
 
-While DebugHud is open, its Hunk value reads current participating hunk-token count from DOM.
-
-While DebugHud is closed, it performs no sampling.
+Its Hunk value reads `globalSelectedHunk`. It does not perform a separate hunk DOM count. DebugHud's existing FPS, node, and span sampling remains active only while DebugHud is open.
 
 Neither HUD may select, scroll, enrich, expand, or fetch.
 
@@ -825,7 +903,7 @@ Today:
 
 The design must not assume forever that one file body is one grid.
 
-A future notebook may add raw and rich metadata or output regions. Their identity may extend to stable `regionKey` and `itemKey` fields. Global positions remain calculations from current participating DOM order and never become identity.
+A future notebook may add raw and rich metadata or output regions. Their identity may extend to stable `regionKey` and `itemKey` fields. Global positions remain calculations from current DOM identity and ordering facts and never become identity.
 
 Raw/rich output replacement may change N targets into M targets. Its owner places the new targets but does not automatically select, map, or scroll.
 
@@ -850,9 +928,10 @@ Notebook regions remain a post-rewrite TODO.
 | Direct hunk destination | Navigation operation |
 | User-scroll selection | User-scroll following |
 | FileTree destination | FileTree activation followed by Navigation |
-| Local/global counter values | DOM counter calculation |
-| Counter text | Counter renderer |
-| FileTree highlight | DOM-based FileTree highlighting calculation |
+| HunkDisplay calculation trigger | Filtered ChangeSet `MutationObserver` |
+| Exact calculated hunk snapshot | ChangeSet-owned `HunkDisplay` signal |
+| Counter text | Solid rendering from `HunkDisplay` numbers |
+| FileTree highlight | Solid rendering from `HunkDisplay.selectedFileIndex` |
 | Rich/virtual mode | FullFile-local Solid state |
 | Enrichment | FileCard `waitToEnrich` |
 | Hunk scrolling | Navigation |
@@ -862,31 +941,32 @@ Notebook regions remain a post-rewrite TODO.
 
 1. Every real hunk boundary comes from backend `hunk_index`.
 2. The frontend never infers hunk boundaries from changed rows.
-3. Every participating real identity has exactly one participating target.
-4. Every expanded HuskFile has exactly one Husk pseudo-target.
-5. Every expanded LazyFile has exactly one Lazy pseudo-target.
-6. Every zero-hunk FullFile has exactly one zero pseudo-target.
-7. Every collapsed real target has exactly one coordinate-preserving `skip` pseudo.
-8. `.skip` alone controls participation.
-9. Skipped targets are excluded from traversal, counters, FileTree destinations, and scroll-follow.
-10. Folded-line ranges contain no hunk boundary.
-11. Invalid folded-line ranges throw instead of producing hidden folded-line targets.
-12. Every non-empty ready ChangeSet selects its first participating target exactly once.
-13. An empty manifest is the only ordinary no-selection state.
-14. File and directory collapse never select, clear, map, or scroll.
-15. File-state replacement never selects, clears, maps, or scrolls.
-16. Rich/virtual and inline/split replacement never changes selected identity.
-17. Next and Previous scroll back to an off-screen selected location before changing selection.
-18. Navigation wraps through current participating DOM order.
-19. Navigation never reads counter text or counter calculations.
-20. Counter calculation never changes selection or scrolling.
-21. FileTree highlighting never changes selection.
-22. User-scroll following changes selection only.
-23. Selecting or traversing a LazyFile never loads it.
-24. Only direct activation of the LazyFile plank starts its explicit fetch.
-25. `waitToEnrich` remains FileCard-owned.
-26. Navigation resolves its final target again after enrichment.
-27. Virtualization decisions never depend on hunk selection.
-28. Hunk navigation never changes strict file-fetch order.
-29. NavigationProvider owns no line-pin state.
-30. Line pins remain an entirely separate system.
+3. Every ordinarily rendered FileCard exposes at least one hunk target; an unexpected renderer's critical unrecoverable strip is the explicit failure exception.
+4. Every participating real identity has exactly one participating target.
+5. Every expanded HuskFile has exactly one Husk pseudo-target.
+6. Every expanded LazyFile has exactly one Lazy pseudo-target.
+7. Every zero-hunk FullFile has exactly one zero pseudo-target.
+8. Every collapsed real target has exactly one coordinate-preserving `skip` pseudo.
+9. `.skip` alone controls participation.
+10. Skipped targets may retain or receive selection and retain their `HunkDisplay` position, but are excluded from traversal, FileTree destinations, and scroll-follow.
+11. Folded-line ranges contain no hunk boundary.
+12. Invalid folded-line ranges throw instead of producing hidden folded-line targets.
+13. Every non-empty ready ChangeSet without `data-file-render-error` selects its first FileCard's first hunk target exactly once, even when that target carries `.skip`; a terminal renderer marker stops initialization without selection or repair.
+14. An empty manifest is the only ordinary no-selection state.
+15. File and directory collapse never select, clear, map, or scroll.
+16. File-state replacement never selects, clears, maps, or scrolls.
+17. Rich/virtual and inline/split replacement never changes selected identity.
+18. Next and Previous scroll back to an off-screen selected location before changing selection.
+19. Navigation wraps through current participating DOM order.
+20. Navigation never reads counter text or `HunkDisplay`.
+21. `HunkDisplay` calculation never changes selection or scrolling.
+22. FileTree highlighting never changes selection.
+23. User-scroll following changes selection only.
+24. Selecting or traversing a LazyFile never loads it.
+25. Only direct activation of the LazyFile plank starts its explicit fetch.
+26. `waitToEnrich` remains FileCard-owned.
+27. Navigation resolves its final target again after enrichment.
+28. Virtualization decisions never depend on hunk selection.
+29. Hunk navigation never changes strict file-fetch order.
+30. NavigationProvider owns no line-pin state.
+31. Line pins remain an entirely separate system.

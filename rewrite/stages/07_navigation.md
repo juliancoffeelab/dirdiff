@@ -12,19 +12,21 @@ Implement in this order:
 
 2. Add one coordinate-preserving `skip` pseudo for every real hunk removed by explicit FullFile collapse. Apply `.skip` directly for explicitly collapsed Husk, Lazy, and zero targets. A queued or loading Husk remains a participating pseudo-target.
 
-3. Store selected identity only on FileCard DOM. Initialize every non-empty ChangeSet by selecting its first participating target exactly once.
+3. Store selected identity only on FileCard DOM. Initialize every non-empty ChangeSet without `data-file-render-error` by selecting its first FileCard's first hunk target exactly once, including when that target carries `.skip`. A terminal renderer marker stops initialization without selection or repair.
 
 4. Implement the ChangeSet-scoped NavigationProvider, checked `useNavigation()`, NavigationCommand, and one private target-based `selectHunk()`.
 
 5. Implement Next and Previous with off-screen scroll-back, wrapping, strict DOM participation, and `waitToEnrich()`. Re-resolve the rich target before final selection and scrolling.
 
-6. Enable the existing HintHud Next/Previous buttons and the existing `n`/`N` bindings. Route `p` through Navigation's Top operation without mounting another hotkey listener.
+6. Enable the existing HintHud Next/Previous buttons and the existing `n`/`N` bindings. Route `p` through Navigation's Top operation without mounting another hotkey listener. Handle every rejected navigation Promise with one persistent “Navigation failed” Toast.
 
-7. Render HintHud and DebugHud exactly as specified and preserve their adjacent source and rendered placement.
+7. Render HintHud and DebugHud exactly as specified and preserve their adjacent source and rendered placement. Enable the existing `d` Debug binding, keep the Help row enabled, and expose Help state through HintHud's `aria-expanded`.
 
-8. Implement DOM-derived counters and the narrow ChangeSet MutationObserver. Counts exclude `.skip`; zero is exact; only Husk and Lazy add `+`.
+8. Implement the exact ChangeSet-owned `HunkDisplay` signal and the attribute-filtered ChangeSet MutationObserver. `HunkDisplay` mirrors DOM navigation information but is never read by Navigation or selection logic. Skipped and replaced selected targets retain calculable positions; skipped targets do not increase totals. `globalSelectedHunk.hasMore` covers loading Husk targets, explicitly loadable Lazy targets, and collapsed files; zero alone is exact. Calculation validates only the semantic attributes it needs. A calculation failure produces one direct persistent Toast and no error signal.
 
-9. Implement read-only FileTree highlighting from selected FileCard DOM. FileTree rows remain non-navigating in this chapter.
+Unexpected FullFile renderer exceptions retain the stable FileCard article where possible and replace the failed renderer with a critical unrecoverable strip. They mark terminal DOM with `data-file-render-error` and produce one persistent Toast, no RetryButton, no hunk target, and no selection repair or automatic recovery. Navigation initialization and HunkDisplay observation stop at that marker without another Toast or escalation.
+
+9. Render file counters, DebugHud's Hunk value, and read-only FileTree highlighting declaratively from `HunkDisplay`. HintHud remains the existing three-button visual component and reads Navigation only. FileTree rows remain non-navigating in this chapter.
 
 Explicitly absent from Chapter 7:
 

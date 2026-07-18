@@ -17,6 +17,7 @@ import type {
 } from "../api/api";
 import type { DiffViewMode } from "./App";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
+import type { RealHunkIdentity } from "./navigation";
 import { clamp } from "../utils";
 
 const suppressedSyntaxClassPrefixes = [
@@ -142,24 +143,6 @@ function InlineHeader(props: { leftLabel: string; rightLabel: string }) {
 }
 
 /**
- * Extends a validated backend row with its render-only hunk-boundary flag.
- *
- * The flag is always present after `markHunkAnchors` projects raw rows. It is
- * never backend data and must not become selected-hunk state.
- */
-export type HunkDiffRow = DiffRow & {
-  isHunkAnchor: boolean;
-};
-
-/**
- * Represents a row accepted by the hunk-aware imperative rendering kernel.
- *
- * Members are either projected backend rows or FoldRows. Callers discriminate
- * folds by status and retain hunk flags only on the ordinary-row variant.
- */
-type HunkRenderRow = RenderRow<HunkDiffRow>;
-
-/**
  * Tracks the most recently rendered number on each inline side.
  *
  * The state is local to one fragment render and suppresses duplicate line
@@ -233,7 +216,7 @@ function ImperativeDiffLines(props: {
     }
 
     const rows = addFoldRows(
-      markHunkAnchors(props.rows),
+      props.rows,
       props.foldHints,
       props.aggressiveFolds,
     );
@@ -280,7 +263,7 @@ function ImperativeDiffLines(props: {
  * ranges advance by their represented count while ordinary rows advance once.
  */
 function renderSplitRowsDom(
-  rows: HunkRenderRow[],
+  rows: RenderRow[],
   fileLabel: string,
   leftLabel: string,
   rightLabel: string,
@@ -322,7 +305,7 @@ function renderSplitRowsDom(
  * visible rows, while shared line-number state suppresses duplicate numbers.
  */
 function renderInlineRowsDom(
-  rows: HunkRenderRow[],
+  rows: RenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
@@ -374,7 +357,7 @@ function renderInlineRowsDom(
  * byte-for-byte equivalent in presentation structure.
  */
 function renderCollapsedInlineRowsDom(
-  rows: HunkRenderRow[],
+  rows: RenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
@@ -422,10 +405,10 @@ function renderCollapsedInlineRowsDom(
  * Creates one stateful split-view fold subtree around an immutable FoldRow.
  *
  * Expansion lives only in the owning DiffGrid set. Toggling replaces this
- * wrapper's children and preserves hidden hunk anchors for later DOM navigation.
+ * wrapper's children; validated folded context contains no hunk boundaries.
  */
 function renderSplitFoldDom(
-  row: FoldRow<HunkDiffRow>,
+  row: FoldRow,
   rowIndex: number,
   fileLabel: string,
   leftLabel: string,
@@ -455,7 +438,7 @@ function renderSplitFoldDom(
    * Replaces this split fold wrapper with its bar or complete expanded rows.
    *
    * Expanded rows preserve source offsets and receive one collapse affordance;
-   * folded rows retain hidden hunk identity anchors.
+   * folded rows render only the backend-provided fold bar.
    */
   const renderFold = () => {
     const expanded = expandedFolds.has(rowIndex);
@@ -484,10 +467,7 @@ function renderSplitFoldDom(
       createFoldSideDom(row.count, row.label, leftLabel),
       createFoldSideDom(row.count, row.label, rightLabel),
     );
-    wrapper.replaceChildren(
-      ...hunkSkipAnchors(row.foldedRows, fileIndex),
-      button,
-    );
+    wrapper.replaceChildren(button);
   };
 
   renderFold();
@@ -501,7 +481,7 @@ function renderSplitFoldDom(
  * wrapper owns only its current DOM children and local toggle listeners.
  */
 function renderInlineFoldDom(
-  row: FoldRow<HunkDiffRow>,
+  row: FoldRow,
   rowIndex: number,
   fileLabel: string,
   expandedFolds: Set<number>,
@@ -530,7 +510,7 @@ function renderInlineFoldDom(
    * Replaces this inline fold wrapper with its bar or complete expanded rows.
    *
    * Expanded rows retain the required collapse policy and source offsets;
-   * folded rows retain hidden hunk identity anchors.
+   * folded rows render only the backend-provided fold bar.
    */
   const renderFold = () => {
     const expanded = expandedFolds.has(rowIndex);
@@ -572,10 +552,7 @@ function renderInlineFoldDom(
         foldLabel(row),
       ),
     );
-    wrapper.replaceChildren(
-      ...hunkSkipAnchors(row.foldedRows, fileIndex),
-      button,
-    );
+    wrapper.replaceChildren(button);
   };
 
   renderFold();
@@ -617,38 +594,13 @@ function attachExpandedFoldToggle(
 }
 
 /**
- * Materializes hidden anchors for hunks contained by a collapsed fold subtree.
- *
- * The returned elements preserve backend `(fileIndex, hunkIndex)` identity but
- * contain no visible code and are marked aria-hidden.
- */
-function hunkSkipAnchors(
-  rows: HunkRenderRow[],
-  fileIndex: number,
-): HTMLElement[] {
-  return rows.flatMap((row) => {
-    if (isFoldRow(row)) {
-      return hunkSkipAnchors(row.foldedRows, fileIndex);
-    }
-    if (row.isHunkAnchor) {
-      const anchor = document.createElement("span");
-      anchor.className = "diff-row hunk-anchor hunk-skip";
-      applyHunkIdentity(anchor, row, fileIndex);
-      anchor.setAttribute("aria-hidden", "true");
-      return [anchor];
-    }
-    return [];
-  });
-}
-
-/**
  * Renders one ordinary backend row as a two-sided split-view element.
  *
  * The required source index and file index become stable DOM identity. Fold
  * disclosure is attached separately to the first expanded row.
  */
 function renderSplitDiffRowDom(
-  row: HunkDiffRow,
+  row: DiffRow,
   rowIndex: number,
   fileLabel: string,
   fileIndex: number,
@@ -656,7 +608,17 @@ function renderSplitDiffRowDom(
   const element = document.createElement("div");
   element.className = diffRowClass(row.status, row, "");
   element.dataset.rowIndex = String(rowIndex);
-  applyHunkIdentity(element, row, fileIndex);
+  if (row.hunk_index !== null) {
+    const identity: RealHunkIdentity = {
+      fileIndex,
+      kind: "real",
+      hunkIndex: row.hunk_index,
+    };
+    element.dataset.hunkTarget = "";
+    element.dataset.hunkKind = identity.kind;
+    element.dataset.fileIndex = String(identity.fileIndex);
+    element.dataset.hunkIndex = String(identity.hunkIndex);
+  }
   element.append(
     createDiffSideDom(row, "left", fileLabel),
     createDiffSideDom(row, "right", fileLabel),
@@ -672,7 +634,7 @@ function renderSplitDiffRowDom(
  * Unsupported backend statuses throw exhaustively.
  */
 function renderInlineDiffRowsDom(
-  row: HunkDiffRow,
+  row: DiffRow,
   rowIndex: number,
   fileLabel: string,
   fileIndex: number,
@@ -769,7 +731,10 @@ function renderInlineDiffRowsDom(
             rowIndex,
             fileLabel,
             fileIndex,
-            sourceRow: { ...row, isHunkAnchor: !hasLeftSide },
+            sourceRow: {
+              ...row,
+              hunk_index: hasLeftSide ? null : row.hunk_index,
+            },
             lineNumberState,
             tokenRowStatus: "replace",
           }),
@@ -813,7 +778,10 @@ function renderInlineDiffRowsDom(
             rowIndex,
             fileLabel,
             fileIndex,
-            sourceRow: { ...row, isHunkAnchor: !hasLeftSide },
+            sourceRow: {
+              ...row,
+              hunk_index: hasLeftSide ? null : row.hunk_index,
+            },
             lineNumberState,
             tokenRowStatus: null,
           }),
@@ -882,7 +850,7 @@ function inlineSideExists(lineNo: number | null, text: string): boolean {
  * rendering. Collapsed rows retain both backend line numbers and hunk identity.
  */
 function renderCollapsedInlineDiffRowsDom(
-  row: HunkDiffRow,
+  row: DiffRow,
   rowIndex: number,
   fileLabel: string,
   fileIndex: number,
@@ -959,7 +927,7 @@ function renderInlineDiffRowDom(props: {
   rowIndex: number;
   fileLabel: string;
   fileIndex: number;
-  sourceRow: HunkDiffRow;
+  sourceRow: DiffRow;
   lineNumberState: InlineLineNumberState;
   tokenRowStatus: InlineRowStatus | null;
 }): HTMLElement {
@@ -970,7 +938,17 @@ function renderInlineDiffRowDom(props: {
     "inline-diff-row",
   );
   element.dataset.rowIndex = String(props.rowIndex);
-  applyHunkIdentity(element, props.sourceRow, props.fileIndex);
+  if (props.sourceRow.hunk_index !== null) {
+    const identity: RealHunkIdentity = {
+      fileIndex: props.fileIndex,
+      kind: "real",
+      hunkIndex: props.sourceRow.hunk_index,
+    };
+    element.dataset.hunkTarget = "";
+    element.dataset.hunkKind = identity.kind;
+    element.dataset.fileIndex = String(identity.fileIndex);
+    element.dataset.hunkIndex = String(identity.hunkIndex);
+  }
   element.append(
     createLineNumberDom(
       inlineDisplayLineNo(props.leftNo, "left", props.lineNumberState),
@@ -1042,7 +1020,7 @@ function inlineDisplayLineNo(
  */
 function diffRowClass(
   status: string,
-  row: HunkDiffRow,
+  row: DiffRow,
   extraClass: string,
 ): string {
   const classes = ["diff-row"];
@@ -1050,7 +1028,7 @@ function diffRowClass(
     classes.push(extraClass);
   }
   classes.push(status);
-  if (row.isHunkAnchor === true) {
+  if (row.hunk_index !== null) {
     classes.push("hunk-anchor");
   }
   if (isChangedRowStatus(status) && isWhitespaceOnlyChange(row)) {
@@ -1060,35 +1038,13 @@ function diffRowClass(
 }
 
 /**
- * Attach the backend-provided snapshot-local identity to one anchor element.
- *
- * Rendering modes may replace the element, but every replacement must expose
- * the same `(fileIndex, hunkIndex)` pair. Non-anchor rows are left untouched;
- * an anchor without a backend hunk index is an invalid file-diff payload.
- */
-function applyHunkIdentity(
-  element: HTMLElement,
-  row: HunkDiffRow,
-  fileIndex: number,
-): void {
-  if (row.isHunkAnchor !== true) {
-    return;
-  }
-  if (row.hunk_index === null) {
-    throw new Error("Hunk anchor is missing its backend hunk index.");
-  }
-  element.dataset.fileIndex = String(fileIndex);
-  element.dataset.hunkIndex = String(row.hunk_index);
-}
-
-/**
  * Creates one split-view side with line identity and decorated code content.
  *
  * Callers supply a validated backend row and exact side. Null line numbers and
  * empty text produce the established empty-side treatment rather than a husk.
  */
 function createDiffSideDom(
-  row: HunkDiffRow,
+  row: DiffRow,
   side: Side,
   fileLabel: string,
 ): HTMLElement {
@@ -1380,20 +1336,6 @@ function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
  */
 function isChangedRowStatus(status: string): boolean {
   return ["replace", "insert", "delete", "move"].includes(status);
-}
-
-/**
- * Project backend hunk markers into the render-only anchor flag.
- *
- * This function does not discover hunk boundaries. Every non-null
- * `hunk_index` came from the file-diff response and survives folding and view
- * replacement as the identity rendered on the resulting anchor.
- */
-export function markHunkAnchors(rows: DiffRow[]): HunkDiffRow[] {
-  return rows.map((row) => ({
-    ...row,
-    isHunkAnchor: row.hunk_index !== null,
-  }));
 }
 
 /**

@@ -2,7 +2,11 @@
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
-Everything in this chapter must be implemented according to `../spec/08_hunk_navigation.md`. It extends the Chapter 7 Navigation instance; it does not replace it or mount another controller.
+This is a required rewrite chapter, but implementation remains blocked until its design gate is approved. Once approved, implementation must follow the resulting corrected sections of `../spec/08_hunk_navigation.md` and extend the Chapter 7 Navigation instance; it must not replace it or mount another controller.
+
+> **TODO design gate — this chapter is not authorized for implementation.** The scroll-follow and FileTree-navigation material currently recorded in the specification is unreliable and must be treated only as investigation notes. Re-investigate both behaviors against the stable frontend, browser behavior, DOM and layout failure cases; present corrected complete designs; and obtain explicit user approval before changing code.
+
+The numbered outline below is provisional and does not authorize code. Its behavior must be corrected and approved during the required design work before this chapter can be implemented.
 
 Implement in this order:
 

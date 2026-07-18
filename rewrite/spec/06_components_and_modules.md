@@ -301,6 +301,8 @@ The module also observes the selected profile's canonical preferences query and 
 
 `ChangeSetContent` is recreated when complete `DiffParams` changes. `ChangeSetSnapshot` is recreated when manifest data changes. No manifest-dependent observation, sequencing, or rendering lives above `ChangeSetSnapshot`.
 
+`HunkDisplay` is private to `hud/ChangeSet.tsx`. It is the exact derived DOM mirror specified in `08_hunk_navigation.md`; it is not exported and is never Navigation state.
+
 All three boundaries remain private to `hud/ChangeSet.tsx`; no new module is required.
 
 `FileSequence` is a section of this owner’s implementation, not another exported abstraction or file.
@@ -311,7 +313,7 @@ Hotkeys map keys directly to Navigation, ChangeSet, workspace, Help, or Debug op
 
 #### `hud/FileCard.tsx`
 
-Exports only `FileCard`.
+Exports `FileCard` and the `HunkPosition` type. `ChangeSet.tsx` imports `HunkPosition` from this child component contract when declaring its private `HunkDisplay`; no separate hunk-display module is introduced.
 
 Private components:
 
@@ -322,6 +324,8 @@ LazyFile
 LazyFileHeader
 FullFile
 FullFileHeader
+FileRendererBoundary
+FileRendererErrorStrip
 FileBody
 VirtualFile
 ```
@@ -336,7 +340,7 @@ It owns:
 - direct rendering of the approved real and pseudo hunk identity attributes once Chapter 7 integrates hunk navigation;
 - responding to `waitToEnrich` calls;
 - rendering DiffGrid or NotebookFile;
-- FileCard-level error containment.
+- FullFile renderer containment through a critical unrecoverable strip that preserves the stable FileCard article where possible and performs no retry, hunk synthesis, selection repair, or automatic recovery.
 
 This is the “meat” boundary. It should be a large, deep module.
 
@@ -356,6 +360,8 @@ useNavigation
 
 `NavigationProvider` owns one stateful, disposable Navigation controller for one mounted ChangeSet. `useNavigation` returns that controller’s public operations to descendants of the nearest Provider.
 
+Scroll-follow and FileTree navigation remain behind the explicit TODO design gates in `08_hunk_navigation.md`. Their current ownership outline is provisional and does not authorize implementation before those designs are re-checked and explicitly approved.
+
 It owns:
 
 - the ChangeSet root reference;
@@ -367,11 +373,11 @@ It owns:
 - throttled scroll-follow;
 - navigation listener and animation-frame lifecycle.
 
-The controller stores only ephemeral browser-work state: root, scroll source, scheduled frame, and listeners. Selected hunk identity, target order, counters and FileTree highlighting remain in or are calculated from DOM. Rich/virtual state and `waitToEnrich` remain FileCard-owned.
+The controller stores only ephemeral browser-work state: root, scroll source, scheduled frame, and listeners. Selected hunk identity and target order remain in DOM. Counters and FileTree highlighting render from the ChangeSet-owned `HunkDisplay` signal, which is an exact calculation from DOM and is never Navigation state. Rich/virtual state and `waitToEnrich` remain FileCard-owned.
 
-Line pins are a separate system with a separate design and implementation stage. `navigation.tsx` does not own line-pin parsing, identity, highlighting, retries, timers, restoration, or cleanup. The future line-pin module destination remains undecided until that design is explicitly approved.
+Line pins are a separate system behind their own TODO design gate and implementation stage. `navigation.tsx` does not own line-pin parsing, identity, highlighting, retries, timers, restoration, or cleanup. The future line-pin module destination remains undecided until that design is re-checked and explicitly approved.
 
-The Context exposes Navigation operations but no controller state. There is no copied global hunk index, selected-hunk signal, selected-file state, generic setter or backend data.
+The Context exposes Navigation operations but no controller state. There is no copied global hunk index, selected-hunk signal, independently owned selected-file state, generic setter or backend data.
 
 `NavigationCommand` is the only retained `*Command` concept. It is an explicit typed navigation instruction and the input to `navigate`:
 

@@ -174,7 +174,9 @@ export function addFoldRows<TRow extends DiffRow>(
  * Projects one validated source-row interval and its direct nested hints.
  *
  * The bounds are required half-open indices into `rows`. Each hint is emitted
- * exactly once and untouched rows retain their original order.
+ * exactly once and untouched rows retain their original order. A folded range
+ * containing a backend hunk boundary violates the folded-context contract and
+ * throws instead of hiding or manufacturing a hunk target.
  */
 function addFoldRowsInRange<TRow extends DiffRow>(
   rows: TRow[],
@@ -187,6 +189,17 @@ function addFoldRowsInRange<TRow extends DiffRow>(
 
   for (const hint of foldHints) {
     result.push(...rows.slice(cursor, hint.startRow));
+    for (let rowIndex = hint.startRow; rowIndex < hint.endRow; rowIndex += 1) {
+      const row = rows[rowIndex];
+      if (row === undefined) {
+        throw new Error(`Fold hint lost source row ${rowIndex}.`);
+      }
+      if (row.hunk_index !== null) {
+        throw new Error(
+          `Fold hint contains hunk ${row.hunk_index} at row ${rowIndex}.`,
+        );
+      }
+    }
     const foldedRows = addFoldRowsInRange(
       rows,
       hint.children,

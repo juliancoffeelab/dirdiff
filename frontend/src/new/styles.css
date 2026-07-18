@@ -1688,13 +1688,12 @@ h1 {
   padding: 0;
 }
 
-.file-card.file-card-flash {
-  animation: file-card-flash 900ms ease-out;
+.change-set-root {
+  display: contents;
 }
 
-.file-card.active-hunk {
-  outline: 2px solid #2563eb;
-  outline-offset: -2px;
+.file-card.file-card-flash {
+  animation: file-card-flash 900ms ease-out;
 }
 
 @keyframes file-card-flash {
@@ -1860,14 +1859,20 @@ h1 {
   content: none;
 }
 
-.lazy-hunk-anchor.active-hunk {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
+.hunk-skip-anchors {
+  position: relative;
+  height: 0;
+  overflow: visible;
 }
 
-.hunk-skip-anchors,
 .hunk-skip {
-  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .plain-split-diff pre {
@@ -2118,6 +2123,21 @@ h1 {
 
 .file-lazy-error-panel > .notice {
   border: 0;
+}
+
+.file-render-critical-error {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-top: 2px solid #8f2020;
+  border-bottom: 2px solid #8f2020;
+  background: #fff0f0;
+  color: #5f1515;
+}
+
+.file-render-critical-error > strong {
+  color: #8f2020;
+  text-transform: uppercase;
 }
 
 .diff-grid {

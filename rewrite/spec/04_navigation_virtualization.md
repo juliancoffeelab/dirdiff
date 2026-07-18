@@ -11,17 +11,13 @@ Line pins require their own later specification and are not owned by virtualizat
 This section specifies:
 
 - whole-file virtualization;
-- DOM-owned hunk selection;
 - rich/virtual FileBody replacement;
-- local and global hunk counters;
-- explicit and user-scroll navigation;
-- HuskFile and LazyFile pseudo-hunks;
-- FileTree highlighting derived from the selected hunk;
-- line pins;
 - browser text-side selection;
-- HUD, Help, and Debug behavior;
-- direct hotkeys;
-- future notebook navigation regions.
+- preservation of complete split-side text for native browser search;
+- virtualization cost, entry and exit heuristics;
+- height reservation and overflow containment;
+- rich materialization through FileCard-owned `waitToEnrich()`;
+- notebook FullFiles remaining rich for now.
 
 It does not revisit:
 
@@ -32,7 +28,7 @@ It does not revisit:
 - notebook backend response design;
 - row virtualization.
 
-Anything explicitly labelled TODO in this specification is a post-rewrite follow-up. It is not an unfinished implementation choice or an acceptance requirement for the rewrite itself.
+TODOs about virtualization heuristics or representation policy are explicit post-rewrite follow-ups. The design gates for scroll-follow, FileTree navigation, and line pins live in their own specifications and practical chapters; they remain required gated rewrite work rather than virtualization TODOs or optional follow-ups.
 
 ## 27. Essential complexity
 
@@ -57,7 +53,7 @@ The system genuinely must handle:
 The accidental complexity currently includes:
 
 - selected hunk identity stored in both DOM and a Solid signal;
-- separately maintained `HunkPosition`;
+- separately maintained navigation-owned `HunkPosition` state that can diverge from DOM;
 - `activeHunkFileId`;
 - global forced-rich file maps;
 - global virtualized-file maps;
@@ -334,6 +330,8 @@ The outcome is a measured post-rewrite decision, not an architectural assumption
 
 ## 47. Required wrapped-Previous reverse-traversal stress test
 
+> **TODO design gate:** The virtualization-only observations remain useful, but all scroll-follow and FileTree-navigation steps in this scenario are provisional. Re-check and correct them against the separately approved scroll-follow and FileTree-navigation designs before using this section as an implementation or test contract.
+
 The virtualization and scroll-anchoring design must be tested from the least convenient starting condition:
 
 1. Load only the manifest and begin strict sequential file fetching from the start.
@@ -361,7 +359,7 @@ The test must observe:
 
 - the selected target’s viewport position while earlier FileCards hydrate above it;
 - unexpected changes to selected hunk identity;
-- correct explicit Previous behavior after a selected Husk pseudo-hunk becomes a multi-hunk FullFile: return to its stable FileCard first when off-screen, then enter its last participating real hunk;
+- correct explicit Previous behavior after a selected Husk pseudo-hunk becomes a multi-hunk FullFile: return to its stable FileCard first when off-screen, then enter its first participating real hunk;
 - global and local counter changes as pseudo-hunks become real hunks;
 - visible layout jumps during first-time virtual → rich transitions above the viewport;
 - rich → virtual height preservation for previously measured files;
