@@ -2,7 +2,7 @@
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
-Everything in this chapter must be implemented according to the whole-file virtualization requirements in Sections 34–46 of `../spec/04_navigation_virtualization.md`, the virtualization-only parts of Section 47, and the module boundaries in `../spec/06_components_and_modules.md`. Section 47's explicit wrapped-Previous scenario belongs to Chapter 7; its ordinary backward-scrolling portion belongs to Chapter 8 after user-scroll following is integrated. This chapter defines implementation order; it does not redefine virtualization behavior.
+Everything in this chapter must be implemented according to the whole-file virtualization requirements in Sections 34–46 of `../spec/04_navigation_virtualization.md`, the virtualization-only parts of Section 47, and the module boundaries in `../spec/06_components_and_modules.md`. Section 47's explicit wrapped-Previous scenario belongs to Chapter 7; its ordinary backward-scrolling portion belongs to Chapter 9 after user-scroll following is integrated. This chapter defines implementation order; it does not redefine virtualization behavior.
 
 The eventual VirtualFile hunk requirements remain in the specification. They belong to Chapter 7 integration and are not implemented by making the virtualization mechanism observe or own hunk state.
 
@@ -32,7 +32,7 @@ Implemented in this order:
 
 6. Layout-focused verification
 
-   Exercise ordinary forward and reverse scrolling, transitions above and below the viewport, tiny and huge files, native search, view changes while virtual, document-end behavior, and the intrinsic-size optimization comparison required by the specification. The complete scenario finishes in Chapter 8 because both Previous and recognized backward user scrolling must exist.
+   Exercise ordinary forward and reverse scrolling, transitions above and below the viewport, tiny and huge files, native search, view changes while virtual, document-end behavior, and the intrinsic-size optimization comparison required by the specification. The complete scenario finishes in Chapter 9 because both Previous and recognized backward user scrolling must exist.
 
 Explicitly absent until Chapter 7:
 
@@ -48,4 +48,4 @@ Explicitly absent until Chapter 7:
 
 At the end of Chapter 5, loaded text files switch between rich and virtual presentation with the specified cost heuristic and geometry behavior. Hunk navigation remains entirely absent.
 
-Chapter 6 adds only direct non-hunk hotkeys and HelpModal. Chapter 7 integrates explicit DOM hunk navigation, and Chapter 8 adds recognized user-scroll following and FileTree navigation. It must not move virtualization policy or render mode into Navigation.
+Chapter 6 adds only direct non-hunk hotkeys and HelpModal. Chapter 7 integrates explicit DOM hunk navigation, Chapter 8 adds scroll-only FileTree navigation, and Chapter 9 later adds approved recognized user-scroll following. None may move virtualization policy or render mode into Navigation.

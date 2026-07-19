@@ -360,7 +360,7 @@ Debug button
 
 The keyboard listener calls the same operations.
 
-The FileTree line describes the eventual direct route only. FileTree rows remain inert until the separate design gate in [08_hunk_navigation.md](08_hunk_navigation.md) is approved and implemented; this section does not authorize that interaction.
+The FileTree line is implemented by the separately approved scroll-only file command in [08_hunk_navigation.md](08_hunk_navigation.md). This hotkey section defines only the shared direct route and does not make FileTree clicks select hunks or change expansion.
 
 There is no central bus between the user interaction and the concrete operation.
 

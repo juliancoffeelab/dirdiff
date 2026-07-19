@@ -1,0 +1,611 @@
+/**
+ * Defines the top-level application shell and global workspace state.
+ *
+ * The module exports App and the workspace value types shared with Header. App
+ * owns the active Tab, selected repository, engine, view, selected profile, URL
+ * commands, and complete URL-backed workspace reconstruction. It does not own Tab
+ * selections, backend query data, ChangeSet state, or component-local input.
+ */
+import { Show, createSignal, onMount, type JSX } from "solid-js";
+import { createStore } from "solid-js/store";
+import { useQueryClient } from "@tanstack/solid-query";
+import {
+  api,
+  type BranchSelection,
+  type DiffEngine,
+  type PreparedPullRequest,
+  type PresetType,
+  type ProjectId,
+} from "../api/api";
+import { AppHeader, type AppHeaderOutlets } from "./AppHeader";
+import { loadStoredProfile, type StoredProfile } from "./Profile";
+import { TabStrip, Tabs, type TabId } from "./Tabs";
+
+/**
+ * Selects the shared text-diff presentation used by every Tab.
+ *
+ * This client-only value is URL-backed and never participates in DiffParams or
+ * backend query identity.
+ */
+export type DiffViewMode = "split" | "inline";
+
+/**
+ * Represents genuine absence or one globally selected repository.
+ *
+ * The selected variant stores only the numeric backend identity. Repository name,
+ * path, metadata, and loading state remain canonical TanStack Query data.
+ */
+type RepoSelection =
+  | { state: "missing" }
+  | { state: "selected"; projectId: ProjectId };
+
+/**
+ * Contains the complete small client-owned workspace entity.
+ *
+ * Every field has one explicit owner and persistence mapping. The record excludes
+ * backend data, Tab selections, live input, ChangeSet state, and profile identity.
+ */
+type WorkspaceState = {
+  activeTab: TabId;
+  repo: RepoSelection;
+  engine: DiffEngine;
+  view: DiffViewMode;
+};
+
+/**
+ * Defines the sole application-root command supplied by the browser entrypoint.
+ *
+ * Activating the brand invokes this exact callback. App does not know or persist
+ * the destination frontend identity.
+ */
+type AppProps = {
+  onSwitchFrontend: () => void;
+};
+
+/**
+ * Defines the required outer-owner inputs of one reconstructable workspace.
+ *
+ * Profile identity survives workspace reset, while `onReset` replaces browser URL
+ * state and destroys this complete mounted subtree without replacing providers.
+ */
+type WorkspaceProps = {
+  onSwitchFrontend: () => void;
+  selectedProfile: StoredProfile | null;
+  onProfileSelected: (profile: StoredProfile) => void;
+  onProfileForgotten: () => void;
+  onReset: (search: URLSearchParams) => void;
+};
+
+/**
+ * Parses the active Tab from canonical browser URL state.
+ *
+ * A valid explicit `tab` wins. Absent legacy-compatible `mode` values select their
+ * matching Tab, and all other absent state starts at Head.
+ */
+function initialTab(search: URLSearchParams): TabId {
+  const tab = search.get("tab");
+  if (tab !== null) {
+    if (
+      tab === "head" ||
+      tab === "refs" ||
+      tab === "branch-review" ||
+      tab === "pull-request" ||
+      tab === "preset"
+    ) {
+      return tab;
+    }
+    throw new Error(`Unsupported URL tab: ${tab}.`);
+  }
+  const mode = search.get("mode");
+  if (mode === null) {
+    return "head";
+  }
+  if (
+    mode === "head" ||
+    mode === "refs" ||
+    mode === "branch-review" ||
+    mode === "preset"
+  ) {
+    return mode;
+  }
+  throw new Error(`Unsupported URL mode: ${mode}.`);
+}
+
+/**
+ * Parses the globally selected numeric repository from browser `repo_id`.
+ *
+ * Absence is a valid missing selection. Malformed, nonpositive, or noninteger
+ * values throw rather than being confused with API `project_id` or a preset kind.
+ */
+function initialRepo(search: URLSearchParams): RepoSelection {
+  const raw = search.get("repo_id");
+  if (raw === null) {
+    return { state: "missing" };
+  }
+  const projectId = Number(raw);
+  if (!Number.isInteger(projectId) || projectId <= 0) {
+    throw new Error(`repo_id must be a positive integer, received ${raw}.`);
+  }
+  return { state: "selected", projectId };
+}
+
+/**
+ * Parses the workspace engine from canonical browser state.
+ *
+ * Absence selects Dirdiff. Unsupported explicit values throw instead of silently
+ * requesting a different backend engine.
+ */
+function initialEngine(search: URLSearchParams): DiffEngine {
+  const engine = search.get("engine");
+  if (engine === null) {
+    return "dirdiff";
+  }
+  if (
+    engine === "dirdiff" ||
+    engine === "git" ||
+    engine === "difftastic" ||
+    engine === "gumtree"
+  ) {
+    return engine;
+  }
+  throw new Error(`Unsupported URL diff engine: ${engine}.`);
+}
+
+/**
+ * Parses inline/split presentation from canonical browser state.
+ *
+ * Absence selects inline. Any unsupported explicit value is a visible URL contract
+ * error rather than an opportunity to substitute presentation state.
+ */
+function initialView(search: URLSearchParams): DiffViewMode {
+  const view = search.get("view");
+  if (view === null) {
+    return "inline";
+  }
+  if (view === "inline" || view === "split") {
+    return view;
+  }
+  throw new Error(`Unsupported URL diff view: ${view}.`);
+}
+
+/**
+ * Writes one complete branch selection into canonical browser fields.
+ *
+ * Local selections remove a stale remote field. Remote selections require and
+ * preserve their exact remote; no backend field or parameter naming is changed.
+ */
+function writeBranchSelection(
+  search: URLSearchParams,
+  prefix: "base" | "review",
+  selection: BranchSelection,
+): void {
+  search.set(`${prefix}_source`, selection.source);
+  search.set(`${prefix}_branch`, selection.branch);
+  if (selection.source === "remote") {
+    search.set(`${prefix}_remote`, selection.remote);
+  } else {
+    search.delete(`${prefix}_remote`);
+  }
+}
+
+/**
+ * Creates one clean URL for a complete workspace reset.
+ *
+ * Only global workspace values survive. Every Tab selection and live input field
+ * is removed so the reconstructed subtree cannot inherit the previous workspace.
+ */
+function resetSearch(
+  repoId: ProjectId | null,
+  tab: TabId,
+  engine: DiffEngine,
+  view: DiffViewMode,
+): URLSearchParams {
+  const search = new URLSearchParams();
+  if (repoId !== null) {
+    search.set("repo_id", String(repoId));
+  }
+  search.set("tab", tab);
+  // Pull Request keeps its Tab identity while using Branch Review DiffParams.
+  search.set("mode", tab === "pull-request" ? "branch-review" : tab);
+  search.set("engine", engine);
+  search.set("view", view);
+  return search;
+}
+
+/**
+ * Renders the complete visible application and owns profile persistence lifetime.
+ *
+ * Workspace reset replaces only the keyed inner subtree after writing canonical
+ * URL state. QueryProvider, ToastProvider, and selected local profile remain alive.
+ */
+export function App(props: AppProps): JSX.Element {
+  const [workspaceIdentity, setWorkspaceIdentity] = createSignal<object>({});
+  const [selectedProfile, setSelectedProfile] =
+    createSignal<StoredProfile | null>(loadStoredProfile());
+
+  /**
+   * Replaces canonical browser state and reconstructs the complete workspace.
+   *
+   * Callers provide every URL field to retain. This command deliberately preserves
+   * providers and selected profile while destroying all workspace-local state.
+   */
+  function resetWorkspace(search: URLSearchParams): void {
+    const query = search.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query.length === 0
+        ? window.location.pathname
+        : `${window.location.pathname}?${query}`,
+    );
+    setWorkspaceIdentity({});
+  }
+
+  return (
+    <Show when={workspaceIdentity()} keyed>
+      {(_identity) => (
+        <Workspace
+          onSwitchFrontend={props.onSwitchFrontend}
+          selectedProfile={selectedProfile()}
+          onProfileSelected={setSelectedProfile}
+          onProfileForgotten={() => setSelectedProfile(null)}
+          onReset={resetWorkspace}
+        />
+      )}
+    </Show>
+  );
+}
+
+/**
+ * Renders and owns one URL-constructed workspace lifetime.
+ *
+ * It exposes only explicit repo, Tab, engine, view, and workflow URL commands to
+ * descendants. Repository warmups use the canonical API facade and never gate UI.
+ */
+function Workspace(props: WorkspaceProps): JSX.Element {
+  const queryClient = useQueryClient();
+  const initialSearch = new URLSearchParams(window.location.search);
+  const [workspace, setWorkspace] = createStore<WorkspaceState>({
+    activeTab: initialTab(initialSearch),
+    repo: initialRepo(initialSearch),
+    engine: initialEngine(initialSearch),
+    view: initialView(initialSearch),
+  });
+  const [metadataTarget, setMetadataTarget] = createSignal<HTMLElement | null>(
+    null,
+  );
+  const [changeSetStatusTarget, setChangeSetStatusTarget] =
+    createSignal<HTMLDivElement | null>(null);
+  const [changeSetSummaryTarget, setChangeSetSummaryTarget] =
+    createSignal<HTMLDivElement | null>(null);
+
+  /**
+   * Returns the mounted AppHeader status outlet for active ChangeSet content.
+   *
+   * Calling this before AppHeader registration is an application-order error;
+   * consumers must otherwise receive a concrete physical Portal mount.
+   */
+  function statusOutlet(): HTMLDivElement {
+    const target = changeSetStatusTarget();
+    if (target === null) {
+      throw new Error("The AppHeader ChangeSet status outlet is not mounted.");
+    }
+    return target;
+  }
+
+  /**
+   * Returns the mounted AppHeader summary outlet for active ChangeSet content.
+   *
+   * Calling this before AppHeader registration is an application-order error;
+   * consumers must otherwise receive a concrete physical Portal mount.
+   */
+  function summaryOutlet(): HTMLDivElement {
+    const target = changeSetSummaryTarget();
+    if (target === null) {
+      throw new Error("The AppHeader ChangeSet summary outlet is not mounted.");
+    }
+    return target;
+  }
+
+  const appHeaderOutlets: AppHeaderOutlets = {
+    status: statusOutlet,
+    summary: summaryOutlet,
+  };
+
+  /**
+   * Warms repository metadata once for this workspace's selected identity.
+   *
+   * Workspace is recreated at every repository or explicit reset boundary, so
+   * `onMount` intentionally snapshots the immutable initial repository instead of
+   * tracking it. TanStack owns request deduplication, freshness, cancellation, and
+   * cache lifetime; this hook owns no response state and needs no local cleanup.
+   */
+  onMount(() => {
+    if (workspace.repo.state === "selected") {
+      void queryClient.prefetchQuery(api.repos.refs(workspace.repo.projectId));
+      void queryClient.prefetchQuery(
+        api.repos.defaults(workspace.repo.projectId),
+      );
+    }
+  });
+
+  /**
+   * Replaces the current browser query without reconstructing this workspace.
+   *
+   * This is used only for ordinary selected values already owned by mounted Tabs
+   * or workspace controls; reset boundaries call `props.onReset` instead.
+   */
+  function replaceSearch(search: URLSearchParams): void {
+    const query = search.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query.length === 0
+        ? `${window.location.pathname}${window.location.hash}`
+        : `${window.location.pathname}?${query}${window.location.hash}`,
+    );
+  }
+
+  /**
+   * Replaces one complete Tab selection and deliberately clears its old pin.
+   *
+   * Selection commands provide a clean canonical URL. A hash identifies a target
+   * inside the previous ChangeSet and cannot survive selecting another result.
+   */
+  function replaceSelectionSearch(search: URLSearchParams): void {
+    const query = search.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query.length === 0
+        ? window.location.pathname
+        : `${window.location.pathname}?${query}`,
+    );
+  }
+
+  /**
+   * Returns the currently selected numeric repository or genuine absence.
+   *
+   * Descendants receive this narrowed value instead of the workspace union. No
+   * placeholder project identity is invented for repo-independent workflows.
+   */
+  function selectedRepoId(): ProjectId | null {
+    return workspace.repo.state === "selected"
+      ? workspace.repo.projectId
+      : null;
+  }
+
+  /**
+   * Creates a clean canonical URL for one retained Tab selection.
+   *
+   * Global workspace values survive while every other Tab's selection fields are
+   * removed. The owning Tab then appends only its complete selected entity.
+   */
+  function selectionSearch(tab: TabId): URLSearchParams {
+    return resetSearch(selectedRepoId(), tab, workspace.engine, workspace.view);
+  }
+
+  /**
+   * Selects one eternal Tab and records only its active identity/mode.
+   *
+   * The selected Tab immediately reports its retained selection, replacing fields
+   * from the previously active Tab without copying any control state.
+   */
+  function selectTab(tab: TabId): void {
+    if (tab === workspace.activeTab) {
+      return;
+    }
+    replaceSelectionSearch(selectionSearch(tab));
+    setWorkspace("activeTab", tab);
+  }
+
+  /**
+   * Selects a global repository through the complete workspace reset boundary.
+   *
+   * The clean URL retains only global values, so every mounted Tab, input, selected
+   * result, and ChangeSet is reconstructed for the new numeric `repo_id`.
+   */
+  function selectRepo(projectId: ProjectId): void {
+    props.onReset(
+      resetSearch(
+        projectId,
+        workspace.activeTab,
+        workspace.engine,
+        workspace.view,
+      ),
+    );
+  }
+
+  /**
+   * Repairs global selection after a repository is removed.
+   *
+   * Removing an unrelated mark leaves this workspace unchanged. Removing the
+   * selected repository reconstructs the same Tab with an explicit missing repo.
+   */
+  function removeRepo(projectId: ProjectId): void {
+    if (
+      workspace.repo.state === "selected" &&
+      workspace.repo.projectId === projectId
+    ) {
+      props.onReset(
+        resetSearch(
+          null,
+          workspace.activeTab,
+          workspace.engine,
+          workspace.view,
+        ),
+      );
+    }
+  }
+
+  /**
+   * Selects the global diff engine and updates browser workspace state.
+   *
+   * Mounted Tabs and outer ChangeSets survive. Their reactive DiffParams switch to
+   * the new engine without resetting inputs or presentation state.
+   */
+  function selectEngine(engine: DiffEngine): void {
+    setWorkspace("engine", engine);
+    const search = new URLSearchParams(window.location.search);
+    search.set("engine", engine);
+    replaceSearch(search);
+  }
+
+  /**
+   * Selects the global inline/split view and updates browser workspace state.
+   *
+   * View never changes DiffParams, selected values, or backend query identity.
+   */
+  function selectView(view: DiffViewMode): void {
+    setWorkspace("view", view);
+    const search = new URLSearchParams(window.location.search);
+    search.set("view", view);
+    replaceSearch(search);
+  }
+
+  /**
+   * Records the fixed Head selection in canonical browser state.
+   *
+   * The numeric repository remains `repo_id`; backend `project_id` exists only in
+   * the HeadDiffParams constructed by HeadTab.
+   */
+  function selectHead(): void {
+    const search = selectionSearch("head");
+    search.set("left", "head");
+    search.set("right", "worktree");
+    replaceSelectionSearch(search);
+  }
+
+  /**
+   * Records one complete selected refs pair in canonical browser state.
+   *
+   * The values are confirmed control output rather than live autocomplete text.
+   */
+  function selectRefs(left: string, right: string): void {
+    const search = selectionSearch("refs");
+    search.set("left", left);
+    search.set("right", right);
+    replaceSelectionSearch(search);
+  }
+
+  /**
+   * Records one complete structured Branch Review selection.
+   *
+   * Both variants are serialized explicitly. No defaults or remote fields are
+   * inferred by App, and API naming remains confined to derived DiffParams.
+   */
+  function selectBranchReview(
+    base: BranchSelection,
+    review: BranchSelection,
+  ): void {
+    const search = selectionSearch("branch-review");
+    writeBranchSelection(search, "base", base);
+    writeBranchSelection(search, "review", review);
+    replaceSelectionSearch(search);
+  }
+
+  /**
+   * Records one complete Preset kind/subset while retaining global `repo_id`.
+   *
+   * Browser `preset_type` maps to API `project_id` only inside PresetDiffParams;
+   * the two URL vocabularies remain deliberately distinct.
+   */
+  function selectPreset(presetType: PresetType, preset: string): void {
+    const search = selectionSearch("preset");
+    search.set("preset_type", presetType);
+    search.set("preset_subset", preset);
+    replaceSelectionSearch(search);
+  }
+
+  /**
+   * Restores one already prepared PR selection when its eternal Tab is revisited.
+   *
+   * Preparation remains the only operation allowed to change repo or branches.
+   * This command merely serializes the retained complete result into a clean URL.
+   */
+  function selectPreparedPullRequest(
+    pullRequestUrl: string,
+    base: BranchSelection,
+    review: BranchSelection,
+  ): void {
+    const search = selectionSearch("pull-request");
+    search.set("pull_request_url", pullRequestUrl);
+    writeBranchSelection(search, "base", base);
+    writeBranchSelection(search, "review", review);
+    replaceSelectionSearch(search);
+  }
+
+  /**
+   * Applies authoritative PR preparation through one URL-backed workspace reset.
+   *
+   * The returned repo and branches replace conflicting workspace state. Refs for
+   * that project are invalidated before the reconstructed controls observe them.
+   */
+  function applyPreparedPullRequest(prepared: PreparedPullRequest): void {
+    void queryClient.invalidateQueries({
+      queryKey: api.repos.refs(prepared.project_id).queryKey,
+    });
+    const search = resetSearch(
+      prepared.project_id,
+      "pull-request",
+      workspace.engine,
+      workspace.view,
+    );
+    search.set("pull_request_url", prepared.pull_request_url);
+    writeBranchSelection(search, "base", {
+      source: "remote",
+      remote: prepared.base_branch.remote,
+      branch: prepared.base_branch.branch,
+    });
+    writeBranchSelection(search, "review", {
+      source: "remote",
+      remote: prepared.review_branch.remote,
+      branch: prepared.review_branch.branch,
+    });
+    props.onReset(search);
+  }
+
+  return (
+    <main class="app-shell">
+      <AppHeader
+        onSwitchFrontend={props.onSwitchFrontend}
+        selectedProfile={props.selectedProfile}
+        selectedRepoId={selectedRepoId()}
+        engine={workspace.engine}
+        view={workspace.view}
+        onProfileSelected={props.onProfileSelected}
+        onProfileForgotten={props.onProfileForgotten}
+        onRepoSelected={selectRepo}
+        onRepoRemoved={removeRepo}
+        onEngineSelected={selectEngine}
+        onViewSelected={selectView}
+        onChangeSetStatusTarget={setChangeSetStatusTarget}
+        onChangeSetSummaryTarget={setChangeSetSummaryTarget}
+        onMetadataStatusTarget={setMetadataTarget}
+      />
+      <section class="controls">
+        <TabStrip active={workspace.activeTab} onSelect={selectTab} />
+        <Tabs
+          active={workspace.activeTab}
+          repoId={selectedRepoId()}
+          engine={workspace.engine}
+          view={workspace.view}
+          selectedProfile={props.selectedProfile}
+          appHeaderOutlets={appHeaderOutlets}
+          metadataTarget={metadataTarget()}
+          onRepoSelected={selectRepo}
+          onHeadSelected={selectHead}
+          onRefsSelected={selectRefs}
+          onBranchReviewSelected={selectBranchReview}
+          onPresetSelected={selectPreset}
+          onPullRequestSelected={selectPreparedPullRequest}
+          onPullRequestPrepared={applyPreparedPullRequest}
+          onToggleView={() => {
+            // The workspace owner changes both reactive view and canonical URL.
+            selectView(workspace.view === "inline" ? "split" : "inline");
+          }}
+        />
+      </section>
+    </main>
+  );
+}

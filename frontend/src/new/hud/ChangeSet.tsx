@@ -1927,12 +1927,15 @@ type FileTreeProps = {
  * Renders the manifest tree, current shared expansion, and private highlighted-row scroll.
  *
  * Directory squares bulk-update descendant file expansion and FullFile squares
- * update one file. Labels are inert. The component may calculate current FileCard
- * render modes and scroll its own
+ * update one file. Name buttons invoke the enclosing scroll-only FileTree
+ * Navigation operation. The component may calculate current FileCard render
+ * modes and scroll its own
  * `.file-tree-groups`, but it never changes hunk selection, loads files, expands
  * a row for visibility, or moves the main page.
  */
 function FileTree(props: FileTreeProps): JSX.Element {
+  const navigation = useNavigation();
+  const toast = useToasts();
   const files = manifestFilesInOrder(props.tree);
   const indexByKey = new Map(
     files.map((file, index) => [manifestEntryKey(file.entry), index]),
@@ -1951,6 +1954,21 @@ function FileTree(props: FileTreeProps): JSX.Element {
     }
     return index;
   };
+
+  /**
+   * Sends one manifest file to the enclosing scroll-only Navigation operation.
+   *
+   * File and directory name buttons share this path. Rejection becomes the
+   * ordinary dramatic Toast while Navigation remains the only code that moves
+   * the main page; this function never selects, expands, collapses, or fetches.
+   */
+  function navigateToFile(file: ManifestFile): void {
+    void navigation
+      .navigate({ kind: "file", fileIndex: indexForFile(file) })
+      .catch((error: unknown) =>
+        toast.showError("File navigation failed", error),
+      );
+  }
   /**
    * Resolves one manifest file to the exact shared ChangeSet file state.
    *
@@ -1994,10 +2012,10 @@ function FileTree(props: FileTreeProps): JSX.Element {
   /**
    * Renders one reactive directory row and its currently expanded descendants.
    *
-   * The square is the sole accessible expansion button and the name is inert.
-   * Activation invokes the shared
-   * ChangeSet bulk file action and performs no selection, loading, navigation,
-   * repair, or scrolling of either viewport.
+   * The square is the sole expansion button and invokes the shared ChangeSet
+   * bulk file action. The separate name button navigates to the directory's
+   * first manifest file without selecting, loading, or changing expansion, and
+   * remains disabled while that first file is a Husk.
    */
   function FileTreeDirectory(rowProps: {
     directory: ManifestDirectory;
@@ -2019,10 +2037,15 @@ function FileTree(props: FileTreeProps): JSX.Element {
       }
       return current;
     };
+    const directoryFiles = manifestFilesInOrder(rowProps.directory.entries);
+    const firstFile = directoryFiles[0];
+    if (firstFile === undefined) {
+      throw new Error(
+        `FileTree directory ${rowProps.directory.path} contains no files.`,
+      );
+    }
     const statistics = createMemo(() =>
-      sumTreeStatistics(
-        manifestFilesInOrder(rowProps.directory.entries).map(stateForFile),
-      ),
+      sumTreeStatistics(directoryFiles.map(stateForFile)),
     );
     return (
       <section class="file-tree-group">
@@ -2045,9 +2068,15 @@ function FileTree(props: FileTreeProps): JSX.Element {
           >
             <TreeVisibilityIndicator visible={expanded()} virtualized={false} />
           </button>
-          <span class="file-tree-directory-target">
+          <button
+            type="button"
+            class="file-tree-directory-target"
+            aria-label={`Go to first file in ${rowProps.directory.path}`}
+            disabled={stateForFile(firstFile).state === "husk"}
+            onClick={() => navigateToFile(firstFile)}
+          >
             {rowProps.directory.name}/
-          </span>
+          </button>
           <TreeStatistics stats={statistics()} />
         </div>
         <Show when={expanded()}>
@@ -2071,12 +2100,13 @@ function FileTree(props: FileTreeProps): JSX.Element {
   }
 
   /**
-   * Renders one inert file row from current FileCard and ChangeSet presentation.
+   * Renders one file row from current FileCard and ChangeSet presentation.
    *
    * The row exposes selected-file highlighting and current statistics. A
    * FullFile square invokes the shared file-expansion action; Husk and Lazy
-   * markers and every file label remain inert. FullFile-local DOM render mode
-   * may replace the filled marker with `V`.
+   * markers remain inert. The separate name button invokes scroll-only file
+   * navigation and remains disabled while this file is a Husk. FullFile-local
+   * DOM render mode may replace the filled marker with `V`.
    */
   function FileTreeFile(rowProps: {
     file: ManifestFile;
@@ -2204,10 +2234,16 @@ function FileTree(props: FileTreeProps): JSX.Element {
             />
           </button>
         </Show>
-        <span class="file-tree-file-target">
+        <button
+          type="button"
+          class="file-tree-file-target"
+          aria-label={`Go to ${fileDisplayName(rowProps.file.entry)}`}
+          disabled={state().state === "husk"}
+          onClick={() => navigateToFile(rowProps.file)}
+        >
           <span class="file-tree-file-name">{rowProps.file.name}</span>
           <TreeStatistics stats={treeStatistics(state())} />
-        </span>
+        </button>
       </div>
     );
   }
@@ -2251,7 +2287,6 @@ function FileTree(props: FileTreeProps): JSX.Element {
    * and treats rows below collapsed ancestors as legitimately absent.
    */
   function FileTreeContent(): JSX.Element {
-    const toast = useToasts();
     let groups!: HTMLDivElement;
     const [renderModes, setRenderModes] = createSignal<FileTreeRenderModes>(
       new Map(),

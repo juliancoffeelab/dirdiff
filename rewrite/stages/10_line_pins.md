@@ -1,4 +1,4 @@
-## 9. Line pins
+## 10. Line pins
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 

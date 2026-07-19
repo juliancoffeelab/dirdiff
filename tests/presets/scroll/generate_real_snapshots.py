@@ -95,8 +95,57 @@ GROUPS = {
         ),
         ("05-frontend-src-Controls", "frontend/src/Controls.tsx", None),
     ],
-    "long-context": [
-        ("01-src-dirdiff-server", "src/dirdiff/server.py", None),
+    "many-files": [
+        (
+            "01-frontend-src-new-api-queryClient",
+            "frontend/src/new/api/queryClient.tsx",
+            None,
+        ),
+        (
+            "02-frontend-src-new-comp-Select",
+            "frontend/src/new/comp/Select.tsx",
+            None,
+        ),
+        (
+            "03-frontend-src-new-comp-AutocompleteInput",
+            "frontend/src/new/comp/AutocompleteInput.tsx",
+            None,
+        ),
+        (
+            "04-frontend-src-new-comp-Toasts",
+            "frontend/src/new/comp/Toasts.tsx",
+            None,
+        ),
+        (
+            "05-frontend-src-new-hud-NotebookFile",
+            "frontend/src/new/hud/NotebookFile.tsx",
+            None,
+        ),
+        (
+            "06-frontend-src-new-hud-folds",
+            "frontend/src/new/hud/folds.ts",
+            None,
+        ),
+        (
+            "07-frontend-src-new-hud-AppHeader",
+            "frontend/src/new/hud/AppHeader.tsx",
+            None,
+        ),
+        (
+            "08-frontend-src-new-hud-navigation",
+            "frontend/src/new/hud/navigation.tsx",
+            None,
+        ),
+        (
+            "09-frontend-src-new-hud-App",
+            "frontend/src/new/hud/App.tsx",
+            None,
+        ),
+        (
+            "10-frontend-src-new-hud-Profile",
+            "frontend/src/new/hud/Profile.tsx",
+            None,
+        ),
     ],
     "sandwich": [
         ("01-frontend-src-App", "frontend/src/App.tsx", None),
@@ -115,6 +164,13 @@ REF_OVERRIDES = {
     ),
 }
 
+GROUP_REF_OVERRIDES = {
+    "many-files": (
+        "ee08619",
+        "75f2953",
+    ),
+}
+
 SUPERSEDED_GROUPS = {
     "alternating",
     "dense-hunks",
@@ -122,6 +178,7 @@ SUPERSEDED_GROUPS = {
     "folded-height",
     "lazy-arrival",
     "lazy-placement",
+    "long-context",
     "scroll-follow-invariants",
     "viewport-run",
 }
@@ -145,8 +202,12 @@ def main() -> None:
         for fixture_name, source_path, lazy_reason in files:
             override = REF_OVERRIDES.get((group_name, fixture_name))
             if override is None:
-                left_ref = LEFT_REF
-                right_ref = RIGHT_REF
+                group_override = GROUP_REF_OVERRIDES.get(group_name)
+                if group_override is None:
+                    left_ref = LEFT_REF
+                    right_ref = RIGHT_REF
+                else:
+                    left_ref, right_ref = group_override
             else:
                 left_ref, right_ref = override
             fixture_dir = SCROLL_ROOT / group_name / fixture_name

@@ -1515,14 +1515,20 @@ h1 {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 4px;
-  cursor: default;
+  cursor: pointer;
 }
 
 .file-tree-directory-target {
   display: block;
   grid-column: 2;
   font-weight: inherit;
-  cursor: text;
+  cursor: pointer;
+}
+
+.file-tree-directory-target:disabled,
+.file-tree-file-target:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .file-tree-directory:hover,

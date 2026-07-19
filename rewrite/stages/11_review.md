@@ -1,8 +1,8 @@
-## 10. Review and correction
+## 11. Review and correction
 
 Read [guidance.md](guidance.md) before implementing this chapter; it governs every practical rewrite stage.
 
-Chapter 10 begins only after the required gated Chapters 8 and 9 have approved designs and completed implementations. At that point, `v_new` remains available for continued review, correction and direct user feedback.
+Chapter 11 begins only after the required Chapters 8–10 have approved designs where required and completed implementations. At that point, `v_new` remains available for continued review, correction and direct user feedback.
 
 Every visual difference from `v_old` that is not explicitly authorized by Appendix A is a defect. “Similar,” “close,” “equivalent,” or “improved” is not sufficient; review compares the two implementations at matching viewport, URL, backend data and UI state.
 
@@ -77,6 +77,6 @@ This chapter does not authorize:
 - removing the frontend switch;
 - changing the default frontend;
 - removing migration storage;
-- treating `v_new` as accepted merely because Chapters 1–9 were implemented.
+- treating `v_new` as accepted merely because Chapters 1–10 were implemented.
 
 Deletion of `v_old` and final cutover happen only in a separate, explicitly authorized follow-up.

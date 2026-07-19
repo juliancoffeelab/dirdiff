@@ -6,7 +6,7 @@
  * Renderers write identity fields directly into their own DOM; this module
  * reads those attributes only while handling an explicit operation. It must not
  * retain selected identity, build a hunk registry, calculate counters, follow
- * user scrolling, change FileTree expansion, or implement line-pin behavior.
+ * user scrolling, navigate FileTree rows, or own line-pin behavior.
  */
 import {
   createContext,
@@ -35,7 +35,7 @@ export type RealHunkIdentity = {
  * Identifies one file-level target or one coordinate-preserving skipped hunk.
  *
  * Husk, Lazy, and zero targets represent complete file states. Skip targets
- * preserve a real hunk's coordinates after its file collapses while remaining outside the
+ * preserve a collapsed real hunk's coordinates while remaining outside the
  * traversal set. Renderers write these fields directly into DOM attributes.
  */
 export type PseudoHunkIdentity =
@@ -60,24 +60,20 @@ export type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
 /**
  * Describes every explicit operation supported by one Navigation instance.
  *
- * Relative operations use current selected DOM identity, direct hunk
- * navigation accepts an already-resolved participating target, file navigation
- * scrolls to one manifest file's first current DOM target without selecting,
- * and Top scrolls the page.
+ * Relative operations use current selected DOM identity, direct navigation
+ * accepts an already-resolved participating target, and Top scrolls the page.
  */
 export type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
   | { kind: "hunk"; target: HTMLElement }
-  | { kind: "file"; fileIndex: number }
   | { kind: "top" };
 
 /**
  * Exposes the complete explicit navigation API for one mounted ChangeSet.
  *
- * Calls resolve after any required rich materialization, selection when the
- * operation requires it, and scroll. A disposed instance performs no later DOM
- * write or scroll.
+ * Calls resolve after any required rich materialization, selection, and scroll.
+ * A disposed instance performs no later DOM write or scroll.
  */
 export type Navigation = {
   navigate(command: NavigationCommand): Promise<void>;
@@ -108,7 +104,7 @@ type EnrichableFileCard = HTMLElement & {
 const NavigationContext = createContext<Navigation>();
 
 /**
- * Returns the Navigation instance owned by the nearest mounted NavigationProvider.
+ * Returns the Navigation instance owned by the nearest mounted ChangeSet.
  *
  * Consumers must render under NavigationProvider. Missing context is a module
  * contract violation and throws instead of constructing an unrelated instance.
@@ -294,7 +290,7 @@ export function NavigationProvider(
   /**
    * Waits for one selected or destination FileCard to expose required rich DOM.
    *
-   * FullFile supplies the direct operation for rich, virtual, file-collapsed, zero,
+   * FullFile supplies the direct operation for rich, virtual, collapsed, zero,
    * and notebook presentations. Husk and Lazy cards intentionally have no such
    * method and are immediate no-ops. A FullFile without the operation violates
    * its DOM interface and throws instead of silently skipping enrichment.
@@ -367,127 +363,6 @@ export function NavigationProvider(
     }
     selectHunk(root, target);
     target.scrollIntoView({ block: "center", behavior: "instant" });
-  }
-
-  /**
-   * Scrolls to one manifest file's exact first current DOM target.
-   *
-   * The immutable file index must resolve to one stable FileCard. Coordinate
-   * representations use hunk zero; Lazy and zero representations use their sole
-   * file-level target. A transient Husk target makes the operation an immediate
-   * no-op because later file replacement has unstable geometry. An expanded
-   * virtual FullFile is enriched and resolved again before an immediate centered
-   * scroll. One browser frame later, it corrects the scroll once only when layout
-   * replacement moved the target completely outside the viewport. This operation
-   * never selects, expands, collapses, fetches, calculates counters, or updates
-   * the FileTree.
-   */
-  async function navigateToFile(fileIndex: number): Promise<void> {
-    if (!Number.isInteger(fileIndex) || fileIndex < 0) {
-      throw new Error("File navigation requires a valid manifest index.");
-    }
-    const root = props.root();
-    const cards = root.querySelectorAll<HTMLElement>(
-      `[data-file-card][data-file-index="${fileIndex}"]`,
-    );
-    if (cards.length !== 1) {
-      throw new Error(
-        `File navigation requires one FileCard at index ${fileIndex}.`,
-      );
-    }
-    const card = cards[0];
-    if (card === undefined) {
-      throw new Error("Indexed FileCard disappeared during navigation.");
-    }
-
-    /**
-     * Resolves hunk zero or the one file-level pseudo-target from current DOM.
-     *
-     * FullFile coordinate targets take precedence. Every other FileCard state
-     * must expose exactly one target without a hunk index. Missing or duplicate
-     * targets are renderer-contract failures rather than alternate destinations.
-     */
-    function firstTarget(): HTMLElement {
-      const coordinateTargets = card.querySelectorAll<HTMLElement>(
-        '[data-hunk-target][data-hunk-index="0"]',
-      );
-      let target: HTMLElement;
-      if (coordinateTargets.length > 0) {
-        if (coordinateTargets.length !== 1) {
-          throw new Error("FileCard exposed duplicate hunk-zero targets.");
-        }
-        const coordinateTarget = coordinateTargets[0];
-        if (coordinateTarget === undefined) {
-          throw new Error("FileCard hunk-zero target disappeared.");
-        }
-        target = coordinateTarget;
-      } else {
-        const fileTargets = card.querySelectorAll<HTMLElement>(
-          "[data-hunk-target]:not([data-hunk-index])",
-        );
-        if (fileTargets.length !== 1) {
-          throw new Error(
-            "FileCard requires exactly one first file-level target.",
-          );
-        }
-        const fileTarget = fileTargets[0];
-        if (fileTarget === undefined) {
-          throw new Error("FileCard file-level target disappeared.");
-        }
-        target = fileTarget;
-      }
-      if (target.dataset.fileIndex !== String(fileIndex)) {
-        throw new Error("FileCard target has the wrong manifest index.");
-      }
-      const kind = target.dataset.hunkKind;
-      if (target.hasAttribute("data-hunk-index")) {
-        if (kind !== "real" && kind !== "skip") {
-          throw new Error("FileCard coordinate target has an invalid kind.");
-        }
-      } else if (kind !== "husk" && kind !== "lazy" && kind !== "zero") {
-        throw new Error("FileCard file-level target has an invalid kind.");
-      }
-      return target;
-    }
-
-    let target = firstTarget();
-    if (target.dataset.hunkKind === "husk") {
-      return;
-    }
-    if (
-      card.dataset.fileRender === "virtual" &&
-      target.dataset.hunkKind === "real"
-    ) {
-      await waitToEnrich(card);
-      if (!alive) {
-        return;
-      }
-      target = firstTarget();
-      if (
-        target.dataset.hunkKind !== "real" ||
-        target.dataset.hunkIndex !== "0"
-      ) {
-        throw new Error("Enriched FullFile omitted real hunk zero.");
-      }
-    }
-    if (!alive) {
-      return;
-    }
-    target.scrollIntoView({ block: "center", behavior: "instant" });
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
-    if (!alive) {
-      return;
-    }
-    target = firstTarget();
-    const targetRect = target.getBoundingClientRect();
-    if (targetRect.bottom <= 0 || targetRect.top >= window.innerHeight) {
-      target.scrollIntoView({ block: "center", behavior: "instant" });
-    }
-    card.classList.remove("file-card-flash");
-    void card.offsetWidth;
-    card.classList.add("file-card-flash");
   }
 
   /**
@@ -599,13 +474,6 @@ export function NavigationProvider(
   }
 
   const navigation: Navigation = {
-    /**
-     * Executes one explicit operation against the current ChangeSet DOM.
-     *
-     * Callers provide a complete `NavigationCommand`. A disposed controller is a
-     * no-op; otherwise this method performs only that command's documented DOM
-     * selection, enrichment, and scroll behavior and lets invariant errors reject.
-     */
     async navigate(command): Promise<void> {
       if (!alive) {
         return;
@@ -619,9 +487,6 @@ export function NavigationProvider(
           return;
         case "hunk":
           await activateTarget(props.root(), command.target);
-          return;
-        case "file":
-          await navigateToFile(command.fileIndex);
           return;
         case "top":
           window.scrollTo({ top: 0, behavior: "instant" });

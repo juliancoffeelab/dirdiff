@@ -299,7 +299,7 @@ A skipped target:
 - is excluded from Next and Previous destinations;
 - is excluded from scroll-follow;
 - retains its position in `HunkDisplay`;
-- is not a FileTree navigation destination;
+- may be the direct FileTree destination for hunk zero of a collapsed FullFile or for a collapsed file-level pseudo-target;
 - may be used as the scroll-back anchor matching a selected real hunk.
 
 Collapsing a file directly replaces its current target representation with skipped pseudos and collapses its FileBody.
@@ -377,7 +377,7 @@ When HuskFile or LazyFile becomes FullFile:
 - no target is selected automatically;
 - no scrolling occurs.
 
-A later explicit Next, Previous, FileTree, or recognized user-scroll action may select a resulting target. Rendering itself performs no mapping.
+A later explicit Next, Previous, or recognized user-scroll action may select a resulting target. FileTree Navigation may scroll to one without selecting it. Rendering itself performs no mapping.
 
 In particular, an initially selected Husk identity remains `kind="husk"` on the
 stable FileCard after FullFile replaces the Husk target. It does not implicitly
@@ -401,6 +401,7 @@ export type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
   | { kind: "hunk"; target: HTMLElement }
+  | { kind: "file"; fileIndex: number }
   | { kind: "top" };
 
 export type Navigation = {
@@ -408,7 +409,7 @@ export type Navigation = {
 };
 ```
 
-A direct hunk command receives the concrete participating DOM target. Navigation validates that the target belongs to its ChangeSet root. It does not reconstruct a second registry of identities.
+A direct hunk command receives the concrete participating DOM target. Navigation validates that the target belongs to its ChangeSet root. A file command receives an immutable manifest file index and resolves that FileCard's exact first target directly from current DOM. Neither operation reconstructs a second registry of identities.
 
 `NavigationProvider` owns one disposable controller for one mounted active ChangeSet. Context only delivers that same instance to Hotkeys, HintHud, FileTree, and other consumers. It does not make navigation global or move truth out of DOM.
 
@@ -559,19 +560,27 @@ This behavior belongs only to the active user navigation operation. File-state r
 
 ## Direct hunk navigation and FileTree
 
-> **TODO design gate — do not implement FileTree file-row navigation from this section yet.** The presentation, expansion, highlighting, and private-sidebar scrolling contract is approved in [03_file_presentation.md](03_file_presentation.md). Exact file-row target resolution, enrichment, layout stabilization, main-page scrolling, and selection remain gated until they receive their own complete design and explicit approval.
+FileTree names invoke Navigation; their neighboring squares remain the only expansion controls. A file name sends `{ kind: "file", fileIndex }`. A directory name finds its first file in manifest order and sends the same command for that file. Empty manifest directories are invalid input and throw rather than inventing a destination.
 
-During the current chapter, FileTree file rows are inert. Directory rows invoke only the shared directory-expansion action. Collapsing or reopening a directory changes expansion and `.skip` participation without selecting, clearing, repairing, navigating, loading, or scrolling.
+The file command is scroll-only. It never calls `selectHunk`, changes selected identity, calculates counters, updates FileTree highlighting, expands or collapses a file or directory, or fetches file data. Until scroll-follow is separately designed and implemented, selection therefore remains unchanged after a FileTree jump. Next and Previous's off-screen-selected-target rule does not apply to a direct file command.
 
-The approved later direction is:
+Navigation resolves the destination from the FileCard's current DOM representation:
 
-- clicking a file row navigates to that file;
-- an expanded file is never collapsed by navigation;
-- a collapsed non-Lazy FullFile may be expanded before navigation;
-- navigating to a LazyFile neither expands nor fetches it;
-- only direct activation of the LazyFile plank may submit its explicit fetch.
+| File representation | Destination |
+|---|---|
+| Expanded rich FullFile with hunks | Real target with `hunkIndex === 0` |
+| Collapsed FullFile with hunks | Coordinate-preserving `skip` target with `hunkIndex === 0` |
+| Expanded virtual FullFile | `waitToEnrich()`, followed by the replacement real target with `hunkIndex === 0` |
+| HuskFile | No destination; its FileTree name is disabled and a direct file command is a no-op |
+| Expanded LazyFile | Its visible Lazy plank |
+| Collapsed LazyFile | Its skipped Lazy pseudo-target beside the collapsed header |
+| Zero-hunk FullFile | Its zero pseudo-target |
 
-These points do not authorize implementation of the gated interaction.
+The expected target must exist exactly once. Absence or duplication is a DOM-contract failure and rejects the Navigation operation. A renderer's critical unrecoverable strip has no hunk target and therefore rejects rather than pretending to be navigable.
+
+After optional enrichment, Navigation resolves the destination again and centers it with an immediate `scrollIntoView()`. It yields exactly one browser frame, resolves the same first target again, and performs at most one corrective centered scroll only when layout replacement moved the target completely outside the viewport. It then flashes the stable FileCard. It does not loop, poll through further animation frames, or force neighbouring files rich. A Husk target returns without scrolling because later sequential replacement has unstable geometry; it never changes or waits for the file lane.
+
+Only direct activation of the LazyFile plank may submit its explicit fetch. FileTree Navigation to a LazyFile never invokes the plank, expands the file, or starts loading.
 
 ## Rich materialization
 
@@ -915,7 +924,7 @@ Notebook regions remain a post-rewrite TODO.
 | Next/Previous destination | Navigation operation |
 | Direct hunk destination | Navigation operation |
 | User-scroll selection | User-scroll following |
-| FileTree destination | FileTree activation followed by Navigation |
+| FileTree destination | Navigation file command resolved from current FileCard DOM |
 | HunkDisplay calculation trigger | Filtered ChangeSet `MutationObserver` |
 | Exact calculated hunk snapshot | `HunkDisplay` signal stored by the mounted ChangeSet shell |
 | Counter text | Solid rendering from `HunkDisplay` numbers |
@@ -936,7 +945,7 @@ Notebook regions remain a post-rewrite TODO.
 7. Every zero-hunk FullFile has exactly one zero pseudo-target.
 8. Every real target from a collapsed file has exactly one coordinate-preserving `skip` pseudo.
 9. `.skip` alone controls participation.
-10. Skipped targets may retain or receive selection and retain their `HunkDisplay` position, but are excluded from traversal, FileTree destinations, and scroll-follow.
+10. Skipped targets may retain or receive selection and retain their `HunkDisplay` position. They are excluded from traversal and scroll-follow, but hunk zero or a skipped file-level pseudo-target may be a direct FileTree scroll destination.
 11. Folded-line ranges contain no hunk boundary.
 12. Invalid folded-line ranges throw instead of producing hidden folded-line targets.
 13. Every non-empty ready ChangeSet without `data-file-render-error` selects its first FileCard's first hunk target exactly once, even when that target carries `.skip`; a terminal renderer marker stops initialization without selection or repair.

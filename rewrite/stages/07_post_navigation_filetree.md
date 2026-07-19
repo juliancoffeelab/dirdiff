@@ -2,7 +2,7 @@
 
 Read [guidance.md](guidance.md) before starting this chapter. Implement this chapter according to the FileTree contract in Sections 25.5–25.13 of [03_file_presentation.md](../spec/03_file_presentation.md) and the selection-display contract in [08_hunk_navigation.md](../spec/08_hunk_navigation.md).
 
-This chapter corrects FileTree presentation after explicit hunk navigation exists. It does not implement any part of Chapter 8 or Chapter 9.
+This chapter corrects FileTree presentation after explicit hunk navigation exists. It does not implement any part of Chapters 8–10.
 
 1. Make every directory row, file row, progressive statistic, and expansion marker read current reactive ChangeSet inputs rather than values captured by the recursive renderer.
 
@@ -24,4 +24,4 @@ This chapter corrects FileTree presentation after explicit hunk navigation exist
 
 Verify in the browser that directory reachability follows current descendant file expansion; collapsing the final reachable file collapses the required ancestor chain while another reachable descendant keeps its ancestors open; directory squares bulk-toggle descendants; FileTree and FileCard FullFile squares update the same state; labels never toggle expansion; main FileHeader text is selectable; rich/virtual transitions update filled/`V` markers; selected-file changes highlight and privately reveal the correct row without repeating the scroll for hunk changes in one file; unreachable ancestors hide the row without changing selection; FileTree labels remain non-navigating; FileTree interaction never moves the main page; Lazy rows stay collapsed through fetch and error, successful FullFile replacement then expands, and a non-error Lazy reason keeps its color.
 
-Chapter 8 remains the separately gated design and implementation of user-scroll following and FileTree label navigation. Chapter 9 remains the separately gated line-pin design and implementation.
+Chapter 8 implements the separately approved FileTree label navigation. Chapter 9 remains the separately gated scroll-follow design and implementation. Chapter 10 remains the separately gated line-pin design and implementation.

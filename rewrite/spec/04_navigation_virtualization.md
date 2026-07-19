@@ -28,7 +28,7 @@ It does not revisit:
 - notebook backend response design;
 - row virtualization.
 
-TODOs about virtualization heuristics or representation policy are explicit post-rewrite follow-ups. The design gates for scroll-follow, FileTree navigation, and line pins live in their own specifications and practical chapters; they remain required gated rewrite work rather than virtualization TODOs or optional follow-ups.
+TODOs about virtualization heuristics or representation policy are explicit post-rewrite follow-ups. FileTree Navigation is approved separately. The design gates for scroll-follow and line pins live in their own specifications and practical chapters; they remain required gated rewrite work rather than virtualization TODOs or optional follow-ups.
 
 ## 27. Essential complexity
 
@@ -330,7 +330,7 @@ The outcome is a measured post-rewrite decision, not an architectural assumption
 
 ## 47. Required wrapped-Previous reverse-traversal stress test
 
-> **TODO design gate:** The virtualization-only observations remain useful, but all scroll-follow and FileTree-navigation steps in this scenario are provisional. Re-check and correct them against the separately approved scroll-follow and FileTree-navigation designs before using this section as an implementation or test contract.
+> **TODO design gate:** The virtualization-only and approved scroll-only FileTree-navigation observations remain useful, but all scroll-follow steps in this scenario are provisional. Re-check and correct them against the separately approved scroll-follow design before using those steps as an implementation or test contract.
 
 The virtualization and scroll-anchoring design must be tested from the least convenient starting condition:
 

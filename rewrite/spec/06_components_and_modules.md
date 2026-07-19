@@ -361,7 +361,7 @@ useNavigation
 
 `NavigationProvider` owns one stateful, disposable Navigation controller for one mounted ChangeSet. `useNavigation` returns that controller’s public operations to descendants of the nearest Provider.
 
-Scroll-follow and FileTree navigation remain behind the explicit TODO design gates in `08_hunk_navigation.md`. Their current state-placement outline is provisional and does not authorize implementation before those designs are re-checked and explicitly approved.
+FileTree Navigation is an approved scroll-only operation in `08_hunk_navigation.md`. Scroll-follow remains behind its explicit TODO design gate and must not be inferred from FileTree scrolling.
 
 The controller owns:
 
@@ -369,7 +369,7 @@ The controller owns:
 - the non-reactive `idle | user | navigation` scroll-source gate;
 - navigation listeners and scheduled animation frames.
 
-It performs DOM hunk traversal, `selectHunk`, Next/Previous, direct-hunk and return-to-top navigation, and throttled scroll-follow.
+It performs DOM hunk traversal, `selectHunk`, Next/Previous, direct-hunk, scroll-only file, and return-to-top navigation. Throttled scroll-follow remains gated.
 
 The controller stores only ephemeral browser-work state: root, scroll source, scheduled frame, and listeners. Selected hunk identity and target order remain in DOM. Counters and FileTree highlighting render from `ChangeSetShell`'s `HunkDisplay` signal, which is an exact calculation from DOM and is never Navigation state. Rich/virtual state remains FileCard-local, and FileCard implements `waitToEnrich`.
 
@@ -384,6 +384,7 @@ type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
   | { kind: "hunk"; target: HTMLElement }
+  | { kind: "file"; fileIndex: number }
   | { kind: "top" };
 ```
 

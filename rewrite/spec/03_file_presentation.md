@@ -135,9 +135,9 @@ The small square is the visible expansion marker. “Collapse” and “Expand�
 
 The FileTree displays manifest hierarchy in strict manifest order, progressive file state and statistics, calculated directory reachability, shared file expansion, FileCard-local virtual mode, the file containing the selected hunk, and that highlighted row within its own scroll container.
 
-Every visible directory name ends with `/`. The slash is part of the inert, selectable directory label; it is not part of the manifest directory name or path identity.
+Every visible directory name ends with `/`. The slash is part of the selectable directory-name button; it is not part of the manifest directory name or path identity.
 
-It may toggle a directory or individual FullFile through the corresponding square, toggle its own open state, and scroll its own overflow container to reveal an already-mounted highlighted row. It must not store separate directory-expansion state, select hunks, load files, expand directories to reveal a row, scroll the main page, or call Navigation before the separately gated FileTree-navigation chapter.
+It may toggle a directory or individual FullFile through the corresponding square, toggle its own open state, scroll its own overflow container to reveal an already-mounted highlighted row, and invoke the approved FileTree Navigation operation through a directory or file name. It must not store separate directory-expansion state, select hunks, load files, or expand directories or files while navigating.
 
 #### State and interface
 
@@ -261,19 +261,19 @@ There is no `onDirectoryReveal`, because sidebar scrolling never changes expansi
 
 Directory and file rows receive accessors and call those accessors while rendering. They never retain a plain boolean or file state captured by a long-lived recursive renderer. Directory statistics similarly read current descendant file states through a memo.
 
-The directory square is the sole directory-expansion button. It exposes the calculated state through `aria-expanded` and performs the bulk descendant-file action above. The directory name is a separate, inert label ending with `/` during this chapter; the gated FileTree-navigation chapter may later make that label navigate to the directory's first hunk without changing expansion.
+The directory square is the sole directory-expansion button. It exposes the calculated state through `aria-expanded` and performs the bulk descendant-file action above. The directory name is a separate selectable button ending with `/`. Activating it finds the directory's first file in manifest order and invokes that file's Navigation operation without changing expansion.
 
-The FullFile square is the sole individual file-expansion button in both FileTree and the main FileCard. Both squares call the same ChangeSet file-expansion action. The FileTree file name remains a separate inert label until its gated navigation chapter. The remainder of the main FileHeader—including path, counters, and statistics—is inert selectable content rather than part of the expansion button.
+The FullFile square is the sole individual file-expansion button in both FileTree and the main FileCard. Both squares call the same ChangeSet file-expansion action. The FileTree file name is a separate selectable button that invokes the file's Navigation operation. The remainder of the main FileHeader—including path, counters, and statistics—is inert selectable content rather than part of the expansion button.
 
-Husk and Lazy squares remain inert and empty because they have no expandable rendered body. Their presence does not change the reachability calculation: unresolved Husks keep their directory stable during sequential loading, and a LazyFile's visible plank keeps its directory reachable unless it was explicitly collapsed. The Lazy plank remains the only individual explicit-load action.
+Husk and Lazy squares remain inert and empty because they have no expandable rendered body. Their presence does not change the reachability calculation: unresolved Husks keep their directory stable during sequential loading, and a LazyFile's visible plank keeps its directory reachable unless it was explicitly collapsed. The Lazy plank remains the only individual explicit-load action. A Husk file-name button is disabled because later replacement has unstable geometry. A Lazy file-name button may scroll to its existing file-level target, but it never loads or expands the file. A directory-name button is likewise disabled while its first manifest file is a Husk.
 
-No square activation performs selection, repair, navigation, loading, or scrolling. No label activation toggles expansion.
+No square activation performs selection, repair, navigation, loading, or scrolling. No name activation toggles expansion.
 
 Collapsing a directory or file preserves the selected hunk identity and marks its hunk representation skipped according to [08_hunk_navigation.md](08_hunk_navigation.md). It never chooses another hunk. Reopening changes only expansion; any still-selected descendant row mounts highlighted again.
 
 #### File interaction and Lazy lifecycle
 
-For a FullFile, the square displays state and is the only expansion control. During this chapter, the file name remains inert and uses no pointer cursor. Individual FullFile expansion from either FileTree or FileHeader uses the same ChangeSet action.
+For a FullFile, the square displays state and is the only expansion control. The file name invokes the FileTree Navigation operation and uses a pointer cursor. Individual FullFile expansion from either FileTree or FileHeader uses the same ChangeSet action.
 
 LazyFile has a distinct presentation lifecycle:
 
@@ -286,7 +286,7 @@ LazyFile has a distinct presentation lifecycle:
 
 FileTree therefore derives `expanded` as `false` for every Lazy state regardless of stale file-expansion data. FileCard continues to own whether the Lazy plank is physically present; an explicit file or containing-directory collapse may hide it. Automatic non-Lazy files continue using their backend/default expansion rules.
 
-The later approved FileTree-navigation chapter may make a file row navigate, but it must never turn an expanded file into a collapsed file. It may expand a collapsed non-Lazy FullFile before navigation. Navigating to a LazyFile neither expands nor fetches it. Exact target resolution, enrichment, layout stabilization, and scrolling remain behind that chapter’s explicit design gate.
+FileTree Navigation changes neither file nor directory expansion. A FullFile name scrolls to hunk zero in its current rich, virtual, or skipped representation. A LazyFile name scrolls to its visible plank or collapsed skipped target without expanding or fetching it. A Husk name is disabled, and a file command that encounters a transient Husk target is a no-op. A zero-hunk FullFile name scrolls to its zero pseudo-target. Navigation never changes selected hunk identity; future scroll-follow design may decide how ordinary viewport following reacts after the programmatic scroll completes.
 
 #### Virtual-mode display
 
@@ -307,7 +307,7 @@ FileCard DOM remains authoritative. Navigation and virtualization cannot read th
 
 #### Highlighting and private scrolling
 
-Highlight remains declarative from `HunkDisplay.selectedFileIndex`; FileTree never writes highlight classes or `aria-current` imperatively. If a selected file belongs to a collapsed directory, its absent row is legitimate. FileTree performs no selection, repair, navigation, or expansion. When that directory reopens, the row mounts with the existing highlight.
+Highlight remains declarative from `HunkDisplay.selectedFileIndex`; FileTree never writes highlight classes or `aria-current` imperatively. If a selected file belongs to a collapsed directory, its absent row is legitimate. Highlighting performs no selection, repair, navigation, or expansion. When that directory reopens, the row mounts with the existing highlight.
 
 The actual private scroll container is `.file-tree-groups`. A memo of `selectedFileIndex` prevents hunk changes inside one file from triggering another sidebar scroll. The scrolling effect observes whether FileTree is open, the highlighted file index, and the expansion of that file’s directory ancestors.
 
