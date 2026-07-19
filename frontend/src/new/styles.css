@@ -1394,6 +1394,7 @@ h1 {
 
 .file-tree-directory-target,
 .file-tree-file-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1404,22 +1405,20 @@ h1 {
   font-size: 12px;
 }
 
-.file-tree-visibility-toggle {
+.file-tree-visibility-control,
+.file-tree-visibility-marker {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 18px;
   height: 22px;
+}
+
+.file-tree-visibility-control {
   border: 0;
   background: transparent;
   color: inherit;
   padding: 0;
-  font: inherit;
-}
-
-.file-tree-visibility-toggle:hover,
-.file-tree-visibility-toggle:focus-visible {
-  background: #f4f1ea;
 }
 
 .visibility-indicator {
@@ -1494,10 +1493,6 @@ h1 {
   --visibility-indicator-color: #c75555;
 }
 
-.file-tree-file.lazy-error .visibility-indicator.small {
-  --visibility-indicator-color: #b23a48;
-}
-
 .file-tree-file.renamed .visibility-indicator.small {
   --visibility-indicator-color: #5f8ed0;
 }
@@ -1519,6 +1514,10 @@ h1 {
   --visibility-indicator-color: #8c867c;
 }
 
+.file-tree-file.lazy-error .visibility-indicator.small {
+  --visibility-indicator-color: #b23a48;
+}
+
 .file-tree-directory-target,
 .file-tree-file-target {
   min-width: 0;
@@ -1528,6 +1527,7 @@ h1 {
   padding: 0;
   font: inherit;
   text-align: left;
+  user-select: text;
 }
 
 .file-tree-file-target {
@@ -1540,7 +1540,10 @@ h1 {
 }
 
 .file-tree-directory-target {
+  display: block;
+  grid-column: 2;
   font-weight: inherit;
+  cursor: text;
 }
 
 .file-tree-directory:hover,
@@ -1637,6 +1640,15 @@ h1 {
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.file-card-visibility-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
 }
 
 .directory-group-title {

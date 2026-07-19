@@ -353,7 +353,6 @@ function FileCardContent(props: FileCardProps): JSX.Element {
             expanded={props.expanded}
             globalSelectedHunk={props.globalSelectedHunk}
             fileSelectedHunk={props.fileSelectedHunk}
-            onExpandedChange={props.onExpandedChange}
             onLoad={props.onLoad}
           />
         )}
@@ -477,6 +476,7 @@ function HuskFileHeader(
       data-file-index={identity.fileIndex}
     >
       <span class="file-card-heading">
+        <VisibilityIndicator visible={false} virtualized={false} />
         <span class="file-card-title-row">
           <h2>{props.state.path}</h2>
           <span class="file-card-status">
@@ -622,10 +622,21 @@ function FullFile(
   /**
    * Materializes this FullFile's rich body for one explicit navigation action.
    *
-   * The method changes only local representation and resolves after Solid has
-   * mounted rich DOM. It never selects, calculates counters, scrolls, or fetches.
+   * Collapsed, zero-hunk, non-text, and body-awaiting FullFiles already expose
+   * their complete current representation and are immediate no-ops. An admitted
+   * expanded text file changes only local representation and resolves after
+   * Solid has mounted rich DOM. It never expands, selects, calculates counters,
+   * scrolls, or fetches.
    */
   async function waitToEnrich(): Promise<void> {
+    if (
+      !props.expanded ||
+      !props.admitted ||
+      props.state.file.hunk_count === 0 ||
+      textFile === null
+    ) {
+      return;
+    }
     const card = props.card();
     changeRenderMode("rich");
     await Promise.resolve();
@@ -873,8 +884,8 @@ function VirtualFile(props: {
  * Renders the complete interactive header for one successfully loaded file.
  *
  * Callers provide the canonical FullFile state and ChangeSet-owned expansion.
- * The header shows only file-local statistics and warnings and reports expansion
- * changes without owning them.
+ * The header shows only file-local statistics and warnings. Its square is the
+ * sole expansion button; the remaining header content stays inert and selectable.
  */
 function FullFileHeader(
   props: {
@@ -904,21 +915,30 @@ function FullFileHeader(
   }
 
   return (
-    <button
-      type="button"
+    <header
       class="file-card-header full-file-header"
       classList={{ skip: zeroHunkFile && !props.expanded }}
-      aria-expanded={props.expanded}
       data-hunk-target={targetIdentity() === null ? undefined : ""}
       data-hunk-kind={targetIdentity()?.kind}
       data-file-index={targetIdentity()?.fileIndex}
-      onClick={() => props.onExpandedChange(!props.expanded)}
     >
       <span class="file-card-heading">
-        <VisibilityIndicator
-          visible={props.expanded && !props.virtualized}
-          virtualized={props.virtualized}
-        />
+        <button
+          type="button"
+          class="file-card-visibility-control"
+          aria-expanded={props.expanded}
+          aria-label={
+            props.expanded
+              ? `Fold ${props.state.file.display_name}`
+              : `Show ${props.state.file.display_name}`
+          }
+          onClick={() => props.onExpandedChange(!props.expanded)}
+        >
+          <VisibilityIndicator
+            visible={props.expanded && !props.virtualized}
+            virtualized={props.virtualized}
+          />
+        </button>
         <span class="file-card-title-row">
           <h2>{props.state.file.display_name}</h2>
           <span class="file-card-status">
@@ -947,7 +967,7 @@ function FullFileHeader(
         </span>
       </span>
       <FileStatistics summary={props.state.file.summary} />
-    </button>
+    </header>
   );
 }
 
@@ -979,7 +999,6 @@ function LazyFileView(
   props: {
     state: LazyFileState;
     expanded: boolean;
-    onExpandedChange: (expanded: boolean) => void;
     onLoad: () => void;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -991,10 +1010,8 @@ function LazyFileView(
     <>
       <LazyFileHeader
         state={props.state}
-        expanded={props.expanded}
         globalSelectedHunk={props.globalSelectedHunk}
         fileSelectedHunk={props.fileSelectedHunk}
-        onExpandedChange={props.onExpandedChange}
       />
       <Show when={!props.expanded}>
         <div class="hunk-skip-anchors" aria-hidden="true">
@@ -1045,28 +1062,19 @@ function LazyFileView(
 }
 
 /**
- * Renders the complete interactive header for a delayed or failed file.
+ * Renders the complete inert header for a delayed or failed file.
  *
  * Deferred values show only available lazy metadata; failures show their local
- * status without hiding the full body error. Expansion remains ChangeSet-owned
- * and determines whether the explicit action or error body participates.
+ * status without hiding the full body error. Its empty square is presentation
+ * only; the explicit plank remains the sole individual LazyFile action.
  */
 function LazyFileHeader(
-  props: {
-    state: LazyFileState;
-    expanded: boolean;
-    onExpandedChange: (expanded: boolean) => void;
-  } & HunkCounterProps,
+  props: { state: LazyFileState } & HunkCounterProps,
 ): JSX.Element {
   return (
-    <button
-      type="button"
-      class="file-card-header lazy-file-header"
-      aria-expanded={props.expanded}
-      onClick={() => props.onExpandedChange(!props.expanded)}
-    >
+    <header class="file-card-header lazy-file-header">
       <span class="file-card-heading">
-        <VisibilityIndicator visible={props.expanded} virtualized={false} />
+        <VisibilityIndicator visible={false} virtualized={false} />
         <span class="file-card-title-row">
           <h2>
             {props.state.file.kind === "deferred"
@@ -1090,7 +1098,7 @@ function LazyFileHeader(
       >
         {(deferred) => <LazyStatistics info={deferred.info} />}
       </Show>
-    </button>
+    </header>
   );
 }
 

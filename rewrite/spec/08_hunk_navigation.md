@@ -559,31 +559,19 @@ This behavior belongs only to the active user navigation operation. File-state r
 
 ## Direct hunk navigation and FileTree
 
-> **TODO design gate — do not implement FileTree navigation from this section yet.** The FileTree behavior below records the current direction, but it is unreliable until the existing implementation, DOM expansion lifecycle, LazyFile behavior, enrichment, scrolling, and layout failure cases have been re-investigated together. Present a corrected complete design and obtain explicit user approval before implementation.
+> **TODO design gate — do not implement FileTree file-row navigation from this section yet.** The presentation, expansion, highlighting, and private-sidebar scrolling contract is approved in [03_file_presentation.md](03_file_presentation.md). Exact file-row target resolution, enrichment, layout stabilization, main-page scrolling, and selection remain gated until they receive their own complete design and explicit approval.
 
-Direct navigation resolves one concrete participating hunk token and uses the same enrichment, selection, and scrolling path as Next and Previous.
+During the current chapter, FileTree file rows are inert. Directory rows invoke only the shared directory-expansion action. Collapsing or reopening a directory changes expansion and `.skip` participation without selecting, clearing, repairing, navigating, loading, or scrolling.
 
-FileTree does not navigate to files or directories.
+The approved later direction is:
 
-Clicking a FileTree file row:
+- clicking a file row navigates to that file;
+- an expanded file is never collapsed by navigation;
+- a collapsed non-Lazy FullFile may be expanded before navigation;
+- navigating to a LazyFile neither expands nor fetches it;
+- only direct activation of the LazyFile plank may submit its explicit fetch.
 
-1. expands the relevant directory and file when required;
-2. resolves that file’s first participating token;
-3. waits for enrichment if required;
-4. selects the resolved token;
-5. scrolls to it.
-
-For HuskFile, expanded LazyFile, or a zero-hunk FullFile, the destination is its pseudo-target.
-
-For a FullFile with real hunks, the destination is its first real target.
-
-FileTree navigation may expand a LazyFile and select its pseudo-token, but it never submits that file to the fetch lane. Only direct activation of the LazyFile explicit-fetch plank may do so.
-
-A FullFile with zero hunks uses its zero pseudo-target.
-
-Directory rows only change directory expansion. They do not move the page.
-
-LazyFile plank activation retains its explicit-load behavior. It does not implicitly select a hunk.
+These points do not authorize implementation of the gated interaction.
 
 ## Rich materialization
 
@@ -868,7 +856,7 @@ FileTree applies its highlight class and `aria-current` declaratively. Newly mou
 
 If the selected target is collapsed, skipped, absent, or being replaced, the FileTree remains highlighted because selected identity remains on its stable FileCard and `selectedFileIndex` continues to mirror that FileCard.
 
-Opening FileTree additionally reveals the highlighted row inside the FileTree's own scroll container. That sidebar movement does not move the main page.
+Opening FileTree additionally reveals the highlighted row inside `.file-tree-groups` when all of its directory ancestors are expanded. A row beneath a collapsed directory is legitimately absent and is not revealed by changing expansion. The private sidebar movement changes only the container's `scrollTop` and never moves the main page.
 
 FileTree highlighting never changes selection.
 

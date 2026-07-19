@@ -58,7 +58,7 @@ Solid owns client-only state:
 - workspace state: current Tab, selected repo, engine and inline/split view;
 - component-owned live input and selection interaction;
 - each Tab’s local selection and derived `DiffParams`;
-- file and directory expansion;
+- file expansion and calculated directory reachability;
 - DOM references;
 - hunk navigation;
 - virtualization decisions;

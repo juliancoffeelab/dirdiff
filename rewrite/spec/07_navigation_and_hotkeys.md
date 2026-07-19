@@ -360,6 +360,8 @@ Debug button
 
 The keyboard listener calls the same operations.
 
+The FileTree line describes the eventual direct route only. FileTree rows remain inert until the separate design gate in [08_hunk_navigation.md](08_hunk_navigation.md) is approved and implemented; this section does not authorize that interaction.
+
 There is no central bus between the user interaction and the actual owner.
 
 ### 66.27 ChangeSet composition

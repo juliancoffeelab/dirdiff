@@ -18,9 +18,9 @@ Implement in this order:
 
 4. Port the stable reading-line behavior: select only visible participating real targets in the FileCard crossing the reading line. User-scroll following never scrolls, enriches, expands, fetches, or selects pseudo-targets.
 
-5. Add FileTree file-row navigation through the existing Navigation instance. Expand the required file, resolve its first participating real, Husk, Lazy, or zero target, then perform ordinary target navigation.
+5. Add FileTree label navigation through the existing Navigation instance only after its remaining target-resolution, enrichment, layout-stabilization, main-page scrolling, and selection design is approved. File and directory names are the navigation surfaces; their neighboring squares remain expansion-only controls and never call Navigation. An expanded file is never collapsed by navigation; a collapsed non-Lazy FullFile may be expanded before navigation.
 
-6. FileTree navigation to a LazyFile may select and scroll to its plank but never activates or fetches it. Directory rows continue to control expansion only.
+6. FileTree navigation to a LazyFile neither expands nor fetches it. A directory-name activation may eventually navigate to that directory's first hunk, but it never changes expansion. Directory squares bulk-toggle descendant files, FullFile squares toggle only their file, and no label toggles collapse state. Exact directory/file target resolution, Lazy pseudo-target selection, and scrolling remain part of this chapter's unresolved design gate.
 
 7. Execute the complete wrapped-Previous and backward-scrolling stress scenario required by Section 47 of `../spec/04_navigation_virtualization.md`, including rich, virtual, Husk, Lazy, zero, and collapsed skip representations.
 

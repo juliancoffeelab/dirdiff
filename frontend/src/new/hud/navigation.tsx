@@ -93,8 +93,9 @@ export type NavigationProviderProps = {
 /**
  * Describes the direct rich-materialization operation attached by FullFile.
  *
- * Only virtual FullFiles expose this method. It changes representation and
- * resolves after rich hunk targets mount without selecting or scrolling.
+ * Every mounted FullFile exposes this method. It enriches only an expanded
+ * virtual representation and otherwise resolves as a no-op without selecting,
+ * expanding, calculating counters, or scrolling.
  */
 type EnrichableFileCard = HTMLElement & {
   waitToEnrich: () => Promise<void>;
@@ -287,6 +288,25 @@ export function NavigationProvider(
   }
 
   /**
+   * Waits for one selected or destination FileCard to expose required rich DOM.
+   *
+   * FullFile supplies the direct operation for rich, virtual, collapsed, zero,
+   * and notebook presentations. Husk and Lazy cards intentionally have no such
+   * method and are immediate no-ops. A FullFile without the operation violates
+   * its DOM interface and throws instead of silently skipping enrichment.
+   */
+  async function waitToEnrich(card: HTMLElement): Promise<void> {
+    const enrichableCard = card as Partial<EnrichableFileCard>;
+    if (typeof enrichableCard.waitToEnrich === "function") {
+      await enrichableCard.waitToEnrich();
+      return;
+    }
+    if (card.dataset.fileState === "full") {
+      throw new Error("FullFile omitted waitToEnrich.");
+    }
+  }
+
+  /**
    * Activates one participating destination after optional rich materialization.
    *
    * Virtual targets are identified by their primitive attributes, the owning
@@ -305,21 +325,17 @@ export function NavigationProvider(
       throw new Error("Navigation destination has no owning FileCard.");
     }
     let target = initialTarget;
-    if (card.dataset.fileRender === "virtual") {
+    if (
+      card.dataset.fileRender === "virtual" &&
+      initialTarget.dataset.hunkKind === "real"
+    ) {
       const kind = initialTarget.dataset.hunkKind;
       const fileIndex = initialTarget.dataset.fileIndex;
       const hunkIndex = initialTarget.dataset.hunkIndex;
-      if (kind !== "real") {
-        throw new Error("Virtual FullFile destination requires real identity.");
-      }
       if (fileIndex === undefined || hunkIndex === undefined) {
         throw new Error("Virtual FullFile destination requires real identity.");
       }
-      const enrichableCard = card as Partial<EnrichableFileCard>;
-      if (typeof enrichableCard.waitToEnrich !== "function") {
-        throw new Error("Virtual FullFile omitted waitToEnrich.");
-      }
-      await enrichableCard.waitToEnrich();
+      await waitToEnrich(card);
       if (!alive) {
         return;
       }
@@ -364,8 +380,10 @@ export function NavigationProvider(
     const location = selectedLocation(root);
     const rect = location.element.getBoundingClientRect();
     if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
+      await waitToEnrich(location.card);
       if (alive) {
-        location.element.scrollIntoView({
+        const enrichedLocation = selectedLocation(root);
+        enrichedLocation.element.scrollIntoView({
           block: "center",
           behavior: "instant",
         });

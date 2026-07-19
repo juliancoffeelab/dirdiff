@@ -4,7 +4,7 @@
 
 This section specifies file presentation, statistics ownership, loading messages and their placement in the sticky AppHeader.
 
-It deliberately does not specify virtualization or navigation. Those concerns are deferred to their dedicated section.
+It does not specify virtualization policy or hunk-navigation mechanics. Those concerns remain in their dedicated sections. FileTree's presentation-only virtual-mode bridge and its boundary with already-approved explicit navigation are specified here because they determine FileTree's visible contract without transferring either subsystem's ownership.
 
 ### 25.2 Presentation hierarchy
 
@@ -114,6 +114,212 @@ The exact counter authority is the ChangeSet-owned `HunkDisplay` specified in [0
 FileTree receives its tree data from ChangeSet. It owns no backend data and starts no queries.
 
 It may derive progressively available row or directory statistics from file states supplied by ChangeSet, but those values are presentation only and never become another aggregate authority.
+
+#### Visible contract
+
+The small square is the visible expansion marker. “Fold” and “Show” exist only in accessible labels.
+
+| File state | Marker |
+|---|---|
+| Collapsed | empty square |
+| Expanded rich FullFile | filled square |
+| Expanded virtual FullFile | `V` |
+| Husk | empty square |
+| Lazy, including deferred, fetching, or error | empty square |
+| Lazy, error, untracked, added, removed, or renamed | existing color and border |
+
+| Directory state | Marker |
+|---|---|
+| Collapsed | empty square |
+| Expanded | filled square |
+
+The FileTree displays manifest hierarchy in strict manifest order, progressive file state and statistics, calculated directory reachability, shared file expansion, FileCard-local virtual mode, the file containing the selected hunk, and that highlighted row within its own scroll container.
+
+Every visible directory name ends with `/`. The slash is part of the inert, selectable directory label; it is not part of the manifest directory name or path identity.
+
+It may toggle a directory or individual FullFile through the corresponding square, toggle its own open state, and scroll its own overflow container to reveal an already-mounted highlighted row. It must not store separate directory-expansion state, select hunks, load files, expand directories to reveal a row, scroll the main page, or call Navigation before the separately gated FileTree-navigation chapter.
+
+#### State and interface
+
+ChangeSet remains the file-expansion authority. Directory expansion is calculated from descendant file reachability and is not stored independently:
+
+```ts
+type ChangeSetState = {
+  treeOpen: boolean;
+  fileExpansion: Record<string, boolean | undefined>;
+};
+```
+
+The calculation walks the manifest bottom-up:
+
+```ts
+/**
+ * Calculates whether each directory has any reachable descendant file.
+ *
+ * Explicit file expansion wins. An unresolved Husk remains reachable so the
+ * tree does not collapse while sequential loading discovers its actual default.
+ * LazyFiles remain reachable because their plank is visible.
+ */
+function calculateDirectoryExpansion(
+  nodes: readonly ManifestNode[],
+  stateForFile: (file: ManifestFile) => FileTreeState,
+  fileExpansion: Readonly<Record<string, boolean | undefined>>,
+): ReadonlyMap<string, boolean> {
+  const result = new Map<string, boolean>();
+
+  function visit(children: readonly ManifestNode[]): boolean {
+    let hasReachableFile = false;
+
+    for (const child of children) {
+      let childIsReachable: boolean;
+
+      if (child.type === "file") {
+        const explicit = fileExpansion[manifestEntryKey(child.entry)];
+
+        if (explicit !== undefined) {
+          childIsReachable = explicit;
+        } else {
+          const state = stateForFile(child);
+          childIsReachable =
+            state.state === "husk" ||
+            state.state === "lazy" ||
+            state.file.default_expanded;
+        }
+      } else {
+        childIsReachable = visit(child.entries);
+        result.set(child.path, childIsReachable);
+      }
+
+      hasReachableFile = childIsReachable || hasReachableFile;
+    }
+
+    return hasReachableFile;
+  }
+
+  visit(nodes);
+  return result;
+}
+```
+
+Solid owns only the calculation:
+
+```ts
+const directoryExpansion = createMemo(() =>
+  calculateDirectoryExpansion(
+    props.manifest.tree,
+    stateForFile,
+    props.state.fileExpansion,
+  ),
+);
+```
+
+Expanding one file therefore opens only the ancestor chain made reachable by that file. Collapsing a file collapses an ancestor only when no other reachable file remains beneath it. Collapsing the final reachable file may collapse several ancestors. No action blindly writes `true` to every ancestor.
+
+Directory-square activation remains a bulk file operation. It writes the requested value to every descendant file, after which the same calculation determines that directory and all of its ancestors:
+
+```ts
+batch(() => {
+  for (const file of manifestFilesInOrder(directory.entries)) {
+    props.setState(
+      "fileExpansion",
+      manifestEntryKey(file.entry),
+      expanded,
+    );
+  }
+});
+```
+
+FileTree receives required reactive inputs and explicit actions:
+
+```ts
+type FileTreeProps = {
+  changeSetRoot: Accessor<HTMLElement>;
+  tree: readonly ManifestNode[];
+  states: Accessor<readonly FileTreeState[]>;
+  open: boolean;
+  view: DiffViewMode;
+  selectedFileIndex: Accessor<number | null>;
+  directoryExpansion: Accessor<ReadonlyMap<string, boolean>>;
+  fileExpansion: Accessor<
+    Readonly<Record<string, boolean | undefined>>
+  >;
+  onOpenChange: (open: boolean) => void;
+  onDirectoryExpandedChange: (
+    directory: ManifestDirectory,
+    expanded: boolean,
+  ) => void;
+  onFileExpandedChange: (
+    file: ManifestFile,
+    expanded: boolean,
+  ) => void;
+};
+```
+
+There is no `onDirectoryReveal`, because sidebar scrolling never changes expansion.
+
+#### Reactive rows and directory interaction
+
+Directory and file rows receive accessors and call those accessors while rendering. They never retain a plain boolean or file state captured by a long-lived recursive renderer. Directory statistics similarly read current descendant file states through a memo.
+
+The directory square is the sole directory-expansion button. It exposes the calculated state through `aria-expanded` and performs the bulk descendant-file action above. The directory name is a separate, inert label ending with `/` during this chapter; the gated FileTree-navigation chapter may later make that label navigate to the directory's first hunk without changing expansion.
+
+The FullFile square is the sole individual file-expansion button in both FileTree and the main FileCard. Both squares call the same ChangeSet-owned file-expansion action. The FileTree file name remains a separate inert label until its gated navigation chapter. The remainder of the main FileHeader—including path, counters, and statistics—is inert selectable content rather than part of the expansion button.
+
+Husk and Lazy squares remain inert and empty because they have no expandable rendered body. Their presence does not change the reachability calculation: unresolved Husks keep their directory stable during sequential loading, and a LazyFile's visible plank keeps its directory reachable unless it was explicitly collapsed. The Lazy plank remains the only individual explicit-load action.
+
+No square activation performs selection, repair, navigation, loading, or scrolling. No label activation toggles expansion.
+
+Collapsing a directory or file preserves the selected hunk identity and marks its hunk representation skipped according to [08_hunk_navigation.md](08_hunk_navigation.md). It never chooses another hunk. Reopening changes only expansion; any still-selected descendant row mounts highlighted again.
+
+#### File interaction and Lazy lifecycle
+
+For a FullFile, the square displays state and is the only expansion control. During this chapter, the file name remains inert and uses no pointer cursor. Individual FullFile expansion from either FileTree or FileHeader uses the same ChangeSet-owned action.
+
+LazyFile has a distinct presentation lifecycle:
+
+1. FileTree always displays a LazyFile as collapsed with an empty square, including while its explicit fetch is running and after an ordinary localized failure.
+2. The LazyFile plank remains the only explicit fetch action while its FileCard is expanded.
+3. Activating the plank submits the file to the ChangeSet fetch lane without changing expansion.
+4. Failure leaves an error-flavoured LazyFile and its FileTree marker collapsed.
+5. Success first replaces LazyFile with FullFile and only then expands that FullFile.
+6. The resulting FullFile retains the color of its Lazy reason when that reason was not an error.
+
+FileTree therefore derives `expanded` as `false` for every Lazy state regardless of stale file-expansion data. FileCard continues to own whether the Lazy plank is physically present; an explicit file or containing-directory collapse may hide it. Automatic non-Lazy files continue using their backend/default expansion rules.
+
+The later approved FileTree-navigation chapter may make a file row navigate, but it must never turn an expanded file into a collapsed file. It may expand a collapsed non-Lazy FullFile before navigation. Navigating to a LazyFile neither expands nor fetches it. Exact target resolution, enrichment, layout stabilization, and scrolling remain behind that chapter’s explicit design gate.
+
+#### Virtual-mode display
+
+FullFile retains local ownership of `"rich" | "virtual"`; ChangeSet must not regain a global virtualization map. FileTree maintains only this disposable presentation calculation:
+
+```ts
+type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
+```
+
+While FileTree is open, its mounted content:
+
+1. scans stable FileCards for `data-file-index` and `data-file-render`;
+2. starts one `MutationObserver` filtered to `data-file-render`;
+3. updates only the FileTree-local display map;
+4. disconnects and discards that map when FileTree closes or unmounts.
+
+FileCard DOM remains authoritative. Navigation and virtualization cannot read the map, the map cannot change render mode, and reopening FileTree reconstructs it from current DOM. `V` appears only for an expanded file whose current FileCard DOM says `data-file-render="virtual"`. A collapsed virtual file displays an empty square.
+
+#### Highlighting and private scrolling
+
+Highlight remains declarative from `HunkDisplay.selectedFileIndex`; FileTree never writes highlight classes or `aria-current` imperatively. If a selected file belongs to a collapsed directory, its absent row is legitimate. FileTree performs no selection, repair, navigation, or expansion. When that directory reopens, the row mounts with the existing highlight.
+
+The actual private scroll container is `.file-tree-groups`. A memo of `selectedFileIndex` prevents hunk changes inside one file from triggering another sidebar scroll. The scrolling effect observes whether FileTree is open, the highlighted file index, and the expansion of that file’s directory ancestors.
+
+If an ancestor is collapsed, the effect stops because the row is legitimately absent. If every ancestor is expanded but the manifest row is absent, that is an invariant failure. Otherwise, the effect compares the row and container rectangles and changes only the container’s `scrollTop` by the minimum amount needed to reveal the row.
+
+Already visible rows do not move. Rows above reveal their top and rows below reveal their bottom. FileTree never uses `scrollIntoView()`, expands an ancestor, queues microtasks, retries through animation frames, or moves the main page.
+
+#### Navigation boundary
+
+If explicit Next or Previous is invoked while the currently selected target is outside the main viewport, Navigation resolves its FileCard, calls `waitToEnrich(fileCard)`, resolves the selected target again, scrolls back to that target, and stops without advancing selection.
+
+`waitToEnrich()` enriches an expanded virtual FullFile, is an immediate no-op for expanded rich FullFile and Husk/Lazy/zero representations, and is an immediate no-op for a collapsed file. It never expands anything. This main-page Navigation behavior is separate from FileTree’s private sidebar scrolling.
 
 ### 25.6 AppHeader responsibility
 

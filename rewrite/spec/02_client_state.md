@@ -35,11 +35,11 @@ Every value belongs to one category:
 | Backend data | TanStack Query | repositories, refs, defaults, presets, preferences |
 | Workspace state | App | active Tab, selected repo, engine, inline/split view |
 | Tab state | Individual Tab | selected values required to construct its `DiffParams` |
-| ChangeSet state | ChangeSet | tree visibility, directory expansion, file expansion |
+| ChangeSet state | ChangeSet | tree visibility, file expansion |
 | Controls state | Tab-specific Controls | selected field values and field-to-field workflow |
 | Input and selection state | `Input`, `AutocompleteInput` or `Select` | live user input, open popup, highlighted or selected choice |
 | Component state | Component | profile dialog, other self-contained HUD state |
-| Derived data | `createMemo` | filtered choices, selected repo name, realtime fallback values |
+| Derived data | `createMemo` | filtered choices, selected repo name, realtime fallback values, directory reachability |
 | DOM state | Deferred | hunk elements, measurements, scroll targets |
 
 Backend data must never be copied into a Solid signal or store merely to make it available to components.
@@ -218,7 +218,7 @@ Tabs do not own:
 - file data;
 - tree visibility;
 - file expansion;
-- directory expansion;
+- calculated directory reachability;
 - hunk state;
 - rendered DOM registrations.
 
@@ -395,10 +395,11 @@ Keeping Controls mounted is not restoration caching. Their state continues to ex
 ```ts
 export type ChangeSetState = {
   treeOpen: boolean;
-  directoryExpansion: Record<string, boolean>;
-  fileExpansion: Record<string, boolean>;
+  fileExpansion: Record<string, boolean | undefined>;
 };
 ```
+
+Directory expansion is not stored client state. `ChangeSetSnapshot` calculates it bottom-up from current descendant file reachability as specified in Section 25.5 of [03_file_presentation.md](03_file_presentation.md). This prevents directory and file expansion from becoming contradictory authorities.
 
 Its private active boundaries own the backend content:
 

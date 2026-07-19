@@ -12,6 +12,7 @@
 import {
   For,
   Show,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -94,7 +95,6 @@ type ChangeSetProps = {
  */
 type ChangeSetState = {
   treeOpen: boolean;
-  directoryExpansion: Record<string, boolean | undefined>;
   fileExpansion: Record<string, boolean | undefined>;
 };
 
@@ -179,7 +179,6 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
   const [debugOpen, setDebugOpen] = createSignal(false);
   const [state, setState] = createStore<ChangeSetState>({
     treeOpen: false,
-    directoryExpansion: {},
     fileExpansion: {},
   });
   // JSX may preserve the params object's identity while making its fields
@@ -326,7 +325,6 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     if (resetLayout) {
       props.setState({
         treeOpen: false,
-        directoryExpansion: {},
         fileExpansion: {},
       });
     }
@@ -1190,8 +1188,19 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     null,
   );
   const [laneError, setLaneError] = createSignal<Error | null>(null);
+  let changeSetRoot!: HTMLDivElement;
   let enqueueSelectedFile: ((fileIndex: number) => void) | null = null;
   const orderedFiles = manifestFilesInOrder(props.manifest.tree);
+  const fileIndexByKey = new Map<string, number>();
+  for (const [fileIndex, file] of orderedFiles.entries()) {
+    const key = manifestEntryKey(file.entry);
+    if (fileIndexByKey.has(key)) {
+      throw new Error(
+        `Manifest returned duplicate file ${fileDisplayName(file.entry)}.`,
+      );
+    }
+    fileIndexByKey.set(key, fileIndex);
+  }
   const automaticTotal = createMemo(
     () => orderedFiles.filter((file) => file.entry.lazy === null).length,
   );
@@ -1385,6 +1394,37 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     }),
   );
 
+  /**
+   * Resolves one manifest file to its current canonical presentation state.
+   *
+   * Directory reachability consumes the same strict manifest/state ordering as
+   * FileTree. Missing or duplicate identities violate the immutable snapshot
+   * contract and throw instead of inventing a directory-expansion default.
+   */
+  function stateForManifestFile(file: ManifestFile): FileTreeState {
+    const fileIndex = fileIndexByKey.get(manifestEntryKey(file.entry));
+    if (fileIndex === undefined) {
+      throw new Error(
+        `ChangeSet cannot index ${fileDisplayName(file.entry)} for directory reachability.`,
+      );
+    }
+    const state = fileStates()[fileIndex];
+    if (state === undefined) {
+      throw new Error(
+        `ChangeSet is missing state for ${fileDisplayName(file.entry)}.`,
+      );
+    }
+    return state;
+  }
+
+  const directoryExpansion = createMemo(() =>
+    calculateDirectoryExpansion(
+      props.manifest.tree,
+      stateForManifestFile,
+      props.state.fileExpansion,
+    ),
+  );
+
   const failedFiles = createMemo(
     () =>
       fileStates().filter(
@@ -1516,6 +1556,21 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
 
           try {
             await queryClient.fetchQuery(options);
+            if (stopped) {
+              return;
+            }
+            if (
+              kind === "selected" &&
+              props.state.fileExpansion[manifestEntryKey(file.entry)] !== false
+            ) {
+              // The query result has replaced LazyFile with FullFile. Expand it
+              // now, but never override a collapse performed while it loaded.
+              props.setState(
+                "fileExpansion",
+                manifestEntryKey(file.entry),
+                true,
+              );
+            }
             await schedulerYield();
             if (stopped) {
               return;
@@ -1627,6 +1682,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
         {changeSetTitle(props.params, props.manifest)}
       </p>
       <div
+        ref={changeSetRoot}
         class="diff-workspace"
         classList={{
           "diff-workspace-inline": props.view === "inline",
@@ -1635,28 +1691,27 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       >
         <UnexpectedErrorBoundary title="Could not render file tree">
           <FileTree
+            changeSetRoot={() => changeSetRoot}
             tree={props.manifest.tree}
-            states={fileStates()}
+            states={fileStates}
             open={props.state.treeOpen}
             view={props.view}
             selectedFileIndex={() =>
               props.hunkDisplay()?.selectedFileIndex ?? null
             }
-            directoryExpansion={props.state.directoryExpansion}
-            fileExpansion={props.state.fileExpansion}
+            directoryExpansion={directoryExpansion}
+            fileExpansion={() => props.state.fileExpansion}
             onOpenChange={(open) => props.setState("treeOpen", open)}
-            onDirectoryExpandedChange={(directory, expanded) => {
-              props.setState("directoryExpansion", directory.path, expanded);
-              for (const file of manifestFilesInOrder(directory.entries)) {
-                props.setState(
-                  "fileExpansion",
-                  manifestEntryKey(file.entry),
-                  expanded,
-                );
-              }
-            }}
-            onDirectoryReveal={(directory) =>
-              props.setState("directoryExpansion", directory.path, true)
+            onDirectoryExpandedChange={(directory, expanded) =>
+              batch(() => {
+                for (const file of manifestFilesInOrder(directory.entries)) {
+                  props.setState(
+                    "fileExpansion",
+                    manifestEntryKey(file.entry),
+                    expanded,
+                  );
+                }
+              })
             }
             onFileExpandedChange={(file, expanded) =>
               props.setState(
@@ -1719,11 +1774,6 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                             )
                           }
                           onLoad={() => {
-                            props.setState(
-                              "fileExpansion",
-                              manifestEntryKey(file.entry),
-                              true,
-                            );
                             loadSelectedFile(fileIndex());
                           }}
                         />
@@ -1764,44 +1814,104 @@ type FileTreeState =
     };
 
 /**
- * Defines all presentation and expansion inputs for the private FileTree.
+ * Calculates directory expansion from current descendant file reachability.
  *
- * The tree receives the immutable manifest and shared derived file states. It
- * owns no query, backend data, selection, navigation, or expansion authority.
+ * Explicit file expansion is authoritative. Unresolved HuskFiles remain
+ * reachable so sequential loading cannot collapse and reopen the tree, while
+ * LazyFiles remain reachable for their visible plank unless explicitly folded.
+ * Every directory receives one result, including an empty directory.
+ */
+function calculateDirectoryExpansion(
+  nodes: readonly ManifestNode[],
+  stateForFile: (file: ManifestFile) => FileTreeState,
+  fileExpansion: Readonly<Record<string, boolean | undefined>>,
+): ReadonlyMap<string, boolean> {
+  const result = new Map<string, boolean>();
+
+  /**
+   * Visits one ordered sibling collection and reports subtree reachability.
+   *
+   * The traversal evaluates every child even after finding a reachable file so
+   * nested directory entries are always complete in the returned map.
+   */
+  function visit(children: readonly ManifestNode[]): boolean {
+    let hasReachableFile = false;
+    for (const child of children) {
+      let childIsReachable: boolean;
+      if (child.type === "file") {
+        const explicit = fileExpansion[manifestEntryKey(child.entry)];
+        if (explicit !== undefined) {
+          childIsReachable = explicit;
+        } else {
+          const state = stateForFile(child);
+          childIsReachable =
+            state.state === "husk" ||
+            state.state === "lazy" ||
+            state.file.default_expanded;
+        }
+      } else {
+        childIsReachable = visit(child.entries);
+        result.set(child.path, childIsReachable);
+      }
+      hasReachableFile = childIsReachable || hasReachableFile;
+    }
+    return hasReachableFile;
+  }
+
+  visit(nodes);
+  return result;
+}
+
+/**
+ * Describes FileCard-local render modes calculated solely for FileTree markers.
+ *
+ * Keys are immutable manifest file indices and values mirror the current
+ * `data-file-render` attributes. The map is disposable presentation data: it
+ * must not control virtualization, navigation, selection, or ChangeSet state.
+ */
+type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
+
+/**
+ * Defines all reactive presentation and expansion inputs for the private FileTree.
+ *
+ * The tree receives one immutable manifest, current FileCard states, the stable
+ * ChangeSet DOM root, calculated directory reachability, and ChangeSet-owned
+ * file expansion. Its callbacks may change only tree visibility or file
+ * expansion. FileTree owns no query, backend data, hunk selection, navigation,
+ * or independent expansion authority.
  */
 type FileTreeProps = {
-  tree: ManifestNode[];
-  states: FileTreeState[];
+  changeSetRoot: Accessor<HTMLElement>;
+  tree: readonly ManifestNode[];
+  states: Accessor<readonly FileTreeState[]>;
   open: boolean;
   view: DiffViewMode;
   selectedFileIndex: Accessor<number | null>;
-  directoryExpansion: Record<string, boolean | undefined>;
-  fileExpansion: Record<string, boolean | undefined>;
+  directoryExpansion: Accessor<ReadonlyMap<string, boolean>>;
+  fileExpansion: Accessor<Readonly<Record<string, boolean | undefined>>>;
   onOpenChange: (open: boolean) => void;
   onDirectoryExpandedChange: (
     directory: ManifestDirectory,
     expanded: boolean,
   ) => void;
-  onDirectoryReveal: (directory: ManifestDirectory) => void;
   onFileExpandedChange: (file: ManifestFile, expanded: boolean) => void;
 };
 
 /**
- * Renders the manifest tree and projects progressive file statistics.
+ * Renders the manifest tree, current shared expansion, and private highlighted-row scroll.
  *
- * Visibility controls update only ChangeSet-owned expansion. The tree owns no
- * selected target or navigation state, while its geometry and labels remain
- * stable across progressively available file statistics.
+ * Directory squares bulk-update descendant file expansion and FullFile squares
+ * update one file. Labels remain inert until the gated navigation chapter. The
+ * component may calculate current FileCard render modes and scroll its own
+ * `.file-tree-groups`, but it never changes hunk selection, loads files, expands
+ * a row for visibility, or moves the main page.
  */
 function FileTree(props: FileTreeProps): JSX.Element {
-  let shell!: HTMLDivElement;
-  const files = createMemo(() => manifestFilesInOrder(props.tree));
-  const indexByKey = createMemo(
-    () =>
-      new Map(
-        files().map((file, index) => [manifestEntryKey(file.entry), index]),
-      ),
+  const files = manifestFilesInOrder(props.tree);
+  const indexByKey = new Map(
+    files.map((file, index) => [manifestEntryKey(file.entry), index]),
   );
+
   /**
    * Resolves one manifest file to its required manifest-order file index.
    *
@@ -1809,7 +1919,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
    * Missing identity violates the immutable manifest ordering and throws.
    */
   const indexForFile = (file: ManifestFile): number => {
-    const index = indexByKey().get(manifestEntryKey(file.entry));
+    const index = indexByKey.get(manifestEntryKey(file.entry));
     if (index === undefined) {
       throw new Error(`FileTree cannot index ${fileDisplayName(file.entry)}.`);
     }
@@ -1823,7 +1933,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
    */
   const stateForFile = (file: ManifestFile): FileTreeState => {
     const index = indexForFile(file);
-    const state = props.states[index];
+    const state = props.states()[index];
     if (state === undefined) {
       throw new Error(
         `FileTree is missing state for ${fileDisplayName(file.entry)}.`,
@@ -1831,194 +1941,427 @@ function FileTree(props: FileTreeProps): JSX.Element {
     }
     return state;
   };
+
+  const ancestorPathsByFileIndex = new Map<number, readonly string[]>();
+
   /**
-   * Reveals the DOM-highlighted file inside only the FileTree scroll container.
+   * Indexes the immutable directory chain containing every manifest file.
    *
-   * Opening completes synchronously before this microtask reads the selected
-   * file index. Collapsed tree-only ancestors are revealed without
-   * expanding any FileCard. The operation never changes hunk selection or
-   * main-page scroll position and stops if the tree was disposed meanwhile.
+   * Paths retain outermost-to-innermost order. The private sidebar-scroll effect
+   * uses them only to distinguish a legitimately absent collapsed row from a
+   * missing row that violates the manifest-rendering contract.
    */
-  const revealSelectedFile = (): void => {
-    queueMicrotask(() => {
-      if (!shell.isConnected) {
-        return;
+  function indexAncestorPaths(
+    nodes: readonly ManifestNode[],
+    ancestors: readonly string[],
+  ): void {
+    for (const node of nodes) {
+      if (node.type === "file") {
+        ancestorPathsByFileIndex.set(indexForFile(node), ancestors);
+        continue;
       }
-      const sidebar = shell.querySelector<HTMLElement>(".file-tree-sidebar");
-      if (sidebar === null) {
-        return;
-      }
-      const numericFileIndex = props.selectedFileIndex();
-      if (numericFileIndex === null) {
-        return;
-      }
-      if (!Number.isInteger(numericFileIndex) || numericFileIndex < 0) {
-        throw new Error("Selected hunk display has an invalid file index.");
-      }
-      const selectedFile = files()[numericFileIndex];
-      if (selectedFile === undefined) {
+      indexAncestorPaths(node.entries, [...ancestors, node.path]);
+    }
+  }
+  indexAncestorPaths(props.tree, []);
+
+  /**
+   * Renders one reactive directory row and its currently expanded descendants.
+   *
+   * The square is the sole accessible expansion button and the name remains
+   * inert until the gated navigation stage. Activation invokes the shared
+   * ChangeSet bulk file action and performs no selection, loading, navigation,
+   * repair, or scrolling of either viewport.
+   */
+  function FileTreeDirectory(rowProps: {
+    directory: ManifestDirectory;
+    depth: number;
+    renderModes: Accessor<FileTreeRenderModes>;
+  }): JSX.Element {
+    /**
+     * Reads the one shared directory-expansion value used by tree and FileCards.
+     *
+     * An absent entry means initially expanded. The accessor never writes a
+     * default into ChangeSet state or retains a second directory authority.
+     */
+    const expanded = () => {
+      const current = props.directoryExpansion().get(rowProps.directory.path);
+      if (current === undefined) {
         throw new Error(
-          "Selected hunk display is outside the manifest file order.",
+          `FileTree is missing reachability for ${rowProps.directory.path}.`,
         );
       }
-
-      /**
-       * Returns the manifest directory chain containing one concrete file.
-       *
-       * The returned order is outermost to innermost so revealing the chain
-       * mounts each nested FileTree group before the selected row is measured.
-       */
-      function directoryPathToFile(
-        nodes: ManifestNode[],
-        target: ManifestFile,
-      ): ManifestDirectory[] | null {
-        for (const node of nodes) {
-          if (node.type === "file") {
-            if (
-              manifestEntryKey(node.entry) === manifestEntryKey(target.entry)
-            ) {
-              return [];
+      return current;
+    };
+    const statistics = createMemo(() =>
+      sumTreeStatistics(
+        manifestFilesInOrder(rowProps.directory.entries).map(stateForFile),
+      ),
+    );
+    return (
+      <section class="file-tree-group">
+        <div
+          class="file-tree-directory"
+          style={{ "--file-tree-depth": String(rowProps.depth) }}
+        >
+          <button
+            type="button"
+            class="file-tree-visibility-control"
+            aria-expanded={expanded()}
+            aria-label={
+              expanded()
+                ? `Fold ${rowProps.directory.path}`
+                : `Show ${rowProps.directory.path}`
             }
-            continue;
-          }
-          const childPath = directoryPathToFile(node.entries, target);
-          if (childPath !== null) {
-            return [node, ...childPath];
-          }
-        }
+            onClick={() =>
+              props.onDirectoryExpandedChange(rowProps.directory, !expanded())
+            }
+          >
+            <TreeVisibilityIndicator visible={expanded()} virtualized={false} />
+          </button>
+          <span class="file-tree-directory-target">
+            {rowProps.directory.name}/
+          </span>
+          <TreeStatistics stats={statistics()} />
+        </div>
+        <Show when={expanded()}>
+          <div
+            class="file-tree-children"
+            style={{ "--file-tree-depth": String(rowProps.depth) }}
+          >
+            <For each={rowProps.directory.entries}>
+              {(child) => (
+                <FileTreeNode
+                  node={child}
+                  depth={rowProps.depth + 1}
+                  renderModes={rowProps.renderModes}
+                />
+              )}
+            </For>
+          </div>
+        </Show>
+      </section>
+    );
+  }
+
+  /**
+   * Renders one inert file row from current FileCard and ChangeSet presentation.
+   *
+   * The row exposes selected-file highlighting and current statistics. A
+   * FullFile square invokes the shared file-expansion action; Husk and Lazy
+   * markers and every file label remain inert. FullFile-local DOM render mode
+   * may replace the filled marker with `V`.
+   */
+  function FileTreeFile(rowProps: {
+    file: ManifestFile;
+    depth: number;
+    renderModes: Accessor<FileTreeRenderModes>;
+  }): JSX.Element {
+    const fileIndex = indexForFile(rowProps.file);
+    /**
+     * Reads the current FileCard presentation at this immutable manifest index.
+     *
+     * The accessor preserves ChangeSet's canonical state ordering and must not
+     * cache a Husk, Lazy, or Full result across reactive query transitions.
+     */
+    const state = () => stateForFile(rowProps.file);
+    /**
+     * Calculates the marker's current rich-body visibility.
+     *
+     * Husk and Lazy rows always display an empty FileTree marker. FullFile reads
+     * the shared expansion authority; this calculation never changes FileCard.
+     */
+    const expanded = () => {
+      const current = state();
+      if (current.state !== "full") {
+        return false;
+      }
+      return fileExpanded(rowProps.file, current, props.fileExpansion());
+    };
+    /**
+     * Reports whether an expanded FullFile currently exposes virtual DOM.
+     *
+     * The value comes only from FileTree's disposable DOM calculation and must
+     * not be used to choose or change the owning FileCard's render mode.
+     */
+    const virtualized = () =>
+      expanded() && rowProps.renderModes().get(fileIndex) === "virtual";
+    const highlighted = createMemo(
+      () => props.selectedFileIndex() === fileIndex,
+    );
+    const fileStatus =
+      rowProps.file.entry.file_kind.type === "git"
+        ? rowProps.file.entry.file_kind.status
+        : "untracked";
+    /**
+     * Reports the localized error presentation that must override reason colors.
+     *
+     * Ordinary Husk and Full states are never error-flavoured by this accessor.
+     */
+    const isError = () => {
+      const current = state();
+      return current.state === "lazy" && current.file.kind === "error";
+    };
+    /**
+     * Preserves LazyFile's established border until explicit fetching completes.
+     *
+     * Manifest-lazy files temporarily render as Husk while their query fetches;
+     * they remain visually Lazy in FileTree. A hydrated FullFile deliberately
+     * drops the Lazy border while retaining only its approved reason color.
+     */
+    const styledAsLazy = () => {
+      const current = state();
+      return (
+        current.state === "lazy" ||
+        (current.state === "husk" && rowProps.file.entry.lazy !== null)
+      );
+    };
+    /**
+     * Resolves the non-error Lazy reason whose color survives FullFile hydration.
+     *
+     * Error-flavoured LazyFile deliberately returns null so critical error color
+     * wins. Full and fetching states fall back to immutable manifest metadata.
+     */
+    const lazyReason = () => {
+      const current = state();
+      if (current.state === "lazy" && current.file.kind === "error") {
         return null;
       }
-
-      const directoryPath = directoryPathToFile(props.tree, selectedFile);
-      if (directoryPath === null) {
-        throw new Error("Selected FileCard is absent from the manifest tree.");
+      if (current.state === "lazy" && current.file.kind === "deferred") {
+        return current.file.info.lazy;
       }
-      for (const directory of directoryPath) {
-        if (props.directoryExpansion[directory.path] === false) {
-          props.onDirectoryReveal(directory);
-        }
-      }
-
-      queueMicrotask(() => {
-        if (!shell.isConnected) {
-          return;
-        }
-        const selectedRow = sidebar.querySelector<HTMLElement>(
-          `[data-file-tree-index="${numericFileIndex}"]`,
-        );
-        if (selectedRow === null) {
-          throw new Error("FileTree did not reveal its selected file row.");
-        }
-        const sidebarRect = sidebar.getBoundingClientRect();
-        const rowRect = selectedRow.getBoundingClientRect();
-        if (rowRect.top < sidebarRect.top) {
-          sidebar.scrollTop -= sidebarRect.top - rowRect.top;
-        } else if (rowRect.bottom > sidebarRect.bottom) {
-          sidebar.scrollTop += rowRect.bottom - sidebarRect.bottom;
-        }
-      });
-    });
-  };
-  /**
-   * Recursively renders one immutable manifest node at its required tree depth.
-   *
-   * Directories derive presentation-only aggregates; file rows read the shared
-   * FileCard state and report expansion changes to ChangeSet.
-   */
-  const renderNode = (node: ManifestNode, depth: number): JSX.Element => {
-    if (node.type === "directory") {
-      const expanded = props.directoryExpansion[node.path] ?? true;
-      return (
-        <section class="file-tree-group">
-          <div
-            class="file-tree-directory"
-            style={{ "--file-tree-depth": String(depth) }}
-          >
-            <button
-              type="button"
-              class="file-tree-visibility-toggle"
-              aria-label={expanded ? `Fold ${node.path}` : `Show ${node.path}`}
-              onClick={() => props.onDirectoryExpandedChange(node, !expanded)}
-            >
-              <TreeVisibilityIndicator visible={expanded} />
-            </button>
-            <span class="file-tree-directory-target">{node.name}</span>
-            <TreeStatistics
-              stats={sumTreeStatistics(
-                manifestFilesInOrder(node.entries).map(stateForFile),
-              )}
-            />
-          </div>
-          <Show when={expanded}>
-            <div
-              class="file-tree-children"
-              style={{ "--file-tree-depth": String(depth) }}
-            >
-              <For each={node.entries}>
-                {(child) => renderNode(child, depth + 1)}
-              </For>
-            </div>
-          </Show>
-        </section>
-      );
-    }
-
-    const state = stateForFile(node);
-    const expanded = fileExpanded(node, state, props.fileExpansion);
-    const fileStatus =
-      node.entry.file_kind.type === "git"
-        ? node.entry.file_kind.status
-        : "untracked";
-    const lazyReason =
-      state.state === "lazy" && state.file.kind === "deferred"
-        ? state.file.info.lazy
-        : node.entry.lazy;
-    const fileIndex = indexForFile(node);
+      return rowProps.file.entry.lazy;
+    };
     return (
       <div
         class="file-tree-file"
         data-file-tree-index={fileIndex}
-        aria-current={
-          props.selectedFileIndex() === fileIndex ? "true" : undefined
-        }
+        aria-current={highlighted() ? "true" : undefined}
         classList={{
-          "active-hunk-file": props.selectedFileIndex() === fileIndex,
+          "active-hunk-file": highlighted(),
           added: fileStatus === "added",
           removed: fileStatus === "deleted",
           renamed: fileStatus === "renamed",
           untracked: fileStatus === "untracked",
-          lazy: state.state === "lazy",
-          "lazy-error": state.state === "lazy" && state.file.kind === "error",
-          "lazy-generated": lazyReason === "generated",
-          "lazy-too-big": lazyReason === "too_big",
+          lazy: styledAsLazy(),
+          "lazy-error": isError(),
+          "lazy-generated": lazyReason() === "generated",
+          "lazy-too-big": lazyReason() === "too_big",
         }}
-        style={{ "--file-tree-depth": String(depth) }}
-        title={fileDisplayName(node.entry)}
+        style={{ "--file-tree-depth": String(rowProps.depth) }}
+        title={fileDisplayName(rowProps.file.entry)}
       >
-        <button
-          type="button"
-          class="file-tree-visibility-toggle"
-          aria-label={
-            expanded
-              ? `Fold ${fileDisplayName(node.entry)}`
-              : `Show ${fileDisplayName(node.entry)}`
+        <Show
+          when={state().state === "full"}
+          fallback={
+            <span class="file-tree-visibility-marker">
+              <TreeVisibilityIndicator visible={false} virtualized={false} />
+            </span>
           }
-          onClick={() => props.onFileExpandedChange(node, !expanded)}
         >
-          <TreeVisibilityIndicator visible={expanded} />
-        </button>
+          <button
+            type="button"
+            class="file-tree-visibility-control"
+            aria-expanded={expanded()}
+            aria-label={
+              expanded()
+                ? `Fold ${fileDisplayName(rowProps.file.entry)}`
+                : `Show ${fileDisplayName(rowProps.file.entry)}`
+            }
+            onClick={() =>
+              props.onFileExpandedChange(rowProps.file, !expanded())
+            }
+          >
+            <TreeVisibilityIndicator
+              visible={expanded() && !virtualized()}
+              virtualized={virtualized()}
+            />
+          </button>
+        </Show>
         <span class="file-tree-file-target">
-          <span class="file-tree-file-name">{node.name}</span>
-          <TreeStatistics stats={treeStatistics(state)} />
+          <span class="file-tree-file-name">{rowProps.file.name}</span>
+          <TreeStatistics stats={treeStatistics(state())} />
         </span>
       </div>
     );
-  };
+  }
+
+  /**
+   * Dispatches one immutable manifest node to its reactive row component.
+   *
+   * Recursion preserves exact backend order and directory depth. The dispatcher
+   * owns no state and exists only as the structural boundary shared by the root
+   * and nested directory lists.
+   */
+  function FileTreeNode(nodeProps: {
+    node: ManifestNode;
+    depth: number;
+    renderModes: Accessor<FileTreeRenderModes>;
+  }): JSX.Element {
+    if (nodeProps.node.type === "directory") {
+      return (
+        <FileTreeDirectory
+          directory={nodeProps.node}
+          depth={nodeProps.depth}
+          renderModes={nodeProps.renderModes}
+        />
+      );
+    }
+    return (
+      <FileTreeFile
+        file={nodeProps.node}
+        depth={nodeProps.depth}
+        renderModes={nodeProps.renderModes}
+      />
+    );
+  }
+
+  /**
+   * Owns the open FileTree DOM calculation and private highlighted-row scroll.
+   *
+   * Mounting scans the authoritative stable FileCards and observes only local
+   * render-mode attribute changes. Disposal disconnects the observer and drops
+   * the map. The selection effect changes only this component's scroll container
+   * and treats rows below collapsed ancestors as legitimately absent.
+   */
+  function FileTreeContent(): JSX.Element {
+    const toast = useToasts();
+    let groups!: HTMLDivElement;
+    const [renderModes, setRenderModes] = createSignal<FileTreeRenderModes>(
+      new Map(),
+    );
+    const highlightedFileIndex = createMemo(() => props.selectedFileIndex());
+
+    onMount(() => {
+      const root = props.changeSetRoot();
+      if (!root.isConnected) {
+        throw new Error("FileTree requires a mounted ChangeSet root.");
+      }
+
+      /**
+       * Reads current FullFile render modes from authoritative stable FileCards.
+       *
+       * Missing mode attributes are valid for Husk, Lazy, and failed renderer
+       * states. Present attributes and indices must be exact; malformed or
+       * duplicate values are DOM-contract violations and throw immediately.
+       */
+      function readRenderModes(): FileTreeRenderModes {
+        const modes = new Map<number, "rich" | "virtual">();
+        for (const card of root.querySelectorAll<HTMLElement>(
+          "[data-file-card][data-file-index]",
+        )) {
+          const mode = card.dataset.fileRender;
+          if (mode === undefined) {
+            continue;
+          }
+          if (mode !== "rich" && mode !== "virtual") {
+            throw new Error(`FileCard exposed invalid render mode ${mode}.`);
+          }
+          const indexText = card.dataset.fileIndex;
+          if (indexText === undefined || !/^\d+$/.test(indexText)) {
+            throw new Error("FileCard exposed an invalid manifest index.");
+          }
+          const fileIndex = Number(indexText);
+          if (fileIndex >= files.length) {
+            throw new Error("FileCard render mode is outside the manifest.");
+          }
+          if (modes.has(fileIndex)) {
+            throw new Error("FileTree found duplicate stable FileCards.");
+          }
+          modes.set(fileIndex, mode);
+        }
+        return modes;
+      }
+
+      setRenderModes(readRenderModes());
+      const observer = new MutationObserver(() => {
+        try {
+          setRenderModes(readRenderModes());
+        } catch (error) {
+          observer.disconnect();
+          toast.showError(
+            "Could not update file tree render modes",
+            error instanceof Error
+              ? error
+              : new Error(
+                  "FileTree render-mode calculation threw a non-Error value.",
+                ),
+          );
+        }
+      });
+      observer.observe(root, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-file-render"],
+      });
+      onCleanup(() => observer.disconnect());
+    });
+
+    // This effect exists only for mounted, open FileTreeContent. Its memo keeps
+    // same-file hunk changes from rerunning it; directory expansion reruns it so
+    // a legitimately absent collapsed row can be ignored and a remounted row can
+    // be revealed. It changes only `.file-tree-groups.scrollTop` and dies when
+    // the open content unmounts.
+    createEffect(() => {
+      if (!props.open) {
+        return;
+      }
+      const fileIndex = highlightedFileIndex();
+      if (fileIndex === null) {
+        return;
+      }
+      if (!Number.isInteger(fileIndex) || fileIndex < 0) {
+        throw new Error("Selected hunk display has an invalid file index.");
+      }
+      const ancestorPaths = ancestorPathsByFileIndex.get(fileIndex);
+      if (ancestorPaths === undefined) {
+        throw new Error("FileTree is missing the selected manifest file.");
+      }
+      const expansion = props.directoryExpansion();
+      for (const path of ancestorPaths) {
+        const expanded = expansion.get(path);
+        if (expanded === undefined) {
+          throw new Error(`FileTree is missing reachability for ${path}.`);
+        }
+        if (!expanded) {
+          return;
+        }
+      }
+      const row = groups.querySelector<HTMLElement>(
+        `[data-file-tree-index="${fileIndex}"]`,
+      );
+      if (row === null) {
+        throw new Error("FileTree did not render the selected manifest file.");
+      }
+      const containerRect = groups.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      if (rowRect.top < containerRect.top) {
+        groups.scrollTop -= containerRect.top - rowRect.top;
+      } else if (rowRect.bottom > containerRect.bottom) {
+        groups.scrollTop += rowRect.bottom - containerRect.bottom;
+      }
+    });
+
+    return (
+      <aside
+        id="fileTreeSidebar"
+        class="file-tree-sidebar"
+        aria-label="Changed file tree"
+      >
+        <div ref={groups} class="file-tree-groups">
+          <For each={props.tree}>
+            {(node) => (
+              <FileTreeNode node={node} depth={0} renderModes={renderModes} />
+            )}
+          </For>
+        </div>
+      </aside>
+    );
+  }
 
   return (
-    <Show when={files().length > 0 || props.view === "inline"}>
+    <Show when={files.length > 0 || props.view === "inline"}>
       <div
-        ref={shell}
         class="file-tree-shell"
         classList={{
           open: props.open,
@@ -2026,26 +2369,12 @@ function FileTree(props: FileTreeProps): JSX.Element {
         }}
       >
         <Show when={props.open}>
-          <aside
-            id="fileTreeSidebar"
-            class="file-tree-sidebar"
-            aria-label="Changed file tree"
-          >
-            <div class="file-tree-groups">
-              <For each={props.tree}>{(node) => renderNode(node, 0)}</For>
-            </div>
-          </aside>
+          <FileTreeContent />
         </Show>
         <button
           type="button"
           class="file-tree-toggle"
-          onClick={() => {
-            const opening = !props.open;
-            props.onOpenChange(opening);
-            if (opening) {
-              revealSelectedFile();
-            }
-          }}
+          onClick={() => props.onOpenChange(!props.open)}
           aria-expanded={props.open}
           aria-controls="fileTreeSidebar"
           aria-label={props.open ? "Close file tree" : "Open file tree"}
@@ -2055,7 +2384,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
           </span>
           <Show when={props.open}>
             <span class="file-tree-label">Files</span>
-            <TreeStatistics stats={sumTreeStatistics(props.states)} />
+            <TreeStatistics stats={sumTreeStatistics(props.states())} />
           </Show>
           <kbd>t</kbd>
         </button>
@@ -2192,7 +2521,7 @@ function ManifestStatistics(props: { summary: ManifestSummary }): JSX.Element {
  * The returned array is a derived projection. It contains original ManifestFile
  * objects and must not be sorted, mutated, or retained as another authority.
  */
-function manifestFilesInOrder(nodes: ManifestNode[]): ManifestFile[] {
+function manifestFilesInOrder(nodes: readonly ManifestNode[]): ManifestFile[] {
   const files: ManifestFile[] = [];
   for (const node of nodes) {
     if (node.type === "file") {
@@ -2303,7 +2632,7 @@ function changeSetTitle(params: DiffParams, manifest: Manifest): string {
 function fileExpanded(
   file: ManifestFile,
   state: FileTreeState,
-  expansion: Record<string, boolean | undefined>,
+  expansion: Readonly<Record<string, boolean | undefined>>,
 ): boolean {
   const selected = expansion[manifestEntryKey(file.entry)];
   if (selected !== undefined) {
@@ -2354,7 +2683,7 @@ function treeStatistics(state: FileTreeState): TreeLineStats {
  * Each metric is null when any participating file lacks it; otherwise exact
  * values are summed. The aggregate is presentation-only and never cached.
  */
-function sumTreeStatistics(states: FileTreeState[]): TreeLineStats {
+function sumTreeStatistics(states: readonly FileTreeState[]): TreeLineStats {
   const stats = states.map(treeStatistics);
   /**
    * Sums one statistic only when every contributing file knows its value.
@@ -2398,17 +2727,32 @@ function TreeStatistics(props: { stats: TreeLineStats }): JSX.Element {
 }
 
 /**
- * Renders one FileTree expansion marker without virtualization state.
+ * Renders one inert FileTree expansion or local virtualization marker.
  *
- * The marker reflects only the supplied ChangeSet-owned boolean and is inert;
- * its surrounding button owns interaction and accessible naming.
+ * `visible` produces the established filled square and `virtualized` produces
+ * `V`. Callers must not set both. The marker owns no interaction, accessible
+ * name, expansion state, or virtualization decision.
  */
-function TreeVisibilityIndicator(props: { visible: boolean }): JSX.Element {
+function TreeVisibilityIndicator(props: {
+  visible: boolean;
+  virtualized: boolean;
+}): JSX.Element {
+  const virtualized = createMemo(() => {
+    if (props.visible && props.virtualized) {
+      throw new Error("FileTree marker cannot be both rich and virtual.");
+    }
+    return props.virtualized;
+  });
   return (
     <span
       class="visibility-indicator small"
-      classList={{ visible: props.visible }}
+      classList={{
+        visible: props.visible,
+        virtualized: virtualized(),
+      }}
       aria-hidden="true"
-    />
+    >
+      {virtualized() ? "V" : ""}
+    </span>
   );
 }

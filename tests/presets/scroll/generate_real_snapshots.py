@@ -1,10 +1,12 @@
 """Regenerate readable Scroll presets from one stable real comparison.
 
 This script is the construction interface for the Scroll preset catalog. It
-extracts selected old/new blobs from the repository, assigns readable ordered
-fixture names, and applies explicit lazy classifications where a scenario needs
-them. It must not alter application code, invent source contents, or retain the
-superseded generated-row fixture groups.
+extracts selected old/new blobs from repository history, assigns readable
+ordered fixture names, and applies explicit lazy classifications where a
+scenario needs them. Most fixtures share one stable comparison; explicit
+per-fixture ref pairs preserve focused historical cases such as the compact
+aggressively-folded middle of the sandwich preset. It must not alter application
+code, invent source contents, or retain superseded generated-row fixture groups.
 """
 
 from __future__ import annotations
@@ -96,6 +98,21 @@ GROUPS = {
     "long-context": [
         ("01-src-dirdiff-server", "src/dirdiff/server.py", None),
     ],
+    "sandwich": [
+        ("01-frontend-src-App", "frontend/src/App.tsx", None),
+        ("02-src-dirdiff-rendering-fold", "src/dirdiff/rendering/fold.py", None),
+        ("03-src-dirdiff-server", "src/dirdiff/server.py", None),
+    ],
+}
+
+REF_OVERRIDES = {
+    (
+        "sandwich",
+        "02-src-dirdiff-rendering-fold",
+    ): (
+        "f9727e6ba7a4e97836717dca540e1092fd4c88c1",
+        "1caf2662bb2c54919bb8c235025a01f9017f6636",
+    ),
 }
 
 SUPERSEDED_GROUPS = {
@@ -105,7 +122,6 @@ SUPERSEDED_GROUPS = {
     "folded-height",
     "lazy-arrival",
     "lazy-placement",
-    "sandwich",
     "scroll-follow-invariants",
     "viewport-run",
 }
@@ -127,14 +143,20 @@ def main() -> None:
 
     for group_name, files in GROUPS.items():
         for fixture_name, source_path, lazy_reason in files:
+            override = REF_OVERRIDES.get((group_name, fixture_name))
+            if override is None:
+                left_ref = LEFT_REF
+                right_ref = RIGHT_REF
+            else:
+                left_ref, right_ref = override
             fixture_dir = SCROLL_ROOT / group_name / fixture_name
             fixture_dir.mkdir(parents=True)
             suffix = Path(source_path).suffix
             (fixture_dir / f"old{suffix}").write_bytes(
-                git_blob(LEFT_REF, source_path)
+                git_blob(left_ref, source_path)
             )
             (fixture_dir / f"new{suffix}").write_bytes(
-                git_blob(RIGHT_REF, source_path)
+                git_blob(right_ref, source_path)
             )
             (fixture_dir / "Makefile").write_text(
                 PRESET_MAKEFILE, encoding="utf-8"
