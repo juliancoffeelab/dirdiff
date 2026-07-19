@@ -36,6 +36,7 @@ import {
   isRepositoryCacheExpiration,
   type DiffParams,
   type FileDiff,
+  type FileDiffTimeout,
   type LazyInfoFile,
   type Manifest,
   type ManifestDirectory,
@@ -1189,7 +1190,9 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   );
   const [laneError, setLaneError] = createSignal<Error | null>(null);
   let changeSetRoot!: HTMLDivElement;
-  let enqueueSelectedFile: ((fileIndex: number) => void) | null = null;
+  let enqueueSelectedFile:
+    | ((fileIndex: number, timeout: FileDiffTimeout) => void)
+    | null = null;
   const orderedFiles = manifestFilesInOrder(props.manifest.tree);
   const fileIndexByKey = new Map<string, number>();
   for (const [fileIndex, file] of orderedFiles.entries()) {
@@ -1227,7 +1230,12 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
 
   const fileQueries = createQueries(() => ({
     queries: orderedFiles.map((file) => ({
-      ...api.changeSet.file(props.params, props.manifest.cache_id, file.entry),
+      ...api.changeSet.file(
+        props.params,
+        props.manifest.cache_id,
+        file.entry,
+        "bounded",
+      ),
       enabled: false,
     })),
   }));
@@ -1461,7 +1469,10 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     const params = props.params;
     const snapshot = props.manifest;
     const files = orderedFiles;
-    const selectedQueue: number[] = [];
+    const selectedQueue: Array<{
+      fileIndex: number;
+      timeout: FileDiffTimeout;
+    }> = [];
     const selectedSet = new Set<number>();
     let automaticCursor = 0;
     let activeIndex: number | null = null;
@@ -1506,8 +1517,12 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       try {
         while (!stopped) {
           let kind: FileLaneActivity["kind"] = "selected";
-          let fileIndex = selectedQueue.shift();
-          if (fileIndex !== undefined) {
+          let timeout: FileDiffTimeout = "bounded";
+          const selection = selectedQueue.shift();
+          let fileIndex: number;
+          if (selection !== undefined) {
+            fileIndex = selection.fileIndex;
+            timeout = selection.timeout;
             selectedSet.delete(fileIndex);
           } else {
             kind = "sequence";
@@ -1538,6 +1553,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             params,
             snapshot.cache_id,
             file.entry,
+            timeout,
           );
           const activity: FileLaneActivity = {
             kind,
@@ -1625,7 +1641,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
 
     props.onFileSequenceChange(stopLane);
 
-    enqueueSelectedFile = (fileIndex) => {
+    enqueueSelectedFile = (fileIndex, timeout) => {
       const file = files[fileIndex];
       if (file === undefined) {
         throw new Error(`Cannot load unknown file index ${fileIndex}.`);
@@ -1639,7 +1655,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       }
       if (!selectedSet.has(fileIndex)) {
         selectedSet.add(fileIndex);
-        selectedQueue.push(fileIndex);
+        selectedQueue.push({ fileIndex, timeout });
       }
       void runLane().catch(reportLaneFailure);
     };
@@ -1655,14 +1671,15 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   /**
    * Submits one LazyFile or failed FileCard to the current single file-fetch lane.
    *
-   * A mounted snapshot lane is required. The callback never calls refetch
-   * or transport directly and therefore cannot bypass sequencing.
+   * A mounted snapshot lane and explicit timeout policy are required. The
+   * callback never calls refetch or transport directly and cannot bypass
+   * sequencing or alter canonical query identity.
    */
-  function loadSelectedFile(fileIndex: number): void {
+  function loadSelectedFile(fileIndex: number, timeout: FileDiffTimeout): void {
     if (enqueueSelectedFile === null) {
       throw new Error("Cannot load a file before its manifest lane exists.");
     }
-    enqueueSelectedFile(fileIndex);
+    enqueueSelectedFile(fileIndex, timeout);
   }
 
   return (
@@ -1774,7 +1791,10 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                             )
                           }
                           onLoad={() => {
-                            loadSelectedFile(fileIndex());
+                            loadSelectedFile(fileIndex(), "bounded");
+                          }}
+                          onRetry={() => {
+                            loadSelectedFile(fileIndex(), "unbounded");
                           }}
                         />
                       )}
@@ -2404,17 +2424,18 @@ function AppHeaderFileStatus(props: { state: FileSequenceState }): JSX.Element {
   /**
    * Reports whether compact file-lane status currently has visible information.
    *
-   * Active work, unfinished automatic progress, or localized file failures keep
-   * the region mounted; a completely successful ready lane relinquishes space.
+   * Visible automatic progress, localized failures, or an active slow marker
+   * keep the region mounted. Activity without one of those children must not
+   * create an empty bordered status group.
    */
   const visible = () => {
-    if (props.state.state === "loading") {
-      return true;
-    }
     if (props.state.processed < props.state.automaticTotal) {
       return true;
     }
-    return props.state.failed > 0;
+    if (props.state.failed > 0) {
+      return true;
+    }
+    return props.state.state === "loading" && props.state.active.slow;
   };
   return (
     <Show when={visible()}>
@@ -2453,11 +2474,9 @@ function AppHeaderFileStatus(props: { state: FileSequenceState }): JSX.Element {
               type="button"
               class="app-header-slow-file"
               aria-label={`${slowFile.path} is taking longer than expected`}
+              title={`${slowFile.path} is taking longer than expected`}
             >
               <Clock3 aria-hidden="true" />
-              <span class="app-header-slow-file-tooltip" role="tooltip">
-                {slowFile.path} is taking longer than expected
-              </span>
             </button>
           )}
         </Show>

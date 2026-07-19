@@ -18,6 +18,16 @@ The HTTP transport currently recognizes repository cache expiration by matching 
 
 Re-evaluate whether correct snapshot disposal and sequential network-backed file loading make `schedulerYield`, `admittedFiles`, and the `admitted` FileCard contract unnecessary. Do not remove them during the current lifecycle correction.
 
+## TODO — Difftastic subprocess ownership and resource isolation
+
+The Difftastic graph limit is intentionally raised to `10_000_000` so structurally useful diffs do not prematurely fall back to line-oriented output. Preserve that limit unless a separate output-quality investigation explicitly approves changing it; resource isolation must not silently reduce Difftastic result quality.
+
+The current synchronous `/api/file-diff` path waits in `subprocess.run()`. When a bounded frontend HTTP attempt times out and disconnects, its `difft` subprocess can continue consuming CPU and memory. The frontend then advances its sequential file lane, so later HTTP attempts can start additional Difftastic subprocesses even though the abandoned backend computations are still alive. Frontend sequencing therefore does not currently guarantee backend sequencing.
+
+A separate backend follow-up must give every Difftastic invocation an owned, cross-platform lifecycle. Permit at most one active Difftastic subprocess, terminate and reap it when its owning HTTP operation disconnects or is cancelled, and release the capacity slot only after cleanup completes. An explicitly unbounded file `RetryButton` attempt remains connected and must not acquire a new wall-clock timeout through this work.
+
+Prefer cross-platform process ownership and capacity limiting through AnyIO. `psutil` may be evaluated for portable process-tree cleanup, priority reduction and resource observation. Hard CPU or memory quotas remain platform-specific and are optional defence in depth; they must not replace correct cancellation, cleanup or the single-process capacity invariant.
+
 ## FIXME — preset manifests have no snapshot identity
 
 This is a backend snapshot-identity bug deferred until after the frontend rewrite.

@@ -2911,7 +2911,6 @@ h1 {
 }
 
 .app-header-slow-file {
-  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2921,29 +2920,6 @@ h1 {
   background: transparent;
   color: #7b4a0c;
   padding: 0;
-}
-
-.app-header-slow-file-tooltip {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  z-index: 90;
-  display: none;
-  width: max-content;
-  max-width: 360px;
-  border: 1px solid #d8d0c2;
-  background: #24231f;
-  color: #fffdf8;
-  padding: 6px 8px;
-  box-shadow: 0 6px 16px rgb(36 35 31 / 18%);
-  font-size: 12px;
-  line-height: 1.25;
-  white-space: normal;
-}
-
-.app-header-slow-file:hover .app-header-slow-file-tooltip,
-.app-header-slow-file:focus-visible .app-header-slow-file-tooltip {
-  display: block;
 }
 
 .summary-status-defaults {

@@ -267,8 +267,15 @@ function requestFileDiff(
   cacheId: string,
   entry: ManifestEntry,
   signal: AbortSignal,
+  timeout: FileDiffTimeout,
 ): Promise<FileDiff>;
 ```
+
+```ts
+export type FileDiffTimeout = "bounded" | "unbounded";
+```
+
+`bounded` applies the engine-specific initial-attempt timeout. `unbounded` is used only when the owner handles an explicit file `RetryButton` action. Timeout policy controls one HTTP attempt; it is not backend data identity and must not enter query keys or request parameters.
 
 There will be no `DiffRequest`, `ManifestRequest`, or `FileRequest` name for ordinary parameter or state objects.
 
@@ -320,6 +327,7 @@ export const api = {
       params: DiffParams,
       cacheId: string,
       entry: ManifestEntry,
+      timeout: FileDiffTimeout,
     ) {
       const locator = {
         left_path: entry.left_path,
@@ -335,7 +343,13 @@ export const api = {
           locator,
         ] as const,
         queryFn: ({ signal }) =>
-          requestFileDiff(params, cacheId, entry, signal),
+          requestFileDiff(
+            params,
+            cacheId,
+            entry,
+            signal,
+            timeout,
+          ),
         ...snapshotQuery,
       });
     },
@@ -621,6 +635,7 @@ async function loadFilesInOrder(
       params,
       manifest.cache_id,
       entry,
+      "bounded",
     );
 
     setActiveKey(options.queryKey);
@@ -719,7 +734,7 @@ The lazy metadata query may run concurrently with the normal FileSequence becaus
 
 An ordinary lazy-info failure leaves the FileCards present and produces error-flavoured `LazyFile` states. It does not stop normal file loading. An unknown repository `cache_id` is not an ordinary lazy-info failure; Section 20 defines the complete-snapshot restart.
 
-`LazyFile` renders a colored clickable plank. Selecting the plank submits an explicit file request to the single file-fetch lane. The `LazyFile` becomes a fetching `HuskFile`, then becomes `FullFile` on success or an error-flavoured `LazyFile` on failure.
+`LazyFile` renders a colored clickable plank. Selecting a deferred plank submits a bounded explicit file request to the single file-fetch lane. Activating an error `RetryButton` submits an unbounded retry to that same lane and canonical query key. The `LazyFile` becomes a fetching `HuskFile`, then becomes `FullFile` on success or an error-flavoured `LazyFile` on failure.
 
 `LazyFile` never calls a private HTTP handler directly and never starts a concurrent request.
 
@@ -734,6 +749,7 @@ const fileQueries = createQueries(() => ({
       props.params,
       props.manifest.cache_id,
       entry,
+      "bounded",
     ),
     enabled: false,
   })),
@@ -749,11 +765,12 @@ FileCard receives its state and an explicit-load callback from `ChangeSetSnapsho
 ```tsx
 <FileCard
   state={fileStates[fileIndex]}
-  onLoad={() => enqueueExplicitFile(entry)}
+  onLoad={() => enqueueExplicitFile(entry, "bounded")}
+  onRetry={() => enqueueExplicitFile(entry, "unbounded")}
 />
 ```
 
-The clickable LazyFile plank invokes `onLoad`. It does not refetch independently. `enqueueExplicitFile` submits that exact canonical file key to the snapshot’s file-fetch lane, which preserves the sequencing rules from Section 11.
+The clickable deferred LazyFile plank invokes `onLoad`; its error `RetryButton` invokes `onRetry`. Neither refetches independently. `enqueueExplicitFile` submits that exact canonical file key and attempt timeout to the snapshot’s file-fetch lane, which preserves the sequencing rules from Section 11. Timeout policy is deliberately absent from the canonical query key.
 
 ## 15. Derived file state
 
@@ -979,6 +996,7 @@ If the replacement manifest fails, that manifest failure is an error and uses th
 - This section applies to ordinary file-specific failures, not repository cache expiration.
 - That file query stays in the error state.
 - Its FileCard derives an error-flavoured `LazyFile` with an explicit retry plank.
+- Its `RetryButton` submits an unbounded HTTP attempt through the same sequential lane and canonical query key.
 - The FileSequence continues to the next entry.
 - No fake error `FileDiff` is inserted.
 

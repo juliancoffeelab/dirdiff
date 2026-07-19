@@ -416,7 +416,9 @@ The status region is compact and fixed-height:
 - the spinner and fraction show automatic progress;
 - the failure icon shows the number of files needing attention;
 - the clock appears only after the active file load crosses the slow threshold;
-- long paths appear only in hover/focus tooltips.
+- the slow-file path is available through the clock's native `title` tooltip and matching accessible label.
+
+`AppHeaderFileStatus` mounts its bordered status group only when at least one of those three indicators is visible. An explicit file attempt with no automatic progress, no failure count and no slow marker renders no status group; active work alone must not create an empty square.
 
 The slow-file indicator does not show a live seconds counter. The file-fetch lane uses one timeout to set `slow: true`, then clears it when the file load settles.
 
@@ -427,17 +429,15 @@ The slow-file indicator does not show a live seconds counter. The file-fetch lan
       type="button"
       class="app-header-slow-file"
       aria-label={`${file().path} is taking longer than expected`}
+      title={`${file().path} is taking longer than expected`}
     >
       <ClockIcon />
-      <Tooltip>
-        {file().path} is taking longer than expected
-      </Tooltip>
     </button>
   )}
 </Show>
 ```
 
-The tooltip must appear on both hover and keyboard focus. It is positioned outside normal layout and cannot resize AppHeader.
+The clock uses the browser's native `title` tooltip, matching the failure indicator. There is no custom tooltip element, positioning logic or tooltip CSS, so generic AppHeader text rules cannot make its content unreadable.
 
 Only the changing message is an `aria-live="polite"` status. Manifest statistics are not repeatedly announced on every progress update.
 

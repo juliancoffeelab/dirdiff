@@ -737,27 +737,40 @@ const SLOW_DIFF_TIMEOUT_MS = 20_000;
 const PULL_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
+ * Selects timeout ownership for one canonical file-diff HTTP attempt.
+ *
+ * `bounded` applies the engine-specific initial-attempt limit. `unbounded`
+ * disables only the transport timer for an explicit file RetryButton attempt.
+ * The value controls execution policy, not file identity, and must never enter
+ * the TanStack query key or backend parameters.
+ */
+export type FileDiffTimeout = "bounded" | "unbounded";
+
+/**
  * Describes every required input to one private HTTP request.
  *
- * `signal` is genuinely nullable because TanStack queries provide cancellation
- * while mutation commands do not. The remaining fields are always explicit so
- * transport behavior is never selected through omitted arguments.
+ * `abortSignal` is genuinely nullable because TanStack queries provide
+ * cancellation while mutation commands do not. `timeoutMs` is genuinely
+ * nullable because an explicit file retry has no transport timeout. Every field
+ * remains explicit so transport behavior is never selected through omitted
+ * arguments.
  */
 type HttpRequest = {
   input: string;
   init: RequestInit;
-  signal: AbortSignal | null;
-  timeoutMs: number;
+  abortSignal: AbortSignal | null;
+  timeoutMs: number | null;
 };
 
 /**
- * Exposes the combined request signal and its owned timeout lifecycle.
+ * Owns the AbortSignal formed from caller cancellation and an optional timeout.
  *
- * Callers must invoke `dispose` exactly once after the request settles. The
- * timeout classifier reports only whether this owner initiated cancellation.
+ * `abortSignal` is the exact browser signal passed to `fetch()`. `dispose()`
+ * releases the timeout and caller listener after the HTTP attempt settles,
+ * while `timedOut()` distinguishes the owned timer from caller cancellation.
  */
-type RequestSignal = {
-  signal: AbortSignal;
+type MultiAbortSignal = {
+  abortSignal: AbortSignal;
   dispose(): void;
   timedOut(): boolean;
 };
@@ -797,7 +810,7 @@ class RequestError extends Error {
 }
 
 /**
- * Identifies the backend signal that a repository snapshot handle expired.
+ * Identifies the backend indication that a repository snapshot handle expired.
  *
  * Query presentation and lifecycle owners use this predicate to suppress normal
  * error UI and replace the complete ChangeSet snapshot. Every other classified
@@ -811,54 +824,63 @@ export function isRepositoryCacheExpiration(error: unknown): boolean {
 }
 
 /**
- * Combines a caller cancellation signal with one transport-owned timeout.
+ * Combines a caller AbortSignal with one transport-owned timeout.
  *
- * The caller supplies either a real upstream signal or explicit null and a
- * positive timeout. The returned owner forwards cancellation and removes its
- * listener and timer when disposed.
+ * The caller supplies either its AbortSignal or explicit null. A
+ * numeric timeout must be positive and creates one owned timer; null creates no
+ * timer. The returned owner forwards cancellation and removes every resource it
+ * owns.
  */
-function combinedSignal(
-  upstreamSignal: AbortSignal | null,
-  timeoutMs: number,
-): RequestSignal {
-  const controller = new AbortController();
+function createMultiAbortSignal(
+  callerAbortSignal: AbortSignal | null,
+  timeoutMs: number | null,
+): MultiAbortSignal {
+  const abortController = new AbortController();
   let didTimeout = false;
-
-  /**
-   * Forwards cancellation from the caller into the transport-owned controller.
-   *
-   * This callback is installed only when an upstream signal exists and forwards
-   * that signal's exact reason. It owns no independent cancellation or cleanup;
-   * the enclosing signal owner installs and removes it.
-   */
-  function abortFromUpstream(): void {
-    if (upstreamSignal === null) {
-      return;
-    }
-    controller.abort(upstreamSignal.reason);
+  if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error("HTTP timeout must be a positive finite duration.");
   }
 
-  if (upstreamSignal !== null) {
-    if (upstreamSignal.aborted) {
-      controller.abort(upstreamSignal.reason);
+  /**
+   * Forwards cancellation from the caller's AbortSignal into the owned controller.
+   *
+   * This callback is installed only when a caller AbortSignal exists and
+   * forwards that AbortSignal's exact reason. It owns no independent cancellation
+   * or cleanup; the enclosing MultiAbortSignal installs and removes it.
+   */
+  function abortFromCallerSignal(): void {
+    if (callerAbortSignal === null) {
+      return;
+    }
+    abortController.abort(callerAbortSignal.reason);
+  }
+
+  if (callerAbortSignal !== null) {
+    if (callerAbortSignal.aborted) {
+      abortController.abort(callerAbortSignal.reason);
     } else {
-      upstreamSignal.addEventListener("abort", abortFromUpstream, {
+      callerAbortSignal.addEventListener("abort", abortFromCallerSignal, {
         once: true,
       });
     }
   }
 
-  const timeoutId = window.setTimeout(() => {
-    didTimeout = true;
-    controller.abort();
-  }, timeoutMs);
+  let timeoutId: number | null = null;
+  if (timeoutMs !== null) {
+    timeoutId = window.setTimeout(() => {
+      didTimeout = true;
+      abortController.abort();
+    }, timeoutMs);
+  }
 
   return {
-    signal: controller.signal,
+    abortSignal: abortController.signal,
     dispose() {
-      window.clearTimeout(timeoutId);
-      if (upstreamSignal !== null) {
-        upstreamSignal.removeEventListener("abort", abortFromUpstream);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      if (callerAbortSignal !== null) {
+        callerAbortSignal.removeEventListener("abort", abortFromCallerSignal);
       }
     },
     timedOut() {
@@ -918,18 +940,21 @@ async function throwResponseError(response: Response): Promise<never> {
  * RequestErrors while intentional upstream cancellation remains AbortError.
  */
 async function requestResponse(request: HttpRequest): Promise<Response> {
-  const ownedSignal = combinedSignal(request.signal, request.timeoutMs);
+  const multiAbortSignal = createMultiAbortSignal(
+    request.abortSignal,
+    request.timeoutMs,
+  );
   try {
     return await fetch(request.input, {
       ...request.init,
-      signal: ownedSignal.signal,
+      signal: multiAbortSignal.abortSignal,
     });
   } catch (error) {
     // Error copy names only the endpoint and never exposes request query values.
     const queryStart = request.input.indexOf("?");
     const label =
       queryStart === -1 ? request.input : request.input.slice(0, queryStart);
-    if (ownedSignal.timedOut()) {
+    if (multiAbortSignal.timedOut()) {
       throw new RequestError(
         "timeout",
         `Request timed out before response: ${label}`,
@@ -946,7 +971,7 @@ async function requestResponse(request: HttpRequest): Promise<Response> {
       error,
     );
   } finally {
-    ownedSignal.dispose();
+    multiAbortSignal.dispose();
   }
 }
 
@@ -987,12 +1012,12 @@ async function requestEmpty(request: HttpRequest): Promise<void> {
  * The caller owns cancellation and receives only schema-validated repository
  * marks. This function neither selects a repository nor caches the response.
  */
-function requestRepos(signal: AbortSignal): Promise<RepoMark[]> {
+function requestRepos(abortSignal: AbortSignal): Promise<RepoMark[]> {
   return requestJson(
     {
       input: "/api/repos",
       init: {},
-      signal,
+      abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     z.array(RepoMarkSchema),
@@ -1002,19 +1027,19 @@ function requestRepos(signal: AbortSignal): Promise<RepoMark[]> {
 /**
  * Requests all refs, local branches, and remotes for one repository.
  *
- * Callers provide a real backend project ID and the query cancellation signal.
+ * Callers provide a real backend project ID and the query AbortSignal.
  * Selection, autocomplete filtering, and cache freshness remain UI concerns.
  */
 function requestRepoRefs(
   projectId: ProjectId,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
 ): Promise<RepoRefs> {
   const params = new URLSearchParams({ project_id: String(projectId) });
   return requestJson(
     {
       input: `/api/repo-refs?${params.toString()}`,
       init: {},
-      signal,
+      abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     RepoRefsSchema,
@@ -1029,14 +1054,14 @@ function requestRepoRefs(
  */
 function requestRepoDefaults(
   projectId: ProjectId,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
 ): Promise<RepoDefaults> {
   const params = new URLSearchParams({ project_id: String(projectId) });
   return requestJson(
     {
       input: `/api/repo-defaults?${params.toString()}`,
       init: {},
-      signal,
+      abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     RepoDefaultsSchema,
@@ -1053,7 +1078,7 @@ function requestRemoveRepo(projectId: ProjectId): Promise<void> {
   return requestEmpty({
     input: `/api/repos/${projectId}`,
     init: { method: "DELETE" },
-    signal: null,
+    abortSignal: null,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
 }
@@ -1076,7 +1101,7 @@ function requestSaveMainBranch(input: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ selection: input.selection }),
       },
-      signal: null,
+      abortSignal: null,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     RepoMainBranchSchema,
@@ -1089,12 +1114,12 @@ function requestSaveMainBranch(input: {
  * The caller supplies query cancellation and receives every preset kind in one
  * validated response. This function performs no tab or subset selection.
  */
-function requestPresets(signal: AbortSignal): Promise<PresetCatalogs> {
+function requestPresets(abortSignal: AbortSignal): Promise<PresetCatalogs> {
   return requestJson(
     {
       input: "/api/presets",
       init: {},
-      signal,
+      abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     PresetCatalogsSchema,
@@ -1116,7 +1141,7 @@ function requestRegisterProfile(username: string): Promise<UserProfile> {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ username }),
       },
-      signal: null,
+      abortSignal: null,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     UserProfileSchema,
@@ -1141,7 +1166,7 @@ function requestRenameProfile(input: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ username: input.username }),
       },
-      signal: null,
+      abortSignal: null,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     UserProfileSchema,
@@ -1151,18 +1176,18 @@ function requestRenameProfile(input: {
 /**
  * Requests backend preferences for one selected profile.
  *
- * A concrete profile ID and cancellation signal are required. This function
+ * A concrete profile ID and cancellation AbortSignal are required. This function
  * does not supply defaults when the backend response is absent or malformed.
  */
 function requestPreferences(
   profileId: number,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
 ): Promise<Preferences> {
   return requestJson(
     {
       input: `/api/user-profile/${profileId}/preferences`,
       init: {},
-      signal,
+      abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     PreferencesSchema,
@@ -1187,7 +1212,7 @@ function requestSavePreferences(input: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ aggressive_folds: input.aggressiveFolds }),
       },
-      signal: null,
+      abortSignal: null,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     PreferencesSchema,
@@ -1209,7 +1234,7 @@ function requestPreparePullRequest(url: string): Promise<PreparedPullRequest> {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ url }),
       },
-      signal: null,
+      abortSignal: null,
       timeoutMs: PULL_REQUEST_TIMEOUT_MS,
     },
     PreparedPullRequestSchema,
@@ -1285,14 +1310,14 @@ function cachedSearchParams(
  */
 function requestManifest(
   params: DiffParams,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
 ): Promise<Manifest> {
   const search = manifestSearchParams(params);
   return requestJson(
     {
       input: `/api/manifest?${search.toString()}`,
       init: {},
-      signal,
+      abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     ManifestSchema,
@@ -1302,20 +1327,20 @@ function requestManifest(
 /**
  * Requests delayed-file metadata for one immutable manifest cache.
  *
- * The original DiffParams, cache ID, and query signal are required. The result
+ * The original DiffParams, cache ID, and query AbortSignal are required. The result
  * describes lazy presentation only and does not trigger explicit file loading.
  */
 function requestLazyInfo(
   params: DiffParams,
   cacheId: string,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
 ): Promise<LazyInfo> {
   const search = cachedSearchParams(params, cacheId);
   return requestJson(
     {
       input: `/api/lazy-info?${search.toString()}`,
       init: {},
-      signal,
+      abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     LazyInfoSchema,
@@ -1326,13 +1351,16 @@ function requestLazyInfo(
  * Requests one complete rendered file addressed by a manifest handle.
  *
  * Callers provide snapshot identity, cache identity, the exact manifest entry,
- * and cancellation. The engine determines timeout without altering query identity.
+ * cancellation and a bounded-or-unbounded timeout policy. The engine selects
+ * the duration of bounded attempts; the policy affects execution only and must
+ * not alter query identity.
  */
 function requestFileDiff(
   params: DiffParams,
   cacheId: string,
   entry: ManifestEntry,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
+  timeout: FileDiffTimeout,
 ): Promise<FileDiff> {
   const search = cachedSearchParams(params, cacheId);
   search.set("engine", params.engine);
@@ -1343,14 +1371,16 @@ function requestFileDiff(
     search.set("right_path", entry.right_path);
   }
   const timeoutMs =
-    params.engine === "difftastic" || params.engine === "gumtree"
-      ? SLOW_DIFF_TIMEOUT_MS
-      : REQUEST_TIMEOUT_MS;
+    timeout === "unbounded"
+      ? null
+      : params.engine === "difftastic" || params.engine === "gumtree"
+        ? SLOW_DIFF_TIMEOUT_MS
+        : REQUEST_TIMEOUT_MS;
   return requestJson(
     {
       input: `/api/file-diff?${search.toString()}`,
       init: {},
-      signal,
+      abortSignal,
       timeoutMs,
     },
     FileDiffSchema,
@@ -1383,7 +1413,8 @@ export const api = {
     manifest(params: DiffParams) {
       return queryOptions({
         queryKey: ["change-set", "manifest", params] as const,
-        queryFn: ({ signal }) => requestManifest(params, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestManifest(params, abortSignal),
         meta: { errorTitle: "Failed to load ChangeSet manifest" },
         ...snapshotQuery,
       });
@@ -1398,7 +1429,8 @@ export const api = {
     lazyInfo(params: DiffParams, cacheId: string) {
       return queryOptions({
         queryKey: ["change-set", "lazy-info", params, cacheId] as const,
-        queryFn: ({ signal }) => requestLazyInfo(params, cacheId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestLazyInfo(params, cacheId, abortSignal),
         meta: { errorTitle: "Failed to load delayed-file information" },
         ...snapshotQuery,
       });
@@ -1408,17 +1440,24 @@ export const api = {
      * Defines one canonical rendered-file query from a manifest handle.
      *
      * Snapshot parameters, cache ID, and entry paths form stable query identity.
-     * The definition does not decide sequential scheduling or rich/lazy state.
+     * Timeout controls only this attempt's transport and is deliberately absent
+     * from the query key. The definition does not decide sequential scheduling
+     * or rich/lazy state.
      */
-    file(params: DiffParams, cacheId: string, entry: ManifestEntry) {
+    file(
+      params: DiffParams,
+      cacheId: string,
+      entry: ManifestEntry,
+      timeout: FileDiffTimeout,
+    ) {
       const locator = {
         left_path: entry.left_path,
         right_path: entry.right_path,
       };
       return queryOptions({
         queryKey: ["change-set", "file", params, cacheId, locator] as const,
-        queryFn: ({ signal }) =>
-          requestFileDiff(params, cacheId, entry, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestFileDiff(params, cacheId, entry, abortSignal, timeout),
         meta: { errorTitle: "Failed to load file diff" },
         ...snapshotQuery,
       });
@@ -1435,7 +1474,7 @@ export const api = {
     list() {
       return queryOptions({
         queryKey: ["repos"] as const,
-        queryFn: ({ signal }) => requestRepos(signal),
+        queryFn: ({ signal: abortSignal }) => requestRepos(abortSignal),
         staleTime: 5_000,
         meta: { errorTitle: "Failed to load repositories" },
       });
@@ -1450,7 +1489,8 @@ export const api = {
     refs(projectId: ProjectId) {
       return queryOptions({
         queryKey: ["repos", projectId, "refs"] as const,
-        queryFn: ({ signal }) => requestRepoRefs(projectId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestRepoRefs(projectId, abortSignal),
         staleTime: 30_000,
         meta: { errorTitle: "Failed to load refs" },
       });
@@ -1465,7 +1505,8 @@ export const api = {
     defaults(projectId: ProjectId) {
       return queryOptions({
         queryKey: ["repos", projectId, "defaults"] as const,
-        queryFn: ({ signal }) => requestRepoDefaults(projectId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestRepoDefaults(projectId, abortSignal),
         staleTime: Infinity,
         meta: { errorTitle: "Failed to load repository defaults" },
       });
@@ -1510,7 +1551,7 @@ export const api = {
     catalogs() {
       return queryOptions({
         queryKey: ["presets"] as const,
-        queryFn: ({ signal }) => requestPresets(signal),
+        queryFn: ({ signal: abortSignal }) => requestPresets(abortSignal),
         staleTime: 5_000,
         meta: { errorTitle: "Failed to load presets" },
       });
@@ -1527,7 +1568,8 @@ export const api = {
     preferences(profileId: number) {
       return queryOptions({
         queryKey: ["profile", profileId, "preferences"] as const,
-        queryFn: ({ signal }) => requestPreferences(profileId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestPreferences(profileId, abortSignal),
         meta: { errorTitle: "Failed to load preferences" },
       });
     },

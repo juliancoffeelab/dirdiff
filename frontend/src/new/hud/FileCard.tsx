@@ -197,8 +197,9 @@ type LazyFile =
 /**
  * Describes a file whose content starts only through explicit user activation.
  *
- * Retry and delayed hydration use the same ChangeSet-supplied file-load
- * callback; the state itself owns no query state or copied loading flag.
+ * Retry and delayed hydration use distinct ChangeSet-supplied commands because
+ * their HTTP timeout policies differ. The state itself owns no query state,
+ * timeout policy, or copied loading flag.
  */
 type LazyFileState = {
   state: "lazy";
@@ -220,8 +221,9 @@ type FileCardState = HuskFileState | FullFileState | LazyFileState;
  * Expansion remains ChangeSet-owned so it survives active-content replacement.
  * `explicitlyCollapsed` distinguishes a user/directory collapse from the
  * bodyless default Husk presentation, which still participates in navigation.
- * FileCard may only request an explicit load and expansion change; it cannot
- * mutate its state or begin a query independently.
+ * FileCard may only request a bounded explicit load, request an unbounded retry,
+ * and change expansion. It cannot mutate state, select transport policy, or
+ * begin a query independently.
  */
 type FileCardProps = {
   state: FileCardState;
@@ -238,6 +240,7 @@ type FileCardProps = {
   aggressiveFolds: boolean;
   onExpandedChange: (expanded: boolean) => void;
   onLoad: () => void;
+  onRetry: () => void;
 } & HunkCounterProps;
 
 /**
@@ -261,6 +264,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
       fileSelectedHunk={props.fileSelectedHunk}
       onExpandedChange={props.onExpandedChange}
       onLoad={props.onLoad}
+      onRetry={props.onRetry}
     />
   );
 }
@@ -354,6 +358,7 @@ function FileCardContent(props: FileCardProps): JSX.Element {
             globalSelectedHunk={props.globalSelectedHunk}
             fileSelectedHunk={props.fileSelectedHunk}
             onLoad={props.onLoad}
+            onRetry={props.onRetry}
           />
         )}
       </Show>
@@ -1000,6 +1005,7 @@ function LazyFileView(
     state: LazyFileState;
     expanded: boolean;
     onLoad: () => void;
+    onRetry: () => void;
   } & HunkCounterProps,
 ): JSX.Element {
   const identity: PseudoHunkIdentity = {
@@ -1051,7 +1057,7 @@ function LazyFileView(
                 title={`Failed to load ${failure.path}`}
                 error={failure.error}
               >
-                <RetryButton onRetry={props.onLoad} />
+                <RetryButton onRetry={props.onRetry} />
               </ErrorPanel>
             </div>
           )}

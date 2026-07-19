@@ -546,6 +546,8 @@ The callback is always supplied. RetryButton has no generic default behavior.
 
 The program never invokes `onRetry` itself.
 
+`RetryButton` remains presentation-only and does not choose HTTP policy. For an ordinary file-query failure, its ChangeSet owner explicitly enqueues an unbounded attempt through the existing sequential file-fetch lane. Automatic file attempts and first explicit deferred-file loads remain bounded. Both policies use the same canonical file query key because timeout is execution policy, not data identity.
+
 ### 64.12 Unexpected rendering and reactive errors
 
 Solid ErrorBoundary contains unexpected errors thrown while rendering or reactively updating its subtree. It does not catch event-handler errors or unrelated scheduled callbacks. [Solid ErrorBoundary documentation](https://docs.solidjs.com/reference/components/error-boundary)
@@ -736,3 +738,4 @@ Every `catch` must do at least one of:
 24. Global browser error listeners remain installed while ToastProvider is mounted.
 25. Global browser listeners do not replace normal query, mutation or boundary ownership.
 26. Repository cache expiration produces no error presentation and restarts the complete owning ChangeSet snapshot.
+27. A file `RetryButton` attempt has no HTTP timeout; automatic and initial file attempts retain their bounded timeout.
