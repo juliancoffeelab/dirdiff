@@ -2293,6 +2293,39 @@ function FileTree(props: FileTreeProps): JSX.Element {
     );
     const highlightedFileIndex = createMemo(() => props.selectedFileIndex());
 
+    /**
+     * Reports whether the highlighted row currently has every ancestor mounted.
+     *
+     * This memo deliberately reduces the complete directory-expansion map to
+     * one boolean for the highlighted file. Unrelated Husk-to-Full state changes
+     * may replace that map, but an unchanged boolean must not make the private
+     * scrolling effect overwrite the user's manual FileTree scroll position.
+     */
+    const highlightedRowReachable = createMemo(() => {
+      const fileIndex = highlightedFileIndex();
+      if (fileIndex === null) {
+        return false;
+      }
+      if (!Number.isInteger(fileIndex) || fileIndex < 0) {
+        throw new Error("Selected hunk display has an invalid file index.");
+      }
+      const ancestorPaths = ancestorPathsByFileIndex.get(fileIndex);
+      if (ancestorPaths === undefined) {
+        throw new Error("FileTree is missing the selected manifest file.");
+      }
+      const expansion = props.directoryExpansion();
+      for (const path of ancestorPaths) {
+        const expanded = expansion.get(path);
+        if (expanded === undefined) {
+          throw new Error(`FileTree is missing reachability for ${path}.`);
+        }
+        if (!expanded) {
+          return false;
+        }
+      }
+      return true;
+    });
+
     onMount(() => {
       const root = props.changeSetRoot();
       if (!root.isConnected) {
@@ -2358,11 +2391,11 @@ function FileTree(props: FileTreeProps): JSX.Element {
       onCleanup(() => observer.disconnect());
     });
 
-    // This effect exists only for mounted, open FileTreeContent. Its memo keeps
-    // same-file hunk changes from rerunning it; directory expansion reruns it so
-    // a legitimately absent collapsed row can be ignored and a remounted row can
-    // be revealed. It changes only `.file-tree-groups.scrollTop` and dies when
-    // the open content unmounts.
+    // This effect exists only for mounted, open FileTreeContent. Its memos keep
+    // same-file hunk and unrelated directory-state changes from rerunning it;
+    // selected-ancestor reachability changing to true reveals the remounted row.
+    // It changes only `.file-tree-groups.scrollTop` and dies when the open
+    // content unmounts.
     createEffect(() => {
       if (!props.open) {
         return;
@@ -2371,22 +2404,8 @@ function FileTree(props: FileTreeProps): JSX.Element {
       if (fileIndex === null) {
         return;
       }
-      if (!Number.isInteger(fileIndex) || fileIndex < 0) {
-        throw new Error("Selected hunk display has an invalid file index.");
-      }
-      const ancestorPaths = ancestorPathsByFileIndex.get(fileIndex);
-      if (ancestorPaths === undefined) {
-        throw new Error("FileTree is missing the selected manifest file.");
-      }
-      const expansion = props.directoryExpansion();
-      for (const path of ancestorPaths) {
-        const expanded = expansion.get(path);
-        if (expanded === undefined) {
-          throw new Error(`FileTree is missing reachability for ${path}.`);
-        }
-        if (!expanded) {
-          return;
-        }
+      if (!highlightedRowReachable()) {
+        return;
       }
       const row = groups.querySelector<HTMLElement>(
         `[data-file-tree-index="${fileIndex}"]`,
