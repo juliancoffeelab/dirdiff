@@ -6,9 +6,9 @@ This chapter corrects FileTree presentation after explicit hunk navigation exist
 
 1. Make every directory row, file row, progressive statistic, and expansion marker read current reactive ChangeSet inputs rather than values captured by the recursive renderer.
 
-2. Keep ChangeSet as the only file-expansion authority and remove independently stored directory expansion. Calculate every directory bottom-up as expanded when any descendant file is reachable. Explicit file expansion wins; unresolved Husks remain reachable so sequential loading does not collapse the tree, and LazyFiles remain reachable while their plank is visible unless explicitly collapsed.
+2. Keep ChangeSet as the only file-expansion authority and remove independently stored directory expansion. Calculate every directory bottom-up as expanded when any descendant file is reachable. Explicit file expansion wins; unresolved Husks remain reachable so sequential loading does not collapse the directory hierarchy, and LazyFiles remain reachable while their plank is visible unless explicitly collapsed.
 
-3. Make each directory square the sole directory-expansion control. It bulk-writes the requested expansion to every descendant file, after which the reachability calculation determines that directory and its ancestors. Make each FullFile square the sole individual expansion control in both FileTree and FileCard. Both FullFile squares call the same ChangeSet-owned action. Husk and Lazy squares remain inert and empty.
+3. Make each directory square the sole directory-expansion control. It bulk-writes the requested expansion to every descendant file, after which the reachability calculation determines that directory and its ancestors. Make each FullFile square the sole individual expansion control in both FileTree and FileCard. Both FullFile squares call the same ChangeSet action. Husk and Lazy squares remain inert and empty.
 
 4. Keep directory and file labels separate from their squares. Every visible directory label ends with `/`; the slash is presentation and does not change manifest identity. FileTree labels remain inert until Chapter 8 defines their navigation. The main FileHeader path, counters, statistics, and remaining content are inert selectable content. No label toggles expansion, and no square selects, repairs, navigates, loads, or scrolls either viewport.
 

@@ -6,7 +6,7 @@ This file records work deliberately kept outside practical rewrite Chapters 1–
 
 The process-local repository cache currently retains only the newest manifest `cache_id` for each marked repository. Requesting another manifest for the same repository deletes the previous cache entry.
 
-The frontend handles this disposable backend lifetime through the complete ChangeSet snapshot replacement specified in `../spec/01_tanstack_query.md`. An unknown repository cache ID is an expected expiration signal rather than one localized file failure.
+The frontend handles this disposable backend lifetime through the complete ChangeSet snapshot replacement specified in `../spec/01_tanstack_query.md`. An unknown repository cache ID is an expected expiration indication rather than one localized file failure.
 
 A separate follow-up may still reconsider process-lifetime retention, bounded retention, request-identity retention, or an explicit lease/release contract. The current integration test requires older repository cache IDs to fail, so changing the backend policy also requires explicit approval to change that tested behavior.
 
@@ -18,15 +18,15 @@ The HTTP transport currently recognizes repository cache expiration by matching 
 
 Re-evaluate whether correct snapshot disposal and sequential network-backed file loading make `schedulerYield`, `admittedFiles`, and the `admitted` FileCard contract unnecessary. Do not remove them during the current lifecycle correction.
 
-## TODO — Difftastic subprocess ownership and resource isolation
+## TODO — Difftastic subprocess lifecycle and resource isolation
 
 The Difftastic graph limit is intentionally raised to `10_000_000` so structurally useful diffs do not prematurely fall back to line-oriented output. Preserve that limit unless a separate output-quality investigation explicitly approves changing it; resource isolation must not silently reduce Difftastic result quality.
 
 The current synchronous `/api/file-diff` path waits in `subprocess.run()`. When a bounded frontend HTTP attempt times out and disconnects, its `difft` subprocess can continue consuming CPU and memory. The frontend then advances its sequential file lane, so later HTTP attempts can start additional Difftastic subprocesses even though the abandoned backend computations are still alive. Frontend sequencing therefore does not currently guarantee backend sequencing.
 
-A separate backend follow-up must give every Difftastic invocation an owned, cross-platform lifecycle. Permit at most one active Difftastic subprocess, terminate and reap it when its owning HTTP operation disconnects or is cancelled, and release the capacity slot only after cleanup completes. An explicitly unbounded file `RetryButton` attempt remains connected and must not acquire a new wall-clock timeout through this work.
+A separate backend follow-up must introduce a per-operation structure that stores the Difftastic child-process handle. Permit at most one active Difftastic subprocess, terminate and reap it when the corresponding HTTP operation disconnects or is cancelled, and release the capacity slot only after cleanup completes. An explicitly unbounded file `RetryButton` attempt remains connected and must not acquire a new wall-clock timeout through this work.
 
-Prefer cross-platform process ownership and capacity limiting through AnyIO. `psutil` may be evaluated for portable process-tree cleanup, priority reduction and resource observation. Hard CPU or memory quotas remain platform-specific and are optional defence in depth; they must not replace correct cancellation, cleanup or the single-process capacity invariant.
+Prefer cross-platform process lifecycle management and capacity limiting through AnyIO. `psutil` may be evaluated for portable process-tree cleanup, priority reduction and resource observation. Hard CPU or memory quotas remain platform-specific and are optional defence in depth; they must not replace correct cancellation, cleanup or the single-process capacity invariant.
 
 ## FIXME — preset manifests have no snapshot identity
 

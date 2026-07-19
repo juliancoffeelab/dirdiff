@@ -1,10 +1,10 @@
 /**
  * Defines the domain-independent popup Select control.
  *
- * The module owns opening, dismissal, keyboard escape, option activation, and
- * focus restoration for one labelled selection. Callers supply complete option
- * data and interpret selected string values. It does not know about repositories,
- * engines, views, Tabs, or any backend entity.
+ * Select stores whether one labelled selection popup is open. It implements
+ * dismissal, keyboard escape, option activation, and focus restoration. Callers
+ * supply complete option data and interpret selected string values. It does not
+ * know about repositories, engines, views, Tabs, or any backend entity.
  */
 import {
   For,
@@ -33,7 +33,7 @@ export type SelectOption = {
  * Callers provide a selected value, its display label, all options, and explicit
  * hooks for selection. `onOpen` is null when opening has no external consequence,
  * and `optionAction` is null when rows have no secondary action; `class` is the
- * complete caller-owned modifier class.
+ * complete modifier class supplied by the caller.
  */
 type SelectProps = {
   class: string;
@@ -63,7 +63,7 @@ export function Select(props: SelectProps): JSX.Element {
    *
    * The effect explicitly tracks only `open`. Each false-to-true transition
    * installs one pointer and keyboard listener pair; closing or disposing Select
-   * runs the registered cleanup before another pair can be installed. It owns no
+   * runs the registered cleanup before another pair can be installed. It stores no
    * derived selection state and has no work while the popup is closed.
    */
   createEffect(
@@ -75,7 +75,7 @@ export function Select(props: SelectProps): JSX.Element {
       /**
        * Closes this popup when a pointer interaction occurs outside its root.
        *
-       * The document supplies the event and this handler owns no selection change.
+       * The document supplies the event and this handler does not change selection.
        */
       function dismissOutside(event: PointerEvent): void {
         const target = event.target;
@@ -109,7 +109,7 @@ export function Select(props: SelectProps): JSX.Element {
    * Selects one exact option value and returns focus to the trigger.
    *
    * Re-selecting the existing value closes the popup without emitting a redundant
-   * change. The caller remains the sole owner of the selected value.
+   * change. The caller remains responsible for storing the selected value.
    */
   function select(value: string): void {
     setOpen(false);
@@ -122,8 +122,8 @@ export function Select(props: SelectProps): JSX.Element {
   /**
    * Toggles this control's popup from direct trigger activation.
    *
-   * The opening notification runs only for a transition to open and may warm
-   * caller-owned backend data without receiving or controlling popup state.
+   * The opening notification runs only for a transition to open. It may ask the
+   * caller to warm a canonical backend query without exposing or changing popup state.
    */
   function toggle(): void {
     const next = !open();

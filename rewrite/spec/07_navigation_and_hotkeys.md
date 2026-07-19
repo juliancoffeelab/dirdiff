@@ -61,7 +61,7 @@ function HintHud(
 
   return (
     <nav
-      class="hunk-nav"
+      class="hint-hud"
       aria-label="Hunk navigation"
     >
       <button
@@ -131,9 +131,9 @@ const [debugOpen, setDebugOpen] =
   createSignal(false);
 ```
 
-They are not variants of one union and are not grouped under a HUD owner.
+They are not variants of one union and are not grouped into shared HUD state.
 
-Debug FPS, node, and span sampling remains owned by `DebugHud` lifetime:
+Debug FPS, node, and span sampling runs only during the `DebugHud` lifetime:
 
 ```tsx
 <Show when={debugOpen()}>
@@ -145,7 +145,7 @@ Debug FPS, node, and span sampling remains owned by `DebugHud` lifetime:
 </Show>
 ```
 
-Closed Debug performs no RAF sampling. Its Hunk value comes from the ChangeSet-owned `HunkDisplay.globalSelectedHunk`; DebugHud performs no separate hunk DOM count.
+Closed Debug performs no RAF sampling. Its Hunk value comes from the mounted ChangeSet shell's `HunkDisplay.globalSelectedHunk`; DebugHud performs no separate hunk DOM count.
 
 Help remains an overlay under `hud/`.
 
@@ -167,7 +167,7 @@ type HotkeysProps = {
 };
 ```
 
-It receives concrete callbacks rather than grouped owner interfaces.
+It receives concrete callbacks rather than a grouped interface.
 
 ChangeSet reload intentionally has no dedicated visible control. `R` is its only standing reload binding. An error-state `RetryButton` may still invoke reload as the explicit retry action.
 
@@ -339,7 +339,7 @@ Navigation may separately observe native browser scrolling keys to identify user
 
 ### 66.26 No generic hotkey dispatch
 
-Buttons call their actual owner directly:
+Buttons call the concrete operation directly:
 
 ```text
 HintHud Next
@@ -362,7 +362,7 @@ The keyboard listener calls the same operations.
 
 The FileTree line describes the eventual direct route only. FileTree rows remain inert until the separate design gate in [08_hunk_navigation.md](08_hunk_navigation.md) is approved and implemented; this section does not authorize that interaction.
 
-There is no central bus between the user interaction and the actual owner.
+There is no central bus between the user interaction and the concrete operation.
 
 ### 66.27 ChangeSet composition
 

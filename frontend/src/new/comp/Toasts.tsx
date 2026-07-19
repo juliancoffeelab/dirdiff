@@ -1,12 +1,12 @@
 /**
  * Defines application-wide error notification and local error presentation.
  *
- * The module exports the notification ownership boundary, its commands,
+ * The module exports ToastProvider, its notification commands,
  * deterministic error formatting, reusable local error components, and
- * unexpected-error containment. It owns the single error Toast queue and the
- * browser listeners that expose otherwise unowned failures. It does not own
- * domain error state, choose retry behavior, or recover without an explicit
- * caller-provided action.
+ * unexpected-error containment. ToastProvider owns the single error Toast queue
+ * and the global browser listener resources that expose failures not handled
+ * elsewhere. ToastProvider does not store domain error state, choose retry behavior,
+ * or recover without an explicit caller-provided action.
  */
 import {
   ErrorBoundary,
@@ -40,11 +40,11 @@ export type ErrorToast = {
 };
 
 /**
- * Contains the display-safe projection of one arbitrary thrown value.
+ * Contains the display-safe representation of one arbitrary thrown value.
  *
  * `message` is always renderable, `details` contains only distinct stack text,
  * and `reason` controls Toast lifetime. The type carries no retry action,
- * notification identity, or ownership state.
+ * notification identity, or provider state.
  */
 export type PresentedError = {
   message: string;
@@ -80,7 +80,7 @@ export type ErrorPopoverProps = {
 };
 
 /**
- * Defines the private projection inputs required by ToastViewport.
+ * Defines the private rendering inputs required by ToastViewport.
  *
  * The provider supplies a read-only queue accessor and exact-ID dismissal
  * operation. This contract must not expose the queue setter or ID allocation.
@@ -147,7 +147,7 @@ export function presentError(error: unknown): PresentedError {
 }
 
 /**
- * Establishes the single error-notification owner for an application subtree.
+ * Establishes the single error-notification queue for an application subtree.
  *
  * Callers provide the complete subtree as `children` and mount one provider at
  * the application root. Descendants receive command-only access through
@@ -192,9 +192,9 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
   /**
    * Presents one browser-level unhandled Promise rejection.
    *
-   * The browser supplies the rejection event after ordinary owners had the
-   * opportunity to handle it. The handler reports the original reason without
-   * preventing native diagnostics.
+   * The browser supplies the rejection event after ordinary query, mutation, and
+   * component paths had the opportunity to handle it. The handler reports the
+   * original reason without preventing native diagnostics.
    */
   function onUnhandledRejection(event: PromiseRejectionEvent): void {
     showError("Unhandled promise rejection", event.reason);
@@ -203,7 +203,7 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
   /**
    * Installs browser-level error reporting for exactly this provider lifetime.
    *
-   * The non-tracking mount hook runs once after ToastProvider renders. Owner
+   * The non-tracking mount hook runs once after ToastProvider renders. Provider
    * cleanup removes both global listeners when the provider is disposed, so a
    * replacement provider cannot duplicate reports.
    */
@@ -224,7 +224,7 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
       <ToastViewport
         toasts={toasts}
         onDismiss={(id) => {
-          // Dismissal is an idempotent projection of the provider-owned queue.
+          // Dismissal removes the exact ID and is safe to repeat.
           setToasts((current) => current.filter((toast) => toast.id !== id));
         }}
       />
@@ -233,7 +233,7 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
 }
 
 /**
- * Returns the error-notification commands owned by the nearest ToastProvider.
+ * Returns the error-notification commands exposed by the nearest ToastProvider.
  *
  * Consumers may present an error but cannot inspect or mutate the queue. The
  * function throws when no provider exists so a missing application boundary
@@ -260,6 +260,13 @@ export function ErrorPanel(props: {
   error: unknown;
   children: JSX.Element;
 }): JSX.Element {
+  /**
+   * Formats the current error for the message and optional stack surfaces.
+   *
+   * JSX consumers call this accessor reactively from `props.error`. It retains
+   * no second error value, and `presentError` guarantees formatting never hides
+   * the original failure with another exception.
+   */
   const presented = () => presentError(props.error);
 
   return (
@@ -294,7 +301,7 @@ export function RetryButton(props: { onRetry: () => void }): JSX.Element {
 /**
  * Keeps a localized error compact until the user requests complete details.
  *
- * The trigger remains in the constrained owner layout. Activating it opens a
+ * The trigger remains in the constrained caller layout. Activating it opens a
  * native top-layer popover containing the complete ErrorPanel and RetryButton,
  * so traceback visibility and user recovery never alter surrounding geometry.
  */
@@ -322,7 +329,7 @@ export function ErrorPopover(props: ErrorPopoverProps): JSX.Element {
 }
 
 /**
- * Contains unexpected rendering or reactive failures for one trusted owner.
+ * Contains unexpected rendering or reactive failures for one trusted subtree.
  *
  * Callers provide a stable error title and the subtree whose correctness is
  * shared. A thrown failure replaces that subtree with complete local damage,
@@ -384,7 +391,7 @@ export function ApplicationErrorPanel(props: {
 }
 
 /**
- * Projects the provider-owned queue into the global assertive live region.
+ * Renders the provider's queue in the global assertive live region.
  *
  * The provider supplies a read-only queue and exact-ID dismissal command. This
  * component preserves insertion order and delegates each notification's timer
@@ -463,11 +470,11 @@ function ToastCard(props: {
 }
 
 /**
- * Presents one unexpected failed owner and emits its global notification.
+ * Presents one unexpected subtree failure caught by an ErrorBoundary.
  *
- * The owning ErrorBoundary provides the original failure and reset operation.
- * Each mounted failed attempt reports exactly once and retains complete local
- * damage until the user explicitly retries.
+ * The containing ErrorBoundary provides the original failure and reset operation.
+ * Each mounted failed attempt emits its global notification exactly once and
+ * retains complete local damage until the user explicitly retries.
  */
 function UnexpectedErrorPanel(props: {
   title: string;
@@ -479,7 +486,7 @@ function UnexpectedErrorPanel(props: {
   /**
    * Reports this localized failed attempt exactly once when its panel mounts.
    *
-   * The owning ErrorBoundary disposes the panel on Retry. The hook intentionally
+   * The containing ErrorBoundary disposes the panel on Retry. The hook intentionally
    * does not track props, preventing repeated Toasts for the same failed mount;
    * there is no external resource requiring cleanup.
    */

@@ -27,10 +27,7 @@ Status: proposed for approval.
 TanStack Query owns:
 
 - canonical backend query entries;
-- request execution and deduplication;
 - pending, error and data state;
-- cancellation through query signals;
-- reactive observation by mounted components;
 - manifest data;
 - lazy-file metadata;
 - individual file diffs;
@@ -39,6 +36,8 @@ TanStack Query owns:
 - presets;
 - profiles and preferences;
 - query loading, success and error states.
+
+TanStack Query executes and deduplicates requests, exposes query state to mounted observers, and propagates cancellation through query `AbortSignal` values.
 
 TanStack Query does not own:
 
@@ -53,10 +52,10 @@ TanStack Query does not own:
 
 Solid component ownership decides which TanStack observers exist.
 
-Solid owns client-only state:
+Solid components, signals, and stores hold client-only state:
 
 - workspace state: current Tab, selected repo, engine and inline/split view;
-- component-owned live input and selection interaction;
+- component-owned live input and selection state;
 - each Tab’s local selection and derived `DiffParams`;
 - file expansion and calculated directory reachability;
 - DOM references;
@@ -121,7 +120,7 @@ Selected.
 - Manifest, lazy metadata and every file have independent query keys.
 - `api.ts` defines every query.
 - `ChangeSetContent` owns one manifest observer for one immutable complete `DiffParams` value.
-- `ChangeSetSnapshot` owns one small sequential loop using `queryClient.fetchQuery`.
+- `ChangeSetSnapshot` contains one small sequential loop using `queryClient.fetchQuery`.
 - `ChangeSetSnapshot` owns the ordered file-query observers and supplies their reactive results to both FileTree and FileCard.
 - The loop contains no backend data and creates no second cache.
 
@@ -147,9 +146,9 @@ frontend/src/
 
 In that structure:
 
-- `api/api.ts` owns schemas, API types, HTTP handlers, query definitions and mutation definitions;
-- `api/queryClient.tsx` owns QueryClient construction and exports `QueryProvider`;
-- `hud/ChangeSet.tsx` keeps the public `ChangeSet` and its private `ChangeSetContent` and `ChangeSetSnapshot` boundaries together. Those boundaries own manifest observation, FileSequence, derived file state and ChangeSet rendering.
+- `api/api.ts` contains schemas, API types, HTTP handlers, query definitions and mutation definitions;
+- `api/queryClient.tsx` contains QueryClient construction and exports `QueryProvider`;
+- `hud/ChangeSet.tsx` keeps the public `ChangeSet` and its private `ChangeSetContent` and `ChangeSetSnapshot` boundaries together. Those boundaries own the manifest observer and FileSequence state, calculate derived file state, and render the ChangeSet.
 
 The API facade follows these rules:
 
@@ -163,7 +162,6 @@ There will be no:
 
 - `queries.ts`;
 - `queryKeys.ts`;
-- `createDiffResources.ts`;
 - `createChangeSetResources.ts`;
 - separate file-loading resource;
 - application-specific `create*` abstraction.
@@ -174,7 +172,7 @@ Framework functions such as Solid’s `createMemo` and `createEffect` retain the
 
 `DiffParams` remains exactly `DiffParams`.
 
-It is a complete immutable `DiffParams` value. A Tab derives it from its local selection and the workspace-owned engine. Live control input is not `DiffParams`; every required field must exist before the value is constructed.
+It is a complete immutable `DiffParams` value. A Tab derives it from its local selection and the engine stored by Workspace. Live control input is not `DiffParams`; every required field must exist before the value is constructed.
 
 ```ts
 export type DiffParams =
@@ -253,20 +251,20 @@ These handlers are private to `api.ts`:
 ```ts
 function requestManifest(
   params: DiffParams,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
 ): Promise<Manifest>;
 
 function requestLazyInfo(
   params: DiffParams,
   cacheId: string,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
 ): Promise<LazyInfo>;
 
 function requestFileDiff(
   params: DiffParams,
   cacheId: string,
   entry: ManifestEntry,
-  signal: AbortSignal,
+  abortSignal: AbortSignal,
   timeout: FileDiffTimeout,
 ): Promise<FileDiff>;
 ```
@@ -275,7 +273,7 @@ function requestFileDiff(
 export type FileDiffTimeout = "bounded" | "unbounded";
 ```
 
-`bounded` applies the engine-specific initial-attempt timeout. `unbounded` is used only when the owner handles an explicit file `RetryButton` action. Timeout policy controls one HTTP attempt; it is not backend data identity and must not enter query keys or request parameters.
+`bounded` applies the engine-specific initial-attempt timeout. `unbounded` is used only when `ChangeSetSnapshot` handles an explicit file `RetryButton` action. Timeout policy controls one HTTP attempt; it is not backend data identity and must not enter query keys or request parameters.
 
 There will be no `DiffRequest`, `ManifestRequest`, or `FileRequest` name for ordinary parameter or state objects.
 
@@ -304,7 +302,8 @@ export const api = {
     manifest(params: DiffParams) {
       return queryOptions({
         queryKey: ["change-set", "manifest", params] as const,
-        queryFn: ({ signal }) => requestManifest(params, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestManifest(params, abortSignal),
         ...snapshotQuery,
       });
     },
@@ -317,8 +316,8 @@ export const api = {
           params,
           cacheId,
         ] as const,
-        queryFn: ({ signal }) =>
-          requestLazyInfo(params, cacheId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestLazyInfo(params, cacheId, abortSignal),
         ...snapshotQuery,
       });
     },
@@ -342,12 +341,12 @@ export const api = {
           cacheId,
           locator,
         ] as const,
-        queryFn: ({ signal }) =>
+        queryFn: ({ signal: abortSignal }) =>
           requestFileDiff(
             params,
             cacheId,
             entry,
-            signal,
+            abortSignal,
             timeout,
           ),
         ...snapshotQuery,
@@ -359,23 +358,23 @@ export const api = {
     list() {
       return queryOptions({
         queryKey: ["repos"] as const,
-        queryFn: ({ signal }) => requestRepos(signal),
+        queryFn: ({ signal: abortSignal }) => requestRepos(abortSignal),
       });
     },
 
     refs(projectId: ProjectId) {
       return queryOptions({
         queryKey: ["repos", projectId, "refs"] as const,
-        queryFn: ({ signal }) =>
-          requestRepoRefs(projectId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestRepoRefs(projectId, abortSignal),
       });
     },
 
     defaults(projectId: ProjectId) {
       return queryOptions({
         queryKey: ["repos", projectId, "defaults"] as const,
-        queryFn: ({ signal }) =>
-          requestRepoDefaults(projectId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestRepoDefaults(projectId, abortSignal),
       });
     },
 
@@ -398,7 +397,7 @@ export const api = {
     catalogs() {
       return queryOptions({
         queryKey: ["presets"] as const,
-        queryFn: ({ signal }) => requestPresets(signal),
+        queryFn: ({ signal: abortSignal }) => requestPresets(abortSignal),
         staleTime: 5_000,
       });
     },
@@ -408,8 +407,8 @@ export const api = {
     preferences(profileId: number) {
       return queryOptions({
         queryKey: ["profile", profileId, "preferences"] as const,
-        queryFn: ({ signal }) =>
-          requestPreferences(profileId, signal),
+        queryFn: ({ signal: abortSignal }) =>
+          requestPreferences(profileId, abortSignal),
       });
     },
 
@@ -486,7 +485,7 @@ No persisted browser query cache is required.
 
 ## 9. ChangeSet lifecycle
 
-A Tab derives complete `DiffParams` from its local selection and the workspace-owned engine:
+A Tab derives complete `DiffParams` from its local selection and the engine stored by Workspace:
 
 ```tsx
 <ChangeSet
@@ -508,7 +507,7 @@ ChangeSet
     │
     └── ChangeSetSnapshot
         recreated when manifest.data changes
-        owns everything derived from that manifest
+        stores manifest-dependent observers and state
 ```
 
 `ChangeSetContent` starts exactly one manifest query for one immutable complete `DiffParams` value:
@@ -532,14 +531,13 @@ Once the manifest succeeds, a keyed manifest-result boundary mounts `ChangeSetSn
 - immutable `DiffParams`;
 - immutable manifest;
 - ordered manifest files;
-- lazy-info observation;
+- the lazy-info observer;
 - the ordered file-query observer collection;
-- FileSequence;
+- FileSequence state;
 - progress;
-- existing `admittedFiles` behavior;
-- FileTree;
-- FileCards;
-- rendered file DOM.
+- `admittedFiles` state.
+
+The snapshot renders FileTree, FileCards, and rendered file DOM and performs the FileSequence work.
 
 No manifest-dependent query or derivation lives above `ChangeSetSnapshot`. No code inside it combines live workspace params with a separately changing manifest.
 
@@ -568,7 +566,7 @@ Specifically, an engine change:
 
 `App` performs no query choreography beyond changing engine state.
 
-View changes are presentation-only. They do not recreate any query owner or perform backend work.
+View changes are presentation-only. They do not recreate any query-observing component or perform backend work.
 
 ## 10. Manifest behavior
 
@@ -587,7 +585,7 @@ After the manifest resolves:
 - FileTree navigation targets those shells;
 - loading begins at manifest index zero.
 
-When `manifest.data` changes, the keyed manifest-result boundary disposes the old `ChangeSetSnapshot` and mounts a new one. Every old manifest-dependent observer, sequence state and rendered file disappears with the old snapshot. Observer arrays are never reactively mutated from one manifest into another inside the same snapshot owner.
+When `manifest.data` changes, the keyed manifest-result boundary disposes the old `ChangeSetSnapshot` and mounts a new one. Every old manifest-dependent observer, sequence state and rendered file disappears with the old snapshot. Observer arrays are never reactively mutated from one manifest into another inside the same `ChangeSetSnapshot`.
 
 The manifest is never copied into a Solid store.
 
@@ -595,7 +593,7 @@ Derived maps, flattened arrays and directory labels may use `createMemo`. A memo
 
 ## 11. Strict FileSequence
 
-`ChangeSetSnapshot` owns the single FileSequence for its immutable manifest.
+`ChangeSetSnapshot` contains the single FileSequence for its immutable manifest.
 
 File entries are visited strictly from first to last in manifest order.
 
@@ -675,7 +673,7 @@ The current `schedulerYield`, `admittedFiles`, and `admitted` FileCard behavior 
 
 Every query function passes TanStack Query’s `AbortSignal` into the actual HTTP request.
 
-TanStack Query supplies this signal specifically so query cancellation can abort the underlying fetch and revert the query to its previous state. [TanStack cancellation guide](https://tanstack.com/query/latest/docs/framework/solid/guides/query-cancellation)
+TanStack Query supplies this `AbortSignal` specifically so query cancellation can abort the underlying fetch and revert the query to its previous state. [TanStack cancellation guide](https://tanstack.com/query/latest/docs/framework/solid/guides/query-cancellation)
 
 When a `ChangeSetSnapshot` is disposed because its Tab deactivates, its manifest is replaced, its complete `DiffParams` changes, or its outer ChangeSet is unmounted:
 
@@ -756,7 +754,7 @@ const fileQueries = createQueries(() => ({
 }));
 ```
 
-Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only projections of the cache, while the single file-fetch lane performs canonical fetches through `fetchQuery`. This is the only plural observer collection required by ChangeSet loading. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
+Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only views of the cache, while the single file-fetch lane performs canonical fetches through `fetchQuery`. This is the only plural observer collection required by ChangeSet loading. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
 
 Each observer still receives cache updates for its exact key. `ChangeSetSnapshot` pairs every observer with the manifest entry at the same index and derives that entry's reactive `FileCardState` from the query result and lazy metadata. It passes those same per-file states to FileTree and FileCard; it does not copy file results into a `filesByKey` store.
 
@@ -933,7 +931,7 @@ Once the manifest exists, every entry has a stable FileCard. This section does n
 - scroll-follow;
 - forced-rich files;
 - line-pin scrolling;
-- navigation to folded or unloaded hunks.
+- navigation to hunks in collapsed files or to unloaded hunk targets.
 
 Those concerns belong to the later navigation section. The only retained hunk presentation requirement is that `FullFileHeader` visibly contains both local and global counters.
 
@@ -964,7 +962,7 @@ Reload targets the active manifest observer directly. It does not invalidate the
 
 ### Repository cache expiration
 
-Repository `cache_id` is a disposable backend handle. An unknown `cache_id` response is an expected cache-expiration signal, not an error, and must not be presented as one or allowed to continue loading with the expired cache ID.
+Repository `cache_id` is a disposable backend handle. An unknown `cache_id` response is an expected cache-expiration indication, not an error, and must not be presented as one or allowed to continue loading with the expired cache ID.
 
 Instead, `ChangeSetContent` restarts the complete ChangeSet:
 
@@ -1005,7 +1003,7 @@ If the replacement manifest fails, that manifest failure is an error and uses th
 - Cancellation is not presented as an error.
 - The old sequence stops silently.
 
-Toast deduplication does not require load IDs. QueryCache and MutationCache callbacks produce one global Toast for each ordinary failed attempt, even when several components observe the same query. Cancellation and repository cache expiration produce no Toast. The component that owns an ordinary failed operation renders only its complete localized ErrorPanel and does not produce another Toast.
+Toast deduplication does not require load IDs. QueryCache and MutationCache callbacks produce one global Toast for each ordinary failed attempt, even when several components observe the same query. Cancellation and repository cache expiration produce no Toast. The component that presents an ordinary failed operation renders only its complete localized ErrorPanel and does not produce another Toast.
 
 ## 21. Ordinary queries and commands
 
@@ -1053,7 +1051,6 @@ Queries describe backend data. Mutations describe commands that change backend s
 
 The rewrite removes rather than renames:
 
-- `createDiffResources`;
 - `DiffResources`;
 - `createDiffUiState`;
 - copied `diffData`;
@@ -1095,10 +1092,10 @@ The implementation conforms to this specification when:
 12. File failures remain query errors, derive error-flavoured LazyFiles and do not stop the sequence.
 13. Every `ChangeSetSnapshot` owns one immutable manifest and uses only that manifest’s `cache_id`.
 14. Expensive FileBody rendering is isolated from unrelated state.
-15. `HuskFile`, `FullFile` and `LazyFile` own distinct headers.
+15. `HuskFile`, `FullFile` and `LazyFile` render distinct headers.
 16. FullFileHeader contains local and global hunk counters, but navigation behavior remains deferred.
 17. No application-level `create*` files or abstractions remain.
-18. One active manifest owner exists per active ChangeSet.
+18. One active `ChangeSetContent` manifest observer exists per active ChangeSet.
 19. No manifest-dependent observer exists before manifest success.
 20. Inactive Tabs retain no ChangeSet observer, FileSequence or rendered file DOM.
 21. Complete `DiffParams` changes recreate active `ChangeSetContent` while preserving the outer ChangeSet layout state.

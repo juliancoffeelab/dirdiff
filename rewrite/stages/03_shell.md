@@ -30,7 +30,7 @@ Implemented in this order:
 
 6. Empty ChangeSet boundary
 
-   Each Tab mounts its final ChangeSet owner boundary when it has selected `DiffParams`. During this intermediate chapter, that boundary is intentionally empty: it starts no ChangeSet requests and renders no ChangeSet content. Chapter 4 fills the same boundary rather than replacing it. AppHeader ChangeSet status outlets exist but have nothing to display.
+   Each Tab mounts its final ChangeSet boundary when it has selected `DiffParams`. During this intermediate chapter, that boundary is intentionally empty: it starts no ChangeSet requests and renders no ChangeSet content. Chapter 4 fills the same boundary rather than replacing it. AppHeader ChangeSet status outlets exist but have nothing to display.
 
 This chapter does not introduce a fake ChangeSet, fake backend data, temporary file representation, or alternate loading path.
 
@@ -47,6 +47,6 @@ Explicitly absent until Chapter 4:
 
 Virtualization remains absent until Chapter 5. Direct non-hunk hotkeys and Help remain absent until Chapter 6; navigation and hunk selection remain absent until Chapter 7.
 
-At the end of Chapter 3, `v_new` has its complete application shell, metadata behavior, Tabs and controls. Every Tab owns an empty ChangeSet boundary, but no ChangeSet data is loaded or displayed.
+At the end of Chapter 3, `v_new` has its complete application shell, metadata behavior, Tabs and controls. Every Tab mounts an empty ChangeSet boundary, but no ChangeSet data is loaded or displayed.
 
 Chapter 4 can then implement ChangeSets and rendered files as a separately scoped and reviewable milestone.

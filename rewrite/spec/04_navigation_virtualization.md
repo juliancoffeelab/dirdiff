@@ -4,7 +4,7 @@ This topic specifies whole-file virtualization only.
 
 Hunk targets, selection, counters, explicit navigation, scroll-follow, FileTree navigation, HUD hunk behavior, and future notebook navigation regions are specified in [08_hunk_navigation.md](08_hunk_navigation.md).
 
-Line pins require their own later specification and are not owned by virtualization.
+Line pins require their own later specification and are not part of virtualization.
 
 ## 26. Scope
 
@@ -16,7 +16,7 @@ This section specifies:
 - preservation of complete split-side text for native browser search;
 - virtualization cost, entry and exit heuristics;
 - height reservation and overflow containment;
-- rich materialization through FileCard-owned `waitToEnrich()`;
+- rich materialization through FileCard's `waitToEnrich()` implementation;
 - notebook FullFiles remaining rich for now.
 
 It does not revisit:
@@ -53,7 +53,7 @@ The system genuinely must handle:
 The accidental complexity currently includes:
 
 - selected hunk identity stored in both DOM and a Solid signal;
-- separately maintained navigation-owned `HunkPosition` state that can diverge from DOM;
+- separately maintained `HunkPosition` state in Navigation that can diverge from DOM;
 - `activeHunkFileId`;
 - global forced-rich file maps;
 - global virtualized-file maps;
@@ -61,7 +61,7 @@ The accidental complexity currently includes:
 - a rich preload radius;
 - delayed background selection timers;
 - repeated animation-frame retries during FileTree navigation;
-- page-scrolling functions outside their explicit owning systems;
+- page-scrolling functions outside explicit navigation operations;
 - Debug sampling while Debug is closed.
 
 The rewrite preserves the essential complexity while deleting those coordination mechanisms.

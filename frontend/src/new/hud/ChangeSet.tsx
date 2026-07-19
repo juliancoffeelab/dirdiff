@@ -1,13 +1,15 @@
 /**
- * Owns one selected ChangeSet's backend observers, file lane, and presentation.
+ * Implements one selected ChangeSet's backend observation, file lane, and presentation.
  *
- * The module exports ChangeSet. Its lightweight outer lifetime owns FileTree,
- * file-expansion, and local Help/Debug state; its active inner lifetime owns
- * manifest and file observers, strict sequential file-fetch lane, scoped
- * Navigation composition, direct hotkeys, passive hunk displays, Help overlay,
- * compact AppHeader Portals, ChangeSet title, FileTree, and FileCards. It must
- * not copy backend results into Solid state, start concurrent file-diff requests,
- * own workspace or Tab selections, follow user scrolling, or own line pins.
+ * The module exports ChangeSet. The lightweight outer ChangeSet stores FileTree
+ * visibility, file expansion, and local Help/Debug state. Each mounted
+ * ChangeSetShell stores its HunkDisplay signal. Active ChangeSetContent observes
+ * the manifest, while ChangeSetSnapshot stores the lazy-info, file, and profile-
+ * preference observers together with file-lane state.
+ * Together they render Navigation, hotkeys, HUD, Portals, title, FileTree, and
+ * FileCards. They must not copy backend results into Solid state, start concurrent
+ * file-diff requests, store workspace or Tab selections, follow user scrolling,
+ * or handle line pins.
  */
 import {
   For,
@@ -135,7 +137,7 @@ type FileSequenceState =
     };
 
 /**
- * Describes the line statistics FileTree can progressively project.
+ * Describes the line statistics FileTree can progressively display.
  *
  * Null means the current file state genuinely lacks that statistic. The tree
  * renders this absence explicitly and never treats it as zero.
@@ -267,11 +269,11 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
 }
 
 /**
- * Defines the complete active-owner inputs for one ChangeSet content lifetime.
+ * Defines the complete inputs for one active ChangeSet content lifetime.
  *
- * The outer component supplies durable client state; this inner lifetime owns all
- * query observers, direct hotkeys, HUD presentation and external async work and
- * is disposed whenever the Tab hides. The outer owner supplies durable HUD state.
+ * ChangeSetContent observes the manifest, mounts direct hotkeys and HUD presentation,
+ * and performs external async work. It is disposed whenever the Tab hides; durable
+ * client and HUD state remain in the outer ChangeSet.
  */
 type ChangeSetContentProps = {
   params: DiffParams;
@@ -288,7 +290,7 @@ type ChangeSetContentProps = {
 };
 
 /**
- * Owns one active manifest observer and replaces its complete rendered snapshot.
+ * Observes one active manifest and replaces its complete rendered snapshot.
  *
  * The component exists only for one immutable DiffParams value. It mounts no
  * manifest-dependent observer before manifest success, disposes the current
@@ -312,7 +314,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
    *
    * Calling the registered stop operation synchronously closes the current lane.
    * The keyed snapshot is then disposed before cancellation settles and before
-   * the manifest refetch begins. Concurrent expiration signals share this exact
+   * the manifest refetch begins. Concurrent expiration indications share this exact
    * operation and cannot start parallel replacement manifests.
    */
   async function replaceSnapshot(resetLayout: boolean): Promise<void> {
@@ -433,7 +435,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 /**
  * Defines the complete active UI operations surrounding one ChangeSet body.
  *
- * All callbacks are required and belong to their actual owners. Children are
+ * All callbacks are required and invoke their specified operations. Children are
  * rendered inside the same root served by the scoped Navigation instance.
  */
 type ChangeSetShellProps = {
@@ -453,7 +455,7 @@ type ChangeSetShellProps = {
  *
  * A ready snapshot receives a fresh Provider and therefore one initial hunk
  * selection. Loading and error bodies retain shell operations but contain no
- * targets. The wrapper has no layout box and owns no backend state.
+ * targets. The wrapper has no layout box and stores no backend state.
  */
 function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
   let root!: HTMLElement;
@@ -498,7 +500,7 @@ function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
 /**
  * Defines the direct operations available to the active ChangeSet hotkey listener.
  *
- * Every callback is required and belongs to its actual state owner. Hunk and
+ * Every callback is required and invokes one explicit operation. Hunk and
  * Top operations are obtained from the enclosing ChangeSet Navigation instance.
  */
 type HotkeysProps = {
@@ -521,7 +523,7 @@ function Hotkeys(props: HotkeysProps): null {
   const toast = useToasts();
   onMount(() => {
     /**
-     * Routes one unmodified non-editable key event to its concrete owner action.
+     * Routes one unmodified non-editable key event to its concrete action.
      *
      * Unsupported keys remain untouched. Shift is deliberately not treated as a
      * global modifier exclusion and therefore does not suppress recognized keys.
@@ -640,7 +642,7 @@ type DebugHudProps = {
  * Defines the independent Help operation required by the fixed HintHud.
  *
  * Navigation comes from context; this contract must not carry hunk state,
- * destinations, counters, or grouped HUD ownership.
+ * destinations, counters, or grouped HUD state.
  */
 type HintHudProps = {
   helpOpen: boolean;
@@ -651,13 +653,13 @@ type HintHudProps = {
  * Renders the established three-button explicit-navigation HUD.
  *
  * Next and Previous call the enclosing ChangeSet Navigation instance. Help
- * remains an independent UI operation owned by the outer ChangeSet.
+ * remains an independent UI operation handled by the outer ChangeSet.
  */
 function HintHud(props: HintHudProps): JSX.Element {
   const navigation = useNavigation();
   const toast = useToasts();
   return (
-    <nav class="hunk-nav" aria-label="Hunk navigation">
+    <nav class="hint-hud" aria-label="Hunk navigation">
       <button
         type="button"
         onClick={() =>
@@ -697,11 +699,11 @@ function HintHud(props: HintHudProps): JSX.Element {
 }
 
 /**
- * Renders the established developer metrics panel while its owner enables it.
+ * Renders the established developer metrics panel while it is mounted.
  *
  * The component samples frame rate and document element counts. Its hunk value
  * formats the exact reactive mirror calculated from the ChangeSet DOM. Cleanup
- * cancels its animation frame and it owns no navigation or selected identity.
+ * cancels its animation frame and it performs no navigation or selected-identity changes.
  */
 function DebugHud(props: DebugHudProps): JSX.Element {
   const [metrics, setMetrics] = createSignal<DebugMetrics>({
@@ -717,7 +719,11 @@ function DebugHud(props: DebugHudProps): JSX.Element {
 
   onMount(() => {
     /**
-     * Samples current visible document metrics without changing application state.
+     * Samples current visible document metrics for the open Debug HUD.
+     *
+     * The active animation-frame loop calls this at its display cadence. It
+     * replaces only Debug HUD metrics and neither changes ChangeSet behavior nor
+     * retains DOM nodes between samples.
      */
     function updateMetrics(): void {
       setMetrics({
@@ -774,7 +780,7 @@ function DebugHud(props: DebugHudProps): JSX.Element {
 /**
  * Renders one label/value pair inside the established developer HUD grid.
  *
- * Callers provide final display strings. The component owns no sampling or
+ * Callers provide final display strings. The component performs no sampling and stores no
  * state and preserves the exact existing visual structure.
  */
 function DebugMetric(props: { label: string; value: string }): JSX.Element {
@@ -787,7 +793,7 @@ function DebugMetric(props: { label: string; value: string }): JSX.Element {
 }
 
 /**
- * Defines the one-way DOM mirror callback owned by ChangeSetShell.
+ * Defines the one-way DOM mirror callback supplied by ChangeSetShell.
  *
  * `root` is the mounted ChangeSet root. `onDisplayChange` receives every
  * complete immutable replacement value. The observer must never write DOM or
@@ -979,7 +985,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
      * Coalesces one complete display calculation after renderer mount work.
      *
      * DiffGrid places its imperative row targets during mount after FileCard has
-     * updated `data-hunk-set`. The extra microtask observes the completed owner
+     * updated `data-hunk-set`. The extra microtask observes the completed renderer
      * operation instead of interpreting that internal transition as invalid DOM.
      */
     function queueDisplayCalculation(): void {
@@ -1038,12 +1044,12 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
 }
 
 /**
- * Renders the ChangeSet-owned hotkey reference as the established modal overlay.
+ * Renders the ChangeSet hotkey reference as the established modal overlay.
  *
- * Callers provide explicit visibility and update ownership. Implemented hunk and
- * Debug operations are enabled, later navigation operations remain disabled, and
- * removed file-wide fold operations are absent. Backdrop and Close actions report
- * `false` to the owner.
+ * Callers provide explicit visibility and an update callback. Available hunk and
+ * Debug operations are enabled, unavailable operations are disabled, and removed
+ * file-wide expansion operations are absent. Backdrop and Close actions report
+ * `false` through that callback.
  */
 function HelpModal(props: {
   open: boolean;
@@ -1117,7 +1123,7 @@ function HelpModal(props: {
 /**
  * Groups one titled set of Help rows using the established modal geometry.
  *
- * Callers provide visible row content only. The component owns no hotkey state,
+ * Callers provide visible row content only. The component stores no hotkey state,
  * enablement policy, or interaction and preserves child order exactly.
  */
 function HotkeyHelpSection(props: {
@@ -1160,7 +1166,7 @@ function HotkeyHelpRow(props: {
  *
  * Params and manifest never change during this component lifetime. View, profile,
  * and durable outer layout state remain reactive without retargeting backend work.
- * The callbacks expose only the two lifecycle actions owned by ChangeSetContent.
+ * The callbacks expose only the two lifecycle actions performed by ChangeSetContent.
  */
 type ChangeSetSnapshotProps = {
   params: DiffParams;
@@ -1179,7 +1185,7 @@ type ChangeSetSnapshotProps = {
  * Owns every observer, lane value, derivation, and rendered node for one manifest.
  *
  * All query definitions use the same immutable params and manifest cache ID. The
- * component reports cache expiration to its owner, while ordinary file failures
+ * component reports cache expiration to ChangeSetContent, while ordinary file failures
  * remain localized. Disposal cancels the lane and releases every snapshot query.
  */
 function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
@@ -1219,7 +1225,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
 
   if (lazyInfo !== null) {
     // This effect has one lifecycle purpose: translate the asynchronous backend
-    // expiration signal into disposal of this immutable snapshot. It neither
+    // expiration indication into disposal of this immutable snapshot. It neither
     // copies query data nor repairs file state, and dies with the snapshot.
     createEffect(() => {
       if (isRepositoryCacheExpiration(lazyInfo.error)) {
@@ -1486,7 +1492,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     setLaneError(null);
 
     /**
-     * Projects an unexpected async lane rejection into Solid-owned error state.
+     * Routes an unexpected async lane rejection into a Solid error signal.
      *
      * Promise rejections may legally contain unknown JavaScript values. Real
      * Errors retain their identity and stack; other values become an Error with
@@ -1507,7 +1513,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
      *
      * The closure belongs to this exact immutable snapshot. It catches only
      * query-owned failure/cancellation so the canonical observer retains damage;
-     * its launch callback projects unexpected orchestration errors into Solid.
+     * its launch callback routes unexpected orchestration errors into Solid.
      */
     async function runLane(): Promise<void> {
       if (running || stopped) {
@@ -1837,8 +1843,8 @@ type FileTreeState =
  * Calculates directory expansion from current descendant file reachability.
  *
  * Explicit file expansion is authoritative. Unresolved HuskFiles remain
- * reachable so sequential loading cannot collapse and reopen the tree, while
- * LazyFiles remain reachable for their visible plank unless explicitly folded.
+ * reachable so sequential loading cannot collapse and reopen the directory hierarchy, while
+ * LazyFiles remain reachable for their visible plank unless explicitly collapsed.
  * Every directory receives one result, including an empty directory.
  */
 function calculateDirectoryExpansion(
@@ -1897,7 +1903,7 @@ type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
  * The tree receives one immutable manifest, current FileCard states, the stable
  * ChangeSet DOM root, calculated directory reachability, and ChangeSet-owned
  * file expansion. Its callbacks may change only tree visibility or file
- * expansion. FileTree owns no query, backend data, hunk selection, navigation,
+ * expansion. FileTree stores no query, backend data, hunk selection, navigation,
  * or independent expansion authority.
  */
 type FileTreeProps = {
@@ -1921,8 +1927,8 @@ type FileTreeProps = {
  * Renders the manifest tree, current shared expansion, and private highlighted-row scroll.
  *
  * Directory squares bulk-update descendant file expansion and FullFile squares
- * update one file. Labels remain inert until the gated navigation chapter. The
- * component may calculate current FileCard render modes and scroll its own
+ * update one file. Labels are inert. The component may calculate current FileCard
+ * render modes and scroll its own
  * `.file-tree-groups`, but it never changes hunk selection, loads files, expands
  * a row for visibility, or moves the main page.
  */
@@ -1988,8 +1994,8 @@ function FileTree(props: FileTreeProps): JSX.Element {
   /**
    * Renders one reactive directory row and its currently expanded descendants.
    *
-   * The square is the sole accessible expansion button and the name remains
-   * inert until the gated navigation stage. Activation invokes the shared
+   * The square is the sole accessible expansion button and the name is inert.
+   * Activation invokes the shared
    * ChangeSet bulk file action and performs no selection, loading, navigation,
    * repair, or scrolling of either viewport.
    */
@@ -2030,8 +2036,8 @@ function FileTree(props: FileTreeProps): JSX.Element {
             aria-expanded={expanded()}
             aria-label={
               expanded()
-                ? `Fold ${rowProps.directory.path}`
-                : `Show ${rowProps.directory.path}`
+                ? `Collapse ${rowProps.directory.path}`
+                : `Expand ${rowProps.directory.path}`
             }
             onClick={() =>
               props.onDirectoryExpandedChange(rowProps.directory, !expanded())
@@ -2185,8 +2191,8 @@ function FileTree(props: FileTreeProps): JSX.Element {
             aria-expanded={expanded()}
             aria-label={
               expanded()
-                ? `Fold ${fileDisplayName(rowProps.file.entry)}`
-                : `Show ${fileDisplayName(rowProps.file.entry)}`
+                ? `Collapse ${fileDisplayName(rowProps.file.entry)}`
+                : `Expand ${fileDisplayName(rowProps.file.entry)}`
             }
             onClick={() =>
               props.onFileExpandedChange(rowProps.file, !expanded())
@@ -2210,7 +2216,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
    * Dispatches one immutable manifest node to its reactive row component.
    *
    * Recursion preserves exact backend order and directory depth. The dispatcher
-   * owns no state and exists only as the structural boundary shared by the root
+   * stores no state and exists only as the structural boundary shared by the root
    * and nested directory lists.
    */
   function FileTreeNode(nodeProps: {
@@ -2237,7 +2243,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
   }
 
   /**
-   * Owns the open FileTree DOM calculation and private highlighted-row scroll.
+   * Maintains the open FileTree DOM calculation and private highlighted-row scroll.
    *
    * Mounting scans the authoritative stable FileCards and observes only local
    * render-mode attribute changes. Disposal disconnects the observer and drops
@@ -2488,7 +2494,7 @@ function AppHeaderFileStatus(props: { state: FileSequenceState }): JSX.Element {
 /**
  * Renders immutable manifest-level file, line, and optional cell aggregates.
  *
- * The projection reads only ManifestSummary. It never accumulates loaded
+ * The component reads only ManifestSummary. It never accumulates loaded
  * FullFile summaries or announces itself as changing sequence progress.
  */
 function ManifestStatistics(props: { summary: ManifestSummary }): JSX.Element {
@@ -2537,7 +2543,7 @@ function ManifestStatistics(props: { summary: ManifestSummary }): JSX.Element {
 /**
  * Returns manifest leaves in exact depth-first backend order.
  *
- * The returned array is a derived projection. It contains original ManifestFile
+ * The returned array is a derived calculation. It contains original ManifestFile
  * objects and must not be sorted, mutated, or retained as another authority.
  */
 function manifestFilesInOrder(nodes: readonly ManifestNode[]): ManifestFile[] {
@@ -2599,7 +2605,7 @@ function fileDisplayName(entry: {
  * Produces one stable manifest-local key from the two canonical file paths.
  *
  * The key distinguishes renames and side-only entries without adding display
- * names or mutable query state. It is used only for expansion and projections.
+ * names or mutable query state. It is used only for expansion and calculations.
  */
 function manifestEntryKey(entry: {
   left_path: string | null;
@@ -2646,7 +2652,7 @@ function changeSetTitle(params: DiffParams, manifest: Manifest): string {
  *
  * Explicit user state always wins. LazyFiles begin expanded because their body
  * contains the only explicit-load affordance. A first FullFile result supplies
- * its backend default expansion; queued HuskFiles remain folded.
+ * its backend default expansion; queued HuskFiles remain collapsed.
  */
 function fileExpanded(
   file: ManifestFile,
@@ -2749,7 +2755,7 @@ function TreeStatistics(props: { stats: TreeLineStats }): JSX.Element {
  * Renders one inert FileTree expansion or local virtualization marker.
  *
  * `visible` produces the established filled square and `virtualized` produces
- * `V`. Callers must not set both. The marker owns no interaction, accessible
+ * `V`. Callers must not set both. The marker has no interaction, accessible
  * name, expansion state, or virtualization decision.
  */
 function TreeVisibilityIndicator(props: {

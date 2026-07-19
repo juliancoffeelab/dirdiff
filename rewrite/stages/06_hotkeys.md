@@ -10,7 +10,7 @@ Implemented in this order:
 
 1. One active listener
 
-   Add the single private hotkey lifecycle component in `ChangeSet.tsx`. It exists only while the active ChangeSet content exists, installs one `keydown` listener, removes that listener on cleanup, contains no generic command or dispatch abstraction, and receives concrete callbacks from the owners of each operation.
+   Add the single private hotkey lifecycle component in `ChangeSet.tsx`. It exists only while the active ChangeSet content exists, installs one `keydown` listener, removes that listener on cleanup, contains no generic command or dispatch abstraction, and receives concrete callbacks that implement each operation.
 
 2. Input protection
 

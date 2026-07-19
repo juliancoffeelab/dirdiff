@@ -1,7 +1,7 @@
 /**
  * Defines the complete application presentation contract.
  *
- * The stylesheet owns the page shell, persistent header, controls, overlays,
+ * The stylesheet defines the page shell, persistent header, controls, overlays,
  * notifications, and rendered ChangeSet geometry. Components supply semantic
  * structure and state; this file must not encode application behavior.
  */
@@ -1130,7 +1130,7 @@ h1 {
 }
 
 .diff-workspace {
-  --file-tree-collapsed-width: 42px;
+  --file-tree-closed-width: 42px;
   --file-tree-open-width: 320px;
 
   display: block;
@@ -1139,7 +1139,7 @@ h1 {
 .diff-workspace-inline {
   position: relative;
   display: grid;
-  grid-template-columns: var(--file-tree-collapsed-width) minmax(0, 1fr);
+  grid-template-columns: var(--file-tree-closed-width) minmax(0, 1fr);
   align-items: start;
   gap: 0;
   overflow-x: clip;
@@ -1151,7 +1151,7 @@ h1 {
   bottom: 0;
   left: 0;
   z-index: 0;
-  width: var(--file-tree-collapsed-width);
+  width: var(--file-tree-closed-width);
   border: 1px solid #d8d0c2;
   background: #fffdf8;
   content: "";
@@ -1174,27 +1174,6 @@ h1 {
   gap: 14px;
 }
 
-.repo-fold-controls {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.repo-fold-controls button {
-  min-height: 34px;
-  border: 1px solid #d8d0c2;
-  background: #fffdf8;
-  color: #24231f;
-  padding: 6px 10px;
-}
-
-.repo-fold-controls button:disabled {
-  cursor: default;
-  opacity: 0;
-}
-
 .file-tree-shell {
   position: fixed;
   bottom: 22px;
@@ -1214,7 +1193,7 @@ h1 {
   display: flex;
   flex-direction: column;
   align-self: start;
-  width: var(--file-tree-collapsed-width);
+  width: var(--file-tree-closed-width);
   max-height: calc(100vh - var(--app-header-sticky-offset, 0px));
   pointer-events: auto;
 }
@@ -1753,7 +1732,7 @@ h1 {
 
 /*
  * Preserves measured rich geometry while distant text remains searchable.
- * Only VirtualFile owns fixed height and internal overflow; rich bodies retain
+ * Only `.virtual-file-body` uses fixed height and internal overflow; rich bodies retain
  * natural document height and the ordinary page scroll container.
  */
 .virtual-file-body {
@@ -2241,7 +2220,7 @@ h1 {
   background: #f6e5ff;
 }
 
-.diff-grid-collapse-insert-only-replace .diff-row.replace .diff-side {
+.diff-grid-combine-insert-only-replace .diff-row.replace .diff-side {
   background: transparent;
 }
 
@@ -2571,7 +2550,7 @@ h1 {
 }
 
 .debug-hud,
-.hunk-nav {
+.hint-hud {
   gap: 8px;
   padding: 8px;
   border: 1px solid #ded8cc;
@@ -2584,7 +2563,7 @@ h1 {
   font-size: 12px;
 }
 
-.hunk-nav {
+.hint-hud {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -2608,7 +2587,7 @@ h1 {
   font-size: 12px;
 }
 
-.hunk-nav button {
+.hint-hud button {
   min-height: 34px;
   display: inline-flex;
   align-items: center;
@@ -2620,7 +2599,7 @@ h1 {
   padding: 6px 10px;
 }
 
-.hunk-nav kbd,
+.hint-hud kbd,
 .help-modal kbd {
   min-width: 18px;
   border: 1px solid #ded8cc;
@@ -2856,11 +2835,11 @@ h1 {
   display: none !important;
 }
 
-.tab-owner:not([hidden]) {
+.tab-content:not([hidden]) {
   display: contents;
 }
 
-.tab-owner[hidden] {
+.tab-content[hidden] {
   display: none !important;
 }
 
@@ -2876,7 +2855,7 @@ h1 {
   margin-left: calc(-1 * var(--app-gutter));
 }
 
-/* Portal targets are layout-neutral owners of ordered compact header status. */
+/* Portal targets are layout-neutral containers for ordered compact header status. */
 .app-header-portal-target,
 .app-header-portal-target > div {
   display: contents;

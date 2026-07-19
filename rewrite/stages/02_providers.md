@@ -80,9 +80,9 @@ An Error stack becomes expandable details only when it differs from the primary 
 
 - the Toast signal;
 - monotonically increasing IDs;
-- immutable insertion;
-- dismissal;
 - browser-level error listeners.
+
+It performs immutable insertion and explicit dismissal.
 
 Its public Context exposes only:
 
@@ -113,7 +113,7 @@ Toast behavior remains exactly as specified:
 - Message and detail areas remain independently scrollable.
 - Every Toast uses `role="alert"`.
 - The viewport uses an assertive live region.
-- Stack details are collapsed initially.
+- Stack details are closed initially.
 - Every Toast has a manual dismiss button.
 - Non-timeout Toasts persist until user dismissal.
 - Timeout Toasts expire after exactly 10 seconds.
@@ -142,16 +142,16 @@ window.addEventListener(
 
 Neither listener calls `preventDefault()`. Browser console reporting remains intact. Both listeners are removed when the Provider is disposed.
 
-These listeners do not replace ordinary query, mutation or ErrorBoundary ownership.
+These listeners do not replace ordinary query, mutation, or ErrorBoundary handling.
 
-`ErrorPanel` is the complete local presentation for a damaged owner. It displays:
+`ErrorPanel` is the complete local presentation for a damaged boundary. It displays:
 
 - the title;
 - complete formatted error;
 - an open stack trace when available;
 - caller-provided user actions.
 
-It never hides the error, substitutes data, renders an untrusted failed owner underneath itself, retries automatically or dismisses itself automatically.
+It never hides the error, substitutes data, renders untrusted failed content underneath itself, retries automatically, or dismisses itself automatically.
 
 Every retry action is rendered through:
 

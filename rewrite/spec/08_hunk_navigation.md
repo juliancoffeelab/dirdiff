@@ -4,7 +4,7 @@
 
 Hunk navigation and line pins are separate systems.
 
-Hunk navigation owns:
+Hunk navigation covers:
 
 - real and pseudo hunk tokens;
 - selected hunk identity;
@@ -17,7 +17,7 @@ Hunk navigation owns:
 - hunk scrolling;
 - HintHud and DebugHud hunk information.
 
-Line-pin behavior is outside this specification. `NavigationProvider` owns no line-pin state, parsing, listeners, timers, or restoration behavior. Line pins receive their own separate design and implementation stage.
+Line-pin behavior is outside this specification. `NavigationProvider` stores no line-pin state, listeners, or timers and performs no line-pin parsing or restoration. Line pins receive their own separate design and implementation stage.
 
 Whole-file virtualization remains hunk-blind. The later hunk-navigation implementation may place hunk tokens in rich and virtual representations, but hunk state never influences virtualization eligibility, cost, mode, geometry, or observation.
 
@@ -354,7 +354,7 @@ aria-current="true"
 
 If rendering removes that target, selected identity remains on the stable FileCard.
 
-Selected identity may temporarily lack a participating matching target while representation DOM is being replaced. A collapsed selected real hunk still has its coordinate-matching `skip` pseudo available as a scroll-back anchor.
+Selected identity may temporarily lack a participating matching target while representation DOM is being replaced. A selected real hunk in a collapsed file still has its coordinate-matching `skip` pseudo available as a scroll-back anchor.
 
 Rich/virtual and inline/split replacement preserve real `fileIndex` and `hunkIndex`. Rendering does not recreate selected decoration automatically.
 
@@ -533,15 +533,15 @@ Next and Previous do not calculate counters or update FileTree directly.
 
 Next chooses the following participating target. Previous chooses the preceding participating target. Traversal wraps at both ends.
 
-### Selected collapsed real hunk
+### Selected real hunk in a collapsed file
 
 The selected FileCard retains the real `fileIndex` and `hunkIndex`. Its matching `skip` pseudo is used only for scroll-back and ordering; it is never itself selected as a destination.
 
 After the scroll-back rule is satisfied, Next chooses the first participating target after that real identity and Previous chooses the last participating target before it.
 
-### Selected collapsed pseudo-target
+### Selected pseudo-target in a collapsed file
 
-A collapsed selected Husk, Lazy, or zero pseudo remains in DOM with its original identity attributes and `.skip`.
+A selected Husk, Lazy, or zero pseudo in a collapsed file remains in DOM with its original identity attributes and `.skip`.
 
 That skipped pseudo is used only for scroll-back and ordering; it is never selected as a destination. After the scroll-back rule is satisfied, Next chooses the first participating target after it and Previous chooses the last participating target before it.
 
@@ -808,7 +808,7 @@ The observer does not observe:
 - FileTree rows;
 - counter elements.
 
-Every owner that changes target identity or participation updates `data-hunk-set` in the same render. The browser filters attribute names before delivering records, and relevant synchronous attribute mutations arrive as one observer batch. The calculation runs once for that batch.
+Every renderer or explicit action that changes target identity or participation updates `data-hunk-set` in the same render. The browser filters attribute names before delivering records, and relevant synchronous attribute mutations arrive as one observer batch. The calculation runs once for that batch.
 
 If the calculation cannot parse the required semantic DOM, the observer reports one persistent “Could not calculate hunk display” Toast directly and disconnects. It does not transfer the failure through another signal, throw from a reactive rendering branch, repair DOM, or continue producing repeated Toasts.
 
@@ -854,7 +854,7 @@ hunkDisplay().selectedFileIndex
 
 FileTree applies its highlight class and `aria-current` declaratively. Newly mounted FileTree rows immediately render from the existing signal and do not require another calculation.
 
-If the selected target is collapsed, skipped, absent, or being replaced, the FileTree remains highlighted because selected identity remains on its stable FileCard and `selectedFileIndex` continues to mirror that FileCard.
+If the selected target's file is collapsed, or the target is skipped, absent, or being replaced, the FileTree remains highlighted because selected identity remains on its stable FileCard and `selectedFileIndex` continues to mirror that FileCard.
 
 Opening FileTree additionally reveals the highlighted row inside `.file-tree-groups` when all of its directory ancestors are expanded. A row beneath a collapsed directory is legitimately absent and is not revealed by changing expansion. The private sidebar movement changes only the container's `scrollTop` and never moves the main page.
 
@@ -893,7 +893,7 @@ The design must not assume forever that one file body is one grid.
 
 A future notebook may add raw and rich metadata or output regions. Their identity may extend to stable `regionKey` and `itemKey` fields. Global positions remain calculations from current DOM identity and ordering facts and never become identity.
 
-Raw/rich output replacement may change N targets into M targets. Its owner places the new targets but does not automatically select, map, or scroll.
+Raw/rich output replacement may change N targets into M targets. The renderer places the new targets but does not automatically select, map, or scroll.
 
 Notebook regions remain a post-rewrite TODO.
 
@@ -917,7 +917,7 @@ Notebook regions remain a post-rewrite TODO.
 | User-scroll selection | User-scroll following |
 | FileTree destination | FileTree activation followed by Navigation |
 | HunkDisplay calculation trigger | Filtered ChangeSet `MutationObserver` |
-| Exact calculated hunk snapshot | ChangeSet-owned `HunkDisplay` signal |
+| Exact calculated hunk snapshot | `HunkDisplay` signal stored by the mounted ChangeSet shell |
 | Counter text | Solid rendering from `HunkDisplay` numbers |
 | FileTree highlight | Solid rendering from `HunkDisplay.selectedFileIndex` |
 | Rich/virtual mode | FullFile-local Solid state |
@@ -934,7 +934,7 @@ Notebook regions remain a post-rewrite TODO.
 5. Every expanded HuskFile has exactly one Husk pseudo-target.
 6. Every expanded LazyFile has exactly one Lazy pseudo-target.
 7. Every zero-hunk FullFile has exactly one zero pseudo-target.
-8. Every collapsed real target has exactly one coordinate-preserving `skip` pseudo.
+8. Every real target from a collapsed file has exactly one coordinate-preserving `skip` pseudo.
 9. `.skip` alone controls participation.
 10. Skipped targets may retain or receive selection and retain their `HunkDisplay` position, but are excluded from traversal, FileTree destinations, and scroll-follow.
 11. Folded-line ranges contain no hunk boundary.
@@ -952,7 +952,7 @@ Notebook regions remain a post-rewrite TODO.
 23. User-scroll following changes selection only.
 24. Selecting or traversing a LazyFile never loads it.
 25. Only direct activation of the LazyFile plank starts its explicit fetch.
-26. `waitToEnrich` remains FileCard-owned.
+26. FileCard continues to implement `waitToEnrich`.
 27. Navigation resolves its final target again after enrichment.
 28. Virtualization decisions never depend on hunk selection.
 29. Hunk navigation never changes strict file-fetch order.

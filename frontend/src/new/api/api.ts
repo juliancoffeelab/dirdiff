@@ -2,9 +2,9 @@
  * Defines the complete typed boundary between the browser UI and Python API.
  *
  * The module exports backend value types and the single `api` facade containing
- * canonical TanStack query and mutation definitions. It privately owns runtime
+ * canonical TanStack query and mutation definitions. It privately contains runtime
  * response validation, HTTP request construction, timeout handling, query keys,
- * and request functions. It must not own UI state, component behavior, query
+ * and request functions. It must not contain UI state, component behavior, query
  * observers, Toast presentation, or ChangeSet file-fetch sequencing.
  */
 import { mutationOptions, queryOptions } from "@tanstack/solid-query";
@@ -49,7 +49,7 @@ const RepoMarkSchema = z.strictObject({
  * Describes one repository available to repository-backed Tabs.
  *
  * All fields come from the repositories query. UI state stores only `id` and
- * derives the remaining display data from this backend-owned value.
+ * derives the remaining display data from this backend value.
  */
 export type RepoMark = z.infer<typeof RepoMarkSchema>;
 
@@ -62,7 +62,7 @@ const UserProfileSchema = z.strictObject({
  * Describes the selected user identity returned by profile mutations.
  *
  * The complete value may be persisted explicitly in localStorage. It contains
- * identity only and must not absorb backend-owned preferences.
+ * identity only and must not absorb backend preferences.
  */
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
@@ -72,7 +72,7 @@ const PreferencesSchema = z.strictObject({
 });
 
 /**
- * Describes backend-owned preferences for one user profile.
+ * Describes backend preferences for one user profile.
  *
  * Callers may cache this complete value under its profile query key. The value
  * must not be copied into workspace state or persisted separately by the UI.
@@ -737,7 +737,7 @@ const SLOW_DIFF_TIMEOUT_MS = 20_000;
 const PULL_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
- * Selects timeout ownership for one canonical file-diff HTTP attempt.
+ * Selects the timeout policy for one canonical file-diff HTTP attempt.
  *
  * `bounded` applies the engine-specific initial-attempt limit. `unbounded`
  * disables only the transport timer for an explicit file RetryButton attempt.
@@ -765,7 +765,7 @@ type HttpRequest = {
 /**
  * Owns the AbortSignal formed from caller cancellation and an optional timeout.
  *
- * `abortSignal` is the exact browser signal passed to `fetch()`. `dispose()`
+ * `abortSignal` is the exact browser `AbortSignal` passed to `fetch()`. `dispose()`
  * releases the timeout and caller listener after the HTTP attempt settles,
  * while `timedOut()` distinguishes the owned timer from caller cancellation.
  */
@@ -812,9 +812,9 @@ class RequestError extends Error {
 /**
  * Identifies the backend indication that a repository snapshot handle expired.
  *
- * Query presentation and lifecycle owners use this predicate to suppress normal
- * error UI and replace the complete ChangeSet snapshot. Every other classified
- * HTTP failure returns false and retains ordinary localized error damage.
+ * QueryProvider uses a true result to suppress the ordinary error Toast.
+ * ChangeSetSnapshot uses it to notify ChangeSetContent, which replaces the
+ * complete snapshot. Every other classified HTTP failure returns false.
  */
 export function isRepositoryCacheExpiration(error: unknown): boolean {
   return (
@@ -828,8 +828,8 @@ export function isRepositoryCacheExpiration(error: unknown): boolean {
  *
  * The caller supplies either its AbortSignal or explicit null. A
  * numeric timeout must be positive and creates one owned timer; null creates no
- * timer. The returned owner forwards cancellation and removes every resource it
- * owns.
+ * timer. The returned MultiAbortSignal forwards cancellation and removes its
+ * caller AbortSignal listener and timer.
  */
 function createMultiAbortSignal(
   callerAbortSignal: AbortSignal | null,
@@ -875,6 +875,12 @@ function createMultiAbortSignal(
 
   return {
     abortSignal: abortController.signal,
+    /**
+     * Releases the timeout and caller listener retained by this instance.
+     *
+     * `requestResponse` calls this after the HTTP attempt settles. Cleanup does
+     * not abort the attempt or change how its failure is classified.
+     */
     dispose() {
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
@@ -883,6 +889,12 @@ function createMultiAbortSignal(
         callerAbortSignal.removeEventListener("abort", abortFromCallerSignal);
       }
     },
+    /**
+     * Reports whether this instance's transport timer caused cancellation.
+     *
+     * Callers read the value while classifying a settled attempt. Cancellation
+     * forwarded from the caller's AbortSignal always returns false.
+     */
     timedOut() {
       return didTimeout;
     },
@@ -933,7 +945,7 @@ async function throwResponseError(response: Response): Promise<never> {
 }
 
 /**
- * Performs one HTTP request with explicit cancellation and timeout ownership.
+ * Performs one HTTP request with explicit cancellation and timeout cleanup.
  *
  * Callers provide the complete HttpRequest. Successful and unsuccessful HTTP
  * responses are returned unchanged; pre-response failures become classified
@@ -1009,7 +1021,7 @@ async function requestEmpty(request: HttpRequest): Promise<void> {
 /**
  * Requests the complete repository list used by repository selectors.
  *
- * The caller owns cancellation and receives only schema-validated repository
+ * The caller supplies cancellation and receives only schema-validated repository
  * marks. This function neither selects a repository nor caches the response.
  */
 function requestRepos(abortSignal: AbortSignal): Promise<RepoMark[]> {
@@ -1049,7 +1061,7 @@ function requestRepoRefs(
 /**
  * Requests the backend-selected branch-review defaults for one repository.
  *
- * The project must already exist and the caller owns cancellation. The result
+ * The project must already exist and the caller supplies cancellation. The result
  * is validated as a complete entity and is not merged with local input state.
  */
 function requestRepoDefaults(
@@ -1152,7 +1164,8 @@ function requestRegisterProfile(username: string): Promise<UserProfile> {
  * Renames one existing profile selected by its exact backend ID.
  *
  * Callers provide the complete rename command. The validated updated profile
- * is returned, while cache and local-storage updates remain caller-owned.
+ * is returned, while the caller remains responsible for selected identity and
+ * local-storage updates.
  */
 function requestRenameProfile(input: {
   profileId: number;
@@ -1198,7 +1211,7 @@ function requestPreferences(
  * Saves the complete editable preference entity for one profile.
  *
  * Callers provide an explicit profile ID and aggressive-folds value. The
- * validated backend result is returned without mutating UI-owned state.
+ * validated backend result is returned without mutating UI state.
  */
 function requestSavePreferences(input: {
   profileId: number;
@@ -1285,7 +1298,7 @@ function manifestSearchParams(params: DiffParams): URLSearchParams {
  * Encodes the immutable snapshot identity shared by lazy and file endpoints.
  *
  * Callers provide the original DiffParams and backend cache ID. File paths and
- * engine-specific fields are deliberately appended by the endpoint that owns them.
+ * engine-specific fields are deliberately appended by the endpoint that uses them.
  */
 function cachedSearchParams(
   params: DiffParams,
@@ -1305,7 +1318,7 @@ function cachedSearchParams(
 /**
  * Requests one immutable ChangeSet manifest for complete DiffParams.
  *
- * The query owns cancellation and receives a validated thin manifest. This
+ * TanStack Query supplies cancellation and receives a validated thin manifest. This
  * function does not start file requests or enrich manifest handles.
  */
 function requestManifest(
@@ -1469,7 +1482,7 @@ export const api = {
      * Defines the shared repository-list query with short measured freshness.
      *
      * Any mounted repository selector may observe this definition. TanStack owns
-     * deduplication and freshness; consumers own selection and interaction.
+     * deduplication and freshness; consumers store selection and implement interaction.
      */
     list() {
       return queryOptions({
@@ -1529,8 +1542,9 @@ export const api = {
     /**
      * Defines the mutation that saves one repository main-branch selection.
      *
-     * Consumers pass the complete project-and-selection entity to `mutate` and
-     * reconcile the returned backend state through the canonical query cache.
+     * Consumers pass the complete project-and-selection entity to `mutate`.
+     * The validated result is authoritative; Branch Review invalidates the
+     * canonical defaults query after success.
      */
     saveMainBranch() {
       return mutationOptions({
@@ -1577,8 +1591,8 @@ export const api = {
     /**
      * Defines the mutation that registers a profile from a username.
      *
-     * Consumers pass the required username and own selection, persistence, and
-     * cache updates after the backend returns the validated profile.
+     * Consumers pass the required username. After the backend returns the validated
+     * profile, consumers update selected identity and persistence explicitly.
      */
     register() {
       return mutationOptions({
@@ -1591,8 +1605,8 @@ export const api = {
     /**
      * Defines the mutation that renames one existing profile.
      *
-     * Consumers pass the complete profile ID and username command and reconcile
-     * the returned profile without inventing optimistic backend state.
+     * Consumers pass the complete profile ID and username command and replace the
+     * selected profile with the returned value without inventing optimistic state.
      */
     rename() {
       return mutationOptions({

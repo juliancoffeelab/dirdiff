@@ -39,7 +39,7 @@ Every value belongs to one category:
 | Controls state | Tab-specific Controls | selected field values and field-to-field workflow |
 | Input and selection state | `Input`, `AutocompleteInput` or `Select` | live user input, open popup, highlighted or selected choice |
 | Component state | Component | profile dialog, other self-contained HUD state |
-| Derived data | `createMemo` | filtered choices, selected repo name, realtime fallback values, directory reachability |
+| Derived data | `createMemo` | filtered choices, selected repo name, realtime initial and default values, directory reachability |
 | DOM state | Deferred | hunk elements, measurements, scroll targets |
 
 Backend data must never be copied into a Solid signal or store merely to make it available to components.
@@ -64,7 +64,7 @@ Solid components execute once and reactive consumers update independently. State
 
 ### 24.4 Workspace state
 
-The application owns one small global workspace entity:
+Workspace stores one small global workspace entity:
 
 ```ts
 export type RepoSelection =
@@ -99,7 +99,7 @@ The selected repository is global because Head, Refs, Branch Review and prepared
 
 Engine and inline/split view are global because their controls live in the shared Header and apply consistently across Tabs. They differ in consequence: engine participates in backend `DiffParams`, while view changes only presentation.
 
-The repository list is not workspace state. It remains backend state owned by:
+The repository list is not workspace state. It remains backend state in the TanStack query entry defined by:
 
 ```ts
 api.repos.list()
@@ -231,8 +231,9 @@ It owns:
 - the current user input;
 - whether the user has edited the supplied value;
 - its open popup;
-- its current autocomplete interaction;
-- the presentation and filtering of choices.
+- its highlighted choice.
+
+It implements autocomplete interaction, choice presentation, and filtering.
 
 Its architectural inputs are:
 
@@ -297,7 +298,7 @@ The exact focus transitions, keyboard gestures, and a possible shared `Form` pri
 
 ### 24.9 Engine and view ownership
 
-Engine is workspace-owned. It is selected in the shared Header and applies across Tabs.
+Engine is stored by Workspace. It is selected in the shared Header and applies across Tabs.
 
 Changing an engine:
 
@@ -309,11 +310,11 @@ Changing an engine:
 - preserves ChangeSet-owned layout state, such as tree visibility and path-based expansion, where it remains valid;
 - never presents old-engine file results as results of the new engine.
 
-The API contract continues to use complete `DiffParams` for manifest, lazy-info and file queries. Although the current Python manifest handler does not use engine, the frontend does not introduce a second parameter contract to special-case that fact. An engine change recreates the active manifest owner; once the replacement manifest succeeds, its new `ChangeSetSnapshot` restarts strict sequential file loading.
+The API contract continues to use complete `DiffParams` for manifest, lazy-info and file queries. Although the current Python manifest handler does not use engine, the frontend does not introduce a second parameter contract to special-case that fact. An engine change recreates the active `ChangeSetContent`; once the replacement manifest succeeds, its new `ChangeSetSnapshot` restarts strict sequential file loading.
 
-An engine change is therefore much more expensive than a view change, but it is not a reason to discard unrelated client state or collapse the page layout.
+An engine change is therefore much more expensive than a view change, but it is not a reason to discard unrelated client state or disrupt the page layout.
 
-Inline/split view is workspace-owned because it is presentation state shared across Tabs.
+Inline/split view is stored by Workspace because it is presentation state shared across Tabs.
 
 Changing view:
 
@@ -327,7 +328,7 @@ Changing view:
 
 All lightweight Tabs, Controls and Inputs remain mounted until the workspace reaches an explicit reset boundary.
 
-`App` renders one shared AppHeader outside Tabs. Tabs never render their own Header. Only the active Tab displays its Controls; cheap Controls remain mounted under the HTML `hidden` attribute so their component-owned input survives ordinary Tab switches. The active ChangeSet may contribute status and summary presentation to AppHeader through its specified Portal outlets. Tabs and Profile retain ownership of their canonical metadata queries and Portal only compact pending/error presentation into AppHeader's stable workspace-metadata status target. Repo refs and defaults project background warmup state even while their owning Tab is inactive; Preset and Pull Request remain active-gated.
+`App` renders one shared AppHeader outside Tabs. Tabs never render their own Header. Only the active Tab displays its Controls; cheap Controls remain mounted under the HTML `hidden` attribute so their component-owned input survives ordinary Tab switches. The active ChangeSet may contribute status and summary presentation to AppHeader through its specified Portal outlets. Tabs and Profile retain ownership of their canonical metadata queries and Portal only compact pending/error presentation into AppHeader's stable workspace-metadata status target. Repo refs and defaults present background warmup state even while their owning Tab is inactive; Preset and Pull Request remain active-gated.
 
 The Tab’s `ChangeSet` instance remains mounted while its Tab is inactive so that the ChangeSet can preserve its own small client state. Its expensive content is only mounted while active.
 
@@ -401,10 +402,10 @@ export type ChangeSetState = {
 
 Directory expansion is not stored client state. `ChangeSetSnapshot` calculates it bottom-up from current descendant file reachability as specified in Section 25.5 of [03_file_presentation.md](03_file_presentation.md). This prevents directory and file expansion from becoming contradictory authorities.
 
-Its private active boundaries own the backend content:
+Its private active boundaries store backend observers and ChangeSet state:
 
 - `ChangeSetContent` owns exactly one manifest observer for immutable complete `DiffParams`;
-- `ChangeSetSnapshot` owns immutable manifest traversal, lazy metadata observation, the ordered file-query observer collection, FileSequence, progress, explicit file loading, FileTree, FileCards and rendered file DOM;
+- `ChangeSetSnapshot` owns the immutable manifest, lazy metadata observer, ordered file-query observer collection, FileSequence state, and progress; it traverses the manifest, performs explicit file loading, and renders FileTree, FileCards, and file DOM;
 - replacing complete `DiffParams` recreates `ChangeSetContent`;
 - replacing manifest data recreates `ChangeSetSnapshot`.
 
@@ -442,7 +443,7 @@ function ChangeSet(props: {
 - active lazy-info or file observers;
 - a running FileSequence.
 
-`ChangeSetContent` owns manifest observation. Its keyed manifest result mounts `ChangeSetSnapshot`, which owns all manifest-dependent observation, sequencing and rendering. No manifest-dependent query or derivation lives above that snapshot boundary.
+`ChangeSetContent` owns the manifest observer. Its keyed manifest result mounts `ChangeSetSnapshot`, which owns all manifest-dependent observers and state and performs sequencing and rendering. No manifest-dependent query or derivation lives above that snapshot boundary.
 
 Consequently:
 
@@ -460,7 +461,7 @@ The Tab never updates ChangeSet expansion directly.
 
 ### 24.12 ChangeSet reload
 
-Reload belongs to `ChangeSet`, not to the Tab.
+`ChangeSet` implements reload; the Tab does not.
 
 Reloading:
 
@@ -471,7 +472,7 @@ Reloading:
 
 The replacement snapshot restarts strict manifest-order loading from its own manifest.
 
-The explicit reload does not invalidate the manifest cache. Invalidation is reserved for cases where an external operation makes cached data untrustworthy; here the owning ChangeSet directly requests a fresh snapshot.
+The explicit reload does not invalidate the manifest cache. Invalidation is reserved for cases where an external operation makes cached data untrustworthy; here ChangeSet directly requests a fresh snapshot.
 
 ChangeSet reload has no visible button. The existing `R` hotkey targets the active ChangeSet directly.
 
@@ -768,7 +769,7 @@ Saving preferences places the mutation response into the exact preferences cache
 
 App routes only the selected profile identity through Tabs into each ChangeSet. ChangeSet observes `api.profile.preferences(profileId)` under the same canonical query key as Profile and derives `aggressiveFolds` directly from that query result. It does not receive or copy a preferences entity from Profile or App.
 
-A missing selected profile is a real absence and selects the literal default `aggressiveFolds: true`; it is never passed to `api.profile.preferences`. Pending or failed preference data also leaves that default active while the existing Profile status and global Toast paths expose the failure. When preference data arrives, or saving preferences replaces the exact cache entry, renderer projections that consume `aggressiveFolds` update reactively. Manifest and file HTTP work, ChangeSet expansion, and FileSequence do not reset.
+A missing selected profile is a real absence and selects the literal default `aggressiveFolds: true`; it is never passed to `api.profile.preferences`. Pending or failed preference data also leaves that default active while the existing Profile status and global Toast paths expose the failure. When preference data arrives, or saving preferences replaces the exact cache entry, renderer calculations that consume `aggressiveFolds` update reactively. Manifest and file HTTP work, ChangeSet expansion, and FileSequence do not reset.
 
 Profile UI state is local and tagged:
 
@@ -878,8 +879,8 @@ The rewrite removes:
 
 - universal `ControlsState`;
 - universal `Controls`;
-- duplicated local Controls draft;
-- Tab-level draft or live input state;
+- duplicated local Controls input;
+- Tab-level live input state;
 - `BranchDraft` and input-origin bookkeeping;
 - parent-controlled `AutocompleteInput` text;
 - restoration caches for input or `onDone` values;
@@ -913,7 +914,7 @@ The client-state design conforms to this specification when:
 3. Preset ignores the selected repo.
 4. Successful PR preparation selects its authoritative repo.
 5. Repository change, F5 and explicit reset reconstruct the complete workspace from canonical URL state.
-6. Engine is workspace-owned; each Tab owns only its selected values or result.
+6. Workspace stores engine; each Tab owns only its selected values or result.
 7. `AutocompleteInput` owns live input; `onEditNotification` may warm stale data without transferring input ownership, and `onDone` transfers the selected or entered value.
 8. Initial/default values and choices reach `AutocompleteInput` in realtime without overwriting edited input.
 9. Controls retain selected values only for their current mounted workflow and give Tabs the resulting selection or parameters.

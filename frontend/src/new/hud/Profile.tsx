@@ -2,7 +2,7 @@
  * Defines profile identity, profile-local persistence, and preferences UI.
  *
  * The module exports the Profile HUD component and the one startup reader used
- * by its App owner. It owns menu/dialog state, explicit localStorage writes,
+ * by App. Profile stores menu/dialog state, performs explicit localStorage writes,
  * profile mutations, preference observation, and preference mutation. It does
  * not place profile data in workspace URLs or copy backend preferences into App.
  */
@@ -35,13 +35,14 @@ const StoredProfileSchema = z.strictObject({
 /**
  * Represents the selected profile identity persisted by this browser.
  *
- * It is exactly the validated backend profile shape. Preferences and transient
- * menu state are excluded because they have different owners and lifetimes.
+ * It is exactly the validated backend profile shape. Canonical preferences and
+ * transient menu state are excluded because they have separate storage locations
+ * and lifetimes.
  */
 export type StoredProfile = z.infer<typeof StoredProfileSchema>;
 
 /**
- * Defines the complete App-owned inputs and profile-selection operations.
+ * Defines the complete inputs and profile-selection operations supplied by App.
  *
  * App provides the selected identity or explicit null. Successful mutations and
  * forgetting return complete selection changes; Profile performs persistence
@@ -57,7 +58,7 @@ type ProfileProps = {
 /**
  * Represents every mutually exclusive local presentation state of Profile.
  *
- * Username and preferences variants contain their complete editable draft.
+ * Username and preferences variants contain their complete editable input.
  * Backend pending and error state deliberately remains in TanStack observers.
  */
 type ProfileUiState =
@@ -70,7 +71,7 @@ type ProfileUiState =
  * Defines the required inputs of the private preferences dialog.
  *
  * A concrete profile is mandatory because preferences have no profile-less
- * query identity. Closing returns ownership to Profile without changing identity.
+ * query identity. Closing returns to Profile without changing identity.
  */
 type PreferencesModalProps = {
   profile: StoredProfile;
@@ -116,7 +117,7 @@ function storeProfile(profile: StoredProfile): void {
 /**
  * Renders the profile trigger, menu, username workflow, and preferences dialog.
  *
- * The caller owns only selected identity. Profile owns all transient interaction,
+ * The caller stores only selected identity. Profile stores all transient interaction state,
  * performs backend mutations, persists confirmed identity explicitly, and reports
  * complete selection changes only after successful backend responses.
  */
@@ -127,6 +128,12 @@ export function Profile(props: ProfileProps): JSX.Element {
 
   const registerProfile = createMutation(() => ({
     ...api.profile.register(),
+    /**
+     * Applies the authoritative profile returned by successful registration.
+     *
+     * TanStack invokes this only after backend success. The callback persists the
+     * complete identity, reports it to App, and closes the transient workflow.
+     */
     onSuccess(profile: UserProfile) {
       storeProfile(profile);
       props.onSelected(profile);
@@ -135,6 +142,12 @@ export function Profile(props: ProfileProps): JSX.Element {
   }));
   const renameProfile = createMutation(() => ({
     ...api.profile.rename(),
+    /**
+     * Applies the authoritative profile returned by a successful rename.
+     *
+     * TanStack invokes this only after backend success. The callback replaces
+     * persisted and App-selected identity together, then closes the workflow.
+     */
     onSuccess(profile: UserProfile) {
       storeProfile(profile);
       props.onSelected(profile);
@@ -148,7 +161,7 @@ export function Profile(props: ProfileProps): JSX.Element {
    * The effect explicitly tracks only the UI view. Entering `menu` or `username`
    * installs one listener pair; leaving either state, replacing the view, or
    * disposing Profile removes that pair before any later installation. The
-   * preferences dialog owns its own Escape lifecycle and is deliberately excluded.
+   * preferences dialog handles Escape locally and is deliberately excluded.
    */
   createEffect(
     on(
@@ -193,7 +206,7 @@ export function Profile(props: ProfileProps): JSX.Element {
   );
 
   /**
-   * Submits the current username draft through the correct backend mutation.
+   * Submits the current username input through the correct backend mutation.
    *
    * A missing selected profile registers a new identity; an existing identity is
    * renamed by exact ID. Empty or invalid usernames remain backend-visible errors.
@@ -224,12 +237,12 @@ export function Profile(props: ProfileProps): JSX.Element {
   }
 
   /**
-   * Returns the complete username draft from the active editor state.
+   * Returns the complete username input from the active editor state.
    *
    * Rendering the username form outside that state is a programming error and
    * throws instead of substituting an empty value.
    */
-  function usernameDraft(): string {
+  function usernameInput(): string {
     const state = ui();
     if (state.view !== "username") {
       throw new Error("Username editor state changed unexpectedly.");
@@ -315,7 +328,7 @@ export function Profile(props: ProfileProps): JSX.Element {
             <form
               class="profile-form"
               onSubmit={(event) => {
-                // Keep the username draft local and submit its completed value once.
+                // Keep the username input local and submit its completed value once.
                 event.preventDefault();
                 submitUsername();
               }}
@@ -324,7 +337,7 @@ export function Profile(props: ProfileProps): JSX.Element {
                 <span>Username</span>
                 <input
                   type="text"
-                  value={usernameDraft()}
+                  value={usernameInput()}
                   onInput={(event) =>
                     setUi({
                       view: "username",
@@ -398,9 +411,9 @@ export function Profile(props: ProfileProps): JSX.Element {
 
 /**
  * Defines the selected identity and mounted Header outlet used for preference
- * status projection.
+ * status presentation.
  *
- * The outlet is genuinely null before AppHeader mounts it. Query ownership remains
+ * The outlet is genuinely null before AppHeader mounts it. The query remains
  * inside Profile regardless of physical status placement.
  */
 type ProfilePreferencesStatusProps = {
@@ -409,11 +422,11 @@ type ProfilePreferencesStatusProps = {
 };
 
 /**
- * Observes selected-profile preferences and projects compact state to AppHeader.
+ * Observes selected-profile preferences and renders compact state in AppHeader.
  *
  * Preferences warm as soon as a profile is selected, matching the established
- * shell lifecycle. The component exposes no data and Portals presentation only;
- * the dialog observes the same canonical cached query.
+ * shell lifecycle. The component exposes no query data and portals only the
+ * compact presentation; the dialog observes the same canonical cached query.
  */
 function ProfilePreferencesStatus(
   props: ProfilePreferencesStatusProps,
@@ -453,7 +466,7 @@ function ProfilePreferencesStatus(
 }
 
 /**
- * Renders and owns backend interaction for one selected profile's preferences.
+ * Renders and performs backend interaction for one selected profile's preferences.
  *
  * Opening observes the exact profile query. Saving writes only the backend-
  * confirmed response into that same cache entry. Errors remain compact in the
@@ -469,11 +482,11 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
    *
    * PreferencesModal exists only while the dialog is open, so a one-shot,
    * non-tracking mount hook is sufficient. Its cleanup removes the document
-   * listener when the conditional owner closes or otherwise disposes the modal.
+   * listener when the conditional modal closes or is otherwise disposed.
    */
   onMount(() => {
     /**
-     * Closes the preferences dialog on Escape through its owner callback.
+     * Closes the preferences dialog on Escape through the supplied callback.
      *
      * Other keys remain available to the checkbox and form controls.
      */
@@ -536,7 +549,7 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
 /**
  * Renders the editable form for one already-loaded preferences entity.
  *
- * The backend value seeds one component-owned checkbox at mount. The editor
+ * The backend value seeds one component-local checkbox at mount. The editor
  * performs no prop synchronization and writes only a confirmed mutation result
  * into the canonical preferences cache before closing.
  */
@@ -547,6 +560,13 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
   );
   const savePreferences = createMutation(() => ({
     ...api.profile.savePreferences(),
+    /**
+     * Applies preferences confirmed by the backend to the canonical query entry.
+     *
+     * TanStack supplies the complete saved value after success. The callback
+     * writes that exact value and closes the editor without copying it into
+     * separate Profile state.
+     */
     onSuccess(saved: Preferences) {
       queryClient.setQueryData(
         api.profile.preferences(props.profile.id).queryKey,
@@ -581,7 +601,7 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
       <label class="profile-checkbox-row">
         <span class="profile-checkbox-copy">
           <strong>Aggressive folds</strong>
-          <span>Collapse unchanged regions when fold hints exist.</span>
+          <span>Fold unchanged regions when fold hints exist.</span>
         </span>
         <span class="profile-checkbox-control">
           <input

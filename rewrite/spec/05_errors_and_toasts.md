@@ -7,11 +7,11 @@ Errors must be impossible to miss without allowing one damaged region to destroy
 The governing rules are:
 
 1. Every real error is presented dramatically.
-2. Damage stops at the smallest owner whose correctness can no longer be trusted.
-3. The damaged owner presents the complete error locally.
+2. Damage stops at the (reasonably) smallest UI piece where we cannot produce a valid result, for whatever reason. Unexpected thrown failures are contained by the nearest `ErrorBoundary`.
+3. The damaged boundary presents the complete error locally.
 4. The same failure also produces one global Toast.
 5. The program never silently retries, substitutes data, hides the failure or pretends that the operation succeeded.
-6. The user may explicitly retry, reload, change inputs, switch Tabs or otherwise replace the damaged owner.
+6. The user may explicitly retry, reload, change inputs, switch Tabs or otherwise replace the damaged boundary.
 
 A user-controlled retry is not automatic recovery.
 
@@ -31,8 +31,8 @@ This ordinary recoverable-error shape does not apply to an unexpected FullFile r
 The following are not errors and do not produce Toasts:
 
 - intentional TanStack Query cancellation;
-- a result discarded because its owner was intentionally replaced;
-- an unknown repository `cache_id`, which is an expected snapshot-expiration signal and restarts the owning ChangeSet;
+- a result discarded because its source component, query, or mutation was intentionally replaced;
+- an unknown repository `cache_id`, which is an expected snapshot-expiration indication and restarts its ChangeSet;
 - ordinary input validation, such as an empty required PR URL;
 - content intentionally represented by a normal LazyFile reason;
 - unavailable autocomplete data while its query is still pending.
@@ -67,7 +67,7 @@ Toast behavior remains:
 - Every non-timeout Toast remains until the user dismisses it.
 - A timeout Toast is automatically dismissed after 10 seconds.
 - Manual dismissal works for every Toast.
-- The details section is collapsed initially.
+- The details section is closed initially.
 - The Toast viewport uses an assertive live region.
 - Every Toast uses `role="alert"`.
 
@@ -125,9 +125,9 @@ It owns:
 
 - the Toast queue;
 - monotonically increasing Toast IDs;
-- insertion;
-- dismissal;
 - global browser error listeners.
+
+It performs immutable insertion and explicit dismissal.
 
 Its public context contains commands only:
 
@@ -305,8 +305,8 @@ type ErrorMeta = {
 ```ts
 queryOptions({
   queryKey: ["repos", projectId, "refs"],
-  queryFn: ({ signal }) =>
-    requestRepoRefs(projectId, signal),
+  queryFn: ({ signal: abortSignal }) =>
+    requestRepoRefs(projectId, abortSignal),
   meta: {
     errorTitle: "Failed to load refs",
   } satisfies ErrorMeta,
@@ -377,7 +377,7 @@ export function QueryProvider(props: {
 
 Cache-level error callbacks are used because one backend query may have several observers. A cache callback reports the failed query once rather than requiring every observer to synchronize the same error into Toast state. TanStack exposes optional `meta` on query definitions and global error callbacks on `QueryCache` and `MutationCache` for this purpose. [Solid Query options](https://tanstack.com/query/latest/docs/framework/solid/reference/useQuery), [QueryCache](https://tanstack.com/query/latest/docs/reference/QueryCache), [MutationCache](https://tanstack.com/query/latest/docs/reference/MutationCache)
 
-The QueryCache callback recognizes an unknown repository `cache_id` as the snapshot-expiration signal defined in `01_tanstack_query.md` and does not present it as an error or produce a Toast. The owning `ChangeSetContent` replaces the expired snapshot. A failure to obtain the replacement manifest is a new manifest failure and follows the normal manifest error path.
+The QueryCache callback recognizes an unknown repository `cache_id` as the snapshot-expiration indication defined in `01_tanstack_query.md` and does not present it as an error or produce a Toast. Its `ChangeSetContent` replaces the expired snapshot. A failure to obtain the replacement manifest is a new manifest failure and follows the normal manifest error path.
 
 Components do not use `createEffect` merely to copy query errors into Toasts.
 
@@ -389,7 +389,7 @@ A user-triggered retry is a new attempt. If it fails, it creates a new Toast.
 
 ### 64.9 Local query damage
 
-A query failure damages only the query’s actual owner.
+A query failure damages only the component that presents that query.
 
 | Failure | Local result |
 |---|---|
@@ -398,7 +398,7 @@ A query failure damages only the query’s actual owner.
 | repository defaults | affected default-dependent controls show the compact error without overwriting user input; complete details remain available through ErrorPopover |
 | preset catalogs | Preset controls show their compact error with complete details available through ErrorPopover |
 | preferences | Preferences UI preserves its compact constrained error presentation with complete details available through ErrorPopover |
-| manifest | owning ChangeSet shows ErrorPanel; no FileSequence starts |
+| manifest | ChangeSet shows ErrorPanel; no FileSequence starts |
 | lazy metadata | affected entries become error-flavoured LazyFiles; normal file loading continues |
 | file query | that FileCard becomes an error-flavoured LazyFile; later files continue |
 | mutation | triggering component displays its mutation error |
@@ -421,11 +421,11 @@ An error-flavoured LazyFile displays:
 
 It does not display partial FileBody content as if loading succeeded.
 
-A refetch error with previously available data may retain that data only if the owner also displays an unmistakable error state. Old data must never make a failed refresh appear successful.
+A refetch error with previously available data may retain that data only if the presenting component also displays an unmistakable error state. Old data must never make a failed refresh appear successful.
 
 ### 64.10 ErrorPanel
 
-`ErrorPanel` is the complete local presentation of a failed owner.
+`ErrorPanel` is the complete local presentation of a failed region.
 
 ```tsx
 export function ErrorPanel(props: {
@@ -461,7 +461,7 @@ export function ErrorPanel(props: {
 
 Unlike the Toast details, the local ErrorPanel stack is open initially.
 
-Shell metadata owners with constrained layout do not place the complete ErrorPanel inline. They use `ErrorPopover`, which renders a caller-supplied compact trigger and places the complete ErrorPanel in the browser top layer:
+Shell metadata components with constrained layout do not place the complete ErrorPanel inline. They use `ErrorPopover`, which renders a caller-supplied compact trigger and places the complete ErrorPanel in the browser top layer:
 
 ```tsx
 export function ErrorPopover(props: {
@@ -502,7 +502,7 @@ export function ErrorPopover(props: {
 }
 ```
 
-The compact trigger preserves the old owner’s layout footprint. It is keyboard and click accessible and remains visibly red while the owner remains failed. The popover consumes no document layout space, light-dismisses through the browser’s native popover behavior, and contains the complete message, initially open stack when available, and explicit RetryButton.
+The compact trigger preserves the previous control's layout footprint. It is keyboard and click accessible and remains visibly red while its operation remains failed. The popover consumes no document layout space, light-dismisses through the browser’s native popover behavior, and contains the complete message, initially open stack when available, and explicit RetryButton.
 
 For a failed metadata refresh control, the red refresh icon becomes the ErrorPopover trigger. Activating the failed icon opens details; retry occurs only through RetryButton inside the popover. During an ordinary or successful state, the same icon retains its direct refresh behavior.
 
@@ -510,7 +510,7 @@ The ErrorPanel never:
 
 - hides the error;
 - substitutes empty data;
-- renders the failed owner underneath itself;
+- renders failed content underneath itself;
 - retries automatically;
 - dismisses itself automatically.
 
@@ -536,7 +536,7 @@ export function RetryButton(props: {
 `RetryButton` may invoke:
 
 - `query.refetch()` for a query error;
-- the same mutation with the same owner-held variables;
+- the same mutation with the same inputs;
 - `ErrorBoundary`’s `reset` function for an unexpected rendering error;
 - a ChangeSet reload command where reload is the real user action.
 
@@ -546,7 +546,7 @@ The callback is always supplied. RetryButton has no generic default behavior.
 
 The program never invokes `onRetry` itself.
 
-`RetryButton` remains presentation-only and does not choose HTTP policy. For an ordinary file-query failure, its ChangeSet owner explicitly enqueues an unbounded attempt through the existing sequential file-fetch lane. Automatic file attempts and first explicit deferred-file loads remain bounded. Both policies use the same canonical file query key because timeout is execution policy, not data identity.
+`RetryButton` remains presentation-only and does not choose HTTP policy. For an ordinary file-query failure, ChangeSet explicitly enqueues an unbounded attempt through the existing sequential file-fetch lane. Automatic file attempts and first explicit deferred-file loads remain bounded. Both policies use the same canonical file query key because timeout is execution policy, not data identity.
 
 ### 64.12 Unexpected rendering and reactive errors
 
@@ -584,7 +584,7 @@ function UnexpectedErrorPanel(props: {
 
 `onMount` produces one Toast for that mounted failed attempt. It is not a synchronization effect and does not rerun because unrelated reactive values changed. [Solid `onMount` documentation](https://docs.solidjs.com/reference/lifecycle/on-mount)
 
-If the user retries and the owner fails again:
+If the user retries and the boundary fails again:
 
 1. the new attempt fails;
 2. UnexpectedErrorPanel mounts again;
@@ -595,7 +595,7 @@ A FullFile renderer exception instead mounts its critical unrecoverable strip in
 
 ### 64.13 ErrorBoundary placement
 
-Boundaries follow meaningful damage ownership.
+Boundaries follow meaningful damage scope.
 
 ```text
 ToastProvider
@@ -616,7 +616,7 @@ ToastProvider
 └── ToastViewport
 ```
 
-The nearest boundary owns the damage:
+The nearest boundary contains the damage:
 
 - A FullFile renderer or header exception replaces only that FileCard's rendered presentation with its critical unrecoverable strip.
 - A FileTree exception replaces only FileTree.
@@ -630,7 +630,7 @@ The nearest boundary owns the damage:
 
 There is no boundary inside DiffGrid, NotebookFile, or another renderer merely to preserve partially rendered content. The FullFile renderer subtree is the smallest contained renderer unit. Its stable outer FileCard article remains where possible, but the failed renderer DOM is not cached or repaired.
 
-Portalled AppHeader contributions remain logically owned by ChangeSet and are caught by the ChangeSet boundary despite their physical DOM location.
+Portalled AppHeader contributions remain in the ChangeSet reactive subtree and are caught by the ChangeSet boundary despite their physical DOM location.
 
 The snapshot rendering ErrorBoundary belongs to its `ChangeSetSnapshot` and is disposed with it. An unexpected rendering error from an expired or replaced snapshot cannot remain mounted over its replacement.
 
@@ -669,11 +669,11 @@ Behavior remains:
 - browser console reporting remains intact;
 - listeners are removed when ToastProvider is disposed.
 
-These listeners are the final visibility boundary for errors outside Solid’s rendering and reactive-update ownership.
+These listeners are the final visibility boundary for errors outside Solid’s rendering and reactive-update handling.
 
 They are not the normal path for query or mutation failures.
 
-Every `mutateAsync` or other intentionally awaited Promise must be handled by its owner. Navigation callers catch a rejected `navigation.navigate(...)`, show one persistent “Navigation failed” Toast, and stop that operation. Allowing an owned failure to reach `unhandledrejection` and create a duplicate Toast is a bug.
+Every `mutateAsync` or other intentionally awaited Promise must be handled at its call site. Navigation callers catch a rejected `navigation.navigate(...)`, show one persistent “Navigation failed” Toast, and stop that operation. Allowing that rejection to reach `unhandledrejection` and create a duplicate Toast is a bug.
 
 ### 64.16 Prohibited error handling
 
@@ -687,7 +687,7 @@ try {
 }
 ```
 
-Restarting a ChangeSet after an unknown repository `cache_id` is the specified response to a non-error cache-expiration signal. It is not programmer-controlled error recovery or an automatic retry of the failed file query.
+Restarting a ChangeSet after an unknown repository `cache_id` is the specified response to a non-error cache-expiration indication. It is not programmer-controlled error recovery or an automatic retry of the failed file query.
 
 It must not:
 
@@ -699,7 +699,7 @@ It must not:
 - automatically reset an ErrorBoundary;
 - automatically retry queries or mutations;
 - show a success state while hiding a refetch error;
-- maintain copied error signals outside the actual query, mutation or damaged UI owner;
+- maintain copied error signals outside the actual query, mutation, or damaged UI boundary;
 - Toast the same failed attempt once from TanStack Query and again from an observer;
 - throw a handled mutation rejection into the global unhandled-rejection listener.
 
@@ -707,12 +707,12 @@ Every `catch` must do at least one of:
 
 - recognize intentional cancellation;
 - convert invalid user input into an explicit validation result;
-- place the actual owner into an explicit error state;
+- place the actual component or query into an explicit error state;
 - rethrow to the nearest meaningful ErrorBoundary.
 
 ### 64.17 Required invariants
 
-1. Every real error is visible locally or terminates its local owner.
+1. Every real error is visible locally or terminates its local boundary.
 2. Every real error produces exactly one Error Toast per failed attempt.
 3. Cancellation produces no Toast.
 4. Input validation is local and is not represented as an application error.
@@ -729,13 +729,13 @@ Every `catch` must do at least one of:
 15. Local components render query and mutation error state without copying it.
 16. ErrorPanel displays the complete formatted error.
 17. Local stack details are open initially.
-18. Toast stack details are collapsed initially.
+18. Toast stack details are closed initially.
 19. Every user retry is rendered through RetryButton.
 20. RetryButton is never invoked automatically.
 21. ErrorBoundary reset occurs only through explicit user action.
 22. A repeated failed retry produces a new Toast.
 23. No programmer-controlled default or placeholder conceals an error.
 24. Global browser error listeners remain installed while ToastProvider is mounted.
-25. Global browser listeners do not replace normal query, mutation or boundary ownership.
-26. Repository cache expiration produces no error presentation and restarts the complete owning ChangeSet snapshot.
+25. Global browser listeners do not replace normal query, mutation, or boundary handling.
+26. Repository cache expiration produces no error presentation and restarts the complete ChangeSet snapshot.
 27. A file `RetryButton` attempt has no HTTP timeout; automatic and initial file attempts retain their bounded timeout.

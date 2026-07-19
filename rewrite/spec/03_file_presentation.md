@@ -2,9 +2,9 @@
 
 ### 25.1 Scope
 
-This section specifies file presentation, statistics ownership, loading messages and their placement in the sticky AppHeader.
+This section specifies file presentation, statistics authority, loading messages and their placement in the sticky AppHeader.
 
-It does not specify virtualization policy or hunk-navigation mechanics. Those concerns remain in their dedicated sections. FileTree's presentation-only virtual-mode bridge and its boundary with already-approved explicit navigation are specified here because they determine FileTree's visible contract without transferring either subsystem's ownership.
+It does not specify virtualization policy or hunk-navigation mechanics. Those concerns remain in their dedicated sections. FileTree's presentation-only virtual-mode bridge and its boundary with already-approved explicit navigation are specified here because they determine FileTree's visible contract without transferring state or behavior between the two subsystems.
 
 ### 25.2 Presentation hierarchy
 
@@ -28,7 +28,7 @@ ChangeSet
                 └── explicit-fetch plank
 ```
 
-`FileCard` is the stable manifest-position wrapper. It receives its reactive file state and explicit-load callback from ChangeSet; it does not observe a query. The three file states own different presentations and different headers. The LazyFile plank invokes the supplied callback so ChangeSet can submit that file to its single file-fetch lane.
+`FileCard` is the stable manifest-position wrapper. It receives its reactive file state and explicit-load callback from ChangeSet; it does not observe a query. The three file states render different presentations and different headers. The LazyFile plank invokes the supplied callback so ChangeSet can submit that file to its single file-fetch lane.
 
 Ordinary file errors produce the existing error-flavoured `LazyFile`. Repository cache expiration does not produce one file error plank; it disposes the complete expired `ChangeSetSnapshot` and restarts the ChangeSet as specified in `01_tanstack_query.md`. No other backend file-failure presentation changes.
 
@@ -107,7 +107,7 @@ Per-file statistics never feed back into `ManifestSummary`.
 />
 ```
 
-The exact counter authority is the ChangeSet-owned `HunkDisplay` specified in [08_hunk_navigation.md](08_hunk_navigation.md). Navigation continues using DOM directly and never reads these values.
+The exact counter authority is the mounted ChangeSet shell's `HunkDisplay` specified in [08_hunk_navigation.md](08_hunk_navigation.md). Navigation continues using DOM directly and never reads these values.
 
 ### 25.5 FileTree
 
@@ -117,7 +117,7 @@ It may derive progressively available row or directory statistics from file stat
 
 #### Visible contract
 
-The small square is the visible expansion marker. “Fold” and “Show” exist only in accessible labels.
+The small square is the visible expansion marker. “Collapse” and “Expand” exist only in accessible labels.
 
 | File state | Marker |
 |---|---|
@@ -157,7 +157,7 @@ The calculation walks the manifest bottom-up:
  * Calculates whether each directory has any reachable descendant file.
  *
  * Explicit file expansion wins. An unresolved Husk remains reachable so the
- * tree does not collapse while sequential loading discovers its actual default.
+ * directory hierarchy does not collapse while sequential loading discovers its actual default.
  * LazyFiles remain reachable because their plank is visible.
  */
 function calculateDirectoryExpansion(
@@ -201,7 +201,7 @@ function calculateDirectoryExpansion(
 }
 ```
 
-Solid owns only the calculation:
+The sole reactive calculation is:
 
 ```ts
 const directoryExpansion = createMemo(() =>
@@ -263,7 +263,7 @@ Directory and file rows receive accessors and call those accessors while renderi
 
 The directory square is the sole directory-expansion button. It exposes the calculated state through `aria-expanded` and performs the bulk descendant-file action above. The directory name is a separate, inert label ending with `/` during this chapter; the gated FileTree-navigation chapter may later make that label navigate to the directory's first hunk without changing expansion.
 
-The FullFile square is the sole individual file-expansion button in both FileTree and the main FileCard. Both squares call the same ChangeSet-owned file-expansion action. The FileTree file name remains a separate inert label until its gated navigation chapter. The remainder of the main FileHeader—including path, counters, and statistics—is inert selectable content rather than part of the expansion button.
+The FullFile square is the sole individual file-expansion button in both FileTree and the main FileCard. Both squares call the same ChangeSet file-expansion action. The FileTree file name remains a separate inert label until its gated navigation chapter. The remainder of the main FileHeader—including path, counters, and statistics—is inert selectable content rather than part of the expansion button.
 
 Husk and Lazy squares remain inert and empty because they have no expandable rendered body. Their presence does not change the reachability calculation: unresolved Husks keep their directory stable during sequential loading, and a LazyFile's visible plank keeps its directory reachable unless it was explicitly collapsed. The Lazy plank remains the only individual explicit-load action.
 
@@ -273,7 +273,7 @@ Collapsing a directory or file preserves the selected hunk identity and marks it
 
 #### File interaction and Lazy lifecycle
 
-For a FullFile, the square displays state and is the only expansion control. During this chapter, the file name remains inert and uses no pointer cursor. Individual FullFile expansion from either FileTree or FileHeader uses the same ChangeSet-owned action.
+For a FullFile, the square displays state and is the only expansion control. During this chapter, the file name remains inert and uses no pointer cursor. Individual FullFile expansion from either FileTree or FileHeader uses the same ChangeSet action.
 
 LazyFile has a distinct presentation lifecycle:
 
@@ -338,7 +338,7 @@ FileHeader remains sticky below AppHeader and contains file-local information on
 
 ### 25.7 Solid Portal outlets
 
-`Portal` is a Solid feature imported from `solid-js/web`; it is not a native HTML element. It renders ordinary DOM into another mount node while preserving the component and reactive ownership hierarchy.
+`Portal` is a Solid feature imported from `solid-js/web`; it is not a native HTML element. It renders ordinary DOM into another mount node while preserving component ancestry and Solid's reactive Owner hierarchy.
 
 AppHeader provides two explicit physical outlets:
 
@@ -392,7 +392,7 @@ There is no:
 
 ### 25.8 Portal styling
 
-Portal ownership is logical, but CSS layout and inheritance follow the physical DOM. Portalled contributions are ordinary AppHeader children and use AppHeader styles and variables. CSS scoped only below `.change-set` does not reach them.
+Portal component ancestry remains logical, but CSS layout and inheritance follow the physical DOM. Portalled contributions are ordinary AppHeader children and use AppHeader styles and variables. CSS scoped only below `.change-set` does not reach them.
 
 Solid creates a wrapper element when mounting a Portal into a normal DOM node, so outlet CSS may style that wrapper explicitly:
 
@@ -471,7 +471,7 @@ No `ResizeObserver`, header-measurement signal or special `createEffect` is requ
 - TanStack Query owns manifest, lazy-info and file results.
 - `createMemo` derives FileCard and AppHeader presentation state.
 - Effects do not synchronize ChangeSet status upward into App.
-- Portals render ChangeSet-owned presentation directly into AppHeader.
+- Portals render ChangeSet presentation directly into AppHeader.
 - Context, if used, contains only the two outlet accessors.
 - Props are read reactively rather than destructured at initialization.
 - Only the active Tab renders portals.
@@ -488,6 +488,6 @@ This section does not design:
 - scroll-follow;
 - forced-rich files;
 - line-pin scrolling;
-- navigation to folded or unloaded hunks.
+- navigation to hunks in collapsed files or to unloaded hunk targets.
 
 The only retained hunk presentation requirement is that FullFileHeader visibly contains both local and global counters.

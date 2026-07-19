@@ -1,5 +1,5 @@
 /**
- * Defines the application-wide TanStack Query ownership boundary.
+ * Defines the application-wide TanStack Query provider boundary.
  *
  * The module exports QueryProvider and defines the optional metadata shape used
  * to give query and mutation failures a specific user-visible title. Each
@@ -55,9 +55,9 @@ declare module "@tanstack/query-core" {
  * Callers provide the complete application subtree and an error reporter. Each
  * failed query or mutation attempt invokes `onError` once using its metadata
  * title when present and a generic operation title otherwise. Intentional query
- * cancellation and repository-cache expiration are silent because their owners
- * handle lifecycle directly. Descendants access the mounted client through
- * TanStack Query's `useQueryClient()`.
+ * cancellation is handled by the query lifecycle; repository-cache expiration is
+ * handled by the ChangeSet lifecycle. Both remain silent. Descendants access the
+ * mounted client through TanStack Query's `useQueryClient()`.
  */
 export function QueryProvider(props: {
   children: JSX.Element;
@@ -65,6 +65,13 @@ export function QueryProvider(props: {
 }): JSX.Element {
   const queryClient = new QueryClient({
     queryCache: new QueryCache({
+      /**
+       * Presents ordinary query failures through the application Toast boundary.
+       *
+       * TanStack invokes this after a query attempt fails. This callback ignores
+       * intentional cancellation and repository-cache expiration; ChangeSet handles
+       * the latter by replacing its snapshot. Absent metadata uses the generic title.
+       */
       onError(error, query) {
         if (isCancelledError(error) || isRepositoryCacheExpiration(error)) {
           return;
@@ -77,6 +84,13 @@ export function QueryProvider(props: {
       },
     }),
     mutationCache: new MutationCache({
+      /**
+       * Presents mutation failures through the application Toast boundary.
+       *
+       * TanStack invokes this after a mutation attempt fails. Metadata supplies
+       * the visible title when present. TanStack permits metadata to be absent,
+       * in which case this callback uses the generic title.
+       */
       onError(error, _variables, _result, mutation) {
         // mutationOptions(...) receives the same shape checking as
         // queryOptions(...), while metadata presence remains optional.

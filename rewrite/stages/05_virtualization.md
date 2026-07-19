@@ -28,7 +28,7 @@ Implemented in this order:
 
 5. Representation lifecycle
 
-   Keep RichFileBody natural document content. Inline/split changes reconstruct only rich presentation; VirtualFile remains split. Folding unmounts the current body while retaining harmless FileCard-local measurements, and unfolding re-evaluates proximity.
+   Keep RichFileBody natural document content. Inline/split changes reconstruct only rich presentation; VirtualFile remains split. Collapsing a file unmounts the current body while retaining harmless FileCard-local measurements, and expanding it re-evaluates proximity.
 
 6. Layout-focused verification
 
@@ -41,7 +41,7 @@ Explicitly absent until Chapter 7:
 - selected-hunk identity or decoration;
 - hunk counters and FileTree highlighting;
 - Next, Previous, Top and scroll-follow;
-- pseudo-hunk behavior and folding participation rules;
+- pseudo-hunk behavior and file-collapse participation rules;
 - `waitToEnrich` routing from Navigation;
 - line-pin restoration changes;
 - HintHud, DebugHud hunk display and navigation-specific hotkeys.

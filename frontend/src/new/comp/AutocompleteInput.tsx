@@ -1,10 +1,11 @@
 /**
  * Defines the domain-independent state-owning autocomplete input.
  *
- * The module owns live text, edited status, popup visibility, local filtering,
- * highlighted choice, dismissal, and confirmation. Callers supply realtime seed
- * data and choices and receive only edit notifications and completed values. It
- * does not copy live input into caller state or know any dirdiff domain terms.
+ * AutocompleteInput stores live text, edited status, popup visibility, and the
+ * highlighted choice. It implements local filtering, dismissal, and confirmation.
+ * Callers supply realtime seed data and choices and receive only edit notifications
+ * and completed values. It does not copy live input into caller state or know any
+ * dirdiff domain terms.
  */
 import {
   For,
@@ -32,9 +33,9 @@ type AutocompleteChoice = {
  * Defines the complete public contract of AutocompleteInput.
  *
  * `seed` and `choices` are realtime. A changed seed may fill only an untouched
- * input; choices may change at any time. Prefix, field action, and panel action
- * and edit notification are explicit nullable slots. All interaction state remains
- * private; null notification means no metadata owner exists to warm.
+ * input; choices may change at any time. Prefix, field action, panel action, and
+ * edit notification are explicit nullable slots. All interaction state remains
+ * private; null notification means this caller needs no edit notification.
  */
 type AutocompleteInputProps = {
   class: string;
@@ -51,7 +52,7 @@ type AutocompleteInputProps = {
 };
 
 /**
- * Renders one autocomplete whose user-owned text survives realtime data changes.
+ * Renders one autocomplete whose user input survives realtime data changes.
  *
  * Focus or pointer activation opens suggestions. Editing permanently protects
  * the current text from later seeds for this mount. Enter confirms the highlighted
@@ -66,6 +67,12 @@ export function AutocompleteInput(props: AutocompleteInputProps): JSX.Element {
   const [highlighted, setHighlighted] = createSignal<AutocompleteChoice | null>(
     null,
   );
+  /**
+   * Returns the text currently presented and confirmed by this component.
+   *
+   * Before the first user edit, consumers receive the latest realtime seed.
+   * Afterwards they receive local edited text, even if the caller changes seed.
+   */
   const value = () => editedText() ?? props.seed;
 
   const filteredChoices = createMemo(() => {
@@ -103,7 +110,7 @@ export function AutocompleteInput(props: AutocompleteInputProps): JSX.Element {
   /**
    * Cancels delayed blur dismissal while the user interacts with popup content.
    *
-   * It owns no focus or value change; the subsequent popup action decides both.
+   * It changes neither focus nor value; the subsequent popup action decides both.
    */
   function keepOpen(): void {
     if (blurTimer !== null) {
@@ -162,7 +169,7 @@ export function AutocompleteInput(props: AutocompleteInputProps): JSX.Element {
   }
 
   /**
-   * Implements the component-owned keyboard interaction for suggestions.
+   * Implements the component-local keyboard interaction for suggestions.
    *
    * Arrow keys move a bounded highlight, Enter confirms a choice or current text,
    * and Escape dismisses without changing or confirming the input.

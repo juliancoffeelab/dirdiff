@@ -10,7 +10,7 @@ This is not a gradual movement of `v_old` application functions into new files. 
 
 Visual parity, intermediate-stage scope and every authorized exception are governed by [guidance.md](guidance.md). This setup chapter defines no additional visual policy.
 
-`frontend/src/main.tsx` remains the sole Vite entrypoint. It attaches Solid to the root DOM element and temporarily selects which complete frontend to mount. It owns no workspace or domain state.
+`frontend/src/main.tsx` remains the sole Vite entrypoint. It attaches Solid to the root DOM element and temporarily selects which complete frontend to mount. It stores no workspace or domain state.
 
 The visible applications are:
 
@@ -139,7 +139,7 @@ import "../styles.css";
 - third-party packages;
 - browser APIs.
 
-Explicitly preserved renderer files such as `DiffGrid.tsx` and `folds.ts` receive `v_new`-owned copies under `new/hud/`. `v_new` does not import their `v_old` copies.
+Explicitly preserved renderer files such as `DiffGrid.tsx` and `folds.ts` receive local copies under `new/hud/`. `v_new` does not import their `v_old` copies.
 
 The backend remains one contract. There are no `/api/v_old` or `/api/v_new` endpoints, compatibility responses, or version-dependent backend behavior. If the backend contract changes during migration, both frontends are updated together.
 

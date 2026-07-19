@@ -6,7 +6,7 @@
  * Renderers write identity fields directly into their own DOM; this module
  * reads those attributes only while handling an explicit operation. It must not
  * retain selected identity, build a hunk registry, calculate counters, follow
- * user scrolling, navigate FileTree rows, or own line-pin behavior.
+ * user scrolling, navigate FileTree rows, or implement line-pin behavior.
  */
 import {
   createContext,
@@ -35,7 +35,7 @@ export type RealHunkIdentity = {
  * Identifies one file-level target or one coordinate-preserving skipped hunk.
  *
  * Husk, Lazy, and zero targets represent complete file states. Skip targets
- * preserve a collapsed real hunk's coordinates while remaining outside the
+ * preserve a real hunk's coordinates after its file collapses while remaining outside the
  * traversal set. Renderers write these fields directly into DOM attributes.
  */
 export type PseudoHunkIdentity =
@@ -104,7 +104,7 @@ type EnrichableFileCard = HTMLElement & {
 const NavigationContext = createContext<Navigation>();
 
 /**
- * Returns the Navigation instance owned by the nearest mounted ChangeSet.
+ * Returns the Navigation instance owned by the nearest mounted NavigationProvider.
  *
  * Consumers must render under NavigationProvider. Missing context is a module
  * contract violation and throws instead of constructing an unrelated instance.
@@ -290,7 +290,7 @@ export function NavigationProvider(
   /**
    * Waits for one selected or destination FileCard to expose required rich DOM.
    *
-   * FullFile supplies the direct operation for rich, virtual, collapsed, zero,
+   * FullFile supplies the direct operation for rich, virtual, file-collapsed, zero,
    * and notebook presentations. Husk and Lazy cards intentionally have no such
    * method and are immediate no-ops. A FullFile without the operation violates
    * its DOM interface and throws instead of silently skipping enrichment.
@@ -474,6 +474,13 @@ export function NavigationProvider(
   }
 
   const navigation: Navigation = {
+    /**
+     * Executes one explicit operation against the current ChangeSet DOM.
+     *
+     * Callers provide a complete `NavigationCommand`. A disposed controller is a
+     * no-op; otherwise this method performs only that command's documented DOM
+     * selection, enrichment, and scroll behavior and lets invariant errors reject.
+     */
     async navigate(command): Promise<void> {
       if (!alive) {
         return;

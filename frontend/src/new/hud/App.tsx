@@ -2,9 +2,10 @@
  * Defines the top-level application shell and global workspace state.
  *
  * The module exports App and the workspace value types shared with Header. App
- * owns the active Tab, selected repository, engine, view, selected profile, URL
- * commands, and complete URL-backed workspace reconstruction. It does not own Tab
- * selections, backend query data, ChangeSet state, or component-local input.
+ * stores the selected profile and workspace reset identity. Workspace stores the
+ * active Tab, selected repository, engine, and view and implements URL-backed
+ * reconstruction. Neither stores Tab selections, backend query data, ChangeSet
+ * state, or component-local input.
  */
 import { Show, createSignal, onMount, type JSX } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -40,9 +41,9 @@ type RepoSelection =
   | { state: "selected"; projectId: ProjectId };
 
 /**
- * Contains the complete small client-owned workspace entity.
+ * Contains the complete small client-side workspace entity.
  *
- * Every field has one explicit owner and persistence mapping. The record excludes
+ * Every field has one explicit storage location and persistence mapping. The record excludes
  * backend data, Tab selections, live input, ChangeSet state, and profile identity.
  */
 type WorkspaceState = {
@@ -63,7 +64,7 @@ type AppProps = {
 };
 
 /**
- * Defines the required outer-owner inputs of one reconstructable workspace.
+ * Defines the required inputs of one reconstructable Workspace.
  *
  * Profile identity survives workspace reset, while `onReset` replaces browser URL
  * state and destroys this complete mounted subtree without replacing providers.
@@ -213,7 +214,7 @@ function resetSearch(
 }
 
 /**
- * Renders the complete visible application and owns profile persistence lifetime.
+ * Renders the complete visible application and stores the selected profile across workspace resets.
  *
  * Workspace reset replaces only the keyed inner subtree after writing canonical
  * URL state. QueryProvider, ToastProvider, and selected local profile remain alive.
@@ -257,7 +258,7 @@ export function App(props: AppProps): JSX.Element {
 }
 
 /**
- * Renders and owns one URL-constructed workspace lifetime.
+ * Renders one URL-constructed workspace and stores its global workspace values.
  *
  * It exposes only explicit repo, Tab, engine, view, and workflow URL commands to
  * descendants. Repository warmups use the canonical API facade and never gate UI.
@@ -318,7 +319,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
    * Workspace is recreated at every repository or explicit reset boundary, so
    * `onMount` intentionally snapshots the immutable initial repository instead of
    * tracking it. TanStack owns request deduplication, freshness, cancellation, and
-   * cache lifetime; this hook owns no response state and needs no local cleanup.
+   * cache lifetime; this hook stores no response state and needs no local cleanup.
    */
   onMount(() => {
     if (workspace.repo.state === "selected") {
@@ -332,7 +333,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   /**
    * Replaces the current browser query without reconstructing this workspace.
    *
-   * This is used only for ordinary selected values already owned by mounted Tabs
+   * This is used only for ordinary selected values already stored by mounted Tabs
    * or workspace controls; reset boundaries call `props.onReset` instead.
    */
   function replaceSearch(search: URLSearchParams): void {
@@ -601,7 +602,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
           onPullRequestSelected={selectPreparedPullRequest}
           onPullRequestPrepared={applyPreparedPullRequest}
           onToggleView={() => {
-            // The workspace owner changes both reactive view and canonical URL.
+            // Workspace changes both reactive view and canonical URL.
             selectView(workspace.view === "inline" ? "split" : "inline");
           }}
         />

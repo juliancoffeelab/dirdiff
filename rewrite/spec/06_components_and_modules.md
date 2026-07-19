@@ -1,10 +1,10 @@
 ## 65. Component and module architecture
 
-I’d use a shallow, component-owner structure: a file represents a substantial owner, not every JSX component. Small supporting components remain private in their owner’s file.
+I’d use a shallow component-module structure: a file represents a substantial component or subsystem, not every JSX component. Small supporting components remain private in that component's file.
 
 ### 65.1 Three viable shapes
 
-#### A. Flat owner modules — recommended
+#### A. Flat component modules — recommended
 
 ```text
 frontend/src/
@@ -34,9 +34,9 @@ frontend/src/
 
 This gives each difficult subsystem one obvious home without introducing `state/`, `hooks/`, `services/`, `helpers/`, or `types/` dumping grounds.
 
-`comp/` contains domain-independent interface components. They own reusable interaction behavior, but know nothing about dirdiff concepts.
+`comp/` contains domain-independent interface components. They implement reusable interaction behavior but know nothing about dirdiff concepts.
 
-`hud/` contains the project-aware dirdiff interface: the application shell, Tabs, ChangeSet, files, navigation, visible HUD widgets, and overlays. It is a source namespace, not a single visual grouping and not one runtime owner. `App`, `ChangeSet`, `FileTree`, `HintHud`, `DebugHud`, and `HelpModal` all belong to `hud/`, even though they have different visual roles and state owners.
+`hud/` contains the dirdiff-aware interface: the application shell, Tabs, ChangeSet, files, navigation, visible HUD widgets, and overlays. It is a source namespace, not a single visual grouping or runtime structure. `App`, `ChangeSet`, `FileTree`, `HintHud`, `DebugHud`, and `HelpModal` all belong to `hud/`, even though they have different visual roles and store different state.
 
 #### B. Nested feature packages
 
@@ -136,7 +136,7 @@ It does not export request functions, query keys, or generic HTTP helpers.
 
 #### `api/queryClient.tsx`
 
-Owns QueryClient construction and exports `QueryProvider`.
+Contains QueryClient construction and exports `QueryProvider`.
 
 ChangeSet obtains the client through TanStack’s `useQueryClient()`. It does not import a global singleton.
 
@@ -182,20 +182,20 @@ Select
 SelectOption
 ```
 
-It owns popup interaction, keyboard behavior and dismissal. It knows nothing about repos, engines or Tabs.
+It stores popup visibility and implements keyboard interaction and dismissal. It knows nothing about repos, engines or Tabs.
 
 #### `comp/AutocompleteInput.tsx`
 
 Exports `AutocompleteInput`.
 
-It owns:
+It stores:
 
 - current input;
 - edited status;
-- choices and filtering;
-- popup interaction;
-- `onEditNotification`;
-- `onDone`.
+- popup visibility;
+- highlighted choice.
+
+It receives realtime choices, implements filtering and popup interaction, and invokes the caller-supplied `onEditNotification` and `onDone` callbacks at their specified interactions.
 
 A plain `<input>` does not need its own wrapper. We should not create an `Input.tsx` until there is actual shared behavior to hide.
 
@@ -215,16 +215,16 @@ These concepts share formatting and failure presentation, so splitting them into
 
 #### `hud/App.tsx`
 
-Owns only the application shell and workspace state:
+`App` stores selected profile and workspace-reset identity. `Workspace` stores:
 
 - active Tab;
 - selected repo;
 - engine;
-- inline/split view;
-- selected profile;
-- reset/reconstruction commands.
+- inline/split view.
 
-It renders `AppHeader`, `TabStrip`, and `Tabs`. It does not know how any Tab constructs `DiffParams`.
+The components implement explicit URL update, reset, and reconstruction operations.
+
+App renders `AppHeader`, `TabStrip`, and `Tabs`. It does not know how any Tab constructs `DiffParams`.
 
 #### `hud/AppHeader.tsx`
 
@@ -235,9 +235,9 @@ Contains:
 - engine and view controls;
 - Profile placement;
 - stable Portal targets for ChangeSet status and summary;
-- one stable workspace-metadata status target for compact presentations owned by Tabs and Profile.
+- one stable workspace-metadata status target for compact presentations supplied by Tabs and Profile.
 
-It does not own manifest statistics, loading progress, or metadata queries. ChangeSet, Tabs, and Profile supply those presentations through Portals while retaining their logical ownership. Repo refs and defaults may project workspace warmup state from inactive eternal Tabs; Preset and Pull Request remain active-gated.
+It does not store manifest statistics, loading progress, or metadata queries. ChangeSet, Tabs, and Profile supply those presentations through Portals while retaining their state and query observers. Repo refs and defaults may present workspace warmup state from inactive eternal Tabs; Preset and Pull Request remain active-gated.
 
 #### `hud/Tabs.tsx`
 
@@ -271,13 +271,13 @@ One component per Tab does not imply one file per Tab.
 
 #### `hud/Profile.tsx`
 
-Owns:
+`Profile` stores:
 
 - profile menu/dialog state;
-- username workflow;
-- preferences workflow;
-- explicit local-storage updates;
-- preference mutations.
+- username input state;
+- preference editor state.
+
+It observes canonical preference data and implements the username, preference, and explicit local-storage workflows.
 
 The small profile storage operations can remain private here or in `hud/App.tsx`; a generic `storage.ts` is unnecessary.
 
@@ -285,7 +285,7 @@ The small profile storage operations can remain private here or in `hud/App.tsx`
 
 Exports only `ChangeSet`.
 
-Its private ownership boundaries are:
+Its private state and resource boundaries are:
 
 ```text
 ChangeSet
@@ -293,11 +293,12 @@ ChangeSet
     └── ChangeSetSnapshot
 ```
 
-- `ChangeSet` owns lightweight layout state, ChangeSet-scoped navigation and local HUD state.
-- `ChangeSetContent` owns manifest observation for one immutable complete `DiffParams`, manifest loading and error presentation, reload, and repository-cache-expiration restart.
-- `ChangeSetSnapshot` owns immutable manifest traversal, lazy-info observation, the ordered file-query observer collection, strict FileSequence, explicit file loading, combined progress, the existing admission behavior, `ChangeSetTitle`, `FileTree`, AppHeader Portal contributions, mapping manifest files to `FileCard`, and rendered file DOM.
+- `ChangeSet` owns lightweight layout state and local HUD state.
+- `ChangeSetShell` stores the `HunkDisplay` signal and mounts ChangeSet-scoped Navigation for its active content lifetime.
+- `ChangeSetContent` owns the manifest observer for one immutable complete `DiffParams` and performs manifest loading, error presentation, reload, and repository-cache-expiration restart.
+- `ChangeSetSnapshot` owns the lazy-info observer, the ordered file-query observer collection, FileSequence state, combined progress, and admission state. It traverses the immutable manifest, performs explicit file loading, and renders `ChangeSetTitle`, `FileTree`, AppHeader Portal contributions, and `FileCard` content.
 
-The module also observes the selected profile's canonical preferences query and derives the reactive `aggressiveFolds` renderer input. It mounts the ChangeSet-scoped `NavigationProvider`, one private active hotkey listener, independent Help and Debug visibility, adjacent private `HintHud` and `DebugHud` components, and a separate private `HelpModal`.
+`ChangeSetSnapshot` also observes the selected profile's canonical preferences query and derives the reactive `aggressiveFolds` renderer input. `ChangeSetShell` mounts the ChangeSet-scoped `NavigationProvider`, one private active hotkey listener, adjacent private `HintHud` and `DebugHud` components, and a separate private `HelpModal`. The outer `ChangeSet` stores the independent Help and Debug visibility values.
 
 `ChangeSetContent` is recreated when complete `DiffParams` changes. `ChangeSetSnapshot` is recreated when manifest data changes. No manifest-dependent observation, sequencing, or rendering lives above `ChangeSetSnapshot`.
 
@@ -305,7 +306,7 @@ The module also observes the selected profile's canonical preferences query and 
 
 All three boundaries remain private to `hud/ChangeSet.tsx`; no new module is required.
 
-`FileSequence` is a section of this owner’s implementation, not another exported abstraction or file.
+`FileSequence` is a section of `ChangeSetSnapshot`'s implementation, not another exported abstraction or file.
 
 Hotkeys map keys directly to Navigation, ChangeSet, workspace, Help, or Debug operations. There is no generic `Command`, command provider, command router, dispatch registry, or `commands.ts`.
 
@@ -330,9 +331,9 @@ FileBody
 VirtualFile
 ```
 
-It owns:
+It stores FileCard-local rich/virtual mode and geometry measurements. It also performs:
 
-- projecting the reactive state supplied by ChangeSet into Husk/Full/Lazy presentation;
+- rendering the reactive state supplied by ChangeSet as Husk/Full/Lazy presentation;
 - invoking the ChangeSet-supplied explicit-load callback from the LazyFile plank;
 - rich/virtual transitions;
 - geometry preservation;
@@ -340,7 +341,7 @@ It owns:
 - direct rendering of the approved real and pseudo hunk identity attributes once Chapter 7 integrates hunk navigation;
 - responding to `waitToEnrich` calls;
 - rendering DiffGrid or NotebookFile;
-- FullFile renderer containment through a critical unrecoverable strip that preserves the stable FileCard article where possible and performs no retry, hunk synthesis, selection repair, or automatic recovery.
+- a FullFile renderer ErrorBoundary that replaces a failed renderer with a critical unrecoverable strip, preserves the stable FileCard article where possible, and performs no retry, hunk synthesis, selection repair, or automatic recovery.
 
 This is the “meat” boundary. It should be a large, deep module.
 
@@ -360,22 +361,19 @@ useNavigation
 
 `NavigationProvider` owns one stateful, disposable Navigation controller for one mounted ChangeSet. `useNavigation` returns that controller’s public operations to descendants of the nearest Provider.
 
-Scroll-follow and FileTree navigation remain behind the explicit TODO design gates in `08_hunk_navigation.md`. Their current ownership outline is provisional and does not authorize implementation before those designs are re-checked and explicitly approved.
+Scroll-follow and FileTree navigation remain behind the explicit TODO design gates in `08_hunk_navigation.md`. Their current state-placement outline is provisional and does not authorize implementation before those designs are re-checked and explicitly approved.
 
-It owns:
+The controller owns:
 
 - the ChangeSet root reference;
-- DOM hunk traversal;
-- `selectHunk`;
-- Next/Previous;
-- direct-hunk and return-to-top navigation;
 - the non-reactive `idle | user | navigation` scroll-source gate;
-- throttled scroll-follow;
-- navigation listener and animation-frame lifecycle.
+- navigation listeners and scheduled animation frames.
 
-The controller stores only ephemeral browser-work state: root, scroll source, scheduled frame, and listeners. Selected hunk identity and target order remain in DOM. Counters and FileTree highlighting render from the ChangeSet-owned `HunkDisplay` signal, which is an exact calculation from DOM and is never Navigation state. Rich/virtual state and `waitToEnrich` remain FileCard-owned.
+It performs DOM hunk traversal, `selectHunk`, Next/Previous, direct-hunk and return-to-top navigation, and throttled scroll-follow.
 
-Line pins are a separate system behind their own TODO design gate and implementation stage. `navigation.tsx` does not own line-pin parsing, identity, highlighting, retries, timers, restoration, or cleanup. The future line-pin module destination remains undecided until that design is re-checked and explicitly approved.
+The controller stores only ephemeral browser-work state: root, scroll source, scheduled frame, and listeners. Selected hunk identity and target order remain in DOM. Counters and FileTree highlighting render from `ChangeSetShell`'s `HunkDisplay` signal, which is an exact calculation from DOM and is never Navigation state. Rich/virtual state remains FileCard-local, and FileCard implements `waitToEnrich`.
+
+Line pins are a separate system behind their own TODO design gate and implementation stage. Navigation stores no line-pin identity, timers, or listener resources and performs no line-pin parsing, highlighting, retries, restoration, or cleanup. The future line-pin module destination remains undecided until that design is re-checked and explicitly approved.
 
 The Context exposes Navigation operations but no controller state. There is no copied global hunk index, selected-hunk signal, independently owned selected-file state, generic setter or backend data.
 
@@ -389,21 +387,21 @@ type NavigationCommand =
   | { kind: "top" };
 ```
 
-Navigation does not own hotkeys, Help, Debug, tree visibility, view changes, reload, file expansion or backend work. Hotkeys merely call `navigation.navigate(...)` for `n`, `N` and `p`.
+Navigation does not handle hotkeys, Help, Debug, tree visibility, view changes, reload, file expansion or backend work. Hotkeys merely call `navigation.navigate(...)` for `n`, `N` and `p`.
 
-Provider cleanup removes every navigation-owned listener and scheduled frame. A disposed controller performs no later DOM mutation or scrolling.
+Provider cleanup removes every listener and scheduled frame stored by the controller. A disposed controller performs no later DOM mutation or scrolling.
 
 #### `hud/DiffGrid.tsx` and `hud/folds.ts`
 
 Retained renderer kernel.
 
-`DiffGrid.tsx` owns the imperative text-diff renderer. `folds.ts` remains separate because fold construction is a substantial pure algorithm with an independently testable contract.
+`DiffGrid.tsx` contains the imperative text-diff renderer. `folds.ts` remains separate because fold construction is a substantial pure algorithm with an independently testable contract.
 
 The split/inline fold-reset issue remains an explicit post-rewrite TODO as agreed.
 
 #### `hud/NotebookFile.tsx`
 
-Owns notebook-specific rendering and preserves the bridge toward cell/output region identities.
+Renders notebook-specific content and preserves the bridge toward cell/output region identities.
 
 Keeping it separate prevents provisional notebook behavior from complicating ordinary `FileCard` and `DiffGrid`.
 
@@ -417,17 +415,16 @@ No file-tree helpers, hunk helpers, API helpers, or diff helpers belong here.
 
 | Current file/concept | Destination |
 |---|---|
-| `app/createDiffResources.ts` | queries in `api/api.ts`; sequence in `hud/ChangeSet.tsx` |
 | `app/createDiffUiState.ts` | actual owning components |
 | `app/createDiffNavigation.ts` | `hud/navigation.tsx` plus private hotkeys in `hud/ChangeSet.tsx` |
-| `app/createRepoResources.ts` | TanStack queries in `api/api.ts`, workspace ownership in `hud/App.tsx`, and consumption in `hud/Tabs.tsx` |
+| `app/createRepoResources.ts` | TanStack queries in `api/api.ts`, workspace state in `hud/App.tsx`, and consumption in `hud/Tabs.tsx` |
 | `app/diffParams.ts` | removed; query definitions use `DiffParams` directly |
 | `Controls.tsx` | rewritten as private Tab components in `hud/Tabs.tsx` |
 | `FileViews.tsx` | split into `hud/ChangeSet.tsx` and `hud/FileCard.tsx` |
 | `Header.tsx` | `hud/AppHeader.tsx` |
 | `Hud.tsx` | private adjacent `HintHud` and `DebugHud`, plus separate `HelpModal`, in `hud/ChangeSet.tsx` |
 | `RepoPicker.tsx` | `RepoSelect` in `hud/AppHeader.tsx` and `RepoGate` in `hud/Tabs.tsx` |
-| `fileUtils.ts` | functions colocated with their actual owners |
+| `fileUtils.ts` | functions colocated with the components that use them |
 | `hunkNavigation.ts` | `hud/navigation.tsx` |
 | `linePins.ts` | separate line-pin design; destination not yet approved |
 | `storage.ts` | private profile/workspace persistence |
@@ -440,7 +437,7 @@ The important rule is:
 
 > A component boundary is not automatically a file boundary.
 
-Create a file only when it hides a substantial subsystem behind a small interface. Otherwise, keep the component private beside its owner.
+Create a file only when it hides a substantial subsystem behind a small interface. Otherwise, keep the component private beside the component that uses it.
 
 I would explicitly prohibit generic architectural buckets:
 

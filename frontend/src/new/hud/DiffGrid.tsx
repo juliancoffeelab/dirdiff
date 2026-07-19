@@ -1,8 +1,8 @@
 /**
  * Renders immutable text-diff rows as the established split or inline grid.
  *
- * The module exports DiffGrid and its row contracts. It owns the imperative DOM
- * kernel, fold-row projection, syntax decoration, side-selection behavior, and
+ * The module exports DiffGrid and its row contracts. DiffGrid contains the imperative DOM
+ * kernel, fold-row construction, syntax decoration, side-selection behavior, and
  * hunk anchor attributes for one FullFile body. Callers provide fully validated
  * backend rows and complete presentation inputs. It must not fetch data, own
  * ChangeSet state, navigate hunks, virtualize files, or render notebook framing.
@@ -49,7 +49,7 @@ type InlineMarker = " " | "-" | "+" | "*";
  * Represents the CSS and token treatment available to an inline render row.
  *
  * The union excludes fold rows and maps the split-only backend statuses into
- * the complete set that inline projection may emit.
+ * the complete set that inline rendering may emit.
  */
 type InlineRowStatus = "equal" | "delete" | "insert" | "replace" | "move";
 
@@ -69,15 +69,15 @@ export function DiffGrid(props: {
   foldHints: FoldHint[];
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
-  collapseInsertOnlyReplaceRows: boolean;
+  combineInsertOnlyReplaceRows: boolean;
 }) {
   return (
     <div
       class="diff-grid"
       classList={{
         "diff-grid-inline": props.viewMode === "inline",
-        "diff-grid-collapse-insert-only-replace": Boolean(
-          props.collapseInsertOnlyReplaceRows,
+        "diff-grid-combine-insert-only-replace": Boolean(
+          props.combineInsertOnlyReplaceRows,
         ),
       }}
     >
@@ -101,7 +101,7 @@ export function DiffGrid(props: {
         rightLabel={props.rightLabel}
         viewMode={props.viewMode}
         aggressiveFolds={props.aggressiveFolds}
-        collapseInsertOnlyReplaceRows={props.collapseInsertOnlyReplaceRows}
+        combineInsertOnlyReplaceRows={props.combineInsertOnlyReplaceRows}
       />
     </div>
   );
@@ -171,7 +171,7 @@ function ImperativeDiffLines(props: {
   rightLabel: string;
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
-  collapseInsertOnlyReplaceRows: boolean;
+  combineInsertOnlyReplaceRows: boolean;
 }) {
   let root!: HTMLDivElement;
   const expandedFolds = new Set<number>();
@@ -182,7 +182,7 @@ function ImperativeDiffLines(props: {
   let previousRightLabel: string | undefined;
   let previousViewMode: DiffViewMode | undefined;
   let previousAggressiveFolds: boolean | undefined;
-  let previousCollapseInsertOnlyReplaceRows: boolean | undefined;
+  let previousCombineInsertOnlyReplaceRows: boolean | undefined;
 
   /**
    * Rebuilds the complete owned row subtree from current reactive inputs.
@@ -199,8 +199,8 @@ function ImperativeDiffLines(props: {
       props.rightLabel !== previousRightLabel,
       props.viewMode !== previousViewMode,
       props.aggressiveFolds !== previousAggressiveFolds,
-      props.collapseInsertOnlyReplaceRows !==
-        previousCollapseInsertOnlyReplaceRows,
+      props.combineInsertOnlyReplaceRows !==
+        previousCombineInsertOnlyReplaceRows,
     ].some(Boolean);
     if (inputChanged) {
       expandedFolds.clear();
@@ -211,8 +211,7 @@ function ImperativeDiffLines(props: {
       previousRightLabel = props.rightLabel;
       previousViewMode = props.viewMode;
       previousAggressiveFolds = props.aggressiveFolds;
-      previousCollapseInsertOnlyReplaceRows =
-        props.collapseInsertOnlyReplaceRows;
+      previousCombineInsertOnlyReplaceRows = props.combineInsertOnlyReplaceRows;
     }
 
     const rows = addFoldRows(
@@ -222,9 +221,8 @@ function ImperativeDiffLines(props: {
     );
     const fileLabel = props.displayName;
     const fragment =
-      props.viewMode === "inline" &&
-      props.collapseInsertOnlyReplaceRows === true
-        ? renderCollapsedInlineRowsDom(
+      props.viewMode === "inline" && props.combineInsertOnlyReplaceRows === true
+        ? renderCombinedInlineRowsDom(
             rows,
             fileLabel,
             expandedFolds,
@@ -257,7 +255,7 @@ function ImperativeDiffLines(props: {
 }
 
 /**
- * Renders an ordered projected row range into split-view DOM.
+ * Renders an ordered `RenderRow` range into split-view DOM.
  *
  * `startRow` is the required source-row offset for stable row identity. Folded
  * ranges advance by their represented count while ordinary rows advance once.
@@ -299,7 +297,7 @@ function renderSplitRowsDom(
 }
 
 /**
- * Renders an ordered projected row range into ordinary inline-view DOM.
+ * Renders an ordered `RenderRow` range into ordinary inline-view DOM.
  *
  * `startRow` is the required source-row offset. One backend row may emit two
  * visible rows, while shared line-number state suppresses duplicate numbers.
@@ -350,13 +348,13 @@ function renderInlineRowsDom(
 }
 
 /**
- * Renders inline rows with the engine-specific insert-only replacement collapse.
+ * Renders inline rows with the engine-specific insert-only replacement combination.
  *
  * The required source-row offset and fold set retain the same identity rules as
- * ordinary inline rendering; rows outside the narrow collapse predicate remain
+ * ordinary inline rendering; rows outside the narrow combination predicate remain
  * byte-for-byte equivalent in presentation structure.
  */
-function renderCollapsedInlineRowsDom(
+function renderCombinedInlineRowsDom(
   rows: RenderRow[],
   fileLabel: string,
   expandedFolds: Set<number>,
@@ -387,7 +385,7 @@ function renderCollapsedInlineRowsDom(
       cursor += row.count;
     } else {
       fragment.append(
-        renderCollapsedInlineDiffRowsDom(
+        renderCombinedInlineDiffRowsDom(
           row,
           rowIndex,
           fileLabel,
@@ -437,7 +435,7 @@ function renderSplitFoldDom(
   /**
    * Replaces this split fold wrapper with its bar or complete expanded rows.
    *
-   * Expanded rows preserve source offsets and receive one collapse affordance;
+   * Expanded rows preserve source offsets and receive one fold affordance;
    * folded rows render only the backend-provided fold bar.
    */
   const renderFold = () => {
@@ -477,7 +475,7 @@ function renderSplitFoldDom(
 /**
  * Creates one stateful inline-view fold subtree around an immutable FoldRow.
  *
- * The required collapse policy is propagated into expanded nested rows. The
+ * The required row-combination policy is propagated into expanded nested rows. The
  * wrapper owns only its current DOM children and local toggle listeners.
  */
 function renderInlineFoldDom(
@@ -486,7 +484,7 @@ function renderInlineFoldDom(
   fileLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
-  collapseInsertOnlyReplaceRows: boolean,
+  combineInsertOnlyReplaceRows: boolean,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
@@ -509,7 +507,7 @@ function renderInlineFoldDom(
   /**
    * Replaces this inline fold wrapper with its bar or complete expanded rows.
    *
-   * Expanded rows retain the required collapse policy and source offsets;
+   * Expanded rows retain the required row-combination policy and source offsets;
    * folded rows render only the backend-provided fold bar.
    */
   const renderFold = () => {
@@ -517,8 +515,8 @@ function renderInlineFoldDom(
     if (expanded) {
       const rows = row.foldedRows;
       const fragment =
-        collapseInsertOnlyReplaceRows === true
-          ? renderCollapsedInlineRowsDom(
+        combineInsertOnlyReplaceRows === true
+          ? renderCombinedInlineRowsDom(
               rows,
               fileLabel,
               expandedFolds,
@@ -568,7 +566,7 @@ function renderInlineFoldDom(
 type FoldToggle = { expanded: boolean; onToggle: () => void };
 
 /**
- * Attaches the collapse affordance to the first visible row of an expanded fold.
+ * Attaches the fold affordance to the first visible row of an expanded fold.
  *
  * An empty fragment is accepted and produces no affordance. The listener is
  * owned by the supplied fragment and disappears when its DOM is replaced.
@@ -584,7 +582,7 @@ function attachExpandedFoldToggle(
     return;
   }
   row.classList.add("fold-toggle-row", "fold-expanded");
-  row.title = "Collapse folded rows";
+  row.title = "Fold rows";
   row.addEventListener("click", onToggle);
 
   const lineNumber = row.querySelector(".line-no");
@@ -627,7 +625,7 @@ function renderSplitDiffRowDom(
 }
 
 /**
- * Projects one backend row into the one or two elements required by inline view.
+ * Renders one backend row as the one or two elements required by inline view.
  *
  * Equal, insert, and delete rows emit one element; replace and move rows may
  * emit both sides while transferring hunk identity to the first visible side.
@@ -846,17 +844,17 @@ function inlineSideExists(lineNo: number | null, text: string): boolean {
 /**
  * Renders one inline row with the narrow insert-only replacement optimization.
  *
- * Rows failing the exact collapse predicate delegate to ordinary inline
- * rendering. Collapsed rows retain both backend line numbers and hunk identity.
+ * Rows failing the exact combination predicate delegate to ordinary inline
+ * rendering. Combined rows retain both backend line numbers and hunk identity.
  */
-function renderCollapsedInlineDiffRowsDom(
+function renderCombinedInlineDiffRowsDom(
   row: DiffRow,
   rowIndex: number,
   fileLabel: string,
   fileIndex: number,
   lineNumberState: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
-  if (!canCollapseInsertOnlyReplaceRow(row)) {
+  if (!canCombineInsertOnlyReplaceRow(row)) {
     return renderInlineDiffRowsDom(
       row,
       rowIndex,
@@ -890,7 +888,7 @@ function renderCollapsedInlineDiffRowsDom(
  * The predicate is deliberately strict: any changed old-side token or any
  * non-insert new-side token preserves the ordinary two-line representation.
  */
-function canCollapseInsertOnlyReplaceRow(row: DiffRow): boolean {
+function canCombineInsertOnlyReplaceRow(row: DiffRow): boolean {
   if (row.status !== "replace") {
     return false;
   }
@@ -1182,7 +1180,7 @@ function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "inline-fold-toggle";
-  button.ariaLabel = foldToggle.expanded ? "Collapse fold" : "Expand fold";
+  button.ariaLabel = foldToggle.expanded ? "Fold rows" : "Expand folded rows";
   button.textContent = foldToggle.expanded ? "▾" : "▸";
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1315,7 +1313,7 @@ function rowShowsTokenChange(
  * Creates one typed HTML element with complete class and text content.
  *
  * The tag must be a standard HTMLElement tag. The returned element has no
- * event listeners, data attributes, or implicit application ownership.
+ * event listeners, data attributes, or retained application state.
  */
 function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
   tagName: K,

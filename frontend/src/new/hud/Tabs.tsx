@@ -1,10 +1,11 @@
 /**
  * Defines the five eternal application Tabs and their selection workflows.
  *
- * The module exports TabId, TabStrip, and Tabs. Private controls own their local
- * workflow, observe only canonical metadata queries, and return complete selected
- * values that Tabs combine with App-owned repo and engine into DiffParams. It does
- * not own global workspace state, backend response copies, or ChangeSet internals.
+ * The module exports TabId, TabStrip, and Tabs. Private controls store their local
+ * workflow state, observe only canonical metadata queries, and return complete
+ * selected values. Tabs combines those values with the repository and engine stored
+ * by Workspace to form DiffParams. Tabs does not store global workspace state, backend
+ * response copies, or ChangeSet internals.
  */
 import {
   type Accessor,
@@ -92,13 +93,13 @@ const builtinDescriptions: Record<string, string> = {
 };
 
 /**
- * Runs one reconciliation command when an eternal Tab becomes active again.
+ * Calls one explicit reactivation operation when an eternal Tab becomes active again.
  *
- * The owned effect explicitly observes only `active`, ignores the initial mount,
+ * The effect explicitly observes only `active`, ignores the initial mount,
  * and invokes `reactivate` solely on a false-to-true transition. Solid disposes
  * the effect with the Tab; no external subscription or cleanup exists. Because
  * `on` untracks the callback, Tab selection reads and writes cannot accidentally
- * become dependencies or create duplicate activation commands.
+ * become dependencies or trigger duplicate activations.
  */
 function onTabReactivated(
   active: Accessor<boolean>,
@@ -117,7 +118,7 @@ function onTabReactivated(
  * Defines the public rendering inputs for the Tab selector.
  *
  * App supplies one valid active Tab and the explicit selection command. TabStrip
- * owns no Tab lifetime or URL behavior.
+ * stores no Tab lifetime or URL behavior.
  */
 type TabStripProps = {
   active: TabId;
@@ -156,7 +157,7 @@ type TabsProps = {
 };
 
 /**
- * Defines shared inputs for one mounted private Tab owner.
+ * Defines shared inputs for one mounted private Tab.
  *
  * Active controls and expensive ChangeSet content depend on `active`; the outer
  * Tab remains mounted. Engine changes update derived DiffParams without replacing
@@ -178,7 +179,7 @@ type TabProps = {
  * Defines shared required inputs after a RepoGate has narrowed repository state.
  *
  * The project ID is concrete, so canonical query definitions never receive a
- * placeholder identity. The parent workspace still owns engine and activation.
+ * placeholder identity. App still supplies engine and activation.
  */
 type RepoTabProps = {
   active: boolean;
@@ -192,10 +193,10 @@ type RepoTabProps = {
 };
 
 /**
- * Defines the complete lifecycle inputs of a metadata refresh control.
+ * Defines the complete presentation inputs of a metadata refresh control.
  *
- * A genuine error is nullable. The supplied refetch operation owns TanStack
- * behavior; the control owns only idle, spinning, and failed presentation.
+ * The caller supplies current fetching and failure data together with the exact
+ * refresh operation. The control stores no query state and chooses no refetch policy.
  */
 type MetadataRefreshProps = {
   label: string;
@@ -205,10 +206,10 @@ type MetadataRefreshProps = {
 };
 
 /**
- * Defines one active metadata observer's compact AppHeader projection.
+ * Defines one active metadata observer's compact AppHeader presentation.
  *
- * The owning Tab supplies genuine pending/error state and retry behavior. The
- * projection carries presentation only and never moves query ownership.
+ * The Tab supplies genuine pending/error state and retry behavior. This value
+ * carries presentation only and never moves query data.
  */
 type MetadataStatusPortalProps = {
   target: HTMLElement | null;
@@ -260,7 +261,7 @@ export function TabStrip(props: TabStripProps): JSX.Element {
 }
 
 /**
- * Mounts all five Tab owners for one workspace lifetime.
+ * Mounts all five Tab contents for one workspace lifetime.
  *
  * Only the active control panel is displayed and observes active metadata, while
  * every Tab retains local interaction and selected values. Complete selections
@@ -269,7 +270,7 @@ export function TabStrip(props: TabStripProps): JSX.Element {
 export function Tabs(props: TabsProps): JSX.Element {
   return (
     <>
-      <div class="tab-owner" hidden={props.active !== "head"}>
+      <div class="tab-content" hidden={props.active !== "head"}>
         <UnexpectedErrorBoundary title="Head Tab failed">
           <HeadTab
             active={props.active === "head"}
@@ -285,7 +286,7 @@ export function Tabs(props: TabsProps): JSX.Element {
           />
         </UnexpectedErrorBoundary>
       </div>
-      <div class="tab-owner" hidden={props.active !== "refs"}>
+      <div class="tab-content" hidden={props.active !== "refs"}>
         <UnexpectedErrorBoundary title="Refs Tab failed">
           <RefsTab
             active={props.active === "refs"}
@@ -301,7 +302,7 @@ export function Tabs(props: TabsProps): JSX.Element {
           />
         </UnexpectedErrorBoundary>
       </div>
-      <div class="tab-owner" hidden={props.active !== "branch-review"}>
+      <div class="tab-content" hidden={props.active !== "branch-review"}>
         <UnexpectedErrorBoundary title="Branch Review Tab failed">
           <BranchReviewTab
             active={props.active === "branch-review"}
@@ -317,7 +318,7 @@ export function Tabs(props: TabsProps): JSX.Element {
           />
         </UnexpectedErrorBoundary>
       </div>
-      <div class="tab-owner" hidden={props.active !== "pull-request"}>
+      <div class="tab-content" hidden={props.active !== "pull-request"}>
         <UnexpectedErrorBoundary title="Pull Request Tab failed">
           <PullRequestTab
             active={props.active === "pull-request"}
@@ -334,7 +335,7 @@ export function Tabs(props: TabsProps): JSX.Element {
           />
         </UnexpectedErrorBoundary>
       </div>
-      <div class="tab-owner" hidden={props.active !== "preset"}>
+      <div class="tab-content" hidden={props.active !== "preset"}>
         <UnexpectedErrorBoundary title="Preset Tab failed">
           <PresetTab
             active={props.active === "preset"}
@@ -479,10 +480,10 @@ function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
 }
 
 /**
- * Renders the repo gate or the required-repository Refs owner.
+ * Renders the repo gate or the required-repository Refs Tab.
  *
  * The explicit null gate ensures the query-owning child never receives a missing
- * or placeholder project ID. Workspace reset owns repository identity lifetime.
+ * or placeholder project ID. Workspace reset replaces repository identity.
  */
 function RefsTab(
   props: TabProps & { onSelected: (left: string, right: string) => void },
@@ -519,8 +520,9 @@ function RefsTab(
 /**
  * Defines the complete presentation contract shared by both Refs control states.
  *
- * Values and choices are realtime inputs. Completion changes only caller-owned
- * control values, while `action` is either Load or the required repository gate.
+ * Values and choices are realtime inputs. Each autocomplete reports completed
+ * text through its corresponding callback, and the caller stores that value.
+ * `action` is either Load or the required repository gate.
  */
 type RefsControlsProps = {
   active: boolean;
@@ -538,7 +540,7 @@ type RefsControlsProps = {
 /**
  * Renders the free-form old/new ref inputs and their repo-dependent action.
  *
- * It owns no input, query, or selected state. Missing metadata is represented by
+ * It stores no input, query, or selected state. Missing metadata is represented by
  * empty choices and a null panel action without disabling either text control.
  */
 function RefsControls(props: RefsControlsProps): JSX.Element {
@@ -587,7 +589,7 @@ function RefsControls(props: RefsControlsProps): JSX.Element {
 /**
  * Keeps the Refs workflow usable before a global repository is selected.
  *
- * The component owns only temporary free-form input for this workspace. It starts
+ * The component stores only temporary free-form input for this workspace. It starts
  * no repo query, constructs no DiffParams, and substitutes RepoGate for Load.
  */
 function RefsWithoutRepo(
@@ -686,7 +688,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   /**
    * Returns the refs observer's panel-local refresh presentation.
    *
-   * Both autocomplete panels may render this projection; they share one observer,
+   * Both autocomplete panels may render this control; they share one observer,
    * failure state, and refetch operation rather than duplicate backend work.
    */
   function refreshControl(): JSX.Element {
@@ -755,9 +757,9 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
 }
 
 /**
- * Projects one refs entity into domain-independent grouped autocomplete choices.
+ * Calculates domain-independent grouped autocomplete choices from one refs entity.
  *
- * The projection preserves backend order and adds only established display labels
+ * The calculation preserves backend order and adds only established display labels
  * and built-in descriptions. Missing metadata produces an empty list.
  */
 function refsChoices(refs: RefChoices | null) {
@@ -787,7 +789,7 @@ function refsChoices(refs: RefChoices | null) {
 }
 
 /**
- * Renders the repo gate or required-repository Branch Review owner.
+ * Renders the repo gate or required-repository Branch Review Tab.
  *
  * The explicit null gate supplies one concrete project ID, so refs/defaults
  * queries keep canonical identities and no placeholder query is invented.
@@ -838,7 +840,7 @@ type BranchReviewRepoTabProps = RepoTabProps & {
 
 /**
  * Represents whether Branch Review has no selection, awaits defaults requested by
- * activation, or owns a complete immutable selected pair.
+ * activation, or contains a complete immutable selected pair.
  *
  * Live control edits are deliberately absent. Only the values variant may produce
  * DiffParams; waiting exists so asynchronous defaults cannot imply selection alone.
@@ -850,7 +852,7 @@ type BranchReviewSelected =
 
 /**
  * Represents whether Preset has no selection, awaits its requested catalog
- * default, or owns one complete immutable kind/subset pair.
+ * default, or contains one complete immutable kind/subset pair.
  *
  * Catalog arrival alone cannot create a ChangeSet without the waiting command.
  * Live kind and highlighted control state are not selected DiffParams.
@@ -875,7 +877,7 @@ type SelectedPullRequest = {
 /**
  * Defines the shared presentational contract of Branch Review controls.
  *
- * Realtime selections and refs remain caller-owned. Query-backed actions are
+ * Realtime selections and refs remain with the caller. Query-backed actions are
  * explicit nullable slots; `action` is either Load or the repository gate.
  */
 type BranchReviewControlsProps = {
@@ -897,7 +899,7 @@ type BranchReviewControlsProps = {
 /**
  * Renders both structured branch inputs and their smallest dependent actions.
  *
- * It owns no query, defaults, mutation, selected value, or URL state. Null refs
+ * It stores no query, defaults, mutation, selected value, or URL state. Null refs
  * keep every field free-form, and callers place RepoGate exactly where Load sits.
  */
 function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
@@ -950,7 +952,7 @@ function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
 }
 
 /**
- * Renders structured branch controls with canonical refs/defaults ownership.
+ * Renders structured branch controls backed by canonical refs/defaults queries.
  *
  * Untouched inputs derive realtime defaults. Activation requests a default-backed
  * selection, while explicit Load snapshots current control values. Later edits do
@@ -1011,6 +1013,12 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   });
   const saveMainBranch = createMutation(() => ({
     ...api.repos.saveMainBranch(),
+    /**
+     * Refreshes repository defaults after the backend accepts the main branch.
+     *
+     * TanStack invokes this only on success. The callback invalidates the one
+     * canonical defaults key and does not copy defaults into Branch Review state.
+     */
     onSuccess() {
       void queryClient.invalidateQueries({
         queryKey: api.repos.defaults(props.projectId).queryKey,
@@ -1042,7 +1050,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
    * The effect observes active state, the tagged selection, and realtime default
    * derivations. It is inert unless this Tab requested a default-backed selection;
    * once both sides become complete it performs the external URL/selection command,
-   * changes the tag to `values`, and therefore makes itself inert. It owns no
+   * changes the tag to `values`, and therefore makes itself inert. It stores no
    * subscription requiring cleanup and is disposed with the eternal Tab.
    */
   createEffect(
@@ -1103,7 +1111,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   /**
    * Returns the shared refs observer's panel-local refresh presentation.
    *
-   * Every branch/remote autocomplete receives its own projection of the same state
+   * Every branch/remote autocomplete receives its own rendering of the same state
    * and operation; no standing field icon is rendered.
    */
   function refreshControl(): JSX.Element {
@@ -1234,7 +1242,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
 /**
  * Defines the complete inputs for one structured source/branch field pair.
  *
- * The caller owns the selected BranchSelection; the component owns no duplicate
+ * The caller stores the selected BranchSelection; the component stores no duplicate
  * domain state and reports complete local or remote variants after interaction.
  */
 type BranchSelectionFieldsProps = {
@@ -1400,6 +1408,12 @@ function PullRequestTab(
   }
   const prepare = createMutation(() => ({
     ...api.pullRequest.prepare(),
+    /**
+     * Reports authoritative prepared Pull Request values to the Tab.
+     *
+     * TanStack invokes this only after the backend resolves the URL. The callback
+     * passes the complete result upward without retaining a second prepared value.
+     */
     onSuccess(prepared: PreparedPullRequest) {
       props.onPrepared(prepared);
     },
@@ -1591,7 +1605,7 @@ function PresetTab(
    * The effect observes active state, the tagged selection, current preset kind,
    * and effective catalog default. Once a concrete preset appears it performs the
    * external URL/selection command and changes the tag to `value`, making itself
-   * inert. It owns no external subscription and is disposed with the eternal Tab.
+   * inert. It creates no external subscription and is disposed with the eternal Tab.
    */
   createEffect(
     on(
@@ -1720,7 +1734,7 @@ function PresetTab(
 }
 
 /**
- * Projects one active owner’s compact metadata state into AppHeader.
+ * Renders one active Tab's compact metadata state in AppHeader.
  *
  * The query and retry operation remain in the Tab. Portal changes physical DOM
  * placement only; inactive or settled observers contribute no header content.
@@ -1814,6 +1828,12 @@ function RepoGate(props: RepoGateProps): JSX.Element {
   }));
   const removeRepo = createMutation(() => ({
     ...api.repos.remove(),
+    /**
+     * Refreshes repository metadata after successful gatekeeper removal.
+     *
+     * TanStack invokes this only after backend success. The callback invalidates
+     * the canonical list; RepoGate derives its next presentation from that query.
+     */
     onSuccess() {
       void queryClient.invalidateQueries({
         queryKey: api.repos.list().queryKey,

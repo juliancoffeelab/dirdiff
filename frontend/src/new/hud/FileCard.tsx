@@ -1,13 +1,13 @@
 /**
- * Renders one stable manifest-position file owner and its complete state branch.
+ * Renders one stable manifest-position FileCard and its complete state branch.
  *
- * The module exports FileCard and its HunkPosition display contract. It owns
+ * The module exports FileCard and its HunkPosition display contract. FileCard contains
  * HuskFile, LazyFile, FullFile, their distinct headers, FileBody dispatch,
- * per-card rendering containment, and the explicit lazy-load affordance.
+ * a FullFile renderer ErrorBoundary, and the explicit lazy-load affordance.
  * Callers provide a reactive derived state, ChangeSet-owned expansion, hunk
  * display accessors, and the single-lane load command. This module must not
  * observe queries, schedule HTTP work, own ChangeSet progress, or navigate
- * hunks. File representation changes remain internal to this owner.
+ * hunks. File representation changes remain internal to FileCard.
  */
 import {
   ErrorBoundary,
@@ -59,10 +59,10 @@ type RichZone = {
 };
 
 /**
- * Represents the complete local body representation owned by one FullFile.
+ * Represents the complete local body representation for one FullFile.
  *
  * Rich means the natural interactive renderer; virtual means complete plain
- * split text. The mode must never represent loading, folding, or navigation.
+ * split text. The mode must never represent loading, file expansion, or navigation.
  */
 type FileRenderMode = "rich" | "virtual";
 
@@ -198,7 +198,7 @@ type LazyFile =
  * Describes a file whose content starts only through explicit user activation.
  *
  * Retry and delayed hydration use distinct ChangeSet-supplied commands because
- * their HTTP timeout policies differ. The state itself owns no query state,
+ * their HTTP timeout policies differ. The state itself contains no query state,
  * timeout policy, or copied loading flag.
  */
 type LazyFileState = {
@@ -216,7 +216,7 @@ type LazyFileState = {
 type FileCardState = HuskFileState | FullFileState | LazyFileState;
 
 /**
- * Defines every input required by one stable FileCard owner.
+ * Defines every input required by one stable FileCard.
  *
  * Expansion remains ChangeSet-owned so it survives active-content replacement.
  * `explicitlyCollapsed` distinguishes a user/directory collapse from the
@@ -244,7 +244,7 @@ type FileCardProps = {
 } & HunkCounterProps;
 
 /**
- * Renders one stable manifest-position file owner and contains its renderer.
+ * Renders one stable manifest-position FileCard and contains its renderer.
  *
  * Callers keep this component mounted at one manifest position and replace only
  * its reactive state. FullFile renderer failures remain inside the stable
@@ -270,10 +270,10 @@ export function FileCard(props: FileCardProps): JSX.Element {
 }
 
 /**
- * Projects one reactive state branch into stable FileCard DOM.
+ * Renders one reactive state branch into stable FileCard DOM.
  *
  * The article persists for this mounted keyed manifest entry. State replacement
- * swaps complete Husk, Full, or Lazy content without moving query ownership into
+ * swaps complete Husk, Full, or Lazy content without moving query state into
  * the card or retaining partial content from the prior branch.
  */
 function FileCardContent(props: FileCardProps): JSX.Element {
@@ -545,7 +545,7 @@ function HunkCounterBadges(props: HunkCounterProps): JSX.Element {
  * Renders a complete file header and rich body from one immutable query result.
  *
  * View and aggressive-fold changes are read reactively by the renderer. They do
- * not replace query data or transfer global progress and navigation ownership
+ * not replace query data or move global progress and navigation behavior
  * into FileBody.
  */
 function FullFile(
@@ -603,7 +603,7 @@ function FullFile(
    *
    * Observer callbacks call this operation directly. Zero or non-finite DOM
    * measurements are unusable and leave prior or natural geometry intact. It
-   * owns no navigation, selected-hunk, ChangeSet, or scrolling behavior.
+   * performs no navigation, selected-hunk, ChangeSet, or scrolling behavior.
    */
   function changeRenderMode(mode: FileRenderMode): void {
     if (renderMode() === mode) {
@@ -824,7 +824,7 @@ function FullFile(
  *
  * The representation is always split and contains two aligned searchable text
  * nodes beneath the stable FullFileHeader. It writes one transparent real-hunk
- * target for every backend boundary, but owns no selection, navigation, syntax
+ * target for every backend boundary, but handles no selection, navigation, syntax
  * spans, inline tokens, rich rows, or row virtualization.
  */
 function VirtualFile(props: {
@@ -833,7 +833,7 @@ function VirtualFile(props: {
   reservedRichHeight: number | null;
 }): JSX.Element {
   /**
-   * Projects one complete backend side into aligned searchable plain text.
+   * Renders one complete backend side as aligned searchable plain text.
    *
    * Callers choose the required old or new field. Missing text is an intentional
    * blank row, so both returned sides preserve identical backend row positions.
@@ -934,8 +934,8 @@ function FullFileHeader(
           aria-expanded={props.expanded}
           aria-label={
             props.expanded
-              ? `Fold ${props.state.file.display_name}`
-              : `Show ${props.state.file.display_name}`
+              ? `Collapse ${props.state.file.display_name}`
+              : `Expand ${props.state.file.display_name}`
           }
           onClick={() => props.onExpandedChange(!props.expanded)}
         >
@@ -1149,7 +1149,7 @@ function DeferredFilePlank(props: {
    * Returns the complete visible explanation for the backend delay reason.
    *
    * The backend display name is preserved verbatim. Null is an invalid
-   * LazyFile reason and throws instead of producing fallback copy.
+   * LazyFile reason and throws instead of substituting an explanation.
    */
   const explanation = () => {
     switch (props.info.lazy) {
@@ -1194,7 +1194,7 @@ function DeferredFilePlank(props: {
  * Dispatches one complete FileDiff to its established rich renderer.
  *
  * The notebook discriminator is the only variant test. Text rows retain the
- * exact backend labels, hints, and Difftastic collapse policy; this boundary does
+ * exact backend labels, hints, and Difftastic row-combination policy; this boundary does
  * not subscribe to progress, headers, other files, or navigation state.
  */
 function FileBody(props: {
@@ -1224,7 +1224,7 @@ function FileBody(props: {
       foldHints={props.file.fold_hints}
       viewMode={props.view}
       aggressiveFolds={props.aggressiveFolds}
-      collapseInsertOnlyReplaceRows={props.engine === "difftastic"}
+      combineInsertOnlyReplaceRows={props.engine === "difftastic"}
     />
   );
 }

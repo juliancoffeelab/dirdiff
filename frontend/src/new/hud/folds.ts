@@ -1,7 +1,7 @@
 /**
- * Projects validated backend fold hints into nested render rows.
+ * Transforms validated backend fold hints into nested render rows.
  *
- * The module exports the pure fold-row contracts and projection operations used
+ * The module exports the pure fold-row contracts and construction operations used
  * by DiffGrid. Callers provide immutable rows, backend hint ranges, and the
  * selected aggressive-fold policy. It validates range structure and must not own
  * expanded-fold UI state, mutate backend rows, touch the DOM, or navigate hunks.
@@ -9,7 +9,7 @@
 import type { DiffRow, FoldHint } from "../api/api";
 
 /**
- * Represents one validated backend fold range in the nested projection tree.
+ * Represents one validated backend fold range in the nested fold tree.
  *
  * Row bounds use the half-open backend interval. Children are wholly contained
  * ranges; crossing or out-of-bounds hints are rejected before this shape is
@@ -28,7 +28,7 @@ type NormalizedFoldHint = {
  *
  * `foldedRows` retains the complete nested content, `startRow` preserves its
  * original row identity, and `count` is the number of source rows represented.
- * The value is an immutable render projection, not a mutable fold controller.
+ * The value is immutable fold-row data, not a mutable fold controller.
  */
 export type FoldRow<TRow extends DiffRow = DiffRow> = {
   status: "fold";
@@ -40,7 +40,7 @@ export type FoldRow<TRow extends DiffRow = DiffRow> = {
 };
 
 /**
- * Describes one row accepted by the rendering kernel after fold projection.
+ * Describes one row accepted by the rendering kernel after fold construction.
  *
  * Callers must discriminate FoldRow through `isFoldRow`; ordinary members are
  * the validated backend DiffRow values and retain their original order.
@@ -52,7 +52,7 @@ export type RenderRow<TRow extends DiffRow = DiffRow> = TRow | FoldRow<TRow>;
  *
  * Callers must supply the required array from FileDiff, the exact source row
  * count, and the active aggressive-fold policy. Invalid or crossing ranges
- * throw; an empty or fully filtered list returns an empty projection.
+ * throw; an empty or fully filtered list returns an empty result.
  */
 export function parseFoldHints(
   foldHints: FoldHint[],
@@ -82,7 +82,8 @@ export function parseFoldHints(
  * Converts one backend hint into a validated half-open source-row range.
  *
  * The caller supplies the hint's original list index for precise contract
- * errors. The returned node begins without children; nesting is a later pass.
+ * errors. The returned node has no children; `normalizeFoldHints` passes all
+ * validated nodes to `nestFoldHints` before exposing the result.
  */
 function parseFoldHint(
   hint: FoldHint,
@@ -151,7 +152,7 @@ function nestFoldHints(hints: NormalizedFoldHint[]): NormalizedFoldHint[] {
 }
 
 /**
- * Projects validated DiffRows into a mixed sequence containing FoldRows.
+ * Transforms validated DiffRows into a mixed sequence containing FoldRows.
  *
  * Callers provide the required backend hint list and active fold policy. The
  * source rows and hints are not mutated; no applicable hints returns the exact
@@ -171,7 +172,7 @@ export function addFoldRows<TRow extends DiffRow>(
 }
 
 /**
- * Projects one validated source-row interval and its direct nested hints.
+ * Transforms one validated source-row interval and its direct nested hints.
  *
  * The bounds are required half-open indices into `rows`. Each hint is emitted
  * exactly once and untouched rows retain their original order. A folded range
@@ -222,7 +223,7 @@ function addFoldRowsInRange<TRow extends DiffRow>(
 }
 
 /**
- * Narrows a projected render row to the FoldRow variant.
+ * Narrows a transformed render row to the FoldRow variant.
  *
  * Callers may rely on the literal `status` discriminator; the function neither
  * validates nor mutates ordinary DiffRows.

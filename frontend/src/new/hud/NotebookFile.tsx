@@ -2,10 +2,10 @@
  * Renders one validated notebook FileDiff inside a FullFile body.
  *
  * The module exports NotebookFile as the notebook-specific renderer boundary. It
- * owns notebook summary badges, cell framing, and source-region DiffGrid calls.
+ * renders notebook summary badges and cell framing and invokes DiffGrid for source regions.
  * Callers provide one complete immutable NotebookFileDiff and current renderer
- * inputs. It must not fetch cell details, own ChangeSet state, virtualize the
- * outer file, or collapse notebook regions into ordinary text-file identity.
+ * inputs. It must not fetch cell details, store ChangeSet state, virtualize the
+ * outer file, or merge notebook regions into ordinary text-file identity.
  */
 import { For, Show, type JSX } from "solid-js";
 import type { NotebookCell, NotebookFileDiff } from "../api/api";
@@ -150,7 +150,7 @@ function NotebookCellView(props: NotebookCellProps): JSX.Element {
           foldHints={props.cell.source_fold_hints}
           viewMode={props.view}
           aggressiveFolds={props.aggressiveFolds}
-          collapseInsertOnlyReplaceRows={false}
+          combineInsertOnlyReplaceRows={false}
         />
       </section>
     </article>

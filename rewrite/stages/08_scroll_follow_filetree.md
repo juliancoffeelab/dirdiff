@@ -22,7 +22,7 @@ Implement in this order:
 
 6. FileTree navigation to a LazyFile neither expands nor fetches it. A directory-name activation may eventually navigate to that directory's first hunk, but it never changes expansion. Directory squares bulk-toggle descendant files, FullFile squares toggle only their file, and no label toggles collapse state. Exact directory/file target resolution, Lazy pseudo-target selection, and scrolling remain part of this chapter's unresolved design gate.
 
-7. Execute the complete wrapped-Previous and backward-scrolling stress scenario required by Section 47 of `../spec/04_navigation_virtualization.md`, including rich, virtual, Husk, Lazy, zero, and collapsed skip representations.
+7. Execute the complete wrapped-Previous and backward-scrolling stress scenario required by Section 47 of `../spec/04_navigation_virtualization.md`, including rich, virtual, Husk, Lazy, zero, and skip representations for collapsed files.
 
 Explicitly absent from Chapter 8:
 

@@ -3,7 +3,7 @@
  *
  * The module exports AppHeader, which renders the brand, Profile, global repo,
  * engine and view controls, metadata status, and stable ChangeSet outlet targets.
- * It observes the canonical repository list and owns repository removal commands.
+ * It observes the canonical repository list and performs repository removal commands.
  * It does not own workspace selection or ChangeSet status and summary data.
  */
 import { Show, createMemo, createSignal, type JSX } from "solid-js";
@@ -89,9 +89,9 @@ type RepoSelectProps = {
 /**
  * Renders the sticky global application header.
  *
- * Callers provide App-owned workspace values and explicit commands. Repository
+ * Callers provide workspace values from App and explicit commands. Repository
  * backend data stays in TanStack Query, while stable outlet elements receive
- * active ChangeSet and owner-retained metadata Portal contributions.
+ * active ChangeSet and metadata Portal contributions retained by Tabs and Profile.
  */
 export function AppHeader(props: AppHeaderProps): JSX.Element {
   const queryClient = useQueryClient();
@@ -101,6 +101,13 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
   const repos = createQuery(() => ({ ...api.repos.list() }));
   const removeRepo = createMutation(() => ({
     ...api.repos.remove(),
+    /**
+     * Applies the successful repository-removal result to shared UI state.
+     *
+     * TanStack supplies the exact removed `ProjectId`. The callback starts
+     * invalidation of canonical repository metadata and then notifies Workspace;
+     * failures never enter this callback and remain handled by the mutation cache.
+     */
     onSuccess(_result, projectId: ProjectId) {
       void queryClient.invalidateQueries({
         queryKey: api.repos.list().queryKey,
@@ -264,7 +271,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
         />
         <div
           ref={(element) => {
-            // Share this physical Portal target without moving metadata ownership.
+            // Share this physical Portal target without moving metadata queries or state.
             setMetadataTarget(element);
             props.onMetadataStatusTarget(element);
           }}
@@ -280,7 +287,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
  * Renders the repository selector using canonical query data.
  *
  * The component derives display names from complete marks and reports only exact
- * numeric IDs. It owns no repository query, selection, removal, or confirmation.
+ * numeric IDs. It stores no repository query, selection, removal, or confirmation.
  */
 function RepoSelect(props: RepoSelectProps): JSX.Element {
   const options = createMemo<SelectOption[]>(() =>
