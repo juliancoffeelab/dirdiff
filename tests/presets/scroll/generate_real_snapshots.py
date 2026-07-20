@@ -4,9 +4,10 @@ This script is the construction interface for the Scroll preset catalog. It
 extracts selected old/new blobs from repository history, assigns readable
 ordered fixture names, and applies explicit lazy classifications where a
 scenario needs them. Most fixtures share one stable comparison; explicit
-per-fixture ref pairs preserve focused historical cases such as the compact
-aggressively-folded middle of the sandwich preset. It must not alter application
-code, invent source contents, or retain superseded generated-row fixture groups.
+per-fixture ref pairs and empty sides preserve focused historical additions and
+deletions alongside the compact aggressively-folded middle of the sandwich
+preset. It must not alter application code, invent source contents, or retain
+superseded generated-row fixture groups.
 """
 
 from __future__ import annotations
@@ -146,6 +147,21 @@ GROUPS = {
             "frontend/src/new/hud/Profile.tsx",
             None,
         ),
+        (
+            "11-added-profile-snapshot",
+            "tests/presets/scroll/many-files/10-frontend-src-new-hud-Profile/old.tsx",
+            None,
+        ),
+        (
+            "12-lazy-deleted-server",
+            "tests/presets/scroll/long-context/01-src-dirdiff-server/new.py",
+            "deleted",
+        ),
+        (
+            "13-trailing-query-client",
+            "frontend/src/new/api/queryClient.tsx",
+            None,
+        ),
     ],
     "sandwich": [
         ("01-frontend-src-App", "frontend/src/App.tsx", None),
@@ -162,6 +178,29 @@ REF_OVERRIDES = {
         "f9727e6ba7a4e97836717dca540e1092fd4c88c1",
         "1caf2662bb2c54919bb8c235025a01f9017f6636",
     ),
+    (
+        "many-files",
+        "11-added-profile-snapshot",
+    ): (
+        "75f2953d270d280f5fbabacdd6bcbb33a10ac394",
+        "eee27276d387b2e2d3b2219cc81fd4c47602a2ba",
+    ),
+    (
+        "many-files",
+        "12-lazy-deleted-server",
+    ): (
+        "75f2953d270d280f5fbabacdd6bcbb33a10ac394",
+        "eee27276d387b2e2d3b2219cc81fd4c47602a2ba",
+    ),
+}
+
+# These exact historical changes added or deleted their source paths.
+# PresetBackend requires both files, so generation keeps the missing side empty.
+EMPTY_OLD_SIDES = {
+    ("many-files", "11-added-profile-snapshot"),
+}
+EMPTY_NEW_SIDES = {
+    ("many-files", "12-lazy-deleted-server"),
 }
 
 GROUP_REF_OVERRIDES = {
@@ -214,10 +253,14 @@ def main() -> None:
             fixture_dir.mkdir(parents=True)
             suffix = Path(source_path).suffix
             (fixture_dir / f"old{suffix}").write_bytes(
-                git_blob(left_ref, source_path)
+                b""
+                if (group_name, fixture_name) in EMPTY_OLD_SIDES
+                else git_blob(left_ref, source_path)
             )
             (fixture_dir / f"new{suffix}").write_bytes(
-                git_blob(right_ref, source_path)
+                b""
+                if (group_name, fixture_name) in EMPTY_NEW_SIDES
+                else git_blob(right_ref, source_path)
             )
             (fixture_dir / "Makefile").write_text(
                 PRESET_MAKEFILE, encoding="utf-8"

@@ -67,12 +67,17 @@ type RichZone = {
 type FileRenderMode = "rich" | "virtual";
 
 /**
- * Describes the direct rich-materialization operation attached by FullFile.
+ * Describes the navigation geometry and rich-materialization operations attached
+ * by FullFile.
  *
- * Navigation may call the method on a virtual FileCard and await mounted rich
- * DOM. The operation changes no selected identity, counter, or scroll position.
+ * Every FullFile exposes both methods as one DOM interface. `waitToEnrich()` is
+ * the general materialization operation. `intersectsRichEntryZone()` is valid
+ * only for a virtualizable text FullFile currently exposing `.virtual-file-body`
+ * and applies that file's exact row-cost policy. Neither operation changes
+ * selected identity, counters, or scroll position.
  */
 type EnrichableFileCard = HTMLElement & {
+  intersectsRichEntryZone: (viewportTop: number) => boolean;
   waitToEnrich: () => Promise<void>;
 };
 
@@ -656,14 +661,55 @@ function FullFile(
     }
   }
 
+  /**
+   * Tests this FileCard against its rich-entry zone at a proposed scroll position.
+   *
+   * Navigation supplies a finite non-negative document viewport top. The result
+   * applies the same row-cost threshold as the local IntersectionObserver without
+   * scrolling or changing representation. It must not be used for the larger
+   * rich-exit zone.
+   */
+  function intersectsRichEntryZone(viewportTop: number): boolean {
+    if (textFile === null) {
+      throw new Error("Only text FullFiles have a rich-entry zone.");
+    }
+    if (!Number.isFinite(viewportTop) || viewportTop < 0) {
+      throw new Error(
+        "Rich-entry geometry requires a finite non-negative viewport top.",
+      );
+    }
+    const viewportHeight = window.innerHeight;
+    if (viewportHeight <= 0) {
+      throw new Error(
+        "Rich-entry geometry requires a positive viewport height.",
+      );
+    }
+    const rect = props.card().getBoundingClientRect();
+    if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) {
+      throw new Error(
+        "Rich-entry geometry requires a finite FileCard rectangle.",
+      );
+    }
+    const cardTop = window.scrollY + rect.top;
+    const cardBottom = window.scrollY + rect.bottom;
+    const margin =
+      richZone(textFile.rows.length).enterViewports * viewportHeight;
+    return (
+      cardBottom >= viewportTop - margin &&
+      cardTop <= viewportTop + viewportHeight + margin
+    );
+  }
+
   onMount(() => {
     const card = props.card() as EnrichableFileCard;
     const observedFile = textFile;
     card.dataset.fileRender = renderMode();
+    card.intersectsRichEntryZone = intersectsRichEntryZone;
     card.waitToEnrich = waitToEnrich;
     if (observedFile === null) {
       onCleanup(() => {
         delete card.dataset.fileRender;
+        Reflect.deleteProperty(card, "intersectsRichEntryZone");
         Reflect.deleteProperty(card, "waitToEnrich");
       });
       return;
@@ -731,6 +777,7 @@ function FullFile(
       }
       window.removeEventListener("resize", observeCurrentZones);
       delete card.dataset.fileRender;
+      Reflect.deleteProperty(card, "intersectsRichEntryZone");
       Reflect.deleteProperty(card, "waitToEnrich");
     });
   });

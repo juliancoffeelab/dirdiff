@@ -95,13 +95,16 @@ export type NavigationProviderProps = {
 };
 
 /**
- * Describes the direct rich-materialization operation attached by FullFile.
+ * Describes the navigation geometry and rich-materialization operations attached
+ * by FullFile.
  *
- * Every mounted FullFile exposes this method. It enriches only an expanded
- * virtual representation and otherwise resolves as a no-op without selecting,
- * expanding, calculating counters, or scrolling.
+ * Every mounted FullFile exposes both methods. `waitToEnrich()` is the general
+ * materialization operation. Navigation calls `intersectsRichEntryZone()` only
+ * for a virtualizable text FullFile currently exposing `.virtual-file-body`.
+ * Neither method selects, expands, calculates counters, or scrolls.
  */
 type EnrichableFileCard = HTMLElement & {
+  intersectsRichEntryZone: (viewportTop: number) => boolean;
   waitToEnrich: () => Promise<void>;
 };
 
@@ -376,11 +379,13 @@ export function NavigationProvider(
    * representations use hunk zero; Lazy and zero representations use their sole
    * file-level target. A transient Husk target makes the operation an immediate
    * no-op because later file replacement has unstable geometry. An expanded
-   * virtual FullFile is enriched and resolved again before an immediate centered
-   * scroll. One browser frame later, it corrects the scroll once only when layout
-   * replacement moved the target completely outside the viewport. This operation
-   * never selects, expands, collapses, fetches, calculates counters, or updates
-   * the FileTree.
+   * virtual FullFile is enriched and resolved again before Navigation calculates
+   * its hypothetical centered viewport. Virtual FileCards intersecting their own
+   * exact rich-entry zones at that position are enriched one at a time. The
+   * destination and hypothetical viewport are recalculated after every layout
+   * change, and one final scroll occurs after geometry settles. A local set bounds
+   * the operation to one enrichment per FileCard. This operation never selects,
+   * expands, collapses, fetches, calculates counters, or updates the FileTree.
    */
   async function navigateToFile(fileIndex: number): Promise<void> {
     if (!Number.isInteger(fileIndex) || fileIndex < 0) {
@@ -450,6 +455,47 @@ export function NavigationProvider(
       return target;
     }
 
+    const enrichedFileCards = new Set<HTMLElement>();
+
+    /**
+     * Calculates the document viewport produced by centered target scrolling.
+     *
+     * The result uses the target's normal-flow offset rather than its visible
+     * rectangle, because sticky FileCard headers can move independently of their
+     * document location. It is recalculated after every rich layout replacement
+     * and leaves the page stationary until the final scroll.
+     */
+    function centeredViewportTop(currentTarget: HTMLElement): number {
+      const viewportHeight = window.innerHeight;
+      if (viewportHeight <= 0) {
+        throw new Error("File navigation requires a positive viewport height.");
+      }
+      let targetDocumentTop = 0;
+      let offsetElement: HTMLElement | null = currentTarget;
+      while (offsetElement !== null) {
+        targetDocumentTop += offsetElement.offsetTop;
+        offsetElement = offsetElement.offsetParent as HTMLElement | null;
+      }
+      const targetHeight = currentTarget.offsetHeight;
+      if (
+        !Number.isFinite(targetDocumentTop) ||
+        !Number.isFinite(targetHeight)
+      ) {
+        throw new Error("File navigation requires finite target geometry.");
+      }
+      const desiredTop =
+        targetDocumentTop + targetHeight / 2 - viewportHeight / 2;
+      const scrollingElement = document.scrollingElement;
+      if (scrollingElement === null) {
+        throw new Error("File navigation requires a document scroll element.");
+      }
+      const maximumTop = Math.max(
+        0,
+        scrollingElement.scrollHeight - viewportHeight,
+      );
+      return Math.min(maximumTop, Math.max(0, desiredTop));
+    }
+
     let target = firstTarget();
     if (target.dataset.hunkKind === "husk") {
       return;
@@ -458,6 +504,7 @@ export function NavigationProvider(
       card.dataset.fileRender === "virtual" &&
       target.dataset.hunkKind === "real"
     ) {
+      enrichedFileCards.add(card);
       await waitToEnrich(card);
       if (!alive) {
         return;
@@ -473,18 +520,48 @@ export function NavigationProvider(
     if (!alive) {
       return;
     }
-    target.scrollIntoView({ block: "center", behavior: "instant" });
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
-    if (!alive) {
-      return;
+
+    while (alive) {
+      target = firstTarget();
+      const viewportTop = centeredViewportTop(target);
+      // Test the viewport that the final scroll will occupy without moving the
+      // page. Each enrichment changes geometry, so the next pass recalculates it.
+      // `waitToEnrich()` completes through Solid's mount microtask only: browser
+      // input and IntersectionObserver callbacks cannot interleave before the
+      // single final scroll.
+      let intersectingVirtualCard: HTMLElement | undefined;
+      for (const candidate of Array.from(
+        root.querySelectorAll<HTMLElement>(
+          '[data-file-card][data-file-render="virtual"]',
+        ),
+      )) {
+        if (
+          enrichedFileCards.has(candidate) ||
+          candidate.querySelector(".virtual-file-body") === null
+        ) {
+          continue;
+        }
+        const enrichableCard = candidate as Partial<EnrichableFileCard>;
+        if (typeof enrichableCard.intersectsRichEntryZone !== "function") {
+          throw new Error("Virtual FullFile omitted rich-entry geometry.");
+        }
+        if (enrichableCard.intersectsRichEntryZone(viewportTop)) {
+          intersectingVirtualCard = candidate;
+          break;
+        }
+      }
+      if (intersectingVirtualCard === undefined) {
+        break;
+      }
+      enrichedFileCards.add(intersectingVirtualCard);
+      await waitToEnrich(intersectingVirtualCard);
+      if (!alive) {
+        return;
+      }
     }
+
     target = firstTarget();
-    const targetRect = target.getBoundingClientRect();
-    if (targetRect.bottom <= 0 || targetRect.top >= window.innerHeight) {
-      target.scrollIntoView({ block: "center", behavior: "instant" });
-    }
+    target.scrollIntoView({ block: "center", behavior: "instant" });
     card.classList.remove("file-card-flash");
     void card.offsetWidth;
     card.classList.add("file-card-flash");
