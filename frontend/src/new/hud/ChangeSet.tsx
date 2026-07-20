@@ -865,7 +865,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         root.querySelectorAll<HTMLElement>("[data-file-card]"),
       );
       const selectedCards = cards.filter(
-        (card) => card.dataset.selectedHunkKind !== undefined,
+        (card) => card.dataset.selectedHunkIndex !== undefined,
       );
       if (cards.length === 0) {
         if (selectedCards.length !== 0) {
@@ -894,14 +894,30 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       const fileSelectedHunks = new Map<number, HunkPosition>();
 
       cards.forEach((card) => {
-        const fileIndex = Number(card.dataset.fileIndex);
-        if (!Number.isInteger(fileIndex) || fileIndex < 0) {
+        const fileIndexText = card.dataset.fileIndex;
+        if (
+          fileIndexText === undefined ||
+          !/^(?:0|[1-9]\d*)$/.test(fileIndexText)
+        ) {
           throw new Error("FileCard has an invalid manifest file index.");
         }
+        const fileIndex = Number(fileIndexText);
         const hunkSet = parseHunkSet(card);
         const targets = Array.from(
           card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
         );
+        for (const target of targets) {
+          const hunkIndex = target.dataset.hunkIndex;
+          if (
+            target.dataset.fileIndex !== fileIndexText ||
+            hunkIndex === undefined ||
+            !/^(?:0|[1-9]\d*)$/.test(hunkIndex)
+          ) {
+            throw new Error(
+              `FileCard ${fileIndexText} contains a hunk with invalid coordinates.`,
+            );
+          }
+        }
         const participatingTargets = targets.filter(
           (target) => !target.classList.contains("skip"),
         );
@@ -910,43 +926,23 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         let localCurrent: number | null = null;
         if (card === selectedCards[0]) {
           selectedFileIndex = fileIndex;
-          const selectedKind = card.dataset.selectedHunkKind;
           const selectedIndexText = card.dataset.selectedHunkIndex;
-          let selectedTarget: HTMLElement | undefined;
-          if (selectedKind === "real" || selectedKind === "skip") {
-            if (selectedIndexText === undefined) {
-              throw new Error("Selected coordinate has no hunk index.");
-            }
-            selectedTarget = targets.find(
-              (target) =>
-                (target.dataset.hunkKind === "real" ||
-                  target.dataset.hunkKind === "skip") &&
-                target.dataset.hunkIndex === selectedIndexText,
-            );
-          } else if (
-            selectedKind === "husk" ||
-            selectedKind === "lazy" ||
-            selectedKind === "zero"
-          ) {
-            if (selectedIndexText !== undefined) {
-              throw new Error("Selected pseudo-hunk has a coordinate.");
-            }
-            selectedTarget = targets.find(
-              (target) => target.dataset.hunkKind === selectedKind,
-            );
-            if (
-              selectedTarget === undefined &&
-              (selectedKind === "husk" || selectedKind === "lazy")
-            ) {
-              // A loaded FullFile leaves its stale selected pseudo identity on
-              // the FileCard; both explicit directions continue at target zero.
-              selectedTarget = targets[0];
-            }
-          } else {
-            throw new Error("FileCard has an invalid selected hunk kind.");
+          if (selectedIndexText === undefined) {
+            throw new Error("Selected FileCard has no hunk index.");
           }
+          const matchingTargets = targets.filter(
+            (target) =>
+              target.dataset.fileIndex === String(fileIndex) &&
+              target.dataset.hunkIndex === selectedIndexText,
+          );
+          if (matchingTargets.length !== 1) {
+            throw new Error(
+              `Selected hunk (${fileIndex}, ${selectedIndexText}) requires exactly one DOM target.`,
+            );
+          }
+          const selectedTarget = matchingTargets[0];
           if (selectedTarget === undefined) {
-            throw new Error("Selected hunk has no calculable DOM position.");
+            throw new Error("Selected hunk target disappeared.");
           }
           localCurrent = targets.indexOf(selectedTarget) + 1;
           selectedCurrent = stablePositionOffset + localCurrent;
@@ -1032,7 +1028,6 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         attributes: true,
         attributeFilter: [
           "data-hunk-set",
-          "data-selected-hunk-kind",
           "data-selected-hunk-index",
           "data-file-render-error",
         ],

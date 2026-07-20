@@ -32,22 +32,18 @@ export type RealHunkIdentity = {
 };
 
 /**
- * Identifies one file-level target or one coordinate-preserving skipped hunk.
+ * Identifies one file-state pseudo-hunk or coordinate-preserving skipped hunk.
  *
- * Husk, Lazy, and zero targets represent complete file states. Skip targets
- * preserve a real hunk's coordinates after its file collapses while remaining outside the
- * traversal set. Renderers write these fields directly into DOM attributes.
+ * Husk, Lazy, and zero targets represent complete file states and require
+ * `hunkIndex === 0`. Skip targets preserve the nonnegative index of the real
+ * hunk replaced when its file collapses. Renderers write every field directly
+ * into DOM attributes; `kind` never replaces either coordinate.
  */
-export type PseudoHunkIdentity =
-  | {
-      fileIndex: number;
-      kind: "husk" | "lazy" | "zero";
-    }
-  | {
-      fileIndex: number;
-      kind: "skip";
-      hunkIndex: number;
-    };
+export type PseudoHunkIdentity = {
+  fileIndex: number;
+  kind: "husk" | "lazy" | "zero" | "skip";
+  hunkIndex: number;
+};
 
 /**
  * Describes every concrete hunk identity a renderer may write into the DOM.
@@ -86,8 +82,8 @@ export type Navigation = {
 /**
  * Defines the required DOM root and descendants served by one Provider.
  *
- * The accessor must return this mounted ChangeSet's root. Navigation never
- * falls back to document and children must remain inside that root.
+ * The accessor must return this mounted ChangeSet's root. Navigation reads only
+ * that root, never `document`, and children must remain inside it.
  */
 export type NavigationProviderProps = {
   root: Accessor<HTMLElement>;
@@ -170,22 +166,21 @@ export function NavigationProvider(
     if (fileIndex === undefined || fileCard.dataset.fileIndex !== fileIndex) {
       throw new Error("Hunk target and FileCard indices do not match.");
     }
-    const numericFileIndex = Number(fileIndex);
-    if (!Number.isInteger(numericFileIndex) || numericFileIndex < 0) {
+    if (!/^(?:0|[1-9]\d*)$/.test(fileIndex)) {
       throw new Error("Hunk target has an invalid file index.");
     }
     const hunkIndex = target.dataset.hunkIndex;
-    if ((kind === "real" || kind === "skip") && hunkIndex === undefined) {
-      throw new Error("Coordinate hunk target is missing its hunk index.");
+    if (hunkIndex === undefined) {
+      throw new Error("Hunk target is missing its hunk index.");
     }
-    if (kind !== "real" && kind !== "skip" && hunkIndex !== undefined) {
-      throw new Error("File-level pseudo-hunk unexpectedly has a hunk index.");
+    if (!/^(?:0|[1-9]\d*)$/.test(hunkIndex)) {
+      throw new Error("Hunk target has an invalid hunk index.");
     }
-    if (hunkIndex !== undefined) {
-      const numericHunkIndex = Number(hunkIndex);
-      if (!Number.isInteger(numericHunkIndex) || numericHunkIndex < 0) {
-        throw new Error("Hunk target has an invalid hunk index.");
-      }
+    if (
+      (kind === "husk" || kind === "lazy" || kind === "zero") &&
+      hunkIndex !== "0"
+    ) {
+      throw new Error(`${kind} pseudo-hunk requires hunk index zero.`);
     }
 
     for (const previousTarget of root.querySelectorAll<HTMLElement>(
@@ -196,19 +191,13 @@ export function NavigationProvider(
       previousTarget.classList.remove("active-hunk");
     }
     for (const previousCard of root.querySelectorAll<HTMLElement>(
-      "[data-file-card][data-selected-hunk-kind]",
+      "[data-file-card][data-selected-hunk-index]",
     )) {
-      delete previousCard.dataset.selectedHunkKind;
       delete previousCard.dataset.selectedHunkIndex;
       previousCard.classList.remove("active-hunk");
     }
 
-    fileCard.dataset.selectedHunkKind = kind;
-    if (hunkIndex === undefined) {
-      delete fileCard.dataset.selectedHunkIndex;
-    } else {
-      fileCard.dataset.selectedHunkIndex = hunkIndex;
-    }
+    fileCard.dataset.selectedHunkIndex = hunkIndex;
     fileCard.classList.add("active-hunk");
     target.setAttribute("data-selected", "");
     target.setAttribute("aria-current", "true");
@@ -216,19 +205,18 @@ export function NavigationProvider(
   }
 
   /**
-   * Resolves the selected FileCard and its current scroll-back element.
+   * Resolves the exact selected hunk target from its FileCard coordinates.
    *
-   * Participating and skipped targets are matched directly by primitive DOM
-   * attributes. A stale selected Husk or Lazy identity falls back to the stable
-   * FileCard header after FullFile replaces its pseudo-target.
+   * Every hunk representation carries both file and hunk indices. Missing or
+   * duplicate coordinates are application errors; this operation never
+   * substitutes a FileCard header or another target.
    */
   function selectedLocation(root: HTMLElement): {
     card: HTMLElement;
-    element: HTMLElement;
-    target: HTMLElement | null;
+    target: HTMLElement;
   } {
     const cards = root.querySelectorAll<HTMLElement>(
-      "[data-file-card][data-selected-hunk-kind]",
+      "[data-file-card][data-selected-hunk-index]",
     );
     if (cards.length !== 1) {
       throw new Error(
@@ -239,59 +227,35 @@ export function NavigationProvider(
     if (card === undefined) {
       throw new Error("Selected FileCard disappeared during navigation.");
     }
-    const selectedKind = card.dataset.selectedHunkKind;
     const selectedHunkIndex = card.dataset.selectedHunkIndex;
     const fileIndex = card.dataset.fileIndex;
-    if (selectedKind === undefined || fileIndex === undefined) {
+    if (selectedHunkIndex === undefined || fileIndex === undefined) {
       throw new Error("Selected FileCard has incomplete hunk identity.");
     }
     if (
-      selectedKind !== "real" &&
-      selectedKind !== "husk" &&
-      selectedKind !== "lazy" &&
-      selectedKind !== "zero" &&
-      selectedKind !== "skip"
+      !/^(?:0|[1-9]\d*)$/.test(fileIndex) ||
+      !/^(?:0|[1-9]\d*)$/.test(selectedHunkIndex)
     ) {
-      throw new Error("Selected FileCard has an invalid hunk kind.");
-    }
-    const coordinateIdentity =
-      selectedKind === "real" || selectedKind === "skip";
-    if (coordinateIdentity && selectedHunkIndex === undefined) {
-      throw new Error("Selected coordinate identity has no hunk index.");
-    }
-    if (!coordinateIdentity && selectedHunkIndex !== undefined) {
-      throw new Error("Selected file-level identity has a hunk index.");
+      throw new Error("Selected FileCard has an invalid hunk coordinate.");
     }
 
-    let matchingTarget: HTMLElement | null = null;
-    for (const candidate of card.querySelectorAll<HTMLElement>(
-      "[data-hunk-target]",
-    )) {
-      const kindMatches = coordinateIdentity
-        ? candidate.dataset.hunkKind === "real" ||
-          candidate.dataset.hunkKind === "skip"
-        : candidate.dataset.hunkKind === selectedKind;
-      const indexMatches = coordinateIdentity
-        ? candidate.dataset.hunkIndex === selectedHunkIndex
-        : candidate.dataset.hunkIndex === undefined;
-      if (kindMatches && indexMatches) {
-        if (matchingTarget !== null) {
-          throw new Error("Selected hunk identity has duplicate DOM targets.");
-        }
-        matchingTarget = candidate;
-      }
+    const matchingTargets = Array.from(
+      card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
+    ).filter(
+      (candidate) =>
+        candidate.dataset.fileIndex === fileIndex &&
+        candidate.dataset.hunkIndex === selectedHunkIndex,
+    );
+    if (matchingTargets.length !== 1) {
+      throw new Error(
+        `Selected hunk (${fileIndex}, ${selectedHunkIndex}) requires exactly one DOM target.`,
+      );
     }
-    if (matchingTarget !== null) {
-      return { card, element: matchingTarget, target: matchingTarget };
+    const target = matchingTargets[0];
+    if (target === undefined) {
+      throw new Error("Selected hunk target disappeared during navigation.");
     }
-    if (selectedKind !== "husk" && selectedKind !== "lazy") {
-      throw new Error("Selected hunk identity has no current DOM location.");
-    }
-    const header = card.querySelector<HTMLElement>(".file-card-header");
-    if (header === null) {
-      throw new Error("Selected FileCard has no stable header.");
-    }
-    return { card, element: header, target: null };
+    return { card, target };
   }
 
   /**
@@ -331,17 +295,23 @@ export function NavigationProvider(
     if (card === null || !root.contains(card)) {
       throw new Error("Navigation destination has no owning FileCard.");
     }
+    const fileIndex = initialTarget.dataset.fileIndex;
+    const hunkIndex = initialTarget.dataset.hunkIndex;
+    if (
+      fileIndex === undefined ||
+      hunkIndex === undefined ||
+      !/^(?:0|[1-9]\d*)$/.test(fileIndex) ||
+      !/^(?:0|[1-9]\d*)$/.test(hunkIndex) ||
+      card.dataset.fileIndex !== fileIndex
+    ) {
+      throw new Error("Navigation destination has invalid hunk coordinates.");
+    }
     let target = initialTarget;
     if (
       card.dataset.fileRender === "virtual" &&
       initialTarget.dataset.hunkKind === "real"
     ) {
       const kind = initialTarget.dataset.hunkKind;
-      const fileIndex = initialTarget.dataset.fileIndex;
-      const hunkIndex = initialTarget.dataset.hunkIndex;
-      if (fileIndex === undefined || hunkIndex === undefined) {
-        throw new Error("Virtual FullFile destination requires real identity.");
-      }
       await waitToEnrich(card);
       if (!alive) {
         return;
@@ -375,9 +345,8 @@ export function NavigationProvider(
   /**
    * Scrolls to one manifest file's exact first current DOM target.
    *
-   * The immutable file index must resolve to one stable FileCard. Coordinate
-   * representations use hunk zero; Lazy and zero representations use their sole
-   * file-level target. A transient Husk target makes the operation an immediate
+   * The immutable file index must resolve to one stable FileCard. Every
+   * representation exposes hunk zero. A transient Husk target makes the operation an immediate
    * no-op because later file replacement has unstable geometry. An expanded
    * virtual FullFile is enriched and resolved again before Navigation calculates
    * its hypothetical centered viewport. Virtual FileCards intersecting their own
@@ -406,51 +375,34 @@ export function NavigationProvider(
     }
 
     /**
-     * Resolves hunk zero or the one file-level pseudo-target from current DOM.
+     * Resolves hunk zero from the FileCard's current DOM representation.
      *
-     * FullFile coordinate targets take precedence. Every other FileCard state
-     * must expose exactly one target without a hunk index. Missing or duplicate
+     * Every real or pseudo hunk carries an index. Missing or duplicate hunk-zero
      * targets are renderer-contract failures rather than alternate destinations.
      */
     function firstTarget(): HTMLElement {
-      const coordinateTargets = card.querySelectorAll<HTMLElement>(
+      const targets = card.querySelectorAll<HTMLElement>(
         '[data-hunk-target][data-hunk-index="0"]',
       );
-      let target: HTMLElement;
-      if (coordinateTargets.length > 0) {
-        if (coordinateTargets.length !== 1) {
-          throw new Error("FileCard exposed duplicate hunk-zero targets.");
-        }
-        const coordinateTarget = coordinateTargets[0];
-        if (coordinateTarget === undefined) {
-          throw new Error("FileCard hunk-zero target disappeared.");
-        }
-        target = coordinateTarget;
-      } else {
-        const fileTargets = card.querySelectorAll<HTMLElement>(
-          "[data-hunk-target]:not([data-hunk-index])",
-        );
-        if (fileTargets.length !== 1) {
-          throw new Error(
-            "FileCard requires exactly one first file-level target.",
-          );
-        }
-        const fileTarget = fileTargets[0];
-        if (fileTarget === undefined) {
-          throw new Error("FileCard file-level target disappeared.");
-        }
-        target = fileTarget;
+      if (targets.length !== 1) {
+        throw new Error("FileCard requires exactly one hunk-zero target.");
+      }
+      const target = targets.item(0);
+      if (target === null) {
+        throw new Error("FileCard hunk-zero target disappeared.");
       }
       if (target.dataset.fileIndex !== String(fileIndex)) {
         throw new Error("FileCard target has the wrong manifest index.");
       }
       const kind = target.dataset.hunkKind;
-      if (target.hasAttribute("data-hunk-index")) {
-        if (kind !== "real" && kind !== "skip") {
-          throw new Error("FileCard coordinate target has an invalid kind.");
-        }
-      } else if (kind !== "husk" && kind !== "lazy" && kind !== "zero") {
-        throw new Error("FileCard file-level target has an invalid kind.");
+      if (
+        kind !== "real" &&
+        kind !== "skip" &&
+        kind !== "husk" &&
+        kind !== "lazy" &&
+        kind !== "zero"
+      ) {
+        throw new Error("FileCard hunk-zero target has an invalid kind.");
       }
       return target;
     }
@@ -580,12 +532,12 @@ export function NavigationProvider(
       return;
     }
     const location = selectedLocation(root);
-    const rect = location.element.getBoundingClientRect();
+    const rect = location.target.getBoundingClientRect();
     if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
       await waitToEnrich(location.card);
       if (alive) {
         const enrichedLocation = selectedLocation(root);
-        enrichedLocation.element.scrollIntoView({
+        enrichedLocation.target.scrollIntoView({
           block: "center",
           behavior: "instant",
         });
@@ -601,10 +553,7 @@ export function NavigationProvider(
     }
 
     let destination: HTMLElement | undefined;
-    if (
-      location.target !== null &&
-      !location.target.classList.contains("skip")
-    ) {
+    if (!location.target.classList.contains("skip")) {
       const currentIndex = participants.indexOf(location.target);
       if (currentIndex === -1) {
         throw new Error(
@@ -615,7 +564,7 @@ export function NavigationProvider(
         participants[
           (currentIndex + direction + participants.length) % participants.length
         ];
-    } else if (location.target !== null) {
+    } else {
       const allTargets = Array.from(
         root.querySelectorAll<HTMLElement>("[data-hunk-target]"),
       );
@@ -636,35 +585,6 @@ export function NavigationProvider(
           destination = candidate;
           break;
         }
-      }
-    } else {
-      const ownTargets = Array.from(
-        location.card.querySelectorAll<HTMLElement>(
-          PARTICIPATING_HUNK_SELECTOR,
-        ),
-      );
-      if (ownTargets.length > 0) {
-        // A replaced file-level pseudo identity occupies the resulting file's
-        // first position for both relative directions.
-        destination = ownTargets[0];
-      } else {
-        const following = participants.filter(
-          (candidate) =>
-            (location.card.compareDocumentPosition(candidate) &
-              Node.DOCUMENT_POSITION_FOLLOWING) !==
-            0,
-        );
-        const preceding = participants.filter(
-          (candidate) =>
-            (location.card.compareDocumentPosition(candidate) &
-              Node.DOCUMENT_POSITION_PRECEDING) !==
-            0,
-        );
-        destination =
-          direction === 1
-            ? (following[0] ?? participants[0])
-            : (preceding[preceding.length - 1] ??
-              participants[participants.length - 1]);
       }
     }
     if (destination === undefined) {
@@ -727,10 +647,23 @@ export function NavigationProvider(
     if (firstCard === undefined) {
       throw new Error("Non-empty FileCard collection has no first card.");
     }
-    const firstTarget =
-      firstCard.querySelector<HTMLElement>("[data-hunk-target]");
-    if (firstTarget === null) {
-      throw new Error("Every FileCard requires a hunk target.");
+    const firstFileIndex = firstCard.dataset.fileIndex;
+    if (firstFileIndex === undefined) {
+      throw new Error("First FileCard has no manifest file index.");
+    }
+    const firstTargets = Array.from(
+      firstCard.querySelectorAll<HTMLElement>(
+        '[data-hunk-target][data-hunk-index="0"]',
+      ),
+    ).filter((target) => target.dataset.fileIndex === firstFileIndex);
+    if (firstTargets.length !== 1) {
+      throw new Error(
+        `First hunk (${firstFileIndex}, 0) requires exactly one DOM target.`,
+      );
+    }
+    const firstTarget = firstTargets[0];
+    if (firstTarget === undefined) {
+      throw new Error("First hunk target disappeared during initialization.");
     }
     selectHunk(root, firstTarget);
   });

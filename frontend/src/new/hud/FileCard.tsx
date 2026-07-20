@@ -476,6 +476,7 @@ function HuskFileHeader(
   const identity: PseudoHunkIdentity = {
     fileIndex: props.state.fileIndex,
     kind: "husk",
+    hunkIndex: 0,
   };
   return (
     <header
@@ -484,6 +485,7 @@ function HuskFileHeader(
       data-hunk-target
       data-hunk-kind={identity.kind}
       data-file-index={identity.fileIndex}
+      data-hunk-index={identity.hunkIndex}
     >
       <span class="file-card-heading">
         <VisibilityIndicator visible={false} virtualized={false} />
@@ -951,7 +953,7 @@ function FullFileHeader(
   const zeroHunkFile = props.state.file.hunk_count === 0;
 
   /**
-   * Constructs the file-level target currently placed by this header.
+   * Constructs the indexed pseudo-hunk currently placed by this header.
    *
    * Zero files retain their permanent identity. A loaded file awaiting body
    * admission temporarily exposes a Husk identity; an admitted nonzero file
@@ -959,10 +961,18 @@ function FullFileHeader(
    */
   function targetIdentity(): PseudoHunkIdentity | null {
     if (zeroHunkFile) {
-      return { fileIndex: props.state.fileIndex, kind: "zero" };
+      return {
+        fileIndex: props.state.fileIndex,
+        kind: "zero",
+        hunkIndex: 0,
+      };
     }
     return props.awaitingAdmission
-      ? { fileIndex: props.state.fileIndex, kind: "husk" }
+      ? {
+          fileIndex: props.state.fileIndex,
+          kind: "husk",
+          hunkIndex: 0,
+        }
       : null;
   }
 
@@ -973,6 +983,7 @@ function FullFileHeader(
       data-hunk-target={targetIdentity() === null ? undefined : ""}
       data-hunk-kind={targetIdentity()?.kind}
       data-file-index={targetIdentity()?.fileIndex}
+      data-hunk-index={targetIdentity()?.hunkIndex}
     >
       <span class="file-card-heading">
         <button
@@ -1058,6 +1069,7 @@ function LazyFileView(
   const identity: PseudoHunkIdentity = {
     fileIndex: props.state.fileIndex,
     kind: "lazy",
+    hunkIndex: 0,
   };
   return (
     <>
@@ -1073,6 +1085,7 @@ function LazyFileView(
             data-hunk-target
             data-hunk-kind={identity.kind}
             data-file-index={identity.fileIndex}
+            data-hunk-index={identity.hunkIndex}
           />
         </div>
       </Show>
@@ -1099,6 +1112,7 @@ function LazyFileView(
               data-hunk-target
               data-hunk-kind={identity.kind}
               data-file-index={identity.fileIndex}
+              data-hunk-index={identity.hunkIndex}
             >
               <ErrorPanel
                 title={`Failed to load ${failure.path}`}
@@ -1169,6 +1183,7 @@ function DeferredFilePlank(props: {
   const identity: PseudoHunkIdentity = {
     fileIndex: props.fileIndex,
     kind: "lazy",
+    hunkIndex: 0,
   };
   /**
    * Returns the complete action label for the required backend delay reason.
@@ -1229,6 +1244,7 @@ function DeferredFilePlank(props: {
       data-hunk-target
       data-hunk-kind={identity.kind}
       data-file-index={identity.fileIndex}
+      data-hunk-index={identity.hunkIndex}
       onClick={props.onLoad}
     >
       <span class="file-lazy-load-toggle-title">{title()}</span>

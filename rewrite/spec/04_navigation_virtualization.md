@@ -41,7 +41,7 @@ The system genuinely must handle:
 5. Inline/split changes may replace rich row DOM.
 6. Code folds replace unchanged row DOM without changing the hunk-target set.
 7. A file collapsed directly or through its directory leaves traversal while retaining coordinate-preserving skipped DOM anchors.
-8. Rendered hunk targets may be replaced while selected identity remains on the stable FileCard DOM.
+8. Rendered hunk targets may be replaced while the selected `fileIndex` and `hunkIndex` remain on the stable FileCard DOM; every replacement target carries both coordinates.
 9. User scrolling, programmatic scrolling, browser anchoring, and layout movement all produce browser scroll events.
 10. Sticky AppHeader and FileHeader elements affect visible geometry.
 11. FileTree, FileHeader, HUD, and rendered targets need selected-hunk calculations or decoration from the same DOM truth.
@@ -337,10 +337,10 @@ The virtualization and scroll-anchoring design must be tested from the least con
 1. Load only the manifest and begin strict sequential file fetching from the start.
 2. While later files are still HuskFiles, select the first available hunk near the beginning.
 3. Invoke Previous once and wrap to the final manifest target.
-4. If the final target is a HuskFile, navigate immediately to its pseudo-hunk without waiting for its file request.
+4. If the final target is a HuskFile, FileTree navigation remains disabled and performs no scroll because the Husk's geometry is unstable while sequential loading continues.
 5. Continue sequentially loading and enriching earlier FileCards above the viewport.
 6. Walk backward from the end toward the start through a changing mixture of HuskFile, LazyFile, VirtualFile and rich FullFile targets.
-7. Allow selected HuskFiles to be replaced by their real hunk sets without changing the selected pseudo identity or automatically selecting a real hunk.
+7. Allow selected HuskFiles to be replaced by their real hunk sets while preserving the selected `fileIndex` and `hunkIndex === 0`; every representation of that hunk carries both coordinates.
 8. Exercise ordinary backward wheel, touch and keyboard scrolling between explicit Previous commands.
 
 This must use an elaborate preset derived from one or more real diffs rather than a tiny synthetic list. The preset should contain:
@@ -359,7 +359,7 @@ The test must observe:
 
 - the selected target’s viewport position while earlier FileCards hydrate above it;
 - unexpected changes to selected hunk identity;
-- correct explicit Previous behavior after a selected Husk pseudo-hunk becomes a multi-hunk FullFile: return to its stable FileCard first when off-screen, then enter its first participating real hunk;
+- correct explicit Previous behavior after a selected Husk pseudo-hunk becomes a multi-hunk FullFile: resolve the resulting hunk zero by the same `fileIndex` and `hunkIndex`, without substituting the FileCard header or another target;
 - global and local counter changes as pseudo-hunks become real hunks;
 - visible layout jumps during first-time virtual → rich transitions above the viewport;
 - rich → virtual height preservation for previously measured files;

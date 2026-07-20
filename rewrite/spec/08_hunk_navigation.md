@@ -23,7 +23,19 @@ Whole-file virtualization remains hunk-blind. The later hunk-navigation implemen
 
 ## Hunk identity and DOM
 
-`HunkIdentity` describes a real object constructed by the component rendering a participating hunk target:
+Every hunk is represented by its `fileIndex` and `hunkIndex`. Real hunks,
+Husk pseudo-hunks, Lazy pseudo-hunks, zero pseudo-hunks, and skipped
+pseudo-hunks obey this invariant without exception. A future region coordinate
+may be inserted between `fileIndex` and `hunkIndex`; it does not make either
+existing coordinate optional.
+
+`kind` describes the hunk target's current representation. It does not replace
+either coordinate.
+
+Husk, Lazy, and zero pseudo-hunks always use `hunkIndex === 0`. A skipped
+pseudo-hunk preserves the nonnegative `hunkIndex` of the real hunk it replaces.
+
+`HunkIdentity` describes a real object constructed by the component rendering a hunk target:
 
 ```ts
 type RealHunkIdentity = {
@@ -32,16 +44,11 @@ type RealHunkIdentity = {
   hunkIndex: number;
 };
 
-type PseudoHunkIdentity =
-  | {
-      fileIndex: number;
-      kind: "husk" | "lazy" | "zero";
-    }
-  | {
-      fileIndex: number;
-      kind: "skip";
-      hunkIndex: number;
-    };
+type PseudoHunkIdentity = {
+  fileIndex: number;
+  kind: "husk" | "lazy" | "zero" | "skip";
+  hunkIndex: number;
+};
 
 type HunkIdentity =
   | RealHunkIdentity
@@ -79,6 +86,7 @@ A HuskFile does this directly:
 const identity: PseudoHunkIdentity = {
   fileIndex: props.fileIndex,
   kind: "husk",
+  hunkIndex: 0,
 };
 
 return (
@@ -86,6 +94,7 @@ return (
     data-hunk-target
     data-hunk-kind={identity.kind}
     data-file-index={identity.fileIndex}
+    data-hunk-index={identity.hunkIndex}
   >
     ...
   </div>
@@ -98,6 +107,7 @@ An expanded LazyFile’s visible explicit-load plank carries:
 const identity: PseudoHunkIdentity = {
   fileIndex: props.fileIndex,
   kind: "lazy",
+  hunkIndex: 0,
 };
 
 return (
@@ -105,6 +115,7 @@ return (
     data-hunk-target
     data-hunk-kind={identity.kind}
     data-file-index={identity.fileIndex}
+    data-hunk-index={identity.hunkIndex}
     onClick={props.fetch}
   >
     ...
@@ -120,6 +131,7 @@ A loaded FullFile with no real hunks renders a visible zero-hunk target:
 const identity: PseudoHunkIdentity = {
   fileIndex: props.fileIndex,
   kind: "zero",
+  hunkIndex: 0,
 };
 
 return (
@@ -127,6 +139,7 @@ return (
     data-hunk-target
     data-hunk-kind={identity.kind}
     data-file-index={identity.fileIndex}
+    data-hunk-index={identity.hunkIndex}
   >
     ...
   </div>
@@ -163,9 +176,13 @@ Participating pseudo-targets require:
 ```text
 data-hunk-kind="husk" | "lazy" | "zero"
 data-file-index
+data-hunk-index
 ```
 
-Malformed participating targets are application errors.
+Every hunk target requires both `data-file-index` and `data-hunk-index`.
+Both attributes use canonical nonnegative decimal strings: `0` or a nonzero
+digit followed by decimal digits. Missing or malformed coordinates are an
+application error.
 
 A collapsed FullFile replaces each real target with a `skip` pseudo carrying the same `fileIndex` and `hunkIndex`:
 
@@ -320,30 +337,34 @@ Expanding a file or directory replaces skipped pseudos with its ordinary Husk, L
 
 ## Selected identity in DOM
 
-The selected identity is retained directly on the owning FileCard:
+The selected hunk coordinate is retained directly on the owning FileCard. The
+FileCard already carries `data-file-index`; selection adds the required
+`data-selected-hunk-index`:
 
 ```html
 <article
   data-file-card
   data-file-index="3"
-  data-selected-hunk-kind="real"
   data-selected-hunk-index="2"
 >
 </article>
 ```
 
-For a pseudo-hunk:
+Pseudo-hunk selection uses the same coordinate contract:
 
 ```html
 <article
   data-file-card
   data-file-index="3"
-  data-selected-hunk-kind="husk"
+  data-selected-hunk-index="0"
 >
 </article>
 ```
 
-`selectHunk()` copies the target’s concrete dataset fields directly onto its FileCard. It does not call an identity reader, writer, serializer, or conversion helper.
+`data-hunk-kind` remains on the target and describes its representation. It is
+not part of selected hunk identity.
+
+`selectHunk()` copies the target's required `data-hunk-index` directly onto its FileCard. It does not call an identity reader, writer, serializer, conversion helper, or registry.
 
 The currently selected target additionally carries:
 
@@ -352,22 +373,28 @@ data-selected
 aria-current="true"
 ```
 
-If rendering removes that target, selected identity remains on the stable FileCard.
+If rendering replaces that target, the selected `fileIndex` and `hunkIndex`
+remain on the stable FileCard.
 
-Selected identity may temporarily lack a participating matching target while representation DOM is being replaced. A selected real hunk in a collapsed file still has its coordinate-matching `skip` pseudo available as a scroll-back anchor.
+Every ordinary file representation provides the target carrying that coordinate:
+Husk, Lazy, and zero representations provide hunk index `0`; FullFile provides
+its real indices; a collapsed FullFile provides coordinate-preserving skipped
+targets. Absence or duplication of the selected coordinate is an application
+error. Navigation never substitutes another element.
 
 Rich/virtual and inline/split replacement preserve real `fileIndex` and `hunkIndex`. Rendering does not recreate selected decoration automatically.
 
 ## File-state replacement
 
-HuskFile contributes exactly one Husk pseudo-target. It participates unless the
-file is explicitly collapsed, in which case the same target carries `.skip`.
+HuskFile contributes exactly one Husk pseudo-target with `hunkIndex === 0`. It
+participates unless the file is explicitly collapsed, in which case the same
+target carries `.skip`.
 
-An expanded LazyFile, including its localized error presentation, contributes exactly one participating Lazy pseudo-target. Collapsing it adds `.skip`; selecting or traversing it never fetches it.
+An expanded LazyFile, including its localized error presentation, contributes exactly one participating Lazy pseudo-target with `hunkIndex === 0`. Collapsing it adds `.skip`; selecting or traversing it never fetches it.
 
 An expanded FullFile with real hunks contributes exactly its backend-produced real targets.
 
-An expanded FullFile with `hunk_count === 0` contributes exactly one zero pseudo-target.
+An expanded FullFile with `hunk_count === 0` contributes exactly one zero pseudo-target with `hunkIndex === 0`.
 
 When HuskFile or LazyFile becomes FullFile:
 
@@ -377,14 +404,9 @@ When HuskFile or LazyFile becomes FullFile:
 - no target is selected automatically;
 - no scrolling occurs.
 
-A later explicit Next, Previous, or recognized user-scroll action may select a resulting target. FileTree Navigation may scroll to one without selecting it. Rendering itself performs no mapping.
-
-In particular, an initially selected Husk identity remains `kind="husk"` on the
-stable FileCard after FullFile replaces the Husk target. It does not implicitly
-become real hunk zero merely because the resulting real sequence starts at zero.
-The implementation must document this directly at the replacement or
-selected-location boundary with a TODO to reconsider the policy; until that TODO
-is explicitly redesigned, replacement performs no selection mapping.
+The pseudo-target and the resulting first real or zero target all carry the
+same `fileIndex` and `hunkIndex === 0`. Replacement therefore preserves the
+selected hunk coordinate without mapping or inventing another identity.
 
 ## Navigation module and Provider
 
@@ -456,9 +478,11 @@ boundary marks its terminal DOM with `data-file-render-error`. Navigation
 initialization stops when that marker exists. It does not assert a missing
 target, select another file, repair selection, or promote the localized failure.
 
-Once those initial FileCards have rendered, the ChangeSet selects the first
-FileCard's first `[data-hunk-target]` exactly once. Initial selection may select a
-target carrying `.skip`; selecting it does not make it participate.
+Once those initial FileCards have rendered, the ChangeSet reads the first
+FileCard's `data-file-index`, requires exactly one target carrying that file
+index and `data-hunk-index="0"`, and selects that exact hunk once. Initial
+selection may select a target carrying `.skip`; selecting it does not make it
+participate.
 
 The same rule applies after F5, a repository/reset boundary, different DiffParams, or recreation of disposed ChangeSet content.
 
@@ -484,7 +508,7 @@ It:
 1. asserts that `target` matches `[data-hunk-target]` inside `root`;
 2. removes selected identity from the previous FileCard;
 3. removes previous visible selected decoration;
-4. copies the target's concrete `data-hunk-kind` and `data-hunk-index`, where present, directly onto the owning FileCard's selected attributes;
+4. copies the target's required `data-hunk-index` directly onto the owning FileCard's selected attributes;
 5. adds `data-selected` and `aria-current="true"` to `target`.
 
 It does not call an identity reader, writer, serializer, conversion helper, or registry.
@@ -507,13 +531,17 @@ target when the first FileCard is collapsed.
 
 ## Next and Previous
 
-Next and Previous first locate the FileCard carrying selected identity.
+Next and Previous first locate the FileCard carrying
+`data-selected-hunk-index`. Its `data-file-index` and selected hunk index form
+the selected coordinate.
 
-They resolve the current scroll-back element in this order:
+They resolve exactly one current target carrying that `fileIndex` and
+`hunkIndex`. Its current `kind` is irrelevant to identity. The target may be
+participating or may carry `.skip`.
 
-1. the matching participating target;
-2. the matching skipped target: the coordinate-matching `skip` pseudo for a selected real hunk, or the same Husk, Lazy, or zero pseudo carrying `.skip`;
-3. the stable owning FileCard header when a selected Husk or Lazy pseudo has already been replaced.
+If the exact target is absent or duplicated, Navigation rejects with an
+application error. It does not use a FileCard header, another hunk, or any other
+fallback.
 
 If that element is outside the main viewport, the operation scrolls to it and stops. Selection does not change.
 
@@ -546,17 +574,12 @@ A selected Husk, Lazy, or zero pseudo in a collapsed file remains in DOM with it
 
 That skipped pseudo is used only for scroll-back and ordering; it is never selected as a destination. After the scroll-back rule is satisfied, Next chooses the first participating target after it and Previous chooses the last participating target before it.
 
-### Selected Husk or Lazy pseudo after FullFile appears
+### Selected hunk zero after file-state replacement
 
-The stable FileCard header is the scroll-back element.
-
-After the scroll-back rule is satisfied:
-
-- Next enters that file at its first real target;
-- Previous also enters that file at its first real target;
-- a zero-hunk result selects its zero target.
-
-This behavior belongs only to the active user navigation operation. File-state replacement performs no mapping.
+Husk, Lazy, first-real, and zero targets use the same `fileIndex` and
+`hunkIndex === 0`. When the representation changes, Next and Previous find the
+replacement target by those coordinates. There is no missing pseudo identity,
+header substitution, or special continuation rule.
 
 ## Direct hunk navigation and FileTree
 
@@ -733,7 +756,10 @@ type HunkDisplay = {
 
 `current: null` means that the represented scope has no selected position to mirror. For the global scope, that occurs when the ChangeSet is empty and has no FileCards. A local scope may have no current position when the selected identity belongs to another file.
 
-A selected skipped target retains its position. A selected identity whose original target has been replaced also retains the position from which Next or Previous can continue. Neither case permits `current` to become `null`.
+A selected skipped target retains its position. When representation replacement
+mounts a new target carrying the same `fileIndex` and `hunkIndex`, that exact
+selected coordinate retains its position. Neither case permits `current` to
+become `null`.
 
 `total` counts only currently participating, non-`.skip` targets. Stable position calculation still includes skipped identities, so a selected skipped hunk keeps its exact `current` position and `current` may be greater than `total`. `hasMore` communicates that the participating denominator is incomplete.
 
@@ -778,8 +804,8 @@ When relevant DOM truth changes, one calculation produces a complete replacement
 1. Read the FileCards and their current hunk targets in DOM order.
 2. Count non-skipped targets for displayed totals while retaining skipped targets in stable position offsets.
 3. Assert only the attributes required to perform the calculation.
-4. Find the unique FileCard carrying selected identity.
-5. Calculate the selected identity's position from the same DOM identity and ordering facts that allow Next or Previous to continue from it.
+4. Find the unique FileCard carrying `data-selected-hunk-index`.
+5. Find exactly one target with that FileCard's `fileIndex` and selected `hunkIndex`, then calculate its position from DOM order.
 6. Calculate `globalSelectedHunk`, including whether more hunks can arrive later.
 7. Calculate `fileSelectedHunks` for every FileCard.
 8. Calculate `selectedFileIndex`.
@@ -787,7 +813,10 @@ When relevant DOM truth changes, one calculation produces a complete replacement
 
 `.skip` excludes a target from traversal but does not erase its position or the selected identity attached to its FileCard. Collapsed files make `globalSelectedHunk.hasMore` true because their hunks can become participating targets again when the user expands them.
 
-When a selected Husk or Lazy target is replaced by FullFile targets, the selected identity remains unchanged as specified by the hunk contract. Its calculated position is the position of the file's first resulting target, which is where both Next and Previous continue. This calculates the existing identity's position; it does not map or replace that identity with a real hunk.
+When a selected Husk or Lazy target is replaced by FullFile targets, hunk index
+`0` remains hunk index `0`. `HunkDisplay` finds that exact coordinate. It does
+not substitute the first target, infer an index, or otherwise fabricate a
+selected position.
 
 `globalSelectedHunk.hasMore` is also true while Husk targets remain or while Lazy targets can still be loaded explicitly. A zero target is exact and does not independently make `hasMore` true.
 
@@ -801,7 +830,6 @@ observer.observe(root, {
   attributes: true,
   attributeFilter: [
     "data-hunk-set",
-    "data-selected-hunk-kind",
     "data-selected-hunk-index",
     "data-file-render-error",
   ],
@@ -865,7 +893,7 @@ hunkDisplay().selectedFileIndex
 
 FileTree applies its highlight class and `aria-current` declaratively. Newly mounted FileTree rows immediately render from the existing signal and do not require another calculation.
 
-If the selected target's file is collapsed, or the target is skipped, absent, or being replaced, the FileTree remains highlighted because selected identity remains on its stable FileCard and `selectedFileIndex` continues to mirror that FileCard.
+If the selected target's file is collapsed or the target is skipped, the FileTree remains highlighted because the same `fileIndex` and `hunkIndex` remain present in DOM and `selectedFileIndex` continues to mirror that FileCard.
 
 Opening FileTree additionally reveals the highlighted row inside `.file-tree-groups` when all of its directory ancestors are expanded. A row beneath a collapsed directory is legitimately absent and is not revealed by changing expansion. The private sidebar movement changes only the container's `scrollTop` and never moves the main page.
 
@@ -938,34 +966,37 @@ Notebook regions remain a post-rewrite TODO.
 
 ## Required invariants
 
-1. Every real hunk boundary comes from backend `hunk_index`.
-2. The frontend never infers hunk boundaries from changed rows.
-3. Every ordinarily rendered FileCard exposes at least one hunk target; an unexpected renderer's critical unrecoverable strip is the explicit failure exception.
-4. Every participating real identity has exactly one participating target.
-5. Every expanded HuskFile has exactly one Husk pseudo-target.
-6. Every expanded LazyFile has exactly one Lazy pseudo-target.
-7. Every zero-hunk FullFile has exactly one zero pseudo-target.
-8. Every real target from a collapsed file has exactly one coordinate-preserving `skip` pseudo.
-9. `.skip` alone controls participation.
-10. Skipped targets may retain or receive selection and retain their `HunkDisplay` position. They are excluded from traversal and scroll-follow, but hunk zero or a skipped file-level pseudo-target may be a direct FileTree scroll destination.
-11. Folded-line ranges contain no hunk boundary.
-12. Invalid folded-line ranges throw instead of producing hidden folded-line targets.
-13. Every non-empty ready ChangeSet without `data-file-render-error` selects its first FileCard's first hunk target exactly once, even when that target carries `.skip`; a terminal renderer marker stops initialization without selection or repair.
-14. An empty manifest is the only ordinary no-selection state.
-15. File and directory collapse never select, clear, map, or scroll.
-16. File-state replacement never selects, clears, maps, or scrolls.
-17. Rich/virtual and inline/split replacement never changes selected identity.
-18. Next and Previous scroll back to an off-screen selected location before changing selection.
-19. Navigation wraps through current participating DOM order.
-20. Navigation never reads counter text or `HunkDisplay`.
-21. `HunkDisplay` calculation never changes selection or scrolling.
-22. FileTree highlighting never changes selection.
-23. User-scroll following changes selection only.
-24. Selecting or traversing a LazyFile never loads it.
-25. Only direct activation of the LazyFile plank starts its explicit fetch.
-26. FileCard continues to implement `waitToEnrich`.
-27. Navigation resolves its final target again after enrichment.
-28. Virtualization decisions never depend on hunk selection.
-29. Hunk navigation never changes strict file-fetch order.
-30. NavigationProvider owns no line-pin state.
-31. Line pins remain an entirely separate system.
+1. Every hunk, without exception, is represented by both `fileIndex` and `hunkIndex`.
+2. Real, Husk, Lazy, zero, and skipped targets all write both `data-file-index` and `data-hunk-index` into their own DOM.
+3. Every element marked `data-hunk-target` is a hunk and must carry both coordinates; missing or malformed coordinates are an application error.
+4. Every real hunk boundary comes from backend `hunk_index`.
+5. The frontend never infers real hunk boundaries from changed rows.
+6. Every ordinarily rendered FileCard exposes at least one hunk target; an unexpected renderer's critical unrecoverable strip is the explicit failure exception.
+7. Every participating real identity has exactly one participating target.
+8. Every expanded HuskFile has exactly one Husk pseudo-target with `hunkIndex === 0`.
+9. Every expanded LazyFile has exactly one Lazy pseudo-target with `hunkIndex === 0`.
+10. Every zero-hunk FullFile has exactly one zero pseudo-target with `hunkIndex === 0`.
+11. Every real target from a collapsed file has exactly one coordinate-preserving `skip` pseudo.
+12. `.skip` alone controls participation.
+13. Skipped targets may retain or receive selection and retain their `HunkDisplay` position. They are excluded from traversal and scroll-follow, but hunk zero or a skipped file-level pseudo-target may be a direct FileTree scroll destination.
+14. Folded-line ranges contain no hunk boundary.
+15. Invalid folded-line ranges throw instead of producing hidden folded-line targets.
+16. Every non-empty ready ChangeSet without `data-file-render-error` selects exactly one target carrying the first FileCard's `fileIndex` and `hunkIndex === 0`, even when that target carries `.skip`; a terminal renderer marker stops initialization without selection or repair.
+17. An empty manifest is the only ordinary no-selection state.
+18. File and directory collapse never select, clear, map, or scroll.
+19. File-state replacement never selects, clears, maps, or scrolls.
+20. Rich/virtual and inline/split replacement never changes selected identity.
+21. Next and Previous scroll back to an off-screen selected location before changing selection.
+22. Navigation wraps through current participating DOM order.
+23. Navigation never reads counter text or `HunkDisplay`.
+24. `HunkDisplay` calculation never changes selection or scrolling.
+25. FileTree highlighting never changes selection.
+26. User-scroll following changes selection only.
+27. Selecting or traversing a LazyFile never loads it.
+28. Only direct activation of the LazyFile plank starts its explicit fetch.
+29. FileCard continues to implement `waitToEnrich`.
+30. Navigation resolves its final target again after enrichment.
+31. Virtualization decisions never depend on hunk selection.
+32. Hunk navigation never changes strict file-fetch order.
+33. NavigationProvider owns no line-pin state.
+34. Line pins remain an entirely separate system.
