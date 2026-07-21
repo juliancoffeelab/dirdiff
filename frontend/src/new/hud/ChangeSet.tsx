@@ -461,6 +461,46 @@ type ChangeSetShellProps = {
 function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
   let root!: HTMLElement;
   const [hunkDisplay, setHunkDisplay] = createSignal<HunkDisplay | null>(null);
+
+  onMount(() => {
+    /**
+     * Restricts native browser text selection to the diff side under the pointer.
+     *
+     * The mounted ChangeSet root is the complete interaction scope. Every
+     * pointer press clears its previous grid marker; a press on a left or right
+     * DiffGrid side then marks only that grid. CSS suppresses selection on the
+     * opposite side without introducing Solid state or changing hunk selection.
+     */
+    function selectDiffSide(event: PointerEvent): void {
+      root
+        .querySelector<HTMLElement>(".diff-grid[data-diff-selection-side]")
+        ?.removeAttribute("data-diff-selection-side");
+
+      const target = event.target;
+      if (!(target instanceof Element) || !root.contains(target)) {
+        return;
+      }
+      const side = target.closest<HTMLElement>(
+        ".diff-side.side-left, .diff-side.side-right",
+      );
+      if (side === null || !root.contains(side)) {
+        return;
+      }
+      const grid = side.closest<HTMLElement>(".diff-grid");
+      if (grid === null || !root.contains(grid)) {
+        return;
+      }
+      grid.dataset.diffSelectionSide = side.classList.contains("side-left")
+        ? "left"
+        : "right";
+    }
+
+    document.addEventListener("pointerdown", selectDiffSide);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", selectDiffSide);
+    });
+  });
+
   return (
     <section ref={root} class="change-set-root" data-change-set-root>
       <NavigationProvider root={() => root}>
