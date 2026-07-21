@@ -712,6 +712,15 @@ function DebugHud(props: DebugHudProps): JSX.Element {
     nodes: "--",
     spans: "--",
   });
+  const hunkMetric = createMemo(() => {
+    const hunk = props.globalSelectedHunk();
+    if (hunk === null) {
+      return "--/--";
+    }
+    return `${hunk.position.current ?? "—"}/${hunk.position.total}${
+      hunk.hasMore ? "+" : ""
+    }`;
+  });
   let frame = 0;
   let sampleStartedAt = performance.now();
   let sampleFrames = 0;
@@ -764,16 +773,7 @@ function DebugHud(props: DebugHudProps): JSX.Element {
       <DebugMetric label="FPS" value={metrics().fps} />
       <DebugMetric label="Nodes" value={metrics().nodes} />
       <DebugMetric label="Spans" value={metrics().spans} />
-      <DebugMetric
-        label="Hunks"
-        value={
-          props.globalSelectedHunk() === null
-            ? "--/--"
-            : `${props.globalSelectedHunk()?.position.current ?? "—"}/${
-                props.globalSelectedHunk()?.position.total ?? 0
-              }${props.globalSelectedHunk()?.hasMore === true ? "+" : ""}`
-        }
-      />
+      <DebugMetric label="Hunks" value={hunkMetric()} />
     </div>
   );
 }
