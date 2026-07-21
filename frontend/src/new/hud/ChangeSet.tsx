@@ -52,7 +52,7 @@ import {
   UnexpectedErrorBoundary,
   useToasts,
 } from "../comp/Toasts";
-import { assert } from "../utils";
+import { assert, expect } from "../utils";
 import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets } from "./AppHeader";
 import { FileCard, type HunkPosition } from "./FileCard";
@@ -1778,11 +1778,16 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                       globalSelectedHunk={() =>
                         props.hunkDisplay()?.globalSelectedHunk ?? null
                       }
-                      fileSelectedHunk={() =>
-                        props
-                          .hunkDisplay()
-                          ?.fileSelectedHunks.get(fileIndex()) ?? null
-                      }
+                      fileSelectedHunk={() => {
+                        const display = props.hunkDisplay();
+                        if (display === null) {
+                          return null;
+                        }
+                        return expect(
+                          display.fileSelectedHunks.get(fileIndex()),
+                          `Missing hunk position for file ${fileIndex()}.`,
+                        );
+                      }}
                       onExpandedChange={(expanded) =>
                         props.setState(
                           "fileExpansion",
