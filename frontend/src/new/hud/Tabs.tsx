@@ -1780,9 +1780,11 @@ function PresetTab(
         onSubmit={(event) => {
           event.preventDefault();
           const preset = effectivePreset();
-          if (preset !== null) {
-            selectPreset(preset);
-          }
+          assert(
+            preset !== null,
+            "Loading a Preset requires a selected preset.",
+          );
+          selectPreset(preset);
         }}
       >
         <fieldset class="mode-tabs preset-tabs preset-kind-tabs">
@@ -1829,7 +1831,11 @@ function PresetTab(
             </fieldset>
           )}
         </Show>
-        <button class="load-button" type="submit">
+        <button
+          class="load-button"
+          type="submit"
+          disabled={effectivePreset() === null}
+        >
           Load
         </button>
       </form>
