@@ -32,8 +32,9 @@ export type SelectOption = {
  *
  * Callers provide a selected value, its display label, all options, and explicit
  * hooks for selection. `onOpen` is null when opening has no external consequence,
- * and `optionAction` is null when rows have no secondary action; `class` is the
- * complete modifier class supplied by the caller.
+ * and `optionAction` is null when rows have no secondary action. `disabled` makes
+ * the complete trigger unavailable without inventing selectable options; `class`
+ * is the complete modifier class supplied by the caller.
  */
 type SelectProps = {
   class: string;
@@ -41,6 +42,7 @@ type SelectProps = {
   valueLabel: string;
   options: readonly SelectOption[];
   selectedValue: string;
+  disabled: boolean;
   onChange: (value: string) => void;
   onOpen: (() => void) | null;
   optionAction: ((option: SelectOption) => JSX.Element) | null;
@@ -145,6 +147,7 @@ export function Select(props: SelectProps): JSX.Element {
         class="ui-select-trigger"
         aria-haspopup="listbox"
         aria-expanded={open() ? "true" : "false"}
+        disabled={props.disabled}
         onClick={toggle}
       >
         <span class="ui-select-label">{props.label}</span>

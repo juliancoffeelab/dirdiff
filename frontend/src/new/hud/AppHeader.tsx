@@ -1,9 +1,10 @@
 /**
  * Defines the persistent application header and its repository selector.
  *
- * The module exports AppHeader, which renders the brand, Profile, global repo,
+ * The module exports AppHeader and the repository/query presentation contract used
+ * by the Header and RepoGate. AppHeader renders the brand, Profile, global repo,
  * engine and view controls, metadata status, and stable ChangeSet outlet targets.
- * It observes the canonical repository list and performs repository removal commands.
+ * It observes canonical repository data and performs repository removal commands.
  * It does not own workspace selection or ChangeSet status and summary data.
  */
 import { Show, createMemo, createSignal, type JSX } from "solid-js";
@@ -71,16 +72,27 @@ export type AppHeaderOutlets = {
 };
 
 /**
+ * Represents the complete observable state of canonical repository metadata.
+ *
+ * Pending and failed variants deliberately contain no repository collection, so
+ * consumers cannot treat absent or retained data as current choices. Available is
+ * the only variant that permits resolving, selecting, or removing repositories;
+ * its array may be genuinely empty after a successful backend response.
+ */
+export type RepositoryState =
+  | { state: "pending" }
+  | { state: "failed"; error: Error }
+  | { state: "available"; repos: readonly RepoMark[] };
+
+/**
  * Defines the complete inputs for the private Header repository selector.
  *
  * Repository data remains the canonical query result. The selected numeric ID
  * and explicit selection/removal commands are supplied by App.
  */
 type RepoSelectProps = {
-  repos: readonly RepoMark[];
+  repositories: RepositoryState;
   selectedRepoId: ProjectId | null;
-  loading: boolean;
-  failed: boolean;
   onOpen: () => void;
   onSelect: (projectId: ProjectId) => void;
   onRemove: (projectId: ProjectId) => void;
@@ -99,6 +111,24 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
     null,
   );
   const repos = createQuery(() => ({ ...api.repos.list() }));
+  const repositories = createMemo<RepositoryState>(() => {
+    if (repos.error !== null) {
+      return { state: "failed", error: repos.error };
+    }
+    if (repos.isPending) {
+      return { state: "pending" };
+    }
+    if (repos.data === undefined) {
+      throw new Error(
+        "A settled repository query requires data or an explicit error.",
+      );
+    }
+    return { state: "available", repos: repos.data };
+  });
+  const repositoryError = createMemo(() => {
+    const current = repositories();
+    return current.state === "failed" ? current.error : null;
+  });
   const removeRepo = createMutation(() => ({
     ...api.repos.remove(),
     /**
@@ -123,7 +153,11 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
    * unchanged; success invalidates the shared list and notifies App.
    */
   function confirmRemoveRepo(projectId: ProjectId): void {
-    const repo = repos.data?.find((candidate) => candidate.id === projectId);
+    const current = repositories();
+    if (current.state !== "available") {
+      throw new Error("Removing a repository requires available metadata.");
+    }
+    const repo = current.repos.find((candidate) => candidate.id === projectId);
     if (repo === undefined) {
       throw new Error(`Cannot remove unknown repository ${projectId}.`);
     }
@@ -156,10 +190,8 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
             />
           </div>
           <RepoSelect
-            repos={repos.data ?? []}
+            repositories={repositories()}
             selectedRepoId={props.selectedRepoId}
-            loading={repos.isPending}
-            failed={repos.isError}
             onOpen={() => {
               // Opening warms the canonical list under TanStack freshness rules.
               void queryClient.prefetchQuery(api.repos.list());
@@ -177,6 +209,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
                 label,
               }))}
               selectedValue={props.engine}
+              disabled={false}
               onOpen={null}
               onChange={(value) => {
                 if (
@@ -200,6 +233,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
                 { value: "inline", label: viewLabels.inline },
               ]}
               selectedValue={props.view}
+              disabled={false}
               onOpen={null}
               onChange={(value) => {
                 if (value !== "split" && value !== "inline") {
@@ -213,12 +247,12 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
         </div>
       </div>
       <section class="summary" aria-label="Diff summary">
-        <Show when={repos.isPending}>
+        <Show when={repositories().state === "pending"}>
           <div class="summary-group summary-group-status summary-status-marked">
             <span>Loading marked repos...</span>
           </div>
         </Show>
-        <Show when={repos.error} keyed>
+        <Show when={repositoryError()} keyed>
           {(error) => (
             <div class="summary-group summary-group-status summary-status-marked">
               <ErrorPopover
@@ -290,45 +324,38 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
  * numeric IDs. It stores no repository query, selection, removal, or confirmation.
  */
 function RepoSelect(props: RepoSelectProps): JSX.Element {
-  const options = createMemo<SelectOption[]>(() =>
-    props.repos.map((repo) => ({ value: String(repo.id), label: repo.name })),
-  );
-
   /**
-   * Derives the selected repository display name from canonical query data.
+   * Derives the selected repository display name from available canonical data.
    *
-   * Absence or an initial pending list renders the established choice label,
-   * matching the existing Header until the selected name is known. A loaded list
-   * missing a selected ID is a contract error.
+   * Callers provide the collection from RepositoryState's available variant. A
+   * genuine missing selection uses the established choice label; a selected ID
+   * absent from that complete collection is a contract error.
    */
-  function selectedName(): string {
-    if (props.selectedRepoId === null || props.loading) {
+  function selectedName(repos: readonly RepoMark[]): string {
+    if (props.selectedRepoId === null) {
       return "Choose repo";
     }
-    const repo = props.repos.find(
+    const repo = repos.find(
       (candidate) => candidate.id === props.selectedRepoId,
     );
-    if (repo !== undefined) {
-      return repo.name;
+    if (repo === undefined) {
+      throw new Error(`Unknown selected repository ${props.selectedRepoId}.`);
     }
-    if (props.failed) {
-      return "Repo unavailable";
-    }
-    throw new Error(`Unknown selected repository ${props.selectedRepoId}.`);
+    return repo.name;
   }
 
   /**
-   * Parses one Select value into the required numeric repository identity.
+   * Parses one Select value against the available canonical repository collection.
    *
    * Invalid or unknown values throw. Selecting the current value produces no
-   * redundant App command.
+   * redundant Workspace command, and unavailable query states never call this path.
    */
-  function selectRepo(value: string): void {
+  function selectRepo(repos: readonly RepoMark[], value: string): void {
     const projectId = Number(value);
     if (!Number.isInteger(projectId) || projectId <= 0) {
       throw new Error(`Invalid selected repository ID: ${value}.`);
     }
-    if (!props.repos.some((repo) => repo.id === projectId)) {
+    if (!repos.some((repo) => repo.id === projectId)) {
       throw new Error(`Unknown selected repository ID: ${projectId}.`);
     }
     if (projectId !== props.selectedRepoId) {
@@ -337,27 +364,69 @@ function RepoSelect(props: RepoSelectProps): JSX.Element {
   }
 
   return (
-    <Select
-      class="header-engine-select repo-select"
-      label="Repo"
-      valueLabel={selectedName()}
-      options={options()}
-      selectedValue={
-        props.selectedRepoId === null ? "" : String(props.selectedRepoId)
+    <Show
+      when={
+        props.repositories.state === "available"
+          ? props.repositories.repos
+          : null
       }
-      onOpen={props.onOpen}
-      onChange={selectRepo}
-      optionAction={(option) => (
-        <button
-          type="button"
-          class="ui-select-option-action"
-          title={`Remove ${option.label}`}
-          aria-label={`Remove ${option.label}`}
-          onClick={() => props.onRemove(Number(option.value))}
-        >
-          <Trash2 class="ui-select-option-action-icon" aria-hidden="true" />
-        </button>
-      )}
-    />
+      keyed
+      fallback={
+        <Select
+          class="header-engine-select repo-select"
+          label="Repo"
+          valueLabel={
+            props.repositories.state === "pending"
+              ? "Loading repos..."
+              : "Repos failed"
+          }
+          options={[]}
+          selectedValue=""
+          disabled={true}
+          onOpen={null}
+          onChange={() => {
+            throw new Error(
+              "An unavailable repository selector cannot change.",
+            );
+          }}
+          optionAction={null}
+        />
+      }
+    >
+      {(repos) => {
+        const options: SelectOption[] = repos.map((repo) => ({
+          value: String(repo.id),
+          label: repo.name,
+        }));
+        return (
+          <Select
+            class="header-engine-select repo-select"
+            label="Repo"
+            valueLabel={selectedName(repos)}
+            options={options}
+            selectedValue={
+              props.selectedRepoId === null ? "" : String(props.selectedRepoId)
+            }
+            disabled={false}
+            onOpen={props.onOpen}
+            onChange={(value) => selectRepo(repos, value)}
+            optionAction={(option) => (
+              <button
+                type="button"
+                class="ui-select-option-action"
+                title={`Remove ${option.label}`}
+                aria-label={`Remove ${option.label}`}
+                onClick={() => props.onRemove(Number(option.value))}
+              >
+                <Trash2
+                  class="ui-select-option-action-icon"
+                  aria-hidden="true"
+                />
+              </button>
+            )}
+          />
+        );
+      }}
+    </Show>
   );
 }

@@ -41,7 +41,7 @@ import {
 import { AutocompleteInput } from "../comp/AutocompleteInput";
 import { ErrorPopover, UnexpectedErrorBoundary } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
-import type { AppHeaderOutlets } from "./AppHeader";
+import type { AppHeaderOutlets, RepositoryState } from "./AppHeader";
 import { ChangeSet } from "./ChangeSet";
 import type { StoredProfile } from "./Profile";
 
@@ -1826,6 +1826,28 @@ function RepoGate(props: RepoGateProps): JSX.Element {
     ...api.repos.list(),
     enabled: props.active,
   }));
+  const repositories = createMemo<RepositoryState>(() => {
+    if (repos.error !== null) {
+      return { state: "failed", error: repos.error };
+    }
+    if (repos.isPending) {
+      return { state: "pending" };
+    }
+    if (repos.data === undefined) {
+      throw new Error(
+        "A settled repository query requires data or an explicit error.",
+      );
+    }
+    return { state: "available", repos: repos.data };
+  });
+  const repositoryError = createMemo(() => {
+    const current = repositories();
+    return current.state === "failed" ? current.error : null;
+  });
+  const availableRepositories = createMemo(() => {
+    const current = repositories();
+    return current.state === "available" ? current.repos : null;
+  });
   const removeRepo = createMutation(() => ({
     ...api.repos.remove(),
     /**
@@ -1847,7 +1869,7 @@ function RepoGate(props: RepoGateProps): JSX.Element {
         <h2>Choose a repo</h2>
         <p>Select a marked repository before loading repo-backed diffs.</p>
       </div>
-      <Show when={repos.error} keyed>
+      <Show when={repositoryError()} keyed>
         {(error) => (
           <ErrorPopover
             title="Failed to load marked repositories"
@@ -1897,10 +1919,10 @@ function RepoGate(props: RepoGateProps): JSX.Element {
           removeRepo.mutate(projectId);
         }}
       />
-      <Show when={repos.isPending}>
+      <Show when={repositories().state === "pending"}>
         <p class="repo-picker-loading">Loading marked repos...</p>
       </Show>
-      <Show when={repos.data} keyed>
+      <Show when={availableRepositories()} keyed>
         {(marks) => (
           <div class="repo-list">
             <For each={marks}>
