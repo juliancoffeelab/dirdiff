@@ -29,6 +29,7 @@ import {
   api,
   type BranchReviewDiffParams,
   type BranchSelection,
+  type BuiltinRef,
   type DiffEngine,
   type HeadDiffParams,
   type PreparedPullRequest,
@@ -92,7 +93,7 @@ const presetLabels: Record<PresetType, string> = {
   gumtree: "GumTree Presets",
   scroll: "Scroll Presets",
 };
-const builtinDescriptions: Record<string, string> = {
+const builtinDescriptions: Record<BuiltinRef, string> = {
   HEAD: "Current commit on this branch.",
   index: "Staged snapshot, what the next commit would include.",
   worktree: "Files on disk, including unstaged changes.",
@@ -864,7 +865,7 @@ function refsChoices(refs: RefChoices | null) {
     ...refs.builtins.map((value) => ({
       value,
       label: value,
-      description: builtinDescriptions[value] ?? null,
+      description: builtinDescriptions[value],
       group: "Built-ins",
     })),
     ...refs.local_branches.map((value) => ({

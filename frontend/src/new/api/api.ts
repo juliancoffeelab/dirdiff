@@ -111,8 +111,19 @@ const RemoteBranchRefSchema = z.strictObject({
   gitref: z.string(),
 });
 
+const BuiltinRefSchema = z.enum(["HEAD", "index", "worktree"]);
+
+/**
+ * Identifies one built-in Git ref supported by repository autocomplete.
+ *
+ * The backend may return only these established values. Consumers may rely on
+ * every value having its corresponding application description; arbitrary Git
+ * refs and repository branch names must use the other RefChoices categories.
+ */
+export type BuiltinRef = z.infer<typeof BuiltinRefSchema>;
+
 const RefChoicesSchema = z.strictObject({
-  builtins: z.array(z.string()),
+  builtins: z.array(BuiltinRefSchema),
   local_branches: z.array(z.string()),
   remotes: z.array(z.string()),
   remote_branches: z.array(RemoteBranchRefSchema),
