@@ -52,6 +52,7 @@ import {
   UnexpectedErrorBoundary,
   useToasts,
 } from "../comp/Toasts";
+import { assert } from "../utils";
 import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets } from "./AppHeader";
 import { FileCard, type HunkPosition } from "./FileCard";
@@ -1307,15 +1308,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     orderedFiles.map((manifestFile, fileIndex) => {
       const query = fileQueries[fileIndex];
       const path = fileDisplayName(manifestFile.entry);
-      if (query === undefined) {
-        return {
-          state: "husk" as const,
-          fileIndex,
-          name: manifestFile.name,
-          path,
-          activity: "queued" as const,
-        };
-      }
+      assert(query !== undefined, `Missing file query for ${path}.`);
       if (query.fetchStatus === "fetching") {
         return {
           state: "husk" as const,
@@ -1757,49 +1750,53 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             <div class="directory-groups">
               <For each={orderedFiles}>
                 {(file, fileIndex) => {
+                  const currentState = createMemo(() => {
+                    const state = fileStates()[fileIndex()];
+                    assert(
+                      state !== undefined,
+                      `Missing file state for ${fileDisplayName(file.entry)}.`,
+                    );
+                    return state;
+                  });
                   return (
-                    <Show when={fileStates()[fileIndex()]}>
-                      {(currentState) => (
-                        <FileCard
-                          file_state={currentState()}
-                          expanded={fileExpanded(
-                            file,
-                            currentState(),
-                            props.state.fileExpansion,
-                          )}
-                          explicitlyCollapsed={
-                            props.state.fileExpansion[
-                              manifestEntryKey(file.entry)
-                            ] === false
-                          }
-                          admitted={admittedFiles[fileIndex()] === true}
-                          engine={props.params.engine}
-                          view={props.view}
-                          aggressiveFolds={aggressiveFolds()}
-                          globalSelectedHunk={() =>
-                            props.hunkDisplay()?.globalSelectedHunk ?? null
-                          }
-                          fileSelectedHunk={() =>
-                            props
-                              .hunkDisplay()
-                              ?.fileSelectedHunks.get(fileIndex()) ?? null
-                          }
-                          onExpandedChange={(expanded) =>
-                            props.setState(
-                              "fileExpansion",
-                              manifestEntryKey(file.entry),
-                              expanded,
-                            )
-                          }
-                          onLoad={() => {
-                            loadSelectedFile(fileIndex(), "bounded");
-                          }}
-                          onRetry={() => {
-                            loadSelectedFile(fileIndex(), "unbounded");
-                          }}
-                        />
+                    <FileCard
+                      file_state={currentState()}
+                      expanded={fileExpanded(
+                        file,
+                        currentState(),
+                        props.state.fileExpansion,
                       )}
-                    </Show>
+                      explicitlyCollapsed={
+                        props.state.fileExpansion[
+                          manifestEntryKey(file.entry)
+                        ] === false
+                      }
+                      admitted={admittedFiles[fileIndex()] === true}
+                      engine={props.params.engine}
+                      view={props.view}
+                      aggressiveFolds={aggressiveFolds()}
+                      globalSelectedHunk={() =>
+                        props.hunkDisplay()?.globalSelectedHunk ?? null
+                      }
+                      fileSelectedHunk={() =>
+                        props
+                          .hunkDisplay()
+                          ?.fileSelectedHunks.get(fileIndex()) ?? null
+                      }
+                      onExpandedChange={(expanded) =>
+                        props.setState(
+                          "fileExpansion",
+                          manifestEntryKey(file.entry),
+                          expanded,
+                        )
+                      }
+                      onLoad={() => {
+                        loadSelectedFile(fileIndex(), "bounded");
+                      }}
+                      onRetry={() => {
+                        loadSelectedFile(fileIndex(), "unbounded");
+                      }}
+                    />
                   );
                 }}
               </For>
