@@ -659,7 +659,7 @@ function FullFile(
    * expanded text file changes only local representation and resolves after
    * Solid has mounted rich DOM. It never expands, selects, calculates counters,
    * scrolls, or fetches.
-  */
+   */
   async function waitToEnrich_impl(): Promise<void> {
     // Not expanded and not admitted files dont need enrichment
     if (!props.expanded || !props.admitted) {

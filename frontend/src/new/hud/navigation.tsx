@@ -630,6 +630,12 @@ export function NavigationProvider(
         case "top":
           window.scrollTo({ top: 0, behavior: "instant" });
           return;
+        default: {
+          const unexpectedCommand: never = command;
+          throw new Error(
+            `Navigation received an unsupported command: ${JSON.stringify(unexpectedCommand)}`,
+          );
+        }
       }
     },
   };
