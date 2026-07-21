@@ -9,6 +9,7 @@
 import {
   Show,
   createEffect,
+  createMemo,
   createSignal,
   on,
   onCleanup,
@@ -77,6 +78,18 @@ type PreferencesModalProps = {
   profile: StoredProfile;
   onClose: () => void;
 };
+
+/**
+ * Represents the complete observable state of one profile's preferences query.
+ *
+ * Pending and failed variants contain no preferences entity, so retained query
+ * data cannot keep the editor alive after a failed load or refetch. Available is
+ * the only variant from which PreferencesEditor may be constructed.
+ */
+type PreferencesState =
+  | { state: "pending" }
+  | { state: "failed"; error: Error }
+  | { state: "available"; preferences: Preferences };
 
 /**
  * Defines the required inputs of the private editable preferences form.
@@ -476,6 +489,28 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
   const preferences = createQuery(() => ({
     ...api.profile.preferences(props.profile.id),
   }));
+  const state = createMemo<PreferencesState>(() => {
+    if (preferences.error !== null) {
+      return { state: "failed", error: preferences.error };
+    }
+    if (preferences.isPending) {
+      return { state: "pending" };
+    }
+    if (preferences.data === undefined) {
+      throw new Error(
+        "A settled preferences query requires data or an explicit error.",
+      );
+    }
+    return { state: "available", preferences: preferences.data };
+  });
+  const loadError = createMemo(() => {
+    const current = state();
+    return current.state === "failed" ? current.error : null;
+  });
+  const loadedPreferences = createMemo(() => {
+    const current = state();
+    return current.state === "available" ? current.preferences : null;
+  });
 
   /**
    * Binds Escape dismissal to the exact mounted lifetime of this modal.
@@ -515,10 +550,7 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
             Close
           </button>
         </div>
-        <Show when={preferences.isPending}>
-          <p class="profile-preferences-message">Loading preferences...</p>
-        </Show>
-        <Show when={preferences.error} keyed>
+        <Show when={loadError()} keyed>
           {(error) => (
             <div class="profile-preferences-error-block">
               <ErrorPopover
@@ -532,7 +564,10 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
             </div>
           )}
         </Show>
-        <Show when={preferences.data} keyed>
+        <Show when={state().state === "pending"}>
+          <p class="profile-preferences-message">Loading preferences...</p>
+        </Show>
+        <Show when={loadedPreferences()} keyed>
           {(loaded) => (
             <PreferencesEditor
               profile={props.profile}
