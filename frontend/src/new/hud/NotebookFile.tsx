@@ -20,7 +20,7 @@ import { DiffGrid } from "./DiffGrid";
  */
 type NotebookFileProps = {
   fileIndex: number;
-  file: NotebookFileDiff;
+  backend_data: NotebookFileDiff;
   view: DiffViewMode;
   aggressiveFolds: boolean;
 };
@@ -49,30 +49,34 @@ export function NotebookFile(props: NotebookFileProps): JSX.Element {
     <div class="notebook-file">
       <div class="notebook-summary">
         <span class="badge badge-neutral">
-          {props.file.summary.left_exists ? "left exists" : "left missing"}
+          {props.backend_data.summary.left_exists
+            ? "left exists"
+            : "left missing"}
         </span>
         <span class="badge badge-neutral">
-          {props.file.summary.right_exists ? "right exists" : "right missing"}
+          {props.backend_data.summary.right_exists
+            ? "right exists"
+            : "right missing"}
         </span>
         <span class="badge badge-neutral">
-          {props.file.summary.changed_cells} changed cell
-          {props.file.summary.changed_cells === 1 ? "" : "s"}
+          {props.backend_data.summary.changed_cells} changed cell
+          {props.backend_data.summary.changed_cells === 1 ? "" : "s"}
         </span>
-        <Show when={props.file.summary.notebook_metadata_changed}>
+        <Show when={props.backend_data.summary.notebook_metadata_changed}>
           <span class="badge badge-neutral">notebook metadata changed</span>
         </Show>
       </div>
 
       <div class="notebook-cells">
         <Show
-          when={props.file.cells.length > 0}
+          when={props.backend_data.cells.length > 0}
           fallback={
             <p class="file-placeholder">
               No changed cells detected for the selected notebook sides.
             </p>
           }
         >
-          <For each={props.file.cells}>
+          <For each={props.backend_data.cells}>
             {(cell) => (
               <NotebookCellView
                 fileIndex={props.fileIndex}

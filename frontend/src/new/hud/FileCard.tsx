@@ -78,7 +78,7 @@ type FileRenderMode = "rich" | "virtual";
  */
 type EnrichableFileCard = HTMLElement & {
   intersectsRichEntryZone: (viewportTop: number) => boolean;
-  waitToEnrich: () => Promise<void>;
+  waitToEnrich_impl: () => Promise<void>;
 };
 
 /**
@@ -186,7 +186,7 @@ type HuskFileState = {
 type FullFileState = {
   state: "full";
   fileIndex: number;
-  file: FileDiff;
+  backend_data: FileDiff;
 };
 
 /**
@@ -231,7 +231,7 @@ type FileCardState = HuskFileState | FullFileState | LazyFileState;
  * begin a query independently.
  */
 type FileCardProps = {
-  state: FileCardState;
+  file_state: FileCardState;
   expanded: boolean;
   explicitlyCollapsed: boolean;
   /**
@@ -258,7 +258,7 @@ type FileCardProps = {
 export function FileCard(props: FileCardProps): JSX.Element {
   return (
     <FileCardContent
-      state={props.state}
+      file_state={props.file_state}
       expanded={props.expanded}
       explicitlyCollapsed={props.explicitlyCollapsed}
       admitted={props.admitted}
@@ -292,13 +292,13 @@ function FileCardContent(props: FileCardProps): JSX.Element {
    * retain their complete coordinate-preserving skipped target count.
    */
   function hunkSet(): string {
-    if (props.state.state === "husk") {
+    if (props.file_state.state === "husk") {
       return props.explicitlyCollapsed ? "husk:skip" : "husk";
     }
-    if (props.state.state === "lazy") {
+    if (props.file_state.state === "lazy") {
       return props.expanded ? "lazy" : "lazy:skip";
     }
-    const count = props.state.file.hunk_count;
+    const count = props.file_state.backend_data.hunk_count;
     if (count === 0) {
       return props.expanded ? "zero" : "zero:skip";
     }
@@ -313,34 +313,49 @@ function FileCardContent(props: FileCardProps): JSX.Element {
       ref={card}
       class="file-card"
       classList={{
-        "is-collapsed": props.state.state === "husk" || !props.expanded,
+        "is-collapsed": props.file_state.state === "husk" || !props.expanded,
       }}
       data-file-card
-      data-file-index={props.state.fileIndex}
-      data-file-state={props.state.state}
+      data-file-index={props.file_state.fileIndex}
+      data-file-state={props.file_state.state}
       data-hunk-set={hunkSet()}
       data-hunk-count={
-        props.state.state === "full" ? props.state.file.hunk_count : undefined
+        props.file_state.state === "full"
+          ? props.file_state.backend_data.hunk_count
+          : undefined
       }
     >
-      <Show when={props.state.state === "husk" ? props.state : null} keyed>
-        {(state) => (
+      <Show
+        when={props.file_state.state === "husk" ? props.file_state : null}
+        keyed
+      >
+        {(file_state) => (
           <HuskFile
-            state={state}
+            file_state={file_state}
             explicitlyCollapsed={props.explicitlyCollapsed}
             globalSelectedHunk={props.globalSelectedHunk}
             fileSelectedHunk={props.fileSelectedHunk}
           />
         )}
       </Show>
-      <Show when={props.state.state === "full" ? props.state.file : null} keyed>
-        {(file) => (
-          <FileRendererBoundary card={() => card} path={file.display_name}>
+      <Show
+        when={
+          props.file_state.state === "full"
+            ? props.file_state.backend_data
+            : null
+        }
+        keyed
+      >
+        {(backend_data) => (
+          <FileRendererBoundary
+            card={() => card}
+            path={backend_data.display_name}
+          >
             <FullFile
-              state={{
+              file_state={{
                 state: "full",
-                fileIndex: props.state.fileIndex,
-                file,
+                fileIndex: props.file_state.fileIndex,
+                backend_data,
               }}
               expanded={props.expanded}
               admitted={props.admitted}
@@ -355,10 +370,13 @@ function FileCardContent(props: FileCardProps): JSX.Element {
           </FileRendererBoundary>
         )}
       </Show>
-      <Show when={props.state.state === "lazy" ? props.state : null} keyed>
-        {(state) => (
+      <Show
+        when={props.file_state.state === "lazy" ? props.file_state : null}
+        keyed
+      >
+        {(file_state) => (
           <LazyFileView
-            state={state}
+            file_state={file_state}
             expanded={props.expanded}
             globalSelectedHunk={props.globalSelectedHunk}
             fileSelectedHunk={props.fileSelectedHunk}
@@ -447,13 +465,13 @@ function FileRendererErrorStrip(props: {
  */
 function HuskFile(
   props: {
-    state: HuskFileState;
+    file_state: HuskFileState;
     explicitlyCollapsed: boolean;
   } & HunkCounterProps,
 ): JSX.Element {
   return (
     <HuskFileHeader
-      state={props.state}
+      file_state={props.file_state}
       explicitlyCollapsed={props.explicitlyCollapsed}
       globalSelectedHunk={props.globalSelectedHunk}
       fileSelectedHunk={props.fileSelectedHunk}
@@ -469,12 +487,12 @@ function HuskFile(
  */
 function HuskFileHeader(
   props: {
-    state: HuskFileState;
+    file_state: HuskFileState;
     explicitlyCollapsed: boolean;
   } & HunkCounterProps,
 ): JSX.Element {
   const identity: PseudoHunkIdentity = {
-    fileIndex: props.state.fileIndex,
+    fileIndex: props.file_state.fileIndex,
     kind: "husk",
     hunkIndex: 0,
   };
@@ -490,9 +508,9 @@ function HuskFileHeader(
       <span class="file-card-heading">
         <VisibilityIndicator visible={false} virtualized={false} />
         <span class="file-card-title-row">
-          <h2>{props.state.path}</h2>
+          <h2>{props.file_state.path}</h2>
           <span class="file-card-status">
-            {props.state.activity === "fetching" ? "loading" : "queued"}
+            {props.file_state.activity === "fetching" ? "loading" : "queued"}
           </span>
           <HunkCounterBadges
             globalSelectedHunk={props.globalSelectedHunk}
@@ -502,7 +520,9 @@ function HuskFileHeader(
       </span>
       <LoaderCircle
         class="file-state-spinner"
-        classList={{ "is-spinning": props.state.activity === "fetching" }}
+        classList={{
+          "is-spinning": props.file_state.activity === "fetching",
+        }}
         aria-hidden="true"
       />
     </header>
@@ -557,7 +577,7 @@ function HunkCounterBadges(props: HunkCounterProps): JSX.Element {
  */
 function FullFile(
   props: {
-    state: FullFileState;
+    file_state: FullFileState;
     expanded: boolean;
     admitted: boolean;
     engine: DiffEngine;
@@ -567,32 +587,32 @@ function FullFile(
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
 ): JSX.Element {
-  const file = props.state.file;
-  const textFile = "render_kind" in file ? null : file;
+  const backend_data = props.file_state.backend_data;
+  const textFile = "render_kind" in backend_data ? null : backend_data;
   const hunkIndices =
-    "render_kind" in file
-      ? file.cells.flatMap((cell) =>
+    "render_kind" in backend_data
+      ? backend_data.cells.flatMap((cell) =>
           cell.source_rows.flatMap((row) =>
             row.hunk_index === null ? [] : [row.hunk_index],
           ),
         )
-      : file.rows.flatMap((row) =>
+      : backend_data.rows.flatMap((row) =>
           row.hunk_index === null ? [] : [row.hunk_index],
         );
-  if (hunkIndices.length !== props.state.file.hunk_count) {
+  if (hunkIndices.length !== props.file_state.backend_data.hunk_count) {
     throw new Error(
-      `${props.state.file.display_name} returned ${hunkIndices.length} hunk targets for hunk_count ${props.state.file.hunk_count}.`,
+      `${props.file_state.backend_data.display_name} returned ${hunkIndices.length} hunk targets for hunk_count ${props.file_state.backend_data.hunk_count}.`,
     );
   }
   const uniqueHunkIndices = new Set(hunkIndices);
   for (
     let hunkIndex = 0;
-    hunkIndex < props.state.file.hunk_count;
+    hunkIndex < props.file_state.backend_data.hunk_count;
     hunkIndex += 1
   ) {
     if (!uniqueHunkIndices.has(hunkIndex)) {
       throw new Error(
-        `${props.state.file.display_name} omitted hunk index ${hunkIndex}.`,
+        `${props.file_state.backend_data.display_name} omitted hunk index ${hunkIndex}.`,
       );
     }
   }
@@ -639,14 +659,10 @@ function FullFile(
    * expanded text file changes only local representation and resolves after
    * Solid has mounted rich DOM. It never expands, selects, calculates counters,
    * scrolls, or fetches.
-   */
-  async function waitToEnrich(): Promise<void> {
-    if (
-      !props.expanded ||
-      !props.admitted ||
-      props.state.file.hunk_count === 0 ||
-      textFile === null
-    ) {
+  */
+  async function waitToEnrich_impl(): Promise<void> {
+    // Not expanded and not admitted files dont need enrichment
+    if (!props.expanded || !props.admitted) {
       return;
     }
     const card = props.card();
@@ -707,12 +723,12 @@ function FullFile(
     const observedFile = textFile;
     card.dataset.fileRender = renderMode();
     card.intersectsRichEntryZone = intersectsRichEntryZone;
-    card.waitToEnrich = waitToEnrich;
+    card.waitToEnrich_impl = waitToEnrich_impl;
     if (observedFile === null) {
       onCleanup(() => {
         delete card.dataset.fileRender;
         Reflect.deleteProperty(card, "intersectsRichEntryZone");
-        Reflect.deleteProperty(card, "waitToEnrich");
+        Reflect.deleteProperty(card, "waitToEnrich_impl");
       });
       return;
     }
@@ -780,34 +796,38 @@ function FullFile(
       window.removeEventListener("resize", observeCurrentZones);
       delete card.dataset.fileRender;
       Reflect.deleteProperty(card, "intersectsRichEntryZone");
-      Reflect.deleteProperty(card, "waitToEnrich");
+      Reflect.deleteProperty(card, "waitToEnrich_impl");
     });
   });
 
   return (
     <>
       <FullFileHeader
-        state={props.state}
+        file_state={props.file_state}
         expanded={props.expanded}
         virtualized={props.expanded && renderMode() === "virtual"}
         awaitingAdmission={
-          props.expanded && !props.admitted && props.state.file.hunk_count > 0
+          props.expanded &&
+          !props.admitted &&
+          props.file_state.backend_data.hunk_count > 0
         }
         globalSelectedHunk={props.globalSelectedHunk}
         fileSelectedHunk={props.fileSelectedHunk}
         onExpandedChange={props.onExpandedChange}
       />
-      <Show when={!props.expanded && props.state.file.hunk_count > 0}>
+      <Show
+        when={!props.expanded && props.file_state.backend_data.hunk_count > 0}
+      >
         <div class="hunk-skip-anchors" aria-hidden="true">
           <For
             each={Array.from(
-              { length: props.state.file.hunk_count },
+              { length: props.file_state.backend_data.hunk_count },
               (_, hunkIndex) => hunkIndex,
             )}
           >
             {(hunkIndex) => {
               const identity: PseudoHunkIdentity = {
-                fileIndex: props.state.fileIndex,
+                fileIndex: props.file_state.fileIndex,
                 kind: "skip",
                 hunkIndex,
               };
@@ -831,8 +851,8 @@ function FullFile(
           fallback={
             <div class="file-card-body rich-file-body" data-file-body>
               <FileBody
-                fileIndex={props.state.fileIndex}
-                file={props.state.file}
+                fileIndex={props.file_state.fileIndex}
+                backend_data={props.file_state.backend_data}
                 engine={props.engine}
                 view={props.view}
                 aggressiveFolds={props.aggressiveFolds}
@@ -840,21 +860,21 @@ function FullFile(
             </div>
           }
         >
-          {(file) => (
+          {(backend_data) => (
             <Show
               when={renderMode() === "rich"}
               fallback={
                 <VirtualFile
-                  fileIndex={props.state.fileIndex}
-                  file={file}
+                  fileIndex={props.file_state.fileIndex}
+                  backend_data={backend_data}
                   reservedRichHeight={reservedRichHeight()}
                 />
               }
             >
               <div class="file-card-body rich-file-body" data-file-body>
                 <FileBody
-                  fileIndex={props.state.fileIndex}
-                  file={file}
+                  fileIndex={props.file_state.fileIndex}
+                  backend_data={backend_data}
                   engine={props.engine}
                   view={props.view}
                   aggressiveFolds={props.aggressiveFolds}
@@ -878,7 +898,7 @@ function FullFile(
  */
 function VirtualFile(props: {
   fileIndex: number;
-  file: TextFileDiff;
+  backend_data: TextFileDiff;
   reservedRichHeight: number | null;
 }): JSX.Element {
   /**
@@ -888,7 +908,7 @@ function VirtualFile(props: {
    * blank row, so both returned sides preserve identical backend row positions.
    */
   function sideText(side: "left_text" | "right_text"): string {
-    return props.file.rows.map((row) => row[side] ?? "").join("\n");
+    return props.backend_data.rows.map((row) => row[side] ?? "").join("\n");
   }
 
   return (
@@ -903,7 +923,7 @@ function VirtualFile(props: {
       }}
     >
       <div class="plain-split-diff" aria-label="Virtualized plain split diff">
-        <For each={props.file.rows}>
+        <For each={props.backend_data.rows}>
           {(row, rowIndex) => {
             const hunkIndex = row.hunk_index;
             if (hunkIndex === null) {
@@ -943,14 +963,14 @@ function VirtualFile(props: {
  */
 function FullFileHeader(
   props: {
-    state: FullFileState;
+    file_state: FullFileState;
     expanded: boolean;
     virtualized: boolean;
     awaitingAdmission: boolean;
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
 ): JSX.Element {
-  const zeroHunkFile = props.state.file.hunk_count === 0;
+  const zeroHunkFile = props.file_state.backend_data.hunk_count === 0;
 
   /**
    * Constructs the indexed pseudo-hunk currently placed by this header.
@@ -962,14 +982,14 @@ function FullFileHeader(
   function targetIdentity(): PseudoHunkIdentity | null {
     if (zeroHunkFile) {
       return {
-        fileIndex: props.state.fileIndex,
+        fileIndex: props.file_state.fileIndex,
         kind: "zero",
         hunkIndex: 0,
       };
     }
     return props.awaitingAdmission
       ? {
-          fileIndex: props.state.fileIndex,
+          fileIndex: props.file_state.fileIndex,
           kind: "husk",
           hunkIndex: 0,
         }
@@ -992,8 +1012,8 @@ function FullFileHeader(
           aria-expanded={props.expanded}
           aria-label={
             props.expanded
-              ? `Collapse ${props.state.file.display_name}`
-              : `Expand ${props.state.file.display_name}`
+              ? `Collapse ${props.file_state.backend_data.display_name}`
+              : `Expand ${props.file_state.backend_data.display_name}`
           }
           onClick={() => props.onExpandedChange(!props.expanded)}
         >
@@ -1003,16 +1023,16 @@ function FullFileHeader(
           />
         </button>
         <span class="file-card-title-row">
-          <h2>{props.state.file.display_name}</h2>
+          <h2>{props.file_state.backend_data.display_name}</h2>
           <span class="file-card-status">
-            {props.state.file.file_kind.type === "git"
-              ? props.state.file.file_kind.status
+            {props.file_state.backend_data.file_kind.type === "git"
+              ? props.file_state.backend_data.file_kind.status
               : "untracked"}
           </span>
           <Show
             when={
-              "engine_warning" in props.state.file
-                ? props.state.file.engine_warning
+              "engine_warning" in props.file_state.backend_data
+                ? props.file_state.backend_data.engine_warning
                 : null
             }
             keyed
@@ -1029,7 +1049,7 @@ function FullFileHeader(
           />
         </span>
       </span>
-      <FileStatistics summary={props.state.file.summary} />
+      <FileStatistics summary={props.file_state.backend_data.summary} />
     </header>
   );
 }
@@ -1060,21 +1080,21 @@ function engineWarningLabel(warning: EngineWarning): string {
  */
 function LazyFileView(
   props: {
-    state: LazyFileState;
+    file_state: LazyFileState;
     expanded: boolean;
     onLoad: () => void;
     onRetry: () => void;
   } & HunkCounterProps,
 ): JSX.Element {
   const identity: PseudoHunkIdentity = {
-    fileIndex: props.state.fileIndex,
+    fileIndex: props.file_state.fileIndex,
     kind: "lazy",
     hunkIndex: 0,
   };
   return (
     <>
       <LazyFileHeader
-        state={props.state}
+        file_state={props.file_state}
         globalSelectedHunk={props.globalSelectedHunk}
         fileSelectedHunk={props.fileSelectedHunk}
       />
@@ -1091,19 +1111,27 @@ function LazyFileView(
       </Show>
       <Show when={props.expanded}>
         <Show
-          when={props.state.file.kind === "deferred" ? props.state.file : null}
+          when={
+            props.file_state.file.kind === "deferred"
+              ? props.file_state.file
+              : null
+          }
           keyed
         >
           {(deferred) => (
             <DeferredFilePlank
-              fileIndex={props.state.fileIndex}
+              fileIndex={props.file_state.fileIndex}
               info={deferred.info}
               onLoad={props.onLoad}
             />
           )}
         </Show>
         <Show
-          when={props.state.file.kind === "error" ? props.state.file : null}
+          when={
+            props.file_state.file.kind === "error"
+              ? props.file_state.file
+              : null
+          }
           keyed
         >
           {(failure) => (
@@ -1136,7 +1164,7 @@ function LazyFileView(
  * only; the explicit plank remains the sole individual LazyFile action.
  */
 function LazyFileHeader(
-  props: { state: LazyFileState } & HunkCounterProps,
+  props: { file_state: LazyFileState } & HunkCounterProps,
 ): JSX.Element {
   return (
     <header class="file-card-header lazy-file-header">
@@ -1144,14 +1172,14 @@ function LazyFileHeader(
         <VisibilityIndicator visible={false} virtualized={false} />
         <span class="file-card-title-row">
           <h2>
-            {props.state.file.kind === "deferred"
-              ? props.state.file.info.display_name
-              : props.state.file.path}
+            {props.file_state.file.kind === "deferred"
+              ? props.file_state.file.info.display_name
+              : props.file_state.file.path}
           </h2>
           <span class="file-card-status">
-            {props.state.file.kind === "error"
+            {props.file_state.file.kind === "error"
               ? "failed"
-              : props.state.file.info.lazy}
+              : props.file_state.file.info.lazy}
           </span>
           <HunkCounterBadges
             globalSelectedHunk={props.globalSelectedHunk}
@@ -1160,7 +1188,11 @@ function LazyFileHeader(
         </span>
       </span>
       <Show
-        when={props.state.file.kind === "deferred" ? props.state.file : null}
+        when={
+          props.file_state.file.kind === "deferred"
+            ? props.file_state.file
+            : null
+        }
         keyed
       >
         {(deferred) => <LazyStatistics info={deferred.info} />}
@@ -1262,16 +1294,16 @@ function DeferredFilePlank(props: {
  */
 function FileBody(props: {
   fileIndex: number;
-  file: FileDiff;
+  backend_data: FileDiff;
   engine: DiffEngine;
   view: DiffViewMode;
   aggressiveFolds: boolean;
 }): JSX.Element {
-  if ("render_kind" in props.file) {
+  if ("render_kind" in props.backend_data) {
     return (
       <NotebookFile
         fileIndex={props.fileIndex}
-        file={props.file}
+        backend_data={props.backend_data}
         view={props.view}
         aggressiveFolds={props.aggressiveFolds}
       />
@@ -1280,11 +1312,11 @@ function FileBody(props: {
   return (
     <DiffGrid
       fileIndex={props.fileIndex}
-      displayName={props.file.display_name}
-      leftLabel={props.file.left_label}
-      rightLabel={props.file.right_label}
-      rows={props.file.rows}
-      foldHints={props.file.fold_hints}
+      displayName={props.backend_data.display_name}
+      leftLabel={props.backend_data.left_label}
+      rightLabel={props.backend_data.right_label}
+      rows={props.backend_data.rows}
+      foldHints={props.backend_data.fold_hints}
       viewMode={props.view}
       aggressiveFolds={props.aggressiveFolds}
       combineInsertOnlyReplaceRows={props.engine === "difftastic"}

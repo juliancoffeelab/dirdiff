@@ -1329,7 +1329,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
         return {
           state: "full" as const,
           fileIndex,
-          file: query.data,
+          backend_data: query.data,
         };
       }
       if (query.isError) {
@@ -1761,7 +1761,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                     <Show when={fileStates()[fileIndex()]}>
                       {(currentState) => (
                         <FileCard
-                          state={currentState()}
+                          file_state={currentState()}
                           expanded={fileExpanded(
                             file,
                             currentState(),
@@ -1825,7 +1825,7 @@ type FileTreeState =
       path: string;
       activity: "queued" | "fetching";
     }
-  | { state: "full"; fileIndex: number; file: FileDiff }
+  | { state: "full"; fileIndex: number; backend_data: FileDiff }
   | {
       state: "lazy";
       fileIndex: number;
@@ -1868,7 +1868,7 @@ function calculateDirectoryExpansion(
           childIsReachable =
             state.state === "husk" ||
             state.state === "lazy" ||
-            state.file.default_expanded;
+            state.backend_data.default_expanded;
         }
       } else {
         childIsReachable = visit(child.entries);
@@ -2716,7 +2716,7 @@ function fileExpanded(
     return true;
   }
   if (state.state === "full") {
-    return state.file.default_expanded;
+    return state.backend_data.default_expanded;
   }
   return false;
 }
@@ -2730,10 +2730,10 @@ function fileExpanded(
 function treeStatistics(state: FileTreeState): TreeLineStats {
   if (state.state === "full") {
     return {
-      added: state.file.summary.added_lines,
-      modified: state.file.summary.modified_lines,
-      removed: state.file.summary.removed_lines,
-      moved: state.file.summary.moved_lines,
+      added: state.backend_data.summary.added_lines,
+      modified: state.backend_data.summary.modified_lines,
+      removed: state.backend_data.summary.removed_lines,
+      moved: state.backend_data.summary.moved_lines,
     };
   }
   if (state.state === "lazy" && state.file.kind === "deferred") {

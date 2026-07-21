@@ -101,7 +101,7 @@ export type NavigationProviderProps = {
  */
 type EnrichableFileCard = HTMLElement & {
   intersectsRichEntryZone: (viewportTop: number) => boolean;
-  waitToEnrich: () => Promise<void>;
+  waitToEnrich_impl: () => Promise<void>;
 };
 
 const NavigationContext = createContext<Navigation>();
@@ -267,14 +267,21 @@ export function NavigationProvider(
    * its DOM interface and throws instead of silently skipping enrichment.
    */
   async function waitToEnrich(card: HTMLElement): Promise<void> {
+    switch (card.dataset.fileState) {
+      case "husk":
+      case "lazy":
+        return;
+      case "full":
+        break;
+      default:
+        throw new Error("FileCard has an invalid file state.");
+    }
+
     const enrichableCard = card as Partial<EnrichableFileCard>;
-    if (typeof enrichableCard.waitToEnrich === "function") {
-      await enrichableCard.waitToEnrich();
-      return;
+    if (typeof enrichableCard.waitToEnrich_impl !== "function") {
+      throw new Error("FullFile omitted waitToEnrich_impl.");
     }
-    if (card.dataset.fileState === "full") {
-      throw new Error("FullFile omitted waitToEnrich.");
-    }
+    await enrichableCard.waitToEnrich_impl();
   }
 
   /**
