@@ -2145,10 +2145,22 @@ function FileTree(props: FileTreeProps): JSX.Element {
     const highlighted = createMemo(
       () => props.selectedFileIndex() === fileIndex,
     );
-    const fileStatus =
-      rowProps.file.entry.file_kind.type === "git"
-        ? rowProps.file.entry.file_kind.status
-        : "untracked";
+    const fileKind = rowProps.file.entry.file_kind;
+    // This IIFE exists so TypeScript infers the exhaustive switch's result union.
+    const fileStatus = (() => {
+      switch (fileKind.type) {
+        case "git":
+          return fileKind.status;
+        case "untracked":
+          return "untracked";
+        default: {
+          const unsupported: never = fileKind;
+          throw new Error(
+            `Unsupported file kind ${JSON.stringify(unsupported)}.`,
+          );
+        }
+      }
+    })();
     /**
      * Reports the localized error presentation that must override reason colors.
      *
