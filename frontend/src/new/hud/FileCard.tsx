@@ -136,8 +136,8 @@ function richZone(rowCount: number): RichZone {
 /**
  * Chooses the first representation from current FileCard geometry.
  *
- * A card intersecting its cost-dependent entry zone begins rich. Unreadable
- * geometry begins virtual and is corrected by the mounted observers.
+ * A card intersecting its cost-dependent entry zone begins rich. The stable
+ * Husk must provide readable geometry before FullFile chooses a representation.
  */
 function initialRenderMode(
   card: HTMLElement,
@@ -145,17 +145,20 @@ function initialRenderMode(
 ): FileRenderMode {
   const viewportHeight = window.innerHeight;
   const rect = card.getBoundingClientRect();
-  if (viewportHeight <= 0) {
-    return "virtual";
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
+    throw new Error(
+      "Initial virtualization requires a finite positive viewport height.",
+    );
   }
-  if (!Number.isFinite(rect.top)) {
-    return "virtual";
-  }
-  if (!Number.isFinite(rect.bottom)) {
-    return "virtual";
+  if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) {
+    throw new Error(
+      "Initial virtualization requires a finite FileCard rectangle.",
+    );
   }
   if (rect.width === 0 && rect.height === 0) {
-    return "virtual";
+    throw new Error(
+      "Initial virtualization requires measurable FileCard geometry.",
+    );
   }
   const margin = richZone(rowCount).enterViewports * viewportHeight;
   return rect.bottom >= -margin && rect.top <= viewportHeight + margin
@@ -628,9 +631,9 @@ function FullFile(
   /**
    * Changes only this FullFile's representation and records usable rich height.
    *
-   * Observer callbacks call this operation directly. Zero or non-finite DOM
-   * measurements are unusable and leave prior or natural geometry intact. It
-   * performs no navigation, selected-hunk, ChangeSet, or scrolling behavior.
+   * Observer callbacks call this operation directly. An expanded admitted file
+   * must expose a measurable rich body before becoming virtual. It performs no
+   * navigation, selected-hunk, ChangeSet, or scrolling behavior.
    */
   function changeRenderMode(mode: FileRenderMode): void {
     if (renderMode() === mode) {
@@ -640,11 +643,20 @@ function FullFile(
       const richBody = props
         .card()
         .querySelector<HTMLElement>(".rich-file-body");
-      if (richBody !== null) {
-        const measuredHeight = richBody.getBoundingClientRect().height;
-        if (Number.isFinite(measuredHeight) && measuredHeight > 0) {
-          setReservedRichHeight(measuredHeight);
+      if (richBody === null) {
+        if (props.expanded && props.admitted) {
+          throw new Error(
+            "Expanded admitted FullFile cannot become virtual without a rich body.",
+          );
         }
+      } else {
+        const measuredHeight = richBody.getBoundingClientRect().height;
+        if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
+          throw new Error(
+            "Rich FullFile body must have a finite positive height before virtualization.",
+          );
+        }
+        setReservedRichHeight(measuredHeight);
       }
     }
     setRenderMode(mode);
@@ -1344,9 +1356,8 @@ function FileStatistics(props: { summary: FileDiff["summary"] }): JSX.Element {
 /**
  * Renders the stable four-cell statistic shape for one LazyFile header.
  *
- * Added and removed values come from lazy-info. Modified is known to be zero
- * only when both line totals are known; every unavailable metric uses the
- * established question mark and never becomes an aggregate authority.
+ * Added and removed values come from lazy-info. Lazy metadata does not contain
+ * modified or moved counts, so those unavailable metrics remain question marks.
  */
 function LazyStatistics(props: { info: LazyInfoFile }): JSX.Element {
   return (
@@ -1354,12 +1365,7 @@ function LazyStatistics(props: { info: LazyInfoFile }): JSX.Element {
       <span class="delta added">
         + {props.info.added_lines === null ? "?" : props.info.added_lines}
       </span>
-      <span class="delta changed">
-        ~{" "}
-        {props.info.added_lines !== null && props.info.removed_lines !== null
-          ? 0
-          : "?"}
-      </span>
+      <span class="delta changed">~ ?</span>
       <span class="delta removed">
         - {props.info.removed_lines === null ? "?" : props.info.removed_lines}
       </span>
