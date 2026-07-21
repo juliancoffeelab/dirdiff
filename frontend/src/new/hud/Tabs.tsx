@@ -15,6 +15,7 @@ import {
   createMemo,
   createSignal,
   on,
+  onMount,
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -39,7 +40,11 @@ import {
   type RepoMark,
 } from "../api/api";
 import { AutocompleteInput } from "../comp/AutocompleteInput";
-import { ErrorPopover, UnexpectedErrorBoundary } from "../comp/Toasts";
+import {
+  ErrorPopover,
+  UnexpectedErrorBoundary,
+  useToasts,
+} from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets, RepositoryState } from "./AppHeader";
 import { ChangeSet } from "./ChangeSet";
@@ -559,7 +564,7 @@ function RefsControls(props: RefsControlsProps): JSX.Element {
         class=""
         label="Old ref"
         seed={props.left}
-        placeholder="head~1"
+        placeholder="HEAD~1"
         choices={props.choices}
         inputVisible={true}
         inputPrefix={null}
@@ -572,7 +577,7 @@ function RefsControls(props: RefsControlsProps): JSX.Element {
         class=""
         label="New ref"
         seed={props.right}
-        placeholder="head"
+        placeholder="HEAD"
         choices={props.choices}
         inputVisible={true}
         inputPrefix={null}
@@ -595,8 +600,8 @@ function RefsControls(props: RefsControlsProps): JSX.Element {
 function RefsWithoutRepo(
   props: Pick<TabProps, "active" | "metadataTarget" | "onRepoSelected">,
 ): JSX.Element {
-  const [left, setLeft] = createSignal("head~1");
-  const [right, setRight] = createSignal("head");
+  const [left, setLeft] = createSignal("HEAD~1");
+  const [right, setRight] = createSignal("HEAD");
 
   return (
     <RefsControls
@@ -639,21 +644,56 @@ type RefsRepoTabProps = RepoTabProps & {
  */
 function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   const queryClient = useQueryClient();
-  const search = new URLSearchParams(window.location.search);
-  const initialLeft = props.active ? search.get("left") : null;
-  const initialRight = props.active ? search.get("right") : null;
-  if (initialLeft !== null && initialLeft.trim().length === 0) {
-    throw new Error("The selected old ref must not be blank.");
+  const toast = useToasts();
+
+  /**
+   * Parses one complete initial Refs pair from the active browser URL.
+   *
+   * A fresh or inactive Tab starts with the canonical pair. Partial and blank URL
+   * pairs are one invalid entity: the user is notified after mount and the whole
+   * pair is reconstructed from defaults without rewriting browser state.
+   */
+  function parseInitialRefs(): { left: string; right: string } {
+    if (!props.active) {
+      return { left: "HEAD~1", right: "HEAD" };
+    }
+    const search = new URLSearchParams(window.location.search);
+    const left = search.get("left");
+    const right = search.get("right");
+    if (left === null && right === null) {
+      return { left: "HEAD~1", right: "HEAD" };
+    }
+    if (
+      left === null ||
+      left.trim().length === 0 ||
+      right === null ||
+      right.trim().length === 0
+    ) {
+      onMount(() => {
+        toast.showError(
+          "Could not restore refs from URL",
+          new Error(
+            "The URL must provide both nonblank refs. Restored HEAD~1 and HEAD for this page.",
+          ),
+        );
+      });
+      return { left: "HEAD~1", right: "HEAD" };
+    }
+    return { left, right };
   }
-  if (initialRight !== null && initialRight.trim().length === 0) {
-    throw new Error("The selected new ref must not be blank.");
-  }
-  const [left, setLeft] = createSignal(initialLeft ?? "head~1");
-  const [right, setRight] = createSignal(initialRight ?? "head");
+
+  const initial = parseInitialRefs();
+  const [left, setLeft] = createSignal(initial.left);
+  const [right, setRight] = createSignal(initial.right);
   const [selected, setSelected] = createSignal<{
     left: string;
     right: string;
-  } | null>(props.active ? { left: left(), right: right() } : null);
+  } | null>(props.active ? initial : null);
+  const loadReady = createMemo(() => {
+    const currentLeft = left();
+    const currentRight = right();
+    return currentLeft.trim().length > 0 && currentRight.trim().length > 0;
+  });
   const refs = createQuery(() => ({
     ...api.repos.refs(props.projectId),
     enabled: props.active,
@@ -664,7 +704,9 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
     () => {
       const current = selected();
       if (current === null) {
-        loadRefs();
+        if (loadReady()) {
+          loadRefs();
+        }
       } else {
         props.onSelected(current.left, current.right);
       }
@@ -674,13 +716,16 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   /**
    * Stores and serializes the complete two-ref selection.
    *
-   * Both current component values are meaningful selected values, not query data.
+   * The live controls may be incomplete, but submission requires both values to
+   * be present and nonblank before they can become a selected comparison.
    */
   function loadRefs(): void {
-    if (left().trim().length === 0 || right().trim().length === 0) {
+    const currentLeft = left();
+    const currentRight = right();
+    if (currentLeft.trim().length === 0 || currentRight.trim().length === 0) {
       throw new Error("Loading refs requires nonblank old and new refs.");
     }
-    const next = { left: left(), right: right() };
+    const next = { left: currentLeft, right: currentRight };
     setSelected(next);
     props.onSelected(next.left, next.right);
   }
@@ -711,7 +756,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
         choices={choices()}
         panelAction={refreshControl()}
         action={
-          <button class="load-button" type="submit">
+          <button class="load-button" type="submit" disabled={!loadReady()}>
             Load
           </button>
         }
