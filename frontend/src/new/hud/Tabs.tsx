@@ -1701,7 +1701,7 @@ function PresetTab(
   }));
   const effectivePreset = createMemo(() => {
     const highlighted = highlightedPreset();
-    if (highlighted !== null && highlighted.length > 0) {
+    if (highlighted !== null) {
       return highlighted;
     }
     return catalogs.data?.[presetType()].default_preset ?? null;

@@ -198,8 +198,8 @@ const PreparedPullRequestSchema = z.strictObject({
 export type PreparedPullRequest = z.infer<typeof PreparedPullRequestSchema>;
 
 const PresetGroupSchema = z.strictObject({
-  id: z.string(),
-  display_name: z.string(),
+  id: z.string().min(1),
+  display_name: z.string().min(1),
 });
 
 /**
@@ -211,7 +211,7 @@ const PresetGroupSchema = z.strictObject({
 export type PresetGroup = z.infer<typeof PresetGroupSchema>;
 
 const PresetCatalogSchema = z.strictObject({
-  default_preset: z.string(),
+  default_preset: z.string().min(1),
   groups: z.array(PresetGroupSchema),
 });
 
