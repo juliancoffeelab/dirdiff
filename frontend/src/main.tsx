@@ -29,49 +29,136 @@ function selectedFrontendVersion(): FrontendVersion {
  * Persists another complete frontend tree and reloads into its URL vocabulary.
  *
  * The destination is required. Translation is limited to browser field names at
- * this entrypoint boundary; neither mounted application receives mixed state.
+ * this entrypoint boundary; neither mounted application receives mixed state. An
+ * empty source query remains empty, while nonempty state that cannot be translated
+ * completely is discarded rather than partially retained or inferred.
  */
 function switchFrontend(destination: FrontendVersion): void {
   // The temporary two-tree toggle translates browser workspace vocabulary at
   // the cutover boundary. Neither application accepts the other tree's URL.
-  const search = new URLSearchParams(window.location.search);
+  let search = new URLSearchParams(window.location.search);
+  let translationFailed = false;
+  const sourceQueryEmpty = search.size === 0;
   if (destination === "v_new") {
+    const mode = search.get("mode");
+    const tab = search.get("tab");
     const projectId = search.get("project_id");
-    if (projectId !== null) {
-      if (/^[1-9]\d*$/.test(projectId)) {
-        search.set("repo_id", projectId);
-      } else if (
+
+    if (sourceQueryEmpty) {
+      // Both frontends define their own behavior for a genuinely empty URL.
+    } else if (search.has("repo_id") || search.has("preset_type")) {
+      translationFailed = true;
+    } else if (mode === null || search.has("cache_id")) {
+      translationFailed = true;
+    } else if (tab !== null && tab !== "pull-request") {
+      translationFailed = true;
+    } else if (tab === "pull-request" && mode !== "branch-review") {
+      translationFailed = true;
+    } else if (
+      mode !== null &&
+      mode !== "head" &&
+      mode !== "refs" &&
+      mode !== "branch-review" &&
+      mode !== "preset"
+    ) {
+      translationFailed = true;
+    } else if (mode === "preset") {
+      if (
         projectId === "diff" ||
         projectId === "fold" ||
         projectId === "gumtree" ||
         projectId === "scroll"
       ) {
+        search.set("tab", "preset");
         search.set("preset_type", projectId);
-      }
-    }
-    search.delete("project_id");
-  } else {
-    const tab = search.get("tab");
-    const mode = search.get("mode");
-    if (tab === "preset" || mode === "preset") {
-      const presetType = search.get("preset_type");
-      if (presetType !== null) {
-        search.set("project_id", presetType);
+      } else {
+        translationFailed = true;
       }
     } else {
-      const repoId = search.get("repo_id");
+      search.set("tab", tab === "pull-request" ? "pull-request" : mode);
+      if (projectId !== null) {
+        if (/^[1-9]\d*$/.test(projectId)) {
+          search.set("repo_id", projectId);
+        } else {
+          translationFailed = true;
+        }
+      }
+    }
+
+    if (!translationFailed) {
+      search.delete("mode");
+      search.delete("project_id");
+      search.delete("show_untracked");
+    }
+  } else {
+    const tab = search.get("tab");
+    const repoId = search.get("repo_id");
+    const presetType = search.get("preset_type");
+
+    if (sourceQueryEmpty) {
+      // Both frontends define their own behavior for a genuinely empty URL.
+    } else if (
+      search.has("mode") ||
+      search.has("project_id") ||
+      search.has("cache_id") ||
+      search.has("show_untracked")
+    ) {
+      translationFailed = true;
+    } else if (tab === null) {
+      translationFailed = true;
+    } else if (
+      tab !== null &&
+      tab !== "head" &&
+      tab !== "refs" &&
+      tab !== "branch-review" &&
+      tab !== "pull-request" &&
+      tab !== "preset"
+    ) {
+      translationFailed = true;
+    } else if (tab === "preset") {
+      if (
+        presetType === "diff" ||
+        presetType === "fold" ||
+        presetType === "gumtree" ||
+        presetType === "scroll"
+      ) {
+        search.set("mode", "preset");
+        search.set("project_id", presetType);
+        search.delete("tab");
+      } else {
+        translationFailed = true;
+      }
+    } else if (presetType !== null) {
+      translationFailed = true;
+    } else if (repoId !== null && !/^[1-9]\d*$/.test(repoId)) {
+      translationFailed = true;
+    } else {
+      search.set("mode", tab === "pull-request" ? "branch-review" : tab);
+      if (tab === "pull-request") {
+        search.set("tab", "pull-request");
+      } else {
+        search.delete("tab");
+      }
       if (repoId !== null) {
         search.set("project_id", repoId);
       }
     }
-    search.delete("repo_id");
-    search.delete("preset_type");
+
+    if (!translationFailed) {
+      search.delete("repo_id");
+      search.delete("preset_type");
+    }
+  }
+
+  if (translationFailed) {
+    // An invalid or contradictory source URL has no conservative translation.
+    search = new URLSearchParams();
   }
   const query = search.toString();
   window.history.replaceState(
     null,
     "",
-    `${window.location.pathname}${query.length === 0 ? "" : `?${query}`}${window.location.hash}`,
+    `${window.location.pathname}${query.length === 0 ? "" : `?${query}`}${translationFailed ? "" : window.location.hash}`,
   );
   window.localStorage.setItem(FRONTEND_VERSION_STORAGE_KEY, destination);
   window.location.reload();

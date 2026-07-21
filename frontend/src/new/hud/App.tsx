@@ -80,8 +80,8 @@ type WorkspaceProps = {
 /**
  * Parses the active Tab from canonical browser URL state.
  *
- * A valid explicit `tab` wins. Absent legacy-compatible `mode` values select their
- * matching Tab, and all other absent state starts at Head.
+ * A valid explicit `tab` selects its matching Tab, and absence starts at Head.
+ * Backend `mode` is not browser Tab identity and is never accepted here.
  */
 function initialTab(search: URLSearchParams): TabId {
   const tab = search.get("tab");
@@ -97,19 +97,7 @@ function initialTab(search: URLSearchParams): TabId {
     }
     throw new Error(`Unsupported URL tab: ${tab}.`);
   }
-  const mode = search.get("mode");
-  if (mode === null) {
-    return "head";
-  }
-  if (
-    mode === "head" ||
-    mode === "refs" ||
-    mode === "branch-review" ||
-    mode === "preset"
-  ) {
-    return mode;
-  }
-  throw new Error(`Unsupported URL mode: ${mode}.`);
+  return "head";
 }
 
 /**
@@ -206,8 +194,6 @@ function resetSearch(
     search.set("repo_id", String(repoId));
   }
   search.set("tab", tab);
-  // Pull Request keeps its Tab identity while using Branch Review DiffParams.
-  search.set("mode", tab === "pull-request" ? "branch-review" : tab);
   search.set("engine", engine);
   search.set("view", view);
   return search;
