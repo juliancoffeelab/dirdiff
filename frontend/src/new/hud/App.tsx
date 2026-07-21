@@ -18,6 +18,7 @@ import {
   type PresetType,
   type ProjectId,
 } from "../api/api";
+import { assert } from "../utils";
 import { AppHeader, type AppHeaderOutlets } from "./AppHeader";
 import { loadStoredProfile, type StoredProfile } from "./Profile";
 import { TabStrip, Tabs, type TabId } from "./Tabs";
@@ -80,24 +81,25 @@ type WorkspaceProps = {
 /**
  * Parses the active Tab from canonical browser URL state.
  *
- * A valid explicit `tab` selects its matching Tab, and absence starts at Head.
- * Backend `mode` is not browser Tab identity and is never accepted here.
+ * A valid explicit `tab` selects its matching Tab, and a genuinely empty query
+ * starts at Head. A populated query must identify its Tab. Backend `mode` is not
+ * browser Tab identity and is never accepted here.
  */
 function initialTab(search: URLSearchParams): TabId {
   const tab = search.get("tab");
-  if (tab !== null) {
-    if (
-      tab === "head" ||
+  if (tab === null) {
+    assert(search.size === 0, "A nonempty workspace URL requires tab.");
+    return "head";
+  }
+  assert(
+    tab === "head" ||
       tab === "refs" ||
       tab === "branch-review" ||
       tab === "pull-request" ||
-      tab === "preset"
-    ) {
-      return tab;
-    }
-    throw new Error(`Unsupported URL tab: ${tab}.`);
-  }
-  return "head";
+      tab === "preset",
+    `Unsupported URL tab: ${tab}.`,
+  );
+  return tab;
 }
 
 /**
@@ -121,40 +123,42 @@ function initialRepo(search: URLSearchParams): RepoSelection {
 /**
  * Parses the workspace engine from canonical browser state.
  *
- * Absence selects Dirdiff. Unsupported explicit values throw instead of silently
- * requesting a different backend engine.
+ * A genuinely empty URL selects Dirdiff. Populated URLs must name a supported
+ * engine rather than silently requesting a different backend engine.
  */
 function initialEngine(search: URLSearchParams): DiffEngine {
   const engine = search.get("engine");
   if (engine === null) {
+    assert(search.size === 0, "A nonempty workspace URL requires engine.");
     return "dirdiff";
   }
-  if (
+  assert(
     engine === "dirdiff" ||
-    engine === "git" ||
-    engine === "difftastic" ||
-    engine === "gumtree"
-  ) {
-    return engine;
-  }
-  throw new Error(`Unsupported URL diff engine: ${engine}.`);
+      engine === "git" ||
+      engine === "difftastic" ||
+      engine === "gumtree",
+    `Unsupported URL diff engine: ${engine}.`,
+  );
+  return engine;
 }
 
 /**
  * Parses inline/split presentation from canonical browser state.
  *
- * Absence selects inline. Any unsupported explicit value is a visible URL contract
- * error rather than an opportunity to substitute presentation state.
+ * A genuinely empty URL selects inline. Populated URLs must name a supported view;
+ * absence and unsupported explicit values are visible URL contract errors.
  */
 function initialView(search: URLSearchParams): DiffViewMode {
   const view = search.get("view");
   if (view === null) {
+    assert(search.size === 0, "A nonempty workspace URL requires view.");
     return "inline";
   }
-  if (view === "inline" || view === "split") {
-    return view;
-  }
-  throw new Error(`Unsupported URL diff view: ${view}.`);
+  assert(
+    view === "inline" || view === "split",
+    `Unsupported URL diff view: ${view}.`,
+  );
+  return view;
 }
 
 /**
