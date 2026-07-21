@@ -546,7 +546,9 @@ Unexpected FullFile renderer failures are the explicit exception: their critical
 
 The callback is always supplied. RetryButton has no generic default behavior.
 
-The program never invokes `onRetry` itself.
+The program invokes `onRetry` only from direct user activation of the visible
+RetryButton or an explicitly specified keyboard equivalent. The outer ChangeSet
+error panel's `r` hotkey is one such equivalent and invokes the same callback.
 
 `RetryButton` remains presentation-only and does not choose HTTP policy. For an ordinary file-query failure, ChangeSet explicitly enqueues an unbounded attempt through the existing sequential file-fetch lane. Automatic file attempts and first explicit deferred-file loads remain bounded. Both policies use the same canonical file query key because timeout is execution policy, not data identity.
 
@@ -561,6 +563,7 @@ function UnexpectedErrorPanel(props: {
   title: string;
   error: unknown;
   onRetry: () => void;
+  retryOnR: boolean;
 }) {
   const toast = useToasts();
 
@@ -585,6 +588,12 @@ function UnexpectedErrorPanel(props: {
 ```
 
 `onMount` produces one Toast for that mounted failed attempt. It is not a synchronization effect and does not rerun because unrelated reactive values changed. [Solid `onMount` documentation](https://docs.solidjs.com/reference/lifecycle/on-mount)
+
+The outer ChangeSet boundary sets `retryOnR` because its failed subtree contained
+the ordinary ChangeSet hotkey listener. While that panel is mounted, an
+unmodified `r` outside editable controls invokes the exact same callback as its
+visible RetryButton. Boundaries rendered inside `ChangeSetShell` set it to
+`false`; the surviving ChangeSet hotkey already handles `r` there.
 
 If the user retries and the boundary fails again:
 

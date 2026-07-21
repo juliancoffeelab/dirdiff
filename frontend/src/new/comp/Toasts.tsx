@@ -338,10 +338,13 @@ export function ErrorPopover(props: ErrorPopoverProps): JSX.Element {
  * Callers provide a stable error title and the subtree whose correctness is
  * shared. A thrown failure replaces that subtree with complete local damage,
  * emits one notification for the failed mount, and offers only Solid's
- * caller-visible reset action.
+ * caller-visible reset action. `retryOnR` explicitly exposes that same reset
+ * through the unmodified `r` key when the failed subtree contained its normal
+ * keyboard handler; it must remain false when another mounted handler survives.
  */
 export function UnexpectedErrorBoundary(props: {
   title: string;
+  retryOnR: boolean;
   children: JSX.Element;
 }): JSX.Element {
   return (
@@ -351,6 +354,7 @@ export function UnexpectedErrorBoundary(props: {
           title={props.title}
           error={error}
           onRetry={reset}
+          retryOnR={props.retryOnR}
         />
       )}
     >
@@ -478,12 +482,15 @@ function ToastCard(props: {
  *
  * The containing ErrorBoundary provides the original failure and reset operation.
  * Each mounted failed attempt emits its global notification exactly once and
- * retains complete local damage until the user explicitly retries.
+ * retains complete local damage until the user explicitly retries. When the
+ * caller explicitly enables `retryOnR`, the panel also routes that unmodified
+ * key to the same reset operation as its visible RetryButton.
  */
 function UnexpectedErrorPanel(props: {
   title: string;
   error: unknown;
   onRetry: () => void;
+  retryOnR: boolean;
 }): JSX.Element {
   const toast = useToasts();
 
@@ -496,6 +503,45 @@ function UnexpectedErrorPanel(props: {
    */
   onMount(() => {
     toast.showError(props.title, props.error);
+    if (!props.retryOnR) {
+      return;
+    }
+
+    /**
+     * Invokes this panel's visible RetryButton operation from the `r` hotkey.
+     *
+     * The caller explicitly enables the shortcut only when the failed subtree
+     * removed its ordinary hotkey listener. Modified browser shortcuts and
+     * editable controls retain their native behavior.
+     */
+    function retryFromKeyboard(event: KeyboardEvent): void {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.code !== "KeyR"
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      props.onRetry();
+    }
+
+    document.addEventListener("keydown", retryFromKeyboard);
+    onCleanup(() => {
+      document.removeEventListener("keydown", retryFromKeyboard);
+    });
   });
 
   return (

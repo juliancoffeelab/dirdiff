@@ -278,7 +278,7 @@ export function Tabs(props: TabsProps): JSX.Element {
   return (
     <>
       <div class="tab-content" hidden={props.active !== "head"}>
-        <UnexpectedErrorBoundary title="Head Tab failed">
+        <UnexpectedErrorBoundary title="Head Tab failed" retryOnR={false}>
           <HeadTab
             active={props.active === "head"}
             repoId={props.repoId}
@@ -294,7 +294,7 @@ export function Tabs(props: TabsProps): JSX.Element {
         </UnexpectedErrorBoundary>
       </div>
       <div class="tab-content" hidden={props.active !== "refs"}>
-        <UnexpectedErrorBoundary title="Refs Tab failed">
+        <UnexpectedErrorBoundary title="Refs Tab failed" retryOnR={false}>
           <RefsTab
             active={props.active === "refs"}
             repoId={props.repoId}
@@ -310,7 +310,10 @@ export function Tabs(props: TabsProps): JSX.Element {
         </UnexpectedErrorBoundary>
       </div>
       <div class="tab-content" hidden={props.active !== "branch-review"}>
-        <UnexpectedErrorBoundary title="Branch Review Tab failed">
+        <UnexpectedErrorBoundary
+          title="Branch Review Tab failed"
+          retryOnR={false}
+        >
           <BranchReviewTab
             active={props.active === "branch-review"}
             repoId={props.repoId}
@@ -326,7 +329,10 @@ export function Tabs(props: TabsProps): JSX.Element {
         </UnexpectedErrorBoundary>
       </div>
       <div class="tab-content" hidden={props.active !== "pull-request"}>
-        <UnexpectedErrorBoundary title="Pull Request Tab failed">
+        <UnexpectedErrorBoundary
+          title="Pull Request Tab failed"
+          retryOnR={false}
+        >
           <PullRequestTab
             active={props.active === "pull-request"}
             repoId={props.repoId}
@@ -343,7 +349,7 @@ export function Tabs(props: TabsProps): JSX.Element {
         </UnexpectedErrorBoundary>
       </div>
       <div class="tab-content" hidden={props.active !== "preset"}>
-        <UnexpectedErrorBoundary title="Preset Tab failed">
+        <UnexpectedErrorBoundary title="Preset Tab failed" retryOnR={false}>
           <PresetTab
             active={props.active === "preset"}
             repoId={props.repoId}

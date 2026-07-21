@@ -249,7 +249,10 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
   return (
     <Show when={props.active ? params() : null} keyed>
       {(activeParams) => (
-        <UnexpectedErrorBoundary title="Could not render ChangeSet">
+        <UnexpectedErrorBoundary
+          title="Could not render ChangeSet"
+          retryOnR={true}
+        >
           <ChangeSetContent
             params={activeParams}
             view={props.view}
@@ -407,7 +410,10 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             onToggleDebug={() => props.onDebugOpenChange(!props.debugOpen)}
           >
             {(hunkDisplay) => (
-              <UnexpectedErrorBoundary title="Could not render ChangeSet snapshot">
+              <UnexpectedErrorBoundary
+                title="Could not render ChangeSet snapshot"
+                retryOnR={false}
+              >
                 <ChangeSetSnapshot
                   params={props.params}
                   manifest={snapshot}
@@ -1740,7 +1746,10 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
           "diff-workspace-tree-open": props.state.treeOpen,
         }}
       >
-        <UnexpectedErrorBoundary title="Could not render file tree">
+        <UnexpectedErrorBoundary
+          title="Could not render file tree"
+          retryOnR={false}
+        >
           <FileTree
             changeSetRoot={() => changeSetRoot}
             tree={props.manifest.tree}
