@@ -1,8 +1,8 @@
 /**
  * Defines the application-wide TanStack Query provider boundary.
  *
- * The module exports QueryProvider and defines the optional metadata shape used
- * to give query and mutation failures a specific user-visible title. Each
+ * The module exports QueryProvider and defines the metadata shape required to
+ * give every query and mutation failure a specific user-visible title. Each
  * mounted provider owns exactly one QueryClient, QueryCache, and MutationCache.
  * It does not define backend operations, export cache instances, or depend on
  * presentation components.
@@ -20,10 +20,10 @@ import { isRepositoryCacheExpiration } from "./api";
 /**
  * Describes the application-specific TanStack metadata recognized on failure.
  *
- * When an operation supplies metadata, it must provide the complete
- * user-visible title used by the global error Toast. This record describes
- * metadata contents only; it does not make TanStack's metadata field mandatory
- * and must not carry query data or error state.
+ * Every application operation must supply the complete user-visible title used
+ * by the global error Toast. This record controls metadata contents while the
+ * provider asserts presence because TanStack's metadata field remains optional.
+ * It must not carry query data or error state.
  */
 type ErrorMeta = Record<string, unknown> & {
   errorTitle: string;
@@ -34,14 +34,16 @@ type ErrorMeta = Record<string, unknown> & {
 // queryOptions(...) and mutationOptions(...) against ErrorMeta.
 //
 // This changes only the shape of metadata when present. TanStack still declares
-// `meta` as optional, and the declaration emits no runtime validation code.
+// `meta` as optional, so QueryProvider asserts the application contract at the
+// runtime cache boundary. The declaration emits no runtime validation code.
 declare module "@tanstack/query-core" {
   /**
    * Registers the metadata shape accepted by application query and mutation
    * definitions.
    *
-   * TanStack continues to permit operations without metadata. When metadata is
-   * present, callers and cache callbacks may rely on the ErrorMeta field shape.
+   * TanStack continues to permit operations without metadata at its library
+   * boundary. Application operations require it, and present metadata has the
+   * ErrorMeta field shape.
    */
   interface Register {
     queryMeta: ErrorMeta;
@@ -53,11 +55,12 @@ declare module "@tanstack/query-core" {
  * Gives descendants one configured QueryClient and reports failed attempts.
  *
  * Callers provide the complete application subtree and an error reporter. Each
- * failed query or mutation attempt invokes `onError` once using its metadata
- * title when present and a generic operation title otherwise. Intentional query
- * cancellation is handled by the query lifecycle; repository-cache expiration is
- * handled by the ChangeSet lifecycle. Both remain silent. Descendants access the
- * mounted client through TanStack Query's `useQueryClient()`.
+ * failed query or mutation attempt invokes `onError` once using its required
+ * metadata title. Missing metadata violates the application query contract and
+ * throws at this cache boundary. Intentional query cancellation is handled by
+ * the query lifecycle; repository-cache expiration is handled by the ChangeSet
+ * lifecycle. Both remain silent. Descendants access the mounted client through
+ * TanStack Query's `useQueryClient()`.
  */
 export function QueryProvider(props: {
   children: JSX.Element;
@@ -70,17 +73,17 @@ export function QueryProvider(props: {
        *
        * TanStack invokes this after a query attempt fails. This callback ignores
        * intentional cancellation and repository-cache expiration; ChangeSet handles
-       * the latter by replacing its snapshot. Absent metadata uses the generic title.
+       * the latter by replacing its snapshot. Every ordinary query must provide
+       * its application-specific error title.
        */
       onError(error, query) {
         if (isCancelledError(error) || isRepositoryCacheExpiration(error)) {
           return;
         }
-        // Register augmentation narrows present metadata to ErrorMeta, but
-        // TanStack's real `meta?` contract still permits it to be absent.
-        const title =
-          query.meta === undefined ? "Query failed" : query.meta.errorTitle;
-        props.onError(title, error);
+        if (query.meta === undefined) {
+          throw new Error("Failed query requires error-title metadata.");
+        }
+        props.onError(query.meta.errorTitle, error);
       },
     }),
     mutationCache: new MutationCache({
@@ -88,17 +91,14 @@ export function QueryProvider(props: {
        * Presents mutation failures through the application Toast boundary.
        *
        * TanStack invokes this after a mutation attempt fails. Metadata supplies
-       * the visible title when present. TanStack permits metadata to be absent,
-       * in which case this callback uses the generic title.
+       * the visible title. Every application mutation must provide that metadata
+       * even though TanStack's underlying option remains optional.
        */
       onError(error, _variables, _result, mutation) {
-        // mutationOptions(...) receives the same shape checking as
-        // queryOptions(...), while metadata presence remains optional.
-        const title =
-          mutation.meta === undefined
-            ? "Mutation failed"
-            : mutation.meta.errorTitle;
-        props.onError(title, error);
+        if (mutation.meta === undefined) {
+          throw new Error("Failed mutation requires error-title metadata.");
+        }
+        props.onError(mutation.meta.errorTitle, error);
       },
     }),
     defaultOptions: {

@@ -376,18 +376,42 @@ const LazyReasonSchema = z.enum([
  */
 export type LazyReason = z.infer<typeof LazyReasonSchema>;
 
-const ManifestEntrySchema = z.strictObject({
-  file_kind: FileKindSchema,
-  left_path: z.string().nullable(),
-  right_path: z.string().nullable(),
-  lazy: LazyReasonSchema.nullable(),
-});
+const FilePathSchema = z.string().min(1);
+
+/**
+ * Rejects a backend file identity that has neither a left nor right path.
+ *
+ * File-bearing response schemas call this after validating each present path as
+ * non-empty. The callback adds one schema issue for a completely absent identity
+ * and must not infer one side from the other or alter the decoded response.
+ */
+function validateFilePaths(
+  paths: { left_path: string | null; right_path: string | null },
+  context: z.RefinementCtx,
+): void {
+  if (paths.left_path === null && paths.right_path === null) {
+    context.addIssue({
+      code: "custom",
+      message: "File identity requires a left or right path.",
+    });
+  }
+}
+
+const ManifestEntrySchema = z
+  .strictObject({
+    file_kind: FileKindSchema,
+    left_path: FilePathSchema.nullable(),
+    right_path: FilePathSchema.nullable(),
+    lazy: LazyReasonSchema.nullable(),
+  })
+  .superRefine(validateFilePaths);
 
 /**
  * Provides the complete thin handle for one manifest file.
  *
- * Paths, kind and lazy reason are sufficient for later file endpoints. The
- * handle deliberately contains no rendered rows, file summary, or copied state.
+ * At least one path is present and every present path is non-empty. Paths, kind
+ * and lazy reason are sufficient for later file endpoints. The handle deliberately
+ * contains no rendered rows, file summary, or copied state.
  */
 export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;
 
@@ -459,22 +483,25 @@ const ManifestSchema = z.strictObject({
  */
 export type Manifest = z.infer<typeof ManifestSchema>;
 
-const LazyInfoFileSchema = z.strictObject({
-  file_kind: FileKindSchema,
-  left_path: z.string().nullable(),
-  right_path: z.string().nullable(),
-  display_name: z.string(),
-  changed_lines: z.number().int().nullable(),
-  added_lines: z.number().int().nullable(),
-  removed_lines: z.number().int().nullable(),
-  lazy: LazyReasonSchema.nullable(),
-});
+const LazyInfoFileSchema = z
+  .strictObject({
+    file_kind: FileKindSchema,
+    left_path: FilePathSchema.nullable(),
+    right_path: FilePathSchema.nullable(),
+    display_name: z.string(),
+    changed_lines: z.number().int().nullable(),
+    added_lines: z.number().int().nullable(),
+    removed_lines: z.number().int().nullable(),
+    lazy: LazyReasonSchema.nullable(),
+  })
+  .superRefine(validateFilePaths);
 
 /**
  * Contains the complete lightweight presentation data for one delayed file.
  *
- * Every field comes from `/api/lazy-info`; callers must not fill missing values
- * from the manifest or a failed file request.
+ * Every field comes from `/api/lazy-info`. At least one path is present and each
+ * present path is non-empty; callers must not fill missing values from the
+ * manifest or a failed file request.
  */
 export type LazyInfoFile = z.infer<typeof LazyInfoFileSchema>;
 
@@ -627,28 +654,31 @@ const EngineWarningSchema = z.strictObject({
  */
 export type EngineWarning = z.infer<typeof EngineWarningSchema>;
 
-const TextFileDiffSchema = z.strictObject({
-  display_name: z.string(),
-  mode: z.literal("git"),
-  left_label: z.string(),
-  right_label: z.string(),
-  summary: TextFileSummarySchema,
-  rows: z.array(DiffRowSchema),
-  hunk_count: z.number().int().nonnegative(),
-  file_kind: FileKindSchema,
-  left_path: z.string().nullable(),
-  right_path: z.string().nullable(),
-  lazy: LazyReasonSchema.nullable(),
-  default_expanded: z.boolean(),
-  fold_hints: z.array(FoldHintSchema),
-  engine_warning: EngineWarningSchema.nullable(),
-});
+const TextFileDiffSchema = z
+  .strictObject({
+    display_name: z.string(),
+    mode: z.literal("git"),
+    left_label: z.string(),
+    right_label: z.string(),
+    summary: TextFileSummarySchema,
+    rows: z.array(DiffRowSchema),
+    hunk_count: z.number().int().nonnegative(),
+    file_kind: FileKindSchema,
+    left_path: FilePathSchema.nullable(),
+    right_path: FilePathSchema.nullable(),
+    lazy: LazyReasonSchema.nullable(),
+    default_expanded: z.boolean(),
+    fold_hints: z.array(FoldHintSchema),
+    engine_warning: EngineWarningSchema.nullable(),
+  })
+  .superRefine(validateFilePaths);
 
 /**
  * Contains the complete renderable response for one ordinary text file.
  *
- * The stable backend response deliberately has no text `render_kind`. Callers
- * distinguish notebooks by their existing notebook discriminator.
+ * The stable backend response deliberately has no text `render_kind`. At least
+ * one path is present and each present path is non-empty. Callers distinguish
+ * notebooks by their existing notebook discriminator.
  */
 export type TextFileDiff = z.infer<typeof TextFileDiffSchema>;
 
@@ -690,27 +720,30 @@ const NotebookCellSchema = z.strictObject({
  */
 export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 
-const NotebookFileDiffSchema = z.strictObject({
-  display_name: z.string(),
-  mode: z.literal("git"),
-  render_kind: z.literal("notebook"),
-  left_label: z.string(),
-  right_label: z.string(),
-  summary: NotebookFileSummarySchema,
-  hunk_count: z.number().int().nonnegative(),
-  notebook_metadata_changed_lines: z.number().int(),
-  cells: z.array(NotebookCellSchema),
-  file_kind: FileKindSchema,
-  left_path: z.string().nullable(),
-  right_path: z.string().nullable(),
-  default_expanded: z.boolean(),
-});
+const NotebookFileDiffSchema = z
+  .strictObject({
+    display_name: z.string(),
+    mode: z.literal("git"),
+    render_kind: z.literal("notebook"),
+    left_label: z.string(),
+    right_label: z.string(),
+    summary: NotebookFileSummarySchema,
+    hunk_count: z.number().int().nonnegative(),
+    notebook_metadata_changed_lines: z.number().int(),
+    cells: z.array(NotebookCellSchema),
+    file_kind: FileKindSchema,
+    left_path: FilePathSchema.nullable(),
+    right_path: FilePathSchema.nullable(),
+    default_expanded: z.boolean(),
+  })
+  .superRefine(validateFilePaths);
 
 /**
  * Contains the complete renderable response for one notebook file.
  *
- * The notebook discriminator is the stable backend variant marker. Every cell
- * and summary field required by notebook rendering is present.
+ * The notebook discriminator is the stable backend variant marker. At least one
+ * path is present and each present path is non-empty. Every cell and summary
+ * field required by notebook rendering is present.
  */
 export type NotebookFileDiff = z.infer<typeof NotebookFileDiffSchema>;
 
@@ -912,7 +945,7 @@ async function throwResponseError(response: Response): Promise<never> {
   if (bodyText.length === 0) {
     throw new RequestError(
       "other",
-      `Request failed with status ${response.status} ${response.statusText}.`,
+      `Request failed with HTTP status ${response.status} ${response.statusText}, but the response contained no error body.`,
       null,
     );
   }
@@ -1006,19 +1039,6 @@ async function requestJson<T>(
 }
 
 /**
- * Performs one command whose successful response intentionally has no body.
- *
- * The caller provides the complete request. HTTP failures remain visible and a
- * success resolves only after the backend confirms the command.
- */
-async function requestEmpty(request: HttpRequest): Promise<void> {
-  const response = await requestResponse(request);
-  if (!response.ok) {
-    return throwResponseError(response);
-  }
-}
-
-/**
  * Requests the complete repository list used by repository selectors.
  *
  * The caller supplies cancellation and receives only schema-validated repository
@@ -1083,16 +1103,25 @@ function requestRepoDefaults(
 /**
  * Removes exactly one saved repository mark by its backend project ID.
  *
- * Completion means the backend accepted the command. Cache invalidation and
- * any replacement repository selection are responsibilities of the caller.
+ * Completion requires the backend's exact 204 No Content response. Cache
+ * invalidation and any replacement repository selection are responsibilities
+ * of the caller.
  */
-function requestRemoveRepo(projectId: ProjectId): Promise<void> {
-  return requestEmpty({
+async function requestRemoveRepo(projectId: ProjectId): Promise<void> {
+  const response = await requestResponse({
     input: `/api/repos/${projectId}`,
     init: { method: "DELETE" },
     abortSignal: null,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
+  if (!response.ok) {
+    return throwResponseError(response);
+  }
+  if (response.status !== 204) {
+    throw new Error(
+      `Repository deletion requires 204 No Content; received ${response.status} ${response.statusText}.`,
+    );
+  }
 }
 
 /**
@@ -1377,10 +1406,10 @@ function requestFileDiff(
 ): Promise<FileDiff> {
   const search = cachedSearchParams(params, cacheId);
   search.set("engine", params.engine);
-  if (entry.left_path !== null && entry.left_path.length > 0) {
+  if (entry.left_path !== null) {
     search.set("left_path", entry.left_path);
   }
-  if (entry.right_path !== null && entry.right_path.length > 0) {
+  if (entry.right_path !== null) {
     search.set("right_path", entry.right_path);
   }
   const timeoutMs =

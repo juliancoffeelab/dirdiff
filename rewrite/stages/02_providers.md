@@ -70,7 +70,7 @@ There is no generic Toast tone and no success, information or warning Toast.
 3. Valid JSON contained in an Error message is formatted.
 4. A string is displayed directly unless it contains valid JSON.
 5. Other values use formatted JSON.
-6. A value that cannot be serialized uses `String(value)`.
+6. A value that cannot be serialized displays “Unable to display the thrown value.” without invoking conversion hooks.
 
 The formatter never throws while presenting the original error.
 
@@ -230,7 +230,7 @@ There is no persisted browser query cache.
 
 The QueryClient owns one `QueryCache` and one `MutationCache`.
 
-Query and mutation definitions may supply a specific user-visible failure title:
+Every application query and mutation definition supplies a specific user-visible failure title:
 
 ```ts
 type ErrorMeta = {
@@ -238,7 +238,7 @@ type ErrorMeta = {
 };
 ```
 
-The cache callbacks use that metadata when present. A failed query without metadata uses “Query failed”; a failed mutation without metadata uses “Mutation failed”. Every failed attempt still produces one Toast.
+TanStack's underlying option keeps metadata optional, so the cache callbacks assert that every failed application operation supplied it and use its specific title. Missing metadata is an application contract violation rather than a generic failure title. Every ordinary failed attempt still produces one Toast.
 
 Query cancellation produces no Toast.
 

@@ -94,7 +94,7 @@ Primary error formatting follows this order:
 3. If an Error message contains valid JSON text, that JSON is formatted.
 4. A string is displayed directly, unless it contains valid JSON text.
 5. Other values use formatted JSON.
-6. Values that cannot be JSON-serialized use `String(value)`.
+6. Values that cannot be JSON-serialized display “Unable to display the thrown value.” without invoking conversion hooks.
 
 Details are:
 
@@ -294,7 +294,7 @@ This preserves the exact timeout behavior:
 
 TanStack Query remains the authority for backend query and mutation error state.
 
-Query and mutation definitions may provide a specific user-visible error title:
+Every application query and mutation definition provides a specific user-visible error title:
 
 ```ts
 type ErrorMeta = {
@@ -313,7 +313,7 @@ queryOptions({
 });
 ```
 
-TanStack permits metadata to be absent. The QueryClient therefore uses the specific metadata title when present and the generic “Query failed” or “Mutation failed” title otherwise. `QueryCache` and `MutationCache` error callbacks produce one Toast for each failed query or mutation attempt:
+TanStack's underlying option permits metadata to be absent, but the application contract does not. The QueryClient asserts metadata presence at the cache boundary and uses its specific title. `QueryCache` and `MutationCache` error callbacks produce one Toast for each failed query or mutation attempt:
 
 ```tsx
 export function QueryProvider(props: {
@@ -333,23 +333,25 @@ export function QueryProvider(props: {
           return;
         }
 
-        const title =
-          query.meta === undefined
-            ? "Query failed"
-            : query.meta.errorTitle;
+        if (query.meta === undefined) {
+          throw new Error(
+            "Failed query requires error-title metadata.",
+          );
+        }
 
-        props.onError(title, error);
+        props.onError(query.meta.errorTitle, error);
       },
     }),
 
     mutationCache: new MutationCache({
       onError(error, _variables, _result, mutation) {
-        const title =
-          mutation.meta === undefined
-            ? "Mutation failed"
-            : mutation.meta.errorTitle;
+        if (mutation.meta === undefined) {
+          throw new Error(
+            "Failed mutation requires error-title metadata.",
+          );
+        }
 
-        props.onError(title, error);
+        props.onError(mutation.meta.errorTitle, error);
       },
     }),
 

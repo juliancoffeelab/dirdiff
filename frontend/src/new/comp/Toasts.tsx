@@ -23,6 +23,8 @@ import {
 } from "solid-js";
 
 const TIMEOUT_TOAST_TTL_MS = 10_000;
+const UNDISPLAYABLE_THROWN_VALUE_MESSAGE =
+  "Unable to display the thrown value.";
 
 /**
  * Represents one immutable error notification owned by ToastProvider.
@@ -139,7 +141,7 @@ export function presentError(error: unknown): PresentedError {
     };
   } catch {
     return {
-      message: safeString(error),
+      message: UNDISPLAYABLE_THROWN_VALUE_MESSAGE,
       details: null,
       reason: "other",
     };
@@ -185,6 +187,8 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
    * event's default console reporting untouched.
    */
   function onWindowError(event: ErrorEvent): void {
+    // Runtime errors provide the thrown value and its stack, while resource and
+    // cross-origin failures may provide only the browser's message.
     const error = event.error == null ? event.message : event.error;
     showError("Unexpected error", error);
   }
@@ -607,30 +611,17 @@ function parseJson(text: string): ParsedJson {
  * Pretty-prints arbitrary data without assuming JSON serialization succeeds.
  *
  * Callers may provide cyclic, bigint, undefined, or otherwise unsupported
- * values. Serialization failures and the non-string `undefined` result defer
- * to the final safe string conversion rather than hiding the original value.
+ * values. Serialization failures and the non-string `undefined` result use the
+ * stable undisplayable-value diagnostic without invoking conversion hooks.
  */
 function prettyJson(value: unknown): string {
   try {
     const formatted = JSON.stringify(value, null, 2);
-    return formatted === undefined ? safeString(value) : formatted;
+    return formatted === undefined
+      ? UNDISPLAYABLE_THROWN_VALUE_MESSAGE
+      : formatted;
   } catch {
-    return safeString(value);
-  }
-}
-
-/**
- * Produces the last-resort display text for an arbitrary value.
- *
- * The function uses JavaScript string conversion when available. If a hostile
- * conversion hook throws, callers still receive a stable diagnostic instead
- * of losing the original error to a presentation failure.
- */
-function safeString(value: unknown): string {
-  try {
-    return String(value);
-  } catch {
-    return "Unable to display the thrown value.";
+    return UNDISPLAYABLE_THROWN_VALUE_MESSAGE;
   }
 }
 

@@ -2632,8 +2632,8 @@ function manifestContainsLazyFiles(nodes: ManifestNode[]): boolean {
  * Returns the required visible name for one manifest or lazy-info handle.
  *
  * Renames retain both paths with the established arrow, while side-only entries
- * use their existing path. A handle with neither path violates the backend file
- * identity contract and throws immediately.
+ * use their existing path. API validation guarantees that present paths are
+ * non-empty; a handle with neither path violates the file identity contract.
  */
 function fileDisplayName(entry: {
   left_path: string | null;
@@ -2641,16 +2641,16 @@ function fileDisplayName(entry: {
 }): string {
   const leftPath = entry.left_path;
   const rightPath = entry.right_path;
-  if (leftPath !== null && leftPath.length > 0) {
-    if (rightPath !== null && rightPath.length > 0 && rightPath !== leftPath) {
+  if (leftPath !== null) {
+    if (rightPath !== null && rightPath !== leftPath) {
       return `${leftPath} -> ${rightPath}`;
     }
     return leftPath;
   }
-  if (rightPath !== null && rightPath.length > 0) {
+  if (rightPath !== null) {
     return rightPath;
   }
-  throw new Error("File entry requires a non-empty left or right path.");
+  throw new Error("File entry requires a left or right path.");
 }
 
 /**
