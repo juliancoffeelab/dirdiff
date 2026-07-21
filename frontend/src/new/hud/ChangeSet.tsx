@@ -2744,11 +2744,7 @@ function treeStatistics(state: FileTreeState): TreeLineStats {
   if (state.state === "lazy" && state.file.kind === "deferred") {
     return {
       added: state.file.info.added_lines,
-      modified:
-        state.file.info.added_lines !== null &&
-        state.file.info.removed_lines !== null
-          ? 0
-          : null,
+      modified: null,
       removed: state.file.info.removed_lines,
       moved: null,
     };
