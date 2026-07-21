@@ -1653,7 +1653,18 @@ function PresetTab(
   },
 ): JSX.Element {
   const search = new URLSearchParams(window.location.search);
+  const toast = useToasts();
   const initialType = props.active ? search.get("preset_type") : null;
+  if (props.active && initialType === null) {
+    onMount(() => {
+      toast.showError(
+        "Could not restore preset type from URL",
+        new Error(
+          "preset_type is missing. Restored Diff Presets for this page.",
+        ),
+      );
+    });
+  }
   if (
     initialType !== null &&
     initialType !== "diff" &&
