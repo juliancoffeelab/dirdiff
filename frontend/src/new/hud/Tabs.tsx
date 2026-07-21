@@ -978,6 +978,7 @@ type BranchReviewControlsProps = {
   active: boolean;
   base: BranchSelection;
   review: BranchSelection;
+  defaultRemote: string;
   refs: RefChoices | null;
   baseFieldAction: (() => JSX.Element) | null;
   panelAction: (() => JSX.Element) | null;
@@ -1011,6 +1012,7 @@ function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
         branchLabel="Base branch"
         branchPlaceholder="base branch"
         selection={props.base}
+        defaultRemote={props.defaultRemote}
         refs={props.refs}
         fieldAction={props.baseFieldAction}
         panelAction={props.panelAction}
@@ -1022,6 +1024,7 @@ function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
         branchLabel="Branch to review"
         branchPlaceholder="review branch"
         selection={props.review}
+        defaultRemote={props.defaultRemote}
         refs={props.refs}
         fieldAction={null}
         panelAction={props.panelAction}
@@ -1086,6 +1089,10 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     ...api.repos.defaults(props.projectId),
     enabled: props.active,
   }));
+  const defaultRemote = createMemo(() => {
+    const selection = defaults.data?.default_base_selection;
+    return selection?.source === "remote" ? selection.remote : "";
+  });
   const base = createMemo(
     () => baseEdit() ?? defaults.data?.default_base_selection ?? null,
   );
@@ -1276,6 +1283,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
         active={props.active}
         base={baseControl()}
         review={reviewControl()}
+        defaultRemote={defaultRemote()}
         refs={refs.data?.ref_choices ?? null}
         baseFieldAction={saveMainBranchControl}
         panelAction={refreshControl}
@@ -1346,6 +1354,7 @@ type BranchSelectionFieldsProps = {
   branchLabel: string;
   branchPlaceholder: string;
   selection: BranchSelection;
+  defaultRemote: string;
   refs: RefChoices | null;
   fieldAction: (() => JSX.Element) | null;
   panelAction: (() => JSX.Element) | null;
@@ -1382,7 +1391,10 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
         group: "Local branches",
       }));
     }
-    const remote = selection.remote;
+    const remote =
+      selection.remote.trim().length > 0
+        ? selection.remote
+        : props.defaultRemote;
     return refs.remote_branches
       .filter((branch) => branch.structured.remote === remote)
       .map((branch) => ({
@@ -1396,8 +1408,8 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
   /**
    * Switches between local and remote selection while preserving branch text.
    *
-   * Entering remote mode selects the first known remote or an explicit empty
-   * value when metadata is unavailable; the user remains free to edit it.
+   * Entering remote mode uses the repository default remote. When defaults provide
+   * none, the remote field remains empty and the incomplete selection cannot load.
    */
   function toggleSource(): void {
     if (props.selection.source === "remote") {
@@ -1406,7 +1418,7 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
     }
     props.onSelection({
       source: "remote",
-      remote: props.refs?.remotes[0] ?? "",
+      remote: props.defaultRemote,
       branch: props.selection.branch,
     });
   }
@@ -1416,7 +1428,12 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
       <AutocompleteInput
         class="branch-source-field"
         label={props.sourceLabel}
-        seed={props.selection.source === "remote" ? props.selection.remote : ""}
+        seed={
+          props.selection.source === "remote" &&
+          props.selection.remote.trim().length > 0
+            ? props.selection.remote
+            : props.defaultRemote
+        }
         placeholder="remote"
         choices={remoteChoices()}
         inputVisible={props.selection.source === "remote"}
