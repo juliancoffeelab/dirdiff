@@ -547,6 +547,9 @@ If that element is outside the main viewport, the operation scrolls to it and st
 
 Only when the selected location is already on screen does the operation choose a destination.
 
+If there are no participating targets, Next and Previous stop without changing
+selection or scrolling. The existing selected identity remains unchanged.
+
 It then:
 
 1. collects current participating targets in DOM order;
