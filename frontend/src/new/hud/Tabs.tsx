@@ -49,6 +49,7 @@ import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets, RepositoryState } from "./AppHeader";
 import { ChangeSet } from "./ChangeSet";
 import type { StoredProfile } from "./Profile";
+import { assert, expect } from "../utils";
 
 /**
  * Identifies one user-visible application Tab.
@@ -361,34 +362,82 @@ export function Tabs(props: TabsProps): JSX.Element {
 }
 
 /**
- * Parses one browser URL branch selection without inventing missing fields.
+ * Parses one complete base/review pair from canonical browser fields.
  *
- * Callers provide the selection prefix. Complete local or remote values are
- * returned; absence returns null and malformed partial state throws visibly.
+ * Both local and remote variants must be complete and noncontradictory. Total
+ * absence returns null; partial fields, blank values, unknown sources, and remote
+ * fields attached to a local selection throw so the active caller can report the
+ * malformed URL before continuing without a URL-backed pair.
  */
-function branchSelectionFromUrl(
-  prefix: "base" | "review",
-): BranchSelection | null {
+function branchPairFromUrl(): {
+  base: BranchSelection;
+  review: BranchSelection;
+} | null {
   const search = new URLSearchParams(window.location.search);
-  const source = search.get(`${prefix}_source`);
-  const branch = search.get(`${prefix}_branch`);
-  const remote = search.get(`${prefix}_remote`);
-  if (source === null && branch === null && remote === null) {
+  const baseSource = search.get("base_source");
+  const baseBranch = search.get("base_branch");
+  const baseRemote = search.get("base_remote");
+  const reviewSource = search.get("review_source");
+  const reviewBranch = search.get("review_branch");
+  const reviewRemote = search.get("review_remote");
+  if (
+    baseSource === null &&
+    baseBranch === null &&
+    baseRemote === null &&
+    reviewSource === null &&
+    reviewBranch === null &&
+    reviewRemote === null
+  ) {
     return null;
   }
-  if (source !== "local" && source !== "remote") {
-    throw new Error(`${prefix}_source must be local or remote.`);
-  }
-  if (branch === null || branch.length === 0) {
-    throw new Error(`${prefix}_branch is required.`);
-  }
-  if (source === "local") {
-    return { source, branch };
-  }
-  if (remote === null || remote.length === 0) {
-    throw new Error(`${prefix}_remote is required for a remote branch.`);
-  }
-  return { source, remote, branch };
+
+  assert(
+    baseSource === "local" || baseSource === "remote",
+    "base_source must be local or remote.",
+  );
+  assert(
+    baseBranch !== null && baseBranch.trim().length > 0,
+    "base_branch must be nonblank.",
+  );
+  assert(
+    baseSource === "local"
+      ? baseRemote === null
+      : baseRemote !== null && baseRemote.trim().length > 0,
+    "base_remote does not match base_source.",
+  );
+  assert(
+    reviewSource === "local" || reviewSource === "remote",
+    "review_source must be local or remote.",
+  );
+  assert(
+    reviewBranch !== null && reviewBranch.trim().length > 0,
+    "review_branch must be nonblank.",
+  );
+  assert(
+    reviewSource === "local"
+      ? reviewRemote === null
+      : reviewRemote !== null && reviewRemote.trim().length > 0,
+    "review_remote does not match review_source.",
+  );
+
+  return {
+    base:
+      baseSource === "local"
+        ? { source: "local", branch: baseBranch }
+        : {
+            source: "remote",
+            remote: expect(baseRemote),
+            branch: baseBranch,
+          },
+    review:
+      reviewSource === "local"
+        ? { source: "local", branch: reviewBranch }
+        : {
+            source: "remote",
+            remote: expect(reviewRemote),
+            branch: reviewBranch,
+          },
+  };
 }
 
 /**
@@ -1005,18 +1054,27 @@ function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
  */
 function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   const queryClient = useQueryClient();
-  const initialBase = props.active ? branchSelectionFromUrl("base") : null;
-  const initialReview = props.active ? branchSelectionFromUrl("review") : null;
+  const toast = useToasts();
+  let initialBranches: ReturnType<typeof branchPairFromUrl> = null;
+  if (props.active) {
+    try {
+      initialBranches = branchPairFromUrl();
+    } catch (error) {
+      onMount(() => {
+        toast.showError("Could not restore Branch Review from URL", error);
+      });
+    }
+  }
   const [baseEdit, setBaseEdit] = createSignal<BranchSelection | null>(
-    initialBase,
+    initialBranches?.base ?? null,
   );
   const [reviewEdit, setReviewEdit] = createSignal<BranchSelection | null>(
-    initialReview,
+    initialBranches?.review ?? null,
   );
   const [selected, setSelected] = createSignal<BranchReviewSelected>(
     props.active
-      ? initialBase !== null && initialReview !== null
-        ? { kind: "values", base: initialBase, review: initialReview }
+      ? initialBranches !== null
+        ? { kind: "values", ...initialBranches }
         : { kind: "waiting-defaults" }
       : null,
   );
@@ -1433,17 +1491,25 @@ function PullRequestTab(
   },
 ): JSX.Element {
   const search = new URLSearchParams(window.location.search);
+  const toast = useToasts();
   let pullRequestInput!: HTMLInputElement;
   const initialUrl = props.active ? (search.get("pull_request_url") ?? "") : "";
   const [url, setUrl] = createSignal(initialUrl);
-  const initialBase = props.active ? branchSelectionFromUrl("base") : null;
-  const initialReview = props.active ? branchSelectionFromUrl("review") : null;
+  let initialBranches: ReturnType<typeof branchPairFromUrl> = null;
+  if (props.active) {
+    try {
+      initialBranches = branchPairFromUrl();
+    } catch (error) {
+      onMount(() => {
+        toast.showError("Could not restore pull request from URL", error);
+      });
+    }
+  }
   const [selected] = createSignal<SelectedPullRequest | null>(
-    props.active && initialBase !== null && initialReview !== null
+    props.active && initialBranches !== null
       ? {
           pullRequestUrl: initialUrl,
-          base: initialBase,
-          review: initialReview,
+          ...initialBranches,
         }
       : null,
   );

@@ -1,11 +1,44 @@
 /**
- * Provides the small, domain-independent arithmetic operation shared by the
- * frontend renderer.
+ * Provides small domain-independent invariant and arithmetic operations shared
+ * by the new frontend.
  *
- * This module must not depend on the DOM, Solid, diff data, or application
- * state. The exported function validates its numeric contract at runtime so
- * invalid bounds fail at their source instead of corrupting token layout.
+ * This module must not depend on the DOM, Solid, diff data, or application state.
+ * Its exported functions validate caller contracts at runtime and return only
+ * values justified by those checks; it must not suppress type errors or recover
+ * from violated invariants.
  */
+
+/**
+ * Rejects one false runtime invariant and narrows values proven by that condition.
+ *
+ * Callers provide the condition they require and may provide a boundary-specific
+ * error message. A false condition always throws; a true condition returns no value.
+ */
+export function assert(
+  condition: unknown,
+  message: string | null = null,
+): asserts condition {
+  if (!condition) {
+    throw new Error(message ?? "Assertion failed.");
+  }
+}
+
+/**
+ * Returns one present value or rejects a missing-value invariant.
+ *
+ * Null and undefined are the only missing values. Callers may provide a
+ * boundary-specific error message and receive the original value type without a
+ * non-null type assumption.
+ */
+export function expect<T>(
+  value: T | null | undefined,
+  message: string | null = null,
+): T {
+  if (value === null || value === undefined) {
+    throw new Error(message ?? `Expected value, got ${String(value)}.`);
+  }
+  return value;
+}
 
 /**
  * Restricts a finite number to the inclusive `[min, max]` interval.
