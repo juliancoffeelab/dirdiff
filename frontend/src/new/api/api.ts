@@ -103,22 +103,6 @@ const BranchSelectionSchema = z.discriminatedUnion("source", [
  */
 export type BranchSelection = z.infer<typeof BranchSelectionSchema>;
 
-const DefaultBaseSelectionSchema = z.union([
-  BranchSelectionSchema,
-  z.strictObject({
-    kind: z.literal("error"),
-    error: z.literal("heuristic_fail"),
-  }),
-]);
-
-/**
- * Represents the backend's branch-review base recommendation.
- *
- * A valid recommendation is a complete BranchSelection. The tagged error is
- * explicit backend data and must not be silently replaced with another branch.
- */
-export type DefaultBaseSelection = z.infer<typeof DefaultBaseSelectionSchema>;
-
 const RemoteBranchRefSchema = z.strictObject({
   structured: z.strictObject({
     remote: z.string(),
@@ -155,16 +139,28 @@ const RepoRefsSchema = z.strictObject({
  */
 export type RepoRefs = z.infer<typeof RepoRefsSchema>;
 
+const RepoDefaultsResponseSchema = z.strictObject({
+  default_base_selection: z.union([
+    BranchSelectionSchema,
+    z.strictObject({
+      kind: z.literal("error"),
+      error: z.literal("heuristic_fail"),
+    }),
+  ]),
+  preferred_review_selection: BranchSelectionSchema,
+});
+
 const RepoDefaultsSchema = z.strictObject({
-  default_base_selection: DefaultBaseSelectionSchema,
+  default_base_selection: BranchSelectionSchema,
   preferred_review_selection: BranchSelectionSchema,
 });
 
 /**
- * Contains the backend's two branch-review defaults for one repository.
+ * Contains the two complete branch-review defaults for one repository.
  *
- * These values remain realtime query inputs for untouched controls and must not
- * overwrite user-edited autocomplete input.
+ * The query rejects a backend heuristic failure instead of representing it as
+ * defaults data. Successful values remain realtime inputs for untouched controls
+ * and must not overwrite user-edited autocomplete input.
  */
 export type RepoDefaults = z.infer<typeof RepoDefaultsSchema>;
 
@@ -1079,25 +1075,51 @@ function requestRepoRefs(
 }
 
 /**
+ * Represents a repository-defaults request whose base-branch heuristic failed.
+ *
+ * The backend reports this domain failure inside its validated response. The API
+ * boundary throws this error so query consumers receive either two complete
+ * defaults or a failed query; the type also selects the failure-specific Toast
+ * title without mislabeling transport or schema failures.
+ */
+class RepositoryDefaultsHeuristicError extends Error {
+  constructor() {
+    super("The backend could not infer a base branch for this repository.");
+    this.name = "RepositoryDefaultsHeuristicError";
+  }
+}
+
+/**
  * Requests the backend-selected branch-review defaults for one repository.
  *
  * The project must already exist and the caller supplies cancellation. The result
  * is validated as a complete entity and is not merged with local input state.
  */
-function requestRepoDefaults(
+async function requestRepoDefaults(
   projectId: ProjectId,
   abortSignal: AbortSignal,
 ): Promise<RepoDefaults> {
   const params = new URLSearchParams({ project_id: String(projectId) });
-  return requestJson(
+  const response = await requestJson(
     {
       input: `/api/repo-defaults?${params.toString()}`,
       init: {},
       abortSignal,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
-    RepoDefaultsSchema,
+    RepoDefaultsResponseSchema,
   );
+  const base = response.default_base_selection;
+  if ("error" in base) {
+    switch (base.error) {
+      case "heuristic_fail":
+        throw new RepositoryDefaultsHeuristicError();
+    }
+  }
+  return {
+    default_base_selection: base,
+    preferred_review_selection: response.preferred_review_selection,
+  };
 }
 
 /**
@@ -1550,7 +1572,12 @@ export const api = {
         queryFn: ({ signal: abortSignal }) =>
           requestRepoDefaults(projectId, abortSignal),
         staleTime: Infinity,
-        meta: { errorTitle: "Failed to load repository defaults" },
+        meta: {
+          errorTitle: (error) =>
+            error instanceof RepositoryDefaultsHeuristicError
+              ? "Heuristic for repository defaults failed"
+              : "Failed to load repository defaults",
+        },
       });
     },
 

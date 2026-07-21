@@ -20,13 +20,14 @@ import { isRepositoryCacheExpiration } from "./api";
 /**
  * Describes the application-specific TanStack metadata recognized on failure.
  *
- * Every application operation must supply the complete user-visible title used
- * by the global error Toast. This record controls metadata contents while the
- * provider asserts presence because TanStack's metadata field remains optional.
- * It must not carry query data or error state.
+ * Every application operation must supply either its complete user-visible Toast
+ * title or a resolver for operations with distinct typed failures. A resolver
+ * receives only the failed attempt's error and must return one complete title.
+ * This record controls metadata contents while the provider asserts presence
+ * because TanStack's metadata field remains optional. It must not carry query data.
  */
 type ErrorMeta = Record<string, unknown> & {
-  errorTitle: string;
+  errorTitle: string | ((error: unknown) => string);
 };
 
 // TanStack derives QueryMeta and MutationMeta from this merged Register
@@ -83,7 +84,11 @@ export function QueryProvider(props: {
         if (query.meta === undefined) {
           throw new Error("Failed query requires error-title metadata.");
         }
-        props.onError(query.meta.errorTitle, error);
+        const errorTitle = query.meta.errorTitle;
+        props.onError(
+          typeof errorTitle === "string" ? errorTitle : errorTitle(error),
+          error,
+        );
       },
     }),
     mutationCache: new MutationCache({
@@ -98,7 +103,11 @@ export function QueryProvider(props: {
         if (mutation.meta === undefined) {
           throw new Error("Failed mutation requires error-title metadata.");
         }
-        props.onError(mutation.meta.errorTitle, error);
+        const errorTitle = mutation.meta.errorTitle;
+        props.onError(
+          typeof errorTitle === "string" ? errorTitle : errorTitle(error),
+          error,
+        );
       },
     }),
     defaultOptions: {

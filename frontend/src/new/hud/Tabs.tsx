@@ -1086,18 +1086,9 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     ...api.repos.defaults(props.projectId),
     enabled: props.active,
   }));
-  const base = createMemo<BranchSelection | null>(() => {
-    const edited = baseEdit();
-    if (edited !== null) {
-      return edited;
-    }
-    if (defaults.data === undefined) {
-      return null;
-    }
-    const value = defaults.data.default_base_selection;
-    // Heuristic failure stays an empty editable local branch, not a fake default.
-    return "source" in value ? value : { source: "local", branch: "" };
-  });
+  const base = createMemo(
+    () => baseEdit() ?? defaults.data?.default_base_selection ?? null,
+  );
   const review = createMemo(
     () => reviewEdit() ?? defaults.data?.preferred_review_selection ?? null,
   );
