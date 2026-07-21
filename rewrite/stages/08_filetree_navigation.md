@@ -13,7 +13,7 @@ Implement in this order:
 5. Render FileTree file names as selectable buttons that send the file command. Their neighboring squares remain the only file-expansion controls.
 6. Render directory names as selectable buttons ending in `/`. Activation finds the first file in manifest order and sends the same file command without changing directory or file expansion. Disable the button while that first file is a Husk.
 7. Preserve scroll-only behavior: no file or directory name calls `selectHunk`, changes `HunkDisplay`, updates FileTree highlighting, calculates counters, expands, collapses, or fetches.
-8. Keep Lazy loading exclusive to its plank. A Lazy name scrolls to its current visible or skipped target. A Husk name is disabled with a waiting cursor, and a file command that encounters a transient Husk target returns without scrolling or changing strict sequential loading.
+8. Keep Lazy loading exclusive to its plank. A Lazy name scrolls to its current visible or skipped target. A Husk name is disabled with a waiting cursor because it and adjacent Husks do not have stable layout, and a file command that encounters a transient Husk target rejects as a caller-contract violation without changing strict sequential loading.
 
 The Next/Previous off-screen-selected-target rule does not apply to a direct file command. Selection remains unchanged until the separate scroll-follow design is approved and implemented.
 

@@ -2010,7 +2010,8 @@ function FileTree(props: FileTreeProps): JSX.Element {
    * The square is the sole expansion button and invokes the shared ChangeSet
    * bulk file action. The separate name button navigates to the directory's
    * first manifest file without selecting, loading, or changing expansion, and
-   * remains disabled while that first file is a Husk.
+   * remains disabled while that first file is a Husk because a Husk (and most
+   * importantly adjacent Husks) does not have stable layout.
    */
   function FileTreeDirectory(rowProps: {
     directory: ManifestDirectory;
@@ -2100,8 +2101,10 @@ function FileTree(props: FileTreeProps): JSX.Element {
    * The row exposes selected-file highlighting and current statistics. A
    * FullFile square invokes the shared file-expansion action; Husk and Lazy
    * markers remain inert. The separate name button invokes scroll-only file
-   * navigation and remains disabled while this file is a Husk. FullFile-local
-   * DOM render mode may replace the filled marker with `V`.
+   * navigation and remains disabled while this file is a Husk because a Husk
+   * (and most importantly adjacent Husks) does not have stable layout. An
+   * expanded FullFile in virtual DOM render mode must display `V` instead of the
+   * filled visibility marker.
    */
   function FileTreeFile(rowProps: {
     file: ManifestFile;

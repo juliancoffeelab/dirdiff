@@ -286,7 +286,7 @@ LazyFile has a distinct presentation lifecycle:
 
 FileTree therefore derives `expanded` as `false` for every Lazy state regardless of stale file-expansion data. FileCard continues to own whether the Lazy plank is physically present; an explicit file or containing-directory collapse may hide it. Automatic non-Lazy files continue using their backend/default expansion rules.
 
-FileTree Navigation changes neither file nor directory expansion. A FullFile name scrolls to hunk zero in its current rich, virtual, or skipped representation. A LazyFile name scrolls to its visible plank or collapsed skipped target without expanding or fetching it. A Husk name is disabled, and a file command that encounters a transient Husk target is a no-op. A zero-hunk FullFile name scrolls to its zero pseudo-target. Navigation never changes selected hunk identity; future scroll-follow design may decide how ordinary viewport following reacts after the programmatic scroll completes.
+FileTree Navigation changes neither file nor directory expansion. A FullFile name scrolls to hunk zero in its current rich, virtual, or skipped representation. A LazyFile name scrolls to its visible plank or collapsed skipped target without expanding or fetching it. A Husk name is disabled because the destination Husk and adjacent Husks do not have stable layout, and a file command that encounters a transient Husk target rejects as a caller-contract violation. A zero-hunk FullFile name scrolls to its zero pseudo-target. Navigation never changes selected hunk identity; future scroll-follow design may decide how ordinary viewport following reacts after the programmatic scroll completes.
 
 #### Virtual-mode display
 

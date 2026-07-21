@@ -353,15 +353,16 @@ export function NavigationProvider(
    * Scrolls to one manifest file's exact first current DOM target.
    *
    * The immutable file index must resolve to one stable FileCard. Every
-   * representation exposes hunk zero. A transient Husk target makes the operation an immediate
-   * no-op because later file replacement has unstable geometry. An expanded
-   * virtual FullFile is enriched and resolved again before Navigation calculates
-   * its hypothetical centered viewport. Virtual FileCards intersecting their own
-   * exact rich-entry zones at that position are enriched one at a time. The
-   * destination and hypothetical viewport are recalculated after every layout
-   * change, and one final scroll occurs after geometry settles. A local set bounds
-   * the operation to one enrichment per FileCard. This operation never selects,
-   * expands, collapses, fetches, calculates counters, or updates the FileTree.
+   * representation exposes hunk zero. A transient Husk target violates the
+   * caller contract because Husk navigation controls are disabled while it and
+   * adjacent Husks have unstable layout. An expanded virtual FullFile is enriched
+   * and resolved again before Navigation calculates its hypothetical centered
+   * viewport. Virtual FileCards intersecting their own exact rich-entry zones at
+   * that position are enriched one at a time. The destination and hypothetical
+   * viewport are recalculated after every layout change, and one final scroll
+   * occurs after geometry settles. A local set bounds the operation to one
+   * enrichment per FileCard. This operation never selects, expands, collapses,
+   * fetches, calculates counters, or updates the FileTree.
    */
   async function navigateToFile(fileIndex: number): Promise<void> {
     if (!Number.isInteger(fileIndex) || fileIndex < 0) {
@@ -457,7 +458,7 @@ export function NavigationProvider(
 
     let target = firstTarget();
     if (target.dataset.hunkKind === "husk") {
-      return;
+      throw new Error("File navigation cannot target a HuskFile.");
     }
     if (
       card.dataset.fileRender === "virtual" &&
