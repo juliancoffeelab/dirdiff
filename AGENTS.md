@@ -34,8 +34,9 @@ long.
 - Before adding a function shorter than five lines of code, inspect every use.
 If it has one use, prefer inlining it at that use with a local inline comment
 explaining the operation. If it has multiple uses that all belong to one owning
-function, make it a nested function of that owner. Keep a separate short function
-only when it represents a genuine reusable interface or named domain operation.
+function, make it a nested function of that owner.
+If you want to add a helper, dont add it. But say to the user that helper would
+be benecial here.
 - Every added file must have throughough module-level docstring.
 What is the interface of this file, why it exists, what this file should do and
 what it should not do.
