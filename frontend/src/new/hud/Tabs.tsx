@@ -1101,7 +1101,9 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     const baseSelection = selectedBranch(base());
     const reviewSelection = selectedBranch(review());
     if (baseSelection === null || reviewSelection === null) {
-      return;
+      throw new Error(
+        "Branch Review submission requires complete base and review selections.",
+      );
     }
     setBaseEdit(baseSelection);
     setReviewEdit(reviewSelection);
