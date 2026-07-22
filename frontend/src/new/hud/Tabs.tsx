@@ -143,6 +143,8 @@ type TabsProps = {
   repoId: ProjectId | null;
   engine: DiffEngine;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
+  debugHudOpen: boolean;
   selectedProfile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
@@ -161,6 +163,8 @@ type TabsProps = {
   ) => void;
   onPullRequestPrepared: (prepared: PreparedPullRequest) => void;
   onToggleView: () => void;
+  onFileTreeOpenChange: (open: boolean) => void;
+  onDebugHudOpenChange: (open: boolean) => void;
 };
 
 /**
@@ -175,11 +179,15 @@ type TabProps = {
   repoId: ProjectId | null;
   engine: DiffEngine;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
+  debugHudOpen: boolean;
   selectedProfile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
   onRepoSelected: (projectId: ProjectId) => void;
   onToggleView: () => void;
+  onFileTreeOpenChange: (open: boolean) => void;
+  onDebugHudOpenChange: (open: boolean) => void;
 };
 
 /**
@@ -193,10 +201,14 @@ type RepoTabProps = {
   projectId: ProjectId;
   engine: DiffEngine;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
+  debugHudOpen: boolean;
   selectedProfile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   metadataTarget: HTMLElement | null;
   onToggleView: () => void;
+  onFileTreeOpenChange: (open: boolean) => void;
+  onDebugHudOpenChange: (open: boolean) => void;
 };
 
 /**
@@ -284,12 +296,16 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onHeadSelected}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -300,12 +316,16 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onRefsSelected}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -319,12 +339,16 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onBranchReviewSelected}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -338,6 +362,8 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
@@ -345,6 +371,8 @@ export function Tabs(props: TabsProps): JSX.Element {
             onSelected={props.onPullRequestSelected}
             onPrepared={props.onPullRequestPrepared}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -355,12 +383,16 @@ export function Tabs(props: TabsProps): JSX.Element {
             repoId={props.repoId}
             engine={props.engine}
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             selectedProfile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             metadataTarget={props.metadataTarget}
             onRepoSelected={props.onRepoSelected}
             onSelected={props.onPresetSelected}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         </UnexpectedErrorBoundary>
       </div>
@@ -528,9 +560,13 @@ function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
                   } satisfies HeadDiffParams
                 }
                 view={props.view}
+                fileTreeOpen={props.fileTreeOpen}
+                debugHudOpen={props.debugHudOpen}
                 profile={props.selectedProfile}
                 appHeaderOutlets={props.appHeaderOutlets}
                 onToggleView={props.onToggleView}
+                onFileTreeOpenChange={props.onFileTreeOpenChange}
+                onDebugHudOpenChange={props.onDebugHudOpenChange}
               />
             )}
           </Show>
@@ -567,11 +603,15 @@ function RefsTab(
           projectId={projectId}
           engine={props.engine}
           view={props.view}
+          fileTreeOpen={props.fileTreeOpen}
+          debugHudOpen={props.debugHudOpen}
           selectedProfile={props.selectedProfile}
           appHeaderOutlets={props.appHeaderOutlets}
           metadataTarget={props.metadataTarget}
           onSelected={props.onSelected}
           onToggleView={props.onToggleView}
+          onFileTreeOpenChange={props.onFileTreeOpenChange}
+          onDebugHudOpenChange={props.onDebugHudOpenChange}
         />
       )}
     </Show>
@@ -847,9 +887,13 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
               } satisfies RefsDiffParams
             }
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         )}
       </Show>
@@ -918,11 +962,15 @@ function BranchReviewTab(
           projectId={projectId}
           engine={props.engine}
           view={props.view}
+          fileTreeOpen={props.fileTreeOpen}
+          debugHudOpen={props.debugHudOpen}
           selectedProfile={props.selectedProfile}
           appHeaderOutlets={props.appHeaderOutlets}
           metadataTarget={props.metadataTarget}
           onSelected={props.onSelected}
           onToggleView={props.onToggleView}
+          onFileTreeOpenChange={props.onFileTreeOpenChange}
+          onDebugHudOpenChange={props.onDebugHudOpenChange}
         />
       )}
     </Show>
@@ -1340,9 +1388,13 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
               } satisfies BranchReviewDiffParams
             }
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         )}
       </Show>
@@ -1636,9 +1688,13 @@ function PullRequestTab(
                   } satisfies BranchReviewDiffParams
                 }
                 view={props.view}
+                fileTreeOpen={props.fileTreeOpen}
+                debugHudOpen={props.debugHudOpen}
                 profile={props.selectedProfile}
                 appHeaderOutlets={props.appHeaderOutlets}
                 onToggleView={props.onToggleView}
+                onFileTreeOpenChange={props.onFileTreeOpenChange}
+                onDebugHudOpenChange={props.onDebugHudOpenChange}
               />
             )}
           </Show>
@@ -1868,9 +1924,13 @@ function PresetTab(
               } satisfies PresetDiffParams
             }
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             profile={props.selectedProfile}
             appHeaderOutlets={props.appHeaderOutlets}
             onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
           />
         )}
       </Show>

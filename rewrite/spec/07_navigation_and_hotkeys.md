@@ -119,24 +119,23 @@ Every HintHud navigation Promise is handled at this UI boundary. A rejection pro
 
 ### 66.23 Help and Debug state
 
-Help and Debug remain independent ChangeSet-owned values:
+Help and Debug remain independent values with different lifetimes. Help is
+ChangeSet-local overlay state:
 
 ```ts
 const [helpOpen, setHelpOpen] =
   createSignal(false);
 ```
 
-```ts
-const [debugOpen, setDebugOpen] =
-  createSignal(false);
-```
-
-They are not variants of one union and are not grouped into shared HUD state.
+DebugHud visibility is the workspace-wide `debugHudOpen` boolean shared by every
+Tab and ChangeSet. Pressing `d` updates that global toggle, so switching Tabs,
+presets, or selected ChangeSets preserves whether DebugHud is open. The two values
+are not variants of one union and are not grouped into shared HUD state.
 
 Debug FPS, node, and span sampling runs only during the `DebugHud` lifetime:
 
 ```tsx
-<Show when={debugOpen()}>
+<Show when={props.debugHudOpen}>
   <DebugHud
     globalSelectedHunk={() =>
       hunkDisplay().globalSelectedHunk
@@ -355,7 +354,7 @@ Help button
     → setHelpOpen
 
 Debug button
-    → setDebugOpen
+    → workspace DebugHud visibility setter
 ```
 
 The keyboard listener calls the same operations.
@@ -373,9 +372,6 @@ export function ChangeSet(
   const [helpOpen, setHelpOpen] =
     createSignal(false);
 
-  const [debugOpen, setDebugOpen] =
-    createSignal(false);
-
   let root!: HTMLElement;
 
   function toggleHelp(): void {
@@ -383,7 +379,9 @@ export function ChangeSet(
   }
 
   function toggleDebug(): void {
-    setDebugOpen((open) => !open);
+    props.onDebugHudOpenChange(
+      !props.debugHudOpen,
+    );
   }
 
   return (
@@ -405,6 +403,10 @@ export function ChangeSet(
         <ChangeSetTitle />
 
         <FileTree
+          open={props.fileTreeOpen}
+          onOpenChange={
+            props.onFileTreeOpenChange
+          }
           selectedFileIndex={() =>
             hunkDisplay().selectedFileIndex
           }
@@ -413,7 +415,7 @@ export function ChangeSet(
         <FileCards />
 
         <div class="hud-stack">
-          <Show when={debugOpen()}>
+          <Show when={props.debugHudOpen}>
             <DebugHud
               globalSelectedHunk={() =>
                 hunkDisplay().globalSelectedHunk
@@ -500,7 +502,7 @@ The only remaining `Command` terminology is `NavigationCommand`.
 3. Hotkeys contain no generic command or dispatch abstraction.
 4. Hotkeys ignored inside editable controls preserve native behavior.
 5. Recognized hotkeys call `preventDefault()` before invoking their operation.
-6. Help and Debug remain independent state values.
+6. Help remains ChangeSet-local; DebugHud and FileTree visibility are independent workspace-wide boolean values shared across Tabs.
 7. Closed Debug performs no sampling.
 8. Browser text-side selection remains independent from Navigation.
 9. `NavigationCommand` is the only surviving application command type.

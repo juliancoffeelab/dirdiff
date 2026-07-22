@@ -33,9 +33,9 @@ Every value belongs to one category:
 | Category | Owner | Examples |
 |---|---|---|
 | Backend data | TanStack Query | repositories, refs, defaults, presets, preferences |
-| Workspace state | App | active Tab, selected repo, engine, inline/split view |
+| Workspace state | App | active Tab, selected repo, engine, inline/split view, FileTree visibility, DebugHud visibility |
 | Tab state | Individual Tab | selected values required to construct its `DiffParams` |
-| ChangeSet state | ChangeSet | tree visibility, file expansion |
+| ChangeSet state | ChangeSet | file expansion |
 | Controls state | Tab-specific Controls | selected field values and field-to-field workflow |
 | Input and selection state | `Input`, `AutocompleteInput` or `Select` | live user input, open popup, highlighted or selected choice |
 | Component state | Component | profile dialog, other self-contained HUD state |
@@ -76,6 +76,8 @@ export type WorkspaceState = {
   repo: RepoSelection;
   engine: DiffEngine;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
+  debugHudOpen: boolean;
 };
 ```
 
@@ -91,6 +93,8 @@ selectTab(tab: TabId): void;
 selectRepo(projectId: ProjectId): void;
 setEngine(engine: DiffEngine): void;
 setView(view: DiffViewMode): void;
+setFileTreeOpen(open: boolean): void;
+setDebugHudOpen(open: boolean): void;
 ```
 
 Components do not receive a generic workspace setter.
@@ -307,7 +311,7 @@ Changing an engine:
 - recreates the active `ChangeSetContent` for those complete `DiffParams`;
 - disposes the previous manifest observer and `ChangeSetSnapshot`;
 - preserves mounted Tabs, Controls, Inputs and the outer `ChangeSet` instance;
-- preserves ChangeSet-owned layout state, such as tree visibility and path-based expansion, where it remains valid;
+- preserves workspace-owned FileTree and DebugHud visibility and ChangeSet-owned path-based expansion where it remains valid;
 - never presents old-engine file results as results of the new engine.
 
 The API contract continues to use complete `DiffParams` for manifest, lazy-info and file queries. Although the current Python manifest handler does not use engine, the frontend does not introduce a second parameter contract to special-case that fact. An engine change recreates the active `ChangeSetContent`; once the replacement manifest succeeds, its new `ChangeSetSnapshot` restarts strict sequential file loading.
@@ -385,7 +389,7 @@ function RefsTab(props: RefsTabProps) {
 }
 ```
 
-The keyed boundary recreates the `ChangeSet` whenever the Tab receives a new selection. Changing the global engine changes `params()` but not `state.selected`, so the outer `ChangeSet` remains mounted and retains its client-owned layout state while its active `ChangeSetContent` is recreated.
+The keyed boundary recreates the `ChangeSet` whenever the Tab receives a new selection. Changing the global engine changes `params()` but not `state.selected`, so the outer `ChangeSet` remains mounted and retains its file-expansion state while its active `ChangeSetContent` is recreated. FileTree and DebugHud visibility do not depend on that lifetime: they are workspace values shared by every Tab and ChangeSet.
 
 Keeping Controls mounted is not restoration caching. Their state continues to exist because their owning components continue to exist. When the workspace is recreated, the Controls and all their local input are destroyed and reconstructed from URL state, static defaults and realtime query data.
 
@@ -395,10 +399,14 @@ Keeping Controls mounted is not restoration caching. Their state continues to ex
 
 ```ts
 export type ChangeSetState = {
-  treeOpen: boolean;
   fileExpansion: Record<string, boolean | undefined>;
 };
 ```
+
+FileTree and DebugHud visibility belong to `WorkspaceState`. Pressing `t` or `d`
+changes one workspace boolean, so switching Tabs, presets, or selected ChangeSets
+does not require reopening either HUD. Help remains independent ChangeSet-local
+overlay state.
 
 Directory expansion is not stored client state. `ChangeSetSnapshot` calculates it bottom-up from current descendant file reachability as specified in Section 25.5 of [03_file_presentation.md](03_file_presentation.md). This prevents directory and file expansion from becoming contradictory authorities.
 
@@ -452,10 +460,10 @@ Consequently:
 - switching Tabs stops the inactive FileSequence;
 - returning mounts new active ChangeSet content and obtains a current manifest;
 - selecting new Tab values recreates the ChangeSet and its state;
-- changing engine preserves the outer ChangeSet and layout state while recreating active `ChangeSetContent`;
+- changing engine preserves the outer ChangeSet, workspace HUD toggles and file expansion while recreating active `ChangeSetContent`;
 - changing manifest data disposes the previous `ChangeSetSnapshot` before mounting its replacement;
 - recreating the workspace destroys every ChangeSet;
-- explicit reload resets state from inside the ChangeSet.
+- explicit reload resets file expansion from inside the ChangeSet.
 
 The Tab never updates ChangeSet expansion directly.
 
@@ -468,9 +476,10 @@ Reloading:
 1. stops the current FileSequence;
 2. calls `refetch()` on the active manifest observer for the current immutable `DiffParams`;
 3. lets the keyed manifest-result boundary replace `ChangeSetSnapshot`;
-4. applies the existing outer ChangeSet tree and expansion reset policy.
+4. resets the outer ChangeSet's file expansion.
 
 The replacement snapshot restarts strict manifest-order loading from its own manifest.
+Workspace FileTree and DebugHud visibility remain unchanged.
 
 The explicit reload does not invalidate the manifest cache. Invalidation is reserved for cases where an external operation makes cached data untrustworthy; here ChangeSet directly requests a fresh snapshot.
 
@@ -813,19 +822,19 @@ Toasts remain a global provider.
 
 ### 24.23 Help and Debug
 
-Help and Debug are independent.
+Help and DebugHud visibility are independent values with different lifetimes.
 
 They must not be represented as variants of one mutually exclusive union.
 
 ```ts
 const [helpOpen, setHelpOpen] =
   createSignal(false);
-
-const [debugEnabled, setDebugEnabled] =
-  createSignal(false);
 ```
 
-Both may be true simultaneously.
+Help is ChangeSet-local overlay state. DebugHud visibility is the workspace
+`debugHudOpen` boolean and changes through the workspace setter. Both may be true
+simultaneously. Switching Tabs, presets or selected ChangeSets preserves DebugHud
+visibility but does not make Help global.
 
 Signal reduction only combines values that form one entity or share an invariant. Values are not combined merely because they are visually adjacent or currently implemented in the same file.
 
@@ -863,14 +872,14 @@ Live `AutocompleteInput` text and Controls workflow values are not persisted mer
 | Edit an input | Change only that `AutocompleteInput` |
 | Complete an input | Give the value to the owning Controls workflow through `onDone` |
 | Complete a Controls workflow | Validate and give the complete entity or parameters to the Tab |
-| Switch Tab | Preserve mounted Tab, Controls, input and ChangeSet-owned lightweight state |
+| Switch Tab | Preserve mounted Tab, Controls, input, workspace HUD toggles and ChangeSet-owned lightweight state |
 | Select new Tab values | Recreate that Tab’s outer ChangeSet |
-| Change global engine | Derive new `DiffParams`, start new manifest and sequential file queries, and preserve Controls, Inputs and ChangeSet-owned layout state |
+| Change global engine | Derive new `DiffParams`, start new manifest and sequential file queries, and preserve Controls, Inputs, workspace HUD toggles and ChangeSet-owned file expansion |
 | Change inline/split view | Preserve Tab and ChangeSet state |
 | Change global repo | Canonicalize the URL, discard the complete mounted workspace and reconstruct every Tab from the URL |
 | Prepare PR | Write the authoritative repo and prepared result to the canonical URL, then reconstruct the workspace |
 | Explicit workspace reset | Rewrite/canonicalize the URL, discard all workspace-local state and reconstruct it |
-| Reload ChangeSet | ChangeSet resets its own state and queries |
+| Reload ChangeSet | ChangeSet resets its file expansion and queries; workspace FileTree and DebugHud visibility remain unchanged |
 | F5 | Create a new QueryClient and reconstruct client state from URL and explicit browser storage |
 
 ### 24.26 Removed client-state concepts

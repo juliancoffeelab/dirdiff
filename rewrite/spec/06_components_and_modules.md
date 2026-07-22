@@ -293,12 +293,12 @@ ChangeSet
     └── ChangeSetSnapshot
 ```
 
-- `ChangeSet` owns lightweight layout state and local HUD state.
+- `Workspace` owns the global FileTree-open and DebugHud-open booleans shared by every Tab. `ChangeSet` owns file-expansion state and local Help state.
 - `ChangeSetShell` stores the `HunkDisplay` signal and mounts ChangeSet-scoped Navigation for its active content lifetime.
 - `ChangeSetContent` owns the manifest observer for one immutable complete `DiffParams` and performs manifest loading, error presentation, reload, and repository-cache-expiration restart.
 - `ChangeSetSnapshot` owns the lazy-info observer, the ordered file-query observer collection, FileSequence state, combined progress, and admission state. It traverses the immutable manifest, performs explicit file loading, and renders `ChangeSetTitle`, `FileTree`, AppHeader Portal contributions, and `FileCard` content.
 
-`ChangeSetSnapshot` also observes the selected profile's canonical preferences query and derives the reactive `aggressiveFolds` renderer input. `ChangeSetShell` mounts the ChangeSet-scoped `NavigationProvider`, one private active hotkey listener, adjacent private `HintHud` and `DebugHud` components, and a separate private `HelpModal`. The outer `ChangeSet` stores the independent Help and Debug visibility values.
+`ChangeSetSnapshot` also observes the selected profile's canonical preferences query and derives the reactive `aggressiveFolds` renderer input. `ChangeSetShell` mounts the ChangeSet-scoped `NavigationProvider`, one private active hotkey listener, adjacent private `HintHud` and `DebugHud` components, and a separate private `HelpModal`. The outer `ChangeSet` stores Help visibility; Workspace supplies the global DebugHud and FileTree visibility values.
 
 `ChangeSetContent` is recreated when complete `DiffParams` changes. `ChangeSetSnapshot` is recreated when manifest data changes. No manifest-dependent observation, sequencing, or rendering lives above `ChangeSetSnapshot`.
 

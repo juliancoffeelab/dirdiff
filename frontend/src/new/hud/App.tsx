@@ -3,9 +3,9 @@
  *
  * The module exports App and the workspace value types shared with Header. App
  * stores the selected profile and workspace reset identity. Workspace stores the
- * active Tab, selected repository, engine, and view and implements URL-backed
- * reconstruction. Neither stores Tab selections, backend query data, ChangeSet
- * state, or component-local input.
+ * active Tab, selected repository, engine, view, FileTree visibility, and DebugHud
+ * visibility and implements URL-backed reconstruction. Neither stores Tab
+ * selections, backend query data, ChangeSet-local state, or component input.
  */
 import { Show, createSignal, onMount, type JSX } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -44,14 +44,17 @@ type RepoSelection =
 /**
  * Contains the complete small client-side workspace entity.
  *
- * Every field has one explicit storage location and persistence mapping. The record excludes
- * backend data, Tab selections, live input, ChangeSet state, and profile identity.
+ * Every field has one explicit storage location and persistence mapping. FileTree
+ * and DebugHud visibility apply to every Tab in this workspace. The record excludes
+ * backend data, Tab selections, live input, ChangeSet-local state, and profile identity.
  */
 type WorkspaceState = {
   activeTab: TabId;
   repo: RepoSelection;
   engine: DiffEngine;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
+  debugHudOpen: boolean;
 };
 
 /**
@@ -261,6 +264,8 @@ function Workspace(props: WorkspaceProps): JSX.Element {
     repo: initialRepo(initialSearch),
     engine: initialEngine(initialSearch),
     view: initialView(initialSearch),
+    fileTreeOpen: false,
+    debugHudOpen: false,
   });
   const [metadataTarget, setMetadataTarget] = createSignal<HTMLElement | null>(
     null,
@@ -581,6 +586,8 @@ function Workspace(props: WorkspaceProps): JSX.Element {
           repoId={selectedRepoId()}
           engine={workspace.engine}
           view={workspace.view}
+          fileTreeOpen={workspace.fileTreeOpen}
+          debugHudOpen={workspace.debugHudOpen}
           selectedProfile={props.selectedProfile}
           appHeaderOutlets={appHeaderOutlets}
           metadataTarget={metadataTarget()}
@@ -595,6 +602,8 @@ function Workspace(props: WorkspaceProps): JSX.Element {
             // Workspace changes both reactive view and canonical URL.
             selectView(workspace.view === "inline" ? "split" : "inline");
           }}
+          onFileTreeOpenChange={(open) => setWorkspace("fileTreeOpen", open)}
+          onDebugHudOpenChange={(open) => setWorkspace("debugHudOpen", open)}
         />
       </section>
     </main>

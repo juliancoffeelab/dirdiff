@@ -1,11 +1,11 @@
 /**
  * Implements one selected ChangeSet's backend observation, file lane, and presentation.
  *
- * The module exports ChangeSet. The lightweight outer ChangeSet stores FileTree
- * visibility, file expansion, and local Help/Debug state. Each mounted
- * ChangeSetShell stores its HunkDisplay signal. Active ChangeSetContent observes
- * the manifest, while ChangeSetSnapshot stores the lazy-info, file, and profile-
- * preference observers together with file-lane state.
+ * The module exports ChangeSet. The lightweight outer ChangeSet stores file
+ * expansion and local Help state while receiving workspace-wide FileTree and
+ * DebugHud visibility. Each mounted ChangeSetShell stores its HunkDisplay signal.
+ * Active ChangeSetContent observes the manifest, while ChangeSetSnapshot stores
+ * the lazy-info, file, and profile-preference observers together with file-lane state.
  * Together they render Navigation, hotkeys, HUD, Portals, title, FileTree, and
  * FileCards. They must not copy backend results into Solid state, start concurrent
  * file-diff requests, store workspace or Tab selections, follow user scrolling,
@@ -77,28 +77,33 @@ function schedulerYield(): Promise<void> {
 /**
  * Defines every complete input needed to identify and activate one ChangeSet.
  *
- * `params` is a selected complete DiffParams value, `view` is the global reactive
- * renderer input, `profile` is genuine nullable profile identity, and `active`
- * controls expensive observation. The view callback reports a direct workspace
- * action. No field may represent live control input.
+ * `params` is a selected complete DiffParams value; view, FileTree visibility,
+ * and DebugHud visibility are global reactive workspace inputs; `profile` is
+ * genuine nullable profile identity; and `active` controls expensive observation.
+ * Required callbacks report direct workspace actions. No field represents live
+ * control input.
  */
 type ChangeSetProps = {
   active: boolean;
   params: DiffParams;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
+  debugHudOpen: boolean;
   profile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   onToggleView: () => void;
+  onFileTreeOpenChange: (open: boolean) => void;
+  onDebugHudOpenChange: (open: boolean) => void;
 };
 
 /**
- * Contains all lightweight client state that survives inactive Tab periods.
+ * Contains ChangeSet-local client state that survives inactive Tab periods.
  *
- * Expansion keys are manifest paths. Backend files, query state, progress, hunk
- * selection, and renderer rows are deliberately excluded from this store.
+ * Expansion keys are manifest paths. Workspace-wide FileTree and DebugHud
+ * visibility, backend files, query state, progress, hunk selection, and renderer
+ * rows are deliberately excluded from this store.
  */
 type ChangeSetState = {
-  treeOpen: boolean;
   fileExpansion: Record<string, boolean | undefined>;
 };
 
@@ -175,14 +180,12 @@ type HunkDisplay = {
  *
  * Callers keep this boundary mounted across Tab switches and global view/engine
  * changes. Only active content observes queries and renders expensive file DOM;
- * outer layout and local HUD state survive inactive periods and are destroyed
- * with the selected Tab value or workspace reset.
+ * file expansion and local Help state survive inactive periods. Workspace-wide
+ * FileTree and DebugHud visibility survive switching Tabs or selected ChangeSets.
  */
 export function ChangeSet(props: ChangeSetProps): JSX.Element {
   const [helpOpen, setHelpOpen] = createSignal(false);
-  const [debugOpen, setDebugOpen] = createSignal(false);
   const [state, setState] = createStore<ChangeSetState>({
-    treeOpen: false,
     fileExpansion: {},
   });
   // JSX may preserve the params object's identity while making its fields
@@ -256,13 +259,15 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
           <ChangeSetContent
             params={activeParams}
             view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
             profile={props.profile}
             appHeaderOutlets={props.appHeaderOutlets}
             onToggleView={props.onToggleView}
             helpOpen={helpOpen()}
             onHelpOpenChange={setHelpOpen}
-            debugOpen={debugOpen()}
-            onDebugOpenChange={setDebugOpen}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
             state={state}
             setState={setState}
           />
@@ -282,13 +287,15 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
 type ChangeSetContentProps = {
   params: DiffParams;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
+  debugHudOpen: boolean;
   profile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   onToggleView: () => void;
   helpOpen: boolean;
   onHelpOpenChange: (open: boolean) => void;
-  debugOpen: boolean;
-  onDebugOpenChange: (open: boolean) => void;
+  onFileTreeOpenChange: (open: boolean) => void;
+  onDebugHudOpenChange: (open: boolean) => void;
   state: ChangeSetState;
   setState: SetStoreFunction<ChangeSetState>;
 };
@@ -321,7 +328,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
    * the manifest refetch begins. Concurrent expiration indications share this exact
    * operation and cannot start parallel replacement manifests.
    */
-  async function replaceSnapshot(resetLayout: boolean): Promise<void> {
+  async function replaceSnapshot(resetFileExpansion: boolean): Promise<void> {
     if (replacement !== null) {
       await replacement;
       return;
@@ -329,11 +336,8 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     const stopPromise =
       stopFileSequence === null ? Promise.resolve() : stopFileSequence();
     setReplacingSnapshot(true);
-    if (resetLayout) {
-      props.setState({
-        treeOpen: false,
-        fileExpansion: {},
-      });
+    if (resetFileExpansion) {
+      props.setState("fileExpansion", {});
     }
     const currentReplacement = (async () => {
       await stopPromise;
@@ -358,19 +362,18 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
         fallback={
           <ChangeSetShell
             helpOpen={props.helpOpen}
-            debugOpen={props.debugOpen}
-            onToggleTree={() => {
-              // FileTree visibility belongs to the lightweight outer ChangeSet store.
-              props.setState("treeOpen", (current) => !current);
-            }}
+            debugOpen={props.debugHudOpen}
+            onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
             onReload={() => {
-              // Reload replaces the complete snapshot and resets outer layout state.
+              // Reload replaces the snapshot and resets only its file expansion.
               void replaceSnapshot(true);
             }}
             onToggleHelp={() => props.onHelpOpenChange(!props.helpOpen)}
             onHelpOpenChange={props.onHelpOpenChange}
-            onToggleDebug={() => props.onDebugOpenChange(!props.debugOpen)}
+            onToggleDebug={() =>
+              props.onDebugHudOpenChange(!props.debugHudOpen)
+            }
           >
             {() => (
               <>
@@ -397,17 +400,17 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
         {(snapshot) => (
           <ChangeSetShell
             helpOpen={props.helpOpen}
-            debugOpen={props.debugOpen}
-            onToggleTree={() => {
-              props.setState("treeOpen", (current) => !current);
-            }}
+            debugOpen={props.debugHudOpen}
+            onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
             onReload={() => {
               void replaceSnapshot(true);
             }}
             onToggleHelp={() => props.onHelpOpenChange(!props.helpOpen)}
             onHelpOpenChange={props.onHelpOpenChange}
-            onToggleDebug={() => props.onDebugOpenChange(!props.debugOpen)}
+            onToggleDebug={() =>
+              props.onDebugHudOpenChange(!props.debugHudOpen)
+            }
           >
             {(hunkDisplay) => (
               <UnexpectedErrorBoundary
@@ -418,11 +421,13 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
                   params={props.params}
                   manifest={snapshot}
                   view={props.view}
+                  fileTreeOpen={props.fileTreeOpen}
                   profile={props.profile}
                   appHeaderOutlets={props.appHeaderOutlets}
                   hunkDisplay={hunkDisplay}
                   state={props.state}
                   setState={props.setState}
+                  onFileTreeOpenChange={props.onFileTreeOpenChange}
                   onRepositoryCacheExpiration={() => {
                     void replaceSnapshot(false);
                   }}
@@ -1207,18 +1212,20 @@ function HotkeyHelpRow(props: {
  * Defines every immutable backend input and reactive presentation input for one snapshot.
  *
  * Params and manifest never change during this component lifetime. View, profile,
- * and durable outer layout state remain reactive without retargeting backend work.
+ * and workspace presentation state remain reactive without retargeting backend work.
  * The callbacks expose only the two lifecycle actions performed by ChangeSetContent.
  */
 type ChangeSetSnapshotProps = {
   params: DiffParams;
   manifest: Manifest;
   view: DiffViewMode;
+  fileTreeOpen: boolean;
   profile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   hunkDisplay: Accessor<HunkDisplay | null>;
   state: ChangeSetState;
   setState: SetStoreFunction<ChangeSetState>;
+  onFileTreeOpenChange(open: boolean): void;
   onRepositoryCacheExpiration(): void;
   onFileSequenceChange(stop: (() => Promise<void>) | null): void;
 };
@@ -1743,7 +1750,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
         class="diff-workspace"
         classList={{
           "diff-workspace-inline": props.view === "inline",
-          "diff-workspace-tree-open": props.state.treeOpen,
+          "diff-workspace-tree-open": props.fileTreeOpen,
         }}
       >
         <UnexpectedErrorBoundary
@@ -1754,14 +1761,14 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             changeSetRoot={() => changeSetRoot}
             tree={props.manifest.tree}
             states={fileStates}
-            open={props.state.treeOpen}
+            open={props.fileTreeOpen}
             view={props.view}
             selectedFileIndex={() =>
               props.hunkDisplay()?.selectedFileIndex ?? null
             }
             directoryExpansion={directoryExpansion}
             fileExpansion={() => props.state.fileExpansion}
-            onOpenChange={(open) => props.setState("treeOpen", open)}
+            onOpenChange={props.onFileTreeOpenChange}
             onDirectoryExpandedChange={(directory, expanded) =>
               batch(() => {
                 for (const file of manifestFilesInOrder(directory.entries)) {
@@ -1947,10 +1954,10 @@ type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
  * Defines all reactive presentation and expansion inputs for the private FileTree.
  *
  * The tree receives one immutable manifest, current FileCard states, the stable
- * ChangeSet DOM root, calculated directory reachability, and ChangeSet-owned
- * file expansion. Its callbacks may change only tree visibility or file
- * expansion. FileTree stores no query, backend data, hunk selection, navigation,
- * or independent expansion authority.
+ * ChangeSet DOM root, calculated directory reachability, workspace FileTree
+ * visibility, and ChangeSet-owned file expansion. Its callbacks may change only
+ * tree visibility or file expansion. FileTree stores no query, backend data,
+ * hunk selection, navigation, or independent expansion authority.
  */
 type FileTreeProps = {
   changeSetRoot: Accessor<HTMLElement>;

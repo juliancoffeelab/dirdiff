@@ -141,11 +141,10 @@ It may toggle a directory or individual FullFile through the corresponding squar
 
 #### State and interface
 
-ChangeSet remains the file-expansion authority. Directory expansion is calculated from descendant file reachability and is not stored independently:
+ChangeSet remains the file-expansion authority. Directory expansion is calculated from descendant file reachability and is not stored independently. FileTree visibility is the workspace-wide `fileTreeOpen` value shared by every Tab:
 
 ```ts
 type ChangeSetState = {
-  treeOpen: boolean;
   fileExpansion: Record<string, boolean | undefined>;
 };
 ```

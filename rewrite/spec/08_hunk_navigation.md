@@ -912,7 +912,7 @@ DebugHud retains its existing visible contents:
 - Spans;
 - Hunks.
 
-Its Hunk value reads `globalSelectedHunk`. It does not perform a separate hunk DOM count. DebugHud's existing FPS, node, and span sampling remains active only while DebugHud is open.
+Its Hunk value reads `globalSelectedHunk`. It does not perform a separate hunk DOM count. DebugHud's existing FPS, node, and span sampling remains active only while DebugHud is open. Whether it is open is one workspace-wide boolean shared across Tabs; changing the active Tab or selected ChangeSet does not reset it.
 
 Neither HUD may select, scroll, enrich, expand, or fetch.
 
