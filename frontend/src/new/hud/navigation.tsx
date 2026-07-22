@@ -4,9 +4,11 @@
  * The module exports hunk identity contracts, the closed navigation operation
  * union, one ChangeSet-scoped Provider, and its checked context accessor.
  * Renderers write identity fields directly into their own DOM; this module
- * reads those attributes only while handling an explicit operation. It must not
- * retain selected identity, build a hunk registry, calculate counters, follow
- * user scrolling, change FileTree expansion, or implement line-pin behavior.
+ * reads those attributes only while handling an explicit operation or recognized
+ * user scrolling. Exactly `nextHunk`, `prevHunk`, and `scrollFollow` may call the
+ * private `selectHunk` operation. The module must not retain selected identity,
+ * build a hunk registry, calculate counters, change FileTree expansion, or
+ * implement line-pin behavior.
  */
 import {
   createContext,
@@ -16,6 +18,8 @@ import {
   type Accessor,
   type JSX,
 } from "solid-js";
+import { useToasts } from "../comp/Toasts";
+import { expect } from "../utils";
 
 const PARTICIPATING_HUNK_SELECTOR = "[data-hunk-target]:not(.skip)";
 
@@ -56,15 +60,13 @@ export type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
 /**
  * Describes every explicit operation supported by one Navigation instance.
  *
- * Relative operations use current selected DOM identity, direct hunk
- * navigation accepts an already-resolved participating target, file navigation
- * scrolls to one manifest file's first current DOM target without selecting,
- * and Top scrolls the page.
+ * Relative operations use current selected DOM identity, file navigation scrolls
+ * to one manifest file's first current DOM target without selecting, and Top
+ * scrolls the page.
  */
 export type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
-  | { kind: "hunk"; target: HTMLElement }
   | { kind: "file"; fileIndex: number }
   | { kind: "top" };
 
@@ -72,8 +74,9 @@ export type NavigationCommand =
  * Exposes the complete explicit navigation API for one mounted ChangeSet.
  *
  * Calls resolve after any required rich materialization, selection when the
- * operation requires it, and scroll. A disposed instance performs no later DOM
- * write or scroll.
+ * operation requires it, and scroll. Recognized user scrolling may select only
+ * rich participating real hunks. A disposed instance performs no later DOM write
+ * or scroll.
  */
 export type Navigation = {
   navigate(command: NavigationCommand): Promise<void>;
@@ -82,8 +85,9 @@ export type Navigation = {
 /**
  * Defines the required DOM root and descendants served by one Provider.
  *
- * The accessor must return this mounted ChangeSet's root. Navigation reads only
- * that root, never `document`, and children must remain inside it.
+ * The accessor must return this mounted ChangeSet's root. Target queries remain
+ * inside that root; document scrolling supplies only viewport events and point
+ * hit-testing. Children must remain inside the root.
  */
 export type NavigationProviderProps = {
   root: Accessor<HTMLElement>;
@@ -125,21 +129,152 @@ export function useNavigation(): Navigation {
  *
  * Selection is initialized once from the first FileCard's required first hunk
  * target. Later operations read current DOM identity and retain no selected-hunk
- * state. Cleanup prevents pending enrichment continuations from changing the
- * page.
+ * state. Recognized browser scrolling selects rich real hunks at the reading
+ * line, while cleanup prevents pending browser work from changing the page.
  */
 export function NavigationProvider(
   props: NavigationProviderProps,
 ): JSX.Element {
+  const toast = useToasts();
   let alive = true;
+
+  /**
+   * Records whether recognized user input currently permits scroll-follow.
+   *
+   * The guard contains no DOM policy. Callers reject input that cannot move the
+   * document before calling `input()`. `ok()` only reads the current state.
+   */
+  const scrollGuard = (() => {
+    let state: "idle" | "input" | "document" = "idle";
+    let pendingExpiryHandle: number | null = null;
+
+    /**
+     * Cancels an expiry shared by replacement input and resulting document scroll.
+     */
+    function cancelPendingExpiry(): void {
+      if (pendingExpiryHandle === null) {
+        return;
+      }
+
+      cancelAnimationFrame(pendingExpiryHandle);
+      pendingExpiryHandle = null;
+    }
+
+    return {
+      /**
+       * Records recognized input that can move the document.
+       *
+       * Wheel and touch permission expires before the next repaint when no scroll
+       * occurs. Keyboard permission remains until `stop()`.
+       */
+      input(input: "wheel" | "touch" | "keyboard"): void {
+        cancelPendingExpiry();
+        state = "input";
+
+        if (input === "keyboard") {
+          return;
+        }
+
+        pendingExpiryHandle = requestAnimationFrame(() => {
+          pendingExpiryHandle = null;
+          state = "idle";
+        });
+      },
+
+      /**
+       * Records where scrolling occurred after recognized input.
+       *
+       * A nested scroll rejects input before document scrolling starts. Once the
+       * document is scrolling, nested FileTree movement may follow selection
+       * without ending the document sequence.
+       */
+      scrolled(scroller: "document" | "nested"): void {
+        if (scroller === "nested") {
+          state = state === "input" ? "idle" : state;
+          return;
+        }
+
+        cancelPendingExpiry();
+        state = "document";
+      },
+
+      /**
+       * Reports whether document scrolling may update hunk selection.
+       */
+      ok(): boolean {
+        return state !== "idle";
+      },
+
+      /**
+       * Prohibits subsequent document scrolling from updating hunk selection.
+       */
+      stop(): void {
+        state = "idle";
+      },
+    };
+  })();
+
+  /**
+   * Tracks vertical movement between consecutive events in one touch sequence.
+   *
+   * Directions describe document movement: an upward-moving finger scrolls the
+   * document down. Horizontal movement has no vertical direction.
+   */
+  const touchController = (() => {
+    let previousTouchY: number | null = null;
+
+    /**
+     * Extracts the required primary touch position from a touch event.
+     */
+    function primaryTouchY(event: TouchEvent): number {
+      const touch = event.touches.item(0);
+
+      if (touch === null) {
+        throw new Error("Touch input requires a primary touch.");
+      }
+
+      return touch.clientY;
+    }
+
+    return {
+      /**
+       * Records the initial vertical position for a touch sequence.
+       */
+      set(event: TouchEvent): void {
+        previousTouchY = primaryTouchY(event);
+      },
+
+      /**
+       * Compares the current touch with the preceding position and advances it.
+       *
+       * `null` means that the touch moved without changing its vertical position.
+       */
+      comparedDirection(event: TouchEvent): "up" | "down" | null {
+        if (previousTouchY === null) {
+          throw new Error(
+            "Touch movement requires a preceding touch position.",
+          );
+        }
+
+        const currentTouchY = primaryTouchY(event);
+        const previousY = previousTouchY;
+        previousTouchY = currentTouchY;
+
+        if (currentTouchY === previousY) {
+          return null;
+        }
+
+        return currentTouchY < previousY ? "down" : "up";
+      },
+    };
+  })();
 
   /**
    * Selects one concrete hunk target by mutating only authoritative DOM.
    *
-   * The target may carry `.skip` only for explicit initialization; ordinary
-   * navigation resolves participating destinations before calling this
-   * operation. Existing FileCard identity and visible decoration are removed
-   * before the target fields are copied onto its stable owning FileCard.
+   * Exactly `nextHunk`, `prevHunk`, and `scrollFollow` may call this operation,
+   * and each calls it directly. Existing FileCard identity and visible decoration
+   * are removed before the target fields are copied onto its stable FileCard.
    */
   function selectHunk(root: HTMLElement, target: HTMLElement): void {
     if (!target.matches("[data-hunk-target]")) {
@@ -202,6 +337,69 @@ export function NavigationProvider(
     target.setAttribute("data-selected", "");
     target.setAttribute("aria-current", "true");
     target.classList.add("active-hunk");
+  }
+
+  /**
+   * Follows recognized user scrolling by selecting the hunk at the reading line.
+   *
+   * The calculation hit-tests the visible file list, considers only rich,
+   * participating real targets in the intersected FileCard, and acts directly
+   * through `selectHunk`. Virtual real targets, pseudo-hunks, skipped targets,
+   * and FileCards with no eligible visible target leave selection unchanged.
+   * This operation never scrolls, enriches, expands, fetches, or reads counters.
+   */
+  function scrollFollow(root: HTMLElement): void {
+    const fileList = root.querySelector<HTMLElement>(".file-list");
+    if (fileList === null) {
+      throw new Error("Scroll following requires the ChangeSet file list.");
+    }
+    const fileListRect = fileList.getBoundingClientRect();
+    const visibleLeft = Math.max(0, fileListRect.left);
+    const visibleRight = Math.min(window.innerWidth, fileListRect.right);
+    if (visibleRight <= visibleLeft || window.innerHeight <= 0) {
+      return;
+    }
+    const readingLineY = window.innerHeight * 0.5;
+    const readingLineX = visibleLeft + (visibleRight - visibleLeft) * 0.5;
+    let readingCard: HTMLElement | null = null;
+    for (const element of document.elementsFromPoint(
+      readingLineX,
+      readingLineY,
+    )) {
+      const card = element.closest<HTMLElement>("[data-file-card]");
+      if (card !== null && root.contains(card)) {
+        readingCard = card;
+        break;
+      }
+    }
+    if (readingCard === null) {
+      return;
+    }
+
+    let precedingTarget: HTMLElement | null = null;
+    let precedingTop = Number.NEGATIVE_INFINITY;
+    let followingTarget: HTMLElement | null = null;
+    let followingTop = Number.POSITIVE_INFINITY;
+    for (const target of readingCard.querySelectorAll<HTMLElement>(
+      '[data-hunk-target][data-hunk-kind="real"]:not(.skip):not(.virtual-hunk-anchor)',
+    )) {
+      const rect = target.getBoundingClientRect();
+      if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
+        continue;
+      }
+      if (rect.top <= readingLineY && rect.top > precedingTop) {
+        precedingTarget = target;
+        precedingTop = rect.top;
+      } else if (rect.top > readingLineY && rect.top < followingTop) {
+        followingTarget = target;
+        followingTop = rect.top;
+      }
+    }
+    const target = precedingTarget ?? followingTarget;
+    if (target === null || target.hasAttribute("data-selected")) {
+      return;
+    }
+    selectHunk(root, target);
   }
 
   /**
@@ -285,16 +483,16 @@ export function NavigationProvider(
   }
 
   /**
-   * Activates one participating destination after optional rich materialization.
+   * Resolves one participating destination after optional rich materialization.
    *
    * Virtual targets are identified by their primitive attributes, the owning
    * FullFile is enriched directly, and the replacement target is resolved again
-   * before selection. The operation then centers the final target instantly.
+   * before returning it. This operation never selects or scrolls.
    */
-  async function activateTarget(
+  async function enrichTarget(
     root: HTMLElement,
     initialTarget: HTMLElement,
-  ): Promise<void> {
+  ): Promise<HTMLElement | null> {
     if (!initialTarget.matches(PARTICIPATING_HUNK_SELECTOR)) {
       throw new Error("Navigation destination does not participate.");
     }
@@ -321,7 +519,7 @@ export function NavigationProvider(
       const kind = initialTarget.dataset.hunkKind;
       await waitToEnrich(card);
       if (!alive) {
-        return;
+        return null;
       }
       const replacements = Array.from(
         card.querySelectorAll<HTMLElement>(PARTICIPATING_HUNK_SELECTOR),
@@ -343,10 +541,9 @@ export function NavigationProvider(
       target = replacement;
     }
     if (!alive) {
-      return;
+      return null;
     }
-    selectHunk(root, target);
-    target.scrollIntoView({ block: "center", behavior: "instant" });
+    return target;
   }
 
   /**
@@ -361,8 +558,8 @@ export function NavigationProvider(
    * that position are enriched one at a time. The destination and hypothetical
    * viewport are recalculated after every layout change, and one final scroll
    * occurs after geometry settles. A local set bounds the operation to one
-   * enrichment per FileCard. This operation never selects, expands, collapses,
-   * fetches, calculates counters, or updates the FileTree.
+   * enrichment per FileCard. The operation never selects its destination,
+   * expands, collapses, fetches, calculates counters, or updates the FileTree.
    */
   async function navigateToFile(fileIndex: number): Promise<void> {
     if (!Number.isInteger(fileIndex) || fileIndex < 0) {
@@ -528,16 +725,19 @@ export function NavigationProvider(
   }
 
   /**
-   * Executes one relative explicit navigation operation from current DOM truth.
+   * Resolves one relative explicit-navigation destination from current DOM truth.
    *
    * An off-screen selected location is centered without changing selection.
    * Otherwise the operation advances through current participating DOM order,
-   * wraps, enriches a virtual destination when required, selects, and scrolls.
+   * wraps, and enriches a virtual destination when required. The caller alone
+   * selects and scrolls the returned target.
    */
-  async function navigateRelative(direction: -1 | 1): Promise<void> {
+  async function relativeDestination(
+    direction: "next" | "previous",
+  ): Promise<HTMLElement | null> {
     const root = props.root();
     if (root.querySelector("[data-file-card]") === null) {
-      return;
+      return null;
     }
     const location = selectedLocation(root);
     const rect = location.target.getBoundingClientRect();
@@ -550,14 +750,14 @@ export function NavigationProvider(
           behavior: "instant",
         });
       }
-      return;
+      return null;
     }
 
     const participants = Array.from(
       root.querySelectorAll<HTMLElement>(PARTICIPATING_HUNK_SELECTOR),
     );
     if (participants.length === 0) {
-      return;
+      return null;
     }
 
     let destination: HTMLElement | undefined;
@@ -568,9 +768,11 @@ export function NavigationProvider(
           "Selected participating hunk is absent from DOM order.",
         );
       }
+      const destinationIndex =
+        direction === "next" ? currentIndex + 1 : currentIndex - 1;
       destination =
         participants[
-          (currentIndex + direction + participants.length) % participants.length
+          (destinationIndex + participants.length) % participants.length
         ];
     } else {
       const allTargets = Array.from(
@@ -581,11 +783,10 @@ export function NavigationProvider(
         throw new Error("Skipped selected hunk is absent from DOM order.");
       }
       for (let offset = 1; offset <= allTargets.length; offset += 1) {
+        const candidateIndex =
+          direction === "next" ? currentIndex + offset : currentIndex - offset;
         const candidate =
-          allTargets[
-            (currentIndex + direction * offset + allTargets.length) %
-              allTargets.length
-          ];
+          allTargets[(candidateIndex + allTargets.length) % allTargets.length];
         if (
           candidate !== undefined &&
           candidate.matches(PARTICIPATING_HUNK_SELECTOR)
@@ -600,7 +801,37 @@ export function NavigationProvider(
         "Navigation could not resolve a participating destination.",
       );
     }
-    await activateTarget(root, destination);
+    return await enrichTarget(root, destination);
+  }
+
+  /**
+   * Selects and scrolls to the next participating hunk in current DOM order.
+   *
+   * This is one of exactly three operations permitted to call `selectHunk`.
+   */
+  async function nextHunk(): Promise<void> {
+    const root = props.root();
+    const target = await relativeDestination("next");
+    if (target === null) {
+      return;
+    }
+    selectHunk(root, target);
+    target.scrollIntoView({ block: "center", behavior: "instant" });
+  }
+
+  /**
+   * Selects and scrolls to the previous participating hunk in current DOM order.
+   *
+   * This is one of exactly three operations permitted to call `selectHunk`.
+   */
+  async function prevHunk(): Promise<void> {
+    const root = props.root();
+    const target = await relativeDestination("previous");
+    if (target === null) {
+      return;
+    }
+    selectHunk(root, target);
+    target.scrollIntoView({ block: "center", behavior: "instant" });
   }
 
   const navigation: Navigation = {
@@ -615,15 +846,13 @@ export function NavigationProvider(
       if (!alive) {
         return;
       }
+      scrollGuard.stop();
       switch (command.kind) {
         case "next-hunk":
-          await navigateRelative(1);
+          await nextHunk();
           return;
         case "previous-hunk":
-          await navigateRelative(-1);
-          return;
-        case "hunk":
-          await activateTarget(props.root(), command.target);
+          await prevHunk();
           return;
         case "file":
           await navigateToFile(command.fileIndex);
@@ -679,7 +908,196 @@ export function NavigationProvider(
     if (firstTarget === undefined) {
       throw new Error("First hunk target disappeared during initialization.");
     }
-    selectHunk(root, firstTarget);
+    if (
+      root.querySelector(
+        "[data-hunk-target][data-selected], [data-file-card][data-selected-hunk-index]",
+      ) !== null
+    ) {
+      throw new Error("Initial hunk selection requires unselected DOM.");
+    }
+    // Initial selection is part of mounting the authoritative DOM. It is not a
+    // navigation action and must not create a fourth `selectHunk` caller.
+    firstCard.dataset.selectedHunkIndex = "0";
+    firstCard.classList.add("active-hunk");
+    firstTarget.setAttribute("data-selected", "");
+    firstTarget.setAttribute("aria-current", "true");
+    firstTarget.classList.add("active-hunk");
+
+    const scrollingElement = expect(
+      document.scrollingElement,
+      "Scroll following requires a document scroll element.",
+    );
+    const abortController = new AbortController();
+    const passiveListener = {
+      passive: true,
+      signal: abortController.signal,
+    };
+
+    /**
+     * Reports whether movement in one direction can change document scrollTop.
+     *
+     * It is nested because wheel, touch, and keyboard handlers share this DOM
+     * policy inside the same mounted listener lifecycle.
+     */
+    function documentCanScroll(direction: "up" | "down"): boolean {
+      const maximumScrollTop = Math.max(
+        0,
+        scrollingElement.scrollHeight - scrollingElement.clientHeight,
+      );
+
+      return direction === "up"
+        ? scrollingElement.scrollTop > 0
+        : scrollingElement.scrollTop < maximumScrollTop;
+    }
+
+    /**
+     * Stops scroll-follow and reports an unexpected native-listener failure.
+     *
+     * It is nested because scroll and touch listeners share this failure path;
+     * native callbacks do not pass thrown errors through Solid's ErrorBoundary.
+     */
+    function reportScrollFollowError(error: unknown): void {
+      scrollGuard.stop();
+      toast.showError("Scroll following failed", error);
+    }
+
+    document.addEventListener(
+      "scroll",
+      (event) => {
+        // A nested scroller consumed the recognized input. It must not leave
+        // permission behind unless document scrolling already started.
+        if (event.target !== document) {
+          scrollGuard.scrolled("nested");
+          return;
+        }
+
+        if (!scrollGuard.ok()) {
+          return;
+        }
+
+        scrollGuard.scrolled("document");
+
+        try {
+          scrollFollow(root);
+        } catch (error: unknown) {
+          reportScrollFollowError(error);
+        }
+      },
+      { ...passiveListener, capture: true },
+    );
+    document.addEventListener(
+      "scrollend",
+      () => {
+        scrollGuard.stop();
+      },
+      passiveListener,
+    );
+    document.addEventListener(
+      "wheel",
+      (event) => {
+        if (event.deltaY === 0 || event.ctrlKey) {
+          return;
+        }
+
+        const direction = event.deltaY < 0 ? "up" : "down";
+
+        if (!documentCanScroll(direction)) {
+          scrollGuard.stop();
+          return;
+        }
+
+        scrollGuard.input("wheel");
+      },
+      passiveListener,
+    );
+    document.addEventListener(
+      "touchstart",
+      (event) => {
+        try {
+          touchController.set(event);
+        } catch (error: unknown) {
+          reportScrollFollowError(error);
+        }
+      },
+      passiveListener,
+    );
+    document.addEventListener(
+      "touchmove",
+      (event) => {
+        try {
+          const direction = touchController.comparedDirection(event);
+
+          if (direction === null) {
+            return;
+          }
+
+          if (!documentCanScroll(direction)) {
+            scrollGuard.stop();
+            return;
+          }
+
+          scrollGuard.input("touch");
+        } catch (error: unknown) {
+          reportScrollFollowError(error);
+        }
+      },
+      passiveListener,
+    );
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.defaultPrevented ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey ||
+          ![
+            "ArrowUp",
+            "ArrowDown",
+            "PageUp",
+            "PageDown",
+            "Home",
+            "End",
+            " ",
+          ].includes(event.key)
+        ) {
+          return;
+        }
+        const target = event.target;
+        // Editable controls and Space-activated controls retain their native
+        // behavior and must not arm document scroll following.
+        if (
+          target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement ||
+            target instanceof HTMLSelectElement ||
+            (event.key === " " && target.closest("button, a[href]") !== null))
+        ) {
+          return;
+        }
+        const direction =
+          event.key === "ArrowUp" ||
+          event.key === "PageUp" ||
+          event.key === "Home" ||
+          (event.key === " " && event.shiftKey)
+            ? "up"
+            : "down";
+
+        if (!documentCanScroll(direction)) {
+          scrollGuard.stop();
+          return;
+        }
+
+        scrollGuard.input("keyboard");
+      },
+      { signal: abortController.signal },
+    );
+
+    onCleanup(() => {
+      abortController.abort();
+      scrollGuard.stop();
+    });
   });
   onCleanup(() => {
     alive = false;

@@ -361,17 +361,17 @@ useNavigation
 
 `NavigationProvider` owns one stateful, disposable Navigation controller for one mounted ChangeSet. `useNavigation` returns that controller’s public operations to descendants of the nearest Provider.
 
-FileTree Navigation is an approved scroll-only operation in `08_hunk_navigation.md`. Scroll-follow remains behind its explicit TODO design gate and must not be inferred from FileTree scrolling.
+FileTree Navigation is an approved scroll-only operation in `08_hunk_navigation.md`. It never calls `selectHunk` directly or indirectly.
 
 The controller owns:
 
 - the ChangeSet root reference;
-- the non-reactive `idle | user | navigation` scroll-source gate;
-- navigation listeners and scheduled animation frames.
+- the non-reactive `"idle" | "input" | "document"` scroll-follow state;
+- the private scroll guard, touch controller, and navigation listeners.
 
-It performs DOM hunk traversal, `selectHunk`, Next/Previous, direct-hunk, scroll-only file, and return-to-top navigation. Throttled scroll-follow remains gated.
+It performs DOM hunk traversal, `selectHunk`, Next/Previous, file, return-to-top, and approved user-scroll navigation. Exactly `nextHunk`, `prevHunk`, and `scrollFollow` call `selectHunk` directly. Scroll-follow considers only visible rich participating real targets and never selects virtual, pseudo, or skipped targets.
 
-The controller stores only ephemeral browser-work state: root, scroll source, scheduled frame, and listeners. Selected hunk identity and target order remain in DOM. Counters and FileTree highlighting render from `ChangeSetShell`'s `HunkDisplay` signal, which is an exact calculation from DOM and is never Navigation state. Rich/virtual state remains FileCard-local, and FileCard implements `waitToEnrich`.
+The controller stores only ephemeral browser-work state: root, one private scroll guard closure, one private touch controller closure, and listeners. Selected hunk identity and target order remain in DOM. Counters and FileTree highlighting render from `ChangeSetShell`'s `HunkDisplay` signal, which is an exact calculation from DOM and is never Navigation state. Rich/virtual state remains FileCard-local, and FileCard implements `waitToEnrich`.
 
 Line pins are a separate system behind their own TODO design gate and implementation stage. Navigation stores no line-pin identity, timers, or listener resources and performs no line-pin parsing, highlighting, retries, restoration, or cleanup. The future line-pin module destination remains undecided until that design is re-checked and explicitly approved.
 
@@ -383,14 +383,13 @@ The Context exposes Navigation operations but no controller state. There is no c
 type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
-  | { kind: "hunk"; target: HTMLElement }
   | { kind: "file"; fileIndex: number }
   | { kind: "top" };
 ```
 
 Navigation does not handle hotkeys, Help, Debug, tree visibility, view changes, reload, file expansion or backend work. Hotkeys merely call `navigation.navigate(...)` for `n`, `N` and `p`.
 
-Provider cleanup removes every listener and scheduled frame stored by the controller. A disposed controller performs no later DOM mutation or scrolling.
+Provider cleanup removes every listener stored by the controller and calls `scrollGuard.stop()`. A pending wheel/touch expiry callback may only repeat the private `"idle"` assignment. A disposed controller performs no later DOM mutation or scrolling.
 
 #### `hud/DiffGrid.tsx` and `hud/folds.ts`
 

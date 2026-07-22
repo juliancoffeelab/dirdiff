@@ -9,7 +9,6 @@ Hunk navigation covers:
 - real and pseudo hunk tokens;
 - selected hunk identity;
 - Next and Previous traversal;
-- direct hunk navigation;
 - FileTree hunk destinations;
 - recognized user-scroll selection;
 - local and global hunk counter calculation;
@@ -422,7 +421,6 @@ It exports the identity contracts, `NavigationCommand`, `Navigation`, `Navigatio
 export type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
-  | { kind: "hunk"; target: HTMLElement }
   | { kind: "file"; fileIndex: number }
   | { kind: "top" };
 
@@ -431,7 +429,7 @@ export type Navigation = {
 };
 ```
 
-A direct hunk command receives the concrete participating DOM target. Navigation validates that the target belongs to its ChangeSet root. A file command receives an immutable manifest file index and resolves that FileCard's exact first target directly from current DOM. Neither operation reconstructs a second registry of identities.
+A file command receives an immutable manifest file index and resolves that FileCard's exact first target directly from current DOM. It does not reconstruct a second registry of identities.
 
 `NavigationProvider` owns one disposable controller for one mounted active ChangeSet. Context only delivers that same instance to Hotkeys, HintHud, FileTree, and other consumers. It does not make navigation global or move truth out of DOM.
 
@@ -444,20 +442,13 @@ export type NavigationProviderProps = {
 
 The root is required. The Provider never falls back to `document`.
 
-The controller may retain only ephemeral browser-work state:
+The controller may retain only ephemeral browser-work state inside two private closures. `scrollGuard` contains an `"idle" | "input" | "document"` state and the cancellation handle for a pending wheel/touch expiry callback. `"input"` means recognized input has not yet produced document scrolling; `"document"` means document scrolling has started. Its pure `ok()` operation reports whether the state is not `"idle"`; `input()`, `scrolled()`, and `stop()` change the state explicitly. `touchController` contains only the preceding primary-touch vertical position and exposes `set()` plus `comparedDirection()`. Directions are named `"up"` and `"down"`; numeric direction tokens are forbidden.
 
-```ts
-type NavigationScrollSource =
-  | "idle"
-  | "user"
-  | "navigation";
-```
-
-It may also retain one scheduled scroll-follow frame and the listener or observer handles required for cleanup. It does not retain selected identity, a hunk registry, counters, FileTree selection, FullFile render mode, or line-pin state.
+The guard contains no DOM policy. Input handlers determine whether the document can move before calling `input()`. The pending expiry callback only disables wheel/touch input that produced no document scroll; it never calculates or selects a hunk. Navigation does not retain selected identity, a hunk registry, counters, FileTree selection, FullFile render mode, or line-pin state.
 
 Line pins are a separate system with a separate design and lifecycle.
 
-On cleanup, Navigation removes every listener, observer, and scheduled frame it owns and permits no later DOM write or scroll.
+On cleanup, Navigation removes every listener and observer and calls `scrollGuard.stop()`. A still-pending expiry callback may only repeat the private `"idle"` assignment; it cannot perform a DOM write or scroll. A later recognized input cancels any older pending expiry before it permits a new scroll sequence.
 
 ```ts
 const NavigationContext =
@@ -480,9 +471,9 @@ target, select another file, repair selection, or promote the localized failure.
 
 Once those initial FileCards have rendered, the ChangeSet reads the first
 FileCard's `data-file-index`, requires exactly one target carrying that file
-index and `data-hunk-index="0"`, and selects that exact hunk once. Initial
-selection may select a target carrying `.skip`; selecting it does not make it
-participate.
+index and `data-hunk-index="0"`, and writes its selected FileCard and target
+attributes directly during mounting. Initialization does not call `selectHunk`.
+The initial target may carry `.skip`; selecting it does not make it participate.
 
 The same rule applies after F5, a repository/reset boundary, different DiffParams, or recreation of disposed ChangeSet content.
 
@@ -492,7 +483,7 @@ A manual ChangeSet reload and repository cache-expiration replacement are destru
 
 An empty manifest is the only ordinary state with no selected hunk. A non-empty ChangeSet containing `data-file-render-error` is the explicit unrecoverable exception: initialization may stop without a selected identity. Next and Previous require an existing selected identity whenever the manifest is non-empty and no terminal renderer marker exists.
 
-Initial selection is an explicit ChangeSet-initialization action. File loading and later DOM replacement never repeat it.
+Initial selection is an explicit ChangeSet-initialization DOM write. File loading and later DOM replacement never repeat it.
 
 The private selection operation receives the concrete hunk target:
 
@@ -502,6 +493,12 @@ function selectHunk(
   target: HTMLElement,
 ): void;
 ```
+
+The highest-priority navigation invariant is that exactly `nextHunk`,
+`prevHunk`, and `scrollFollow` call `selectHunk`, and they call it directly. No
+helper, wrapper, dispatcher, initialization routine, renderer, FileTree
+operation, or shared calculation may call it or introduce another selection
+path.
 
 It:
 
@@ -588,7 +585,7 @@ header substitution, or special continuation rule.
 
 FileTree names invoke Navigation; their neighboring squares remain the only expansion controls. A file name sends `{ kind: "file", fileIndex }`. A directory name finds its first file in manifest order and sends the same command for that file. Empty manifest directories are invalid input and throw rather than inventing a destination.
 
-The file command is scroll-only. It never calls `selectHunk`, changes selected identity, calculates counters, updates FileTree highlighting, expands or collapses a file or directory, or fetches file data. Until scroll-follow is separately designed and implemented, selection therefore remains unchanged after a FileTree jump. Next and Previous's off-screen-selected-target rule does not apply to a direct file command.
+The file command resolves and scrolls to the file destination without selecting that destination. It never calls `selectHunk` or invokes `scrollFollow`. It also never calculates counters, updates FileTree highlighting, expands or collapses a file or directory, or fetches file data. Next and Previous's off-screen-selected-target rule does not apply to a direct file command.
 
 Navigation resolves the destination from the FileCard's current DOM representation:
 
@@ -658,8 +655,6 @@ Navigation does not need access to FileCard’s render-mode signal.
 
 ## User-scroll following
 
-> **TODO design gate — do not implement scroll-follow from this section yet.** The behavior below records the current direction, but it is unreliable until the stable implementation, browser input classification, throttling, `scrollend`, layout changes, selection timing, and interaction with explicit navigation have been re-investigated together. Present a corrected complete design and obtain explicit user approval before implementation.
-
 User-scroll following retains the stable implementation’s selection heuristic.
 
 Only recognized user input enables it:
@@ -670,7 +665,9 @@ Only recognized user input enables it:
 
 Input at the corresponding document boundary does not enable following.
 
-Programmatic hunk navigation disables user-scroll following before moving the page.
+`scrollGuard.input()` moves to `"input"` for recognized input that can move the document. Wheel and touch input schedule an expiry callback before the next repaint; keyboard input does not because native keyboard scrolling may begin later. If an allowed document `scroll` arrives before a wheel/touch expiry, `scrollGuard.scrolled("document")` cancels that expiry, moves to `"document"`, and permission remains through browser momentum. The document observes scroll events during capture: `scrolled("nested")` moves `"input"` to `"idle"` when a nested element consumed the latest input, but preserves `"document"` when FileTree scrolls to follow selection without new input. Wheel or touch input producing no scroll anywhere expires to `"idle"` without waiting for a `scrollend` that will never arrive.
+
+Programmatic Navigation calls `scrollGuard.stop()` before moving the page. Next and Previous select their own destinations directly before scrolling. FileTree Navigation only scrolls and never calls `scrollFollow` afterward.
 
 The reading line is:
 
@@ -680,12 +677,14 @@ window.innerHeight * 0.5
 
 For each allowed sample:
 
-1. find the FileCard intersecting the reading line;
-2. find visible, participating real hunk tokens in that FileCard;
+1. hit-test the visible ChangeSet file-list area at the reading line and find its FileCard;
+2. find visible, participating rich real hunk targets in that FileCard;
 3. consider the tokens at or above the reading line;
 4. if any exist, select the last such token;
 5. otherwise select the first visible token below the reading line;
 6. if that FileCard has no visible participating real token, preserve current selection.
+
+Virtual real targets are navigation coordinates but are never scroll-follow selection candidates. Pseudo-targets and `.skip` targets are likewise excluded.
 
 User-scroll following:
 
@@ -698,15 +697,13 @@ User-scroll following:
 - never calculates counters directly;
 - never updates FileTree directly.
 
-The scroll listener schedules at most one DOM calculation per animation frame.
+Each allowed document `scroll` calls the pure `scrollGuard.ok()` predicate, records the actual scroll through `scrolled("document")`, and performs the bounded calculation against only the hit-tested FileCard. The pending expiry callback belongs solely to wheel/touch input that produced no document scroll and never performs the calculation.
 
-On `scrollend`:
-
-1. perform one final allowed selection sample;
-2. finish that sample;
-3. return the scroll source to idle.
+On `scrollend`, call `scrollGuard.stop()`. The last actual `scroll` event already performed the final selection calculation; `scrollend` must not repeat it.
 
 Layout changes while user-scroll following is idle never change selection.
+
+An unexpected error from a native scroll listener stops the current following sequence and produces one ordinary error Toast. Native listeners never hide or repeatedly retry the failure.
 
 ## HunkDisplay
 
@@ -856,13 +853,13 @@ If the calculation cannot parse the required semantic DOM, the observer reports 
 
 `data-file-render-error` is different from malformed hunk DOM: the renderer boundary already presented the critical failure and its one Toast. When that marker appears, the observer disconnects without another calculation, signal write, or Toast. The last successfully calculated display may remain visible as part of the preserved surrounding UI, but the unrecoverable renderer failure ends the ordinary exact-mirror contract for that damaged ChangeSet lifetime.
 
-After the explicit initial-hunk selection has run:
+After the direct initial selected-attribute write has run:
 
 1. attach the observer;
 2. calculate the current DOM once;
 3. set the initial signal.
 
-The initial-hunk selection itself uses no `MutationObserver`. Running it before the initial calculation ensures that a non-empty ChangeSet's first `HunkDisplay` already contains its required selected position and `selectedFileIndex`.
+The initial selected-attribute write uses no `MutationObserver` and does not call `selectHunk`. Running it before the initial calculation ensures that a non-empty ChangeSet's first `HunkDisplay` already contains its required selected position and `selectedFileIndex`.
 
 On cleanup:
 
@@ -994,12 +991,13 @@ Notebook regions remain a post-rewrite TODO.
 23. Navigation never reads counter text or `HunkDisplay`.
 24. `HunkDisplay` calculation never changes selection or scrolling.
 25. FileTree highlighting never changes selection.
-26. User-scroll following changes selection only.
+26. User-scroll following may select only a visible rich participating real target and changes selection only.
 27. Selecting or traversing a LazyFile never loads it.
 28. Only direct activation of the LazyFile plank starts its explicit fetch.
-29. FileCard continues to implement `waitToEnrich`.
-30. Navigation resolves its final target again after enrichment.
-31. Virtualization decisions never depend on hunk selection.
-32. Hunk navigation never changes strict file-fetch order.
-33. NavigationProvider owns no line-pin state.
-34. Line pins remain an entirely separate system.
+29. Exactly `nextHunk`, `prevHunk`, and `scrollFollow` call `selectHunk`, and each calls it directly.
+30. FileCard continues to implement `waitToEnrich`.
+31. Navigation resolves its final target again after enrichment.
+32. Virtualization decisions never depend on hunk selection.
+33. Hunk navigation never changes strict file-fetch order.
+34. NavigationProvider owns no line-pin state.
+35. Line pins remain an entirely separate system.

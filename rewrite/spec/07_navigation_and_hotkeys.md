@@ -360,7 +360,7 @@ Debug button
 
 The keyboard listener calls the same operations.
 
-The FileTree line is implemented by the separately approved scroll-only file command in [08_hunk_navigation.md](08_hunk_navigation.md). This hotkey section defines only the shared direct route and does not make FileTree clicks select hunks or change expansion.
+The FileTree line is implemented by the separately approved file command in [08_hunk_navigation.md](08_hunk_navigation.md). The file command only scrolls and FileTree clicks never select hunks or change expansion.
 
 There is no central bus between the user interaction and the concrete operation.
 
@@ -470,17 +470,7 @@ to:
 NavigationCommand
 ```
 
-Rename the scroll-source member:
-
-```ts
-"command"
-```
-
-to:
-
-```ts
-"navigation"
-```
+There is no retained scroll-source string member. Approved user-scroll following uses the private `scrollGuard` and `touchController` closures described in [08_hunk_navigation.md](08_hunk_navigation.md).
 
 Section 60 is named:
 

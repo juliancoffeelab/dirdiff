@@ -12,9 +12,9 @@ Implement in this order:
 
 2. Add one coordinate-preserving `skip` pseudo for every real hunk removed by explicit FullFile collapse. Apply `.skip` directly for explicitly collapsed Husk, Lazy, and zero targets. A queued or loading Husk remains a participating pseudo-target.
 
-3. Store selected identity only on FileCard DOM. Initialize every non-empty ChangeSet without `data-file-render-error` by selecting its first FileCard's first hunk target exactly once, including when that target carries `.skip`. A terminal renderer marker stops initialization without selection or repair.
+3. Store selected identity only on FileCard DOM. Initialize every non-empty ChangeSet without `data-file-render-error` by writing the first FileCard's first selected hunk attributes directly while mounting, including when that target carries `.skip`. Initialization must not call `selectHunk`. A terminal renderer marker stops initialization without selection or repair.
 
-4. Implement the ChangeSet-scoped NavigationProvider, checked `useNavigation()`, NavigationCommand, and one private target-based `selectHunk()`.
+4. Implement the ChangeSet-scoped NavigationProvider, checked `useNavigation()`, NavigationCommand, and one private target-based `selectHunk()`. Exactly `nextHunk`, `prevHunk`, and `scrollFollow` call it directly; no other selection path is permitted.
 
 5. Implement Next and Previous with off-screen scroll-back, wrapping, strict DOM participation, and `waitToEnrich()`. Re-resolve the rich target before final selection and scrolling.
 

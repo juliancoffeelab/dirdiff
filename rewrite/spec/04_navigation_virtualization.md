@@ -28,7 +28,7 @@ It does not revisit:
 - notebook backend response design;
 - row virtualization.
 
-TODOs about virtualization heuristics or representation policy are explicit post-rewrite follow-ups. FileTree Navigation is approved separately. The design gates for scroll-follow and line pins live in their own specifications and practical chapters; they remain required gated rewrite work rather than virtualization TODOs or optional follow-ups.
+TODOs about virtualization heuristics or representation policy are explicit post-rewrite follow-ups. FileTree Navigation and scroll-follow are approved separately in their own specifications and practical chapters. The line-pin design gate remains required rewrite work rather than a virtualization TODO or optional follow-up.
 
 ## 27. Essential complexity
 
@@ -330,7 +330,7 @@ The outcome is a measured post-rewrite decision, not an architectural assumption
 
 ## 47. Required wrapped-Previous reverse-traversal stress test
 
-> **TODO design gate:** The virtualization-only and approved scroll-only FileTree-navigation observations remain useful, but all scroll-follow steps in this scenario are provisional. Re-check and correct them against the separately approved scroll-follow design before using those steps as an implementation or test contract.
+The virtualization, FileTree-navigation, and approved scroll-follow behavior must be exercised together in this scenario.
 
 The virtualization and scroll-anchoring design must be tested from the least convenient starting condition:
 
@@ -364,7 +364,7 @@ The test must observe:
 - visible layout jumps during first-time virtual → rich transitions above the viewport;
 - rich → virtual height preservation for previously measured files;
 - native scroll anchoring behavior at and near the document end;
-- scroll-follow behavior while representation and structural transitions occur;
+- scroll-follow preserving selection through VirtualFiles and selecting only visible rich participating real targets;
 - browser native search inside fixed-height VirtualFiles;
 - DOM node and span counts throughout the traversal;
 - long tasks, dropped frames and enrichment duration for each row-count band.

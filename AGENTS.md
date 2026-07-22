@@ -64,5 +64,13 @@ if these items are exported **and used**.
 - Do not rebuild or commit generated frontend bundles for ordinary UI iteration; the app uses Vite by default. Only run `bun run --cwd frontend build` when explicitly requested by the user.
 - Keep console entry points in `pyproject.toml`.
 
+# Important invariants
+- The highest-priority frontend navigation invariant is that `selectHunk()` has
+exactly three callers: `nextHunk()`, `prevHunk()`, and `scrollFollow()`. These
+three functions must call it directly. No helper, wrapper, dispatcher,
+initialization routine, renderer, FileTree operation, or shared calculation may
+call `selectHunk()` or introduce another selection path. Initial selection is
+written directly into the mounted DOM; FileTree navigation only scrolls.
+
 # Testing
 - `uv --no-cache run pytest` runs the Python test suite, including real-git integration tests in `tests/integration`.
