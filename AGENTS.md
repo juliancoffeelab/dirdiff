@@ -13,6 +13,8 @@
 - Assert data inputs. Dont create optional parameters. If you need some field and it's null, throw the error.
 TS has assert() and expect() in utils.ts.
 Python has assert.
+- Never swallow errors.
+If something is failed, JS can throw exceptions or toast, Python can throw exception or log.
 - Never edit test behavior, if expection changes, ask user and only after confirmation update the behaviour of the test.
 - Never create compatibility shims. Interface must be updated on all sides, that includes tests.
 - Never create helpers in tests.

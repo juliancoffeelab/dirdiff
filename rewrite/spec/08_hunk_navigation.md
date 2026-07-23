@@ -16,7 +16,7 @@ Hunk navigation covers:
 - hunk scrolling;
 - HintHud and DebugHud hunk information.
 
-Line-pin behavior is outside this specification. `NavigationProvider` stores no line-pin state, listeners, or timers and performs no line-pin parsing or restoration. Line pins receive their own separate design and implementation stage.
+Line-pin lifecycle is outside this specification and is defined in [09_line_pins.md](09_line_pins.md). `NavigationProvider` stores no line-pin state, listeners, or timers and performs no line-pin parsing, file loading, or decoration. Its exact coordinate-bearing line operation prepares rich layout and performs the final scroll without selecting a hunk.
 
 Whole-file virtualization remains hunk-blind. The later hunk-navigation implementation may place hunk tokens in rich and virtual representations, but hunk state never influences virtualization eligibility, cost, mode, geometry, or observation.
 
@@ -49,9 +49,7 @@ type PseudoHunkIdentity = {
   hunkIndex: number;
 };
 
-type HunkIdentity =
-  | RealHunkIdentity
-  | PseudoHunkIdentity;
+type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
 ```
 
 The object is local to that renderer. It is not stored in a signal, provider, store, or cache. Its fields are written directly into JSX. After rendering, the DOM is authoritative.
@@ -345,8 +343,7 @@ FileCard already carries `data-file-index`; selection adds the required
   data-file-card
   data-file-index="3"
   data-selected-hunk-index="2"
->
-</article>
+></article>
 ```
 
 Pseudo-hunk selection uses the same coordinate contract:
@@ -356,8 +353,7 @@ Pseudo-hunk selection uses the same coordinate contract:
   data-file-card
   data-file-index="3"
   data-selected-hunk-index="0"
->
-</article>
+></article>
 ```
 
 `data-hunk-kind` remains on the target and describes its representation. It is
@@ -368,8 +364,7 @@ not part of selected hunk identity.
 The currently selected target additionally carries:
 
 ```html
-data-selected
-aria-current="true"
+data-selected aria-current="true"
 ```
 
 If rendering replaces that target, the selected `fileIndex` and `hunkIndex`
@@ -422,14 +417,29 @@ export type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
   | { kind: "file"; fileIndex: number }
+  | {
+      kind: "line";
+      fileIndex: number;
+      target: LinePinTarget;
+      abortSignal: AbortSignal;
+    }
   | { kind: "top" };
 
+export type NavigationResult =
+  | { state: "complete" }
+  | { state: "missing" }
+  | { state: "stopped" };
+
 export type Navigation = {
-  navigate(command: NavigationCommand): Promise<void>;
+  navigate(command: NavigationCommand): Promise<NavigationResult>;
 };
 ```
 
 A file command receives an immutable manifest file index and resolves that FileCard's exact first target directly from current DOM. It does not reconstruct a second registry of identities.
+
+A line command receives an immutable manifest file index, one complete `LinePinTarget`, and its caller's AbortSignal lifetime. It calls the target FileCard's `prepareLine_impl()` and performs the final scroll. It never parses or changes the URL, loads a file, paints `.pinned-line`, stores pin identity, or calls `selectHunk()`.
+
+`complete` means the documented operation reached its destination. A missing exact line returns `{ state: "missing" }`. Cancellation or disposal returns `{ state: "stopped" }`.
 
 `NavigationProvider` owns one disposable controller for one mounted active ChangeSet. Context only delivers that same instance to Hotkeys, HintHud, FileTree, and other consumers. It does not make navigation global or move truth out of DOM.
 
@@ -451,8 +461,7 @@ Line pins are a separate system with a separate design and lifecycle.
 On cleanup, Navigation removes every listener and observer and calls `scrollGuard.stop()`. A still-pending expiry callback may only repeat the private `"idle"` assignment; it cannot perform a DOM write or scroll. A later recognized input cancels any older pending expiry before it permits a new scroll sequence.
 
 ```ts
-const NavigationContext =
-  createContext<Navigation>();
+const NavigationContext = createContext<Navigation>();
 ```
 
 `useNavigation()` returns the nearest ChangeSet instance and throws when used outside `NavigationProvider`. It never constructs a controller or subscribes to navigation state.
@@ -488,10 +497,7 @@ Initial selection is an explicit ChangeSet-initialization DOM write. File loadin
 The private selection operation receives the concrete hunk target:
 
 ```ts
-function selectHunk(
-  root: HTMLElement,
-  target: HTMLElement,
-): void;
+function selectHunk(root: HTMLElement, target: HTMLElement): void;
 ```
 
 The highest-priority navigation invariant is that exactly `nextHunk`,
@@ -589,15 +595,15 @@ The file command resolves and scrolls to the file destination without selecting 
 
 Navigation resolves the destination from the FileCard's current DOM representation:
 
-| File representation | Destination |
-|---|---|
-| Expanded rich FullFile with hunks | Real target with `hunkIndex === 0` |
-| Collapsed FullFile with hunks | Coordinate-preserving `skip` target with `hunkIndex === 0` |
-| Expanded virtual FullFile | `waitToEnrich()`, followed by the replacement real target with `hunkIndex === 0` |
-| HuskFile | No destination; its FileTree name is disabled and a direct file command rejects |
-| Expanded LazyFile | Its visible Lazy plank |
-| Collapsed LazyFile | Its skipped Lazy pseudo-target beside the collapsed header |
-| Zero-hunk FullFile | Its zero pseudo-target |
+| File representation               | Destination                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------- |
+| Expanded rich FullFile with hunks | Real target with `hunkIndex === 0`                                               |
+| Collapsed FullFile with hunks     | Coordinate-preserving `skip` target with `hunkIndex === 0`                       |
+| Expanded virtual FullFile         | `waitToEnrich()`, followed by the replacement real target with `hunkIndex === 0` |
+| HuskFile                          | No destination; its FileTree name is disabled and a direct file command rejects  |
+| Expanded LazyFile                 | Its visible Lazy plank                                                           |
+| Collapsed LazyFile                | Its skipped Lazy pseudo-target beside the collapsed header                       |
+| Zero-hunk FullFile                | Its zero pseudo-target                                                           |
 
 The expected target must exist exactly once. Absence or duplication is a DOM-contract failure and rejects the Navigation operation. A renderer's critical unrecoverable strip has no hunk target and therefore rejects rather than pretending to be navigable.
 
@@ -612,9 +618,7 @@ Only direct activation of the LazyFile plank may submit its explicit fetch. File
 Exact navigation to a virtual FullFile uses:
 
 ```ts
-async function waitToEnrich(
-  fileCard: HTMLElement,
-): Promise<void>;
+async function waitToEnrich(fileCard: HTMLElement): Promise<void>;
 ```
 
 Navigation calls it directly:
@@ -672,7 +676,7 @@ Programmatic Navigation calls `scrollGuard.stop()` before moving the page. Next 
 The reading line is:
 
 ```ts
-window.innerHeight * 0.5
+window.innerHeight * 0.5;
 ```
 
 For each allowed sample:
@@ -888,7 +892,7 @@ FileCard receives required accessors for its global and per-file position data. 
 FileTree compares each row's manifest index with:
 
 ```ts
-hunkDisplay().selectedFileIndex
+hunkDisplay().selectedFileIndex;
 ```
 
 FileTree applies its highlight class and `aria-current` declaratively. Newly mounted FileTree rows immediately render from the existing signal and do not require another calculation.
@@ -938,31 +942,31 @@ Notebook regions remain a post-rewrite TODO.
 
 ## Ownership
 
-| Concern | Owner |
-|---|---|
-| Real hunk identity | Backend `hunk_index` |
-| Real token placement | DiffGrid and VirtualFile rendering |
-| Husk pseudo-target | HuskFile |
-| Lazy pseudo-target | Expanded LazyFile |
-| Zero pseudo-target | Zero-hunk FullFile |
-| Skip pseudo-targets | Collapsed FullFile |
-| Token participation | `.skip` and current DOM presence |
-| File order | Manifest-stable `fileIndex` |
-| Hunk order within a file | Backend-stable `hunkIndex` |
-| Selected identity | Stable FileCard DOM attributes |
-| Visible selected decoration | Selected current token |
-| Next/Previous destination | Navigation operation |
-| Direct hunk destination | Navigation operation |
-| User-scroll selection | User-scroll following |
-| FileTree destination | Navigation file command resolved from current FileCard DOM |
-| HunkDisplay calculation trigger | Filtered ChangeSet `MutationObserver` |
-| Exact calculated hunk snapshot | `HunkDisplay` signal stored by the mounted ChangeSet shell |
-| Counter text | Solid rendering from `HunkDisplay` numbers |
-| FileTree highlight | Solid rendering from `HunkDisplay.selectedFileIndex` |
-| Rich/virtual mode | FullFile-local Solid state |
-| Enrichment | FileCard `waitToEnrich` |
-| Hunk scrolling | Navigation |
-| Line pins | Separate line-pin system |
+| Concern                         | Owner                                                      |
+| ------------------------------- | ---------------------------------------------------------- |
+| Real hunk identity              | Backend `hunk_index`                                       |
+| Real token placement            | DiffGrid and VirtualFile rendering                         |
+| Husk pseudo-target              | HuskFile                                                   |
+| Lazy pseudo-target              | Expanded LazyFile                                          |
+| Zero pseudo-target              | Zero-hunk FullFile                                         |
+| Skip pseudo-targets             | Collapsed FullFile                                         |
+| Token participation             | `.skip` and current DOM presence                           |
+| File order                      | Manifest-stable `fileIndex`                                |
+| Hunk order within a file        | Backend-stable `hunkIndex`                                 |
+| Selected identity               | Stable FileCard DOM attributes                             |
+| Visible selected decoration     | Selected current token                                     |
+| Next/Previous destination       | Navigation operation                                       |
+| Direct hunk destination         | Navigation operation                                       |
+| User-scroll selection           | User-scroll following                                      |
+| FileTree destination            | Navigation file command resolved from current FileCard DOM |
+| HunkDisplay calculation trigger | Filtered ChangeSet `MutationObserver`                      |
+| Exact calculated hunk snapshot  | `HunkDisplay` signal stored by the mounted ChangeSet shell |
+| Counter text                    | Solid rendering from `HunkDisplay` numbers                 |
+| FileTree highlight              | Solid rendering from `HunkDisplay.selectedFileIndex`       |
+| Rich/virtual mode               | FullFile-local Solid state                                 |
+| Enrichment                      | FileCard `waitToEnrich`                                    |
+| Hunk scrolling                  | Navigation                                                 |
+| Line pins                       | Separate line-pin system                                   |
 
 ## Required invariants
 

@@ -4,7 +4,7 @@ This topic specifies whole-file virtualization only.
 
 Hunk targets, selection, counters, explicit navigation, scroll-follow, FileTree navigation, HUD hunk behavior, and future notebook navigation regions are specified in [08_hunk_navigation.md](08_hunk_navigation.md).
 
-Line pins require their own later specification and are not part of virtualization.
+Line pins are specified separately in [09_line_pins.md](09_line_pins.md) and are not part of virtualization.
 
 ## 26. Scope
 
@@ -28,7 +28,9 @@ It does not revisit:
 - notebook backend response design;
 - row virtualization.
 
-TODOs about virtualization heuristics or representation policy are explicit post-rewrite follow-ups. FileTree Navigation and scroll-follow are approved separately in their own specifications and practical chapters. The line-pin design gate remains required rewrite work rather than a virtualization TODO or optional follow-up.
+TODOs about virtualization heuristics or representation policy are explicit post-rewrite follow-ups. FileTree Navigation, scroll-follow, and line pins are approved separately in their own specifications and practical chapters.
+
+Line-pin restoration uses the existing rich-entry geometry calculation before its one final scroll. A pinned file follows ordinary rich/virtual policy; `.pinned-line` is never a virtualization lock.
 
 ## 27. Essential complexity
 

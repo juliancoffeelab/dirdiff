@@ -9,8 +9,10 @@
  */
 import { For, Show, type JSX } from "solid-js";
 import type { NotebookCell, NotebookFileDiff } from "../api/api";
+import { assert } from "../utils";
 import type { DiffViewMode } from "./App";
 import { DiffGrid } from "./DiffGrid";
+import type { LinePins } from "./linePins";
 
 /**
  * Defines every complete input required by the notebook renderer.
@@ -23,6 +25,7 @@ type NotebookFileProps = {
   backend_data: NotebookFileDiff;
   view: DiffViewMode;
   aggressiveFolds: boolean;
+  linePins: LinePins;
 };
 
 /**
@@ -33,9 +36,11 @@ type NotebookFileProps = {
  */
 type NotebookCellProps = {
   fileIndex: number;
+  fileDisplayName: string;
   cell: NotebookCell;
   view: DiffViewMode;
   aggressiveFolds: boolean;
+  linePins: LinePins;
 };
 
 /**
@@ -43,8 +48,23 @@ type NotebookCellProps = {
  *
  * Callers must provide the notebook-discriminated FileDiff. Empty cells retain
  * the established explicit message rather than being interpreted as an error.
+ * Every rendered cell must supply one non-empty region key unique within the
+ * file so exact line-pin coordinates cannot alias another cell or ordinary text.
  */
 export function NotebookFile(props: NotebookFileProps): JSX.Element {
+  const cellKeys = new Set<string>();
+  for (const cell of props.backend_data.cells) {
+    assert(
+      cell.cell_key.length > 0,
+      "Notebook cells require a non-empty line-pin region key.",
+    );
+    assert(
+      !cellKeys.has(cell.cell_key),
+      `Notebook contains duplicate cell key ${cell.cell_key}.`,
+    );
+    cellKeys.add(cell.cell_key);
+  }
+
   return (
     <div class="notebook-file">
       <div class="notebook-summary">
@@ -80,9 +100,11 @@ export function NotebookFile(props: NotebookFileProps): JSX.Element {
             {(cell) => (
               <NotebookCellView
                 fileIndex={props.fileIndex}
+                fileDisplayName={props.backend_data.display_name}
                 cell={cell}
                 view={props.view}
                 aggressiveFolds={props.aggressiveFolds}
+                linePins={props.linePins}
               />
             )}
           </For>
@@ -147,7 +169,8 @@ function NotebookCellView(props: NotebookCellProps): JSX.Element {
         <p class="notebook-section-heading">Cell source</p>
         <DiffGrid
           fileIndex={props.fileIndex}
-          displayName="Cell source"
+          displayName={props.fileDisplayName}
+          region={props.cell.cell_key}
           leftLabel="Left source"
           rightLabel="Right source"
           rows={props.cell.source_rows}
@@ -155,6 +178,7 @@ function NotebookCellView(props: NotebookCellProps): JSX.Element {
           viewMode={props.view}
           aggressiveFolds={props.aggressiveFolds}
           combineInsertOnlyReplaceRows={false}
+          linePins={props.linePins}
         />
       </section>
     </article>

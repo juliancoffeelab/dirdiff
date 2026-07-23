@@ -36,6 +36,31 @@ An unexpected FullFile renderer exception is not a backend file error and is nev
 
 The ChangeSet title remains with the ChangeSet. It is not placed in AppHeader because AppHeader space is limited.
 
+#### FullFile DOM interface
+
+Every admitted FullFile exposes line preparation alongside its existing virtualization operations:
+
+```ts
+type PreparedLine =
+  | { state: "ready"; row: HTMLElement }
+  | { state: "missing" }
+  | { state: "stopped" };
+
+type EnrichableFileCard = HTMLElement & {
+  intersectsRichEntryZone(viewportTop: number): boolean;
+  waitToEnrich_impl(): Promise<void>;
+
+  prepareLine_impl(
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ): Promise<PreparedLine>;
+};
+```
+
+`prepareLine_impl()` may expand the FileCard, enrich a virtual FullFile, and unfold the exact requested line. It never fetches, scrolls, parses or mutates URL state, paints line-pin decoration, or selects a hunk.
+
+There is no separate line-preparation FileCard interface. Line-pin decoration never prevents a FullFile from becoming virtual.
+
 ### 25.3 Manifest summary authority
 
 The manifest remains thin even though it carries compact aggregate statistics. The backend already obtains these values while listing changed paths; they are snapshot metadata, not rendered file content.
@@ -486,7 +511,7 @@ This section does not design:
 - next/previous navigation;
 - scroll-follow;
 - forced-rich files;
-- line-pin scrolling;
+- line-pin scrolling beyond the separately approved contract in [09_line_pins.md](09_line_pins.md);
 - navigation to hunks in collapsed files or to unloaded hunk targets.
 
 The only retained hunk presentation requirement is that FullFileHeader visibly contains both local and global counters.

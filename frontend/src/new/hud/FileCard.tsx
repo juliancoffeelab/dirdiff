@@ -35,6 +35,7 @@ import {
 } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import { DiffGrid } from "./DiffGrid";
+import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import { NotebookFile } from "./NotebookFile";
 import type { PseudoHunkIdentity, RealHunkIdentity } from "./navigation";
 
@@ -79,6 +80,10 @@ type FileRenderMode = "rich" | "virtual";
 type EnrichableFileCard = HTMLElement & {
   intersectsRichEntryZone: (viewportTop: number) => boolean;
   waitToEnrich_impl: () => Promise<void>;
+  prepareLine_impl: (
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ) => Promise<PreparedLine>;
 };
 
 /**
@@ -246,6 +251,7 @@ type FileCardProps = {
   engine: DiffEngine;
   view: DiffViewMode;
   aggressiveFolds: boolean;
+  linePins: LinePins;
   onExpandedChange: (expanded: boolean) => void;
   onLoad: () => void;
   onRetry: () => void;
@@ -268,6 +274,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
       engine={props.engine}
       view={props.view}
       aggressiveFolds={props.aggressiveFolds}
+      linePins={props.linePins}
       globalSelectedHunk={props.globalSelectedHunk}
       fileSelectedHunk={props.fileSelectedHunk}
       onExpandedChange={props.onExpandedChange}
@@ -365,6 +372,7 @@ function FileCardContent(props: FileCardProps): JSX.Element {
               engine={props.engine}
               view={props.view}
               aggressiveFolds={props.aggressiveFolds}
+              linePins={props.linePins}
               globalSelectedHunk={props.globalSelectedHunk}
               fileSelectedHunk={props.fileSelectedHunk}
               card={() => card}
@@ -586,6 +594,7 @@ function FullFile(
     engine: DiffEngine;
     view: DiffViewMode;
     aggressiveFolds: boolean;
+    linePins: LinePins;
     card: Accessor<HTMLElement>;
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
@@ -632,8 +641,8 @@ function FullFile(
    * Changes only this FullFile's representation and records usable rich height.
    *
    * Observer callbacks call this operation directly. An expanded admitted file
-   * must expose a measurable rich body before becoming virtual. It performs no
-   * navigation, selected-hunk, ChangeSet, or scrolling behavior.
+   * must expose a measurable rich body before becoming virtual. The operation
+   * performs no navigation, selected-hunk, ChangeSet, or scrolling behavior.
    */
   function changeRenderMode(mode: FileRenderMode): void {
     if (renderMode() === mode) {
@@ -692,6 +701,95 @@ function FullFile(
   }
 
   /**
+   * Prepares one exact semantic line inside this admitted FullFile.
+   *
+   * Navigation supplies the complete URL target and its operation AbortSignal.
+   * The operation expands this FileCard, materializes rich DOM, resolves the
+   * exact ordinary or notebook DiffGrid from canonical renderer order, and
+   * delegates local unfolding. It does not fetch, scroll, paint, parse the URL,
+   * or select a hunk.
+   */
+  async function prepareLine_impl(
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ): Promise<PreparedLine> {
+    if (target.file !== backend_data.display_name) {
+      throw new Error("Line preparation targeted the wrong FileCard.");
+    }
+    if (abortSignal.aborted || !props.card().isConnected) {
+      return { state: "stopped" };
+    }
+    if (!props.admitted) {
+      throw new Error("Line preparation requires an admitted FullFile.");
+    }
+    if (!props.expanded) {
+      props.onExpandedChange(true);
+      await Promise.resolve();
+    }
+    if (abortSignal.aborted || !props.card().isConnected) {
+      return { state: "stopped" };
+    }
+    await waitToEnrich_impl();
+    if (abortSignal.aborted || !props.card().isConnected) {
+      return { state: "stopped" };
+    }
+    const grids = Array.from(
+      props.card().querySelectorAll<HTMLElement>(".diff-lines"),
+    );
+    let grid: HTMLElement | undefined;
+    if ("render_kind" in backend_data) {
+      const cellIndex = backend_data.cells.findIndex(
+        (cell) => cell.cell_key === target.region,
+      );
+      if (cellIndex === -1) {
+        return { state: "missing" };
+      }
+      if (grids.length !== backend_data.cells.length) {
+        throw new Error(
+          "Notebook FullFile must render exactly one DiffGrid per cell.",
+        );
+      }
+      grid = grids[cellIndex];
+    } else {
+      if (target.region !== null) {
+        return { state: "missing" };
+      }
+      if (grids.length !== 1) {
+        throw new Error("Text FullFile must render exactly one DiffGrid.");
+      }
+      grid = grids[0];
+    }
+    if (grid === undefined) {
+      throw new Error("Prepared DiffGrid disappeared.");
+    }
+    const prepareLine: unknown = Reflect.get(grid, "prepareLine_impl");
+    if (typeof prepareLine !== "function") {
+      throw new Error("DiffGrid omitted its line-preparation operation.");
+    }
+    const result: unknown = await Reflect.apply(prepareLine, grid, [
+      target,
+      abortSignal,
+    ]);
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("state" in result) ||
+      (result.state !== "ready" &&
+        result.state !== "missing" &&
+        result.state !== "stopped")
+    ) {
+      throw new Error("DiffGrid returned an invalid preparation result.");
+    }
+    if (
+      result.state === "ready" &&
+      (!("row" in result) || !(result.row instanceof HTMLElement))
+    ) {
+      throw new Error("Ready DiffGrid preparation omitted its rendered row.");
+    }
+    return result as PreparedLine;
+  }
+
+  /**
    * Tests this FileCard against its rich-entry zone at a proposed scroll position.
    *
    * Navigation supplies a finite non-negative document viewport top. The result
@@ -736,11 +834,13 @@ function FullFile(
     card.dataset.fileRender = renderMode();
     card.intersectsRichEntryZone = intersectsRichEntryZone;
     card.waitToEnrich_impl = waitToEnrich_impl;
+    card.prepareLine_impl = prepareLine_impl;
     if (observedFile === null) {
       onCleanup(() => {
         delete card.dataset.fileRender;
         Reflect.deleteProperty(card, "intersectsRichEntryZone");
         Reflect.deleteProperty(card, "waitToEnrich_impl");
+        Reflect.deleteProperty(card, "prepareLine_impl");
       });
       return;
     }
@@ -809,6 +909,7 @@ function FullFile(
       delete card.dataset.fileRender;
       Reflect.deleteProperty(card, "intersectsRichEntryZone");
       Reflect.deleteProperty(card, "waitToEnrich_impl");
+      Reflect.deleteProperty(card, "prepareLine_impl");
     });
   });
 
@@ -868,6 +969,7 @@ function FullFile(
                 engine={props.engine}
                 view={props.view}
                 aggressiveFolds={props.aggressiveFolds}
+                linePins={props.linePins}
               />
             </div>
           }
@@ -890,6 +992,7 @@ function FullFile(
                   engine={props.engine}
                   view={props.view}
                   aggressiveFolds={props.aggressiveFolds}
+                  linePins={props.linePins}
                 />
               </div>
             </Show>
@@ -1310,6 +1413,7 @@ function FileBody(props: {
   engine: DiffEngine;
   view: DiffViewMode;
   aggressiveFolds: boolean;
+  linePins: LinePins;
 }): JSX.Element {
   if ("render_kind" in props.backend_data) {
     return (
@@ -1318,6 +1422,7 @@ function FileBody(props: {
         backend_data={props.backend_data}
         view={props.view}
         aggressiveFolds={props.aggressiveFolds}
+        linePins={props.linePins}
       />
     );
   }
@@ -1325,6 +1430,7 @@ function FileBody(props: {
     <DiffGrid
       fileIndex={props.fileIndex}
       displayName={props.backend_data.display_name}
+      region={null}
       leftLabel={props.backend_data.left_label}
       rightLabel={props.backend_data.right_label}
       rows={props.backend_data.rows}
@@ -1332,6 +1438,7 @@ function FileBody(props: {
       viewMode={props.view}
       aggressiveFolds={props.aggressiveFolds}
       combineInsertOnlyReplaceRows={props.engine === "difftastic"}
+      linePins={props.linePins}
     />
   );
 }

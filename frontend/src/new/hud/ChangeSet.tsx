@@ -8,8 +8,9 @@
  * the lazy-info, file, and profile-preference observers together with file-lane state.
  * Together they render Navigation, hotkeys, HUD, Portals, title, FileTree, and
  * FileCards. They must not copy backend results into Solid state, start concurrent
- * file-diff requests, store workspace or Tab selections, follow user scrolling,
- * or handle line pins.
+ * file-diff requests, store workspace or Tab selections, or follow user scrolling.
+ * Line-pin URL identity and decoration remain in LinePins; the existing file lane
+ * accepts only its semantic target and reports when that target has layout.
  */
 import {
   For,
@@ -56,6 +57,11 @@ import { assert, expect } from "../utils";
 import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets } from "./AppHeader";
 import { FileCard, type HunkPosition } from "./FileCard";
+import {
+  linePins,
+  type LinePinRestoration,
+  type LinePinTarget,
+} from "./linePins";
 import { NavigationProvider, useNavigation } from "./navigation";
 import type { StoredProfile } from "./Profile";
 
@@ -110,11 +116,12 @@ type ChangeSetState = {
 /**
  * Describes the active work presented by the single file lane.
  *
- * `kind` distinguishes ordinary manifest progress from an explicit LazyFile
- * selection. Slow is a one-shot threshold flag rather than elapsed-time state.
+ * `kind` distinguishes ordinary manifest progress, an explicit LazyFile
+ * selection, and the file currently satisfying a line target. Slow is a
+ * one-shot threshold flag rather than elapsed-time state.
  */
 type FileLaneActivity = {
-  kind: "sequence" | "selected";
+  kind: "sequence" | "selected" | "line-target";
   fileIndex: number;
   path: string;
   slow: boolean;
@@ -1239,6 +1246,8 @@ type ChangeSetSnapshotProps = {
  */
 function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   const queryClient = useQueryClient();
+  const toast = useToasts();
+  const pins = linePins();
   const [processed, setProcessed] = createSignal(0);
   const [laneActivity, setLaneActivity] = createSignal<FileLaneActivity | null>(
     null,
@@ -1259,6 +1268,65 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     }
     fileIndexByKey.set(key, fileIndex);
   }
+
+  /**
+   * Derives the exact FileDiff `display_name` available from a thin manifest handle.
+   *
+   * Repository snapshots use the backend's path-pair label. Preset backends
+   * deliberately name their old/new fixture pair by its new-side path. The result
+   * is used only to assert file responses and resolve canonical line-pin identity.
+   */
+  function canonicalFileResponseName(entry: ManifestFile["entry"]): string {
+    if (props.params.mode !== "preset") {
+      return fileDisplayName(entry);
+    }
+    return expect(
+      entry.right_path,
+      "Preset manifest file requires its canonical new-side path.",
+    );
+  }
+
+  const parsedLinePin = pins.parseUrl();
+  let initialLineTarget: {
+    target: LinePinTarget;
+    fileIndex: number;
+  } | null = null;
+  if (parsedLinePin.state === "invalid") {
+    toast.showTransient(
+      "Line pin unavailable",
+      "The URL contains an invalid line pin.",
+      2_000,
+    );
+  } else if (parsedLinePin.state === "valid") {
+    const matches = orderedFiles.flatMap((file, fileIndex) =>
+      canonicalFileResponseName(file.entry) === parsedLinePin.target.file
+        ? [{ fileIndex }]
+        : [],
+    );
+    if (matches.length > 1) {
+      throw new Error(
+        `Line target path ${parsedLinePin.target.file} is ambiguous.`,
+      );
+    }
+    const match = matches[0];
+    if (match === undefined) {
+      toast.showTransient(
+        "Line pin unavailable",
+        `${parsedLinePin.target.file} is not present in this ChangeSet.`,
+        2_000,
+      );
+      const toggleResult = pins.toggleUrlState(parsedLinePin.target);
+      if (toggleResult !== "unpinned") {
+        throw new Error("Missing line-pin file changed its current target.");
+      }
+    } else {
+      initialLineTarget = {
+        target: parsedLinePin.target,
+        fileIndex: match.fileIndex,
+      };
+    }
+  }
+
   const automaticTotal = createMemo(
     () => orderedFiles.filter((file) => file.entry.lazy === null).length,
   );
@@ -1357,8 +1425,8 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     return result;
   });
 
-  const fileStates = createMemo(() =>
-    orderedFiles.map((manifestFile, fileIndex) => {
+  const fileStateAccessors = orderedFiles.map((manifestFile, fileIndex) =>
+    createMemo<FileTreeState>(() => {
       const query = fileQueries[fileIndex];
       const path = fileDisplayName(manifestFile.entry);
       assert(query !== undefined, `Missing file query for ${path}.`);
@@ -1372,6 +1440,14 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
         };
       }
       if (query.isSuccess) {
+        const canonicalDisplayName = canonicalFileResponseName(
+          manifestFile.entry,
+        );
+        if (query.data.display_name !== canonicalDisplayName) {
+          throw new Error(
+            `File query returned ${query.data.display_name} for canonical file ${canonicalDisplayName}.`,
+          );
+        }
         return {
           state: "full" as const,
           fileIndex,
@@ -1448,6 +1524,9 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       };
     }),
   );
+  const fileStates = createMemo(() =>
+    fileStateAccessors.map((fileState) => fileState()),
+  );
 
   /**
    * Resolves one manifest file to its current canonical presentation state.
@@ -1521,6 +1600,20 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       timeout: FileDiffTimeout;
     }> = [];
     const selectedSet = new Set<number>();
+    const changeSetAbortController = new AbortController();
+    let lineTarget: {
+      target: LinePinTarget;
+      fileIndex: number;
+      state: "pending" | "dormant";
+      needsLazyInfo: boolean;
+    } | null =
+      initialLineTarget === null
+        ? null
+        : {
+            ...initialLineTarget,
+            state: "pending",
+            needsLazyInfo: lazyInfo !== null,
+          };
     let automaticCursor = 0;
     let activeIndex: number | null = null;
     let activeKey: QueryKey | null = null;
@@ -1550,11 +1643,13 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
     }
 
     /**
-     * Drains explicit selections before resuming strict automatic manifest order.
+     * Advances one current line goal before queued explicit file selections.
      *
-     * The closure belongs to this exact immutable snapshot. It catches only
-     * query-owned failure/cancellation so the canonical observer retains damage;
-     * its launch callback routes unexpected orchestration errors into Solid.
+     * A line goal preserves manifest order through its target; afterwards queued
+     * user-selected files run before ordinary automatic work resumes. The closure
+     * belongs to this exact immutable snapshot. It catches only query-owned
+     * failure/cancellation so the canonical observer retains damage; its launch
+     * callback routes unexpected orchestration errors into Solid.
      */
     async function runLane(): Promise<void> {
       if (running || stopped) {
@@ -1565,13 +1660,94 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
         while (!stopped) {
           let kind: FileLaneActivity["kind"] = "selected";
           let timeout: FileDiffTimeout = "bounded";
-          const selection = selectedQueue.shift();
+          let currentLineTarget: NonNullable<typeof lineTarget> | null = null;
+          let countsAsAutomatic = false;
+
+          if (
+            lineTarget !== null &&
+            lineTarget.state === "pending" &&
+            lineTarget.needsLazyInfo
+          ) {
+            const preparingTarget = lineTarget;
+            if (lazyInfo === null) {
+              throw new Error(
+                "Line target requires the canonical lazy-info observer.",
+              );
+            }
+            try {
+              // Solid exposes QueryObserverResult.promise in its client type, but
+              // that Promise only settles with experimental prefetch enabled.
+              // Refetching this already-fetching canonical observer with
+              // cancellation disabled returns TanStack's same in-flight Promise.
+              const lazyInfoResult = await lazyInfo.refetch({
+                cancelRefetch: false,
+              });
+              if (lazyInfoResult.isError) {
+                throw lazyInfoResult.error;
+              }
+              if (lineTarget === preparingTarget) {
+                preparingTarget.needsLazyInfo = false;
+              }
+            } catch (error: unknown) {
+              if (isRepositoryCacheExpiration(error)) {
+                props.onRepositoryCacheExpiration();
+                return;
+              }
+              if (isCancelledError(error) || stopped) {
+                return;
+              }
+              if (lineTarget === preparingTarget) {
+                preparingTarget.state = "dormant";
+                preparingTarget.needsLazyInfo = false;
+              }
+            }
+            continue;
+          }
+
+          if (
+            lineTarget !== null &&
+            fileQueries[lineTarget.fileIndex]?.isSuccess === true &&
+            admittedFiles[lineTarget.fileIndex] === true
+          ) {
+            const readyTarget = lineTarget;
+            let restoration: LinePinRestoration;
+            try {
+              restoration = await pins.restore(
+                readyTarget.target,
+                readyTarget.fileIndex,
+                changeSetAbortController.signal,
+              );
+            } catch (error: unknown) {
+              // Unexpected restoration failure is terminal local damage. Stop
+              // this snapshot before rethrowing so the pending target cannot
+              // relaunch while Solid routes the error to the boundary.
+              await stopLane();
+              throw error;
+            }
+            if (lineTarget === readyTarget) {
+              lineTarget = null;
+            }
+            if (restoration.state === "stopped" && stopped) {
+              return;
+            }
+            continue;
+          }
+
           let fileIndex: number;
-          if (selection !== undefined) {
-            fileIndex = selection.fileIndex;
-            timeout = selection.timeout;
-            selectedSet.delete(fileIndex);
-          } else {
+          const pendingLineTarget =
+            lineTarget?.state === "pending" ? lineTarget : null;
+          if (
+            pendingLineTarget !== null &&
+            automaticCursor > pendingLineTarget.fileIndex
+          ) {
+            kind = "line-target";
+            currentLineTarget = pendingLineTarget;
+            fileIndex = pendingLineTarget.fileIndex;
+            timeout =
+              fileQueries[fileIndex]?.isError === true
+                ? "unbounded"
+                : "bounded";
+          } else if (pendingLineTarget !== null || selectedQueue.length === 0) {
             kind = "sequence";
             while (automaticCursor < files.length) {
               const candidate = files[automaticCursor];
@@ -1580,7 +1756,10 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                   `File lane lost manifest index ${automaticCursor}.`,
                 );
               }
-              if (candidate.entry.lazy === null) {
+              if (
+                candidate.entry.lazy === null ||
+                pendingLineTarget?.fileIndex === automaticCursor
+              ) {
                 break;
               }
               automaticCursor += 1;
@@ -1588,8 +1767,37 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             if (automaticCursor >= files.length) {
               break;
             }
+            if (
+              pendingLineTarget !== null &&
+              automaticCursor > pendingLineTarget.fileIndex
+            ) {
+              throw new Error(
+                "File lane advanced beyond a pending line target.",
+              );
+            }
             fileIndex = automaticCursor;
             automaticCursor += 1;
+            countsAsAutomatic =
+              expect(
+                files[fileIndex],
+                "Automatic file loading selected an invalid manifest index.",
+              ).entry.lazy === null;
+            if (pendingLineTarget?.fileIndex === fileIndex) {
+              kind = "line-target";
+              currentLineTarget = pendingLineTarget;
+              timeout =
+                fileQueries[fileIndex]?.isError === true
+                  ? "unbounded"
+                  : "bounded";
+            }
+          } else {
+            const selection = expect(
+              selectedQueue.shift(),
+              "Selected file queue lost its first entry.",
+            );
+            fileIndex = selection.fileIndex;
+            timeout = selection.timeout;
+            selectedSet.delete(fileIndex);
           }
 
           const file = files[fileIndex];
@@ -1623,7 +1831,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
               return;
             }
             if (
-              kind === "selected" &&
+              (kind === "selected" || kind === "line-target") &&
               props.state.fileExpansion[manifestEntryKey(file.entry)] !== false
             ) {
               // The query result has replaced LazyFile with FullFile. Expand it
@@ -1639,6 +1847,16 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
               return;
             }
             setAdmittedFiles(fileIndex, true);
+            if (
+              currentLineTarget !== null &&
+              lineTarget === currentLineTarget
+            ) {
+              // Admission synchronously mounts FullFile. Wait through the next
+              // paint so Navigation receives complete measurable DiffGrid rows.
+              await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+              });
+            }
           } catch (error) {
             if (stopped || isCancelledError(error)) {
               return;
@@ -1647,6 +1865,12 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
               props.onRepositoryCacheExpiration();
               return;
             }
+            if (
+              currentLineTarget !== null &&
+              lineTarget === currentLineTarget
+            ) {
+              currentLineTarget.state = "dormant";
+            }
             // The canonical query owns and presents this failed attempt. The lane
             // intentionally proceeds so one file cannot damage later files.
           } finally {
@@ -1654,13 +1878,19 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             activeIndex = null;
             activeKey = null;
             setLaneActivity(null);
-            if (kind === "sequence" && !stopped) {
+            if (countsAsAutomatic && !stopped) {
               setProcessed((current) => current + 1);
             }
           }
         }
       } finally {
         running = false;
+        if (
+          !stopped &&
+          (selectedQueue.length > 0 || lineTarget?.state === "pending")
+        ) {
+          void runLane().catch(reportLaneFailure);
+        }
       }
     }
 
@@ -1677,12 +1907,14 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       }
       stopped = true;
       enqueueSelectedFile = null;
+      changeSetAbortController.abort();
       setLaneActivity(null);
       const queryKey = activeKey;
-      stopPromise =
+      const queryCancellation =
         queryKey === null
           ? Promise.resolve()
           : queryClient.cancelQueries({ queryKey, exact: true });
+      stopPromise = queryCancellation;
       return stopPromise;
     }
 
@@ -1707,6 +1939,8 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       void runLane().catch(reportLaneFailure);
     };
 
+    // URL parsing above is synchronous, so the target already constrains the
+    // canonical lane before its first query can begin.
     void runLane().catch(reportLaneFailure);
 
     onCleanup(() => {
@@ -1806,14 +2040,10 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             <div class="directory-groups">
               <For each={orderedFiles}>
                 {(file, fileIndex) => {
-                  const currentState = createMemo(() => {
-                    const state = fileStates()[fileIndex()];
-                    assert(
-                      state !== undefined,
-                      `Missing file state for ${fileDisplayName(file.entry)}.`,
-                    );
-                    return state;
-                  });
+                  const currentState = expect(
+                    fileStateAccessors[fileIndex()],
+                    `Missing file state for ${fileDisplayName(file.entry)}.`,
+                  );
                   return (
                     <FileCard
                       file_state={currentState()}
@@ -1831,6 +2061,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                       engine={props.params.engine}
                       view={props.view}
                       aggressiveFolds={aggressiveFolds()}
+                      linePins={pins}
                       globalSelectedHunk={() =>
                         props.hunkDisplay()?.globalSelectedHunk ?? null
                       }

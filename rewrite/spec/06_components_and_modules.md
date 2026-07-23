@@ -22,6 +22,7 @@ frontend/src/
 │   ├── Profile.tsx
 │   ├── ChangeSet.tsx
 │   ├── FileCard.tsx
+│   ├── linePins.ts
 │   ├── navigation.tsx
 │   ├── DiffGrid.tsx
 │   ├── NotebookFile.tsx
@@ -147,15 +148,10 @@ function Root() {
   const toast = useToasts();
 
   return (
-    <QueryProvider
-      onError={toast.showError}
-    >
+    <QueryProvider onError={toast.showError}>
       <ErrorBoundary
         fallback={(error, retry) => (
-          <ApplicationErrorPanel
-            error={error}
-            onRetry={retry}
-          />
+          <ApplicationErrorPanel error={error} onRetry={retry} />
         )}
       >
         <App />
@@ -178,8 +174,8 @@ api  ↛ comp
 Exports:
 
 ```ts
-Select
-SelectOption
+Select;
+SelectOption;
 ```
 
 It stores popup visibility and implements keyboard interaction and dismissal. It knows nothing about repos, engines or Tabs.
@@ -244,9 +240,9 @@ It does not store manifest statistics, loading progress, or metadata queries. Ch
 Exports:
 
 ```ts
-TabId
-TabStrip
-Tabs
+TabId;
+TabStrip;
+Tabs;
 ```
 
 Private components remain in the same file:
@@ -350,13 +346,14 @@ This is the “meat” boundary. It should be a large, deep module.
 Exports:
 
 ```ts
-RealHunkIdentity
-PseudoHunkIdentity
-HunkIdentity
-NavigationCommand
-Navigation
-NavigationProvider
-useNavigation
+RealHunkIdentity;
+PseudoHunkIdentity;
+HunkIdentity;
+NavigationCommand;
+NavigationResult;
+Navigation;
+NavigationProvider;
+useNavigation;
 ```
 
 `NavigationProvider` owns one stateful, disposable Navigation controller for one mounted ChangeSet. `useNavigation` returns that controller’s public operations to descendants of the nearest Provider.
@@ -373,7 +370,7 @@ It performs DOM hunk traversal, `selectHunk`, Next/Previous, file, return-to-top
 
 The controller stores only ephemeral browser-work state: root, one private scroll guard closure, one private touch controller closure, and listeners. Selected hunk identity and target order remain in DOM. Counters and FileTree highlighting render from `ChangeSetShell`'s `HunkDisplay` signal, which is an exact calculation from DOM and is never Navigation state. Rich/virtual state remains FileCard-local, and FileCard implements `waitToEnrich`.
 
-Line pins are a separate system behind their own TODO design gate and implementation stage. Navigation stores no line-pin identity, timers, or listener resources and performs no line-pin parsing, highlighting, retries, restoration, or cleanup. The future line-pin module destination remains undecided until that design is re-checked and explicitly approved.
+Line pins are a separate system specified in [09_line_pins.md](09_line_pins.md). Navigation stores no line-pin identity, timers, or listener resources and performs no parsing, decoration, file loading, or restoration lifecycle. It accepts one coordinate-bearing `line` operation only after the file sequence reports browser layout and performs rich preparation plus the single final scroll.
 
 The Context exposes Navigation operations but no controller state. There is no copied global hunk index, selected-hunk signal, independently owned selected-file state, generic setter or backend data.
 
@@ -384,8 +381,25 @@ type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
   | { kind: "file"; fileIndex: number }
+  | {
+      kind: "line";
+      fileIndex: number;
+      target: LinePinTarget;
+      abortSignal: AbortSignal;
+    }
   | { kind: "top" };
+
+type NavigationResult =
+  | { state: "complete" }
+  | { state: "missing" }
+  | { state: "stopped" };
+
+type Navigation = {
+  navigate(command: NavigationCommand): Promise<NavigationResult>;
+};
 ```
+
+`complete` means the documented operation reached its destination, including a valid hunk-navigation no-op. `missing` is reserved for an absent exact line coordinate. `stopped` means cancellation or disposal prevented the operation's final action. Cancellation must not be represented as `missing`.
 
 Navigation does not handle hotkeys, Help, Debug, tree visibility, view changes, reload, file expansion or backend work. Hotkeys merely call `navigation.navigate(...)` for `n`, `N` and `p`.
 
@@ -405,6 +419,12 @@ Renders notebook-specific content and preserves the bridge toward cell/output re
 
 Keeping it separate prevents provisional notebook behavior from complicating ordinary `FileCard` and `DiffGrid`.
 
+#### `hud/linePins.ts`
+
+Exports `LinePinTarget`, `ParsedLinePin`, `LinePinToggleResult`, `LinePinRestoration`, the per-`ChangeSetSnapshot` `LinePins` interface, and `linePins(): LinePins`.
+
+`ChangeSetSnapshot` calls `linePins()` exactly once beneath the existing Navigation and Toast providers. The function obtains those required scoped interfaces and returns the retained instance. The instance validates and writes exact URL identity, owns cancellation for its active asynchronous restoration, and routes an already-ready semantic target through Navigation. ChangeSet calls `parseUrl()` before its initial file lane. DiffGrid calls `toggleUrlState()` directly and receives `"pinned"` or `"unpinned"` for its exact row. The module renders no component, stores no authoritative identity, inspects no DOM, paints no row, loads no file, observes no query, selects no hunk, and owns no history listener, timer, MutationObserver, or retry lifecycle.
+
 #### `utils.ts`
 
 Only genuinely domain-independent pure functions such as `wrapIndex` and `clamp`.
@@ -413,23 +433,23 @@ No file-tree helpers, hunk helpers, API helpers, or diff helpers belong here.
 
 ### 65.4 Current files that disappear
 
-| Current file/concept | Destination |
-|---|---|
-| `app/createDiffUiState.ts` | actual owning components |
-| `app/createDiffNavigation.ts` | `hud/navigation.tsx` plus private hotkeys in `hud/ChangeSet.tsx` |
-| `app/createRepoResources.ts` | TanStack queries in `api/api.ts`, workspace state in `hud/App.tsx`, and consumption in `hud/Tabs.tsx` |
-| `app/diffParams.ts` | removed; query definitions use `DiffParams` directly |
-| `Controls.tsx` | rewritten as private Tab components in `hud/Tabs.tsx` |
-| `FileViews.tsx` | split into `hud/ChangeSet.tsx` and `hud/FileCard.tsx` |
-| `Header.tsx` | `hud/AppHeader.tsx` |
-| `Hud.tsx` | private adjacent `HintHud` and `DebugHud`, plus separate `HelpModal`, in `hud/ChangeSet.tsx` |
-| `RepoPicker.tsx` | `RepoSelect` in `hud/AppHeader.tsx` and `RepoGate` in `hud/Tabs.tsx` |
-| `fileUtils.ts` | functions colocated with the components that use them |
-| `hunkNavigation.ts` | `hud/navigation.tsx` |
-| `linePins.ts` | separate line-pin design; destination not yet approved |
-| `storage.ts` | private profile/workspace persistence |
-| `queryClient.ts` at root | `api/queryClient.tsx` |
-| entire `app/` directory | removed |
+| Current file/concept          | Destination                                                                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `app/createDiffUiState.ts`    | actual owning components                                                                              |
+| `app/createDiffNavigation.ts` | `hud/navigation.tsx` plus private hotkeys in `hud/ChangeSet.tsx`                                      |
+| `app/createRepoResources.ts`  | TanStack queries in `api/api.ts`, workspace state in `hud/App.tsx`, and consumption in `hud/Tabs.tsx` |
+| `app/diffParams.ts`           | removed; query definitions use `DiffParams` directly                                                  |
+| `Controls.tsx`                | rewritten as private Tab components in `hud/Tabs.tsx`                                                 |
+| `FileViews.tsx`               | split into `hud/ChangeSet.tsx` and `hud/FileCard.tsx`                                                 |
+| `Header.tsx`                  | `hud/AppHeader.tsx`                                                                                   |
+| `Hud.tsx`                     | private adjacent `HintHud` and `DebugHud`, plus separate `HelpModal`, in `hud/ChangeSet.tsx`          |
+| `RepoPicker.tsx`              | `RepoSelect` in `hud/AppHeader.tsx` and `RepoGate` in `hud/Tabs.tsx`                                  |
+| `fileUtils.ts`                | functions colocated with the components that use them                                                 |
+| `hunkNavigation.ts`           | `hud/navigation.tsx`                                                                                  |
+| `linePins.ts`                 | rewritten as `hud/linePins.ts` under [09_line_pins.md](09_line_pins.md)                               |
+| `storage.ts`                  | private profile/workspace persistence                                                                 |
+| `queryClient.ts` at root      | `api/queryClient.tsx`                                                                                 |
+| entire `app/` directory       | removed                                                                                               |
 
 ### 65.5 Module rule
 

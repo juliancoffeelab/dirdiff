@@ -841,6 +841,14 @@ h1 {
   border-color: #8e1f1f;
 }
 
+.toast-transient {
+  border-color: #6a665d;
+}
+
+.toast-transient .toast-copy strong {
+  color: #24231f;
+}
+
 .toast-copy {
   min-width: 0;
   overflow: auto;

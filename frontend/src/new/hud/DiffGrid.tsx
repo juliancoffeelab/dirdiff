@@ -7,7 +7,7 @@
  * backend rows and complete presentation inputs. It must not fetch data, own
  * ChangeSet state, navigate hunks, virtualize files, or render notebook framing.
  */
-import { createEffect } from "solid-js";
+import { createEffect, onCleanup, onMount } from "solid-js";
 import type {
   DiffRow,
   FoldHint,
@@ -17,6 +17,7 @@ import type {
 } from "../api/api";
 import type { DiffViewMode } from "./App";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
+import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import type { RealHunkIdentity } from "./navigation";
 import { clamp } from "../utils";
 
@@ -56,13 +57,17 @@ type InlineRowStatus = "equal" | "delete" | "insert" | "replace" | "move";
 /**
  * Renders one complete immutable text FileDiff using the established grid DOM.
  *
- * Callers provide the stable manifest file index, labels, validated rows and
- * fold hints, current view, and both fold policies. The component owns only its
- * rendered row DOM; it performs no fetching, navigation, or file-level state.
+ * Callers provide the stable manifest file index, canonical display name,
+ * explicit nullable notebook region, labels, validated rows and fold hints,
+ * current view, and both fold policies. Every pinnable line receives its exact
+ * side and line coordinates; the component supplies file and region from these
+ * typed inputs. It owns only its rendered row DOM and one delegated activation
+ * listener; it performs no fetching, navigation, or file-level state.
  */
 export function DiffGrid(props: {
   fileIndex: number;
   displayName: string;
+  region: string | null;
   leftLabel: string;
   rightLabel: string;
   rows: DiffRow[];
@@ -70,6 +75,7 @@ export function DiffGrid(props: {
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
   combineInsertOnlyReplaceRows: boolean;
+  linePins: LinePins;
 }) {
   return (
     <div
@@ -95,6 +101,7 @@ export function DiffGrid(props: {
       <ImperativeDiffLines
         fileIndex={props.fileIndex}
         displayName={props.displayName}
+        region={props.region}
         rows={props.rows}
         foldHints={props.foldHints}
         leftLabel={props.leftLabel}
@@ -102,6 +109,7 @@ export function DiffGrid(props: {
         viewMode={props.viewMode}
         aggressiveFolds={props.aggressiveFolds}
         combineInsertOnlyReplaceRows={props.combineInsertOnlyReplaceRows}
+        linePins={props.linePins}
       />
     </div>
   );
@@ -154,17 +162,32 @@ type InlineLineNumberState = {
 };
 
 /**
+ * Describes the file-local preparation operation attached to one DiffGrid row root.
+ *
+ * FileCard supplies complete semantic coordinates and an AbortSignal. The
+ * operation unfolds the exact local row and returns it without scrolling,
+ * painting, URL mutation, file expansion, or file materialization.
+ */
+type PreparableDiffLines = HTMLDivElement & {
+  prepareLine_impl(
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ): Promise<PreparedLine>;
+};
+
+/**
  * Synchronizes reactive DiffGrid inputs into one exclusively owned DOM root.
  *
  * The Solid effect runs initially and whenever rows, labels, view, file name,
  * or fold policies change. It clears local expanded-fold state when any such
- * renderer input changes, replaces every child of its root atomically, and
- * needs no disposal callback because the component owns no external listener
- * or resource beyond listeners attached to that replaced or disposed DOM.
+ * renderer input changes and replaces every child of its root atomically. One
+ * delegated root listener handles direct line activation across all explicit
+ * row replacements and is removed with the preparation operation on cleanup.
  */
 function ImperativeDiffLines(props: {
   fileIndex: number;
   displayName: string;
+  region: string | null;
   rows: DiffRow[];
   foldHints: FoldHint[];
   leftLabel: string;
@@ -172,8 +195,9 @@ function ImperativeDiffLines(props: {
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
   combineInsertOnlyReplaceRows: boolean;
+  linePins: LinePins;
 }) {
-  let root!: HTMLDivElement;
+  let root!: PreparableDiffLines;
   const expandedFolds = new Set<number>();
   let previousDisplayName: string | undefined;
   let previousRows: DiffRow[] | undefined;
@@ -185,12 +209,196 @@ function ImperativeDiffLines(props: {
   let previousCombineInsertOnlyReplaceRows: boolean | undefined;
 
   /**
+   * Resolves the unique rendered row for one exact target inside this DiffGrid.
+   *
+   * The caller must supply this DiffGrid's typed file and nullable region
+   * identity. `null` means only that the exact side and line are not currently
+   * rendered. A target from another region, duplicate coordinate, or line
+   * detached from a valid row is a structural contradiction and throws.
+   */
+  function renderedRow(target: LinePinTarget): HTMLElement | null {
+    if (target.file !== props.displayName || target.region !== props.region) {
+      throw new Error("DiffGrid received a line target from another region.");
+    }
+    const matchingLines = Array.from(
+      root.querySelectorAll<HTMLElement>(".line-no[data-line-pin-line]"),
+    ).filter(
+      (lineNumber) =>
+        lineNumber.dataset.linePinSide === target.side &&
+        lineNumber.dataset.linePinLine === target.line,
+    );
+    if (matchingLines.length > 1) {
+      throw new Error("DiffGrid contains duplicate line-pin coordinates.");
+    }
+    const lineNumber = matchingLines[0];
+    if (lineNumber === undefined) {
+      return null;
+    }
+    const row = lineNumber.closest<HTMLElement>(".diff-row");
+    if (row === null || !root.contains(row)) {
+      throw new Error("Pinnable line has no DiffGrid row.");
+    }
+    return row;
+  }
+
+  /**
+   * Handles a new pin choice made directly inside this DiffGrid.
+   *
+   * The delegated root listener passes every click to this operation. Clicks
+   * outside pinnable line-number cells remain untouched. For a pinnable line,
+   * the DOM supplies side and line while this DiffGrid supplies file and
+   * region. The operation toggles that complete target in the URL, removes the
+   * previous visible decoration, and paints the chosen ordinary row only when
+   * the target is now pinned. It does not restore an existing URL pin, scroll,
+   * load a file, or select a hunk.
+   */
+  function handleNewPin(event: MouseEvent): void {
+    const clicked = event.target;
+    if (!(clicked instanceof HTMLElement)) {
+      return;
+    }
+    const lineNumber = clicked.closest<HTMLElement>(
+      ".line-no[data-line-pin-line]",
+    );
+    if (lineNumber === null || !root.contains(lineNumber)) {
+      return;
+    }
+    event.stopPropagation();
+    const side = lineNumber.dataset.linePinSide;
+    const line = lineNumber.dataset.linePinLine;
+    if (side !== "left" && side !== "right") {
+      throw new Error("Pinnable line has an invalid side identity.");
+    }
+    if (line === undefined || !/^[1-9]\d*$/u.test(line)) {
+      throw new Error("Pinnable line has an invalid backend line identity.");
+    }
+    const target: LinePinTarget = {
+      file: props.displayName,
+      region: props.region,
+      side,
+      line,
+    };
+    const row = renderedRow(target);
+    if (row === null) {
+      throw new Error("Activated line disappeared from its DiffGrid.");
+    }
+    const changeSetRoot = root.closest<HTMLElement>("[data-change-set-root]");
+    if (changeSetRoot === null) {
+      throw new Error("DiffGrid requires its ChangeSet root.");
+    }
+    const paintedRows =
+      changeSetRoot.querySelectorAll<HTMLElement>(".pinned-line");
+    if (paintedRows.length > 1) {
+      throw new Error("ChangeSet contains multiple painted line pins.");
+    }
+    paintedRows[0]?.classList.remove("pinned-line");
+    if (props.linePins.toggleUrlState(target) === "pinned") {
+      row.classList.add("pinned-line");
+    }
+  }
+
+  /**
+   * Restores decoration for an already-routed URL pin after row rendering.
+   *
+   * The caller must first verify that the valid URL target belongs to this
+   * DiffGrid. This operation tolerates a currently absent row and never paints
+   * an expanded fold edge. It changes no URL identity and performs no loading,
+   * scrolling, or hunk selection.
+   */
+  function restoreOldPin(): void {
+    const parsed = props.linePins.parseUrl();
+    // we dont validatate the pin, it must be checked elsewhere
+    if (parsed.state === "valid") {
+      const row = renderedRow(parsed.target);
+      // row is not a fold-edge
+      if (!row?.classList.contains("fold-toggle-row")) {
+        // we ignore missing rows too, again, must be checked elsewhere
+        row?.classList.add("pinned-line");
+      }
+    }
+  }
+
+  /**
+   * Unfolds and returns one exact line from this complete immutable DiffGrid.
+   *
+   * FileCard has already expanded and materialized the owning FullFile. Missing
+   * complete-file coordinates return `missing`; cancellation returns `stopped`;
+   * duplicate or malformed renderer identity throws visibly.
+   */
+  async function prepareLine_impl(
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ): Promise<PreparedLine> {
+    if (target.file !== props.displayName || target.region !== props.region) {
+      throw new Error("DiffGrid preparation received the wrong target.");
+    }
+    if (abortSignal.aborted || !root.isConnected) {
+      return { state: "stopped" };
+    }
+    const lineNumber = Number(target.line);
+    const matchingRowIndexes = props.rows.flatMap((row, rowIndex) => {
+      const candidate = target.side === "left" ? row.left_no : row.right_no;
+      return candidate === lineNumber ? [rowIndex] : [];
+    });
+    if (matchingRowIndexes.length === 0) {
+      return { state: "missing" };
+    }
+    if (matchingRowIndexes.length !== 1) {
+      throw new Error("Backend rows contain duplicate line-pin coordinates.");
+    }
+    const targetRowIndex = matchingRowIndexes[0];
+    if (targetRowIndex === undefined) {
+      throw new Error("Matched line row index disappeared.");
+    }
+    const remaining = [
+      ...addFoldRows(props.rows, props.foldHints, props.aggressiveFolds),
+    ];
+    while (remaining.length > 0) {
+      const candidate = remaining.shift();
+      if (candidate === undefined || !isFoldRow(candidate)) {
+        continue;
+      }
+      if (
+        targetRowIndex >= candidate.startRow &&
+        targetRowIndex < candidate.startRow + candidate.count
+      ) {
+        expandedFolds.add(candidate.startRow);
+      }
+      remaining.unshift(...candidate.foldedRows);
+    }
+    render();
+    await Promise.resolve();
+    if (abortSignal.aborted || !root.isConnected) {
+      return { state: "stopped" };
+    }
+    const row = renderedRow(target);
+    return row === null ? { state: "missing" } : { state: "ready", row };
+  }
+
+  /**
    * Rebuilds the complete owned row subtree from current reactive inputs.
    *
    * The function resets local fold expansion only when an identity-bearing
    * renderer input changes and atomically replaces every child of `root`.
    */
   const render = () => {
+    /**
+     * Routes current URL decoration to this DiffGrid after its rows change.
+     *
+     * Fold replacement and complete rendering share this single routing point.
+     * Invalid targets remain the responsibility of ChangeSet restoration.
+     */
+    function restoreOldPinOnMatch(): void {
+      const parsed = props.linePins.parseUrl();
+      if (
+        parsed.state === "valid" &&
+        parsed.target.file === props.displayName &&
+        parsed.target.region === props.region
+      ) {
+        restoreOldPin();
+      }
+    }
+
     const inputChanged = [
       props.displayName !== previousDisplayName,
       props.rows !== previousRows,
@@ -219,37 +427,46 @@ function ImperativeDiffLines(props: {
       props.foldHints,
       props.aggressiveFolds,
     );
-    const fileLabel = props.displayName;
     const fragment =
       props.viewMode === "inline" && props.combineInsertOnlyReplaceRows === true
         ? renderCombinedInlineRowsDom(
             rows,
-            fileLabel,
             expandedFolds,
             props.fileIndex,
             0,
+            restoreOldPinOnMatch,
           )
         : props.viewMode === "inline"
           ? renderInlineRowsDom(
               rows,
-              fileLabel,
               expandedFolds,
               props.fileIndex,
               0,
+              restoreOldPinOnMatch,
             )
           : renderSplitRowsDom(
               rows,
-              fileLabel,
               props.leftLabel,
               props.rightLabel,
               expandedFolds,
               props.fileIndex,
               0,
+              restoreOldPinOnMatch,
             );
     root.replaceChildren(fragment);
+    restoreOldPinOnMatch();
   };
 
   createEffect(render);
+
+  onMount(() => {
+    root.prepareLine_impl = prepareLine_impl;
+    root.addEventListener("click", handleNewPin);
+    onCleanup(() => {
+      root.removeEventListener("click", handleNewPin);
+      Reflect.deleteProperty(root, "prepareLine_impl");
+    });
+  });
 
   return <div ref={root} class="diff-lines" />;
 }
@@ -262,12 +479,12 @@ function ImperativeDiffLines(props: {
  */
 function renderSplitRowsDom(
   rows: RenderRow[],
-  fileLabel: string,
   leftLabel: string,
   rightLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
   startRow: number,
+  onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
   let cursor = startRow;
@@ -278,18 +495,16 @@ function renderSplitRowsDom(
         renderSplitFoldDom(
           row,
           rowIndex,
-          fileLabel,
           leftLabel,
           rightLabel,
           expandedFolds,
           fileIndex,
+          onRowsChanged,
         ),
       );
       cursor += row.count;
     } else {
-      fragment.append(
-        renderSplitDiffRowDom(row, rowIndex, fileLabel, fileIndex),
-      );
+      fragment.append(renderSplitDiffRowDom(row, rowIndex, fileIndex));
       cursor += 1;
     }
   });
@@ -304,10 +519,10 @@ function renderSplitRowsDom(
  */
 function renderInlineRowsDom(
   rows: RenderRow[],
-  fileLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
   startRow: number,
+  onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
   const lineNumberState: InlineLineNumberState = {
@@ -322,10 +537,10 @@ function renderInlineRowsDom(
         renderInlineFoldDom(
           row,
           rowIndex,
-          fileLabel,
           expandedFolds,
           fileIndex,
           false,
+          onRowsChanged,
         ),
       );
       lineNumberState.leftNo = null;
@@ -333,13 +548,7 @@ function renderInlineRowsDom(
       cursor += row.count;
     } else {
       fragment.append(
-        renderInlineDiffRowsDom(
-          row,
-          rowIndex,
-          fileLabel,
-          fileIndex,
-          lineNumberState,
-        ),
+        renderInlineDiffRowsDom(row, rowIndex, fileIndex, lineNumberState),
       );
       cursor += 1;
     }
@@ -356,10 +565,10 @@ function renderInlineRowsDom(
  */
 function renderCombinedInlineRowsDom(
   rows: RenderRow[],
-  fileLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
   startRow: number,
+  onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
   const lineNumberState: InlineLineNumberState = {
@@ -374,10 +583,10 @@ function renderCombinedInlineRowsDom(
         renderInlineFoldDom(
           row,
           rowIndex,
-          fileLabel,
           expandedFolds,
           fileIndex,
           true,
+          onRowsChanged,
         ),
       );
       lineNumberState.leftNo = null;
@@ -388,7 +597,6 @@ function renderCombinedInlineRowsDom(
         renderCombinedInlineDiffRowsDom(
           row,
           rowIndex,
-          fileLabel,
           fileIndex,
           lineNumberState,
         ),
@@ -408,11 +616,11 @@ function renderCombinedInlineRowsDom(
 function renderSplitFoldDom(
   row: FoldRow,
   rowIndex: number,
-  fileLabel: string,
   leftLabel: string,
   rightLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
+  onRowsChanged: () => void,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
@@ -430,6 +638,7 @@ function renderSplitFoldDom(
       expandedFolds.add(rowIndex);
     }
     renderFold();
+    onRowsChanged();
   };
 
   /**
@@ -443,12 +652,12 @@ function renderSplitFoldDom(
     if (expanded) {
       const fragment = renderSplitRowsDom(
         row.foldedRows,
-        fileLabel,
         leftLabel,
         rightLabel,
         expandedFolds,
         fileIndex,
         row.startRow,
+        onRowsChanged,
       );
       attachExpandedFoldToggle(fragment, toggle);
       wrapper.replaceChildren(fragment);
@@ -481,10 +690,10 @@ function renderSplitFoldDom(
 function renderInlineFoldDom(
   row: FoldRow,
   rowIndex: number,
-  fileLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
   combineInsertOnlyReplaceRows: boolean,
+  onRowsChanged: () => void,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.style.display = "contents";
@@ -502,6 +711,7 @@ function renderInlineFoldDom(
       expandedFolds.add(rowIndex);
     }
     renderFold();
+    onRowsChanged();
   };
 
   /**
@@ -518,17 +728,17 @@ function renderInlineFoldDom(
         combineInsertOnlyReplaceRows === true
           ? renderCombinedInlineRowsDom(
               rows,
-              fileLabel,
               expandedFolds,
               fileIndex,
               row.startRow,
+              onRowsChanged,
             )
           : renderInlineRowsDom(
               rows,
-              fileLabel,
               expandedFolds,
               fileIndex,
               row.startRow,
+              onRowsChanged,
             );
       attachExpandedFoldToggle(fragment, toggle);
       wrapper.replaceChildren(fragment);
@@ -569,7 +779,9 @@ type FoldToggle = { expanded: boolean; onToggle: () => void };
  * Attaches the fold affordance to the first visible row of an expanded fold.
  *
  * An empty fragment is accepted and produces no affordance. The listener is
- * owned by the supplied fragment and disappears when its DOM is replaced.
+ * owned by the supplied fragment and disappears when its DOM is replaced. The
+ * complete first row is the expanded fold edge, so its activation never reaches
+ * delegated line-pin handling even though it displays backend line numbers.
  */
 function attachExpandedFoldToggle(
   fragment: DocumentFragment,
@@ -583,7 +795,10 @@ function attachExpandedFoldToggle(
   }
   row.classList.add("fold-toggle-row", "fold-expanded");
   row.title = "Fold rows";
-  row.addEventListener("click", onToggle);
+  row.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onToggle();
+  });
 
   const lineNumber = row.querySelector(".line-no");
   if (lineNumber instanceof HTMLElement) {
@@ -600,7 +815,6 @@ function attachExpandedFoldToggle(
 function renderSplitDiffRowDom(
   row: DiffRow,
   rowIndex: number,
-  fileLabel: string,
   fileIndex: number,
 ): HTMLElement {
   const element = document.createElement("div");
@@ -618,8 +832,8 @@ function renderSplitDiffRowDom(
     element.dataset.hunkIndex = String(identity.hunkIndex);
   }
   element.append(
-    createDiffSideDom(row, "left", fileLabel),
-    createDiffSideDom(row, "right", fileLabel),
+    createDiffSideDom(row, "left"),
+    createDiffSideDom(row, "right"),
   );
   return element;
 }
@@ -634,7 +848,6 @@ function renderSplitDiffRowDom(
 function renderInlineDiffRowsDom(
   row: DiffRow,
   rowIndex: number,
-  fileLabel: string,
   fileIndex: number,
   lineNumberState: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
@@ -655,7 +868,6 @@ function renderInlineDiffRowsDom(
         tokens: sharedTokens,
         syntax: sharedSyntax,
         rowIndex,
-        fileLabel,
         fileIndex,
         sourceRow: row,
         lineNumberState,
@@ -671,7 +883,6 @@ function renderInlineDiffRowsDom(
         tokens: row.left_tokens,
         syntax: row.left_syntax,
         rowIndex,
-        fileLabel,
         fileIndex,
         sourceRow: row,
         lineNumberState,
@@ -687,7 +898,6 @@ function renderInlineDiffRowsDom(
         tokens: row.right_tokens,
         syntax: row.right_syntax,
         rowIndex,
-        fileLabel,
         fileIndex,
         sourceRow: row,
         lineNumberState,
@@ -708,7 +918,6 @@ function renderInlineDiffRowsDom(
             tokens: row.left_tokens,
             syntax: row.left_syntax,
             rowIndex,
-            fileLabel,
             fileIndex,
             sourceRow: row,
             lineNumberState,
@@ -727,7 +936,6 @@ function renderInlineDiffRowsDom(
             tokens: row.right_tokens,
             syntax: row.right_syntax,
             rowIndex,
-            fileLabel,
             fileIndex,
             sourceRow: {
               ...row,
@@ -755,7 +963,6 @@ function renderInlineDiffRowsDom(
             tokens: row.left_tokens,
             syntax: row.left_syntax,
             rowIndex,
-            fileLabel,
             fileIndex,
             sourceRow: row,
             lineNumberState,
@@ -774,7 +981,6 @@ function renderInlineDiffRowsDom(
             tokens: row.right_tokens,
             syntax: row.right_syntax,
             rowIndex,
-            fileLabel,
             fileIndex,
             sourceRow: {
               ...row,
@@ -850,18 +1056,11 @@ function inlineSideExists(lineNo: number | null, text: string): boolean {
 function renderCombinedInlineDiffRowsDom(
   row: DiffRow,
   rowIndex: number,
-  fileLabel: string,
   fileIndex: number,
   lineNumberState: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
   if (!canCombineInsertOnlyReplaceRow(row)) {
-    return renderInlineDiffRowsDom(
-      row,
-      rowIndex,
-      fileLabel,
-      fileIndex,
-      lineNumberState,
-    );
+    return renderInlineDiffRowsDom(row, rowIndex, fileIndex, lineNumberState);
   }
 
   const rightText = sideText(row, "right");
@@ -874,7 +1073,6 @@ function renderCombinedInlineDiffRowsDom(
     tokens: row.right_tokens,
     syntax: row.right_syntax,
     rowIndex,
-    fileLabel,
     fileIndex,
     sourceRow: row,
     lineNumberState,
@@ -923,13 +1121,22 @@ function renderInlineDiffRowDom(props: {
   tokens: InlineToken[];
   syntax: SyntaxSpan[];
   rowIndex: number;
-  fileLabel: string;
   fileIndex: number;
   sourceRow: DiffRow;
   lineNumberState: InlineLineNumberState;
   tokenRowStatus: InlineRowStatus | null;
 }): HTMLElement {
   const element = document.createElement("div");
+  const displayedLeftNo = inlineDisplayLineNo(
+    props.leftNo,
+    "left",
+    props.lineNumberState,
+  );
+  const displayedRightNo = inlineDisplayLineNo(
+    props.rightNo,
+    "right",
+    props.lineNumberState,
+  );
   element.className = diffRowClass(
     props.status,
     props.sourceRow,
@@ -948,18 +1155,8 @@ function renderInlineDiffRowDom(props: {
     element.dataset.hunkIndex = String(identity.hunkIndex);
   }
   element.append(
-    createLineNumberDom(
-      inlineDisplayLineNo(props.leftNo, "left", props.lineNumberState),
-      "left",
-      props.fileLabel,
-      props.leftNo,
-    ),
-    createLineNumberDom(
-      inlineDisplayLineNo(props.rightNo, "right", props.lineNumberState),
-      "right",
-      props.fileLabel,
-      props.rightNo,
-    ),
+    createLineNumberDom(displayedLeftNo, "left"),
+    createLineNumberDom(displayedRightNo, "right"),
     createInlineLineCodeDom(
       props.marker,
       props.text,
@@ -1041,11 +1238,7 @@ function diffRowClass(
  * Callers supply a validated backend row and exact side. Null line numbers and
  * empty text produce the established empty-side treatment rather than a husk.
  */
-function createDiffSideDom(
-  row: DiffRow,
-  side: Side,
-  fileLabel: string,
-): HTMLElement {
+function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
   const lineNo = side === "left" ? row.left_no : row.right_no;
   const text = sideText(row, side);
   const tokens = side === "left" ? row.left_tokens : row.right_tokens;
@@ -1055,7 +1248,7 @@ function createDiffSideDom(
     lineNo === null && text === "" ? " empty-side" : ""
   }`;
   element.append(
-    createLineNumberDom(lineNo, side, fileLabel, lineNo),
+    createLineNumberDom(lineNo, side),
     createLineCodeDom(text, tokens, syntax, row.status),
   );
   return element;
@@ -1137,24 +1330,19 @@ function foldLabel(row: FoldRow): string {
 }
 
 /**
- * Creates one line-number cell and its required pin identity input.
+ * Creates one line-number cell and its exact line-local pin coordinates.
  *
- * Null is the required absent-line value. `pinLineNo` may intentionally differ
- * from the displayed number for duplicate-suppressed inline rows. Callers pass
- * null explicitly when no pinnable backend line exists.
+ * A visible line number contributes its exact side and backend line coordinate;
+ * the enclosing DiffGrid contributes file and region identity during direct
+ * activation. An absent or duplicate-suppressed number is null and therefore
+ * not pinnable.
  */
-function createLineNumberDom(
-  lineNo: number | null,
-  side: Side,
-  fileLabel: string,
-  pinLineNo: number | null,
-): HTMLElement {
+function createLineNumberDom(lineNo: number | null, side: Side): HTMLElement {
   const element = document.createElement("div");
   element.className = "line-no";
-  if (pinLineNo !== null) {
-    element.dataset.linePinFile = fileLabel;
+  if (lineNo !== null) {
     element.dataset.linePinSide = side;
-    element.dataset.linePinLine = String(pinLineNo);
+    element.dataset.linePinLine = String(lineNo);
     element.title = "Pin line";
   }
   element.append(lineNo === null ? "" : String(lineNo));

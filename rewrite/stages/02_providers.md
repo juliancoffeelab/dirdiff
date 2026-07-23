@@ -49,7 +49,7 @@ frontend/src/new/api/queryClient.tsx
 - unexpected-error presentation;
 - root `ApplicationErrorPanel`.
 
-There is one global error-only Toast queue.
+There is one global Toast queue containing Error Toasts and the explicitly temporary line-pin-unavailable notices.
 
 ```ts
 export type ErrorToast = {
@@ -59,9 +59,20 @@ export type ErrorToast = {
   details: string | null;
   reason: "timeout" | "other";
 };
+
+export type TransientToast = {
+  id: number;
+  title: string;
+  message: string;
+  details: null;
+  reason: "transient";
+  durationMs: number;
+};
+
+export type Toast = ErrorToast | TransientToast;
 ```
 
-There is no generic Toast tone and no success, information or warning Toast.
+There is no generic Toast tone and no generic success, information or warning Toast. The line-pin notice is the only transient non-error variant.
 
 `presentError(error)` follows the exact formatting order from the specification:
 
@@ -92,6 +103,11 @@ export type ToastCommands = {
     title: string,
     error: unknown,
   ): void;
+  showTransient(
+    title: string,
+    message: string,
+    durationMs: number,
+  ): void;
 };
 ```
 
@@ -111,16 +127,17 @@ Toast behavior remains exactly as specified:
 - It grows upward.
 - It becomes vertically scrollable when required.
 - Message and detail areas remain independently scrollable.
-- Every Toast uses `role="alert"`.
-- The viewport uses an assertive live region.
+- Every Error Toast uses `role="alert"`; the transient line-pin notice uses `role="status"`.
+- The viewport imposes no shared live-region urgency.
 - Stack details are closed initially.
 - Every Toast has a manual dismiss button.
-- Non-timeout Toasts persist until user dismissal.
+- Non-timeout Error Toasts persist until user dismissal.
 - Timeout Toasts expire after exactly 10 seconds.
+- Transient line-pin notices expire after exactly their required two seconds.
 
 Timeout ownership belongs to the mounted Toast card. `ToastProvider` does not maintain a parallel timer map.
 
-A timeout Toast starts its timer on mount. Manual dismissal unmounts it and clears the timer. Provider disposal clears every remaining timer through Solid cleanup. Non-timeout Toasts create no timer.
+A timeout Toast starts its timer on mount. Manual dismissal unmounts it and clears the timer. Provider disposal clears every remaining timer through Solid cleanup. Persistent Error Toasts create no timer; each transient notice creates only its own required two-second timer.
 
 `ToastProvider` installs the final browser-level visibility boundary:
 

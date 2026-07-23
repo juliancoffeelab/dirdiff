@@ -604,8 +604,8 @@ export type SyntaxSpan = z.infer<typeof SyntaxSpanSchema>;
 
 const DiffRowSchema = z.strictObject({
   status: RowStatusSchema,
-  left_no: z.number().int().nullable(),
-  right_no: z.number().int().nullable(),
+  left_no: z.number().int().positive().nullable(),
+  right_no: z.number().int().positive().nullable(),
   left_text: z.string().nullable(),
   right_text: z.string().nullable(),
   left_tokens: z.array(InlineTokenSchema),
@@ -618,8 +618,9 @@ const DiffRowSchema = z.strictObject({
 /**
  * Contains one complete backend-aligned row for text or notebook source.
  *
- * Nullable side fields represent genuinely absent lines. `hunk_index` is the
- * backend-provided navigation identity and must not be reconstructed from rows.
+ * Nullable side fields represent genuinely absent lines; present line numbers
+ * are positive backend coordinates. `hunk_index` is the backend-provided
+ * navigation identity and must not be reconstructed from rows.
  */
 export type DiffRow = z.infer<typeof DiffRowSchema>;
 
@@ -693,7 +694,7 @@ const NotebookCellSchema = z.strictObject({
   kind: z.enum(["added", "removed", "modified"]),
   cell_type: z.string(),
   cell_id: z.string().nullable(),
-  cell_key: z.string(),
+  cell_key: z.string().min(1),
   left_index: z.number().int().nullable(),
   right_index: z.number().int().nullable(),
   left_id: z.string().nullable(),
@@ -722,8 +723,8 @@ const NotebookCellSchema = z.strictObject({
 /**
  * Contains one notebook cell's complete structural and diff metadata.
  *
- * The stable `cell_key` identifies the current region bridge. Source rows,
- * metadata and output statistics remain backend data rather than UI state.
+ * The non-empty stable `cell_key` identifies the current region bridge. Source
+ * rows, metadata and output statistics remain backend data rather than UI state.
  */
 export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 

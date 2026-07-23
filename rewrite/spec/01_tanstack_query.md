@@ -604,12 +604,19 @@ Lazy entries are visited in their correct position but do not start a file reque
 The same file-fetch lane also accepts explicit `LazyFile` selections. An explicit selection:
 
 1. waits for the currently active request;
-2. becomes the next request;
+2. becomes the next request unless a not-yet-settled line-pin target currently owns the ordered lane through its manifest index;
 3. pauses but does not reorder the remaining automatic entries;
 4. uses the same canonical TanStack query;
 5. allows the automatic sequence to resume afterward.
 
 Multiple explicit selections are deduplicated by canonical file key and processed in selection order. The automatic files retain their relative manifest order.
+
+A not-yet-settled line-pin target takes precedence over newly selected
+LazyFiles until that target succeeds or fails. The lane loads automatic files
+through the target in manifest order, admits the target, awaits restoration,
+and only then services later work. If the target file or its lazy metadata
+fails, the target becomes dormant, normal work continues, and its explicit
+RetryButton later rejoins the ordinary explicit-selection queue.
 
 ```ts
 async function loadFilesInOrder(
@@ -665,7 +672,7 @@ The sequence must not:
 - copy successful file data elsewhere;
 - manufacture fake `FileDiff` objects for failures.
 
-The sequence owns only cancellation bookkeeping, its automatic cursor, the explicit selection queue and one combined progress value. Backend data and file errors remain in the query cache.
+The sequence owns cancellation bookkeeping, its automatic cursor, the explicit selection queue, at most one semantic line target, and one combined progress value. A line target may make the existing sequence continue through a manifest index and explicitly load that target in its position, as specified in [09_line_pins.md](09_line_pins.md). Backend data and file errors remain in the query cache.
 
 The current `schedulerYield`, `admittedFiles`, and `admitted` FileCard behavior remains unchanged during this lifecycle correction.
 
@@ -757,6 +764,8 @@ const fileQueries = createQueries(() => ({
 Normally, permanently disabled queries are discouraged because they opt out of automatic behavior. Here it is deliberate: the observers are read-only views of the cache, while the single file-fetch lane performs canonical fetches through `fetchQuery`. This is the only plural observer collection required by ChangeSet loading. [TanStack disabled-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
 
 Each observer still receives cache updates for its exact key. `ChangeSetSnapshot` pairs every observer with the manifest entry at the same index and derives that entry's reactive `FileCardState` from the query result and lazy metadata. It passes those same per-file states to FileTree and FileCard; it does not copy file results into a `filesByKey` store.
+
+Each manifest position has its own memoized `FileCardState` accessor. A later file observer changing must not manufacture new state objects for earlier positions or reconstruct their rendered `DiffGrid` DOM. FileTree may collect the current values for aggregate presentation, while each FileCard reads only its corresponding accessor.
 
 FileCard receives its state and an explicit-load callback from `ChangeSetSnapshot`:
 
@@ -866,7 +875,7 @@ export type FileSequenceState =
     };
 
 export type FileLaneActivity = {
-  kind: "sequence" | "selected";
+  kind: "sequence" | "selected" | "line-target";
   fileIndex: number;
   path: string;
   slow: boolean;
@@ -930,7 +939,7 @@ Once the manifest exists, every entry has a stable FileCard. This section does n
 - next/previous navigation;
 - scroll-follow;
 - forced-rich files;
-- line-pin scrolling;
+- line-pin scrolling beyond the separately approved contract in [09_line_pins.md](09_line_pins.md);
 - navigation to hunks in collapsed files or to unloaded hunk targets.
 
 Those concerns belong to the later navigation section. The only retained hunk presentation requirement is that `FullFileHeader` visibly contains both local and global counters.

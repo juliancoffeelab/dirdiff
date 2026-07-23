@@ -7,8 +7,8 @@
  * reads those attributes only while handling an explicit operation or recognized
  * user scrolling. Exactly `nextHunk`, `prevHunk`, and `scrollFollow` may call the
  * private `selectHunk` operation. The module must not retain selected identity,
- * build a hunk registry, calculate counters, change FileTree expansion, or
- * implement line-pin behavior.
+ * build a hunk registry, calculate counters, change FileTree expansion, parse
+ * or retain line-pin identity, or fetch files.
  */
 import {
   createContext,
@@ -20,6 +20,7 @@ import {
 } from "solid-js";
 import { useToasts } from "../comp/Toasts";
 import { expect } from "../utils";
+import type { LinePinTarget, PreparedLine } from "./linePins";
 
 const PARTICIPATING_HUNK_SELECTOR = "[data-hunk-target]:not(.skip)";
 
@@ -60,15 +61,36 @@ export type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
 /**
  * Describes every explicit operation supported by one Navigation instance.
  *
- * Relative operations use current selected DOM identity, file navigation scrolls
- * to one manifest file's first current DOM target without selecting, and Top
- * scrolls the page.
+ * Relative operations use current selected DOM identity. File navigation scrolls
+ * to one manifest file's first current DOM target without selecting. Line
+ * navigation requires one manifest index, a null ordinary-file region or
+ * non-empty notebook region, an exact side and backend line, and the caller's
+ * AbortSignal lifetime; it never selects a hunk. Top scrolls the page.
  */
 export type NavigationCommand =
   | { kind: "next-hunk" }
   | { kind: "previous-hunk" }
   | { kind: "file"; fileIndex: number }
+  | {
+      kind: "line";
+      fileIndex: number;
+      target: LinePinTarget;
+      abortSignal: AbortSignal;
+    }
   | { kind: "top" };
+
+/**
+ * Describes whether one explicit Navigation operation reached its destination.
+ *
+ * `complete` includes valid hunk-navigation no-ops. `missing` means an exact
+ * prepared line is absent from its complete current file. `stopped` means the
+ * caller or provider lifetime ended before its final action. The result never
+ * hides an exception or treats cancellation as a missing coordinate.
+ */
+export type NavigationResult =
+  | { state: "complete" }
+  | { state: "missing" }
+  | { state: "stopped" };
 
 /**
  * Exposes the complete explicit navigation API for one mounted ChangeSet.
@@ -79,7 +101,7 @@ export type NavigationCommand =
  * or scroll.
  */
 export type Navigation = {
-  navigate(command: NavigationCommand): Promise<void>;
+  navigate(command: NavigationCommand): Promise<NavigationResult>;
 };
 
 /**
@@ -106,6 +128,10 @@ export type NavigationProviderProps = {
 type EnrichableFileCard = HTMLElement & {
   intersectsRichEntryZone: (viewportTop: number) => boolean;
   waitToEnrich_impl: () => Promise<void>;
+  prepareLine_impl: (
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ) => Promise<PreparedLine>;
 };
 
 const NavigationContext = createContext<Navigation>();
@@ -725,6 +751,137 @@ export function NavigationProvider(
   }
 
   /**
+   * Scrolls to one exact rendered backend line without changing hunk selection.
+   *
+   * The file sequence has already expanded, loaded, and admitted the target
+   * FullFile. Navigation enriches virtual layout, repeatedly resolves the target
+   * from required coordinates, prepares intersecting virtual FileCards for the
+   * hypothetical centered viewport, and performs exactly one final scroll.
+   */
+  async function navigateToLine(
+    fileIndex: number,
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ): Promise<NavigationResult> {
+    if (!Number.isInteger(fileIndex) || fileIndex < 0) {
+      throw new Error("Line navigation requires a valid manifest index.");
+    }
+    if (target.file.length === 0) {
+      throw new Error("Line navigation requires a canonical file path.");
+    }
+    if (target.region !== null && target.region.length === 0) {
+      throw new Error("Line navigation requires a non-empty notebook region.");
+    }
+    if (!/^[1-9]\d*$/u.test(target.line)) {
+      throw new Error(
+        "Line navigation requires a positive decimal backend line identity.",
+      );
+    }
+    if (abortSignal.aborted) {
+      return { state: "stopped" };
+    }
+    const root = props.root();
+    const cards = root.querySelectorAll<HTMLElement>(
+      `[data-file-card][data-file-index="${fileIndex}"]`,
+    );
+    if (cards.length !== 1) {
+      throw new Error(
+        `Line navigation requires one FileCard at index ${fileIndex}.`,
+      );
+    }
+    const card = expect(
+      cards.item(0),
+      "Line navigation FileCard disappeared.",
+    ) as Partial<EnrichableFileCard>;
+    if (typeof card.prepareLine_impl !== "function") {
+      throw new Error("Line navigation requires FullFile preparation.");
+    }
+    const enrichedFileCards = new Set<HTMLElement>();
+
+    /**
+     * Calculates the document viewport produced by centering the current row.
+     */
+    function centeredViewportTop(target: HTMLElement): number {
+      const viewportHeight = window.innerHeight;
+      if (viewportHeight <= 0) {
+        throw new Error("Line navigation requires a positive viewport height.");
+      }
+      let targetDocumentTop = 0;
+      let offsetElement: HTMLElement | null = target;
+      while (offsetElement !== null) {
+        targetDocumentTop += offsetElement.offsetTop;
+        offsetElement = offsetElement.offsetParent as HTMLElement | null;
+      }
+      const targetHeight = target.offsetHeight;
+      if (
+        !Number.isFinite(targetDocumentTop) ||
+        !Number.isFinite(targetHeight) ||
+        targetHeight <= 0
+      ) {
+        throw new Error(
+          "Line navigation requires finite, positive target geometry.",
+        );
+      }
+      const scrollingElement = document.scrollingElement;
+      if (scrollingElement === null) {
+        throw new Error("Line navigation requires a document scroll element.");
+      }
+      const desiredTop =
+        targetDocumentTop + targetHeight / 2 - viewportHeight / 2;
+      const maximumTop = Math.max(
+        0,
+        scrollingElement.scrollHeight - viewportHeight,
+      );
+      return Math.min(maximumTop, Math.max(0, desiredTop));
+    }
+
+    while (alive && !abortSignal.aborted) {
+      const prepared = await card.prepareLine_impl(target, abortSignal);
+      if (prepared.state !== "ready") {
+        return prepared.state === "missing"
+          ? { state: "missing" }
+          : { state: "stopped" };
+      }
+      const viewportTop = centeredViewportTop(prepared.row);
+      let intersectingVirtualCard: HTMLElement | undefined;
+      for (const candidate of Array.from(
+        root.querySelectorAll<HTMLElement>(
+          '[data-file-card][data-file-render="virtual"]',
+        ),
+      )) {
+        if (
+          enrichedFileCards.has(candidate) ||
+          candidate.querySelector(".virtual-file-body") === null
+        ) {
+          continue;
+        }
+        const enrichableCard = candidate as Partial<EnrichableFileCard>;
+        if (typeof enrichableCard.intersectsRichEntryZone !== "function") {
+          throw new Error("Virtual FullFile omitted rich-entry geometry.");
+        }
+        if (enrichableCard.intersectsRichEntryZone(viewportTop)) {
+          intersectingVirtualCard = candidate;
+          break;
+        }
+      }
+      if (intersectingVirtualCard === undefined) {
+        if (abortSignal.aborted || !alive) {
+          return { state: "stopped" };
+        }
+        scrollGuard.stop();
+        prepared.row.scrollIntoView({
+          block: "center",
+          behavior: "instant",
+        });
+        return { state: "complete" };
+      }
+      enrichedFileCards.add(intersectingVirtualCard);
+      await waitToEnrich(intersectingVirtualCard);
+    }
+    return { state: "stopped" };
+  }
+
+  /**
    * Resolves one relative explicit-navigation destination from current DOM truth.
    *
    * An off-screen selected location is centered without changing selection.
@@ -842,24 +999,32 @@ export function NavigationProvider(
      * no-op; otherwise this method performs only that command's documented DOM
      * selection, enrichment, and scroll behavior and lets invariant errors reject.
      */
-    async navigate(command): Promise<void> {
+    async navigate(command): Promise<NavigationResult> {
       if (!alive) {
-        return;
+        return { state: "stopped" };
       }
-      scrollGuard.stop();
+      if (command.kind !== "line") {
+        scrollGuard.stop();
+      }
       switch (command.kind) {
         case "next-hunk":
           await nextHunk();
-          return;
+          return { state: "complete" };
         case "previous-hunk":
           await prevHunk();
-          return;
+          return { state: "complete" };
         case "file":
           await navigateToFile(command.fileIndex);
-          return;
+          return alive ? { state: "complete" } : { state: "stopped" };
+        case "line":
+          return await navigateToLine(
+            command.fileIndex,
+            command.target,
+            command.abortSignal,
+          );
         case "top":
           window.scrollTo({ top: 0, behavior: "instant" });
-          return;
+          return { state: "complete" };
         default: {
           const unexpectedCommand: never = command;
           throw new Error(

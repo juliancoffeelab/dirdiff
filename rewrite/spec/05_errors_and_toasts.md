@@ -45,7 +45,7 @@ Cancellation remains silent because the application intentionally requested it.
 
 Toasts remain visually and behaviorally the same as the current implementation.
 
-There is one global error-only Toast queue.
+There is one global Toast queue. It contains persistent or transport-timeout Error Toasts and the explicitly temporary non-error notices required by line-pin restoration.
 
 Every Error Toast contains:
 
@@ -58,18 +58,18 @@ Toast behavior remains:
 
 - Toasts appear in insertion order.
 - New Toasts are appended after existing Toasts.
-- There is no success, information or warning Toast.
+- There is no generic success, information or warning Toast. A line-pin-unavailable notice is the only transient non-error variant and lasts for its required two seconds.
 - There is no maximum Toast count.
 - There is no automatic provider-level deduplication.
 - The viewport is fixed at the bottom-right.
 - The viewport grows upward and becomes vertically scrollable when necessary.
 - Individual Toast message and detail regions remain independently scrollable.
-- Every non-timeout Toast remains until the user dismisses it.
+- Every non-timeout Error Toast remains until the user dismisses it.
 - A timeout Toast is automatically dismissed after 10 seconds.
+- A transient line-pin notice is automatically dismissed after its required two seconds.
 - Manual dismissal works for every Toast.
 - The details section is closed initially.
-- The Toast viewport uses an assertive live region.
-- Every Toast uses `role="alert"`.
+- The viewport imposes no shared live-region urgency. Every Error Toast uses `role="alert"`; a transient line-pin notice uses `role="status"`.
 
 ```ts
 export type ErrorToast = {
@@ -79,9 +79,20 @@ export type ErrorToast = {
   details: string | null;
   reason: "timeout" | "other";
 };
+
+export type TransientToast = {
+  id: number;
+  title: string;
+  message: string;
+  details: null;
+  reason: "transient";
+  durationMs: number;
+};
+
+export type Toast = ErrorToast | TransientToast;
 ```
 
-There is no generic `ToastTone`. Every Toast is an error.
+There is no generic `ToastTone`, and transient notices cannot carry Error data or recovery behavior.
 
 ### 64.4 Error formatting
 
@@ -136,6 +147,11 @@ export type ToastCommands = {
   showError(
     title: string,
     error: unknown,
+  ): void;
+  showTransient(
+    title: string,
+    message: string,
+    durationMs: number,
   ): void;
 };
 ```
@@ -684,7 +700,7 @@ These listeners are the final visibility boundary for errors outside Solid’s r
 
 They are not the normal path for query or mutation failures.
 
-Every `mutateAsync` or other intentionally awaited Promise must be handled at its call site. Navigation callers catch a rejected `navigation.navigate(...)`, show one persistent “Navigation failed” Toast, and stop that operation. Allowing that rejection to reach `unhandledrejection` and create a duplicate Toast is a bug.
+Every `mutateAsync` or other intentionally awaited Promise must be handled at its call site. Ordinary Navigation callers catch a rejected `navigation.navigate(...)`, show one persistent “Navigation failed” Toast, and stop that operation. Line-pin Navigation is already awaited inside the ChangeSet file lane: an unexpected rejection follows that lane's existing failure path into the nearest `ChangeSetSnapshot` ErrorBoundary, which presents the local damage and produces exactly one persistent Toast. LinePins and Navigation do not Toast it separately. Allowing either rejection to reach `unhandledrejection` and create a duplicate Toast is a bug.
 
 ### 64.16 Prohibited error handling
 

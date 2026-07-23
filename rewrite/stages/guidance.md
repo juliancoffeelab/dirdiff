@@ -67,7 +67,7 @@ The established Pull Request domain and exact external API names such as `pull_r
 
 At the same viewport, URL, backend data and UI state, every surface and behavior implemented by the current practical chapter must be a pixel-perfect 1:1 copy of its `v_old` counterpart. Architectural improvement never authorizes visual redesign, approximation, cleanup or a merely similar result.
 
-Functionality explicitly assigned to a later practical chapter is not implemented yet and is outside the current chapter's parity comparison. An intermediate chapter may therefore omit later surfaces entirely or render only the placeholder boundary that its chapter explicitly requires. This is not a visual exception for implemented functionality. Once the final implementation chapter is complete, the complete application must satisfy pixel-perfect parity except for the seven authorized differences below.
+Functionality explicitly assigned to a later practical chapter is not implemented yet and is outside the current chapter's parity comparison. An intermediate chapter may therefore omit later surfaces entirely or render only the placeholder boundary that its chapter explicitly requires. This is not a visual exception for implemented functionality. Once the final implementation chapter is complete, the complete application must satisfy pixel-perfect parity except for the eight authorized differences below.
 
 Only the following visual differences are authorized:
 
@@ -98,6 +98,10 @@ Only the following visual differences are authorized:
 7. File expansion and line-fold controls use the canonical terminology.
 
    File and directory expansion controls use “Collapse” and “Expand” in titles and accessible names. The aggressive-fold preference uses “Fold” for unchanged lines. This exception changes those strings only; it does not authorize different geometry, styling, placement, or behavior.
+
+8. An unavailable line pin produces a transient notice.
+
+   Invalid or unavailable line-pin restoration uses the two-second transient Toast specified in `../spec/09_line_pins.md`. A malformed pin remains untouched; a genuinely missing file or line removes that exact URL target. The notice authorizes no other persistent or transient presentation difference.
 
 No other visual difference is permitted. Visual behavior must be reviewed in the running browser with screenshots at matching state; DOM structure or computed measurements alone are not visual verification.
 
@@ -170,3 +174,40 @@ Report the problem clearly and concisely:
 3. provide the smallest reasonable choices, when choices exist.
 
 Wait for the user to correct the specification or choose the intended requirement. Do not silently prioritize one side, edit the specification without permission, change a project-wide setting, or introduce an unusual workaround to preserve both sides.
+
+# Just so that I dont need to repeat myself, we will probably need to make a reviewer.md with this later
+Cool, now, uuh, what attempt is that? Well, make it count.
+
+To copy previous messages.
+> yeah, great.
+So get to work?
+And please, can we get reviewer actually do its job now? Please?
+There's guidance.md, there's agents.md
+I haven't wrote them just cause I was bored
+
+> Yes. I’ll implement the approved design, update the line-pin specification and stage document to match it, run the relevant checks and browser scenarios, then give a strictly read-only reviewer the full diff plus AGENTS.md and guidance.md. I will fix its findings and repeat review until it reports zero actionable findings.
+
+> I mean, I dont strictly think reviewer should be readonly. I must do the diff obviously, but it can do other things reviewers do. Doublecheck other files, reason about behavior, find edge cases, when you get to testing, ask whether you tested it (or test it itself maybe, if you can agree to not interfere, so please consider that risk).
+For that you obviously need a testing document it can refer to.
+
+> Agreed. “Read-only” should mean only that the reviewer cannot edit, format, restore, stage, or commit files—not that it performs a shallow diff scan.
+The reviewer will:
+read the full affected implementation plus adjacent callers, AGENTS.md, guidance.md, the line-pin spec, and the stage document;
+inspect the actual diff and reason about lifecycle, cancellation, retry, folding, collapsing, virtualization, missing coordinates, and file-lane ordering;
+compare the implementation against a concrete testing section I’ll add to the line-pin stage document;
+audit what I actually tested and challenge missing cases;
+run non-mutating checks itself;
+independently exercise browser cases only in its own browser page, without editing files or disrupting the existing app session;
+report findings only, with code/spec context and reproducible cases.
+I’ll treat the testing document as part of this implementation, not as an afterthought.
+
+And now we finally have the spec.
+A few corrections, a reviewer should also search for contradictions in spec, not just blindly trust it and fill in the gaps.
+And to make stuff pretty much backend-idempotent, it can use preset tab.
+If any of you need it, please add `_test_preset_<N>` to scroll presets, or something like that.
+
+Thinking about that, you should probably run the spec contradiction review first.
+And yeah, the test document is an actual document, it must be created by you, filled by you, reviewed by the agent, and then edited by you, when you make better tests, be it manual testing or actual tests.
+Please make tests fast, I dont' have all day.
+You do have full power of JS, monkey-patch everything you need to find more edgecases and find bugs.
+But obviuosly run the final tests on fresh algorithm, so that you test a real behavior.

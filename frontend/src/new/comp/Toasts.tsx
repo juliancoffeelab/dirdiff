@@ -1,9 +1,9 @@
 /**
- * Defines application-wide error notification and local error presentation.
+ * Defines application-wide notifications and local error presentation.
  *
  * The module exports ToastProvider, its notification commands,
  * deterministic error formatting, reusable local error components, and
- * unexpected-error containment. ToastProvider owns the single error Toast queue
+ * unexpected-error containment. ToastProvider owns the single Toast queue
  * and the global browser listener resources that expose failures not handled
  * elsewhere. ToastProvider does not store domain error state, choose retry behavior,
  * or recover without an explicit caller-provided action.
@@ -42,6 +42,31 @@ export type ErrorToast = {
 };
 
 /**
+ * Represents one short non-error notification owned by ToastProvider.
+ *
+ * Producers provide complete visible text and a positive lifetime. The provider
+ * assigns the identifier. Notices carry no Error, stack, retry operation, or
+ * transport classification and must not be used to hide an application failure.
+ */
+export type TransientToast = {
+  id: number;
+  title: string;
+  message: string;
+  details: null;
+  reason: "transient";
+  durationMs: number;
+};
+
+/**
+ * Describes every notification rendered by the global Toast viewport.
+ *
+ * Error notifications retain their existing persistent or transport-timeout
+ * lifetime. Transient notices are explicit non-error information with a required
+ * caller-supplied duration; neither variant may be reinterpreted as the other.
+ */
+export type Toast = ErrorToast | TransientToast;
+
+/**
  * Contains the display-safe representation of one arbitrary thrown value.
  *
  * `message` is always renderable, `details` contains only distinct stack text,
@@ -57,12 +82,13 @@ export type PresentedError = {
 /**
  * Defines the command-only notification interface exposed by ToastProvider.
  *
- * Callers provide a complete user-visible title and the original thrown value.
- * They may request one error Toast but cannot inspect, dismiss, or mutate the
- * provider-owned queue through this contract.
+ * Callers may provide a complete error title and thrown value or complete text
+ * plus a positive duration for a transient notice. They cannot inspect, dismiss,
+ * or mutate the provider-owned queue through this contract.
  */
 export type ToastCommands = {
   showError(title: string, error: unknown): void;
+  showTransient(title: string, message: string, durationMs: number): void;
 };
 
 /**
@@ -88,7 +114,7 @@ export type ErrorPopoverProps = {
  * operation. This contract must not expose the queue setter or ID allocation.
  */
 type ToastViewportProps = {
-  toasts: Accessor<ErrorToast[]>;
+  toasts: Accessor<Toast[]>;
   onDismiss(id: number): void;
 };
 
@@ -149,7 +175,7 @@ export function presentError(error: unknown): PresentedError {
 }
 
 /**
- * Establishes the single error-notification queue for an application subtree.
+ * Establishes the single notification queue for an application subtree.
  *
  * Callers provide the complete subtree as `children` and mount one provider at
  * the application root. Descendants receive command-only access through
@@ -158,7 +184,7 @@ export function presentError(error: unknown): PresentedError {
  * viewport so notifications survive failures inside application boundaries.
  */
 export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
-  const [toasts, setToasts] = createSignal<ErrorToast[]>([]);
+  const [toasts, setToasts] = createSignal<Toast[]>([]);
   let nextToastId = 1;
 
   /**
@@ -174,6 +200,38 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
       id: nextToastId,
       title,
       ...presented,
+    };
+    nextToastId += 1;
+    setToasts((current) => [...current, toast]);
+  }
+
+  /**
+   * Appends one explicitly temporary non-error notice to this provider's queue.
+   *
+   * Internal producers must provide non-empty visible text and a positive finite
+   * duration. The notice owns no failure data and expires after exactly that
+   * duration unless the user dismisses it first.
+   */
+  function showTransient(
+    title: string,
+    message: string,
+    durationMs: number,
+  ): void {
+    if (title.length === 0 || message.length === 0) {
+      throw new Error(
+        "Transient Toasts require visible title and message text.",
+      );
+    }
+    if (!Number.isFinite(durationMs) || durationMs <= 0) {
+      throw new Error("Transient Toasts require a positive finite duration.");
+    }
+    const toast: TransientToast = {
+      id: nextToastId,
+      title,
+      message,
+      details: null,
+      reason: "transient",
+      durationMs,
     };
     nextToastId += 1;
     setToasts((current) => [...current, toast]);
@@ -220,7 +278,7 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
     });
   });
 
-  const commands: ToastCommands = { showError };
+  const commands: ToastCommands = { showError, showTransient };
 
   return (
     <ToastContext.Provider value={commands}>
@@ -237,11 +295,11 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
 }
 
 /**
- * Returns the error-notification commands exposed by the nearest ToastProvider.
+ * Returns the notification commands exposed by the nearest ToastProvider.
  *
- * Consumers may present an error but cannot inspect or mutate the queue. The
- * function throws when no provider exists so a missing application boundary
- * cannot silently discard failures.
+ * Consumers may present an error Toast or the explicitly temporary notice, but
+ * cannot inspect or mutate the queue. The function throws when no provider exists
+ * so a missing application boundary cannot silently discard failures.
  */
 export function useToasts(): ToastCommands {
   const commands = useContext(ToastContext);
@@ -399,19 +457,15 @@ export function ApplicationErrorPanel(props: {
 }
 
 /**
- * Renders the provider's queue in the global assertive live region.
+ * Renders the provider's queue while each Toast declares its own live semantics.
  *
  * The provider supplies a read-only queue and exact-ID dismissal command. This
- * component preserves insertion order and delegates each notification's timer
- * lifetime to its mounted ToastCard.
+ * component preserves insertion order without imposing one urgency on mixed
+ * notifications and delegates each timer lifetime to its mounted ToastCard.
  */
 function ToastViewport(props: ToastViewportProps): JSX.Element {
   return (
-    <div
-      class="toast-viewport"
-      aria-live="assertive"
-      aria-relevant="additions removals"
-    >
+    <div class="toast-viewport">
       <For each={props.toasts()}>
         {(toast) => (
           <ToastCard
@@ -425,36 +479,46 @@ function ToastViewport(props: ToastViewportProps): JSX.Element {
 }
 
 /**
- * Renders one error notification and owns its optional expiration timer.
+ * Renders one notification and owns its optional expiration timer.
  *
  * The caller provides immutable Toast data and an exact dismissal operation.
- * Timeout notifications request dismissal after ten seconds; all others stay
- * mounted until the user dismisses them or their provider is disposed.
+ * Timeout errors request dismissal after ten seconds, transient notices use
+ * their exact positive duration, and other errors remain until dismissal.
  */
 function ToastCard(props: {
-  toast: ErrorToast;
+  toast: Toast;
   onDismiss: () => void;
 }): JSX.Element {
   /**
-   * Starts expiration only for the exact mounted timeout Toast.
+   * Starts expiration only for an expiring mounted Toast.
    *
-   * The immutable Toast reason is sampled once at mount. Non-timeout Toasts own
-   * no timer; timeout Toasts clear their timer if manually dismissed or if the
-   * provider is disposed before the ten-second deadline.
+   * The immutable Toast reason is sampled once at mount. Persistent errors own
+   * no timer; every expiring Toast clears its timer on dismissal or disposal.
    */
   onMount(() => {
-    if (props.toast.reason !== "timeout") {
+    if (props.toast.reason === "other") {
       return;
     }
 
-    const timer = window.setTimeout(props.onDismiss, TIMEOUT_TOAST_TTL_MS);
+    const durationMs =
+      props.toast.reason === "transient"
+        ? props.toast.durationMs
+        : TIMEOUT_TOAST_TTL_MS;
+    const timer = window.setTimeout(props.onDismiss, durationMs);
     onCleanup(() => {
       window.clearTimeout(timer);
     });
   });
 
   return (
-    <section class="toast toast-error" role="alert">
+    <section
+      class="toast"
+      classList={{
+        "toast-error": props.toast.reason !== "transient",
+        "toast-transient": props.toast.reason === "transient",
+      }}
+      role={props.toast.reason === "transient" ? "status" : "alert"}
+    >
       <div class="toast-copy">
         <strong>{props.toast.title}</strong>
         <pre class="toast-message">{props.toast.message}</pre>
