@@ -51,7 +51,7 @@ button {
   margin-left: var(--app-gutter);
 }
 
-.app-header {
+.app-shell > .app-header {
   position: sticky;
   top: 0;
   z-index: 50;
@@ -61,8 +61,10 @@ button {
   justify-content: space-between;
   gap: 8px 12px;
   height: var(--app-header-height);
-  padding: 6px 0;
+  padding: 6px var(--app-gutter);
+  margin-right: 0;
   margin-bottom: 14px;
+  margin-left: 0;
   border-bottom: 1px solid #ded8cc;
   background: #fbfaf7;
 }
