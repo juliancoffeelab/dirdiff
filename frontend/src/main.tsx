@@ -2,6 +2,16 @@
 // frontend tree; all providers, application state, and CSS stay branch-owned.
 import { render } from "solid-js/web";
 
+// Executable frontend updates rebuild the complete URL-backed application tree;
+// CSS updates retain Vite's ordinary hot replacement.
+if (import.meta.hot) {
+  import.meta.hot.on("vite:beforeUpdate", ({ updates }) => {
+    if (updates.some((update) => update.type === "js-update")) {
+      window.location.reload();
+    }
+  });
+}
+
 /**
  * Identifies one complete frontend tree that the browser entrypoint may mount.
  *
