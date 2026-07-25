@@ -1,78 +1,246 @@
 # AGENTS
 
-- Treat this as a browser-based UI project first.
-- Use `uv` for Python commands and dependency changes.
-- Please don't start the alternative server, it's hot-reloadable, just use what user uses.
-- Prefer `uv --no-cache run ...` when invoking project commands through uv; this avoids uv cache permission issues in sandboxed agent sessions.
-- `.venv/bin/...` entry points are also fine for repeated local commands that do not need dependency resolution.
-- Run the app with `uv --no-cache run dirdiff ...`; prefer `uv --no-cache run dirdiff --headless` for local verification so Vite serves the frontend.
-- When temporary local verification needs isolated server state, use `--db-path` with a disposable SQLite file.
-- Keep in mind that user runs it as `dirdiff` via installed tool with `uv tool install -e .`
+This is a browser-based UI project with a Python backend. Work from the current
+implementation and its living architecture under `spec/`.
 
-# Important rules
-- Assert data inputs. Dont create optional parameters. If you need some field and it's null, throw the error.
-TS has assert() and expect() in utils.ts.
-Python has assert.
-- Never swallow errors.
-If something is failed, JS can throw exceptions or toast, Python can throw exception or log.
-- Never edit test behavior, if expection changes, ask user and only after confirmation update the behaviour of the test.
-- Never create compatibility shims. Interface must be updated on all sides, that includes tests.
-- Never create helpers in tests.
-- Please dont use ORM mess for database operations.
-- Second Normal Form (or better) is mandatory.
+## Non-negotiable rules
 
-# Module Architecture
-- Package `__init__.py` files are public facades and must contain re-exports
-only.
-- Code outside a package must import that package's public items from the
-package root, not from its submodules.
-- Package-internal shared contracts, types, helpers, and invariants belong in
-`base.py`. Sibling modules must import those shared internals from `base.py`,
-not from the package `__init__.py`.
-- Do not create new modules unless you envision them to be more than 1000 lines
-long.
+### Do not make unauthorized changes
 
-# Documentation & Structure
-- Before adding a function shorter than five lines of code, inspect every use.
-If it has one use, prefer inlining it at that use with a local inline comment
-explaining the operation. If it has multiple uses that all belong to one owning
-function, make it a nested function of that owner.
-If you want to add a helper, dont add it. But say to the user that helper would
-be benecial here.
-- Every added file must have throughough module-level docstring.
-What is the interface of this file, why it exists, what this file should do and
-what it should not do.
-If this docstring is hard to write, it means that such file should not exist
-and the code should just live elsewhere.
-- Same about functions. Either docstings with reasoning, or no function at all.
-- Every declared type, type alias, interface, class, and enum must have a
-thorough docstring explaining the contract it represents, the meaning and
-requirements of its fields or variants, and what it must not be used to
-represent. Public types must document what callers may provide and rely on.
-- Public function docstrings should explain what callers can expect and need to
-comply with, not the internals.
-- Modules, classes should explain both. Private functions if reasonable, but
-public details are still non-negotiable.
-- Docstrings should explain public API, not the internals.
-- If docstring has title only, it's not a docstring, it must comply with
-the rules above.
-- Every Python module must define `__all__` with its exported items, only
-if these items are exported **and used**.
+- Discussion, investigation, a proposed design, and approval of documentation
+  are not permission to edit code.
+- Permission applies once, to the exact action and scope the user approved. It
+  does not silently extend to adjacent fixes, cleanup, tests, documentation, or
+  later turns.
 
-# Linting & Checks
-- Run `make format` afterwards
-- For user-visible frontend/rendering changes, verify in the browser against a local app session.
-- For ordinary frontend TypeScript verification, use `make tscheck`.
-- Do not rebuild or commit generated frontend bundles for ordinary UI iteration; the app uses Vite by default. Only run `bun run --cwd frontend build` when explicitly requested by the user.
-- Keep console entry points in `pyproject.toml`.
+### Do not hide broken contracts
 
-# Important invariants
+- Do not add fallbacks, compatibility shims, silent recovery, invented defaults,
+  or substitute data without explicit user approval.
+- Never swallow errors. JavaScript may throw or show a Toast; Python may throw or
+  log at an explicitly valid damage boundary.
+- Damage stops at the smallest UI piece that cannot produce a valid result.
+  Unexpected thrown failures are contained by the nearest `ErrorBoundary`.
+- Required inputs are required. Do not make a parameter optional merely to avoid
+  handling an invariant.
+- Assert invalid data at the boundary where it becomes invalid. TypeScript uses
+  `assert()` and `expect()` from `utils.ts`; Python uses `assert`.
+- When an interface changes, update every in-scope caller and test. Do not create
+  a compatibility path.
+
+### Do not create accidental complexity
+
+- Prefer one explicit action over effects, observers, implicit repair, duplicated
+  state, or several paths to the same operation.
+- Do not introduce reconciliation, healing, regulation, or similar machinery to
+  compensate for an unclear architecture. Create an explicit action that changes
+  the authoritative data or DOM directly.
+- Do not copy backend query results into another client store. Keep one
+  authoritative representation for each piece of data.
+- Do not add optional inputs, providers, signals, caches, queues, callbacks, or
+  helper layers without a concrete contract that requires them.
+- Before adding a helper, inspect every use. If it has one use, inline it with a
+  local comment. If all uses belong to one function, nest it in that function.
+  If a separate helper still appears beneficial, explain that to the user before
+  adding it, and add it only if user agrees.
+
+### Preserve explicit invariants
+
+- Read `spec/index.md` and the relevant subsystem document before changing that
+  subsystem.
 - The highest-priority frontend navigation invariant is that `selectHunk()` has
-exactly three callers: `nextHunk()`, `prevHunk()`, and `scrollFollow()`. These
-three functions must call it directly. No helper, wrapper, dispatcher,
-initialization routine, renderer, FileTree operation, or shared calculation may
-call `selectHunk()` or introduce another selection path. Initial selection is
-written directly into the mounted DOM; FileTree navigation only scrolls.
+  exactly three *direct* callers: `nextHunk()`, `prevHunk()`, and
+  `scrollFollow()`.
+- No helper, wrapper, dispatcher, initialization routine, renderer, FileTree
+  operation, line-pin operation, or shared calculation may call `selectHunk()`
+  or introduce another hunk-selection path.
+- Initial hunk selection is written directly into the mounted DOM. FileTree and
+  line-pin navigation scroll without selecting.
+- Preserve other documented ownership, lifetime, ordering, and DOM invariants.
+  If the code and documentation disagree, investigate the disagreement instead
+  of silently forcing either side to match.
 
-# Testing
-- `uv --no-cache run pytest` runs the Python test suite, including real-git integration tests in `tests/integration`.
+### Document the actual design
+
+- Code must expose its contract, ownership, lifecycle, and intent as docstrings
+  and comments. Do not leave them only in the author’s head.
+- Docstrings describe real interfaces and enduring behavior. They do not excuse
+  confusing implementation, narrate migration history, or claim incomplete work
+  is acceptable.
+- Non-obvious mutable state, effects, observers, listeners, and cancellation
+  require local comments explaining their purpose, inputs, lifetime, and
+  disposal.
+
+## Authority and contradictions
+
+- `spec/goal.md` defines the role of the architecture documents. They are living
+  descriptions of the implementation, not frozen requirements for a future
+  implementation.
+- Code and documentation evolve together. Neither silently overrides stale text
+  in the other.
+- If user instructions, documentation, implementation, tests, or tooling
+  contradict one another, stop before choosing a resolution.
+  If user instructions have gaps, ask, don't assume.
+- Report the conflicting statements, their concrete consequence, and the
+  reasonable choices. Wait for the user when the resolution changes
+  behavior, architecture, scope, or an explicit invariant.
+- Do not use an unusual workaround to make contradictory requirements appear
+  compatible.
+
+## Module architecture
+
+### Frontend
+
+- `spec/index.md` maps the current frontend modules and their interfaces.
+- Existing documented module boundaries remain stable unless the user approves
+  an architectural change.
+- Do not create a new module unless its coherent implementation is reasonably
+  expected to exceed 500 lines. A component boundary is not automatically a
+  file boundary. If you think something should have a module, suggest it to the
+  user.
+- Domain-independent controls live in `frontend/src/comp/`; dirdiff UI lives in
+  `frontend/src/hud/`; backend communication and TanStack definitions live in
+  `frontend/src/api/`.
+- `utils.ts` is the explicit exception for small, genuinely shared
+  domain-independent operations.
+
+### Python packages
+
+- Package `__init__.py` files are public facades containing re-exports only.
+- Code outside a package imports its public items from the package root, not its
+  submodules. Never from its submodules.
+- Package-internal shared contracts, types, helpers, and invariants belong in
+  `base.py`. Sibling modules import those internals from `base.py`, not from the
+  package facade.
+- A Python module must define `__all__`. Items can be listed there when they are
+  actually used outside that module.
+- Do not use ORM operations. Database design must satisfy Second Normal Form or
+  better.
+
+## Documentation and code structure
+
+- Every added module requires a thorough module-level docstring or equivalent
+  comment explaining:
+  - its public interface;
+  - why the module exists;
+  - what data or resources its structures own;
+  - what guarantees it provides;
+  - what it must not own or do.
+- If that module contract is difficult to state, state it to the user, it
+  probably belongs in an existing module.
+- Every declared function requires a real docstring explaining its purpose and
+  caller contract. Public functions document required inputs, observable
+  results, and caller obligations rather than internal steps.
+- Every declared type alias, interface, class, and enum requires a docstring
+  explaining its contract, fields or variants, valid inputs, guarantees, and
+  what it must not represent.
+- A title or restatement of the name is not a docstring. It's a violation
+  of this document, and a potential hint that an item shouldn't exist.
+- Use plain inline comments for local mechanics, sequencing, and surprising
+  implementation facts. Keep those comments beside the relevant statements.
+
+## Terminology
+
+Use established domain language consistently:
+
+- **folded** describes folded lines or rows;
+- **collapsed** describes collapsed files or directories;
+- **HUD** describes the application UI in its entirety;
+- **Tab** describes the top-level review mode;
+- **diff** describes a file-local difference.
+
+Use the following words only for their defined meaning, not for anything else:
+
+- **owner** means actual ownership of data or a resource, as in Rust ownership.
+  Files, features, and projects do not “own” things merely because code is placed
+  there.
+- **commit** and **committed** mean VCS commits or database transaction commits.
+- **signal** means a Solid signal. Preserve exact external API names such as
+  `AbortSignal`, but do not turn the unqualified API term into project language.
+- **request** as a noun means an HTTP entity. It may also be used as a verb and
+  in established external names such as `requestAnimationFrame` and
+  `pull_request`. Parameters to an HTTP request are parameters or options.
+- **draft** means unfinished material intended to be revised, accepted, or
+  rejected.
+- **comparison** means a logical comparison. The UI entity is a Tab; a
+  file-local entity is a diff.
+- **projection** is ambiguous and often signals an unclear design. Highlight it
+  to the user when it is genuinely the best available term.
+
+Names that commonly expose bad patterns require architectural scrutiny:
+
+- **fallback** usually indicates a badly defined contract or implicit behavior.
+  If a fallback appears necessary, ask whether the user accepts that behavior.
+- **reconciliation**, **healing**, and **regulation** usually indicate implicit
+  repair. Replace them with an explicit action against the authoritative state
+  or DOM.
+- **ensure\*** often hides nullable global state or creation. Prefer a constructor
+  whose caller stores the result, or a blocking operation such as
+  `waitToEnrich()` that names the actual behavior.
+- **resolve\*** often hides a vague helper. Give the operation its domain name,
+  inline it, or nest it where it is used.
+
+## Frontend and visual work
+
+- Treat the application as a browser UI first.
+- Preserve current visible behavior and styling unless the user explicitly asks
+  for a change. Architectural cleanup does not authorize visual redesign.
+- This is a desktop application. Do not spend project scope on mobile or narrow
+  responsive layouts unless requested.
+- Use the user’s existing hot-reloadable dirdiff/Vite session. Do not start an
+  alternative server, unless asked.
+- For user-visible frontend or rendering changes, verify the actual behavior in
+  the browser at a supported desktop viewport using screenshots.
+- Use screenshots and direct interaction for visual verification. DOM structure,
+  type checks, or computed measurements alone do not prove a visual change.
+- Do not rebuild or commit generated frontend bundles during ordinary UI work.
+  Run `bun run --cwd frontend build` only when explicitly requested.
+
+## Testing and checks
+
+- Choose checks that can verify the requested change. Do not run unrelated
+  suites as a substitute for examining behavior.
+- Run `make format` after code changes for which the formatter applies.
+- Use `make tscheck` & `make eslint` for ordinary frontend TypeScript
+  verification.
+- A CSS or interaction change requires browser verification and screenshots;
+  TypeScript checks do not verify it.
+- Never change test behavior or expectations without explicit user approval.
+- Never create helpers in tests.
+- Tests should be fast and adversarial. They should exercise edge cases and
+  reproduce plausible bugs rather than merely execute the happy path.
+- Monkey-patching or internal state manipulation is acceptable for finding an
+  edge case. Final confirmation must exercise the real implementation and
+  user-visible behavior.
+- `uv --no-cache run pytest` runs the Python suite, including real-git
+  integration tests under `tests/integration`.
+- When user asks, there's `make fullcheck` command. But it takes a long time.
+
+## Review and completion
+
+- Never report completion without reading the actual diff and verifying the
+  requested outcome.
+- Formatting, type checks, and `git diff --check` are mechanical checks, not a
+  code review.
+- Review affected implementation, adjacent callers, documentation, lifecycle,
+  cancellation, errors, and user-visible behavior in proportion to the change.
+- When the user requires a zero-objection review, fix every accepted finding and
+  repeat review (with fresh reviewer) until the reviewer explicitly reports zero
+  remaining objections.
+- The detailed independent-review and testing-document workflow belongs in
+  `reviewer.md`.
+
+## Project commands and environment
+
+- Use `uv` for Python commands and dependency changes.
+- Prefer `uv --no-cache run ...` to avoid cache-permission problems in sandboxed
+  sessions.
+- `.venv/bin/...` entry points are suitable for repeated local commands that do
+  not need dependency resolution.
+- When requested to start a server, use `uv --no-cache run dirdiff --headless`.
+- When verification needs isolated server state, pass `--db-path` with a
+  disposable SQLite file.
+- The user normally runs the editable installed tool through
+  `uv tool install -e .`.
+- Console entry points remain in `pyproject.toml`.
+- You can mark new repos with `uv --no-cache run dirdiff mark [--db-path ...]`
