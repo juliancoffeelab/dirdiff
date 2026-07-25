@@ -22,7 +22,6 @@ import {
 import { LoaderCircle } from "lucide-solid";
 import type {
   DiffEngine,
-  EngineWarning,
   FileDiff,
   LazyInfoFile,
   TextFileDiff,
@@ -1154,7 +1153,7 @@ function FullFileHeader(
           >
             {(warning) => (
               <span class="file-card-engine-warning" title={warning.message}>
-                {engineWarningLabel(warning)}
+                {warning.message}
               </span>
             )}
           </Show>
@@ -1167,23 +1166,6 @@ function FullFileHeader(
       <FileStatistics summary={props.file_state.backend_data.summary} />
     </header>
   );
-}
-
-/**
- * Maps one validated renderer warning to the established visible label.
- *
- * The complete backend message remains the tooltip. Every stable warning type
- * has explicit copy, and an added backend variant fails TypeScript exhaustivity.
- */
-function engineWarningLabel(warning: EngineWarning): string {
-  switch (warning.type) {
-    case "difftastic_graph_limit":
-      return "Difftastic failed: unified fallback";
-    case "difftastic_empty_rows":
-      return "Difftastic claims no changes";
-    case "gumtree_invalid_json":
-      return "GumTree failed: unified fallback";
-  }
 }
 
 /**
