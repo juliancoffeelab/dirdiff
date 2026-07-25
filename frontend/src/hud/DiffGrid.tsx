@@ -8,18 +8,12 @@
  * ChangeSet state, navigate hunks, virtualize files, or render notebook framing.
  */
 import { createEffect, onCleanup, onMount } from "solid-js";
-import type {
-  DiffRow,
-  FoldHint,
-  InlineToken,
-  RowStatus,
-  SyntaxSpan,
-} from "../api/api";
+import type { DecoratedPart, DiffRow, FoldHint, RowStatus } from "../api/api";
 import type { DiffViewMode } from "./App";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
 import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import type { RealHunkIdentity } from "./navigation";
-import { clamp } from "../utils";
+import { assert } from "../utils";
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -33,7 +27,7 @@ const suppressedSyntaxClassPrefixes = [
 /**
  * Selects one validated side of a split diff row.
  *
- * The value controls which backend line, text, token, and syntax fields are
+ * The value controls which backend line, text, and decorated-part fields are
  * read; it does not represent a user selection or persistent application state.
  */
 type Side = "left" | "right";
@@ -857,8 +851,7 @@ function renderInlineDiffRowsDom(
   const rightText = sideText(row, "right");
   const leftText = sideText(row, "left");
   const sharedText = sharedSideText(leftText, rightText);
-  const sharedTokens = sharedSideTokens(row);
-  const sharedSyntax = sharedSideSyntax(row);
+  const sharedParts = sharedSideParts(row);
 
   switch (row.status) {
     case "equal":
@@ -868,8 +861,7 @@ function renderInlineDiffRowsDom(
         leftNo: row.left_no,
         rightNo: row.right_no,
         text: sharedText,
-        tokens: sharedTokens,
-        syntax: sharedSyntax,
+        parts: sharedParts,
         rowIndex,
         fileIndex,
         sourceRow: row,
@@ -883,8 +875,7 @@ function renderInlineDiffRowsDom(
         leftNo: row.left_no,
         rightNo: null,
         text: leftText,
-        tokens: row.left_tokens,
-        syntax: row.left_syntax,
+        parts: row.left_parts,
         rowIndex,
         fileIndex,
         sourceRow: row,
@@ -898,8 +889,7 @@ function renderInlineDiffRowsDom(
         leftNo: null,
         rightNo: row.right_no,
         text: rightText,
-        tokens: row.right_tokens,
-        syntax: row.right_syntax,
+        parts: row.right_parts,
         rowIndex,
         fileIndex,
         sourceRow: row,
@@ -918,8 +908,7 @@ function renderInlineDiffRowsDom(
             leftNo: row.left_no,
             rightNo: null,
             text: leftText,
-            tokens: row.left_tokens,
-            syntax: row.left_syntax,
+            parts: row.left_parts,
             rowIndex,
             fileIndex,
             sourceRow: row,
@@ -936,8 +925,7 @@ function renderInlineDiffRowsDom(
             leftNo: null,
             rightNo: row.right_no,
             text: rightText,
-            tokens: row.right_tokens,
-            syntax: row.right_syntax,
+            parts: row.right_parts,
             rowIndex,
             fileIndex,
             sourceRow: {
@@ -963,8 +951,7 @@ function renderInlineDiffRowsDom(
             leftNo: row.left_no,
             rightNo: null,
             text: leftText,
-            tokens: row.left_tokens,
-            syntax: row.left_syntax,
+            parts: row.left_parts,
             rowIndex,
             fileIndex,
             sourceRow: row,
@@ -981,8 +968,7 @@ function renderInlineDiffRowsDom(
             leftNo: null,
             rightNo: row.right_no,
             text: rightText,
-            tokens: row.right_tokens,
-            syntax: row.right_syntax,
+            parts: row.right_parts,
             rowIndex,
             fileIndex,
             sourceRow: {
@@ -1015,29 +1001,16 @@ function sharedSideText(leftText: string, rightText: string): string {
 }
 
 /**
- * Chooses the token list used for a shared inline equal row.
+ * Chooses the decorated parts used for a shared inline equal row.
  *
- * Non-empty right-side tokens win; otherwise the exact left-side array is
+ * Non-empty right-side parts win; otherwise the exact left-side array is
  * returned without copying or mutation.
  */
-function sharedSideTokens(row: DiffRow): InlineToken[] {
-  if (row.right_tokens.length > 0) {
-    return row.right_tokens;
+function sharedSideParts(row: DiffRow): DecoratedPart[] {
+  if (row.right_parts.length > 0) {
+    return row.right_parts;
   }
-  return row.left_tokens;
-}
-
-/**
- * Chooses the syntax spans used for a shared inline equal row.
- *
- * Non-empty right-side syntax wins; otherwise the exact left-side array is
- * returned without copying or mutation.
- */
-function sharedSideSyntax(row: DiffRow): SyntaxSpan[] {
-  if (row.right_syntax.length > 0) {
-    return row.right_syntax;
-  }
-  return row.left_syntax;
+  return row.left_parts;
 }
 
 /**
@@ -1073,8 +1046,7 @@ function renderCombinedInlineDiffRowsDom(
     leftNo: row.left_no,
     rightNo: row.right_no,
     text: rightText,
-    tokens: row.right_tokens,
-    syntax: row.right_syntax,
+    parts: row.right_parts,
     rowIndex,
     fileIndex,
     sourceRow: row,
@@ -1093,14 +1065,12 @@ function canCombineInsertOnlyReplaceRow(row: DiffRow): boolean {
   if (row.status !== "replace") {
     return false;
   }
-  const leftTokens = row.left_tokens;
-  const rightTokens = row.right_tokens;
-  const oldSideHasChanges = leftTokens.some(
-    (token) => token.status !== "unchanged",
+  const oldSideHasChanges = row.left_parts.some(
+    (part) => part.diff_status !== "unchanged",
   );
-  const rightChangedStatuses = rightTokens
-    .filter((token) => token.status !== "unchanged")
-    .map((token) => token.status);
+  const rightChangedStatuses = row.right_parts
+    .filter((part) => part.diff_status !== "unchanged")
+    .map((part) => part.diff_status);
   return (
     !oldSideHasChanges &&
     rightChangedStatuses.length > 0 &&
@@ -1121,8 +1091,7 @@ function renderInlineDiffRowDom(props: {
   leftNo: number | null;
   rightNo: number | null;
   text: string;
-  tokens: InlineToken[];
-  syntax: SyntaxSpan[];
+  parts: DecoratedPart[];
   rowIndex: number;
   fileIndex: number;
   sourceRow: DiffRow;
@@ -1163,8 +1132,7 @@ function renderInlineDiffRowDom(props: {
     createInlineLineCodeDom(
       props.marker,
       props.text,
-      props.tokens,
-      props.syntax,
+      props.parts,
       inlineTokenRowStatus(props),
     ),
   );
@@ -1244,15 +1212,14 @@ function diffRowClass(
 function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
   const lineNo = side === "left" ? row.left_no : row.right_no;
   const text = sideText(row, side);
-  const tokens = side === "left" ? row.left_tokens : row.right_tokens;
-  const syntax = side === "left" ? row.left_syntax : row.right_syntax;
+  const parts = side === "left" ? row.left_parts : row.right_parts;
   const element = document.createElement("div");
   element.className = `diff-side side-${side}${
     lineNo === null && text === "" ? " empty-side" : ""
   }`;
   element.append(
     createLineNumberDom(lineNo, side),
-    createLineCodeDom(text, tokens, syntax, row.status),
+    createLineCodeDom(text, parts, row.status),
   );
   return element;
 }
@@ -1381,20 +1348,20 @@ function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
 }
 
 /**
- * Creates one split-view code cell with syntax and inline-token decoration.
+ * Creates one split-view code cell from backend-woven text decoration.
  *
- * Callers supply aligned backend spans and the required row status for the exact
- * text. Status suppresses redundant token emphasis expressed by the row color.
+ * Callers supply the exact row text, its complete decorated partition, and the
+ * required row status. Status suppresses redundant diff emphasis expressed by
+ * the row color.
  */
 function createLineCodeDom(
   text: string,
-  tokens: InlineToken[],
-  syntax: SyntaxSpan[],
+  parts: DecoratedPart[],
   rowStatus: RowStatus,
 ): HTMLElement {
   const element = document.createElement("code");
   element.className = "line-code";
-  appendDecoratedText(element, text, tokens, syntax, rowStatus);
+  appendDecoratedText(element, text, parts, rowStatus);
   return element;
 }
 
@@ -1407,8 +1374,7 @@ function createLineCodeDom(
 function createInlineLineCodeDom(
   marker: InlineMarker,
   text: string,
-  tokens: InlineToken[],
-  syntax: SyntaxSpan[],
+  parts: DecoratedPart[],
   rowStatus: InlineRowStatus,
 ): HTMLElement {
   const element = document.createElement("code");
@@ -1419,7 +1385,7 @@ function createInlineLineCodeDom(
   markerElement.textContent = marker;
   element.append(markerElement);
   const inlineTokenRowStatus = inlineRowTokenStatus(rowStatus);
-  appendDecoratedText(element, text, tokens, syntax, inlineTokenRowStatus);
+  appendDecoratedText(element, text, parts, inlineTokenRowStatus);
   return element;
 }
 
@@ -1436,47 +1402,48 @@ function inlineRowTokenStatus(rowStatus: InlineRowStatus): RowStatus {
 }
 
 /**
- * Appends native-searchable text segmented by syntax and inline-token spans.
+ * Appends native-searchable text from its backend-woven decoration parts.
  *
- * Callers provide spans aligned to the same text. The function preserves every
- * character, suppresses redundant token coloring, and mutates only `element`.
+ * The parts must reconstruct `text` exactly. The function suppresses redundant
+ * diff coloring already expressed by the row and mutates only `element`.
  */
 function appendDecoratedText(
   element: HTMLElement,
   text: string,
-  tokens: InlineToken[],
-  syntax: SyntaxSpan[],
+  parts: DecoratedPart[],
   rowStatus: RowStatus,
 ) {
-  const parts = decoratedParts(text, tokens, syntax);
-  if (parts.length === 0) {
-    element.append(text);
-    return;
-  }
+  assert(
+    parts.map((part) => part.text).join("") === text,
+    "Decorated parts must reconstruct their complete row text.",
+  );
   for (const part of parts) {
-    const tokenChanged = part.status !== "unchanged";
-    if (part.classes.length === 0 && !tokenChanged) {
+    const tokenChanged = part.diff_status !== "unchanged";
+    const syntaxClasses = visibleSyntaxClasses(part.syntax_classes);
+    if (syntaxClasses.length === 0 && !tokenChanged) {
       element.append(part.text);
       continue;
     }
     const span = document.createElement("span");
-    const classes = [...part.classes];
+    const classes = syntaxClasses.length
+      ? ["ts-token", ...new Set(syntaxClasses)]
+      : [];
     const rowAlreadyShowsTokenChange = rowShowsTokenChange(
       rowStatus,
-      part.status,
+      part.diff_status,
     );
     const showTokenChange = tokenChanged && !rowAlreadyShowsTokenChange;
     if (showTokenChange) {
-      classes.push("token-changed", `token-${part.status}`);
+      classes.push("token-changed", `token-${part.diff_status}`);
     }
-    if (showTokenChange && part.isWhitespace) {
+    if (showTokenChange && part.is_whitespace) {
       classes.push("whitespace");
     }
-    if (showTokenChange && part.isWhitespace && part.leading) {
+    if (showTokenChange && part.is_leading_whitespace) {
       classes.push("whitespace-leading");
     }
     span.className = classes.join(" ");
-    if (showTokenChange && part.isWhitespace) {
+    if (showTokenChange && part.is_whitespace) {
       span.title = "Whitespace changed";
     }
     span.textContent = part.text;
@@ -1492,7 +1459,7 @@ function appendDecoratedText(
  */
 function rowShowsTokenChange(
   rowStatus: RowStatus,
-  tokenStatus: InlineToken["status"],
+  tokenStatus: DecoratedPart["diff_status"],
 ): boolean {
   return (
     (rowStatus === "insert" || rowStatus === "delete") &&
@@ -1528,124 +1495,18 @@ function isChangedRowStatus(status: string): boolean {
 }
 
 /**
- * Reports whether every changed inline token in a row contains whitespace.
+ * Reports whether every changed decorated part in a row contains whitespace.
  *
- * At least one changed token is required. Unchanged tokens do not affect the
- * result, and the backend token arrays are never mutated.
+ * At least one changed part is required. Unchanged parts do not affect the
+ * result, and the backend-decorated partitions are never mutated.
  */
 function isWhitespaceOnlyChange(row: DiffRow): boolean {
-  const leftTokens = row.left_tokens;
-  const rightTokens = row.right_tokens;
-  const changedTokens = [...leftTokens, ...rightTokens].filter(
-    (token) => token.status !== "unchanged",
+  const changedParts = [...row.left_parts, ...row.right_parts].filter(
+    (part) => part.diff_status !== "unchanged",
   );
   return (
-    changedTokens.length > 0 && changedTokens.every((token) => token.is_ws)
+    changedParts.length > 0 && changedParts.every((part) => part.is_whitespace)
   );
-}
-
-/**
- * Represents one inline token's absolute interval within its row text.
- *
- * Offsets are derived from the ordered token text, `leading` identifies only a
- * first whitespace token, and the shape does not include syntax classes.
- */
-type TokenPart = {
-  start: number;
-  end: number;
-  status: InlineToken["status"];
-  isWhitespace: boolean;
-  leading: boolean;
-};
-
-/**
- * Converts ordered inline tokens into contiguous absolute text intervals.
- *
- * Callers must supply tokens in backend text order. The function derives
- * offsets without mutating tokens and preserves each status and whitespace bit.
- */
-function tokenParts(tokens: InlineToken[]): TokenPart[] {
-  let cursor = 0;
-  return tokens.map((token, index) => {
-    const start = cursor;
-    const end = start + token.text.length;
-    cursor = end;
-    return {
-      start,
-      end,
-      status: token.status,
-      isWhitespace: token.is_ws,
-      leading: token.is_ws && index === 0,
-    };
-  });
-}
-
-/**
- * Intersects token and syntax intervals into the exact visible text segments.
- *
- * Callers supply spans for the same text. Bounds are clamped defensively,
- * suppressed syntax classes are removed, and every returned part preserves its
- * original substring and applicable change metadata.
- */
-function decoratedParts(
-  text: string,
-  tokens: InlineToken[],
-  syntax: SyntaxSpan[],
-) {
-  if (!text || (!tokens.length && !syntax.length)) {
-    return [];
-  }
-
-  const tokenNodes = tokenParts(tokens);
-  const boundaries = new Set([0, text.length]);
-  for (const token of tokenNodes) {
-    boundaries.add(clamp(token.start, 0, text.length));
-    boundaries.add(clamp(token.end, 0, text.length));
-  }
-  for (const span of syntax) {
-    boundaries.add(clamp(span.start, 0, text.length));
-    boundaries.add(clamp(span.end, 0, text.length));
-  }
-
-  const sortedBoundaries = [...boundaries].sort((left, right) => left - right);
-  const parts: Array<{
-    text: string;
-    classes: string[];
-    status: InlineToken["status"];
-    isWhitespace: boolean;
-    leading: boolean;
-  }> = [];
-
-  for (let index = 0; index < sortedBoundaries.length - 1; index += 1) {
-    const start = sortedBoundaries[index];
-    const end = sortedBoundaries[index + 1];
-    if (end <= start) {
-      continue;
-    }
-    const token = tokenNodes.find(
-      (candidate) => start >= candidate.start && end <= candidate.end,
-    );
-    const syntaxClasses = syntax
-      .filter((span) => start >= span.start && end <= span.end)
-      .flatMap((span) => visibleSyntaxClasses(span.classes));
-    const classes = syntaxClasses.length
-      ? ["ts-token", ...new Set(syntaxClasses)]
-      : [];
-    const status = token === undefined ? "unchanged" : token.status;
-    const isWhitespace =
-      token === undefined
-        ? /^\s+$/.test(text.slice(start, end))
-        : token.isWhitespace;
-    const leading = token === undefined ? false : token.leading;
-    parts.push({
-      text: text.slice(start, end),
-      classes,
-      status,
-      isWhitespace,
-      leading,
-    });
-  }
-  return parts;
 }
 
 /**

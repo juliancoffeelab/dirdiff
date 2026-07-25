@@ -62,6 +62,7 @@ from dirdiff.engines import (
     EngineWarning,
     GitDiffEngine,
     GumTreeDiffEngine,
+    InlineTokenStatus,
     TextDiffEngine,
 )
 from dirdiff.notebooks import (
@@ -426,16 +427,20 @@ class PresetCatalogsResponse(ApiModel):
     scroll: PresetCatalogResponse
 
 
-class SyntaxSpanResponse(ApiModel):
-    start: int
-    end: int
-    classes: list[SyntaxClass]
+class DecoratedPartResponse(ApiModel):
+    """One ordered, lossless slice of a rendered line.
 
+    The API returns a complete partition for each present row side. Every part
+    carries both the engine's inline diff classification and the rendering
+    layer's syntax classes, so clients render the text directly without
+    intersecting parallel offset ranges.
+    """
 
-class InlineTokenResponse(ApiModel):
     text: str
-    is_ws: bool
-    status: Literal["unchanged", "replace", "insert", "delete", "move"]
+    syntax_classes: list[SyntaxClass]
+    diff_status: InlineTokenStatus
+    is_whitespace: bool
+    is_leading_whitespace: bool
 
 
 class FoldHintResponse(ApiModel):
@@ -457,14 +462,12 @@ class DiffRowResponse(ApiModel):
     Display status of one real aligned engine row.
     """
 
-    left_no: int | None = None
-    right_no: int | None = None
-    left_text: str | None = None
-    right_text: str | None = None
-    left_tokens: list[InlineTokenResponse] = Field(default_factory=list)
-    right_tokens: list[InlineTokenResponse] = Field(default_factory=list)
-    left_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
-    right_syntax: list[SyntaxSpanResponse] = Field(default_factory=list)
+    left_no: int | None
+    right_no: int | None
+    left_text: str | None
+    right_text: str | None
+    left_parts: list[DecoratedPartResponse]
+    right_parts: list[DecoratedPartResponse]
     hunk_index: int | None
     """
     Zero-based file-local hunk identity on a hunk's first rendered row.

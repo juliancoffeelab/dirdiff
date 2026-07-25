@@ -25,6 +25,7 @@ __all__ = [
     "DirdiffError",
     "EngineWarning",
     "InlineToken",
+    "InlineTokenStatus",
     "engine_row_has_change",
     "strict_engine_rows",
 ]
@@ -41,6 +42,12 @@ type InlineTokenStatus = Literal[
     "delete",
     "move",
 ]
+"""
+Token-level change classification emitted by diff engines.
+
+The value describes an exact text slice and does not represent row-level
+alignment or display styling.
+"""
 
 type DiffEngineRowStatus = Literal[
     "equal",

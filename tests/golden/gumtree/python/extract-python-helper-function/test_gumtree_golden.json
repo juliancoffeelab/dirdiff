@@ -1,1652 +1,474 @@
-{
-  "engine_warning": null,
-  "rows": [
-    {
-      "hunk_index": 0,
-      "left_no": 1,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 3,
-          "start": 0
-        },
-        {
-          "classes": [
-            "ts-function"
-          ],
-          "end": 16,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 22,
-          "start": 17
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 28,
-          "start": 24
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 32,
-          "start": 29
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 40,
-          "start": 34
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 45,
-          "start": 43
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 49,
-          "start": 46
-        }
-      ],
-      "left_text": "def render_order(order: dict[str, object]) -> str:",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "def "
-        },
-        {
-          "is_ws": false,
-          "status": "replace",
-          "text": "render_order"
-        },
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "(order: dict[str, object]) -> "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "str"
-        },
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": ":"
-        }
-      ],
-      "right_no": 1,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 3,
-          "start": 0
-        },
-        {
-          "classes": [
-            "ts-function"
-          ],
-          "end": 16,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 22,
-          "start": 17
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 28,
-          "start": 24
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 32,
-          "start": 29
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 40,
-          "start": 34
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 45,
-          "start": 43
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 49,
-          "start": 46
-        }
-      ],
-      "right_text": "def render_order(order: dict[str, object]) -> str:",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "insert",
-          "text": "def render_order(order: dict[str, object]) -> "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "str"
-        },
-        {
-          "is_ws": false,
-          "status": "insert",
-          "text": ":"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 2,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 20,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 26,
-          "start": 22
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 31,
-          "start": 27
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 35,
-          "start": 32
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 43,
-          "start": 37
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 47,
-          "start": 46
-        }
-      ],
-      "left_text": "    normalized_items: list[dict[str, object]] = []",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "    normalized_items: list[dict[str, object]] = []"
-        }
-      ],
-      "right_no": 2,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 20,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 22,
-          "start": 21
-        },
-        {
-          "classes": [
-            "ts-function"
-          ],
-          "end": 38,
-          "start": 23
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 44,
-          "start": 39
-        }
-      ],
-      "right_text": "    normalized_items = normalize_items(order)",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "insert",
-          "text": "    normalized_items = normalize_items(order)"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 3,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 7,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 12,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 15,
-          "start": 13
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 21,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 29,
-          "start": 22
-        }
-      ],
-      "left_text": "    for item in order[\"items\"]:",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "    for item in order[\"items\"]:"
-        }
-      ],
-      "right_no": 3,
-      "right_text": "",
-      "right_tokens": [],
-      "status": "equal"
-    },
-    {
-      "hunk_index": 1,
-      "left_no": 4,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 12,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 14,
-          "start": 13
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 19,
-          "start": 15
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 26,
-          "start": 20
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 33,
-          "start": 28
-        }
-      ],
-      "left_text": "        name = item[\"name\"].strip()",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        name = item[\"name\"].strip()"
-        }
-      ],
-      "right_no": 4,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 9,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 15,
-          "start": 11
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 19,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 22,
-          "start": 21
-        }
-      ],
-      "right_text": "    lines: list[str] = []",
-      "right_tokens": [
-        {
-          "is_ws": true,
-          "status": "insert",
-          "text": "    "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "lines: list[str] = []"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 5,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 16,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 18,
-          "start": 17
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-builtin"
-          ],
-          "end": 22,
-          "start": 19
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 27,
-          "start": 23
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 31,
-          "start": 28
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 42,
-          "start": 32
-        },
-        {
-          "classes": [
-            "ts-number"
-          ],
-          "end": 45,
-          "start": 44
-        }
-      ],
-      "left_text": "        quantity = int(item.get(\"quantity\", 1))",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        quantity = int(item.get(\"quantity\", 1))"
-        }
-      ],
-      "right_no": 5,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 7,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 12,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 15,
-          "start": 13
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 32,
-          "start": 16
-        }
-      ],
-      "right_text": "    for item in normalized_items:",
-      "right_tokens": [
-        {
-          "is_ws": true,
-          "status": "insert",
-          "text": "    "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "for item in normalized_items:"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 6,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 24,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 31,
-          "start": 25
-        }
-      ],
-      "left_text": "        normalized_items.append(",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        normalized_items.append("
-        }
-      ],
-      "right_no": 6,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 13,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 20,
-          "start": 14
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 23,
-          "start": 21
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 24,
-          "start": 23
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 28,
-          "start": 24
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 29,
-          "start": 28
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 39,
-          "start": 29
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 40,
-          "start": 39
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 41,
-          "start": 40
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 43,
-          "start": 41
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 44,
-          "start": 43
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 48,
-          "start": 44
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 49,
-          "start": 48
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 55,
-          "start": 49
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 56,
-          "start": 55
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 57,
-          "start": 56
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 58,
-          "start": 57
-        }
-      ],
-      "right_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 7,
-      "left_text": "            {",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "            {"
-        }
-      ],
-      "right_no": 7,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 10,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 12,
-          "start": 11
-        },
-        {
-          "classes": [
-            "ts-escape"
-          ],
-          "end": 14,
-          "start": 12
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 15,
-          "start": 14
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 20,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 26,
-          "start": 21
-        }
-      ],
-      "right_text": "    return \"\\n\".join(lines)",
-      "right_tokens": [
-        {
-          "is_ws": true,
-          "status": "insert",
-          "text": "    "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "return \"\\n\".join(lines)"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 8,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 22,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 28,
-          "start": 24
-        }
-      ],
-      "left_text": "                \"name\": name,",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "                \"name\": name,"
-        }
-      ],
-      "right_no": 8,
-      "right_text": "",
-      "right_tokens": [],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 9,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 26,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 36,
-          "start": 28
-        }
-      ],
-      "left_text": "                \"quantity\": quantity,",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "                \"quantity\": quantity,"
-        }
-      ],
-      "right_no": 9,
-      "right_text": "",
-      "right_tokens": [],
-      "status": "equal"
-    },
-    {
-      "hunk_index": 2,
-      "left_no": 10,
-      "left_text": "            }",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "            }"
-        }
-      ],
-      "right_no": 10,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 3,
-          "start": 0
-        },
-        {
-          "classes": [
-            "ts-function"
-          ],
-          "end": 19,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 25,
-          "start": 20
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 31,
-          "start": 27
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 35,
-          "start": 32
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 43,
-          "start": 37
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 48,
-          "start": 46
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 53,
-          "start": 49
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 58,
-          "start": 54
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 62,
-          "start": 59
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 70,
-          "start": 64
-        }
-      ],
-      "right_text": "def normalize_items(order: dict[str, object]) -> list[dict[str, object]]:",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "def "
-        },
-        {
-          "is_ws": false,
-          "status": "replace",
-          "text": "normalize_items"
-        },
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "(order: dict[str, object]) -> "
-        },
-        {
-          "is_ws": false,
-          "status": "insert",
-          "text": "list[dict[str, object]]"
-        },
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": ":"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 11,
-      "left_text": "        )",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        )"
-        }
-      ],
-      "right_no": 11,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 20,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 26,
-          "start": 22
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 31,
-          "start": 27
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 35,
-          "start": 32
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 43,
-          "start": 37
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 47,
-          "start": 46
-        }
-      ],
-      "right_text": "    normalized_items: list[dict[str, object]] = []",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "    normalized_items: list[dict[str, object]] = []"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 12,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 12,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 7,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 12,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 15,
-          "start": 13
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 21,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 29,
-          "start": 22
-        }
-      ],
-      "right_text": "    for item in order[\"items\"]:",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "    for item in order[\"items\"]:"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": 3,
-      "left_no": 13,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 9,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 15,
-          "start": 11
-        },
-        {
-          "classes": [
-            "ts-type"
-          ],
-          "end": 19,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 22,
-          "start": 21
-        }
-      ],
-      "left_text": "    lines: list[str] = []",
-      "left_tokens": [
-        {
-          "is_ws": true,
-          "status": "unchanged",
-          "text": "    "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "lines: list[str] = []"
-        }
-      ],
-      "right_no": 13,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 12,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 14,
-          "start": 13
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 19,
-          "start": 15
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 26,
-          "start": 20
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 33,
-          "start": 28
-        }
-      ],
-      "right_text": "        name = item[\"name\"].strip()",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        name = item[\"name\"].strip()"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 14,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 7,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 12,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 15,
-          "start": 13
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 32,
-          "start": 16
-        }
-      ],
-      "left_text": "    for item in normalized_items:",
-      "left_tokens": [
-        {
-          "is_ws": true,
-          "status": "unchanged",
-          "text": "    "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "for item in normalized_items:"
-        }
-      ],
-      "right_no": 14,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 16,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 18,
-          "start": 17
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-builtin"
-          ],
-          "end": 22,
-          "start": 19
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 27,
-          "start": 23
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 31,
-          "start": 28
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 42,
-          "start": 32
-        },
-        {
-          "classes": [
-            "ts-number"
-          ],
-          "end": 45,
-          "start": 44
-        }
-      ],
-      "right_text": "        quantity = int(item.get(\"quantity\", 1))",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        quantity = int(item.get(\"quantity\", 1))"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 15,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 13,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 20,
-          "start": 14
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 23,
-          "start": 21
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 24,
-          "start": 23
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 28,
-          "start": 24
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 29,
-          "start": 28
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 39,
-          "start": 29
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 40,
-          "start": 39
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 41,
-          "start": 40
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 43,
-          "start": 41
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 44,
-          "start": 43
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 48,
-          "start": 44
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 49,
-          "start": 48
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 55,
-          "start": 49
-        },
-        {
-          "classes": [
-            "ts-embedded"
-          ],
-          "end": 56,
-          "start": 55
-        },
-        {
-          "classes": [
-            "ts-punctuation",
-            "ts-punctuation-special"
-          ],
-          "end": 57,
-          "start": 56
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 58,
-          "start": 57
-        }
-      ],
-      "left_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
-        }
-      ],
-      "right_no": 15,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 24,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 31,
-          "start": 25
-        }
-      ],
-      "right_text": "        normalized_items.append(",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        normalized_items.append("
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": 16,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 10,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 12,
-          "start": 11
-        },
-        {
-          "classes": [
-            "ts-escape"
-          ],
-          "end": 14,
-          "start": 12
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 15,
-          "start": 14
-        },
-        {
-          "classes": [
-            "ts-function",
-            "ts-function-method"
-          ],
-          "end": 20,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 26,
-          "start": 21
-        }
-      ],
-      "left_text": "    return \"\\n\".join(lines)",
-      "left_tokens": [
-        {
-          "is_ws": true,
-          "status": "unchanged",
-          "text": "    "
-        },
-        {
-          "is_ws": false,
-          "status": "move",
-          "text": "return \"\\n\".join(lines)"
-        }
-      ],
-      "right_no": 16,
-      "right_text": "            {",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "            {"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 17,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 22,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 28,
-          "start": 24
-        }
-      ],
-      "right_text": "                \"name\": name,",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "                \"name\": name,"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 18,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 26,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 36,
-          "start": 28
-        }
-      ],
-      "right_text": "                \"quantity\": quantity,",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "                \"quantity\": quantity,"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 19,
-      "right_text": "            }",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "            }"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 20,
-      "right_text": "        )",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        )"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": 4,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 21,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-keyword"
-          ],
-          "end": 10,
-          "start": 4
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 27,
-          "start": 11
-        }
-      ],
-      "right_text": "    return normalized_items",
-      "right_tokens": [
-        {
-          "is_ws": true,
-          "status": "unchanged",
-          "text": "    "
-        },
-        {
-          "is_ws": false,
-          "status": "insert",
-          "text": "return normalized_items"
-        }
-      ],
-      "status": "equal"
-    }
-  ],
-  "summary": {
-    "added_lines": 2,
-    "changed_lines": 12,
-    "left_exists": true,
-    "modified_lines": 5,
-    "moved_lines": 5,
-    "removed_lines": 0,
-    "right_exists": true
+[
+  {
+    "left_no": 1,
+    "left_text": "def render_order(order: dict[str, object]) -> str:",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "render_order"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "(order: dict[str, object]) -> "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "str"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "def render_order(order: dict[str, object]) -> str:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "def render_order(order: dict[str, object]) -> "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "str"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ":"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "    normalized_items: list[dict[str, object]] = []",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    normalized_items: list[dict[str, object]] = []"
+      }
+    ],
+    "right_no": 2,
+    "right_text": "    normalized_items = normalize_items(order)",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "    normalized_items = normalize_items(order)"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    for item in order[\"items\"]:",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    for item in order[\"items\"]:"
+      }
+    ],
+    "right_no": 3,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "        name = item[\"name\"].strip()",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        name = item[\"name\"].strip()"
+      }
+    ],
+    "right_no": 4,
+    "right_text": "    lines: list[str] = []",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "lines: list[str] = []"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "        quantity = int(item.get(\"quantity\", 1))",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        quantity = int(item.get(\"quantity\", 1))"
+      }
+    ],
+    "right_no": 5,
+    "right_text": "    for item in normalized_items:",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "for item in normalized_items:"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "        normalized_items.append(",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        normalized_items.append("
+      }
+    ],
+    "right_no": 6,
+    "right_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "            {",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            {"
+      }
+    ],
+    "right_no": 7,
+    "right_text": "    return \"\\n\".join(lines)",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "return \"\\n\".join(lines)"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "                \"name\": name,",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "                \"name\": name,"
+      }
+    ],
+    "right_no": 8,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "                \"quantity\": quantity,",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "                \"quantity\": quantity,"
+      }
+    ],
+    "right_no": 9,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "            }",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            }"
+      }
+    ],
+    "right_no": 10,
+    "right_text": "def normalize_items(order: dict[str, object]) -> list[dict[str, object]]:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "normalize_items"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "(order: dict[str, object]) -> "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "list[dict[str, object]]"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ":"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "        )",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        )"
+      }
+    ],
+    "right_no": 11,
+    "right_text": "    normalized_items: list[dict[str, object]] = []",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    normalized_items: list[dict[str, object]] = []"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 12,
+    "right_text": "    for item in order[\"items\"]:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    for item in order[\"items\"]:"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    lines: list[str] = []",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "lines: list[str] = []"
+      }
+    ],
+    "right_no": 13,
+    "right_text": "        name = item[\"name\"].strip()",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        name = item[\"name\"].strip()"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "    for item in normalized_items:",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "for item in normalized_items:"
+      }
+    ],
+    "right_no": 14,
+    "right_text": "        quantity = int(item.get(\"quantity\", 1))",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        quantity = int(item.get(\"quantity\", 1))"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
+      }
+    ],
+    "right_no": 15,
+    "right_text": "        normalized_items.append(",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        normalized_items.append("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "    return \"\\n\".join(lines)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "move",
+        "text": "return \"\\n\".join(lines)"
+      }
+    ],
+    "right_no": 16,
+    "right_text": "            {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            {"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 17,
+    "right_text": "                \"name\": name,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "                \"name\": name,"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 18,
+    "right_text": "                \"quantity\": quantity,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "                \"quantity\": quantity,"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 19,
+    "right_text": "            }",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            }"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 20,
+    "right_text": "        )",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        )"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 21,
+    "right_text": "    return normalized_items",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "return normalized_items"
+      }
+    ],
+    "status": "equal"
   }
-}
+]

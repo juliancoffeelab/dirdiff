@@ -111,7 +111,7 @@ Main exported type groups:
 - manifest trees and manifest statistics;
 - lazy-file information;
 - text and notebook file diffs;
-- rows, tokens, syntax spans, folds, and engine warnings.
+- decorated row parts, folds, and engine warnings.
 
 The facade is:
 
@@ -547,7 +547,8 @@ Inputs:
 - fold policies;
 - `LinePins`.
 
-`DiffGrid` renders text rows, line numbers, syntax spans, fold rows, hunk targets, and line-pin coordinates.
+`DiffGrid` renders decorated text parts, line numbers, fold rows, hunk targets,
+and line-pin coordinates.
 
 It uses `folds.ts` to construct visible rows and uses `LinePins` to read or change line-pin URL state.
 

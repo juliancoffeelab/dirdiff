@@ -90,7 +90,7 @@ The grid renders:
 
 - split or inline column headers;
 - old and new line numbers;
-- syntax spans and inline change tokens;
+- backend-woven text parts carrying syntax and inline diff decoration;
 - backend hunk boundaries;
 - unchanged fold rows;
 - the selected old/new pointer side;
@@ -99,6 +99,13 @@ The grid renders:
 Backend row order is authoritative. Difftastic insert-only replacement rows may
 be combined for presentation, but hunk identity remains attached to the backend
 boundary that produced it.
+
+The rendering layer combines each engine token partition with the syntax spans
+for the same row side. The resulting ordered parts preserve every source
+character and carry `syntax_classes`, `diff_status`, whitespace status, and
+leading-whitespace status. Invalid engine tokens or syntax spans fail at this
+backend boundary. `DiffGrid` renders these parts directly; it does not intersect
+parallel token and syntax ranges or slice source text by backend offsets.
 
 Each real hunk target contains all of:
 
@@ -160,8 +167,8 @@ page from jumping. A file that begins virtual uses its natural virtual height
 until it has had a measurable rich body.
 
 `VirtualFile` contains complete undecorated old and new text in split form so
-native browser search can find both sides. It omits syntax spans, inline tokens,
-fold interaction, and rich rows. Transparent real hunk anchors preserve every
+native browser search can find both sides. It omits decorated parts, fold
+interaction, and rich rows. Transparent real hunk anchors preserve every
 backend hunk coordinate.
 
 Rich/virtual replacement changes representation only. It does not change file

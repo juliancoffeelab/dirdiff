@@ -574,33 +574,22 @@ const RowStatusSchema = z.enum([
  */
 export type RowStatus = z.infer<typeof RowStatusSchema>;
 
-const InlineTokenSchema = z.strictObject({
+const DecoratedPartSchema = z.strictObject({
   text: z.string(),
-  is_ws: z.boolean(),
-  status: z.enum(["unchanged", "replace", "insert", "delete", "move"]),
+  syntax_classes: z.array(z.string()),
+  diff_status: z.enum(["unchanged", "replace", "insert", "delete", "move"]),
+  is_whitespace: z.boolean(),
+  is_leading_whitespace: z.boolean(),
 });
 
 /**
- * Describes one backend-produced inline token and its change classification.
+ * Describes one backend-produced text slice with complete display decoration.
  *
- * Consumers render the exact text and whitespace flag; they must not retokenize
- * rows or infer another status.
+ * Ordered parts reconstruct one row side exactly. Consumers render their text,
+ * syntax classes, diff status, and whitespace metadata directly rather than
+ * intersecting another token or offset representation.
  */
-export type InlineToken = z.infer<typeof InlineTokenSchema>;
-
-const SyntaxSpanSchema = z.strictObject({
-  start: z.number().int(),
-  end: z.number().int(),
-  classes: z.array(z.string()),
-});
-
-/**
- * Describes one syntax-highlighting span within a row's source text.
- *
- * Offsets and classes are authoritative backend output. The type carries no DOM
- * node or rendered measurement.
- */
-export type SyntaxSpan = z.infer<typeof SyntaxSpanSchema>;
+export type DecoratedPart = z.infer<typeof DecoratedPartSchema>;
 
 const DiffRowSchema = z.strictObject({
   status: RowStatusSchema,
@@ -608,10 +597,8 @@ const DiffRowSchema = z.strictObject({
   right_no: z.number().int().positive().nullable(),
   left_text: z.string().nullable(),
   right_text: z.string().nullable(),
-  left_tokens: z.array(InlineTokenSchema),
-  right_tokens: z.array(InlineTokenSchema),
-  left_syntax: z.array(SyntaxSpanSchema),
-  right_syntax: z.array(SyntaxSpanSchema),
+  left_parts: z.array(DecoratedPartSchema),
+  right_parts: z.array(DecoratedPartSchema),
   hunk_index: z.number().int().nonnegative().nullable(),
 });
 

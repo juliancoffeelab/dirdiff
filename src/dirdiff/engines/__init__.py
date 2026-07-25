@@ -23,6 +23,7 @@ from dirdiff.engines.base import (
     DirdiffError,
     EngineWarning,
     InlineToken,
+    InlineTokenStatus,
     engine_row_has_change,
 )
 from dirdiff.engines.difftastic import DifftasticDiffEngine
@@ -42,6 +43,7 @@ __all__ = [
     "GitDiffEngine",
     "GumTreeDiffEngine",
     "InlineToken",
+    "InlineTokenStatus",
     "TextDiffEngine",
     "engine_row_has_change",
 ]

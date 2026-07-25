@@ -222,13 +222,21 @@ def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
 
     assert "render_mode" not in display
     assert "truncated_rows" not in display
-    assert display["rows"][0]["right_tokens"] == [
+    assert display["rows"][0]["right_parts"] == [
         {
             "text": "fullcheck: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt ",
-            "status": "unchanged",
-            "is_ws": False,
+            "syntax_classes": [],
+            "diff_status": "unchanged",
+            "is_whitespace": False,
+            "is_leading_whitespace": False,
         },
-        {"text": "pytest", "status": "insert", "is_ws": False},
+        {
+            "text": "pytest",
+            "syntax_classes": [],
+            "diff_status": "insert",
+            "is_whitespace": False,
+            "is_leading_whitespace": False,
+        },
     ]
 
 

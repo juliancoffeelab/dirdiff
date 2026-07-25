@@ -30,7 +30,10 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
     assert diff["summary"]["changed_lines"] == 1
     assert diff["summary"]["modified_lines"] == 1
     assert diff["rows"][0]["status"] == "equal"
-    assert diff["rows"][0]["left_tokens"] != []
+    assert any(
+        part["diff_status"] != "unchanged"
+        for part in diff["rows"][0]["left_parts"]
+    )
     assert diff["hunk_count"] == 1
     assert diff["rows"][0]["hunk_index"] == 0
 
@@ -67,35 +70,28 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
         right_path_hint="demo.js",
     )
 
-    left_name_tokens = []
-    for token in diff["rows"][0]["left_tokens"]:
-        if token["text"] == "(":
+    left_name_parts = []
+    for part in diff["rows"][0]["left_parts"]:
+        if part["text"] == "(":
             break
-        left_is_ws: bool = token["is_ws"]
-        if token["text"] != "function" and not left_is_ws:
-            left_name_tokens.append(
-                (token["text"], (token["status"] != "unchanged"))
+        left_is_whitespace: bool = part["is_whitespace"]
+        if part["text"] != "function" and not left_is_whitespace:
+            left_name_parts.append(
+                (part["text"], (part["diff_status"] != "unchanged"))
             )
 
-    right_name_tokens = []
-    for token in diff["rows"][0]["right_tokens"]:
-        if token["text"] == "(":
+    right_name_parts = []
+    for part in diff["rows"][0]["right_parts"]:
+        if part["text"] == "(":
             break
-        right_is_ws: bool = token["is_ws"]
-        if token["text"] != "function" and not right_is_ws:
-            right_name_tokens.append(
-                (token["text"], (token["status"] != "unchanged"))
+        right_is_whitespace: bool = part["is_whitespace"]
+        if part["text"] != "function" and not right_is_whitespace:
+            right_name_parts.append(
+                (part["text"], (part["diff_status"] != "unchanged"))
             )
 
-    assert left_name_tokens == [
-        ("find", True),
-        ("Nearest", True),
-        ("Index", True),
-    ]
-    assert right_name_tokens == [
-        ("positions", True),
-        ("Signature", True),
-    ]
+    assert left_name_parts == [("findNearestIndex", True)]
+    assert right_name_parts == [("positionsSignature", True)]
 
 
 def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
@@ -112,23 +108,25 @@ def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
         right_path_hint="demo.js",
     )
 
-    left_tokens = [
-        (token["text"], (token["status"] != "unchanged"))
-        for token in diff["rows"][0]["left_tokens"]
-        if token["text"] not in {"await", " ", "(", "page", ",", "0", ");"}
+    left_parts = [
+        (part["text"], (part["diff_status"] != "unchanged"))
+        for part in diff["rows"][0]["left_parts"]
+        if part["text"]
+        not in {"await", " ", "(", "page", ",", "0", ")", ");", ";"}
     ]
-    right_tokens = [
-        (token["text"], (token["status"] != "unchanged"))
-        for token in diff["rows"][0]["right_tokens"]
-        if token["text"] not in {"await", " ", "(", "page", ",", "0", ");"}
+    right_parts = [
+        (part["text"], (part["diff_status"] != "unchanged"))
+        for part in diff["rows"][0]["right_parts"]
+        if part["text"]
+        not in {"await", " ", "(", "page", ",", "0", ")", ");", ";"}
     ]
 
-    assert left_tokens == [
+    assert left_parts == [
         ("expect", False),
         ("Visible", True),
         ("Row", False),
     ]
-    assert right_tokens == [
+    assert right_parts == [
         ("expect", False),
         ("Selected", True),
         ("Row", False),
@@ -152,13 +150,13 @@ def test_tree_sitter_highlights_multiline_python_strings() -> None:
 
     first_line_classes = {
         css_class
-        for span in diff["rows"][0]["left_syntax"]
-        for css_class in span["classes"]
+        for part in diff["rows"][0]["left_parts"]
+        for css_class in part["syntax_classes"]
     }
     second_line_classes = {
         css_class
-        for span in diff["rows"][1]["left_syntax"]
-        for css_class in span["classes"]
+        for part in diff["rows"][1]["left_parts"]
+        for css_class in part["syntax_classes"]
     }
 
     assert "ts-string" in first_line_classes
@@ -181,8 +179,8 @@ def test_tree_sitter_highlights_clojure_strings() -> None:
 
     first_line_classes = {
         css_class
-        for span in diff["rows"][0]["left_syntax"]
-        for css_class in span["classes"]
+        for part in diff["rows"][0]["left_parts"]
+        for css_class in part["syntax_classes"]
     }
 
     assert "ts-string" in first_line_classes
@@ -208,8 +206,16 @@ def test_large_tree_sitter_diff_preserves_rows_and_syntax() -> None:
 
     assert "render_mode" not in diff
     assert "truncated_rows" not in diff
-    assert any(row.get("left_syntax") for row in diff["rows"])
-    assert any(row.get("right_syntax") for row in diff["rows"])
+    assert any(
+        part["syntax_classes"]
+        for row in diff["rows"]
+        for part in row["left_parts"]
+    )
+    assert any(
+        part["syntax_classes"]
+        for row in diff["rows"]
+        for part in row["right_parts"]
+    )
     assert all(row["status"] != "fold" for row in diff["rows"])
     changed_rows = [
         row
@@ -217,7 +223,13 @@ def test_large_tree_sitter_diff_preserves_rows_and_syntax() -> None:
         if row.get("left_text") != row.get("right_text")
     ]
     assert changed_rows != []
-    assert "right_syntax" in changed_rows[0] or "left_syntax" in changed_rows[0]
+    assert any(
+        part["syntax_classes"]
+        for part in [
+            *changed_rows[0]["left_parts"],
+            *changed_rows[0]["right_parts"],
+        ]
+    )
 
 
 def test_large_plaintext_diff_preserves_middle_rows_and_hunks() -> None:
@@ -254,7 +266,11 @@ def test_large_plaintext_diff_preserves_middle_rows_and_hunks() -> None:
     assert len(middle_hunk_rows) == 1
     assert any(row.get("right_text") == "changed 0550" for row in diff["rows"])
     assert diff["hunk_count"] == 111
-    assert not any(row.get("left_syntax") for row in diff["rows"])
+    assert not any(
+        part["syntax_classes"]
+        for row in diff["rows"]
+        for part in row["left_parts"]
+    )
 
 
 def test_build_loaded_diff_renders_notebook_cells_when_ipynb_is_valid() -> None:

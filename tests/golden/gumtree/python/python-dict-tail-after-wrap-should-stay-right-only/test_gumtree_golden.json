@@ -1,273 +1,128 @@
-{
-  "engine_warning": null,
-  "rows": [
-    {
-      "hunk_index": 0,
-      "left_no": 1,
-      "left_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 5,
-          "start": 0
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 7,
-          "start": 6
-        },
-        {
-          "classes": [
-            "ts-function"
-          ],
-          "end": 12,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 20,
-          "start": 14
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 27,
-          "start": 22
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 34,
-          "start": 29
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 40,
-          "start": 36
-        },
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 49,
-          "start": 42
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 55,
-          "start": 51
-        }
-      ],
-      "left_text": "value = make({\"left\": thing, \"mid\": keep, \"right\": done})",
-      "left_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "value = make({"
-        },
-        {
-          "is_ws": false,
-          "status": "delete",
-          "text": "\"left\": thing"
-        },
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": ", "
-        },
-        {
-          "is_ws": false,
-          "status": "delete",
-          "text": "\"mid\": keep"
-        },
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": ", \"right\": done})"
-        }
-      ],
-      "right_no": 1,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 5,
-          "start": 0
-        },
-        {
-          "classes": [
-            "ts-operator"
-          ],
-          "end": 7,
-          "start": 6
-        },
-        {
-          "classes": [
-            "ts-function"
-          ],
-          "end": 12,
-          "start": 8
-        }
-      ],
-      "right_text": "value = make(",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "value = make("
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 2,
-      "right_text": "    {",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "    {"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": 1,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 3,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 14,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-function"
-          ],
-          "end": 20,
-          "start": 16
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 34,
-          "start": 21
-        }
-      ],
-      "right_text": "        \"left\": wrap(thing_changed),",
-      "right_tokens": [
-        {
-          "is_ws": true,
-          "status": "unchanged",
-          "text": "        "
-        },
-        {
-          "is_ws": false,
-          "status": "insert",
-          "text": "\"left\": wrap(thing_changed)"
-        },
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": ","
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 4,
-      "right_syntax": [
-        {
-          "classes": [
-            "ts-string"
-          ],
-          "end": 15,
-          "start": 8
-        },
-        {
-          "classes": [
-            "ts-variable"
-          ],
-          "end": 21,
-          "start": 17
-        }
-      ],
-      "right_text": "        \"right\": done,",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "        \"right\": done,"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 5,
-      "right_text": "    }",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": "    }"
-        }
-      ],
-      "status": "equal"
-    },
-    {
-      "hunk_index": null,
-      "left_no": null,
-      "left_text": "",
-      "left_tokens": [],
-      "right_no": 6,
-      "right_text": ")",
-      "right_tokens": [
-        {
-          "is_ws": false,
-          "status": "unchanged",
-          "text": ")"
-        }
-      ],
-      "status": "equal"
-    }
-  ],
-  "summary": {
-    "added_lines": 1,
-    "changed_lines": 2,
-    "left_exists": true,
-    "modified_lines": 0,
-    "moved_lines": 0,
-    "removed_lines": 1,
-    "right_exists": true
+[
+  {
+    "left_no": 1,
+    "left_text": "value = make({\"left\": thing, \"mid\": keep, \"right\": done})",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "value = make({"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"left\": thing"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "\"mid\": keep"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", \"right\": done})"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "value = make(",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "value = make("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 2,
+    "right_text": "    {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    {"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 3,
+    "right_text": "        \"left\": wrap(thing_changed),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"left\": wrap(thing_changed)"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 4,
+    "right_text": "        \"right\": done,",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        \"right\": done,"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 5,
+    "right_text": "    }",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    }"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 6,
+    "right_text": ")",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ")"
+      }
+    ],
+    "status": "equal"
   }
-}
+]

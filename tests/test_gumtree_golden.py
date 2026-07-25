@@ -1,13 +1,20 @@
-"""Golden row-output tests for GumTree presets."""
+"""Golden row-output tests for GumTree preset fixtures.
+
+This module is the snapshot boundary for exact GumTree row projection. Each
+non-borked preset directory supplies old/new source files, and the snapshot
+name is the preset path relative to `tests/presets/gumtree`. It tests projection
+output only; subprocess invocation details belong to the engine, and display
+enrichment has its own rendering tests.
+"""
 
 from pathlib import Path
 from typing import Any
 
 import pytest
-from helpers import GoldenJsonSnapshotExtension, WorkspaceDiffServiceAdapter
+from helpers import GoldenJsonSnapshotExtension
 
-from dirdiff.backend import PresetBackend
 from dirdiff.engines.gumtree import GumTreeDiffEngine
+from dirdiff.engines.gumtree.logic import build_gumtree_rows_from_json
 
 __all__: list[str] = []
 
@@ -51,21 +58,23 @@ def test_gumtree_preset_rows_match_golden(
     assert len(new_files) == 1, preset_dir
     old_path = old_files[0]
     new_path = new_files[0]
-    preset_name = preset_dir.relative_to(PRESETS_ROOT).as_posix()
-    service = WorkspaceDiffServiceAdapter(
-        PresetBackend(PRESETS_ROOT),
-        GumTreeDiffEngine(cwd=Path.cwd()),
+    service = GumTreeDiffEngine(cwd=Path.cwd())
+    old_text = old_path.read_text()
+    new_text = new_path.read_text()
+
+    diff_json = service._run_gumtree_json(
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    rows = build_gumtree_rows_from_json(
+        diff_json=diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
-    payload = service.build_git_diff_paths(
-        left_path=f"{preset_name}/{old_path.name}",
-        right_path=f"{preset_name}/{new_path.name}",
-        left=preset_dir.relative_to(PRESETS_ROOT).parts[0],
-        right="new",
+    assert (
+        snapshot_json(name=preset_dir.relative_to(PRESETS_ROOT).as_posix())
+        == rows
     )
-
-    assert snapshot_json(name=preset_name) == {
-        "engine_warning": payload.get("engine_warning"),
-        "rows": payload["rows"],
-        "summary": payload["summary"],
-    }

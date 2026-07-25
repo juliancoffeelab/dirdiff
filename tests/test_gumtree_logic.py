@@ -216,11 +216,11 @@ def _actual_status_intervals(
     row = _row_for_line(payload, side=side, line_no=line_no)
     cursor = 0
     intervals: list[ActualTokenStatus] = []
-    for token in row.get(f"{side}_tokens", []):
-        token_text = token["text"]
+    for part in row[f"{side}_parts"]:
+        token_text = part["text"]
         start = cursor
         end = cursor + len(token_text)
-        if token["status"] == status:
+        if part["diff_status"] == status:
             intervals.append(
                 ActualTokenStatus(
                     start=start,
@@ -237,10 +237,16 @@ def _is_covered(
     expected: ExpectedTokenStatus,
     actual_intervals: list[ActualTokenStatus],
 ) -> bool:
-    return any(
-        actual.start <= expected.start and actual.end >= expected.end
-        for actual in actual_intervals
-    )
+    covered_until = expected.start
+    for actual in actual_intervals:
+        if actual.end <= covered_until:
+            continue
+        if actual.start > covered_until:
+            return False
+        covered_until = actual.end
+        if covered_until >= expected.end:
+            return True
+    return False
 
 
 def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
@@ -265,7 +271,7 @@ def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
         missing.append(
             f"{expected.side} line {expected.line_no} "
             f"{expected.status} {expected.text!r} from {expected.tree!r}; "
-            f"actual {expected.status} tokens: {actual_texts!r}"
+            f"actual {expected.status} parts: {actual_texts!r}"
         )
 
     assert missing == []

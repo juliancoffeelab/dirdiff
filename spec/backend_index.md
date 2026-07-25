@@ -53,9 +53,10 @@ Its public interface is exported from `dirdiff.engines`.
 
 Enriches neutral engine rows for display.
 
-It defines `DiffRow`, `SyntaxClass`, `SyntaxSpan`, and `FoldHint`. It attaches
-syntax spans, fold hints, and hunk indexes without changing the engine's
-alignment or summary.
+It defines `DiffRow`, `SyntaxClass`, `SyntaxSpan`, `DecoratedPart`, and
+`FoldHint`. It combines engine inline tokens with syntax spans into one lossless
+part sequence per row side, then attaches fold hints and hunk indexes without
+changing the engine's alignment or summary.
 
 Its public interface is exported from `dirdiff.rendering`.
 

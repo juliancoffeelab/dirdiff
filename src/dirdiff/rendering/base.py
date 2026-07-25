@@ -2,7 +2,8 @@
 
 This module does not choose an engine and does not own native text comparison.
 It receives already-computed neutral rows, then attaches display-only details:
-syntax spans, fold hints, backend-owned hunk identities, and default expansion.
+backend-woven syntax/diff parts, fold hints, backend-owned hunk identities, and
+default expansion.
 """
 
 from __future__ import annotations
@@ -14,17 +15,19 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
-from typing import Any, Literal, NotRequired, TypedDict, TypeIs, get_args
+from typing import Any, Literal, TypedDict, TypeIs, get_args
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
 from dirdiff.engines import (
     InlineToken,
+    InlineTokenStatus,
     engine_row_has_change,
 )
 from dirdiff.rendering.fold import fold_hints_for_path
 
 __all__ = [
+    "DecoratedPart",
     "DiffRow",
     "SyntaxClass",
     "SyntaxSpan",
@@ -32,6 +35,7 @@ __all__ = [
     "default_expanded_for_payload",
     "enrich_rows_for_display",
     "highlight_lines_for_path",
+    "weave_decorated_parts",
 ]
 
 type SyntaxClass = Literal[
@@ -137,12 +141,165 @@ class SyntaxSpan(TypedDict):
     """
 
 
+class DecoratedPart(TypedDict):
+    """One contiguous text slice carrying diff and syntax decoration.
+
+    Parts preserve source order and partition one complete rendered line.
+    Adjacent parts differ in at least one decoration field.
+    """
+
+    text: str
+    """
+    Exact source text represented by this part.
+    """
+
+    syntax_classes: list[SyntaxClass]
+    """
+    Syntax classes active across the complete text slice.
+    """
+
+    diff_status: InlineTokenStatus
+    """
+    Token-level diff status active across the complete text slice.
+    """
+
+    is_whitespace: bool
+    """
+    Whether the source inline token consists only of whitespace.
+    """
+
+    is_leading_whitespace: bool
+    """
+    Whether this slice belongs to the first whitespace inline token.
+    """
+
+
+def weave_decorated_parts(
+    text: str,
+    tokens: list[InlineToken],
+    syntax: list[SyntaxSpan],
+) -> list[DecoratedPart]:
+    """Combine diff tokens and syntax spans into one lossless text partition.
+
+    An empty token list means the engine supplied no token-level change for the
+    complete text. Non-empty token lists must reconstruct `text` exactly.
+    Syntax spans must be ordered, non-overlapping, non-empty character ranges
+    within the same text. The result preserves every character and carries both
+    decorations without retaining offsets for the frontend to intersect again.
+    """
+    token_intervals: list[tuple[int, int, InlineToken]] = []
+    token_cursor = 0
+    for inline_token in tokens:
+        token_text = inline_token["text"]
+        assert token_text != "", "Inline diff tokens must contain text."
+        assert inline_token["is_ws"] == token_text.isspace(), (
+            "Inline diff token whitespace metadata must match its text."
+        )
+        token_end = token_cursor + len(token_text)
+        token_intervals.append((token_cursor, token_end, inline_token))
+        token_cursor = token_end
+    if tokens != []:
+        assert "".join(token["text"] for token in tokens) == text, (
+            "Inline diff tokens must reconstruct their complete row text."
+        )
+
+    previous_syntax_end = 0
+    for span in syntax:
+        assert 0 <= span["start"] < span["end"] <= len(text), (
+            "Syntax spans must be non-empty ranges within their row text."
+        )
+        assert span["start"] >= previous_syntax_end, (
+            "Syntax spans must be ordered and non-overlapping."
+        )
+        assert span["classes"] != [], (
+            "Syntax spans must contain at least one syntax class."
+        )
+        previous_syntax_end = span["end"]
+
+    if text == "":
+        assert tokens == [] and syntax == [], (
+            "Empty row text cannot carry diff or syntax decoration."
+        )
+        return []
+
+    boundaries = {0, len(text)}
+    for start, end, _token in token_intervals:
+        boundaries.add(start)
+        boundaries.add(end)
+    for span in syntax:
+        boundaries.add(span["start"])
+        boundaries.add(span["end"])
+
+    sorted_boundaries = sorted(boundaries)
+    parts: list[DecoratedPart] = []
+    token_index = 0
+    syntax_index = 0
+    for boundary_index in range(len(sorted_boundaries) - 1):
+        start = sorted_boundaries[boundary_index]
+        end = sorted_boundaries[boundary_index + 1]
+
+        while (
+            token_index < len(token_intervals)
+            and token_intervals[token_index][1] <= start
+        ):
+            token_index += 1
+        active_token = (
+            token_intervals[token_index][2]
+            if token_index < len(token_intervals)
+            and token_intervals[token_index][0] <= start
+            and end <= token_intervals[token_index][1]
+            else None
+        )
+
+        while (
+            syntax_index < len(syntax) and syntax[syntax_index]["end"] <= start
+        ):
+            syntax_index += 1
+        syntax_classes = (
+            list(syntax[syntax_index]["classes"])
+            if syntax_index < len(syntax)
+            and syntax[syntax_index]["start"] <= start
+            and end <= syntax[syntax_index]["end"]
+            else []
+        )
+
+        part: DecoratedPart = {
+            "text": text[start:end],
+            "syntax_classes": syntax_classes,
+            "diff_status": (
+                "unchanged" if active_token is None else active_token["status"]
+            ),
+            "is_whitespace": (
+                text[start:end].isspace()
+                if active_token is None
+                else active_token["is_ws"]
+            ),
+            "is_leading_whitespace": (
+                active_token is not None
+                and token_index == 0
+                and active_token["is_ws"]
+            ),
+        }
+        if (
+            parts != []
+            and parts[-1]["syntax_classes"] == part["syntax_classes"]
+            and parts[-1]["diff_status"] == part["diff_status"]
+            and parts[-1]["is_whitespace"] == part["is_whitespace"]
+            and parts[-1]["is_leading_whitespace"]
+            == part["is_leading_whitespace"]
+        ):
+            parts[-1]["text"] += part["text"]
+        else:
+            parts.append(part)
+    return parts
+
+
 class DiffRow(TypedDict):
     """One row in the rendered text diff grid.
 
-    This is the display/API row shape after engine rows have been enriched for
-    syntax highlighting and backend-owned hunk identity. Frontend fold rows
-    are derived separately from `FoldHint` ranges and never enter this shape.
+    This is the display/API row shape after engine rows have been enriched with
+    decorated parts and backend-owned hunk identity. Frontend fold rows are
+    derived separately from `FoldHint` ranges and never enter this shape.
     """
 
     status: Literal["equal", "replace", "insert", "delete", "move"]
@@ -150,51 +307,34 @@ class DiffRow(TypedDict):
     Display status of the real aligned engine row.
     """
 
-    left_no: NotRequired[int | None]
+    left_no: int | None
     """
     One-based old/left line number, when this row has a left side.
     """
 
-    right_no: NotRequired[int | None]
+    right_no: int | None
     """
     One-based new/right line number, when this row has a right side.
     """
 
-    left_text: NotRequired[str | None]
+    left_text: str | None
     """
     Rendered old/left line text.
     """
 
-    right_text: NotRequired[str | None]
+    right_text: str | None
     """
     Rendered new/right line text.
     """
 
-    left_tokens: NotRequired[list[InlineToken]]
+    left_parts: list[DecoratedPart]
     """
-    Inline diff tokens for the old/left side.
-
-    TODO: token spans and syntax spans are parallel decorations today. We
-    should probably unify them into one server-side decorated text model
-    before the frontend has to merge overlapping ranges itself.
+    Complete decorated text partition for the old/left side.
     """
 
-    right_tokens: NotRequired[list[InlineToken]]
+    right_parts: list[DecoratedPart]
     """
-    Inline diff tokens for the new/right side.
-    """
-
-    left_syntax: NotRequired[list[SyntaxSpan]]
-    """
-    Syntax-highlight spans for the old/left line.
-
-    See `left_tokens` for the TODO about unifying token and syntax
-    decorations before frontend rendering.
-    """
-
-    right_syntax: NotRequired[list[SyntaxSpan]]
-    """
-    Syntax-highlight spans for the new/right line.
+    Complete decorated text partition for the new/right side.
     """
 
     hunk_index: int | None
@@ -626,9 +766,9 @@ def enrich_rows_for_display(
     """Attach display-only row metadata without calculating diff summary.
 
     This helper preserves every engine row while assigning hunk identities,
-    syntax spans, and optional syntax-aware fold hints. It does not decide
-    changed/added/removed/moved line counts; engines calculate summaries before
-    calling it.
+    weaving inline diff tokens with syntax spans, and attaching optional
+    syntax-aware fold hints. It does not decide changed/added/removed/moved line
+    counts; engines calculate summaries before calling it.
     """
     hunk_count = _assign_hunk_indices(rows)
     left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
@@ -639,22 +779,46 @@ def enrich_rows_for_display(
     fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
     for row in rows:
         left_no = row.get("left_no")
+        left_syntax: list[SyntaxSpan] = []
         if (
             isinstance(left_no, int)
             and left_syntax_lines is not None
             and left_no - 1 < len(left_syntax_lines)
-            and left_syntax_lines[left_no - 1] != []
         ):
-            row["left_syntax"] = left_syntax_lines[left_no - 1]
+            left_syntax = left_syntax_lines[left_no - 1]
 
         right_no = row.get("right_no")
+        right_syntax: list[SyntaxSpan] = []
         if (
             isinstance(right_no, int)
             and right_syntax_lines is not None
             and right_no - 1 < len(right_syntax_lines)
-            and right_syntax_lines[right_no - 1] != []
         ):
-            row["right_syntax"] = right_syntax_lines[right_no - 1]
+            right_syntax = right_syntax_lines[right_no - 1]
+
+        assert (
+            "left_text" in row
+            and "right_text" in row
+            and "left_tokens" in row
+            and "right_tokens" in row
+        ), (
+            "Every engine row requires both text sides and both inline-token "
+            "arrays."
+        )
+        left_text_value = row["left_text"]
+        right_text_value = row["right_text"]
+        left_tokens = row.pop("left_tokens")
+        right_tokens = row.pop("right_tokens")
+        row["left_parts"] = weave_decorated_parts(
+            "" if left_text_value is None else left_text_value,
+            left_tokens,
+            left_syntax,
+        )
+        row["right_parts"] = weave_decorated_parts(
+            "" if right_text_value is None else right_text_value,
+            right_tokens,
+            right_syntax,
+        )
 
     payload: dict[str, Any] = {
         "hunk_count": hunk_count,
