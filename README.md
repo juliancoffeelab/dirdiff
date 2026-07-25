@@ -3,14 +3,17 @@
 Local browser diff viewer for large, but most importantly pleasant code reviews.
 I was tired of looking at Github/Gitlab UI, so here is my attempt to show how
 much they suck.
+While doing that, I realized that it's not such an easy problem to solve, but
+I think that I have built something that works better.
 
 ## Features
 
-- Handles large PRs: roughly 30k changed lines and 300 changed files.
-- Supports three diff engines: simple custom algorith over sequence matching,
-plain Git-style diffs, and difftastic (structural diffs based on tree-sitter).
+- Handles large PRs: roughly 30k changed lines and 300 changed files is a
+normal case, not a tragedy.
+- Supports multiple diff engines: git, difftastic, gumtree, custom 
 - Uses tree-sitter for syntax highlighting and semantic folds, to collapse
 intelligently and not just hide random lines.
+- Works pre-dominantly with git, but can be extended to support other backends.
 - Works with Git and supports plain diff, custom refs and branch review.
 - As a bonus, works with jupyter notebooks too.
 
@@ -31,6 +34,7 @@ dirdiff
 
 We use uvicorn and vite with every dev option enabled, so hot-reloading fully
 works. If it doesn't that's a bug.
+It means that cold-starts might be a bit slower, but that's the price we pay.
 
 ## Marks
 
@@ -50,3 +54,6 @@ specific placements like xdg-directories (yet?).
 Additional fixes that have not yet landed upstream may be available in
 [juliancoffeelab/difftastic](https://github.com/juliancoffeelab/difftastic).
 I've found a crash during testing, and there you can find a workaround.
+
+## Known issues
+- Difftastic is a hog on files it doesn't like.
