@@ -412,7 +412,7 @@ h1 {
 .ui-select-value {
   min-width: 0;
   font-weight: 800;
-  line-height: 1;
+  line-height: normal;
   white-space: nowrap;
 }
 
