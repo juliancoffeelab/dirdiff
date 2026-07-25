@@ -119,6 +119,10 @@ that marker to limit native text selection to the chosen side.
 
 `folds.ts` converts backend fold hints into validated nested ranges. A fold
 range containing a hunk boundary is a backend contract violation and throws.
+The backend assigns hunk indexes and accepts foldable ranges from the same
+canonical engine-row change classification. Fold discovery does not compare row
+text independently or discard rows such as trailing blanks before deciding that
+a range is unchanged.
 
 `DiffGrid` stores expanded line folds locally. Clicking a fold edge explicitly
 replaces that edge with its rows; folding replaces the rows with the fold edge

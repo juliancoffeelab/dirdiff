@@ -2,10 +2,9 @@
 
 `render_native_text_diff` is the pure Python comparison algorithm used by
 `TextDiffEngine`: it aligns lines, tokenizes inline changes, assigns token
-statuses, and returns native text summary counts.  `row_has_any_change` is the
-shared predicate for detecting changed inline tokens.  This module does not
-attach syntax highlighting, fold hints, hunk identities, request labels,
-repository paths, or HTTP payload metadata.
+statuses, and returns native text summary counts. This module does not attach
+syntax highlighting, fold hints, hunk identities, request labels, repository
+paths, or HTTP payload metadata.
 """
 
 from __future__ import annotations
@@ -19,13 +18,13 @@ from dirdiff.engines.base import (
     DiffEngineResult,
     DiffSide,
     DiffSummary,
+    engine_row_has_change,
     strict_engine_rows,
 )
 
 __all__ = [
     "TextDiffEngine",
     "render_native_text_diff",
-    "row_has_any_change",
 ]
 
 INLINE_TOKEN_PATTERN = re.compile(r"\w+|\s+|[^\w\s]+", flags=re.UNICODE)
@@ -50,7 +49,7 @@ def _native_text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
         1
         for row in rows
         if row["status"] == "replace"
-        or (row["status"] == "equal" and row_has_any_change(row))
+        or (row["status"] == "equal" and engine_row_has_change(row))
     )
     added_lines = sum(1 for row in rows if row["status"] == "insert")
     removed_lines = sum(1 for row in rows if row["status"] == "delete")
@@ -247,18 +246,6 @@ def _build_native_text_rows(
             right_no += 1
 
     return rows
-
-
-def row_has_any_change(row: dict[str, Any]) -> bool:
-    """Return whether a native text row contains any visible change."""
-    if row.get("status") != "equal":
-        return True
-    if row.get("left_text") != row.get("right_text"):
-        return True
-    return any(
-        token.get("status") != "unchanged"
-        for token in row.get("left_tokens", []) + row.get("right_tokens", [])
-    )
 
 
 def _paired_line_row(

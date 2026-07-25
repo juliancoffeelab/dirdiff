@@ -12,6 +12,8 @@ from typing import Any
 import pytest
 from helpers import GoldenJsonSnapshotExtension, build_loaded_diff
 
+from dirdiff.engines import engine_row_has_change
+
 PRESETS_ROOT = Path(__file__).parent / "presets" / "folds"
 GOLDEN_ROOT = Path(__file__).parent / "golden" / "folds"
 BROKEN_PRESETS = {
@@ -69,3 +71,7 @@ def test_fold_preset_hints_match_golden(
     assert snapshot_json(
         name=preset_dir.relative_to(PRESETS_ROOT).as_posix()
     ) == diff.get("fold_hints", [])
+
+    for hint in diff.get("fold_hints", []):
+        folded_rows = diff["rows"][hint["start_row"] : hint["end_row"]]
+        assert all(not engine_row_has_change(row) for row in folded_rows), hint

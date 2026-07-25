@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
-from dirdiff.engines import FoldHint
+from dirdiff.engines import FoldHint, engine_row_has_change
 
 __all__ = ["FoldHint", "fold_hints_for_path"]
 
@@ -1029,60 +1029,34 @@ def _region_is_unchanged(
     candidate: FoldCandidate,
     rows: list[dict[str, Any]],
 ) -> bool:
-    """Return whether a candidate's rendered context has no visible changes.
+    """Return whether a candidate's rendered context has no engine changes.
 
-    Structural folds should hide only unchanged regions.  Markdown sections get
-    one special case: trailing blank rows do not make a section meaningfully
-    changed or worth keeping expanded.
+    Structural folds hide only regions whose complete row span is unchanged
+    under the canonical engine-row classification.
     """
 
     span = rows[candidate.context_start_row : candidate.context_end_row]
-    if candidate.rule.region_kind == "section":
-        span = _trim_markdown_section_trailing_blank_rows(span)
     return _rows_are_unchanged(span)
 
 
 def _rows_are_unchanged(rows: list[dict[str, Any]]) -> bool:
-    """Return whether every row in a non-empty span is visually unchanged.
+    """Return whether every row in a non-empty span is engine-unchanged.
 
-    Empty spans are treated as not foldable.  Non-empty spans must have no
-    line-level changes, text mismatches, or token-level change markers.
+    Empty spans are not foldable. Non-empty spans use the exact classification
+    that hunk assignment and engine summaries consume.
     """
 
-    return bool(rows) and all(not _row_has_any_change(row) for row in rows)
+    return bool(rows) and all(not engine_row_has_change(row) for row in rows)
 
 
 def _rows_have_any_change(rows: list[dict[str, Any]]) -> bool:
-    """Return whether any row in a span has line or token changes.
+    """Return whether any row in a span is engine-changed.
 
     Top-level run grouping uses this to break runs when changed rows appear
     between otherwise unchanged declarations.
     """
 
-    return any(_row_has_any_change(row) for row in rows)
-
-
-def _trim_markdown_section_trailing_blank_rows(
-    span: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Ignore trailing blank rendered rows when judging Markdown sections.
-
-    Markdown parsers often include blank spacing after a heading section in the
-    section's source range.  Removing those rows prevents whitespace-only tails
-    from blocking a useful fold.
-    """
-
-    end = len(span)
-    while end > 0:
-        row = span[end - 1]
-        raw_right_text = row.get("right_text")
-        right_text = "" if raw_right_text is None else str(raw_right_text)
-        raw_left_text = row.get("left_text")
-        left_text = "" if raw_left_text is None else str(raw_left_text)
-        if right_text.strip() != "" or left_text.strip() != "":
-            break
-        end -= 1
-    return span[:end]
+    return any(engine_row_has_change(row) for row in rows)
 
 
 def _has_ancestor_kind(
@@ -1255,24 +1229,6 @@ def _line_end_byte_for_line(source_bytes: bytes, line_number: int) -> int:
     if end < len(source_bytes):
         end += 1
     return end
-
-
-def _row_has_any_change(row: dict[str, Any]) -> bool:
-    """Return whether a rendered row contains line-level or token-level change.
-
-    Fold decisions consider both row status and inline tokens.  GumTree, for
-    example, may keep line status neutral while marking moved or changed token
-    ranges.
-    """
-
-    if row.get("status") != "equal":
-        return True
-    if row.get("left_text") != row.get("right_text"):
-        return True
-    return any(
-        token.get("status") != "unchanged"
-        for token in row.get("left_tokens", []) + row.get("right_tokens", [])
-    )
 
 
 def _spec_for_path(path: str) -> FoldLanguageSpec | None:

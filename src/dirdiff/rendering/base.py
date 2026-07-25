@@ -18,6 +18,7 @@ from typing import Any
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
+from dirdiff.engines import engine_row_has_change
 from dirdiff.rendering.fold import FoldHint, fold_hints_for_path
 
 __all__ = [
@@ -487,7 +488,7 @@ def _assign_hunk_indices(rows: list[dict[str, Any]]) -> int:
     hunk_count = 0
     previous_changed = False
     for row in rows:
-        changed = _row_has_rendered_change(row)
+        changed = engine_row_has_change(row)
         row["hunk_index"] = (
             hunk_count if changed and not previous_changed else None
         )
@@ -495,27 +496,3 @@ def _assign_hunk_indices(rows: list[dict[str, Any]]) -> int:
             hunk_count += 1
         previous_changed = changed
     return hunk_count
-
-
-def _row_has_rendered_change(row: dict[str, Any]) -> bool:
-    """Return whether a rendered row belongs to a changed hunk.
-
-    Structural engines can encode movement or replacement entirely in inline
-    token statuses while leaving the aligned row status `equal`. Hunk identity
-    must therefore use both row and token status, matching what the user sees.
-    """
-    status = row.get("status")
-    if not isinstance(status, str):
-        raise TypeError("Rendered row is missing a string status.")
-    if status in {"replace", "insert", "delete", "move"}:
-        return True
-    for side in ("left_tokens", "right_tokens"):
-        tokens = row.get(side, [])
-        if not isinstance(tokens, list):
-            raise TypeError(f"Rendered row {side} must be a list.")
-        for token in tokens:
-            if not isinstance(token, dict):
-                raise TypeError(f"Rendered row {side} must contain mappings.")
-            if token.get("status") != "unchanged":
-                return True
-    return False

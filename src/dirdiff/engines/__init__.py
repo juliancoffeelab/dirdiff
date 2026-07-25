@@ -25,6 +25,7 @@ from dirdiff.engines.base import (
     FoldHint,
     InlineToken,
     SyntaxSpan,
+    engine_row_has_change,
 )
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.git import GitDiffEngine
@@ -46,4 +47,5 @@ __all__ = [
     "InlineToken",
     "SyntaxSpan",
     "TextDiffEngine",
+    "engine_row_has_change",
 ]

@@ -747,6 +747,26 @@ def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> (
     ]
 
 
+def test_markdown_inserted_blank_before_added_section_blocks_prior_fold() -> (
+    None
+):
+    diff = build_loaded_diff(
+        display_name="demo.md",
+        mode="files",
+        left_label="left",
+        right_label="right",
+        left_exists=True,
+        right_exists=True,
+        left_text="# Existing\nbody\n",
+        right_text="# Existing\nbody\n\n# Added\nnew\n",
+        left_path_hint="demo.md",
+        right_path_hint="demo.md",
+    )
+
+    assert diff["hunk_count"] == 1
+    assert diff.get("fold_hints", []) == []
+
+
 def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folded() -> (
     None
 ):
@@ -764,12 +784,6 @@ def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folde
     )
 
     assert diff["fold_hints"] == [
-        {
-            "start_row": 1,
-            "end_row": 4,
-            "kind": "section",
-            "label": "# One",
-        },
         {
             "start_row": 8,
             "end_row": 11,

@@ -28,6 +28,7 @@ __all__ = [
     "FoldHint",
     "InlineToken",
     "SyntaxSpan",
+    "engine_row_has_change",
     "strict_engine_rows",
 ]
 
@@ -396,6 +397,30 @@ class DiffEngineProtocol(Protocol):
         selected.
         """
         ...
+
+
+def engine_row_has_change(row: Mapping[str, object]) -> bool:
+    """Return the diff engine's canonical change classification for one row.
+
+    Line status and inline-token status are the complete engine contract for
+    this decision. Rendering consumers use this operation for summaries, hunk
+    identity, and fold eligibility; they must not compare text independently
+    or discard rows before classifying them.
+    """
+
+    status = row.get("status")
+    if not _is_diff_engine_row_status(status):
+        raise TypeError(f"Invalid engine row status: {status!r}")
+    if status != "equal":
+        return True
+
+    for field in ("left_tokens", "right_tokens"):
+        tokens = row.get(field, [])
+        if not _is_inline_token_list(tokens):
+            raise TypeError(f"Engine row {field} must be inline tokens.")
+        if any(token["status"] != "unchanged" for token in tokens):
+            return True
+    return False
 
 
 def strict_engine_rows(

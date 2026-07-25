@@ -1,11 +1,5 @@
 [
   {
-    "end_row": 4,
-    "kind": "section",
-    "label": "# One",
-    "start_row": 1
-  },
-  {
     "end_row": 11,
     "kind": "section",
     "label": "# Two",
