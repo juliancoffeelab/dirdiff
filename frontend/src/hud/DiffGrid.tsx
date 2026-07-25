@@ -310,10 +310,13 @@ function ImperativeDiffLines(props: {
     // we dont validatate the pin, it must be checked elsewhere
     if (parsed.state === "valid") {
       const row = renderedRow(parsed.target);
+      // we ignore missing rows too, again, must be checked elsewhere
+      if (row === null) {
+        return;
+      }
       // row is not a fold-edge
-      if (!row?.classList.contains("fold-toggle-row")) {
-        // we ignore missing rows too, again, must be checked elsewhere
-        row?.classList.add("pinned-line");
+      if (!row.classList.contains("fold-toggle-row")) {
+        row.classList.add("pinned-line");
       }
     }
   }

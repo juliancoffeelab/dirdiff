@@ -15,7 +15,7 @@
  * error message. A false condition always throws; a true condition returns no value.
  */
 export function assert(
-  condition: unknown,
+  condition: boolean,
   message: string | null = null,
 ): asserts condition {
   if (!condition) {
