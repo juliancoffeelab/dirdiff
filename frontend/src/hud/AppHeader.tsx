@@ -1,10 +1,10 @@
 /**
  * Defines the persistent application header and its repository selector.
  *
- * The module exports AppHeader and the repository/query presentation contract used
- * by the Header and RepoGate. AppHeader renders the brand, Profile, global repo,
- * engine and view controls, metadata status, and stable ChangeSet outlet targets.
- * It observes canonical repository data and performs repository removal commands.
+ * The module exports AppHeader and the repository/query presentation contract
+ * shared with RepoGate. AppHeader renders the brand, Profile, global repo, engine
+ * and view controls, metadata status, and stable ChangeSet outlet targets. It
+ * observes canonical repository data and performs repository removal commands.
  * It does not own workspace selection or ChangeSet status and summary data.
  */
 import { Show, createMemo, createSignal, type JSX } from "solid-js";
@@ -44,7 +44,6 @@ const viewLabels: Record<DiffViewMode, string> = {
  * AppHeader cannot mutate workspace state generically or construct DiffParams.
  */
 type AppHeaderProps = {
-  onSwitchFrontend: () => void;
   selectedProfile: StoredProfile | null;
   selectedRepoId: ProjectId | null;
   engine: DiffEngine;
@@ -171,17 +170,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
       <div class="app-title-block">
         <div class="app-title-row">
           <div class="app-brand">
-            <h1>
-              <button
-                type="button"
-                class="app-brand-switch app-brand-switch-new"
-                title="Switch to v_old"
-                aria-label="Switch to v_old"
-                onClick={props.onSwitchFrontend}
-              >
-                dirdiff
-              </button>
-            </h1>
+            <h1>dirdiff</h1>
             <Profile
               selected={props.selectedProfile}
               metadataTarget={metadataTarget()}

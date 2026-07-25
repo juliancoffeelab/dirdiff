@@ -1,11 +1,11 @@
 /**
  * Defines the top-level application shell and global workspace state.
  *
- * The module exports App and the workspace value types shared with Header. App
- * stores the selected profile and workspace reset identity. Workspace stores the
- * active Tab, selected repository, engine, view, FileTree visibility, and DebugHud
- * visibility and implements URL-backed reconstruction. Neither stores Tab
- * selections, backend query data, ChangeSet-local state, or component input.
+ * The module exports App and the DiffViewMode contract shared with AppHeader.
+ * App stores the selected profile and workspace reset identity. Workspace stores
+ * the active Tab, selected repository, engine, view, FileTree visibility, and
+ * DebugHud visibility and implements URL-backed reconstruction. Neither stores
+ * Tab selections, backend query data, ChangeSet-local state, or component input.
  */
 import { Show, createSignal, onMount, type JSX } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -58,23 +58,12 @@ type WorkspaceState = {
 };
 
 /**
- * Defines the sole application-root command supplied by the browser entrypoint.
- *
- * Activating the brand invokes this exact callback. App does not know or persist
- * the destination frontend identity.
- */
-type AppProps = {
-  onSwitchFrontend: () => void;
-};
-
-/**
  * Defines the required inputs of one reconstructable Workspace.
  *
  * Profile identity survives workspace reset, while `onReset` replaces browser URL
  * state and destroys this complete mounted subtree without replacing providers.
  */
 type WorkspaceProps = {
-  onSwitchFrontend: () => void;
   selectedProfile: StoredProfile | null;
   onProfileSelected: (profile: StoredProfile) => void;
   onProfileForgotten: () => void;
@@ -212,7 +201,7 @@ function resetSearch(
  * Workspace reset replaces only the keyed inner subtree after writing canonical
  * URL state. QueryProvider, ToastProvider, and selected local profile remain alive.
  */
-export function App(props: AppProps): JSX.Element {
+export function App(): JSX.Element {
   const [workspaceIdentity, setWorkspaceIdentity] = createSignal<object>({});
   const [selectedProfile, setSelectedProfile] =
     createSignal<StoredProfile | null>(loadStoredProfile());
@@ -239,7 +228,6 @@ export function App(props: AppProps): JSX.Element {
     <Show when={workspaceIdentity()} keyed>
       {(_identity) => (
         <Workspace
-          onSwitchFrontend={props.onSwitchFrontend}
           selectedProfile={selectedProfile()}
           onProfileSelected={setSelectedProfile}
           onProfileForgotten={() => setSelectedProfile(null)}
@@ -564,7 +552,6 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   return (
     <main class="app-shell">
       <AppHeader
-        onSwitchFrontend={props.onSwitchFrontend}
         selectedProfile={props.selectedProfile}
         selectedRepoId={selectedRepoId()}
         engine={workspace.engine}

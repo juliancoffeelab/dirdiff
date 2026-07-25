@@ -1,32 +1,47 @@
 /**
- * Provide small, domain-independent arithmetic operations shared by frontend
- * modules.
+ * Provides small domain-independent invariant and arithmetic operations shared
+ * by frontend modules.
  *
- * This module must not depend on the DOM, Solid, diff data, or application
- * state. Its functions validate their numeric contracts at runtime so invalid
- * collection bounds fail at their source instead of producing `NaN` or an
- * out-of-range index elsewhere in the UI.
+ * This module must not depend on the DOM, Solid, diff data, or application state.
+ * Its exported functions validate caller contracts at runtime and return only
+ * values justified by those checks; it must not suppress type errors or recover
+ * from violated invariants.
  */
 
 /**
- * Wrap an integer index into a non-empty collection.
+ * Rejects one false runtime invariant and narrows values proven by that condition.
  *
- * Negative and oversized indices are supported. `index` and `length` must be
- * integers, and `length` must be positive; violating those requirements throws
- * before modulo arithmetic can produce an invalid collection index.
+ * Callers provide the condition they require and may provide a boundary-specific
+ * error message. A false condition always throws; a true condition returns no value.
  */
-export function wrapIndex(index: number, length: number): number {
-  if (!Number.isInteger(index)) {
-    throw new Error(`Index must be an integer, received ${index}.`);
+export function assert(
+  condition: unknown,
+  message: string | null = null,
+): asserts condition {
+  if (!condition) {
+    throw new Error(message ?? "Assertion failed.");
   }
-  if (!Number.isInteger(length) || length <= 0) {
-    throw new Error(`Length must be a positive integer, received ${length}.`);
-  }
-  return ((index % length) + length) % length;
 }
 
 /**
- * Restrict a finite number to the inclusive `[min, max]` interval.
+ * Returns one present value or rejects a missing-value invariant.
+ *
+ * Null and undefined are the only missing values. Callers may provide a
+ * boundary-specific error message and receive the original value type without a
+ * non-null type assumption.
+ */
+export function expect<T>(
+  value: T | null | undefined,
+  message: string | null = null,
+): T {
+  if (value === null || value === undefined) {
+    throw new Error(message ?? `Expected value, got ${String(value)}.`);
+  }
+  return value;
+}
+
+/**
+ * Restricts a finite number to the inclusive `[min, max]` interval.
  *
  * All three arguments must be finite and `min` must not exceed `max`. Invalid
  * bounds throw immediately rather than silently returning a misleading value.
