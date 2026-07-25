@@ -69,7 +69,7 @@ do not care about.
 
 Failure contract
 ----------------
-This module raises `TextDiffError` when difftastic cannot be executed, exits
+This module raises `DirdiffError` when difftastic cannot be executed, exits
 non-zero, returns invalid JSON, or returns a top-level JSON shape that cannot be
 treated as one difftastic file diff.
 """
@@ -84,7 +84,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict, TypeIs
 
-from dirdiff.backend import TextDiffError
+from dirdiff.engines.base import DirdiffError
 
 DFT_GRAPH_LIMIT = "10000000"
 DFT_CONTEXT_LINES = "100000000"
@@ -254,7 +254,7 @@ def run_difftastic_json(
                 env=env,
             )
         except FileNotFoundError as exc:
-            raise TextDiffError(
+            raise DirdiffError(
                 "Difftastic engine requires the `difft` executable on PATH."
             ) from exc
 
@@ -262,11 +262,11 @@ def run_difftastic_json(
         message = result.stderr.strip()
         if message == "":
             message = "Difftastic could not build this diff."
-        raise TextDiffError(message)
+        raise DirdiffError(message)
     try:
         parsed = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        raise TextDiffError("Difftastic returned invalid JSON.") from exc
+        raise DirdiffError("Difftastic returned invalid JSON.") from exc
 
     if isinstance(parsed, list):
         if parsed == []:
@@ -276,7 +276,7 @@ def run_difftastic_json(
             return first
     if _is_difftastic_json(parsed):
         return parsed
-    raise TextDiffError("Difftastic returned an unexpected JSON payload.")
+    raise DirdiffError("Difftastic returned an unexpected JSON payload.")
 
 
 def _is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:

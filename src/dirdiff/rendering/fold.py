@@ -13,13 +13,48 @@ import importlib
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
-from dirdiff.engines import FoldHint, engine_row_has_change
+from dirdiff.engines import engine_row_has_change
 
 __all__ = ["FoldHint", "fold_hints_for_path"]
+
+
+class FoldHint(TypedDict):
+    """Foldable source region discovered while rendering a file diff.
+
+    Fold hints are optional metadata for the frontend. They do not change row
+    alignment.
+    """
+
+    start_row: int
+    """
+    First rendered row covered by the fold hint.
+    """
+
+    end_row: int
+    """
+    One-past-the-last rendered row covered by the fold hint.
+    """
+
+    kind: Literal[
+        "function_like",
+        "class_like",
+        "container",
+        "section",
+        "top_level",
+    ]
+    """
+    Source-region category used by the frontend folding policy.
+    """
+
+    label: str
+    """
+    Human-readable fold label derived from the source region.
+    """
+
 
 RegionKind = Literal[
     "function_like",

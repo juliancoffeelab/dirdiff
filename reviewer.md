@@ -53,8 +53,8 @@ the concrete consequence of choosing either one.
 
 ### 2. Check the living architecture
 
-Read `spec/goal.md`, `spec/index.md`, and the subsystem documents relevant to
-the change.
+Read `spec/goal.md`, the relevant frontend or backend index, and the subsystem
+documents relevant to the change.
 
 Check whether:
 

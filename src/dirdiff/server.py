@@ -38,7 +38,6 @@ from dirdiff.backend import (
     RefChoices,
     RepoDiffPath,
     RepoInfo,
-    TextDiffError,
     WorkspaceBackendProtocol,
     build_lazy_info_for_paths,
     build_repo_manifest_for_paths,
@@ -56,12 +55,11 @@ from dirdiff.db import (
 )
 from dirdiff.engines import (
     DiffEngineProtocol,
-    DiffRow,
     DiffSide,
     DiffSummary,
     DifftasticDiffEngine,
+    DirdiffError,
     EngineWarning,
-    FoldHint,
     GitDiffEngine,
     GumTreeDiffEngine,
     TextDiffEngine,
@@ -70,6 +68,9 @@ from dirdiff.notebooks import (
     build_notebook_diff_payload,
 )
 from dirdiff.rendering import (
+    DiffRow,
+    FoldHint,
+    SyntaxClass,
     default_expanded_for_payload,
     enrich_rows_for_display,
 )
@@ -280,12 +281,12 @@ def branch_selection_request_to_selection(
 ) -> BranchSelection:
     branch = request["branch"].strip()
     if branch == "":
-        raise TextDiffError("branch is required.")
+        raise DirdiffError("branch is required.")
     if request["source"] == "local":
         return {"source": "local", "branch": branch}
     remote = request["remote"].strip()
     if remote == "":
-        raise TextDiffError("remote is required for remote selections.")
+        raise DirdiffError("remote is required for remote selections.")
     return {
         "source": "remote",
         "remote": remote,
@@ -307,7 +308,7 @@ def repo_main_branch_record_to_selection(
             "remote": record.remote,
             "branch": record.branch,
         }
-    raise TextDiffError(f"Unknown main branch source: {record.source}")
+    raise DirdiffError(f"Unknown main branch source: {record.source}")
 
 
 class RepoMainBranchRequest(ApiModel):
@@ -428,7 +429,7 @@ class PresetCatalogsResponse(ApiModel):
 class SyntaxSpanResponse(ApiModel):
     start: int
     end: int
-    classes: list[str]
+    classes: list[SyntaxClass]
 
 
 class InlineTokenResponse(ApiModel):
@@ -714,7 +715,7 @@ def build_repo_info_for_request(
     selected_base, selected_review = branch_selections
     if mode == "preset":
         if preset is None or (requested_preset := preset.strip()) == "":
-            raise TextDiffError("preset is required for preset mode.")
+            raise DirdiffError("preset is required for preset mode.")
         preset_name = backend.normalize_side(requested_preset)
         paths = backend.list_repo_diff_paths(
             left=preset_name,
@@ -730,7 +731,7 @@ def build_repo_info_for_request(
         )
     if mode == "branch-review":
         if selected_base is None or selected_review is None:
-            raise TextDiffError("branch selections are required.")
+            raise DirdiffError("branch selections are required.")
         resolved_base_branch, merge_base, normalized_branch = (
             backend.resolve_branch_diff_sides(
                 base_selection=selected_base,
@@ -750,9 +751,9 @@ def build_repo_info_for_request(
             paths=tuple(paths),
         )
     if left is None or (requested_left := left.strip()) == "":
-        raise TextDiffError("left is required for this diff mode.")
+        raise DirdiffError("left is required for this diff mode.")
     if right is None or (requested_right := right.strip()) == "":
-        raise TextDiffError("right is required for this diff mode.")
+        raise DirdiffError("right is required for this diff mode.")
     normalized_left = backend.normalize_side(requested_left)
     normalized_right = backend.normalize_side(requested_right)
     paths = backend.list_repo_diff_paths(
@@ -783,9 +784,9 @@ def preset_project_parts(
     traversal and unknown-group checks.
     """
     if project_id is None or project_id.strip() == "":
-        raise TextDiffError("project_id is required for preset mode.")
+        raise DirdiffError("project_id is required for preset mode.")
     if preset_subset is None or preset_subset.strip() == "":
-        raise TextDiffError("preset_subset is required for preset mode.")
+        raise DirdiffError("preset_subset is required for preset mode.")
     if project_id == "diff":
         preset_type: PresetTypeParam = "diff"
     elif project_id == "fold":
@@ -795,20 +796,20 @@ def preset_project_parts(
     elif project_id == "scroll":
         preset_type = "scroll"
     else:
-        raise TextDiffError(f"Unknown preset project_id: {project_id}")
+        raise DirdiffError(f"Unknown preset project_id: {project_id}")
     return preset_type, preset_subset
 
 
 def marked_project_id(project_id: str | None) -> int:
     """Parse the marked project id carried by repo-backed manifest requests."""
     if project_id is None or project_id.strip() == "":
-        raise TextDiffError("project_id is required for repo-backed modes.")
+        raise DirdiffError("project_id is required for repo-backed modes.")
     try:
         parsed_project_id = int(project_id)
     except ValueError as exc:
-        raise TextDiffError(f"Invalid project_id: {project_id}") from exc
+        raise DirdiffError(f"Invalid project_id: {project_id}") from exc
     if parsed_project_id <= 0:
-        raise TextDiffError(f"Invalid project_id: {project_id}")
+        raise DirdiffError(f"Invalid project_id: {project_id}")
     return parsed_project_id
 
 
@@ -826,11 +827,11 @@ def cached_path_for_request(
     or contradictory metadata.
     """
     if left_path is None and right_path is None:
-        raise TextDiffError("left_path or right_path is required.")
+        raise DirdiffError("left_path or right_path is required.")
     for path in repo_info.paths:
         if path.left_path == left_path and path.right_path == right_path:
             return path
-    raise TextDiffError("Cached manifest path is missing.")
+    raise DirdiffError("Cached manifest path is missing.")
 
 
 def _branch_selection_from_query(
@@ -888,7 +889,7 @@ def service_for_engine(
         return DifftasticDiffEngine()
     if engine == "gumtree":
         return GumTreeDiffEngine(cwd=cwd)
-    raise TextDiffError(f"Unknown diff engine: {engine}")
+    raise DirdiffError(f"Unknown diff engine: {engine}")
 
 
 def create_app(
@@ -985,7 +986,7 @@ def create_app(
         parsed_project_id = marked_project_id(project_id)
         mark = db.get(parsed_project_id)
         if mark is None:
-            raise TextDiffError(f"Invalid project_id: {parsed_project_id}")
+            raise DirdiffError(f"Invalid project_id: {parsed_project_id}")
         return GitBackend.discover(repo_root=Path(mark.path))
 
     def looks_like_notebook_path(path: str | None) -> bool:
@@ -1291,7 +1292,7 @@ def create_app(
                     "scroll": preset_catalog_for_type("scroll"),
                 }
             )
-        except TextDiffError as exc:
+        except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=str(exc),
@@ -1353,7 +1354,7 @@ def create_app(
                     repo_marks=db.list(),
                 )
             )
-        except TextDiffError as exc:
+        except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=str(exc),
@@ -1535,7 +1536,7 @@ def create_app(
             if mode == "preset":
                 payload["display_name"] = repo_info.left_side
             payload["cache_id"] = cache_id
-        except TextDiffError as exc:
+        except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=str(exc),
@@ -1593,10 +1594,10 @@ def create_app(
                     project_id=parsed_project_id, cache_id=cache_id
                 )
                 if cached_repo_info is None:
-                    raise TextDiffError(f"Unknown cache id: {cache_id}")
+                    raise DirdiffError(f"Unknown cache id: {cache_id}")
                 repo_info = cached_repo_info
             payload = build_lazy_info_for_paths(paths=repo_info.paths)
-        except TextDiffError as exc:
+        except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=str(exc),
@@ -1668,7 +1669,7 @@ def create_app(
                     project_id=parsed_project_id, cache_id=cache_id
                 )
                 if cached_repo_info is None:
-                    raise TextDiffError(f"Unknown cache id: {cache_id}")
+                    raise DirdiffError(f"Unknown cache id: {cache_id}")
                 repo_info = cached_repo_info
             renderer = service_for_engine(engine, cwd=backend.cwd)
             cached_path = cached_path_for_request(
@@ -1703,7 +1704,7 @@ def create_app(
                     file_kind=file_kind,
                     context=context,
                 )
-        except TextDiffError as exc:
+        except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=str(exc),

@@ -5,10 +5,9 @@ pair into a dirdiff result.  Backend loading, ref resolution, manifest
 construction, lazy metadata, and notebook routing live outside
 `dirdiff.engines`.
 
-This module owns the public data transfer shapes at that boundary.  Engines
-produce strict `DiffEngineRow` values; display rendering enriches those into
-`DiffRow` values; the server validates and serializes the same shapes for
-HTTP.
+This module owns the public data transfer shapes at that boundary. Engines
+produce strict `DiffEngineRow` values and `DiffEngineResult` values. Display
+rendering enriches those neutral results through its own contracts.
 """
 
 from __future__ import annotations
@@ -21,16 +20,19 @@ __all__ = [
     "DiffEngineProtocol",
     "DiffEngineResult",
     "DiffEngineRow",
-    "DiffRow",
     "DiffSide",
     "DiffSummary",
+    "DirdiffError",
     "EngineWarning",
-    "FoldHint",
     "InlineToken",
-    "SyntaxSpan",
     "engine_row_has_change",
     "strict_engine_rows",
 ]
+
+
+class DirdiffError(ValueError):
+    """Raised when dirdiff cannot safely produce the requested result."""
+
 
 type InlineTokenStatus = Literal[
     "unchanged",
@@ -122,25 +124,6 @@ class DiffSummary(TypedDict):
     """
 
 
-class SyntaxSpan(TypedDict):
-    """Highlighted token span for one rendered line."""
-
-    start: int
-    """
-    Start offset within the rendered line text.
-    """
-
-    end: int
-    """
-    End offset within the rendered line text.
-    """
-
-    classes: list[str]
-    """
-    CSS-ish syntax classes consumed by the frontend renderer.
-    """
-
-
 class InlineToken(TypedDict):
     """Inline token emitted for a rendered diff row.
 
@@ -163,40 +146,6 @@ class InlineToken(TypedDict):
 
     GumTree uses `move` for moved ranges.  Non-structural renderers normally
     emit `unchanged`, `replace`, `insert`, or `delete`.
-    """
-
-
-class FoldHint(TypedDict):
-    """Foldable source region discovered while rendering a file diff.
-
-    Fold hints are optional metadata for the frontend.  They do not change row
-    alignment.
-    """
-
-    start_row: int
-    """
-    First rendered row covered by the fold hint.
-    """
-
-    end_row: int
-    """
-    One-past-the-last rendered row covered by the fold hint.
-    """
-
-    kind: Literal[
-        "function_like",
-        "class_like",
-        "container",
-        "section",
-        "top_level",
-    ]
-    """
-    Source-region category used by the frontend folding policy.
-    """
-
-    label: str
-    """
-    Human-readable fold label derived from the source region.
     """
 
 
@@ -248,75 +197,6 @@ class DiffEngineRow(TypedDict):
     Inline diff tokens for the new/right side.
 
     Empty means the line has no token-level decoration on that side.
-    """
-
-
-class DiffRow(TypedDict):
-    """One row in the rendered text diff grid.
-
-    This is the display/API row shape after engine rows have been enriched for
-    syntax highlighting and backend-owned hunk identity. Frontend fold rows
-    are derived separately from `FoldHint` ranges and never enter this shape.
-    """
-
-    status: Literal["equal", "replace", "insert", "delete", "move"]
-    """
-    Display status of the real aligned engine row.
-    """
-
-    left_no: NotRequired[int | None]
-    """
-    One-based old/left line number, when this row has a left side.
-    """
-
-    right_no: NotRequired[int | None]
-    """
-    One-based new/right line number, when this row has a right side.
-    """
-
-    left_text: NotRequired[str | None]
-    """
-    Rendered old/left line text.
-    """
-
-    right_text: NotRequired[str | None]
-    """
-    Rendered new/right line text.
-    """
-
-    left_tokens: NotRequired[list[InlineToken]]
-    """
-    Inline diff tokens for the old/left side.
-
-    TODO: token spans and syntax spans are parallel decorations today.  We
-    should probably unify them into one server-side decorated text model
-    before the frontend has to merge overlapping ranges itself.
-    """
-
-    right_tokens: NotRequired[list[InlineToken]]
-    """
-    Inline diff tokens for the new/right side.
-    """
-
-    left_syntax: NotRequired[list[SyntaxSpan]]
-    """
-    Syntax-highlight spans for the old/left line.
-
-    See `left_tokens` for the TODO about unifying token and syntax
-    decorations before frontend rendering.
-    """
-
-    right_syntax: NotRequired[list[SyntaxSpan]]
-    """
-    Syntax-highlight spans for the new/right line.
-    """
-
-    hunk_index: int | None
-    """
-    Zero-based file-local identity on the first row of a changed hunk.
-
-    Every other row carries `None`. Display enrichment assigns this field
-    before the row enters an API payload.
     """
 
 

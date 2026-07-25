@@ -20,12 +20,12 @@ from dirdiff.backend.base import (
     RemoteBranchRef,
     RepoDiffPath,
     SideName,
-    TextDiffError,
     TextVersion,
     WorkspaceBackendProtocol,
     _decode_text,
     display_name_for_repo_paths,
 )
+from dirdiff.engines import DirdiffError
 
 __all__ = [
     "GitBackend",
@@ -143,7 +143,7 @@ class GitBackend(WorkspaceBackendProtocol):
     ) -> subprocess.CompletedProcess[bytes]:
         """Run Git inside this backend's repository root and return bytes."""
         if self.repo_root is None:
-            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
             ["git", *args],
             cwd=self.repo_root,
@@ -159,7 +159,7 @@ class GitBackend(WorkspaceBackendProtocol):
     ) -> subprocess.CompletedProcess[str]:
         """Run Git inside this backend's repository root and return text."""
         if self.repo_root is None:
-            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
             ["git", *args],
             cwd=self.repo_root,
@@ -173,11 +173,11 @@ class GitBackend(WorkspaceBackendProtocol):
         """Normalize built-in diff sides while validating explicit Git refs."""
         side = raw_side.strip()
         if side == "":
-            raise TextDiffError("Diff side is required.")
+            raise DirdiffError("Diff side is required.")
         if side in BUILTIN_SIDES:
             return side
         if self.repo_root is None:
-            raise TextDiffError("Custom refs require a Git repo.")
+            raise DirdiffError("Custom refs require a Git repo.")
 
         resolved = subprocess.run(
             ["git", "rev-parse", "--verify", f"{side}^{{commit}}"],
@@ -187,14 +187,14 @@ class GitBackend(WorkspaceBackendProtocol):
             text=True,
         )
         if resolved.returncode != 0:
-            raise TextDiffError(f"Unknown Git ref: {side}")
+            raise DirdiffError(f"Unknown Git ref: {side}")
         return side
 
     @override
     def discover_default_path(self) -> str:
         """Find a path suitable for single-file startup mode."""
         if self.repo_root is None:
-            raise TextDiffError(
+            raise DirdiffError(
                 "No Git repo found for automatic path discovery."
             )
 
@@ -228,7 +228,7 @@ class GitBackend(WorkspaceBackendProtocol):
         if tracked_candidates != []:
             return tracked_candidates[0]
 
-        raise TextDiffError("No files found in the current Git repo.")
+        raise DirdiffError("No files found in the current Git repo.")
 
     @override
     def current_branch_name(self) -> str:
@@ -488,7 +488,7 @@ class GitBackend(WorkspaceBackendProtocol):
             check=False,
         )
         if merge_base.returncode != 0 or merge_base.stdout.strip() == "":
-            raise TextDiffError(
+            raise DirdiffError(
                 f"Could not find a merge base between {normalized_base} and {normalized_branch}."
             )
         return normalized_base, merge_base.stdout.strip(), normalized_branch
@@ -611,7 +611,7 @@ class GitBackend(WorkspaceBackendProtocol):
     def _list_untracked_worktree_paths(self) -> list[RepoDiffPath]:
         """List untracked worktree files as one-sided repo diff paths."""
         if self.repo_root is None:
-            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
 
         result = self._run_git(
             ["ls-files", "--others", "--exclude-standard", "-z"]
@@ -647,7 +647,7 @@ class GitBackend(WorkspaceBackendProtocol):
     ) -> list[RepoDiffPath]:
         """List Git-changed paths and attach line statistics."""
         if self.repo_root is None:
-            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
         if left == right:
             return []
 
@@ -697,33 +697,33 @@ class GitBackend(WorkspaceBackendProtocol):
     def normalize_repo_path(self, raw_path: str) -> str:
         """Normalize and validate a repo-relative path without escaping root."""
         if self.repo_root is None:
-            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
         if raw_path.strip() == "":
-            raise TextDiffError("Repo path is required.")
+            raise DirdiffError("Repo path is required.")
         if raw_path.endswith("/"):
-            raise TextDiffError("Repo path must point to a file.")
+            raise DirdiffError("Repo path must point to a file.")
 
         candidate = PurePosixPath(raw_path)
         if candidate.is_absolute():
-            raise TextDiffError("Use a repo-relative path.")
+            raise DirdiffError("Use a repo-relative path.")
 
         normalized = candidate.as_posix()
         if normalized.startswith("../") or normalized == "..":
-            raise TextDiffError("Repo path must stay inside the repo.")
+            raise DirdiffError("Repo path must stay inside the repo.")
         return normalized
 
     @override
     def load_version(self, path: str, side: SideName) -> TextVersion:
         """Load one file version from worktree, index, or Git tree."""
         if self.repo_root is None:
-            raise TextDiffError("Git-backed diff mode requires a Git repo.")
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
 
         if side == "worktree":
             file_path = self.repo_root / path
             if not file_path.exists():
                 return TextVersion(label=side, exists=False, text=None)
             if file_path.is_dir():
-                raise TextDiffError(f"{path} is a directory, not a file.")
+                raise DirdiffError(f"{path} is a directory, not a file.")
             return TextVersion(
                 label=side,
                 exists=True,

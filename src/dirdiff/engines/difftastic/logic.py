@@ -85,10 +85,9 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from difflib import SequenceMatcher
+from difflib import SequenceMatcher, unified_diff
 from typing import Any, Literal, TypedDict, final, override
 
-from dirdiff.backend import unified_diff_lines
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
@@ -2961,45 +2960,83 @@ def _unified_diff_rows(
     left_label: str,
     right_label: str,
 ) -> list[dict[str, Any]]:
+    """Return textual rows when Difftastic cannot produce structural rows.
+
+    The caller supplies both complete text sides and their display labels.
+    This operation parses Python's unified-diff output directly into the
+    neutral engine-row fields consumed by `strict_engine_rows()`.
+    """
+    left_lines = left_text.splitlines()
+    right_lines = right_text.splitlines()
+    patch_lines = unified_diff(
+        left_lines,
+        right_lines,
+        fromfile=left_label,
+        tofile=right_label,
+        lineterm="",
+        n=max(len(left_lines), len(right_lines)),
+    )
+    hunk_header_pattern = re.compile(
+        r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
+        r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
+    )
     rows: list[dict[str, Any]] = []
-    for diff_line in unified_diff_lines(
-        left_text=left_text,
-        right_text=right_text,
-        left_label=left_label,
-        right_label=right_label,
-    ):
-        if diff_line.status == "equal":
+    left_no = 1
+    right_no = 1
+    in_hunk = False
+
+    for line in patch_lines:
+        hunk_match = hunk_header_pattern.match(line)
+        if hunk_match is not None:
+            left_no = int(hunk_match.group("left_start"))
+            right_no = int(hunk_match.group("right_start"))
+            in_hunk = True
+            continue
+        if not in_hunk or line.startswith("\\"):
+            continue
+
+        prefix = " "
+        text = ""
+        if line != "":
+            prefix = line[0]
+            text = line[1:]
+
+        if prefix == " ":
             rows.append(
                 {
                     "status": "equal",
-                    "left_no": diff_line.left_no,
-                    "right_no": diff_line.right_no,
-                    "left_text": diff_line.text,
-                    "right_text": diff_line.text,
+                    "left_no": left_no,
+                    "right_no": right_no,
+                    "left_text": text,
+                    "right_text": text,
                 }
             )
+            left_no += 1
+            right_no += 1
             continue
-        if diff_line.status == "delete":
+        if prefix == "-":
             rows.append(
                 {
                     "status": "delete",
-                    "left_no": diff_line.left_no,
+                    "left_no": left_no,
                     "right_no": None,
-                    "left_text": diff_line.text,
+                    "left_text": text,
                     "right_text": "",
                 }
             )
+            left_no += 1
             continue
-        if diff_line.status == "insert":
+        if prefix == "+":
             rows.append(
                 {
                     "status": "insert",
                     "left_no": None,
-                    "right_no": diff_line.right_no,
+                    "right_no": right_no,
                     "left_text": "",
-                    "right_text": diff_line.text,
+                    "right_text": text,
                 }
             )
+            right_no += 1
     return rows
 
 

@@ -20,10 +20,10 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any
 
-from dirdiff.backend import TextDiffError
 from dirdiff.engines import (
     DiffEngineProtocol,
     DiffSide,
+    DirdiffError,
     TextDiffEngine,
 )
 from dirdiff.rendering import (
@@ -274,7 +274,7 @@ def _find_notebook_cell_pair(
         )
         if str(identity["cell_key"]) == cell_key:
             return pair_kind, left_index, right_index, left_cell, right_cell
-    raise TextDiffError(f"Unknown notebook cell: {cell_key}")
+    raise DirdiffError(f"Unknown notebook cell: {cell_key}")
 
 
 def _render_notebook_text_payload(

@@ -1,4 +1,4 @@
-# Modules and components
+# Frontend modules and components
 
 ## 1. Purpose
 

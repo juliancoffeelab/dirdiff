@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import NotRequired, Required, TypedDict, TypeIs
 
-from dirdiff.backend import TextDiffError
+from dirdiff.engines.base import DirdiffError
 
 GUMTREE_BIN_ENV = "DIRDIFF_GUMTREE_BIN"
 GUMTREE_RELATIVE_BIN = Path("gumtree/dist/build/install/gumtree/bin/gumtree")
@@ -51,7 +51,7 @@ class GumTreeJson(TypedDict):
     actions: NotRequired[list[GumTreeJsonAction]]
 
 
-class GumTreeInvalidJsonError(TextDiffError):
+class GumTreeInvalidJsonError(DirdiffError):
     pass
 
 
@@ -61,7 +61,7 @@ def gumtree_executable_for_cwd(cwd: Path) -> Path:
         configured_path = Path(configured).expanduser()
         if configured_path.is_file():
             return configured_path
-        raise TextDiffError(
+        raise DirdiffError(
             f"GumTree executable from {GUMTREE_BIN_ENV} does not exist: "
             f"{configured_path}"
         )
@@ -74,7 +74,7 @@ def gumtree_executable_for_cwd(cwd: Path) -> Path:
     if candidate.is_file():
         return candidate
 
-    raise TextDiffError(
+    raise DirdiffError(
         "GumTree engine requires `gumtree` on PATH, GumTree at ../gumtree, "
         f"or {GUMTREE_BIN_ENV} pointing to the GumTree executable."
     )
@@ -117,7 +117,7 @@ def run_gumtree_json(
                 text=True,
             )
         except FileNotFoundError as exc:
-            raise TextDiffError(
+            raise DirdiffError(
                 f"GumTree executable does not exist: {gumtree_bin}"
             ) from exc
 
@@ -125,7 +125,7 @@ def run_gumtree_json(
         message = result.stderr.strip()
         if message == "":
             message = "GumTree could not build this diff."
-        raise TextDiffError(message)
+        raise DirdiffError(message)
 
     try:
         parsed = json.loads(result.stdout)

@@ -14,11 +14,11 @@ import tempfile
 from pathlib import Path
 from typing import final, override
 
-from dirdiff.backend import TextDiffError
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
     DiffSide,
+    DirdiffError,
     strict_engine_rows,
 )
 from dirdiff.engines.git.logic import (
@@ -53,7 +53,7 @@ def run_git_no_index_diff(
 
     Git no-index mode exits with `0` when files are equal and `1` when a
     diff exists, so both are successful engine outcomes.  Other exit codes are
-    surfaced as `TextDiffError` because they mean Git failed to produce a
+    surfaced as `DirdiffError` because they mean Git failed to produce a
     trustworthy patch.
     """
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-") as raw_tmp:
@@ -80,7 +80,7 @@ def run_git_no_index_diff(
                 text=True,
             )
         except FileNotFoundError as exc:
-            raise TextDiffError(
+            raise DirdiffError(
                 "Git engine requires the `git` executable on PATH."
             ) from exc
 
@@ -90,7 +90,7 @@ def run_git_no_index_diff(
     message = result.stderr.strip()
     if message == "":
         message = "Git could not build this diff."
-    raise TextDiffError(message)
+    raise DirdiffError(message)
 
 
 @final

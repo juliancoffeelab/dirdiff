@@ -13,15 +13,23 @@ HTTP route responses. Syntax highlighting and hunk enrichment live in
 """
 
 from dirdiff.rendering.base import (
-    FoldHint,
+    DiffRow,
+    SyntaxClass,
+    SyntaxSpan,
     canonical_json,
     default_expanded_for_payload,
     enrich_rows_for_display,
+    highlight_lines_for_path,
 )
+from dirdiff.rendering.fold import FoldHint
 
 __all__ = [
+    "DiffRow",
     "FoldHint",
+    "SyntaxClass",
+    "SyntaxSpan",
     "canonical_json",
     "default_expanded_for_payload",
     "enrich_rows_for_display",
+    "highlight_lines_for_path",
 ]

@@ -3,7 +3,7 @@
 Code outside `dirdiff.backend` imports backend contracts and concrete workspace
 backends from this package root.  The package owns branch/ref selection types,
 repository path discovery, manifest construction, file-side loading, text diff
-fallback helpers, preset loading, and the in-process repo-info cache used by the
+preset loading, and the in-process repo-info cache used by the
 server between manifest and file-detail requests.
 
 Backend implementations may read Git repositories, preset directories, and the
@@ -28,13 +28,10 @@ from dirdiff.backend.base import (
     RepoDiffPath,
     SideName,
     StructuredRemoteBranchRef,
-    TextDiffError,
     TextVersion,
-    UnifiedDiffLine,
     WorkspaceBackendProtocol,
     display_name_for_repo_paths,
     load_diff_sides,
-    unified_diff_lines,
 )
 from dirdiff.backend.cache import (
     CacheBackendProtocol,
@@ -76,9 +73,7 @@ __all__ = [
     "RepoInfo",
     "SideName",
     "StructuredRemoteBranchRef",
-    "TextDiffError",
     "TextVersion",
-    "UnifiedDiffLine",
     "WorkspaceBackendProtocol",
     "build_lazy_info_for_paths",
     "build_repo_manifest_for_backend",
@@ -88,5 +83,4 @@ __all__ = [
     "git_diff_args_with_direction",
     "load_diff_sides",
     "prepare_pull_request",
-    "unified_diff_lines",
 ]

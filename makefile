@@ -25,6 +25,8 @@ flake-sbt:
 flake-cst:
 	uv --no-cache run flake8 --jobs 1 --select CST001 src tests lints
 
+pyflake: flake-sbt flake-cst
+
 flake-human:
 	uv --no-cache run flake8 --jobs 1 --select SBT002 src tests
 

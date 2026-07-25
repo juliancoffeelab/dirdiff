@@ -19,11 +19,11 @@ from dirdiff.backend.base import (
     RepoDiffPath,
     RepoLazyReason,
     SideName,
-    TextDiffError,
     TextVersion,
     WorkspaceBackendProtocol,
     _count_changed_line_stats,
 )
+from dirdiff.engines import DirdiffError
 
 __all__ = [
     "PresetBackend",
@@ -93,7 +93,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         """List valid old/new fixture directories inside one preset group."""
         group_dir = self.presets_root / group_name
         if not group_dir.is_dir():
-            raise TextDiffError(f"Unknown preset group: {group_name}")
+            raise DirdiffError(f"Unknown preset group: {group_name}")
         return sorted(
             path
             for path in group_dir.iterdir()
@@ -125,7 +125,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         """Choose the first available preset group for initial UI state."""
         names = self._list_preset_names()
         if names == []:
-            raise TextDiffError(f"No presets found in {self.presets_root}.")
+            raise DirdiffError(f"No presets found in {self.presets_root}.")
         return names[0]
 
     def _preset_group_name(self, preset_name: str) -> str:
@@ -135,18 +135,16 @@ class PresetBackend(WorkspaceBackendProtocol):
             normalized = self.default_preset_name()
         candidate = PurePosixPath(normalized)
         if candidate.is_absolute():
-            raise TextDiffError("Preset name must be preset-relative.")
+            raise DirdiffError("Preset name must be preset-relative.")
         if normalized.startswith("../") or normalized == "..":
-            raise TextDiffError(
-                "Preset name must stay inside the presets root."
-            )
+            raise DirdiffError("Preset name must stay inside the presets root.")
         if len(candidate.parts) != 1:
-            raise TextDiffError("Preset name must be a top-level group.")
+            raise DirdiffError("Preset name must be a top-level group.")
         preset_dir = self.presets_root / normalized
         if not preset_dir.is_dir():
-            raise TextDiffError(f"Unknown preset: {normalized}")
+            raise DirdiffError(f"Unknown preset: {normalized}")
         if self._preset_dirs_for_group(normalized) == []:
-            raise TextDiffError(f"Preset group has no fixtures: {normalized}")
+            raise DirdiffError(f"Preset group has no fixtures: {normalized}")
         return normalized
 
     def _preset_pair(self, preset_dir: Path) -> tuple[Path, Path]:
@@ -154,7 +152,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         old_files = sorted(preset_dir.glob("old.*"))
         new_files = sorted(preset_dir.glob("new.*"))
         if len(old_files) != 1 or len(new_files) != 1:
-            raise TextDiffError(
+            raise DirdiffError(
                 f"Preset {preset_dir.name} must contain exactly one old.* and one new.* file."
             )
         return old_files[0], new_files[0]
@@ -172,12 +170,12 @@ class PresetBackend(WorkspaceBackendProtocol):
             return None
         metadata = tomllib.loads(metadata_path.read_text(encoding="utf-8"))
         if set(metadata) != {"lazy_reason"}:
-            raise TextDiffError(
+            raise DirdiffError(
                 f"Preset metadata must contain only lazy_reason: {metadata_path}"
             )
         lazy_reason = metadata["lazy_reason"]
         if not _is_repo_lazy_reason(lazy_reason):
-            raise TextDiffError(
+            raise DirdiffError(
                 f"Unsupported preset lazy_reason: {lazy_reason!r}"
             )
         return lazy_reason
@@ -196,7 +194,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             return old_path
         if wanted_name == new_path.name:
             return new_path
-        raise TextDiffError(f"Preset file is missing: {normalized_path}")
+        raise DirdiffError(f"Preset file is missing: {normalized_path}")
 
     @override
     def normalize_side(self, raw_side: str) -> SideName:
@@ -217,24 +215,22 @@ class PresetBackend(WorkspaceBackendProtocol):
     @override
     def current_branch_name(self) -> str:
         """Reject Git branch access for preset-backed fixtures."""
-        raise TextDiffError(
-            "Preset backend does not have a current Git branch."
-        )
+        raise DirdiffError("Preset backend does not have a current Git branch.")
 
     @override
     def list_branch_names(self) -> list[str]:
         """Reject local branch listing for preset-backed fixtures."""
-        raise TextDiffError("Preset backend does not have Git branches.")
+        raise DirdiffError("Preset backend does not have Git branches.")
 
     @override
     def list_remote_ref_names(self) -> list[str]:
         """Reject remote ref listing for preset-backed fixtures."""
-        raise TextDiffError("Preset backend does not have Git remote refs.")
+        raise DirdiffError("Preset backend does not have Git remote refs.")
 
     @override
     def list_remote_names(self) -> list[str]:
         """Reject remote listing for preset-backed fixtures."""
-        raise TextDiffError("Preset backend does not have Git remotes.")
+        raise DirdiffError("Preset backend does not have Git remotes.")
 
     @override
     def list_ref_choices(self) -> RefChoices:
@@ -249,14 +245,12 @@ class PresetBackend(WorkspaceBackendProtocol):
     @override
     def branch_upstream_name(self, branch_name: str) -> str:
         """Reject upstream lookup for preset-backed fixtures."""
-        raise TextDiffError(
-            "Preset backend does not have Git branch upstreams."
-        )
+        raise DirdiffError("Preset backend does not have Git branch upstreams.")
 
     @override
     def default_base_selection(self) -> DefaultBaseSelection:
         """Reject branch-review defaults for preset-backed fixtures."""
-        raise TextDiffError(
+        raise DirdiffError(
             "Preset backend does not have a default base branch."
         )
 
@@ -265,7 +259,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         self, *, base_selection: DefaultBaseSelection | None = None
     ) -> BranchSelection:
         """Reject branch-review review defaults for preset-backed fixtures."""
-        raise TextDiffError("Preset backend does not support branch review.")
+        raise DirdiffError("Preset backend does not support branch review.")
 
     @override
     def resolve_branch_diff_sides(
@@ -275,7 +269,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         review_selection: BranchSelection,
     ) -> tuple[str, str, str]:
         """Reject branch-review resolution for preset-backed fixtures."""
-        raise TextDiffError("Preset backend does not support branch review.")
+        raise DirdiffError("Preset backend does not support branch review.")
 
     @override
     def list_repo_diff_paths(
@@ -288,7 +282,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         """Represent each old/new fixture pair as one modified repo path."""
         normalized_left = self.normalize_side(left)
         if right != "new":
-            raise TextDiffError(
+            raise DirdiffError(
                 "Preset diffs compare a preset's old.* and new.* files."
             )
         entries: list[RepoDiffPath] = []
@@ -322,25 +316,23 @@ class PresetBackend(WorkspaceBackendProtocol):
     def normalize_repo_path(self, raw_path: str) -> str:
         """Validate the <group>/<fixture>/<file> path shape used by presets."""
         if raw_path.strip() == "":
-            raise TextDiffError("Preset path is required.")
+            raise DirdiffError("Preset path is required.")
         if raw_path.endswith("/"):
-            raise TextDiffError("Preset path must point to a file.")
+            raise DirdiffError("Preset path must point to a file.")
         candidate = PurePosixPath(raw_path)
         if candidate.is_absolute():
-            raise TextDiffError("Use a preset-relative path.")
+            raise DirdiffError("Use a preset-relative path.")
         normalized = candidate.as_posix()
         if normalized.startswith("../") or normalized == "..":
-            raise TextDiffError(
-                "Preset path must stay inside the presets root."
-            )
+            raise DirdiffError("Preset path must stay inside the presets root.")
         parts = candidate.parts
         if len(parts) != 3:
-            raise TextDiffError(
+            raise DirdiffError(
                 "Preset path must look like <group>/<preset>/<old-or-new-file>."
             )
         preset_dir = self.presets_root / candidate.parent
         if not preset_dir.is_dir():
-            raise TextDiffError(f"Unknown preset path: {normalized}")
+            raise DirdiffError(f"Unknown preset path: {normalized}")
         return normalized
 
     @override

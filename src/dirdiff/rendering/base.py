@@ -14,19 +14,196 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict, TypeIs, get_args
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
-from dirdiff.engines import engine_row_has_change
-from dirdiff.rendering.fold import FoldHint, fold_hints_for_path
+from dirdiff.engines import (
+    InlineToken,
+    engine_row_has_change,
+)
+from dirdiff.rendering.fold import fold_hints_for_path
 
 __all__ = [
-    "FoldHint",
+    "DiffRow",
+    "SyntaxClass",
+    "SyntaxSpan",
     "canonical_json",
     "default_expanded_for_payload",
     "enrich_rows_for_display",
+    "highlight_lines_for_path",
 ]
+
+type SyntaxClass = Literal[
+    "ts-attribute",
+    "ts-boolean",
+    "ts-charset",
+    "ts-comment",
+    "ts-comment-documentation",
+    "ts-constant",
+    "ts-constant-builtin",
+    "ts-constant-builtin-boolean",
+    "ts-constant-character",
+    "ts-constant-character-escape",
+    "ts-constant-numeric",
+    "ts-constant-numeric-float",
+    "ts-constant-numeric-integer",
+    "ts-constructor",
+    "ts-embedded",
+    "ts-escape",
+    "ts-function",
+    "ts-function-builtin",
+    "ts-function-macro",
+    "ts-function-method",
+    "ts-function-method-private",
+    "ts-import",
+    "ts-keyframes",
+    "ts-keyword",
+    "ts-keyword-control",
+    "ts-keyword-control-conditional",
+    "ts-keyword-control-exception",
+    "ts-keyword-control-import",
+    "ts-keyword-control-repeat",
+    "ts-keyword-control-return",
+    "ts-keyword-directive",
+    "ts-keyword-function",
+    "ts-keyword-operator",
+    "ts-keyword-storage",
+    "ts-keyword-storage-modifier",
+    "ts-keyword-storage-type",
+    "ts-label",
+    "ts-media",
+    "ts-module",
+    "ts-namespace",
+    "ts-none",
+    "ts-number",
+    "ts-operator",
+    "ts-property",
+    "ts-punctuation",
+    "ts-punctuation-bracket",
+    "ts-punctuation-delimiter",
+    "ts-punctuation-special",
+    "ts-string",
+    "ts-string-escape",
+    "ts-string-regexp",
+    "ts-string-special",
+    "ts-string-special-key",
+    "ts-supports",
+    "ts-tag",
+    "ts-tag-error",
+    "ts-text",
+    "ts-text-literal",
+    "ts-text-reference",
+    "ts-text-title",
+    "ts-text-uri",
+    "ts-type",
+    "ts-type-builtin",
+    "ts-type-parameter",
+    "ts-variable",
+    "ts-variable-builtin",
+    "ts-variable-other",
+    "ts-variable-other-member",
+    "ts-variable-other-member-private",
+    "ts-variable-parameter",
+]
+"""
+Syntax-highlighting class emitted by the bundled Tree-sitter queries.
+
+When adding a syntax class, ensure it is handled in CSS if necessary.
+"""
+
+
+def _is_syntax_class(value: str) -> TypeIs[SyntaxClass]:
+    """Check that a Tree-sitter capture class belongs to `SyntaxClass`."""
+    return value in get_args(SyntaxClass.__value__)
+
+
+class SyntaxSpan(TypedDict):
+    """Highlighted token span for one rendered line."""
+
+    start: int
+    """
+    Start offset within the rendered line text.
+    """
+
+    end: int
+    """
+    End offset within the rendered line text.
+    """
+
+    classes: list[SyntaxClass]
+    """
+    Syntax classes consumed by the frontend renderer.
+    """
+
+
+class DiffRow(TypedDict):
+    """One row in the rendered text diff grid.
+
+    This is the display/API row shape after engine rows have been enriched for
+    syntax highlighting and backend-owned hunk identity. Frontend fold rows
+    are derived separately from `FoldHint` ranges and never enter this shape.
+    """
+
+    status: Literal["equal", "replace", "insert", "delete", "move"]
+    """
+    Display status of the real aligned engine row.
+    """
+
+    left_no: NotRequired[int | None]
+    """
+    One-based old/left line number, when this row has a left side.
+    """
+
+    right_no: NotRequired[int | None]
+    """
+    One-based new/right line number, when this row has a right side.
+    """
+
+    left_text: NotRequired[str | None]
+    """
+    Rendered old/left line text.
+    """
+
+    right_text: NotRequired[str | None]
+    """
+    Rendered new/right line text.
+    """
+
+    left_tokens: NotRequired[list[InlineToken]]
+    """
+    Inline diff tokens for the old/left side.
+
+    TODO: token spans and syntax spans are parallel decorations today. We
+    should probably unify them into one server-side decorated text model
+    before the frontend has to merge overlapping ranges itself.
+    """
+
+    right_tokens: NotRequired[list[InlineToken]]
+    """
+    Inline diff tokens for the new/right side.
+    """
+
+    left_syntax: NotRequired[list[SyntaxSpan]]
+    """
+    Syntax-highlight spans for the old/left line.
+
+    See `left_tokens` for the TODO about unifying token and syntax
+    decorations before frontend rendering.
+    """
+
+    right_syntax: NotRequired[list[SyntaxSpan]]
+    """
+    Syntax-highlight spans for the new/right line.
+    """
+
+    hunk_index: int | None
+    """
+    Zero-based file-local identity on the first row of a changed hunk.
+
+    Every other row carries `None`. Display enrichment assigns this field
+    before the row enters an API payload.
+    """
 
 
 @dataclass(frozen=True)
@@ -78,9 +255,9 @@ class _SyntaxSpan:
     End offset within the rendered line text.
     """
 
-    classes: tuple[str, ...]
+    classes: tuple[SyntaxClass, ...]
     """
-    CSS-ish syntax classes for this span.
+    Syntax classes for this span.
     """
 
 
@@ -178,10 +355,10 @@ _LANGUAGE_SPECS: tuple[_SyntaxLanguageSpec, ...] = (
 )
 
 
-def _highlight_lines_for_path(
+def highlight_lines_for_path(
     path: str | None,
     text: str,
-) -> list[list[dict[str, object]]] | None:
+) -> list[list[SyntaxSpan]] | None:
     """Return syntax spans for display rendering, if a parser is available.
 
     Highlighting is part of the rendered row payload, not part of diff-engine
@@ -260,7 +437,7 @@ def _sibling_query_path(query_path: str, query_name: str) -> str:
 def _highlight_lines_with_spec(
     spec: _SyntaxLanguageSpec,
     text: str,
-) -> list[list[dict[str, object]]] | None:
+) -> list[list[SyntaxSpan]] | None:
     try:
         language, query = _load_syntax_language_query(
             spec.module_name,
@@ -297,9 +474,9 @@ def _highlight_lines_with_spec(
         if character == "\n":
             line_starts.append(index + 1)
 
-    line_intervals: list[list[tuple[int, int, tuple[str, ...], int]]] = [
-        [] for _ in line_texts
-    ]
+    line_intervals: list[
+        list[tuple[int, int, tuple[SyntaxClass, ...], int]]
+    ] = [[] for _ in line_texts]
     for order, (capture_name, start_byte, end_byte) in enumerate(captures):
         start_char = bisect_right(byte_boundaries, start_byte) - 1
         end_char = bisect_right(byte_boundaries, end_byte) - 1
@@ -326,28 +503,32 @@ def _highlight_lines_with_spec(
 
     return [
         [
-            {
-                "start": span.start,
-                "end": span.end,
-                "classes": list(span.classes),
-            }
+            SyntaxSpan(
+                start=span.start,
+                end=span.end,
+                classes=list(span.classes),
+            )
             for span in _collapse_line_intervals(line, intervals)
         ]
         for line, intervals in zip(line_texts, line_intervals, strict=True)
     ]
 
 
-def _classes_for_capture(capture_name: str) -> tuple[str, ...]:
+def _classes_for_capture(capture_name: str) -> tuple[SyntaxClass, ...]:
     parts = [part for part in capture_name.split(".") if part]
-    classes = []
+    classes: list[SyntaxClass] = []
     for index in range(1, len(parts) + 1):
-        classes.append(f"ts-{'-'.join(parts[:index])}")
+        syntax_class = f"ts-{'-'.join(parts[:index])}"
+        assert _is_syntax_class(syntax_class), (
+            f"Tree-sitter emitted undeclared syntax class {syntax_class!r}."
+        )
+        classes.append(syntax_class)
     return tuple(classes)
 
 
 def _collapse_line_intervals(
     line_text: str,
-    intervals: list[tuple[int, int, tuple[str, ...], int]],
+    intervals: list[tuple[int, int, tuple[SyntaxClass, ...], int]],
 ) -> list[_SyntaxSpan]:
     if intervals == []:
         return []
@@ -358,7 +539,10 @@ def _collapse_line_intervals(
         events.append((end, 0, index))
     events.sort(key=lambda item: (item[0], item[1]))
 
-    active: dict[int, tuple[int, int, tuple[str, ...], int]] = {}
+    active: dict[
+        int,
+        tuple[int, int, tuple[SyntaxClass, ...], int],
+    ] = {}
     position = 0
     spans: list[_SyntaxSpan] = []
 
@@ -399,7 +583,7 @@ def _append_syntax_span(
     spans: list[_SyntaxSpan],
     start: int,
     end: int,
-    classes: tuple[str, ...],
+    classes: tuple[SyntaxClass, ...],
 ) -> None:
     if start >= end:
         return
@@ -447,8 +631,11 @@ def enrich_rows_for_display(
     calling it.
     """
     hunk_count = _assign_hunk_indices(rows)
-    left_syntax_lines = _highlight_lines_for_path(left_path_hint, left_text)
-    right_syntax_lines = _highlight_lines_for_path(right_path_hint, right_text)
+    left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
+    right_syntax_lines = highlight_lines_for_path(
+        right_path_hint,
+        right_text,
+    )
     fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
     for row in rows:
         left_no = row.get("left_no")

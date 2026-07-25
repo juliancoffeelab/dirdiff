@@ -6,25 +6,23 @@ arrive with `DiffSide` values whose text, existence flags, labels, and path
 hints were prepared by the backend or notebook layer; engines render those sides
 into neutral row payloads and summary counts.
 
-The engines package owns the shared row contract in `base.py` and the concrete
-renderers for difftastic, Git no-index, GumTree, and native text diffs.  It must
-not load repositories, resolve refs, build manifests, decide notebook routing,
-serialize HTTP responses, or attach display-only syntax/fold enrichment.  Those
-steps belong to `dirdiff.backend`, `dirdiff.notebooks`, `dirdiff.server`, and
-`dirdiff.rendering` respectively.
+The engines package owns the shared failure and row contracts in `base.py` and
+the concrete renderers for difftastic, Git no-index, GumTree, and native text
+diffs. It must not load repositories, resolve refs, build manifests, decide
+notebook routing, serialize HTTP responses, or attach display-only syntax/fold
+enrichment. Those steps belong to `dirdiff.backend`, `dirdiff.notebooks`,
+`dirdiff.server`, and `dirdiff.rendering` respectively.
 """
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
     DiffEngineRow,
-    DiffRow,
     DiffSide,
     DiffSummary,
+    DirdiffError,
     EngineWarning,
-    FoldHint,
     InlineToken,
-    SyntaxSpan,
     engine_row_has_change,
 )
 from dirdiff.engines.difftastic import DifftasticDiffEngine
@@ -36,16 +34,14 @@ __all__ = [
     "DiffEngineProtocol",
     "DiffEngineResult",
     "DiffEngineRow",
-    "DiffRow",
     "DiffSide",
     "DiffSummary",
     "DifftasticDiffEngine",
+    "DirdiffError",
     "EngineWarning",
-    "FoldHint",
     "GitDiffEngine",
     "GumTreeDiffEngine",
     "InlineToken",
-    "SyntaxSpan",
     "TextDiffEngine",
     "engine_row_has_change",
 ]

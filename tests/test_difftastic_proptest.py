@@ -19,8 +19,8 @@ import tree_sitter_rust
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
-from dirdiff.backend import GitBackend, TextDiffError, load_diff_sides
-from dirdiff.engines import DiffSide
+from dirdiff.backend import GitBackend, load_diff_sides
+from dirdiff.engines import DiffSide, DirdiffError
 from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
 from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
@@ -52,7 +52,7 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
                 left="head",
                 right="worktree",
             )
-        except TextDiffError:
+        except DirdiffError:
             continue
 
         left_version = sides["left_version"]

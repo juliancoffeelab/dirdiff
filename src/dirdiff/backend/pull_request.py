@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from dirdiff.backend.base import TextDiffError
+from dirdiff.engines import DirdiffError
 
 __all__ = [
     "PreparedPullRequest",
@@ -118,7 +118,7 @@ def prepare_pull_request(
             url=value,
             repo_marks=repo_marks,
         )
-    raise TextDiffError(
+    raise DirdiffError(
         "Only GitHub pull request and GitLab merge request URLs are supported."
     )
 
@@ -162,7 +162,7 @@ def _prepare_github_pull_request(
                 branch=review_branch,
             ),
         )
-    raise TextDiffError(
+    raise DirdiffError(
         "No marked repository has a remote for this pull request."
     )
 
@@ -206,7 +206,7 @@ def _prepare_gitlab_merge_request(
                 branch=review_branch,
             ),
         )
-    raise TextDiffError(
+    raise DirdiffError(
         "No marked repository has a remote for this merge request."
     )
 
@@ -225,11 +225,11 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
         with urllib.request.urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise TextDiffError(
+        raise DirdiffError(
             f"GitHub pull request request failed: {exc.code} {exc.reason}"
         ) from exc
     except urllib.error.URLError as exc:
-        raise TextDiffError(
+        raise DirdiffError(
             f"GitHub pull request request failed: {exc.reason}"
         ) from exc
 
@@ -239,15 +239,15 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
         base_branch = base["ref"]
         base_repo_url = base_repo["html_url"]
     except KeyError as exc:
-        raise TextDiffError(
+        raise DirdiffError(
             "GitHub pull request response is missing base data."
         ) from exc
     if not isinstance(base_branch, str) or base_branch.strip() == "":
-        raise TextDiffError(
+        raise DirdiffError(
             "GitHub pull request response has an empty base branch."
         )
     if not isinstance(base_repo_url, str) or base_repo_url.strip() == "":
-        raise TextDiffError(
+        raise DirdiffError(
             "GitHub pull request response has an empty base repo URL."
         )
     return _GitHubPullRequest(
@@ -264,7 +264,7 @@ def _parse_github_pull_request_url(url: str) -> tuple[str, str, int]:
     value = url.strip()
     match = GITHUB_PULL_REQUEST_RE.match(value)
     if match is None:
-        raise TextDiffError("Only GitHub pull request URLs are supported.")
+        raise DirdiffError("Only GitHub pull request URLs are supported.")
     owner = urllib.parse.unquote(match.group("owner"))
     repo = urllib.parse.unquote(match.group("repo")).removesuffix(".git")
     number = int(match.group("number"))
@@ -286,22 +286,22 @@ def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
         with urllib.request.urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise TextDiffError(
+        raise DirdiffError(
             f"GitLab merge request request failed: {exc.code} {exc.reason}"
         ) from exc
     except urllib.error.URLError as exc:
-        raise TextDiffError(
+        raise DirdiffError(
             f"GitLab merge request request failed: {exc.reason}"
         ) from exc
 
     try:
         target_branch = payload["target_branch"]
     except KeyError as exc:
-        raise TextDiffError(
+        raise DirdiffError(
             "GitLab merge request response is missing target branch data."
         ) from exc
     if not isinstance(target_branch, str) or target_branch.strip() == "":
-        raise TextDiffError(
+        raise DirdiffError(
             "GitLab merge request response has an empty target branch."
         )
     return _GitLabMergeRequest(
@@ -319,7 +319,7 @@ def _parse_gitlab_merge_request_url(url: str) -> tuple[str, str, str, int]:
     value = url.strip()
     match = GITLAB_MERGE_REQUEST_RE.match(value)
     if match is None:
-        raise TextDiffError("Only GitLab merge request URLs are supported.")
+        raise DirdiffError("Only GitLab merge request URLs are supported.")
     scheme = match.group("scheme")
     host = match.group("host")
     project_path = urllib.parse.unquote(match.group("project")).removesuffix(
@@ -333,7 +333,7 @@ def _matching_remote(*, repo_path: Path, remote_repo_key: str) -> str | None:
     for remote, remote_url in _remote_urls(repo_path).items():
         try:
             repo_key = _repo_key_from_git_url(remote_url)
-        except TextDiffError:
+        except DirdiffError:
             continue
         if repo_key == remote_repo_key:
             return remote
@@ -375,7 +375,7 @@ def _fetch_ref(
         message = result.stderr.strip() or result.stdout.strip()
         if message == "":
             message = f"git fetch failed with exit code {result.returncode}."
-        raise TextDiffError(message)
+        raise DirdiffError(message)
 
 
 def _run_git_text(
@@ -396,12 +396,12 @@ def _run_git_text(
 def _repo_key_from_git_url(url: str) -> str:
     stripped = url.strip()
     if stripped == "":
-        raise TextDiffError("Remote URL is empty.")
+        raise DirdiffError("Remote URL is empty.")
     if stripped.startswith("git@"):
         without_user = stripped.removeprefix("git@")
         host, separator, path = without_user.partition(":")
         if separator == "":
-            raise TextDiffError(f"Unsupported Git remote URL: {url}")
+            raise DirdiffError(f"Unsupported Git remote URL: {url}")
         return _repo_key(host=host, path=path)
 
     parsed = urllib.parse.urlparse(stripped)
@@ -409,7 +409,7 @@ def _repo_key_from_git_url(url: str) -> str:
         host = parsed.hostname or ""
         path = parsed.path
         return _repo_key(host=host, path=path)
-    raise TextDiffError(f"Unsupported Git remote URL: {url}")
+    raise DirdiffError(f"Unsupported Git remote URL: {url}")
 
 
 def _repo_key(*, host: str, path: str) -> str:
@@ -417,5 +417,5 @@ def _repo_key(*, host: str, path: str) -> str:
     normalized_path = urllib.parse.unquote(path).strip().strip("/")
     normalized_path = normalized_path.removesuffix(".git")
     if normalized_host == "" or normalized_path == "":
-        raise TextDiffError("Git remote URL is missing host or path.")
+        raise DirdiffError("Git remote URL is missing host or path.")
     return f"{normalized_host}/{normalized_path.lower()}"

@@ -46,8 +46,8 @@ implementation and its living architecture under `spec/`.
 
 ### Preserve explicit invariants
 
-- Read `spec/index.md` and the relevant subsystem document before changing that
-  subsystem.
+- Read `spec/frontend_index.md` or `spec/backend_index.md` and the relevant
+  subsystem document before changing that subsystem.
 - The highest-priority frontend navigation invariant is that `selectHunk()` has
   exactly three *direct* callers: `nextHunk()`, `prevHunk()`, and
   `scrollFollow()`.
@@ -91,7 +91,8 @@ implementation and its living architecture under `spec/`.
 
 ### Frontend
 
-- `spec/index.md` maps the current frontend modules and their interfaces.
+- `spec/frontend_index.md` maps the current frontend modules and their
+  interfaces.
 - Existing documented module boundaries remain stable unless the user approves
   an architectural change.
 - Do not create a new module unless its coherent implementation is reasonably
@@ -202,6 +203,8 @@ Names that commonly expose bad patterns require architectural scrutiny:
   suites as a substitute for examining behavior.
 - Run `make format` after code changes for which the formatter applies.
 - Use `make tscheck` & `make eslint` for ordinary frontend TypeScript
+  verification.
+- Use `make mypy` & `make ruff` & `make pyflake` for ordinary backend Python
   verification.
 - A CSS or interaction change requires browser verification and screenshots;
   TypeScript checks do not verify it.

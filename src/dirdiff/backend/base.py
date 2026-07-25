@@ -3,7 +3,7 @@
 Concrete backends such as `GitBackend` and `PresetBackend` implement
 `WorkspaceBackendProtocol` to provide normalized sides, changed path lists, ref
 metadata, and loaded file text.  This module defines those data shapes plus the
-small text/unified-diff helpers reused by backend implementations.
+small text helpers reused by backend implementations.
 
 It should not know about HTTP endpoints, cache ids, frontend rendering, or
 which diff engine will consume the loaded text.
@@ -11,12 +11,12 @@ which diff engine will consume the loaded text.
 
 from __future__ import annotations
 
-import difflib
-import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict
+
+from dirdiff.engines import DirdiffError
 
 SideName = str
 BranchSource = Literal["local", "remote"]
@@ -24,10 +24,6 @@ RepoLazyReason = Literal[
     "too_big", "generated", "deleted", "untracked", "pure_renamed"
 ]
 BUILTIN_SIDES = frozenset({"head", "index", "worktree"})
-UNIFIED_HUNK_HEADER_PATTERN = re.compile(
-    r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
-    r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
-)
 
 __all__ = [
     "BUILTIN_SIDES",
@@ -44,13 +40,10 @@ __all__ = [
     "RepoLazyReason",
     "SideName",
     "StructuredRemoteBranchRef",
-    "TextDiffError",
     "TextVersion",
-    "UnifiedDiffLine",
     "WorkspaceBackendProtocol",
     "display_name_for_repo_paths",
     "load_diff_sides",
-    "unified_diff_lines",
 ]
 
 
@@ -77,26 +70,6 @@ class RepoDiffPath:
     added_lines: int | None = None
     removed_lines: int | None = None
     untracked: bool = False
-
-
-@dataclass(frozen=True)
-class UnifiedDiffLine:
-    """One parsed content line from a unified diff hunk.
-
-    This backend-level shape is intentionally not a frontend row.  It records
-    the line status, side line numbers, and text extracted from
-    `difflib.unified_diff` so engines can project the fallback into their own
-    row payloads without each parsing unified-diff headers.
-    """
-
-    status: Literal["equal", "insert", "delete"]
-    left_no: int | None
-    right_no: int | None
-    text: str
-
-
-class TextDiffError(ValueError):
-    """Raised when a diff request cannot be fulfilled safely."""
 
 
 class LocalBranchSelection(TypedDict):
@@ -175,11 +148,11 @@ class LoadedDiffSides(TypedDict):
 def _decode_text(data: bytes, *, label: str) -> str:
     """Decode backend bytes as UTF-8 and turn binary data into a request error."""
     if b"\x00" in data:
-        raise TextDiffError(f"{label} appears to be a binary file.")
+        raise DirdiffError(f"{label} appears to be a binary file.")
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise TextDiffError(f"{label} is not valid UTF-8 text: {exc}") from exc
+        raise DirdiffError(f"{label} is not valid UTF-8 text: {exc}") from exc
 
 
 def display_name_for_repo_paths(
@@ -346,7 +319,7 @@ def load_diff_sides(
     downstream payload builders.
 
     This is backend logic: normalize repo paths, normalize side names, ask
-    the selected backend for text, and raise `TextDiffError` when the selected
+    the selected backend for text, and raise `DirdiffError` when the selected
     sides cannot be loaded safely.
     """
     normalized_left = (
@@ -373,11 +346,11 @@ def load_diff_sides(
     )
 
     if left_version.error is not None:
-        raise TextDiffError(left_version.error)
+        raise DirdiffError(left_version.error)
     if right_version.error is not None:
-        raise TextDiffError(right_version.error)
+        raise DirdiffError(right_version.error)
     if not left_version.exists and not right_version.exists:
-        raise TextDiffError("The selected file is missing on both sides.")
+        raise DirdiffError("The selected file is missing on both sides.")
 
     return {
         "left_path": normalized_left,
@@ -387,87 +360,3 @@ def load_diff_sides(
         "left_version": left_version,
         "right_version": right_version,
     }
-
-
-def unified_diff_lines(
-    *,
-    left_text: str,
-    right_text: str,
-    left_label: str,
-    right_label: str,
-) -> list[UnifiedDiffLine]:
-    """Return parsed unified-diff content lines for a text pair.
-
-    This helper centralizes the `difflib.unified_diff` fallback used when a
-    structural engine cannot produce its normal row model.  It deliberately
-    returns backend-level line records rather than dirdiff rows: engines still
-    choose how to map those records into their renderer-specific payloads.
-    """
-    left_lines = left_text.splitlines()
-    right_lines = right_text.splitlines()
-    patch_lines = difflib.unified_diff(
-        left_lines,
-        right_lines,
-        fromfile=left_label,
-        tofile=right_label,
-        lineterm="",
-        n=max(len(left_lines), len(right_lines)),
-    )
-    lines: list[UnifiedDiffLine] = []
-    left_no = 1
-    right_no = 1
-    in_hunk = False
-
-    for line in patch_lines:
-        hunk_match = UNIFIED_HUNK_HEADER_PATTERN.match(line)
-        if hunk_match is not None:
-            left_no = int(hunk_match.group("left_start"))
-            right_no = int(hunk_match.group("right_start"))
-            in_hunk = True
-            continue
-        if not in_hunk:
-            continue
-        if line.startswith("\\"):
-            continue
-
-        prefix = " "
-        text = ""
-        if line != "":
-            prefix = line[0]
-            text = line[1:]
-
-        if prefix == " ":
-            lines.append(
-                UnifiedDiffLine(
-                    status="equal",
-                    left_no=left_no,
-                    right_no=right_no,
-                    text=text,
-                )
-            )
-            left_no += 1
-            right_no += 1
-            continue
-        if prefix == "-":
-            lines.append(
-                UnifiedDiffLine(
-                    status="delete",
-                    left_no=left_no,
-                    right_no=None,
-                    text=text,
-                )
-            )
-            left_no += 1
-            continue
-        if prefix == "+":
-            lines.append(
-                UnifiedDiffLine(
-                    status="insert",
-                    left_no=None,
-                    right_no=right_no,
-                    text=text,
-                )
-            )
-            right_no += 1
-
-    return lines
