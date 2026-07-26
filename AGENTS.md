@@ -150,7 +150,7 @@ Use established domain language consistently:
 - **Tab** describes the top-level review mode;
 - **diff** describes a file-local difference.
 
-Use the following words only for their defined meaning, not for anything else:
+Use the following words only for their defined meaning, avoid for anything else:
 
 - **owner** means actual ownership of data or a resource, as in Rust ownership.
   Files, features, and projects do not “own” things merely because code is placed
@@ -161,8 +161,8 @@ Use the following words only for their defined meaning, not for anything else:
 - **request** as a noun means an HTTP entity. It may also be used as a verb and
   in established external names such as `requestAnimationFrame` and
   `pull_request`. Parameters to an HTTP request are parameters or options.
-- **draft** means unfinished material intended to be revised, accepted, or
-  rejected.
+- **draft** means potentially persisted, unfinished material intended to be
+  revised, accepted, or rejected. Input is input, it's not a draft.
 - **comparison** means a logical comparison. The UI entity is a Tab; a
   file-local entity is a diff.
 - **projection** is ambiguous and often signals an unclear design. Highlight it
