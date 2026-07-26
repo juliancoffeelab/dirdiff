@@ -506,6 +506,18 @@ def highlight_lines_for_path(
     language and query; unsupported languages, missing parsers, and missing
     query files all produce `None`; callers then leave that side undecorated.
     """
+
+    def _syntax_spec_for_path(path: str) -> _SyntaxLanguageSpec | None:
+        """Return the configured syntax language matching one path."""
+        normalized = path.casefold()
+        basename = normalized.rsplit("/", 1)[-1]
+        for spec in _LANGUAGE_SPECS:
+            if basename in spec.filenames:
+                return spec
+            if any(normalized.endswith(suffix) for suffix in spec.suffixes):
+                return spec
+        return None
+
     if path is None:
         return None
     spec = _syntax_spec_for_path(path)
@@ -513,17 +525,6 @@ def highlight_lines_for_path(
         return None
 
     return _highlight_lines_with_spec(spec, text)
-
-
-def _syntax_spec_for_path(path: str) -> _SyntaxLanguageSpec | None:
-    normalized = path.casefold()
-    basename = normalized.rsplit("/", 1)[-1]
-    for spec in _LANGUAGE_SPECS:
-        if basename in spec.filenames:
-            return spec
-        if any(normalized.endswith(suffix) for suffix in spec.suffixes):
-            return spec
-    return None
 
 
 @cache
@@ -545,6 +546,25 @@ def _load_syntax_language_query(
 
 @cache
 def _load_syntax_query_text(package_name: str, query_path: str) -> str:
+    def _inherited_query_names(query_text: str) -> list[str]:
+        """Parse inherited tree-sitter query names from query comments."""
+        inherited_names: list[str] = []
+        for line in query_text.splitlines():
+            match = re.match(r"\s*;\s*inherits:\s*(.+)$", line)
+            if match is None:
+                continue
+            inherited_names.extend(
+                name.strip()
+                for name in match.group(1).split(",")
+                if name.strip()
+            )
+        return inherited_names
+
+    def _sibling_query_path(query_path: str, query_name: str) -> str:
+        """Address an inherited query beside the current query file."""
+        parent = query_path.rsplit("/", 1)[0]
+        return f"{parent}/{query_name}.scm"
+
     query_file = files(package_name).joinpath(query_path)
     query_text = query_file.read_text(encoding="utf-8")
     inherited_query_texts = [
@@ -557,27 +577,24 @@ def _load_syntax_query_text(package_name: str, query_path: str) -> str:
     return "\n".join([*inherited_query_texts, query_text])
 
 
-def _inherited_query_names(query_text: str) -> list[str]:
-    inherited_names: list[str] = []
-    for line in query_text.splitlines():
-        match = re.match(r"\s*;\s*inherits:\s*(.+)$", line)
-        if match is None:
-            continue
-        inherited_names.extend(
-            name.strip() for name in match.group(1).split(",") if name.strip()
-        )
-    return inherited_names
-
-
-def _sibling_query_path(query_path: str, query_name: str) -> str:
-    parent = query_path.rsplit("/", 1)[0]
-    return f"{parent}/{query_name}.scm"
-
-
 def _highlight_lines_with_spec(
     spec: _SyntaxLanguageSpec,
     text: str,
 ) -> list[list[SyntaxSpan]] | None:
+    def _classes_for_capture(
+        capture_name: str,
+    ) -> tuple[SyntaxClass, ...]:
+        """Expand one tree-sitter capture into validated prefix classes."""
+        parts = [part for part in capture_name.split(".") if part]
+        classes: list[SyntaxClass] = []
+        for index in range(1, len(parts) + 1):
+            syntax_class = f"ts-{'-'.join(parts[:index])}"
+            assert _is_syntax_class(syntax_class), (
+                f"Tree-sitter emitted undeclared syntax class {syntax_class!r}."
+            )
+            classes.append(syntax_class)
+        return tuple(classes)
+
     try:
         language, query = _load_syntax_language_query(
             spec.module_name,
@@ -652,18 +669,6 @@ def _highlight_lines_with_spec(
         ]
         for line, intervals in zip(line_texts, line_intervals, strict=True)
     ]
-
-
-def _classes_for_capture(capture_name: str) -> tuple[SyntaxClass, ...]:
-    parts = [part for part in capture_name.split(".") if part]
-    classes: list[SyntaxClass] = []
-    for index in range(1, len(parts) + 1):
-        syntax_class = f"ts-{'-'.join(parts[:index])}"
-        assert _is_syntax_class(syntax_class), (
-            f"Tree-sitter emitted undeclared syntax class {syntax_class!r}."
-        )
-        classes.append(syntax_class)
-    return tuple(classes)
 
 
 def _collapse_line_intervals(

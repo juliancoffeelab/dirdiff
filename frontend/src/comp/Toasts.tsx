@@ -158,6 +158,21 @@ const ToastContext = createContext<ToastCommands>();
  * formatting failure.
  */
 export function presentError(error: unknown): PresentedError {
+  /**
+   * Classifies the lifetime policy encoded by a transport error.
+   *
+   * Only the structural `error_reason: "timeout"` contract expires; every
+   * other value remains persistent.
+   */
+  function errorReason(error: unknown): "timeout" | "other" {
+    if (!isObject(error) || !("error_reason" in error)) {
+      return "other";
+    }
+
+    const candidate = error as ErrorWithReason;
+    return candidate.error_reason === "timeout" ? "timeout" : "other";
+  }
+
   try {
     const message = primaryMessage(error);
     return {
@@ -624,6 +639,62 @@ function UnexpectedErrorPanel(props: {
  * the outer no-throw boundary for hostile structural values.
  */
 function primaryMessage(error: unknown): string {
+  /**
+   * Extracts validation issues when a thrown value exposes the required shape.
+   *
+   * Only an array-valued `issues` field participates in formatting precedence.
+   */
+  function errorIssues(error: unknown): unknown[] | null {
+    if (!isObject(error) || !("issues" in error)) {
+      return null;
+    }
+
+    const candidate = error as ErrorWithIssues;
+    return Array.isArray(candidate.issues) ? candidate.issues : null;
+  }
+
+  /**
+   * Attempts to parse one complete JSON document.
+   *
+   * The discriminant preserves valid `null` separately from parse failure.
+   */
+  function parseJson(text: string): ParsedJson {
+    try {
+      return { parsed: true, value: JSON.parse(text) };
+    } catch {
+      return { parsed: false };
+    }
+  }
+
+  /**
+   * Pretty-prints arbitrary data without assuming serialization succeeds.
+   *
+   * Unsupported values use the stable undisplayable-value diagnostic without
+   * invoking conversion hooks.
+   */
+  function prettyJson(value: unknown): string {
+    try {
+      const formatted = JSON.stringify(value, null, 2);
+      return formatted === undefined
+        ? UNDISPLAYABLE_THROWN_VALUE_MESSAGE
+        : formatted;
+    } catch {
+      return UNDISPLAYABLE_THROWN_VALUE_MESSAGE;
+    }
+  }
+
+  /**
+   * Formats complete JSON text while preserving ordinary text verbatim.
+   *
+   * Callers provide an Error message or thrown string. Valid JSON is expanded
+   * for readability; failed parsing returns the original text without trimming
+   * or substituting content.
+   */
+  function formattedText(text: string): string {
+    const parsed = parseJson(text);
+    return parsed.parsed ? prettyJson(parsed.value) : text;
+  }
+
   const issues = errorIssues(error);
   if (issues !== null) {
     return prettyJson(issues);
@@ -657,82 +728,6 @@ function errorDetails(error: unknown, message: string): string | null {
     return null;
   }
   return stack;
-}
-
-/**
- * Classifies the lifetime policy encoded by a transport error.
- *
- * The function recognizes only the structural `error_reason: "timeout"`
- * contract. Every other value remains persistent, keeping notification code
- * independent from private transport error classes.
- */
-function errorReason(error: unknown): "timeout" | "other" {
-  if (!isObject(error) || !("error_reason" in error)) {
-    return "other";
-  }
-
-  const candidate = error as ErrorWithReason;
-  return candidate.error_reason === "timeout" ? "timeout" : "other";
-}
-
-/**
- * Extracts validation issues when a thrown value exposes the required shape.
- *
- * Only an actual array-valued `issues` field participates in the formatting
- * precedence. Error-like objects with any other shape return `null` and follow
- * ordinary Error or value formatting.
- */
-function errorIssues(error: unknown): unknown[] | null {
-  if (!isObject(error) || !("issues" in error)) {
-    return null;
-  }
-
-  const candidate = error as ErrorWithIssues;
-  return Array.isArray(candidate.issues) ? candidate.issues : null;
-}
-
-/**
- * Formats complete JSON text while preserving ordinary text verbatim.
- *
- * Callers provide an Error message or thrown string. Valid JSON is expanded
- * for readability; failed parsing returns the original text without trimming
- * or substituting content.
- */
-function formattedText(text: string): string {
-  const parsed = parseJson(text);
-  return parsed.parsed ? prettyJson(parsed.value) : text;
-}
-
-/**
- * Attempts to parse one complete JSON document.
- *
- * The discriminated result preserves valid `null` separately from a failed
- * parse, allowing every JSON value to participate in deterministic formatting.
- */
-function parseJson(text: string): ParsedJson {
-  try {
-    return { parsed: true, value: JSON.parse(text) };
-  } catch {
-    return { parsed: false };
-  }
-}
-
-/**
- * Pretty-prints arbitrary data without assuming JSON serialization succeeds.
- *
- * Callers may provide cyclic, bigint, undefined, or otherwise unsupported
- * values. Serialization failures and the non-string `undefined` result use the
- * stable undisplayable-value diagnostic without invoking conversion hooks.
- */
-function prettyJson(value: unknown): string {
-  try {
-    const formatted = JSON.stringify(value, null, 2);
-    return formatted === undefined
-      ? UNDISPLAYABLE_THROWN_VALUE_MESSAGE
-      : formatted;
-  } catch {
-    return UNDISPLAYABLE_THROWN_VALUE_MESSAGE;
-  }
 }
 
 /**

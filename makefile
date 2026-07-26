@@ -25,12 +25,19 @@ flake-sbt:
 flake-cst:
 	uv --no-cache run flake8 --jobs 1 --select CST001 src tests lints
 
-pyflake: flake-sbt flake-cst
+flake-hlp:
+	uv --no-cache run flake8 --jobs 1 --select HLP002 src tests lints
+
+pyflake: flake-sbt flake-cst flake-hlp
 
 flake-human:
 	uv --no-cache run flake8 --jobs 1 --select SBT002 src tests
 
-humancheck: basedpyright flake-human eslint-human
+flake-hlp-human:
+	uv --no-cache run flake8 --jobs 1 --select HLP001 src tests lints
+
+humancheck:
+	$(MAKE) --keep-going basedpyright flake-human flake-hlp-human eslint-human
 
 ruff:
 	.venv/bin/ruff check
@@ -58,7 +65,7 @@ resnapshot:
 		--snapshot-update \
 		--snapshot-warn-unused
 
-fullcode: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt flake-cst
+fullcode: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt flake-cst flake-hlp
 
 fulltest: pytest cram
 

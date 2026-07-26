@@ -261,6 +261,7 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
 
 
 def _parse_github_pull_request_url(url: str) -> tuple[str, str, int]:
+    """Parse the GitHub identity required by the API lookup and focused tests."""
     value = url.strip()
     match = GITHUB_PULL_REQUEST_RE.match(value)
     if match is None:

@@ -33,13 +33,6 @@ __all__ = [
 ]
 
 
-def _git_tree_spec(side: SideName) -> str:
-    """Translate built-in dirdiff side names into Git revision syntax."""
-    if side == "head":
-        return "HEAD"
-    return side
-
-
 def _is_branch_selection(
     selection: DefaultBaseSelection,
 ) -> TypeIs[BranchSelection]:
@@ -53,6 +46,13 @@ def git_diff_args_with_direction(
     kind: Literal["--name-status"],
 ) -> tuple[list[str], bool]:
     """Build Git diff args and whether output direction must be swapped."""
+
+    def _git_tree_spec(side: SideName) -> str:
+        """Translate built-in dirdiff side names into Git revision syntax."""
+        if side == "head":
+            return "HEAD"
+        return side
+
     if "worktree" in {left, right}:
         other = right if left == "worktree" else left
         args = (

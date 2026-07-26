@@ -405,19 +405,15 @@ def _append_identifier_level_diff(
                 )
 
 
-def _line_alignment_words(text: str) -> list[str]:
-    return ALIGNMENT_WORD_PATTERN.findall(text.lstrip())
-
-
-def _is_informative_alignment_word(word: str) -> bool:
-    folded = word.casefold()
-    return not folded.isdigit() and folded not in ALIGNMENT_NOISE_WORDS
-
-
 def _has_shared_informative_alignment_word(
     left_words: list[str],
     right_words: list[str],
 ) -> bool:
+    def _is_informative_alignment_word(word: str) -> bool:
+        """Reject numeric and low-value words from alignment evidence."""
+        folded = word.casefold()
+        return not folded.isdigit() and folded not in ALIGNMENT_NOISE_WORDS
+
     left_informative = {
         word.casefold()
         for word in left_words
@@ -435,6 +431,10 @@ def _has_shared_informative_alignment_word(
 
 
 def _line_alignment_ratio(left_line: str, right_line: str) -> float:
+    def _line_alignment_words(text: str) -> list[str]:
+        """Extract left-trimmed word atoms used for line alignment."""
+        return ALIGNMENT_WORD_PATTERN.findall(text.lstrip())
+
     left_words = _line_alignment_words(left_line)
     right_words = _line_alignment_words(right_line)
     if left_words != [] and right_words != []:

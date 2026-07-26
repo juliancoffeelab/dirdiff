@@ -33,15 +33,6 @@ class DifftasticGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
     snapshot_function_name = "test_difftastic_preset_rows_match_golden"
 
 
-def _preset_dirs() -> list[Path]:
-    return [
-        path
-        for path in sorted(PRESETS_ROOT.glob("*/*"))
-        if path.is_dir()
-        and path.relative_to(PRESETS_ROOT).parts[0] not in BROKEN_PRESET_GROUPS
-    ]
-
-
 @pytest.fixture
 def snapshot_json(snapshot: Any) -> Any:
     return snapshot.with_defaults(
@@ -49,7 +40,16 @@ def snapshot_json(snapshot: Any) -> Any:
     )
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+@pytest.mark.parametrize(
+    "preset_dir",
+    [
+        path
+        for path in sorted(PRESETS_ROOT.glob("*/*"))
+        if path.is_dir()
+        and path.relative_to(PRESETS_ROOT).parts[0] not in BROKEN_PRESET_GROUPS
+    ],
+    ids=str,
+)
 def test_difftastic_preset_rows_match_golden(
     preset_dir: Path,
     snapshot_json: Any,

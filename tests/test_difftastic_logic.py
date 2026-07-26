@@ -70,14 +70,6 @@ def _word_like_token_atoms(text: str) -> list[str]:
     return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
 
 
-def _one_sided_change_side(row: DifftasticRow) -> str | None:
-    if row.get("left_no") is not None and row.get("right_no") is None:
-        return "left"
-    if row.get("left_no") is None and row.get("right_no") is not None:
-        return "right"
-    return None
-
-
 def _pure_unchanged_one_sided_change_texts(
     rows: list[DifftasticRow],
 ) -> list[str]:
@@ -87,7 +79,11 @@ def _pure_unchanged_one_sided_change_texts(
         if status not in {"delete", "insert"}:
             continue
 
-        side = _one_sided_change_side(row)
+        side: str | None = None
+        if row.get("left_no") is not None and row.get("right_no") is None:
+            side = "left"
+        elif row.get("left_no") is None and row.get("right_no") is not None:
+            side = "right"
         if side is None:
             continue
 

@@ -32,16 +32,6 @@ __all__ = [
 ]
 
 
-def _temp_file_name(label: str, path_hint: str | None) -> str:
-    """Return a temp filename with a useful suffix for Git's diff headers."""
-    if path_hint is None:
-        return f"{label}.txt"
-    suffix = Path(path_hint).suffix
-    if suffix == "":
-        return f"{label}.txt"
-    return f"{label}{suffix}"
-
-
 def run_git_no_index_diff(
     *,
     left_text: str,
@@ -56,6 +46,16 @@ def run_git_no_index_diff(
     surfaced as `DirdiffError` because they mean Git failed to produce a
     trustworthy patch.
     """
+
+    def _temp_file_name(label: str, path_hint: str | None) -> str:
+        """Return a temp filename with a useful suffix for Git headers."""
+        if path_hint is None:
+            return f"{label}.txt"
+        suffix = Path(path_hint).suffix
+        if suffix == "":
+            return f"{label}.txt"
+        return f"{label}{suffix}"
+
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-") as raw_tmp:
         tmp = Path(raw_tmp)
         left_path = tmp / _temp_file_name("left", left_path_hint)

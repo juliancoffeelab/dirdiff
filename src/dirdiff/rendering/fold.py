@@ -491,11 +491,13 @@ def _collect_markdown_section_hints(
         if label_nodes is None or label_nodes == []:
             continue
         heading = label_nodes[0]
+        heading_lines = _node_text(heading, source_bytes).splitlines()
+        label_text = heading_lines[0].strip() if heading_lines else ""
         headings.append(
             (
                 heading,
                 _markdown_heading_level(heading),
-                _markdown_heading_label(heading, source_bytes),
+                label_text,
             )
         )
 
@@ -808,11 +810,11 @@ def _collect_top_level_hints(
             _append_top_level_run_hint(run, rows, existing_ranges, hints)
             run = []
             continue
-        if run != [] and _rows_have_any_change(
-            rows[run[-1].end_row : item.start_row]
-        ):
-            _append_top_level_run_hint(run, rows, existing_ranges, hints)
-            run = []
+        if run != []:
+            intervening_rows = rows[run[-1].end_row : item.start_row]
+            if any(engine_row_has_change(row) for row in intervening_rows):
+                _append_top_level_run_hint(run, rows, existing_ranges, hints)
+                run = []
         if run != [] and run[-1].label_kind != item.label_kind:
             _append_top_level_run_hint(run, rows, existing_ranges, hints)
             run = []
@@ -947,20 +949,10 @@ def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
 
     if node.type == "export_statement":
         return node, "declaration"
-    label_kind = _top_level_label_kind(node)
+    label_kind = TOP_LEVEL_NODE_KINDS.get(node.type)
     if label_kind is None:
         return None
     return node, label_kind
-
-
-def _top_level_label_kind(node: Node) -> str | None:
-    """Return the label category for a known top-level syntax node.
-
-    Unknown nodes are ignored by top-level grouping.  The mapping deliberately
-    stays conservative so incidental syntax trivia does not create noisy folds.
-    """
-
-    return TOP_LEVEL_NODE_KINDS.get(node.type)
 
 
 def _append_top_level_run_hint(
@@ -1082,16 +1074,6 @@ def _rows_are_unchanged(rows: list[dict[str, Any]]) -> bool:
     """
 
     return bool(rows) and all(not engine_row_has_change(row) for row in rows)
-
-
-def _rows_have_any_change(rows: list[dict[str, Any]]) -> bool:
-    """Return whether any row in a span is engine-changed.
-
-    Top-level run grouping uses this to break runs when changed rows appear
-    between otherwise unchanged declarations.
-    """
-
-    return any(engine_row_has_change(row) for row in rows)
 
 
 def _has_ancestor_kind(
@@ -1224,17 +1206,6 @@ def _markdown_heading_level(node: Node) -> int:
                 return 2
         return 2
     return 6
-
-
-def _markdown_heading_label(node: Node, source_bytes: bytes) -> str:
-    """Return the visible first-line label for a Markdown heading.
-
-    Setext headings span multiple lines, but the first line is the readable
-    section title the frontend should show for the fold.
-    """
-
-    text = _node_text(node, source_bytes).splitlines()
-    return text[0].strip() if text else ""
 
 
 def _line_end_byte_for_line(source_bytes: bytes, line_number: int) -> int:

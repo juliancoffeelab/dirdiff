@@ -1,6 +1,11 @@
+[flake8]
+exclude =
+    tests/presets/
+
 [flake8:local-plugins]
 extension =
     SBT = strict_bool:StrictBoolPlugin
     CST = no_casts:NoCastsPlugin
+    HLP = helper_topology:HelperTopologyPlugin
 paths =
     ./lints

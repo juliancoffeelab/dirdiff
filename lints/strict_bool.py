@@ -102,6 +102,16 @@ class StrictBoolPlugin:
 
         path = str(Path(self.filename).resolve())
         if not plugin_type._has_checked:
+
+            def _group_diagnostics(
+                diagnostics: Sequence[Diagnostic],
+            ) -> dict[str, list[Diagnostic]]:
+                """Index project diagnostics by path for Flake8 instances."""
+                grouped: dict[str, list[Diagnostic]] = {}
+                for diagnostic in diagnostics:
+                    grouped.setdefault(diagnostic.path, []).append(diagnostic)
+                return grouped
+
             paths = plugin_type._flake8_paths or (path,)
             diagnostics = _collect_diagnostics(
                 paths=paths,
@@ -223,7 +233,13 @@ class StrictBoolVisitor(ast.NodeVisitor):
 
     def _is_bool_type(self, expression: ast.expr) -> bool:
         """Classify one exact AST span from dmypy's formatted type result."""
-        location = _expression_location(path=self.path, expression=expression)
+        # dmypy expects the AST's exact byte span with a one-based start column.
+        assert expression.end_lineno is not None
+        assert expression.end_col_offset is not None
+        location = (
+            f"{self.path}:{expression.lineno}:{expression.col_offset + 1}:"
+            f"{expression.end_lineno}:{expression.end_col_offset}"
+        )
         if location not in self._type_by_span:
             self._type_by_span[location] = _inspect_type(
                 status_file=self.status_file,
@@ -328,16 +344,6 @@ def _collect_diagnostics(
     return diagnostics
 
 
-def _expression_location(path: str, expression: ast.expr) -> str:
-    """Convert Python AST byte columns to dmypy's exact location syntax."""
-    assert expression.end_lineno is not None
-    assert expression.end_col_offset is not None
-    return (
-        f"{path}:{expression.lineno}:{expression.col_offset + 1}:"
-        f"{expression.end_lineno}:{expression.end_col_offset}"
-    )
-
-
 def _inspect_type(status_file: str, location: str) -> str | None:
     """Return the fully qualified formatted type for one exact expression."""
     response = mypy.dmypy.client.request(
@@ -381,18 +387,22 @@ def _is_bool_type_text(type_text: str) -> bool:
     return all(is_bool_atom(item) for item in type_text.split(" | "))
 
 
-def _group_diagnostics(
-    diagnostics: Sequence[Diagnostic],
-) -> dict[str, list[Diagnostic]]:
-    """Index project diagnostics by absolute path for Flake8 instances."""
-    grouped: dict[str, list[Diagnostic]] = {}
-    for diagnostic in diagnostics:
-        grouped.setdefault(diagnostic.path, []).append(diagnostic)
-    return grouped
-
-
 def _enabled_codes_from_options(options: Any) -> frozenset[str]:
     """Resolve the SBT subset selected by Flake8's prefix configuration."""
+
+    def _option_code_prefixes(options: Any, names: Sequence[str]) -> set[str]:
+        """Collect string code prefixes from sequence or scalar options."""
+        prefixes: set[str] = set()
+        for name in names:
+            raw_value = getattr(options, name, ())
+            if isinstance(raw_value, str):
+                prefixes.add(raw_value)
+            elif isinstance(raw_value, list | tuple | set | frozenset):
+                prefixes.update(
+                    item for item in raw_value if isinstance(item, str)
+                )
+        return prefixes
+
     selected = _option_code_prefixes(
         options=options, names=("select", "extend_select")
     )
@@ -413,18 +423,6 @@ def _enabled_codes_from_options(options: Any) -> frozenset[str]:
             if not any(code.startswith(prefix) for prefix in ignored)
         }
     return frozenset(codes)
-
-
-def _option_code_prefixes(options: Any, names: Sequence[str]) -> set[str]:
-    """Collect string code prefixes from Flake8 sequence or scalar options."""
-    prefixes: set[str] = set()
-    for name in names:
-        raw_value = getattr(options, name, ())
-        if isinstance(raw_value, str):
-            prefixes.add(raw_value)
-        elif isinstance(raw_value, list | tuple | set | frozenset):
-            prefixes.update(item for item in raw_value if isinstance(item, str))
-    return prefixes
 
 
 def _expand_python_paths(

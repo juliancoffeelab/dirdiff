@@ -269,6 +269,15 @@ def _classified_ranges(
 ) -> tuple[list[_DecorationRange], list[_DecorationRange]]:
     """Return left and right GumTree decoration ranges from JSON actions."""
 
+    def _required_dest(dest_by_src: dict[str, str], src_tree: str) -> str:
+        """Return the destination tree paired with one source tree."""
+        dest_tree = dest_by_src.get(src_tree)
+        if dest_tree is None:
+            raise ValueError(
+                f"GumTree action range has no destination mapping: {src_tree!r}"
+            )
+        return dest_tree
+
     dest_by_src = {
         match["src"]: match["dest"] for match in diff_json.get("matches", [])
     }
@@ -328,17 +337,6 @@ def _append_range(
             ordinal=ordinal,
         )
     )
-
-
-def _required_dest(dest_by_src: dict[str, str], src_tree: str) -> str:
-    """Return the GumTree destination tree paired with a source tree."""
-
-    dest_tree = dest_by_src.get(src_tree)
-    if dest_tree is None:
-        raise ValueError(
-            f"GumTree action range has no destination mapping: {src_tree!r}"
-        )
-    return dest_tree
 
 
 def _tokens_for_line(

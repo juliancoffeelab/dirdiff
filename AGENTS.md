@@ -221,6 +221,8 @@ Names that commonly expose bad patterns require architectural scrutiny:
 
 ## Review and completion
 
+- Before repository work, read the prelude in `reviewer.md`. Independent
+  reviewers read the whole file.
 - Never report completion without reading the actual diff and verifying the
   requested outcome.
 - Formatting, type checks, and `git diff --check` are mechanical checks, not a
@@ -228,10 +230,9 @@ Names that commonly expose bad patterns require architectural scrutiny:
 - Review affected implementation, adjacent callers, documentation, lifecycle,
   cancellation, errors, and user-visible behavior in proportion to the change.
 - When the user requires a zero-objection review, fix every accepted finding and
-  repeat review (with fresh reviewer) until the reviewer explicitly reports zero
+  repeat review with a fresh reviewer, started with fresh context and given the
+  required input from `reviewer.md`, until the reviewer explicitly reports zero
   remaining objections.
-- The detailed independent-review and testing-document workflow belongs in
-  `reviewer.md`.
 
 ## Project commands and environment
 

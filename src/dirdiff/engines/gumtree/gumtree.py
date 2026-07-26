@@ -80,13 +80,6 @@ def gumtree_executable_for_cwd(cwd: Path) -> Path:
     )
 
 
-def _temp_file_name(label: str, path_hint: str) -> str:
-    suffix = Path(path_hint).suffix
-    if suffix == "":
-        return label
-    return f"{label}{suffix}"
-
-
 def run_gumtree_json(
     *,
     gumtree_bin: Path,
@@ -95,6 +88,22 @@ def run_gumtree_json(
     left_path_hint: str,
     right_path_hint: str,
 ) -> GumTreeJson:
+    """Run GumTree on one already-loaded text pair and validate its response.
+
+    ``gumtree_bin`` must identify the executable. The path hints provide only
+    the temporary input suffixes and need not identify existing files. The
+    temporary directory is removed before return. A missing or unsuccessful
+    executable raises ``DirdiffError``; malformed or structurally invalid JSON
+    raises ``GumTreeInvalidJsonError``.
+    """
+
+    def _temp_file_name(label: str, path_hint: str) -> str:
+        """Use the hinted source suffix, or the bare internal label without one."""
+        suffix = Path(path_hint).suffix
+        if suffix == "":
+            return label
+        return f"{label}{suffix}"
+
     with tempfile.TemporaryDirectory(prefix="dirdiff-gumtree-") as raw_tmp:
         tmp = Path(raw_tmp)
         left_path = tmp / _temp_file_name("left", left_path_hint)

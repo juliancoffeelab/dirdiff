@@ -115,19 +115,6 @@ export function loadStoredProfile(): StoredProfile | null {
 }
 
 /**
- * Replaces the browser's selected-profile record with one validated identity.
- *
- * Callers provide a complete backend-confirmed profile. The operation does not
- * persist preferences or update reactive App state by itself.
- */
-function storeProfile(profile: StoredProfile): void {
-  window.localStorage.setItem(
-    PROFILE_STORAGE_KEY,
-    JSON.stringify(StoredProfileSchema.parse(profile)),
-  );
-}
-
-/**
  * Renders the profile trigger, menu, username workflow, and preferences dialog.
  *
  * The caller stores only selected identity. Profile stores all transient interaction state,
@@ -135,6 +122,19 @@ function storeProfile(profile: StoredProfile): void {
  * complete selection changes only after successful backend responses.
  */
 export function Profile(props: ProfileProps): JSX.Element {
+  /**
+   * Replaces the browser's selected-profile record with one validated identity.
+   *
+   * Callers provide a complete backend-confirmed profile. The operation does not
+   * persist preferences or update reactive App state by itself.
+   */
+  function storeProfile(profile: StoredProfile): void {
+    window.localStorage.setItem(
+      PROFILE_STORAGE_KEY,
+      JSON.stringify(StoredProfileSchema.parse(profile)),
+    );
+  }
+
   let root!: HTMLDivElement;
   let trigger!: HTMLButtonElement;
   const [ui, setUi] = createSignal<ProfileUiState>({ view: "closed" });

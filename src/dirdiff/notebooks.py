@@ -79,16 +79,6 @@ def normalize_notebook_document(text: str) -> dict[str, Any] | None:
     }
 
 
-def _notebook_source_path(cell_type: str) -> str | None:
-    if cell_type == "code":
-        return "cell.py"
-    if cell_type == "markdown":
-        return "cell.md"
-    if cell_type == "raw":
-        return "cell.txt"
-    return None
-
-
 def _cell_source(cell: dict[str, Any] | None) -> str:
     if cell is None:
         return ""
@@ -96,31 +86,6 @@ def _cell_source(cell: dict[str, Any] | None) -> str:
     if isinstance(source, list):
         return "".join(str(part) for part in source)
     return str(source)
-
-
-def _cell_metadata(cell: dict[str, Any] | None) -> dict[str, Any]:
-    if cell is None:
-        return {}
-    metadata = cell.get("metadata", {})
-    return metadata if isinstance(metadata, dict) else {}
-
-
-def _cell_outputs(cell: dict[str, Any] | None) -> list[Any]:
-    if cell is None or cell.get("cell_type") != "code":
-        return []
-    outputs = cell.get("outputs", [])
-    return outputs if isinstance(outputs, list) else []
-
-
-def _cell_type_name(
-    left_cell: dict[str, Any] | None,
-    right_cell: dict[str, Any] | None,
-) -> str:
-    if right_cell is not None:
-        return str(right_cell.get("cell_type", "unknown"))
-    if left_cell is not None:
-        return str(left_cell.get("cell_type", "unknown"))
-    return "unknown"
 
 
 def _notebook_cell_id(cell: dict[str, Any]) -> str | None:
@@ -135,6 +100,17 @@ def _cell_identity(
     left_index: int | None,
     right_index: int | None,
 ) -> dict[str, Any]:
+    def _cell_type_name(
+        left_cell: dict[str, Any] | None,
+        right_cell: dict[str, Any] | None,
+    ) -> str:
+        """Choose the resulting or surviving cell type name."""
+        if right_cell is not None:
+            return str(right_cell.get("cell_type", "unknown"))
+        if left_cell is not None:
+            return str(left_cell.get("cell_type", "unknown"))
+        return "unknown"
+
     left_source = _cell_source(left_cell)
     right_source = _cell_source(right_cell)
     left_id = _notebook_cell_id(left_cell) if left_cell is not None else None
@@ -340,6 +316,30 @@ def _build_notebook_cell_diff(
     right_index: int | None,
     pair_kind: str,
 ) -> dict[str, Any] | None:
+    def _notebook_source_path(cell_type: str) -> str | None:
+        """Return the syntax path hint for one notebook cell type."""
+        if cell_type == "code":
+            return "cell.py"
+        if cell_type == "markdown":
+            return "cell.md"
+        if cell_type == "raw":
+            return "cell.txt"
+        return None
+
+    def _cell_metadata(cell: dict[str, Any] | None) -> dict[str, Any]:
+        """Return one cell's structurally valid metadata mapping."""
+        if cell is None:
+            return {}
+        metadata = cell.get("metadata", {})
+        return metadata if isinstance(metadata, dict) else {}
+
+    def _cell_outputs(cell: dict[str, Any] | None) -> list[Any]:
+        """Return the outputs of one structurally valid code cell."""
+        if cell is None or cell.get("cell_type") != "code":
+            return []
+        outputs = cell.get("outputs", [])
+        return outputs if isinstance(outputs, list) else []
+
     identity = _cell_identity(
         left_cell=left_cell,
         right_cell=right_cell,
@@ -454,18 +454,6 @@ def _build_notebook_cell_diff(
     return payload
 
 
-def _offset_row_hunk_indices(rows: list[dict[str, Any]], offset: int) -> None:
-    """Move section-local markers into one file-wide notebook index space.
-
-    Backend rows are flat and complete. Rows without a marker stay unchanged;
-    frontend-only fold rows are created later and never enter this function.
-    """
-    for row in rows:
-        hunk_index = row.get("hunk_index")
-        if isinstance(hunk_index, int):
-            row["hunk_index"] = hunk_index + offset
-
-
 def _assign_notebook_source_hunk_ranges(cells: list[dict[str, Any]]) -> int:
     """Assign one file-local hunk range across rendered cell sources.
 
@@ -473,6 +461,16 @@ def _assign_notebook_source_hunk_ranges(cells: list[dict[str, Any]]) -> int:
     a snapshot-safe design. They therefore contribute no hunk identities and
     cannot disturb navigation through the source rows returned by file-diff.
     """
+
+    def _offset_row_hunk_indices(
+        rows: list[dict[str, Any]], offset: int
+    ) -> None:
+        """Move section-local markers into the file-wide notebook index."""
+        for row in rows:
+            hunk_index = row.get("hunk_index")
+            if isinstance(hunk_index, int):
+                row["hunk_index"] = hunk_index + offset
+
     next_hunk_index = 0
     for cell in cells:
         source_rows = cell["source_rows"]

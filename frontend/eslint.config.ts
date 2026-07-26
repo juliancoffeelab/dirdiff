@@ -1,10 +1,12 @@
 import { defineConfig } from "eslint/config";
 import type { Rule } from "eslint";
 import tseslint from "typescript-eslint";
+import { nestedModuleHelperRule } from "./eslint-rules/helper-topology.mjs";
 import showWhenBooleanRule from "./eslint-rules/show-when-boolean.mjs";
 
 const configRootDir = new URL(".", import.meta.url).pathname;
 const localRules = {
+  "nested-module-helper": nestedModuleHelperRule as Rule.RuleModule,
   "show-when-boolean": showWhenBooleanRule as Rule.RuleModule,
 };
 
@@ -40,6 +42,7 @@ export default defineConfig(
           allowRuleToRunWithoutStrictNullChecksIKnowWhatIAmDoing: false,
         },
       ],
+      "local/nested-module-helper": "error",
       "local/show-when-boolean": "error",
     },
   },

@@ -52,15 +52,11 @@ def _extract_helper_engine() -> GumTreeDiffEngine:
     return GumTreeDiffEngine(cwd=Path.cwd())
 
 
-def _extract_helper_service() -> WorkspaceDiffServiceAdapter:
+def _extract_helper_payload() -> dict[str, Any]:
     return WorkspaceDiffServiceAdapter(
         PresetBackend(PRESETS_ROOT),
         _extract_helper_engine(),
-    )
-
-
-def _extract_helper_payload() -> dict[str, Any]:
-    return _extract_helper_service().build_git_diff_paths(
+    ).build_git_diff_paths(
         left_path=LEFT_PATH,
         right_path=RIGHT_PATH,
         left="python",
@@ -71,32 +67,6 @@ def _extract_helper_payload() -> dict[str, Any]:
 def _source_text(side: str) -> str:
     file_name = "old.py" if side == "left" else "new.py"
     return (FIXTURE_ROOT / file_name).read_text()
-
-
-def _gumtree_json() -> GumTreeJson:
-    engine = _extract_helper_engine()
-    return engine._run_gumtree_json(
-        left_text=_source_text("left"),
-        right_text=_source_text("right"),
-        left_path_hint=LEFT_PATH,
-        right_path_hint=RIGHT_PATH,
-    )
-
-
-def _action_tree(diff_json: GumTreeJson, action: str, tree: str) -> str:
-    actions = diff_json.get("actions", [])
-    for candidate in actions:
-        if candidate["action"] == action and candidate["tree"] == tree:
-            return candidate["tree"]
-    raise AssertionError(f"GumTree action is missing: {action} {tree}")
-
-
-def _matched_dest_tree(diff_json: GumTreeJson, src_tree: str) -> str:
-    matches = diff_json.get("matches", [])
-    for match in matches:
-        if match["src"] == src_tree:
-            return match["dest"]
-    raise AssertionError(f"GumTree destination match is missing: {src_tree}")
 
 
 def _expected_for_tree(
@@ -138,6 +108,24 @@ def _expected_for_tree(
 def _expected_action_statuses(
     diff_json: GumTreeJson,
 ) -> list[ExpectedTokenStatus]:
+    def _action_tree(diff_json: GumTreeJson, action: str, tree: str) -> str:
+        """Return the exact GumTree action tree required by this fixture."""
+        actions = diff_json.get("actions", [])
+        for candidate in actions:
+            if candidate["action"] == action and candidate["tree"] == tree:
+                return candidate["tree"]
+        raise AssertionError(f"GumTree action is missing: {action} {tree}")
+
+    def _matched_dest_tree(diff_json: GumTreeJson, src_tree: str) -> str:
+        """Return the destination tree required by this fixture's match."""
+        matches = diff_json.get("matches", [])
+        for match in matches:
+            if match["src"] == src_tree:
+                return match["dest"]
+        raise AssertionError(
+            f"GumTree destination match is missing: {src_tree}"
+        )
+
     expectations: list[ExpectedTokenStatus] = []
 
     insert_trees = [
@@ -251,7 +239,13 @@ def _is_covered(
 
 def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
     payload = _extract_helper_payload()
-    diff_json = _gumtree_json()
+    engine = _extract_helper_engine()
+    diff_json = engine._run_gumtree_json(
+        left_text=_source_text("left"),
+        right_text=_source_text("right"),
+        left_path_hint=LEFT_PATH,
+        right_path_hint=RIGHT_PATH,
+    )
 
     missing: list[str] = []
     for expected in _expected_action_statuses(diff_json):

@@ -115,17 +115,6 @@ def _preset_rows(
     return rows, old_text, new_text
 
 
-def _token_text(tokens: object) -> str:
-    assert isinstance(tokens, list)
-    pieces: list[str] = []
-    for token in tokens:
-        assert isinstance(token, dict)
-        text = token.get("text")
-        assert isinstance(text, str)
-        pieces.append(text)
-    return "".join(pieces)
-
-
 def _token_atoms(text: str) -> list[str]:
     return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S", text)
 
@@ -160,12 +149,6 @@ def _changed_atoms(tokens: object) -> list[str]:
     return atoms
 
 
-def _meaningful_token_atoms(token: dict[str, Any]) -> list[str]:
-    text = token.get("text")
-    assert isinstance(text, str)
-    return _word_like_atoms(_token_atoms(text))
-
-
 def _word_like_atoms(atoms: list[str]) -> list[str]:
     return [
         atom
@@ -196,14 +179,6 @@ def _row_marked_changed_atoms(row: DifftasticRow, side: Side) -> list[str]:
     return _changed_atoms(tokens)
 
 
-def _one_sided_change_side(row: DifftasticRow) -> Side | None:
-    if row.get("left_no") is not None and row.get("right_no") is None:
-        return "left"
-    if row.get("left_no") is None and row.get("right_no") is not None:
-        return "right"
-    return None
-
-
 def _pure_unchanged_one_sided_change_texts(
     rows: list[DifftasticRow],
 ) -> list[str]:
@@ -212,7 +187,11 @@ def _pure_unchanged_one_sided_change_texts(
         if row.get("status") not in {"delete", "insert"}:
             continue
 
-        side = _one_sided_change_side(row)
+        side: Side | None = None
+        if row.get("left_no") is not None and row.get("right_no") is None:
+            side = "left"
+        elif row.get("left_no") is None and row.get("right_no") is not None:
+            side = "right"
         if side is None:
             continue
 
@@ -221,11 +200,14 @@ def _pure_unchanged_one_sided_change_texts(
             continue
         assert isinstance(tokens, list)
 
-        meaningful_tokens = [
-            token
-            for token in tokens
-            if isinstance(token, dict) and _meaningful_token_atoms(token)
-        ]
+        meaningful_tokens: list[dict[str, Any]] = []
+        for token in tokens:
+            if not isinstance(token, dict):
+                continue
+            token_text = token.get("text")
+            assert isinstance(token_text, str)
+            if len(_word_like_atoms(_token_atoms(token_text))) > 0:
+                meaningful_tokens.append(token)
         if meaningful_tokens == []:
             continue
 
@@ -236,13 +218,6 @@ def _pure_unchanged_one_sided_change_texts(
             assert isinstance(text, str)
             broken_texts.append(text)
     return broken_texts
-
-
-def _assert_one_sided_changes_are_not_pure_unchanged_context(
-    rows: list[DifftasticRow],
-) -> None:
-    broken_texts = _pure_unchanged_one_sided_change_texts(rows)
-    assert broken_texts == [], broken_texts
 
 
 def _text_without_difftastic_ignored_trailing_commas(
@@ -366,7 +341,13 @@ def test_difftastic_preset_tokens_stay_in_source_order(
                 continue
             text = row.get(text_key)
             assert isinstance(text, str)
-            assert _token_text(tokens) == text
+            pieces: list[str] = []
+            for token in tokens:
+                assert isinstance(token, dict)
+                token_text = token.get("text")
+                assert isinstance(token_text, str)
+                pieces.append(token_text)
+            assert "".join(pieces) == text
 
         source_atoms = _token_atoms(source_text)
         rendered_atoms = _token_atoms(_side_rendered_text(rows, side=side))
@@ -877,7 +858,8 @@ def test_difftastic_preset_one_sided_changes_include_changed_tokens(
     """
     rows, _, _ = _preset_rows(preset_dir)
 
-    _assert_one_sided_changes_are_not_pure_unchanged_context(rows)
+    broken_texts = _pure_unchanged_one_sided_change_texts(rows)
+    assert broken_texts == [], broken_texts
 
 
 @pytest.mark.parametrize(

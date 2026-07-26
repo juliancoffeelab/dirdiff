@@ -360,19 +360,19 @@ class PullRequestPrepareResponse(ApiModel):
     review_branch: PullRequestBranchResponse
 
 
-def pull_request_branch_response(
-    branch: PreparedPullRequestBranch,
-) -> PullRequestBranchResponse:
-    """Serialize prepared pull request branch data for the HTTP API."""
-    return PullRequestBranchResponse.model_validate(
-        {"remote": branch.remote, "branch": branch.branch}
-    )
-
-
 def pull_request_prepare_response(
     prepared: PreparedPullRequest,
 ) -> PullRequestPrepareResponse:
     """Serialize prepared pull request data for the HTTP API."""
+
+    def pull_request_branch_response(
+        branch: PreparedPullRequestBranch,
+    ) -> PullRequestBranchResponse:
+        """Serialize one prepared branch for the enclosing HTTP response."""
+        return PullRequestBranchResponse.model_validate(
+            {"remote": branch.remote, "branch": branch.branch}
+        )
+
     return PullRequestPrepareResponse.model_validate(
         {
             "project_id": prepared.project_id,

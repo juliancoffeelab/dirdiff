@@ -78,15 +78,15 @@ def file_kind_for_change_type(
     }
 
 
-def _looks_generated_path(path: str | None) -> bool:
-    """Centralize generated-file heuristics so manifest and lazy info agree."""
-    if path is None:
-        return False
-    return PurePosixPath(path).name.casefold() in GENERATED_FILES
-
-
 def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
     """Classify files that should be represented by lazy placeholders."""
+
+    def _looks_generated_path(path: str | None) -> bool:
+        """Recognize generated filenames for this manifest classification."""
+        if path is None:
+            return False
+        return PurePosixPath(path).name.casefold() in GENERATED_FILES
+
     if entry.lazy_reason_override is not None:
         return entry.lazy_reason_override
     if entry.untracked:
@@ -115,25 +115,6 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
     return _lazy_reason_for_repo_entry(entry) is not None
 
 
-def _to_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
-    """Build the non-lazy file node payload shared by manifest tree variants."""
-    return {
-        "left_path": entry.left_path,
-        "right_path": entry.right_path,
-        "file_kind": file_kind_for_repo_entry(entry),
-        "lazy": None,
-    }
-
-
-def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
-    """Attach lazy reason metadata while preserving the normal file shape."""
-    payload = _to_repo_manifest_file_entry(entry)
-    lazy = _lazy_reason_for_repo_entry(entry)
-    if lazy is not None:
-        payload["lazy"] = lazy
-    return payload
-
-
 def _empty_repo_summary() -> dict[str, int]:
     """Keep the summary keys stable even when a manifest has no files."""
     return {
@@ -158,33 +139,6 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
         "added_lines": entry.added_lines,
         "removed_lines": entry.removed_lines,
         "lazy": _lazy_reason_for_repo_entry(entry),
-    }
-
-
-def _tree_path_for_repo_entry(entry: RepoDiffPath) -> str:
-    """Choose the visible path for tree placement and reject pathless entries."""
-    path = entry.right_path if entry.right_path is not None else entry.left_path
-    if path is None:
-        raise ValueError("Repo manifest entry is missing both paths.")
-    return path
-
-
-def _manifest_file_entry_for_tree(entry: RepoDiffPath) -> dict[str, Any]:
-    """Select lazy or eager file payload before inserting into the tree."""
-    return (
-        _to_lazy_repo_manifest_file_entry(entry)
-        if _should_lazy_load_repo_entry(entry)
-        else _to_repo_manifest_file_entry(entry)
-    )
-
-
-def _empty_directory_node(name: str, path: str) -> dict[str, Any]:
-    """Create the JSON directory shape once so insertion stays structural."""
-    return {
-        "type": "directory",
-        "name": name,
-        "path": path,
-        "entries": [],
     }
 
 
@@ -216,7 +170,12 @@ def _insert_tree_entry(
             directory_node = entry
             break
     if directory_node is None:
-        directory_node = _empty_directory_node(directory_name, directory_path)
+        directory_node = {
+            "type": "directory",
+            "name": directory_name,
+            "path": directory_path,
+            "entries": [],
+        }
         entries.append(directory_node)
     child_entries = directory_node["entries"]
     if not isinstance(child_entries, list):
@@ -287,13 +246,29 @@ def _build_repo_manifest_tree(
     """Turn flat backend paths into the nested tree consumed by the sidebar."""
     tree_entries: list[dict[str, Any]] = []
     for entry in entries:
-        path = _tree_path_for_repo_entry(entry)
+        path = (
+            entry.right_path
+            if entry.right_path is not None
+            else entry.left_path
+        )
+        if path is None:
+            raise ValueError("Repo manifest entry is missing both paths.")
         parts = [part for part in PurePosixPath(path).parts if part != "."]
+        file_entry = {
+            "left_path": entry.left_path,
+            "right_path": entry.right_path,
+            "file_kind": file_kind_for_repo_entry(entry),
+            "lazy": None,
+        }
+        if _should_lazy_load_repo_entry(entry):
+            lazy = _lazy_reason_for_repo_entry(entry)
+            if lazy is not None:
+                file_entry["lazy"] = lazy
         _insert_tree_entry(
             tree_entries,
             parts=parts,
             full_path=path,
-            file_entry=_manifest_file_entry_for_tree(entry),
+            file_entry=file_entry,
         )
     return _compact_single_directory_chains(_root_files_last(tree_entries))
 

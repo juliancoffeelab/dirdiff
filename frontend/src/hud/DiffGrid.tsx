@@ -748,14 +748,15 @@ function renderInlineFoldDom(
     button.dataset.rowIndex = String(rowIndex);
     button.title = "Expand folded rows";
     button.addEventListener("click", toggle);
+    const lineText = foldLineText(row.count);
+    const label =
+      row.label.length > 0
+        ? `... ${lineText} in ${row.label}`
+        : `... ${lineText}`;
     button.append(
       createPlainLineNumberDom(".."),
       createPlainLineNumberDom(".."),
-      createElementWithClass(
-        "div",
-        "fold-label inline-fold-label",
-        foldLabel(row),
-      ),
+      createElementWithClass("div", "fold-label inline-fold-label", label),
     );
     wrapper.replaceChildren(button);
   };
@@ -848,10 +849,22 @@ function renderInlineDiffRowsDom(
   fileIndex: number,
   lineNumberState: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
+  /**
+   * Reports whether one inline side has a line identity or visible text.
+   *
+   * Null plus empty text is the only absent-side representation; zero and an
+   * empty line with a number remain present.
+   */
+  function inlineSideExists(lineNo: number | null, text: string): boolean {
+    return lineNo !== null || text.length > 0;
+  }
+
   const rightText = sideText(row, "right");
   const leftText = sideText(row, "left");
-  const sharedText = sharedSideText(leftText, rightText);
-  const sharedParts = sharedSideParts(row);
+  // The resulting side supplies shared inline content when it is non-empty.
+  const sharedText = rightText.length > 0 ? rightText : leftText;
+  const sharedParts =
+    row.right_parts.length > 0 ? row.right_parts : row.left_parts;
 
   switch (row.status) {
     case "equal":
@@ -982,45 +995,12 @@ function renderInlineDiffRowsDom(
       }
       return fragment;
     }
-    default:
-      throwUnhandledRowStatus(row.status);
+    default: {
+      // Keep this assignment exhaustive when the backend RowStatus union grows.
+      const unhandledStatus: never = row.status;
+      throw new Error(`Unhandled diff row status: ${String(unhandledStatus)}.`);
+    }
   }
-}
-
-/**
- * Chooses the side text used for a shared inline equal row.
- *
- * Non-empty right text wins because it represents the resulting side; otherwise
- * the left text is returned unchanged.
- */
-function sharedSideText(leftText: string, rightText: string): string {
-  if (rightText.length > 0) {
-    return rightText;
-  }
-  return leftText;
-}
-
-/**
- * Chooses the decorated parts used for a shared inline equal row.
- *
- * Non-empty right-side parts win; otherwise the exact left-side array is
- * returned without copying or mutation.
- */
-function sharedSideParts(row: DiffRow): DecoratedPart[] {
-  if (row.right_parts.length > 0) {
-    return row.right_parts;
-  }
-  return row.left_parts;
-}
-
-/**
- * Reports whether one inline side has a line identity or visible text.
- *
- * Null plus empty text is the only absent-side representation; zero and an
- * empty line with a number remain present.
- */
-function inlineSideExists(lineNo: number | null, text: string): boolean {
-  return lineNo !== null || text.length > 0;
 }
 
 /**
@@ -1133,26 +1113,10 @@ function renderInlineDiffRowDom(props: {
       props.marker,
       props.text,
       props.parts,
-      inlineTokenRowStatus(props),
+      props.tokenRowStatus === null ? props.status : props.tokenRowStatus,
     ),
   );
   return element;
-}
-
-/**
- * Resolves the status used only for token-decoration suppression.
- *
- * A provided override wins, including every valid InlineRowStatus. Undefined
- * means the row's visible status is the complete contract.
- */
-function inlineTokenRowStatus(props: {
-  status: InlineRowStatus;
-  tokenRowStatus: InlineRowStatus | null;
-}): InlineRowStatus {
-  if (props.tokenRowStatus === null) {
-    return props.status;
-  }
-  return props.tokenRowStatus;
 }
 
 /**
@@ -1197,8 +1161,16 @@ function diffRowClass(
   if (row.hunk_index !== null) {
     classes.push("hunk-anchor");
   }
-  if (isChangedRowStatus(status) && isWhitespaceOnlyChange(row)) {
-    classes.push("whitespace-only-change");
+  if (["replace", "insert", "delete", "move"].includes(status)) {
+    const changedParts = [...row.left_parts, ...row.right_parts].filter(
+      (part) => part.diff_status !== "unchanged",
+    );
+    if (
+      changedParts.length > 0 &&
+      changedParts.every((part) => part.is_whitespace)
+    ) {
+      classes.push("whitespace-only-change");
+    }
   }
   return classes.join(" ");
 }
@@ -1217,10 +1189,10 @@ function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
   element.className = `diff-side side-${side}${
     lineNo === null && text === "" ? " empty-side" : ""
   }`;
-  element.append(
-    createLineNumberDom(lineNo, side),
-    createLineCodeDom(text, parts, row.status),
-  );
+  const codeElement = document.createElement("code");
+  codeElement.className = "line-code";
+  appendDecoratedText(codeElement, text, parts, row.status);
+  element.append(createLineNumberDom(lineNo, side), codeElement);
   return element;
 }
 
@@ -1236,16 +1208,6 @@ function sideText(row: DiffRow, side: Side): string {
     return "";
   }
   return text;
-}
-
-/**
- * Enforces exhaustive handling of the backend RowStatus union.
- *
- * Callers may invoke this only from an exhaustive switch; a runtime value that
- * reaches it is a backend or schema contract violation and throws visibly.
- */
-function throwUnhandledRowStatus(status: never): never {
-  throw new Error(`Unhandled diff row status: ${String(status)}.`);
 }
 
 /**
@@ -1283,20 +1245,6 @@ function createFoldSideDom(
  */
 function foldLineText(count: number): string {
   return `${count} line${count === 1 ? "" : "s"}`;
-}
-
-/**
- * Formats the complete visible inline fold label from one FoldRow.
- *
- * Empty backend labels omit the `in …` suffix while the represented row count
- * always remains visible.
- */
-function foldLabel(row: FoldRow): string {
-  const lineText = foldLineText(row.count);
-  if (row.label.length > 0) {
-    return `... ${lineText} in ${row.label}`;
-  }
-  return `... ${lineText}`;
 }
 
 /**
@@ -1348,24 +1296,6 @@ function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
 }
 
 /**
- * Creates one split-view code cell from backend-woven text decoration.
- *
- * Callers supply the exact row text, its complete decorated partition, and the
- * required row status. Status suppresses redundant diff emphasis expressed by
- * the row color.
- */
-function createLineCodeDom(
-  text: string,
-  parts: DecoratedPart[],
-  rowStatus: RowStatus,
-): HTMLElement {
-  const element = document.createElement("code");
-  element.className = "line-code";
-  appendDecoratedText(element, text, parts, rowStatus);
-  return element;
-}
-
-/**
  * Creates one inline-view code cell including its visible change marker.
  *
  * The marker is aria-hidden, while all supplied text remains native searchable
@@ -1384,21 +1314,10 @@ function createInlineLineCodeDom(
   markerElement.ariaHidden = "true";
   markerElement.textContent = marker;
   element.append(markerElement);
-  const inlineTokenRowStatus = inlineRowTokenStatus(rowStatus);
+  const inlineTokenRowStatus =
+    rowStatus === "insert" || rowStatus === "delete" ? "replace" : rowStatus;
   appendDecoratedText(element, text, parts, inlineTokenRowStatus);
   return element;
-}
-
-/**
- * Maps inline insert/delete rows to replacement token semantics.
- *
- * Equal, move, and replace status values pass through unchanged; this affects
- * only token emphasis, not row classes or identity.
- */
-function inlineRowTokenStatus(rowStatus: InlineRowStatus): RowStatus {
-  return rowStatus === "insert" || rowStatus === "delete"
-    ? "replace"
-    : rowStatus;
 }
 
 /**
@@ -1413,6 +1332,31 @@ function appendDecoratedText(
   parts: DecoratedPart[],
   rowStatus: RowStatus,
 ) {
+  /**
+   * Recognizes tree-sitter syntax classes hidden by the established diff theme.
+   *
+   * Exact prefix names and their hyphenated descendants are suppressed;
+   * unrelated class names remain visible.
+   */
+  function isSuppressedSyntaxClass(className: string): boolean {
+    return suppressedSyntaxClassPrefixes.some(
+      (prefix) => className === prefix || className.startsWith(`${prefix}-`),
+    );
+  }
+
+  /**
+   * Removes syntax decoration when every class is intentionally suppressed.
+   *
+   * Mixed visible/suppressed class lists pass through unchanged so established
+   * token styling can choose the visible class; the input array is not mutated.
+   */
+  function visibleSyntaxClasses(classes: string[]): string[] {
+    if (!classes.length || classes.every(isSuppressedSyntaxClass)) {
+      return [];
+    }
+    return classes;
+  }
+
   assert(
     parts.map((part) => part.text).join("") === text,
     "Decorated parts must reconstruct their complete row text.",
@@ -1428,10 +1372,9 @@ function appendDecoratedText(
     const classes = syntaxClasses.length
       ? ["ts-token", ...new Set(syntaxClasses)]
       : [];
-    const rowAlreadyShowsTokenChange = rowShowsTokenChange(
-      rowStatus,
-      part.diff_status,
-    );
+    const rowAlreadyShowsTokenChange =
+      (rowStatus === "insert" || rowStatus === "delete") &&
+      rowStatus === part.diff_status;
     const showTokenChange = tokenChanged && !rowAlreadyShowsTokenChange;
     if (showTokenChange) {
       classes.push("token-changed", `token-${part.diff_status}`);
@@ -1452,22 +1395,6 @@ function appendDecoratedText(
 }
 
 /**
- * Reports whether the row background already communicates one token change.
- *
- * Only insert-on-insert and delete-on-delete pairs suppress token-level color;
- * all other changed tokens retain explicit emphasis.
- */
-function rowShowsTokenChange(
-  rowStatus: RowStatus,
-  tokenStatus: DecoratedPart["diff_status"],
-): boolean {
-  return (
-    (rowStatus === "insert" || rowStatus === "delete") &&
-    rowStatus === tokenStatus
-  );
-}
-
-/**
  * Creates one typed HTML element with complete class and text content.
  *
  * The tag must be a standard HTMLElement tag. The returned element has no
@@ -1482,54 +1409,4 @@ function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
   element.className = className;
   element.textContent = text;
   return element;
-}
-
-/**
- * Recognizes statuses that may carry whitespace-only change treatment.
- *
- * Unknown strings return false; backend exhaustiveness is enforced by the row
- * render switch rather than this CSS-only predicate.
- */
-function isChangedRowStatus(status: string): boolean {
-  return ["replace", "insert", "delete", "move"].includes(status);
-}
-
-/**
- * Reports whether every changed decorated part in a row contains whitespace.
- *
- * At least one changed part is required. Unchanged parts do not affect the
- * result, and the backend-decorated partitions are never mutated.
- */
-function isWhitespaceOnlyChange(row: DiffRow): boolean {
-  const changedParts = [...row.left_parts, ...row.right_parts].filter(
-    (part) => part.diff_status !== "unchanged",
-  );
-  return (
-    changedParts.length > 0 && changedParts.every((part) => part.is_whitespace)
-  );
-}
-
-/**
- * Removes syntax decoration when every class is intentionally suppressed.
- *
- * Mixed visible/suppressed class lists pass through unchanged so established
- * token styling can choose the visible class; the input array is not mutated.
- */
-function visibleSyntaxClasses(classes: string[]): string[] {
-  if (!classes.length || classes.every(isSuppressedSyntaxClass)) {
-    return [];
-  }
-  return classes;
-}
-
-/**
- * Recognizes tree-sitter syntax classes hidden by the established diff theme.
- *
- * Exact prefix names and their hyphenated descendants are suppressed; unrelated
- * class names remain visible.
- */
-function isSuppressedSyntaxClass(className: string): boolean {
-  return suppressedSyntaxClassPrefixes.some(
-    (prefix) => className === prefix || className.startsWith(`${prefix}-`),
-  );
 }
