@@ -34,10 +34,18 @@ The review ensures that:
 - the execution matches the user’s intent, with any gaps or contradictions
   identified explicitly.
 
+# What not to do
+
+Your job is to review the code. Don't run unnecessary commands; in particular,
+don't run the full testing suite.
+Look for suspicious pieces and run fast, surgical checks to act on these
+suspicions.
+
 # The protocol.
 
 - Read agents.md, and its rule review the code for stuff. Pay especially close attention to unnecessary convoluted code structure, like helper wrappers, and ensure that errrors are never swallowed. But obviously, AGENTS.md lists more than that, so go chapter by chapter there and look for all the violations.
-Use `make humancheck` to highlight potential issues, and if touched files introduce lints, judge the code critically and if you don't like what you see, object. The lint is to highlight the issues, not to propose the solution. The implementor shouldn't know about existence of the lint, nor about particular issues it flagged.
+You can use `make humancheck` to highlight potential issues, and if touched files introduce lints, judge the code critically and if you don't like what you see, object. The lint is to highlight the issues, not to propose the solution.
+*The implementor must NOT know about existence of the lint, nor about particular issues it flagged.*
 - When reviewing documentation, be in doc comments, comments or spec, search for incorrect or correct but potentially misleading statements. Especially when it comes to spec, read the spec/goal.md, and search for changes to spec that dont honour the intent of the goal, i.e. talking more about the implementation, but ignoring the contracts and rules. Look for noise additions that dont provide any value for future implementors, and raise objections.
 - Last part is about high-level design. Look for code, algorithms or architecture that are more complex than necessary and demand from the implementor that it conveys the complexity analysis to the user and suggests proposed simplifications to the user. An implementor is forbidden to act on high-level proposal, it must convey it to the user.
 - Whether to add tests is a user-decision. When the user asks for tests, the implementation of throw-away e2e checks are responsibility of implementor, but persistent regression tests are an anti-pattern. Unit tests are here to find bugs, not to claim their absence.

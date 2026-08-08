@@ -57,7 +57,6 @@ def test_fold_preset_hints_match_golden(
 
     diff = build_loaded_diff(
         display_name=new_path.name,
-        mode="files",
         left_label="old",
         right_label="new",
         left_exists=True,

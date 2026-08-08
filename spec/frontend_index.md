@@ -117,8 +117,8 @@ The facade is:
 
 ```ts
 api.changeSet.manifest(params)
-api.changeSet.lazyInfo(params, cacheId)
-api.changeSet.file(params, cacheId, entry, timeout)
+api.changeSet.lazyInfo(snapshotId)
+api.changeSet.file(engine, snapshotId, entry, timeout)
 
 api.repos.list()
 api.repos.refs(projectId)
@@ -137,12 +137,6 @@ api.pullRequest.prepare()
 ```
 
 Each facade operation returns a TanStack query or mutation definition. HUD modules decide when to observe, prefetch, refetch, or execute it.
-
-The module also exports:
-
-```ts
-isRepositoryCacheExpiration(error): boolean;
-```
 
 ### `api/queryClient.tsx`
 
@@ -425,7 +419,7 @@ Private lifetime components:
 
 - `ChangeSetContent` observes the manifest and controls snapshot replacement;
 - `ChangeSetShell` provides the mounted ChangeSet DOM and navigation interface;
-- `ChangeSetSnapshot` represents one manifest and its backend cache ID.
+- `ChangeSetSnapshot` represents one manifest and its opaque `snapshot_id`.
 
 Private interaction components:
 

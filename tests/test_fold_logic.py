@@ -14,7 +14,6 @@ __all__: list[str] = []
 def test_fold_hints_include_unchanged_top_level_function_body() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -44,7 +43,6 @@ def test_fold_hints_include_unchanged_top_level_function_body() -> None:
 def test_changed_top_level_function_does_not_fold_descendants() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -69,7 +67,6 @@ def test_changed_top_level_function_does_not_fold_descendants() -> None:
 def test_deleted_top_level_function_splits_surrounding_unchanged_runs() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -154,7 +151,6 @@ def test_deleted_top_level_function_splits_surrounding_unchanged_runs() -> None:
 def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -184,7 +180,6 @@ def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
 def test_unchanged_top_level_class_folds_class_and_methods() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -240,7 +235,6 @@ def test_unchanged_top_level_class_folds_class_and_methods() -> None:
 def test_changed_class_still_folds_only_unchanged_methods() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -276,7 +270,6 @@ def test_changed_class_still_folds_only_unchanged_methods() -> None:
 def test_changed_function_still_folds_unchanged_nested_functions() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -318,7 +311,6 @@ def test_changed_function_still_folds_unchanged_nested_functions() -> None:
 def test_whitespace_only_changes_block_folding() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -335,7 +327,6 @@ def test_whitespace_only_changes_block_folding() -> None:
 def test_javascript_classes_fold_class_and_methods() -> None:
     diff = build_loaded_diff(
         display_name="demo.js",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -375,7 +366,6 @@ def test_javascript_classes_fold_class_and_methods() -> None:
 def test_css_unchanged_top_level_rule_folds_declarations() -> None:
     diff = build_loaded_diff(
         display_name="demo.css",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -421,7 +411,6 @@ def test_css_unchanged_top_level_rule_folds_declarations() -> None:
 def test_changed_css_media_rule_still_folds_unchanged_nested_rule() -> None:
     diff = build_loaded_diff(
         display_name="demo.css",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -462,7 +451,6 @@ def test_changed_css_media_rule_still_folds_unchanged_nested_rule() -> None:
 def test_changed_css_middle_rule_still_folds_unchanged_siblings() -> None:
     diff = build_loaded_diff(
         display_name="demo.css",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -544,7 +532,6 @@ def test_changed_css_middle_rule_still_folds_unchanged_siblings() -> None:
 def test_rust_impl_blocks_fold_impl_and_methods() -> None:
     diff = build_loaded_diff(
         display_name="demo.rs",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -596,7 +583,6 @@ def test_json_unchanged_top_level_property_folds_with_nested_container() -> (
 ):
     diff = build_loaded_diff(
         display_name="demo.json",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -626,7 +612,6 @@ def test_json_unchanged_top_level_property_folds_with_nested_container() -> (
 def test_yaml_unchanged_nested_top_level_container_folds() -> None:
     diff = build_loaded_diff(
         display_name="demo.yaml",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -650,7 +635,6 @@ def test_yaml_unchanged_nested_top_level_container_folds() -> None:
 def test_toml_unchanged_top_level_table_folds() -> None:
     diff = build_loaded_diff(
         display_name="demo.toml",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -674,7 +658,6 @@ def test_toml_unchanged_top_level_table_folds() -> None:
 def test_markdown_unchanged_heading_section_folds_under_heading() -> None:
     diff = build_loaded_diff(
         display_name="demo.md",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -700,7 +683,6 @@ def test_markdown_changed_parent_section_allows_unchanged_child_heading_fold() -
 ):
     diff = build_loaded_diff(
         display_name="demo.md",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -726,7 +708,6 @@ def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> (
 ):
     diff = build_loaded_diff(
         display_name="demo.md",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -752,7 +733,6 @@ def test_markdown_inserted_blank_before_added_section_blocks_prior_fold() -> (
 ):
     diff = build_loaded_diff(
         display_name="demo.md",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -772,7 +752,6 @@ def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folde
 ):
     diff = build_loaded_diff(
         display_name="demo.md",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -796,7 +775,6 @@ def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folde
 def test_markdown_non_heading_content_does_not_fold() -> None:
     diff = build_loaded_diff(
         display_name="demo.md",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,

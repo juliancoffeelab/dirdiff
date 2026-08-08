@@ -36,7 +36,6 @@ import { isCancelledError, type QueryKey } from "@tanstack/query-core";
 import { CircleAlert, Clock3, LoaderCircle } from "lucide-solid";
 import {
   api,
-  isRepositoryCacheExpiration,
   type DiffParams,
   type FileDiff,
   type FileDiffTimeout,
@@ -219,33 +218,46 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
           right: current.right,
         };
       case "branch-review":
+      case "pull-request": {
+        const baseSelection =
+          current.base_selection.source === "local"
+            ? {
+                source: current.base_selection.source,
+                branch: current.base_selection.branch,
+              }
+            : {
+                source: current.base_selection.source,
+                remote: current.base_selection.remote,
+                branch: current.base_selection.branch,
+              };
+        const reviewSelection =
+          current.review_selection.source === "local"
+            ? {
+                source: current.review_selection.source,
+                branch: current.review_selection.branch,
+              }
+            : {
+                source: current.review_selection.source,
+                remote: current.review_selection.remote,
+                branch: current.review_selection.branch,
+              };
+        if (current.mode === "branch-review") {
+          return {
+            project_id: current.project_id,
+            engine: current.engine,
+            mode: current.mode,
+            base_selection: baseSelection,
+            review_selection: reviewSelection,
+          };
+        }
         return {
           project_id: current.project_id,
           engine: current.engine,
           mode: current.mode,
-          base_selection:
-            current.base_selection.source === "local"
-              ? {
-                  source: current.base_selection.source,
-                  branch: current.base_selection.branch,
-                }
-              : {
-                  source: current.base_selection.source,
-                  remote: current.base_selection.remote,
-                  branch: current.base_selection.branch,
-                },
-          review_selection:
-            current.review_selection.source === "local"
-              ? {
-                  source: current.review_selection.source,
-                  branch: current.review_selection.branch,
-                }
-              : {
-                  source: current.review_selection.source,
-                  remote: current.review_selection.remote,
-                  branch: current.review_selection.branch,
-                },
+          base_selection: baseSelection,
+          review_selection: reviewSelection,
         };
+      }
       case "preset":
         return {
           project_id: current.project_id,
@@ -312,8 +324,8 @@ type ChangeSetContentProps = {
  *
  * The component exists only for one immutable DiffParams value. It mounts no
  * manifest-dependent observer before manifest success, disposes the current
- * snapshot before reload or cache-expiration refetch, and never retains an old
- * manifest merely because TanStack still exposes its previous data.
+ * snapshot before reload and never retains an old manifest merely because
+ * TanStack still exposes its previous data.
  */
 function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   const [replacingSnapshot, setReplacingSnapshot] = createSignal(false);
@@ -332,10 +344,10 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
    *
    * Calling the registered stop operation synchronously closes the current lane.
    * The keyed snapshot is then disposed before cancellation settles and before
-   * the manifest refetch begins. Concurrent expiration indications share this exact
+   * the manifest refetch begins. Concurrent reload actions share this exact
    * operation and cannot start parallel replacement manifests.
    */
-  async function replaceSnapshot(resetFileExpansion: boolean): Promise<void> {
+  async function reloadSnapshot(): Promise<void> {
     if (replacement !== null) {
       await replacement;
       return;
@@ -343,9 +355,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     const stopPromise =
       stopFileSequence === null ? Promise.resolve() : stopFileSequence();
     setReplacingSnapshot(true);
-    if (resetFileExpansion) {
-      props.setState("fileExpansion", {});
-    }
+    props.setState("fileExpansion", {});
     const currentReplacement = (async () => {
       await stopPromise;
       await manifest.refetch();
@@ -374,7 +384,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             onToggleView={props.onToggleView}
             onReload={() => {
               // Reload replaces the snapshot and resets only its file expansion.
-              void replaceSnapshot(true);
+              void reloadSnapshot();
             }}
             onToggleHelp={() => props.onHelpOpenChange(!props.helpOpen)}
             onHelpOpenChange={props.onHelpOpenChange}
@@ -394,7 +404,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
                         title="Failed to load ChangeSet"
                         error={error}
                       >
-                        <RetryButton onRetry={() => replaceSnapshot(true)} />
+                        <RetryButton onRetry={reloadSnapshot} />
                       </ErrorPanel>
                     </div>
                   )}
@@ -411,7 +421,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
             onReload={() => {
-              void replaceSnapshot(true);
+              void reloadSnapshot();
             }}
             onToggleHelp={() => props.onHelpOpenChange(!props.helpOpen)}
             onHelpOpenChange={props.onHelpOpenChange}
@@ -435,9 +445,6 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
                   state={props.state}
                   setState={props.setState}
                   onFileTreeOpenChange={props.onFileTreeOpenChange}
-                  onRepositoryCacheExpiration={() => {
-                    void replaceSnapshot(false);
-                  }}
                   onFileSequenceChange={(stop) => {
                     stopFileSequence = stop;
                   }}
@@ -1233,16 +1240,15 @@ type ChangeSetSnapshotProps = {
   state: ChangeSetState;
   setState: SetStoreFunction<ChangeSetState>;
   onFileTreeOpenChange(open: boolean): void;
-  onRepositoryCacheExpiration(): void;
   onFileSequenceChange(stop: (() => Promise<void>) | null): void;
 };
 
 /**
  * Owns every observer, lane value, derivation, and rendered node for one manifest.
  *
- * All query definitions use the same immutable params and manifest cache ID. The
- * component reports cache expiration to ChangeSetContent, while ordinary file failures
- * remain localized. Disposal cancels the lane and releases every snapshot query.
+ * All query definitions use the same immutable params and opaque `snapshot_id`.
+ * File failures remain localized. Disposal cancels the lane and releases every
+ * snapshot query.
  */
 function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   const queryClient = useQueryClient();
@@ -1335,27 +1341,14 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   // creates exactly one lazy-info observer when the entity exists and none when
   // it does not. It is not a reactive zero-or-one observer collection.
   const lazyInfo = manifestContainsLazyFiles(props.manifest.tree)
-    ? createQuery(() =>
-        api.changeSet.lazyInfo(props.params, props.manifest.cache_id),
-      )
+    ? createQuery(() => api.changeSet.lazyInfo(props.manifest.snapshot_id))
     : null;
-
-  if (lazyInfo !== null) {
-    // This effect has one lifecycle purpose: translate the asynchronous backend
-    // expiration indication into disposal of this immutable snapshot. It neither
-    // copies query data nor repairs file state, and dies with the snapshot.
-    createEffect(() => {
-      if (isRepositoryCacheExpiration(lazyInfo.error)) {
-        props.onRepositoryCacheExpiration();
-      }
-    });
-  }
 
   const fileQueries = createQueries(() => ({
     queries: orderedFiles.map((file) => ({
       ...api.changeSet.file(
-        props.params,
-        props.manifest.cache_id,
+        props.params.engine,
+        props.manifest.snapshot_id,
         file.entry,
         "bounded",
       ),
@@ -1455,15 +1448,6 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
         };
       }
       if (query.isError) {
-        if (isRepositoryCacheExpiration(query.error)) {
-          return {
-            state: "husk" as const,
-            fileIndex,
-            name: manifestFile.name,
-            path,
-            activity: "queued" as const,
-          };
-        }
         if (!(query.error instanceof Error)) {
           throw new Error(`File query ${path} failed without an Error value.`);
         }
@@ -1481,15 +1465,6 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
       if (manifestFile.entry.lazy !== null) {
         const lazyInfoQuery = lazyInfo;
         if (lazyInfoQuery !== null && lazyInfoQuery.isError) {
-          if (isRepositoryCacheExpiration(lazyInfoQuery.error)) {
-            return {
-              state: "husk" as const,
-              fileIndex,
-              name: manifestFile.name,
-              path,
-              activity: "queued" as const,
-            };
-          }
           if (!(lazyInfoQuery.error instanceof Error)) {
             throw new Error(
               `Lazy-info query for ${path} failed without an Error value.`,
@@ -1689,10 +1664,6 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                 preparingTarget.needsLazyInfo = false;
               }
             } catch (error: unknown) {
-              if (isRepositoryCacheExpiration(error)) {
-                props.onRepositoryCacheExpiration();
-                return;
-              }
               if (isCancelledError(error) || stopped) {
                 return;
               }
@@ -1805,8 +1776,8 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             throw new Error(`File lane selected invalid index ${fileIndex}.`);
           }
           const options = api.changeSet.file(
-            params,
-            snapshot.cache_id,
+            params.engine,
+            snapshot.snapshot_id,
             file.entry,
             timeout,
           );
@@ -1859,10 +1830,6 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             }
           } catch (error) {
             if (stopped || isCancelledError(error)) {
-              return;
-            }
-            if (isRepositoryCacheExpiration(error)) {
-              props.onRepositoryCacheExpiration();
               return;
             }
             if (
@@ -2878,8 +2845,16 @@ function ManifestStatistics(props: { summary: ManifestSummary }): JSX.Element {
       </div>
       <div class="summary-group summary-group-lines">
         <strong>Lines</strong>
-        <span class="delta added">+ {props.summary.added_lines}</span>
-        <span class="delta removed">- {props.summary.removed_lines}</span>
+        <span class="delta added">
+          +{" "}
+          {props.summary.added_lines === null ? "?" : props.summary.added_lines}
+        </span>
+        <span class="delta removed">
+          -{" "}
+          {props.summary.removed_lines === null
+            ? "?"
+            : props.summary.removed_lines}
+        </span>
       </div>
       <Show when={props.summary.changed_cells !== null}>
         <div class="summary-group summary-group-cells">
@@ -2979,7 +2954,8 @@ function changeSetTitle(params: DiffParams, manifest: Manifest): string {
       return "Working tree vs HEAD";
     case "refs":
       return `${manifest.left_label} vs ${manifest.right_label}`;
-    case "branch-review": {
+    case "branch-review":
+    case "pull-request": {
       const base =
         params.base_selection.source === "remote"
           ? `${params.base_selection.remote}/${params.base_selection.branch}`

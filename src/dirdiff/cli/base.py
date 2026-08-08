@@ -65,6 +65,12 @@ def start(
             help="Repo registry database path.",
         ),
     ] = None,
+    store_path: Annotated[
+        Path | None,
+        typer.Option(
+            help="Snapshot storage directory. Defaults to store beside the database.",
+        ),
+    ] = None,
     presets_root: Annotated[
         str | None,
         typer.Option(help="Preset directory."),
@@ -100,8 +106,12 @@ def start(
     """
 
     resolved_db_path = marker_utils.db_path_or_default(db_path)
+    resolved_store_path = (
+        store_path.expanduser() if store_path is not None else None
+    )
     ctx.obj = server_launch.AppOptions(
         db_path=resolved_db_path,
+        store_path=resolved_store_path,
         presets_root=presets_root,
         port=port,
         frontend_port=frontend_port,
@@ -113,6 +123,9 @@ def start(
     configure_logging()
     config = RuntimeConfig(
         db_path=str(resolved_db_path),
+        store_path=str(
+            resolved_store_path or resolved_db_path.parent / "store"
+        ),
         presets_root=presets_root,
     )
     server_launch.run_app(
@@ -130,7 +143,7 @@ def refs(
     left: Annotated[
         str,
         typer.Argument(help="Left Git ref or diff side."),
-    ] = "head",
+    ] = "HEAD",
     right: Annotated[
         str,
         typer.Argument(help="Right Git ref or diff side."),
@@ -148,6 +161,7 @@ def refs(
     assert isinstance(options, server_launch.AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
+        store_path=str(options.store_path or options.db_path.parent / "store"),
         mode="refs",
         left=left,
         right=right,
@@ -186,6 +200,7 @@ def branch(
     assert isinstance(options, server_launch.AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
+        store_path=str(options.store_path or options.db_path.parent / "store"),
         mode="branch-review",
         base_selection={"source": "local", "branch": base_branch},
         review_selection={"source": "local", "branch": review_branch},

@@ -269,7 +269,7 @@ type RepoBackedDiffParams = {
  */
 export type HeadDiffParams = RepoBackedDiffParams & {
   mode: "head";
-  left: "head";
+  left: "HEAD";
   right: "worktree";
   show_untracked: true;
 };
@@ -299,6 +299,18 @@ export type BranchReviewDiffParams = RepoBackedDiffParams & {
 };
 
 /**
+ * Requests the prepared branch pair belonging to the Pull Request Tab.
+ *
+ * Its loading parameters match Branch Review, while the distinct mode preserves
+ * the Pull Request Tab's identity at the API boundary.
+ */
+export type PullRequestDiffParams = RepoBackedDiffParams & {
+  mode: "pull-request";
+  base_selection: BranchSelection;
+  review_selection: BranchSelection;
+};
+
+/**
  * Requests one selected preset fixture using the chosen diff engine.
  *
  * The preset kind is the backend project ID and `preset_subset` is the selected
@@ -321,21 +333,31 @@ export type DiffParams =
   | HeadDiffParams
   | RefsDiffParams
   | BranchReviewDiffParams
+  | PullRequestDiffParams
   | PresetDiffParams;
 
-const ManifestSummarySchema = z.strictObject({
-  changed_files: z.number().int(),
-  added_files: z.number().int(),
-  removed_files: z.number().int(),
-  updated_files: z.number().int(),
-  added_lines: z.number().int(),
-  removed_lines: z.number().int(),
-  skipped_files: z.number().int(),
-  changed_cells: z.number().int().nullable(),
-  added_cells: z.number().int().nullable(),
-  removed_cells: z.number().int().nullable(),
-  modified_cells: z.number().int().nullable(),
-});
+const ManifestSummarySchema = z
+  .strictObject({
+    changed_files: z.number().int(),
+    added_files: z.number().int(),
+    removed_files: z.number().int(),
+    updated_files: z.number().int(),
+    added_lines: z.number().int().nullable(),
+    removed_lines: z.number().int().nullable(),
+    skipped_files: z.number().int(),
+    changed_cells: z.number().int().nullable(),
+    added_cells: z.number().int().nullable(),
+    removed_cells: z.number().int().nullable(),
+    modified_cells: z.number().int().nullable(),
+  })
+  .superRefine((summary, context) => {
+    if ((summary.added_lines === null) !== (summary.removed_lines === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "added_lines and removed_lines must have equal presence",
+      });
+    }
+  });
 
 /**
  * Contains immutable aggregate statistics for one manifest snapshot.
@@ -437,7 +459,7 @@ export type ManifestFile = {
 /**
  * Represents one directory in the recursive manifest tree.
  *
- * `path` is the stable expansion key and `entries` preserve backend order. A
+ * `path` is the stable expansion key and `entries` preserve manifest order. A
  * directory carries no file request handle.
  */
 export type ManifestDirectory = {
@@ -472,9 +494,8 @@ const ManifestNodeSchema: z.ZodType<ManifestNode> = z.lazy(() =>
 );
 
 const ManifestSchema = z.strictObject({
-  cache_id: z.string(),
+  snapshot_id: z.string().regex(/^[0-9a-f]{32}$/),
   display_name: z.string(),
-  mode: z.literal("repo"),
   left_label: z.string(),
   right_label: z.string(),
   summary: ManifestSummarySchema,
@@ -485,7 +506,7 @@ const ManifestSchema = z.strictObject({
  * Describes one ordered immutable ChangeSet snapshot returned by the manifest
  * endpoint.
  *
- * The cache ID isolates all subsequent file queries. The tree remains thin and
+ * The snapshot ID isolates all subsequent file queries. The tree remains thin and
  * must not be mutated with progressive file results.
  */
 export type Manifest = z.infer<typeof ManifestSchema>;
@@ -652,7 +673,6 @@ export type EngineWarning = z.infer<typeof EngineWarningSchema>;
 const TextFileDiffSchema = z
   .strictObject({
     display_name: z.string(),
-    mode: z.literal("git"),
     left_label: z.string(),
     right_label: z.string(),
     summary: TextFileSummarySchema,
@@ -718,7 +738,6 @@ export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 const NotebookFileDiffSchema = z
   .strictObject({
     display_name: z.string(),
-    mode: z.literal("git"),
     render_kind: z.literal("notebook"),
     left_label: z.string(),
     right_label: z.string(),
@@ -806,10 +825,10 @@ type MultiAbortSignal = {
 /**
  * Classifies transport errors for Toast expiration policy.
  *
- * Timeout failures may expire, repository-cache expiration drives snapshot
- * replacement without error UI, and every other request failure remains visible.
+ * Timeout failures may expire, while every other request failure remains
+ * visible.
  */
-type RequestErrorReason = "timeout" | "repository-cache-expired" | "other";
+type RequestErrorReason = "timeout" | "other";
 
 /**
  * Represents a browser or backend HTTP failure with its Toast lifetime reason.
@@ -835,20 +854,6 @@ class RequestError extends Error {
     this.name = "RequestError";
     this.error_reason = errorReason;
   }
-}
-
-/**
- * Identifies the backend indication that a repository snapshot handle expired.
- *
- * QueryProvider uses a true result to suppress the ordinary error Toast.
- * ChangeSetSnapshot uses it to notify ChangeSetContent, which replaces the
- * complete snapshot. Every other classified HTTP failure returns false.
- */
-export function isRepositoryCacheExpiration(error: unknown): boolean {
-  return (
-    error instanceof RequestError &&
-    error.error_reason === "repository-cache-expired"
-  );
 }
 
 /**
@@ -953,15 +958,7 @@ async function throwResponseError(response: Response): Promise<never> {
     }
     const parsedDetail = HttpExceptionResponseSchema.safeParse(payload);
     if (parsedDetail.success) {
-      throw new RequestError(
-        // TODO: Have the backend return a stable machine-readable cache-expiration
-        // code and classify that code here instead of parsing human-readable detail.
-        parsedDetail.data.detail.startsWith("Unknown cache id: ")
-          ? "repository-cache-expired"
-          : "other",
-        parsedDetail.data.detail,
-        null,
-      );
+      throw new RequestError("other", parsedDetail.data.detail, null);
     }
   } catch (error) {
     if (!(error instanceof SyntaxError)) {
@@ -1321,6 +1318,7 @@ function manifestSearchParams(params: DiffParams): URLSearchParams {
       search.set("preset_subset", params.preset_subset);
       return search;
     case "branch-review":
+    case "pull-request":
       search.set("base_source", params.base_selection.source);
       search.set("base_branch", params.base_selection.branch);
       if (params.base_selection.source === "remote") {
@@ -1345,24 +1343,13 @@ function manifestSearchParams(params: DiffParams): URLSearchParams {
 }
 
 /**
- * Encodes the immutable snapshot identity shared by lazy and file endpoints.
+ * Encodes the opaque `snapshot_id` shared by lazy and file endpoints.
  *
- * Callers provide the original DiffParams and backend cache ID. File paths and
- * engine-specific fields are deliberately appended by the endpoint that uses them.
+ * File paths and the selected rendering engine are deliberately appended only
+ * by the file endpoint that uses them.
  */
-function cachedSearchParams(
-  params: DiffParams,
-  cacheId: string,
-): URLSearchParams {
-  const search = new URLSearchParams({
-    mode: params.mode,
-    cache_id: cacheId,
-    project_id: String(params.project_id),
-  });
-  if (params.mode === "preset") {
-    search.set("preset_subset", params.preset_subset);
-  }
-  return search;
+function snapshotSearchParams(snapshotId: string): URLSearchParams {
+  return new URLSearchParams({ snapshot_id: snapshotId });
 }
 
 /**
@@ -1388,17 +1375,16 @@ function requestManifest(
 }
 
 /**
- * Requests delayed-file metadata for one immutable manifest cache.
+ * Requests delayed-file metadata addressed by one manifest `snapshot_id`.
  *
- * The original DiffParams, cache ID, and query AbortSignal are required. The result
- * describes lazy presentation only and does not trigger explicit file loading.
+ * The snapshot ID and query AbortSignal are required. The result describes lazy
+ * presentation only and does not trigger explicit file loading.
  */
 function requestLazyInfo(
-  params: DiffParams,
-  cacheId: string,
+  snapshotId: string,
   abortSignal: AbortSignal,
 ): Promise<LazyInfo> {
-  const search = cachedSearchParams(params, cacheId);
+  const search = snapshotSearchParams(snapshotId);
   return requestJson(
     {
       input: `/api/lazy-info?${search.toString()}`,
@@ -1413,20 +1399,19 @@ function requestLazyInfo(
 /**
  * Requests one complete rendered file addressed by a manifest handle.
  *
- * Callers provide snapshot identity, cache identity, the exact manifest entry,
- * cancellation and a bounded-or-unbounded timeout policy. The engine selects
- * the duration of bounded attempts; the policy affects execution only and must
- * not alter query identity.
+ * Callers provide the rendering engine, opaque `snapshot_id`, exact manifest
+ * entry, cancellation, and a bounded-or-unbounded timeout policy. The timeout
+ * policy affects execution only and must not alter query identity.
  */
 function requestFileDiff(
-  params: DiffParams,
-  cacheId: string,
+  engine: DiffEngine,
+  snapshotId: string,
   entry: ManifestEntry,
   abortSignal: AbortSignal,
   timeout: FileDiffTimeout,
 ): Promise<FileDiff> {
-  const search = cachedSearchParams(params, cacheId);
-  search.set("engine", params.engine);
+  const search = snapshotSearchParams(snapshotId);
+  search.set("engine", engine);
   if (entry.left_path !== null) {
     search.set("left_path", entry.left_path);
   }
@@ -1436,7 +1421,7 @@ function requestFileDiff(
   const timeoutMs =
     timeout === "unbounded"
       ? null
-      : params.engine === "difftastic" || params.engine === "gumtree"
+      : engine === "difftastic" || engine === "gumtree"
         ? SLOW_DIFF_TIMEOUT_MS
         : REQUEST_TIMEOUT_MS;
   return requestJson(
@@ -1484,16 +1469,16 @@ export const api = {
     },
 
     /**
-     * Defines delayed-file metadata for one immutable manifest cache.
+     * Defines delayed-file metadata addressed by one manifest `snapshot_id`.
      *
-     * Consumers supply the original parameters and cache ID. Query observation,
-     * enabling, and explicit loading remain responsibilities of the ChangeSet.
+     * Consumers supply the snapshot ID. Query observation, enabling, and
+     * explicit loading remain responsibilities of the ChangeSet.
      */
-    lazyInfo(params: DiffParams, cacheId: string) {
+    lazyInfo(snapshotId: string) {
       return queryOptions({
-        queryKey: ["change-set", "lazy-info", params, cacheId] as const,
+        queryKey: ["change-set", "lazy-info", snapshotId] as const,
         queryFn: ({ signal: abortSignal }) =>
-          requestLazyInfo(params, cacheId, abortSignal),
+          requestLazyInfo(snapshotId, abortSignal),
         meta: { errorTitle: "Failed to load delayed-file information" },
         ...snapshotQuery,
       });
@@ -1502,14 +1487,14 @@ export const api = {
     /**
      * Defines one canonical rendered-file query from a manifest handle.
      *
-     * Snapshot parameters, cache ID, and entry paths form stable query identity.
+     * Engine, snapshot ID, and entry paths form stable query identity.
      * Timeout controls only this attempt's transport and is deliberately absent
      * from the query key. The definition does not decide sequential scheduling
      * or rich/lazy state.
      */
     file(
-      params: DiffParams,
-      cacheId: string,
+      engine: DiffEngine,
+      snapshotId: string,
       entry: ManifestEntry,
       timeout: FileDiffTimeout,
     ) {
@@ -1518,9 +1503,9 @@ export const api = {
         right_path: entry.right_path,
       };
       return queryOptions({
-        queryKey: ["change-set", "file", params, cacheId, locator] as const,
+        queryKey: ["change-set", "file", engine, snapshotId, locator] as const,
         queryFn: ({ signal: abortSignal }) =>
-          requestFileDiff(params, cacheId, entry, abortSignal, timeout),
+          requestFileDiff(engine, snapshotId, entry, abortSignal, timeout),
         meta: { errorTitle: "Failed to load file diff" },
         ...snapshotQuery,
       });

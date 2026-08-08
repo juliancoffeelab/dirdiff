@@ -61,7 +61,6 @@ def test_build_repo_manifest_lists_changed_tracked_files(
         right="worktree",
     )
 
-    assert manifest["mode"] == "repo"
     assert manifest["summary"]["changed_files"] == 1
     assert manifest["summary"]["added_lines"] == 1
     assert manifest["summary"]["removed_lines"] == 1
@@ -118,7 +117,7 @@ def test_build_repo_manifest_can_include_untracked_files_as_lazy(
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     manifest = service.build_repo_manifest(
-        left="head",
+        left="HEAD",
         right="worktree",
         show_untracked=True,
     )
@@ -323,7 +322,7 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(
     payload = service.build_git_diff_paths(
         left_path=None,
         right_path="beta.txt",
-        left="head",
+        left="HEAD",
         right="worktree",
         change_type="add",
         file_kind="untracked",
@@ -422,7 +421,6 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
         right=normalized_branch,
     )
 
-    assert manifest["mode"] == "repo"
     assert resolved_base_branch == "master"
     assert manifest["left_label"] == merge_base
     assert manifest["right_label"] == "feature"
@@ -484,20 +482,20 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(
     rich_diff = rich_service.build_git_diff_paths(
         left_path="alpha.txt",
         right_path="alpha.txt",
-        left="head",
+        left="HEAD",
         right="worktree",
     )
     git_diff = git_service.build_git_diff_paths(
         left_path="alpha.txt",
         right_path="alpha.txt",
-        left="head",
+        left="HEAD",
         right="worktree",
     )
     reversed_git_diff = git_service.build_git_diff_paths(
         left_path="alpha.txt",
         right_path="alpha.txt",
         left="worktree",
-        right="head",
+        right="HEAD",
     )
 
     assert [row["status"] for row in rich_diff["rows"]] == [
@@ -800,7 +798,7 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
 
-    manifest = service.build_repo_manifest(left="head", right="worktree")
+    manifest = service.build_repo_manifest(left="HEAD", right="worktree")
 
     assert manifest["tree"] == [
         {

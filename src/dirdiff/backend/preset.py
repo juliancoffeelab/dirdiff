@@ -15,13 +15,11 @@ from typing import TypeIs, override
 from dirdiff.backend.base import (
     BranchSelection,
     DefaultBaseSelection,
+    LazyReason,
     RefChoices,
     RepoDiffPath,
-    RepoLazyReason,
     SideName,
-    TextVersion,
     WorkspaceBackendProtocol,
-    _count_changed_line_stats,
 )
 from dirdiff.engines import DirdiffError
 
@@ -29,7 +27,7 @@ __all__ = [
     "PresetBackend",
 ]
 
-_REPO_LAZY_REASONS: tuple[RepoLazyReason, ...] = (
+_LAZY_REASONS: tuple[LazyReason, ...] = (
     "too_big",
     "generated",
     "deleted",
@@ -38,13 +36,13 @@ _REPO_LAZY_REASONS: tuple[RepoLazyReason, ...] = (
 )
 
 
-def _is_repo_lazy_reason(value: object) -> TypeIs[RepoLazyReason]:
+def _is_lazy_reason(value: object) -> TypeIs[LazyReason]:
     """Narrow untyped preset metadata to a supported lazy reason.
 
     TOML values enter as `Any`, so membership validation must also provide the
-    static type boundary promised by `_lazy_reason_override`.
+    static type boundary promised by preset metadata parsing.
     """
-    return isinstance(value, str) and value in _REPO_LAZY_REASONS
+    return isinstance(value, str) and value in _LAZY_REASONS
 
 
 class PresetBackend(WorkspaceBackendProtocol):
@@ -157,28 +155,31 @@ class PresetBackend(WorkspaceBackendProtocol):
             )
         return old_files[0], new_files[0]
 
-    def _lazy_reason_override(self, preset_dir: Path) -> RepoLazyReason | None:
-        """Read an explicit lazy classification from optional fixture metadata.
+    def lazy_reason_metadata(
+        self,
+        repository_path: str,
+    ) -> tuple[LazyReason, str] | None:
+        """Return a preset File's reason and complete metadata content.
 
-        A fixture may contain `preset.toml` with only a `lazy_reason` key. This
-        lets browser scenarios exercise placeholder hydration independently of
-        production size and filename heuristics; it must not configure timing
-        or frontend behavior.
+        `repository_path` must identify one old/new fixture inside this preset
+        catalog. Absence of `preset.toml` returns `None`; malformed metadata is
+        rejected through the same backend error contract as path listing.
         """
+        normalized_path = self.normalize_repo_path(repository_path)
+        preset_dir = self.presets_root / PurePosixPath(normalized_path).parent
         metadata_path = preset_dir / "preset.toml"
         if not metadata_path.exists():
             return None
-        metadata = tomllib.loads(metadata_path.read_text(encoding="utf-8"))
+        content = metadata_path.read_text(encoding="utf-8")
+        metadata = tomllib.loads(content)
         if set(metadata) != {"lazy_reason"}:
             raise DirdiffError(
                 f"Preset metadata must contain only lazy_reason: {metadata_path}"
             )
-        lazy_reason = metadata["lazy_reason"]
-        if not _is_repo_lazy_reason(lazy_reason):
-            raise DirdiffError(
-                f"Unsupported preset lazy_reason: {lazy_reason!r}"
-            )
-        return lazy_reason
+        reason = metadata["lazy_reason"]
+        if not _is_lazy_reason(reason):
+            raise DirdiffError(f"Unsupported preset lazy_reason: {reason!r}")
+        return reason, content
 
     def _path_for_side(self, path: str, side: SideName) -> Path:
         """Resolve a preset-relative manifest path to the requested side file."""
@@ -288,29 +289,41 @@ class PresetBackend(WorkspaceBackendProtocol):
         entries: list[RepoDiffPath] = []
         for preset_dir in self._preset_dirs_for_group(normalized_left):
             old_path, new_path = self._preset_pair(preset_dir)
-            old_text = old_path.read_text(encoding="utf-8")
-            new_text = new_path.read_text(encoding="utf-8")
-            added, removed, replaced = _count_changed_line_stats(
-                old_text,
-                new_text,
-            )
+            right_path = f"{normalized_left}/{preset_dir.name}/{new_path.name}"
+            lazy_reason = self.lazy_reason_metadata(right_path)
             entries.append(
                 RepoDiffPath(
                     left_path=f"{normalized_left}/{preset_dir.name}/{old_path.name}",
-                    right_path=(
-                        f"{normalized_left}/{preset_dir.name}/{new_path.name}"
-                    ),
-                    display_name=(
-                        f"{normalized_left}/{preset_dir.name}/{new_path.name}"
-                    ),
+                    right_path=right_path,
+                    display_name=right_path,
                     change_type="modify",
-                    lazy_reason_override=self._lazy_reason_override(preset_dir),
-                    changed_lines=added + removed + replaced,
-                    added_lines=added + replaced,
-                    removed_lines=removed + replaced,
+                    lazy_reason_override=(
+                        lazy_reason[0] if lazy_reason is not None else None
+                    ),
                 )
             )
         return entries
+
+    @override
+    def line_counts(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        show_untracked: bool = False,
+    ) -> tuple[None, None]:
+        """Report that presets have no authoritative aggregate line counts.
+
+        Presets never support intruding Files, so `show_untracked` must remain
+        false for this backend.
+        """
+        assert not show_untracked, "preset diffs do not support untracked Files"
+        self.normalize_side(left)
+        if right != "new":
+            raise DirdiffError(
+                "Preset diffs compare a preset's old.* and new.* files."
+            )
+        return None, None
 
     @override
     def normalize_repo_path(self, raw_path: str) -> str:
@@ -336,14 +349,19 @@ class PresetBackend(WorkspaceBackendProtocol):
         return normalized
 
     @override
-    def load_version(self, path: str, side: SideName) -> TextVersion:
-        """Load one old/new fixture file for a preset manifest path."""
+    def load_version(self, path: str, side: SideName) -> bytes:
+        """Return exact contents for one present old/new preset fixture file.
+
+        A fixture listed by the preset catalog but absent at load time raises
+        `DirdiffError`; absence is represented by an absent manifest side.
+        """
         normalized_path = self.normalize_repo_path(path)
         file_path = self._path_for_side(normalized_path, side)
         if not file_path.exists():
-            return TextVersion(label=side, exists=False, text=None)
-        return TextVersion(
-            label=side,
-            exists=True,
-            text=file_path.read_text(encoding="utf-8"),
-        )
+            raise DirdiffError(f"Preset file is missing: {normalized_path}")
+        try:
+            return file_path.read_bytes()
+        except OSError as exc:
+            raise DirdiffError(
+                f"Could not read preset file {normalized_path}: {exc}"
+            ) from exc

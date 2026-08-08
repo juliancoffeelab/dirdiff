@@ -131,7 +131,6 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
 def build_loaded_diff(
     *,
     display_name: str,
-    mode: str,
     left_label: str,
     right_label: str,
     left_exists: bool,
@@ -154,7 +153,6 @@ def build_loaded_diff(
     notebook_payload = build_notebook_diff_payload(
         renderer=renderer,
         display_name=display_name,
-        mode=mode,
         left_label=left_label,
         right_label=right_label,
         left_exists=left_exists,
@@ -188,7 +186,6 @@ def build_loaded_diff(
     )
     payload: dict[str, Any] = {
         "display_name": display_name,
-        "mode": mode,
         "left_label": left_label,
         "right_label": right_label,
         "summary": {
@@ -239,7 +236,6 @@ def build_workspace_file_payload(
     notebook_payload = build_notebook_diff_payload(
         renderer=renderer,
         display_name=resolved_display_name,
-        mode="git",
         left_label=context["left_label"],
         right_label=context["right_label"],
         left_exists=left_version.exists,
@@ -282,7 +278,6 @@ def build_workspace_file_payload(
     )
     payload: dict[str, Any] = {
         "display_name": resolved_display_name,
-        "mode": "git",
         "left_label": context["left_label"],
         "right_label": context["right_label"],
         "rows": display["rows"],

@@ -40,7 +40,7 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
     backend = GitBackend.discover(cwd=REPO_ROOT)
     cases: list[tuple[str, str, str, str, str]] = []
     for entry in backend.list_repo_diff_paths(
-        left="head",
+        left="HEAD",
         right="worktree",
         show_untracked=True,
     ):
@@ -49,7 +49,7 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
                 backend=backend,
                 left_path=entry.left_path,
                 right_path=entry.right_path,
-                left="head",
+                left="HEAD",
                 right="worktree",
             )
         except DirdiffError:

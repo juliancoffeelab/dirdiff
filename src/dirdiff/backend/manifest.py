@@ -9,14 +9,13 @@ backends list, classify, and load workspace paths.
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from dirdiff.backend.base import (
     RepoDiffPath,
     WorkspaceBackendProtocol,
 )
 
-LARGE_CHANGED_LINES_LAZY_THRESHOLD = 1000
 GENERATED_FILES = frozenset(
     {
         "cargo.lock",
@@ -43,7 +42,6 @@ GIT_FILE_STATUS_BY_CHANGE_TYPE = {
 __all__ = [
     "GENERATED_FILES",
     "GIT_FILE_STATUS_BY_CHANGE_TYPE",
-    "LARGE_CHANGED_LINES_LAZY_THRESHOLD",
     "build_lazy_info_for_paths",
     "build_repo_manifest_for_backend",
     "build_repo_manifest_for_paths",
@@ -93,20 +91,10 @@ def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
         return "untracked"
     if entry.change_type == "delete":
         return "deleted"
-    changed_lines = 0
-    if entry.changed_lines is not None:
-        changed_lines = entry.changed_lines
-    if entry.change_type == "rename" and changed_lines == 0:
-        return "pure_renamed"
     if _looks_generated_path(entry.right_path) or _looks_generated_path(
         entry.left_path
     ):
         return "generated"
-    if (
-        entry.changed_lines is not None
-        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
-    ):
-        return "too_big"
     return None
 
 
@@ -115,15 +103,15 @@ def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
     return _lazy_reason_for_repo_entry(entry) is not None
 
 
-def _empty_repo_summary() -> dict[str, int]:
-    """Keep the summary keys stable even when a manifest has no files."""
+def _empty_repo_summary() -> dict[str, Any]:
+    """Provide zero File totals before aggregate line metadata is attached."""
     return {
         "changed_files": 0,
         "added_files": 0,
         "removed_files": 0,
         "updated_files": 0,
-        "added_lines": 0,
-        "removed_lines": 0,
+        "added_lines": None,
+        "removed_lines": None,
         "skipped_files": 0,
     }
 
@@ -135,9 +123,9 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
         "right_path": entry.right_path,
         "file_kind": file_kind_for_repo_entry(entry),
         "display_name": entry.display_name,
-        "changed_lines": entry.changed_lines,
-        "added_lines": entry.added_lines,
-        "removed_lines": entry.removed_lines,
+        "changed_lines": None,
+        "added_lines": None,
+        "removed_lines": None,
         "lazy": _lazy_reason_for_repo_entry(entry),
     }
 
@@ -288,10 +276,17 @@ def build_repo_manifest_for_backend(
         right=normalized_right,
         show_untracked=show_untracked,
     )
+    added_lines, removed_lines = backend.line_counts(
+        left=normalized_left,
+        right=normalized_right,
+        show_untracked=show_untracked,
+    )
     return build_repo_manifest_for_paths(
         left_label=normalized_left,
         right_label=normalized_right,
         paths=paths,
+        added_lines=added_lines,
+        removed_lines=removed_lines,
     )
 
 
@@ -300,9 +295,16 @@ def build_repo_manifest_for_paths(
     left_label: str,
     right_label: str,
     paths: list[RepoDiffPath] | tuple[RepoDiffPath, ...],
+    added_lines: Optional[int],
+    removed_lines: Optional[int],
 ) -> dict[str, Any]:
-    """Build a manifest from already-listed paths so cache reuse is exact."""
+    """Build a manifest from captured paths and aggregate Snapshot metadata."""
+    assert (added_lines is None) == (removed_lines is None), (
+        "manifest line counts must have equal presence"
+    )
     summary = _empty_repo_summary()
+    summary["added_lines"] = added_lines
+    summary["removed_lines"] = removed_lines
 
     for entry in paths:
         summary["changed_files"] += 1
@@ -312,14 +314,9 @@ def build_repo_manifest_for_paths(
             summary["removed_files"] += 1
         else:
             summary["updated_files"] += 1
-        if entry.added_lines is not None:
-            summary["added_lines"] += entry.added_lines
-        if entry.removed_lines is not None:
-            summary["removed_lines"] += entry.removed_lines
 
     return {
         "display_name": "Repository diff",
-        "mode": "repo",
         "left_label": left_label,
         "right_label": right_label,
         "summary": summary,

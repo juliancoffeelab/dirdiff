@@ -66,6 +66,11 @@ class AppOptions:
     Repo registry database path selected by the CLI.
     """
 
+    store_path: Path | None
+    """
+    Explicit Snapshot store path, or `None` for the database-sibling default.
+    """
+
     presets_root: str | None
     """
     Optional preset root passed through to the server startup config.
@@ -100,9 +105,9 @@ def _add_branch_selection_query(
 ) -> None:
     """Encode one startup branch selection into frontend URL params.
 
-    `build_url` uses this for CLI-provided branch-review state.  It mirrors
-    the API query contract: source and branch are always present, while remote
-    exists only on the remote variant.
+    `build_url` uses this for CLI-provided Branch Review state. It mirrors the
+    canonical browser fields: source and branch are always present, while
+    remote exists only on the remote variant.
     """
     query[f"{prefix}_source"] = selection["source"]
     query[f"{prefix}_branch"] = selection["branch"]
@@ -111,34 +116,43 @@ def _add_branch_selection_query(
 
 
 def build_url(port: int, config: RuntimeConfig) -> str:
-    """Build the browser URL that matches the requested startup state.
+    """Build the canonical browser URL for the requested startup state.
 
-    The backend is still capable of serving all modes after startup.  This URL
-    only tells the frontend which mode and refs to select on first load.
+    The default Head launch uses the genuinely empty URL whose defaults belong
+    to the frontend. Explicit CLI workflows use browser Tab fields rather than
+    backend API mode parameters.
     """
 
+    root = f"http://127.0.0.1:{port}/"
+    if config.mode == "head":
+        return root
+
     query = {
-        key: value
-        for key, value in {
-            "mode": config.mode,
-            "left": config.left,
-            "right": config.right,
-        }.items()
-        if value
+        "tab": config.mode,
+        "engine": "dirdiff",
+        "view": "inline",
     }
-    if config.mode == "branch-review" and config.base_selection is not None:
+    if config.mode == "refs":
+        query["left"] = config.left
+        query["right"] = config.right
+    else:
+        assert config.base_selection is not None, (
+            "Branch Review startup requires a base selection"
+        )
+        assert config.review_selection is not None, (
+            "Branch Review startup requires a review selection"
+        )
         _add_branch_selection_query(
             query,
             prefix="base",
             selection=config.base_selection,
         )
-    if config.mode == "branch-review" and config.review_selection is not None:
         _add_branch_selection_query(
             query,
             prefix="review",
             selection=config.review_selection,
         )
-    return f"http://127.0.0.1:{port}/?{urlencode(query, quote_via=quote)}"
+    return f"{root}?{urlencode(query, quote_via=quote)}"
 
 
 def start_frontend_dev_server(

@@ -36,6 +36,7 @@ import {
   type PresetDiffParams,
   type PresetType,
   type ProjectId,
+  type PullRequestDiffParams,
   type RefChoices,
   type RefsDiffParams,
   type RepoMark,
@@ -554,7 +555,7 @@ function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
                     project_id: projectId,
                     engine: props.engine,
                     mode: "head",
-                    left: "head",
+                    left: "HEAD",
                     right: "worktree",
                     show_untracked: true,
                   } satisfies HeadDiffParams
@@ -1682,10 +1683,10 @@ function PullRequestTab(
                   {
                     project_id: projectId,
                     engine: props.engine,
-                    mode: "branch-review",
+                    mode: "pull-request",
                     base_selection: selection.base,
                     review_selection: selection.review,
-                  } satisfies BranchReviewDiffParams
+                  } satisfies PullRequestDiffParams
                 }
                 view={props.view}
                 fileTreeOpen={props.fileTreeOpen}

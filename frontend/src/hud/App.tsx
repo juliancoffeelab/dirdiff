@@ -455,7 +455,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
    */
   function selectHead(): void {
     const search = selectionSearch("head");
-    search.set("left", "head");
+    search.set("left", "HEAD");
     search.set("right", "worktree");
     replaceSelectionSearch(search);
   }

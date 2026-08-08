@@ -18,13 +18,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Engine,
     ForeignKey,
     String,
-    delete,
     insert,
     select,
+    update,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -42,14 +43,20 @@ class RepoMark(TableBase):
     """
     Operational repository mark table.
 
-    Stores the synthetic project id and the filesystem path used by repo-backed
-    diff requests.
+    Stores the synthetic project id, filesystem path, and whether the mark is
+    available to ordinary registry operations.  Inactive rows preserve the id
+    referenced by Rooms and Snapshots.
     """
 
     __tablename__ = "repo_mark"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     path: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="1",
+    )
 
 
 class RepoMarkMeta(TableBase):
@@ -142,9 +149,11 @@ class RepoMarkStore:
 
     def new_mark(self, path: Path, name: str) -> RepoMarkRecord:
         """
-        Persist a repository mark.
+        Persist or reactivate a repository mark.
 
-        The database assigns the synthetic project id.
+        The database assigns the synthetic project id for a new path.  A path
+        that was previously deactivated keeps its original id and registry
+        state while receiving the supplied display name and a new mark time.
         """
 
         assert path.is_absolute(), f"repo path must be absolute: {path}"
@@ -153,6 +162,29 @@ class RepoMarkStore:
         assert display_name != "", "repo name cannot be empty"
         marked_at = datetime.now(UTC)
         with Session(self.engine) as session, session.begin():
+            existing_mark = session.execute(
+                select(RepoMark.id, RepoMark.active).where(
+                    RepoMark.path == str(path)
+                )
+            ).one_or_none()
+            if existing_mark is not None and existing_mark.active is False:
+                project_id = existing_mark.id
+                session.execute(
+                    update(RepoMark)
+                    .where(RepoMark.id == project_id)
+                    .values(active=True)
+                )
+                session.execute(
+                    update(RepoMarkMeta)
+                    .where(RepoMarkMeta.project_id == project_id)
+                    .values(name=display_name, marked_at=marked_at)
+                )
+                return RepoMarkRecord(
+                    id=project_id,
+                    path=str(path),
+                    name=display_name,
+                    marked_at=marked_at,
+                )
             project_id = session.execute(
                 insert(RepoMark).values(path=str(path)).returning(RepoMark.id)
             ).scalar_one()
@@ -172,9 +204,9 @@ class RepoMarkStore:
 
     def list(self) -> Sequence[RepoMarkRecord]:
         """
-        Return all marked repositories.
+        Return all active marked repositories for selection.
 
-        Results are ordered by newest mark first.
+        Results are ordered by display name, path, and stable id.
         """
 
         with Session(self.engine) as session:
@@ -191,6 +223,7 @@ class RepoMarkStore:
                         RepoMarkMeta,
                         RepoMarkMeta.project_id == RepoMark.id,
                     )
+                    .where(RepoMark.active.is_(True))
                     .order_by(
                         RepoMarkMeta.name.asc(),
                         RepoMark.path.asc(),
@@ -214,7 +247,7 @@ class RepoMarkStore:
         """
         Return one marked repository by synthetic id.
 
-        Returns `None` when the id is not present.
+        Returns `None` when the id is absent or inactive.
         """
 
         with Session(self.engine) as session:
@@ -231,7 +264,10 @@ class RepoMarkStore:
                         RepoMarkMeta,
                         RepoMarkMeta.project_id == RepoMark.id,
                     )
-                    .where(RepoMark.id == project_id)
+                    .where(
+                        RepoMark.id == project_id,
+                        RepoMark.active.is_(True),
+                    )
                 )
                 .tuples()
                 .one_or_none()
@@ -247,37 +283,28 @@ class RepoMarkStore:
 
     def delete(self, project_id: int) -> bool:
         """
-        Delete one marked repository and its registry metadata.
+        Deactivate one marked repository.
 
-        Returns `True` when a mark existed and was removed, or `False` when the
-        id was already absent.  Repository files on disk are never touched.
+        Returns `True` when an active mark became inactive, or `False` when the
+        id was absent or already inactive.  Registry metadata, Rooms,
+        Snapshots, and repository files on disk are never touched.
         """
 
         with Session(self.engine) as session, session.begin():
-            mark_exists = (
-                session.execute(
-                    select(RepoMark.id).where(RepoMark.id == project_id)
-                ).one_or_none()
-                is not None
-            )
-            if not mark_exists:
-                return False
-            session.execute(
-                delete(RepoMarkMeta).where(
-                    RepoMarkMeta.project_id == project_id
+            deactivated_id = session.execute(
+                update(RepoMark)
+                .where(
+                    RepoMark.id == project_id,
+                    RepoMark.active.is_(True),
                 )
-            )
-            session.execute(
-                delete(RepoMainBranch).where(
-                    RepoMainBranch.project_id == project_id
-                )
-            )
-            session.execute(delete(RepoMark).where(RepoMark.id == project_id))
-            return True
+                .values(active=False)
+                .returning(RepoMark.id)
+            ).scalar_one_or_none()
+            return deactivated_id is not None
 
     def get_main_branch(self, project_id: int) -> RepoMainBranchRecord | None:
         """
-        Return the persisted main branch for one marked repository.
+        Return the persisted main branch for one active marked repository.
         """
 
         with Session(self.engine) as session:
@@ -287,7 +314,16 @@ class RepoMarkStore:
                     RepoMainBranch.source,
                     RepoMainBranch.remote,
                     RepoMainBranch.branch,
-                ).where(RepoMainBranch.project_id == project_id)
+                )
+                .join_from(
+                    RepoMainBranch,
+                    RepoMark,
+                    RepoMark.id == RepoMainBranch.project_id,
+                )
+                .where(
+                    RepoMainBranch.project_id == project_id,
+                    RepoMark.active.is_(True),
+                )
             ).one_or_none()
             if row is None:
                 return None

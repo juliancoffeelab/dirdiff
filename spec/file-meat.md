@@ -252,7 +252,7 @@ listener, removes DOM methods attached by `FullFile` or `DiffGrid`, and drops
 local fold and render-representation state.
 
 The card does not outlive its `ChangeSetSnapshot`. Query cancellation and
-backend cache lifetime remain the lane’s responsibility.
+query-observer disposal remain the lane’s responsibility.
 
 ## Operations exposed to navigation
 

@@ -3,15 +3,14 @@
 Code outside `dirdiff.backend` imports backend contracts and concrete workspace
 backends from this package root.  The package owns branch/ref selection types,
 repository path discovery, manifest construction, file-side loading, text diff
-preset loading, and the in-process repo-info cache used by the
-server between manifest and file-detail requests.
+preset loading, and pull-request preparation.
 
-Backend implementations may read Git repositories, preset directories, and the
-cache backend, but they must not render rich diff rows, choose HTTP request
-modes, build FastAPI responses, or know about frontend state.  Core backend
-side/path/text contracts live in `base.py`; cache-specific public contracts live
-in `cache.py`.  Sibling backend modules import shared internals from their
-owning implementation modules, while external callers use the exports here.
+Backend implementations may read Git repositories and preset directories, but
+they must not publish Snapshots, render rich diff rows, choose HTTP request
+modes, build FastAPI responses, or know about frontend state. Core backend
+side/path/text contracts live in `base.py`. Sibling backend modules import
+shared internals from their owning implementation modules, while external
+callers use the exports here.
 """
 
 from dirdiff.backend.base import (
@@ -20,6 +19,7 @@ from dirdiff.backend.base import (
     BranchSource,
     DefaultBaseSelection,
     DefaultBaseSelectionError,
+    LazyReason,
     LoadedDiffSides,
     LocalBranchSelection,
     RefChoices,
@@ -30,15 +30,11 @@ from dirdiff.backend.base import (
     StructuredRemoteBranchRef,
     TextVersion,
     WorkspaceBackendProtocol,
+    decode_text_content,
     display_name_for_repo_paths,
     load_diff_sides,
 )
-from dirdiff.backend.cache import (
-    CacheBackendProtocol,
-    MemoryCacheBackend,
-    RepoInfo,
-)
-from dirdiff.backend.git import GitBackend, git_diff_args_with_direction
+from dirdiff.backend.git import GitBackend
 from dirdiff.backend.manifest import (
     build_lazy_info_for_paths,
     build_repo_manifest_for_backend,
@@ -56,13 +52,12 @@ __all__ = [
     "BUILTIN_SIDES",
     "BranchSelection",
     "BranchSource",
-    "CacheBackendProtocol",
     "DefaultBaseSelection",
     "DefaultBaseSelectionError",
     "GitBackend",
+    "LazyReason",
     "LoadedDiffSides",
     "LocalBranchSelection",
-    "MemoryCacheBackend",
     "PreparedPullRequest",
     "PreparedPullRequestBranch",
     "PresetBackend",
@@ -70,7 +65,6 @@ __all__ = [
     "RemoteBranchRef",
     "RemoteBranchSelection",
     "RepoDiffPath",
-    "RepoInfo",
     "SideName",
     "StructuredRemoteBranchRef",
     "TextVersion",
@@ -78,9 +72,9 @@ __all__ = [
     "build_lazy_info_for_paths",
     "build_repo_manifest_for_backend",
     "build_repo_manifest_for_paths",
+    "decode_text_content",
     "display_name_for_repo_paths",
     "file_kind_for_change_type",
-    "git_diff_args_with_direction",
     "load_diff_sides",
     "prepare_pull_request",
 ]

@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Optional
 
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 
 from alembic import command
 
@@ -32,6 +33,22 @@ class TableBase(DeclarativeBase):
     """
 
     pass
+
+
+def enable_sqlite_foreign_keys(
+    dbapi_connection: DBAPIConnection,
+    connection_record: ConnectionPoolEntry,
+) -> None:
+    """Enable SQLite foreign-key constraints on every opened connection.
+
+    SQLAlchemy calls this for persistent and in-memory dirdiff engines before
+    the connection is used. SQLite otherwise parses foreign keys while leaving
+    them unenforced, which would allow orphan persistence rows.
+    """
+    del connection_record
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
@@ -59,6 +76,7 @@ def open_sqlite_engine(db_path: Path) -> Engine:
     expanded_path = db_path.expanduser()
     expanded_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{expanded_path}")
+    event.listen(engine, "connect", enable_sqlite_foreign_keys)
     bootstrap_tables(engine, migrate=expanded_path)
     return engine
 
@@ -73,5 +91,6 @@ def open_ephemeral_engine() -> Engine:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    event.listen(engine, "connect", enable_sqlite_foreign_keys)
     bootstrap_tables(engine)
     return engine

@@ -131,11 +131,11 @@ def print_marked_repos(*, db_path: Path | None) -> None:
 
 
 def remove_marked_repo(*, project_id: int, db_path: Path | None) -> None:
-    """Remove one repository mark from the selected registry database.
+    """Deactivate one repository mark in the selected registry database.
 
-    The mark id comes from `dirdiff mark --list`.  Removing a mark only updates
-    dirdiff's registry state; the repository directory and its Git data remain
-    untouched.
+    The mark id comes from `dirdiff mark --list`.  Deactivation hides it from
+    ordinary registry operations while retaining its id and related persisted
+    state.  The repository directory and its Git data remain untouched.
     """
 
     engine = open_sqlite_engine(db_path_or_default(db_path))

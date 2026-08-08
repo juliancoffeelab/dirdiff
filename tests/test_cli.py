@@ -20,7 +20,8 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from dirdiff.cli.server_launch import choose_port_pair, require_bindable_port
-from dirdiff.db import RepoMarkStore, open_ephemeral_engine
+from dirdiff.db import RepoMarkStore, RoomStore, open_ephemeral_engine
+from dirdiff.room_lord import RoomLord
 from dirdiff.server import TextFileDiffResponse, create_app
 
 __all__: list[str] = []
@@ -79,8 +80,14 @@ def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
     )
 
 
-def test_root_explains_vite_frontend_is_required() -> None:
-    client = TestClient(create_app(repo_mark_store()))
+def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
+    store = repo_mark_store()
+    client = TestClient(
+        create_app(
+            store,
+            room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+        )
+    )
 
     response = client.get("/")
 
@@ -89,8 +96,14 @@ def test_root_explains_vite_frontend_is_required() -> None:
     assert "--no-frontend-dev" in response.text
 
 
-def test_fastapi_docs_are_enabled() -> None:
-    client = TestClient(create_app(repo_mark_store()))
+def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
+    store = repo_mark_store()
+    client = TestClient(
+        create_app(
+            store,
+            room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+        )
+    )
 
     response = client.get("/docs")
 
@@ -107,7 +120,12 @@ def test_repo_list_is_sorted_by_name_and_path(tmp_path: Path) -> None:
     alpha_path.mkdir()
     store.new_mark(path=zeta_path, name="zeta")
     store.new_mark(path=alpha_path, name="alpha")
-    client = TestClient(create_app(store))
+    client = TestClient(
+        create_app(
+            store,
+            room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+        )
+    )
 
     response = client.get("/api/repos")
 
@@ -115,7 +133,7 @@ def test_repo_list_is_sorted_by_name_and_path(tmp_path: Path) -> None:
     assert [repo["name"] for repo in response.json()] == ["alpha", "zeta"]
 
 
-def test_repo_mark_delete_removes_registry_state(tmp_path: Path) -> None:
+def test_repo_mark_delete_deactivates_registry_state(tmp_path: Path) -> None:
     engine = open_ephemeral_engine()
     store = RepoMarkStore(engine)
     repo_path = tmp_path / "repo"
@@ -127,7 +145,12 @@ def test_repo_mark_delete_removes_registry_state(tmp_path: Path) -> None:
         remote=None,
         branch="main",
     )
-    client = TestClient(create_app(store))
+    client = TestClient(
+        create_app(
+            store,
+            room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+        )
+    )
 
     response = client.delete(f"/api/repos/{mark.id}")
 
@@ -137,8 +160,14 @@ def test_repo_mark_delete_removes_registry_state(tmp_path: Path) -> None:
     assert client.get("/api/repos").json() == []
 
 
-def test_repo_mark_delete_reports_missing_id() -> None:
-    client = TestClient(create_app(repo_mark_store()))
+def test_repo_mark_delete_reports_missing_id(tmp_path: Path) -> None:
+    store = repo_mark_store()
+    client = TestClient(
+        create_app(
+            store,
+            room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+        )
+    )
 
     response = client.delete("/api/repos/404")
 
@@ -160,8 +189,7 @@ def test_file_diff_response_schema_rejects_unknown_fields() -> None:
         TextFileDiffResponse.model_validate(
             {
                 "display_name": "alpha.txt",
-                "mode": "git",
-                "left_label": "head",
+                "left_label": "HEAD",
                 "right_label": "worktree",
                 "summary": TEXT_SUMMARY,
                 "rows": [],

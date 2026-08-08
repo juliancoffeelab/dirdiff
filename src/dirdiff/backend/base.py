@@ -1,29 +1,28 @@
-"""Shared backend contracts and text-loading helpers.
+"""Shared backend contracts and file-loading helpers.
 
 Concrete backends such as `GitBackend` and `PresetBackend` implement
 `WorkspaceBackendProtocol` to provide normalized sides, changed path lists, ref
-metadata, and loaded file text.  This module defines those data shapes plus the
-small text helpers reused by backend implementations.
+metadata, and exact file contents. This module also defines the text boundary
+used by consumers that require decoded input.
 
-It should not know about HTTP endpoints, cache ids, frontend rendering, or
+It should not know about HTTP endpoints, Snapshot ids, frontend rendering, or
 which diff engine will consume the loaded text.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Literal, Protocol, TypedDict
+from typing import Literal, Optional, Protocol, TypedDict
 
 from dirdiff.engines import DirdiffError
 
 SideName = str
 BranchSource = Literal["local", "remote"]
-RepoLazyReason = Literal[
+LazyReason = Literal[
     "too_big", "generated", "deleted", "untracked", "pure_renamed"
 ]
-BUILTIN_SIDES = frozenset({"head", "index", "worktree"})
+BUILTIN_SIDES = frozenset({"HEAD", "index", "worktree"})
 
 __all__ = [
     "BUILTIN_SIDES",
@@ -31,17 +30,18 @@ __all__ = [
     "BranchSource",
     "DefaultBaseSelection",
     "DefaultBaseSelectionError",
+    "LazyReason",
     "LoadedDiffSides",
     "LocalBranchSelection",
     "RefChoices",
     "RemoteBranchRef",
     "RemoteBranchSelection",
     "RepoDiffPath",
-    "RepoLazyReason",
     "SideName",
     "StructuredRemoteBranchRef",
     "TextVersion",
     "WorkspaceBackendProtocol",
+    "decode_text_content",
     "display_name_for_repo_paths",
     "load_diff_sides",
 ]
@@ -59,16 +59,19 @@ class TextVersion:
 
 @dataclass(frozen=True)
 class RepoDiffPath:
-    """Path-level metadata produced by a backend path listing."""
+    """Describe one affected repository filepath pair before rendering.
+
+    At least one side path must be present. Paths are repository-relative;
+    `change_type` describes their backend relationship, `untracked` records
+    provenance, and `lazy_reason_override` carries only an explicit backend
+    loading decision. The record contains no rendered rows or line counts.
+    """
 
     left_path: str | None
     right_path: str | None
     display_name: str
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
-    lazy_reason_override: RepoLazyReason | None
-    changed_lines: int | None = None
-    added_lines: int | None = None
-    removed_lines: int | None = None
+    lazy_reason_override: LazyReason | None
     untracked: bool = False
 
 
@@ -131,9 +134,9 @@ class LoadedDiffSides(TypedDict):
     """Loaded left/right text sides returned by `load_diff_sides`.
 
     `WorkspaceBackendProtocol` objects own path normalization, side-name
-    normalization, and text loading.  This bundle is the handoff into
-    server-level notebook routing or engine rendering: it contains normalized
-    repo paths, display labels for the two selected sides, and the loaded
+    normalization, and exact content loading. `load_diff_sides` applies the
+    text requirement and builds this handoff into server-level notebook routing
+    or engine rendering: normalized repo paths, display labels, and loaded
     `TextVersion` objects.
     """
 
@@ -145,8 +148,13 @@ class LoadedDiffSides(TypedDict):
     right_version: TextVersion
 
 
-def _decode_text(data: bytes, *, label: str) -> str:
-    """Decode backend bytes as UTF-8 and turn binary data into a request error."""
+def decode_text_content(data: bytes, *, label: str) -> str:
+    """Decode exact file contents for a consumer that requires UTF-8 text.
+
+    Loading and Snapshot capture accept arbitrary file contents. Text renderers
+    call this boundary only when they need a textual representation; binary or
+    non-UTF-8 input is then reported as an unsupported file diff.
+    """
     if b"\x00" in data:
         raise DirdiffError(f"{label} appears to be a binary file.")
     try:
@@ -177,46 +185,6 @@ def display_name_for_repo_paths(
     if right_path is not None:
         return right_path
     return "(unknown)"
-
-
-def _count_changed_line_stats(
-    left_text: str,
-    right_text: str,
-) -> tuple[int, int, int]:
-    """Count added, removed, and replaced lines for manifest summaries."""
-    left_lines = left_text.splitlines()
-    right_lines = right_text.splitlines()
-    matcher = SequenceMatcher(
-        a=[line.lstrip() for line in left_lines],
-        b=[line.lstrip() for line in right_lines],
-        autojunk=False,
-    )
-    added = 0
-    removed = 0
-    replaced = 0
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        left_count = i2 - i1
-        right_count = j2 - j1
-        if tag == "equal":
-            replaced += sum(
-                1
-                for left_line, right_line in zip(
-                    left_lines[i1:i2],
-                    right_lines[j1:j2],
-                    strict=True,
-                )
-                if left_line != right_line
-            )
-        elif tag == "delete":
-            removed += left_count
-        elif tag == "insert":
-            added += right_count
-        else:
-            paired = min(left_count, right_count)
-            replaced += paired
-            removed += left_count - paired
-            added += right_count - paired
-    return added, removed, replaced
 
 
 class WorkspaceBackendProtocol(Protocol):
@@ -293,12 +261,32 @@ class WorkspaceBackendProtocol(Protocol):
         """List changed paths between two normalized backend sides."""
         ...
 
+    def line_counts(
+        self,
+        *,
+        left: SideName,
+        right: SideName,
+        show_untracked: bool = False,
+    ) -> tuple[Optional[int], Optional[int]]:
+        """Return added and removed line totals reported by this backend.
+
+        Both values are absent when the backend reports no totals. Additional
+        Files included by `show_untracked` need not participate in them.
+        """
+        ...
+
     def normalize_repo_path(self, raw_path: str) -> str:
         """Normalize a request path into this backend's repo-relative path form."""
         ...
 
-    def load_version(self, path: str, side: SideName) -> TextVersion:
-        """Load one file version for a normalized side and path."""
+    def load_version(self, path: str, side: SideName) -> bytes:
+        """Return the exact contents of one present file.
+
+        The path and side must already be normalized for this backend. Loading
+        must not decode or classify the contents; consumers apply any textual
+        restrictions required by their operation. A listed file that cannot be
+        loaded raises `DirdiffError` with the backend's actual failure reason.
+        """
         ...
 
 
@@ -318,9 +306,9 @@ def load_diff_sides(
     `exists=False` so added/deleted files can still render through the same
     downstream payload builders.
 
-    This is backend logic: normalize repo paths, normalize side names, ask
-    the selected backend for text, and raise `DirdiffError` when the selected
-    sides cannot be loaded safely.
+    This is the text-consumer boundary: normalize repo paths and side names, ask
+    the selected backend for exact contents, decode each present side, and
+    raise `DirdiffError` when a textual diff cannot be produced safely.
     """
     normalized_left = (
         backend.normalize_repo_path(left_path)
@@ -334,23 +322,39 @@ def load_diff_sides(
     )
     normalized_left_side = backend.normalize_side(left)
     normalized_right_side = backend.normalize_side(right)
-    left_version = (
+    left_content = (
         backend.load_version(normalized_left, normalized_left_side)
         if normalized_left is not None
-        else TextVersion(label=normalized_left_side, exists=False, text=None)
+        else None
     )
-    right_version = (
+    right_content = (
         backend.load_version(normalized_right, normalized_right_side)
         if normalized_right is not None
-        else TextVersion(label=normalized_right_side, exists=False, text=None)
+        else None
     )
-
-    if left_version.error is not None:
-        raise DirdiffError(left_version.error)
-    if right_version.error is not None:
-        raise DirdiffError(right_version.error)
-    if not left_version.exists and not right_version.exists:
+    if left_content is None and right_content is None:
         raise DirdiffError("The selected file is missing on both sides.")
+
+    left_version = TextVersion(
+        label=normalized_left_side,
+        exists=left_content is not None,
+        text=decode_text_content(
+            left_content,
+            label=f"{normalized_left_side}:{normalized_left}",
+        )
+        if left_content is not None
+        else None,
+    )
+    right_version = TextVersion(
+        label=normalized_right_side,
+        exists=right_content is not None,
+        text=decode_text_content(
+            right_content,
+            label=f"{normalized_right_side}:{normalized_right}",
+        )
+        if right_content is not None
+        else None,
+    )
 
     return {
         "left_path": normalized_left,

@@ -15,7 +15,6 @@ import {
   isCancelledError,
 } from "@tanstack/solid-query";
 import type { JSX } from "solid-js";
-import { isRepositoryCacheExpiration } from "./api";
 
 /**
  * Describes the application-specific TanStack metadata recognized on failure.
@@ -58,10 +57,9 @@ declare module "@tanstack/query-core" {
  * Callers provide the complete application subtree and an error reporter. Each
  * failed query or mutation attempt invokes `onError` once using its required
  * metadata title. Missing metadata violates the application query contract and
- * throws at this cache boundary. Intentional query cancellation is handled by
- * the query lifecycle; repository-cache expiration is handled by the ChangeSet
- * lifecycle. Both remain silent. Descendants access the mounted client through
- * TanStack Query's `useQueryClient()`.
+ * throws at this cache boundary. Intentional query cancellation remains silent.
+ * Descendants access the mounted client through TanStack Query's
+ * `useQueryClient()`.
  */
 export function QueryProvider(props: {
   children: JSX.Element;
@@ -73,12 +71,11 @@ export function QueryProvider(props: {
        * Presents ordinary query failures through the application Toast boundary.
        *
        * TanStack invokes this after a query attempt fails. This callback ignores
-       * intentional cancellation and repository-cache expiration; ChangeSet handles
-       * the latter by replacing its snapshot. Every ordinary query must provide
-       * its application-specific error title.
+       * intentional cancellation. Every ordinary query must provide its
+       * application-specific error title.
        */
       onError(error, query) {
-        if (isCancelledError(error) || isRepositoryCacheExpiration(error)) {
+        if (isCancelledError(error)) {
           return;
         }
         if (query.meta === undefined) {

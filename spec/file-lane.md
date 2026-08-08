@@ -3,7 +3,7 @@
 ## Purpose
 
 The file lane is the data lifecycle of one mounted `ChangeSetSnapshot`. It starts
-with one manifest and its backend cache handle, produces the canonical file
+with one manifest and its opaque `snapshot_id`, produces the canonical file
 states consumed by `FileCard`, and ends when that snapshot is disposed.
 
 The lane lives in `ChangeSet.tsx`. Backend types, query keys, and HTTP operations
@@ -21,7 +21,7 @@ The snapshot treats these values as immutable for its entire lifetime:
 
 - `DiffParams`;
 - the manifest tree and manifest statistics;
-- the manifest `cache_id`;
+- the manifest `snapshot_id`;
 - the manifest-order list of files.
 
 The manifest tree is flattened depth-first. That order is the file index used by
@@ -33,7 +33,7 @@ manifest entry. Files do not wait for their backend diff before they appear in
 the component tree.
 
 Inactive Tabs keep their Tab state but do not retain a mounted
-`ChangeSetSnapshot`, query observers for its backend cache handle, or rendered
+`ChangeSetSnapshot`, query observers for its opaque `snapshot_id`, or rendered
 files.
 
 ## Canonical backend data
@@ -41,10 +41,10 @@ files.
 The snapshot has three related query layers:
 
 1. one manifest query, keyed by `DiffParams`;
-2. one lazy-info query, keyed by `DiffParams` and `cache_id`, only when the
-   manifest contains lazy files;
-3. one ordered collection of file queries, keyed by `DiffParams`, `cache_id`,
-   and the manifest entry.
+2. one lazy-info query, keyed by `snapshot_id`, only when the manifest contains
+   lazy files;
+3. one ordered collection of file queries, keyed by engine, `snapshot_id`, and
+   the manifest entry's left/right path locator.
 
 The file-query collection has exactly the same order and length as the flattened
 manifest. Its observers are disabled for automatic fetching. The lane executes
@@ -62,7 +62,7 @@ store:
 | file query failed ordinarily | error `Lazy` |
 | lazy-info failed ordinarily | error `Lazy` for every manifest-lazy file |
 | manifest marks the file lazy and lazy-info is available | deferred `Lazy` |
-| file has not started, or its snapshot is expiring | `Husk`, queued |
+| file has not started | `Husk`, queued |
 
 Every successful file response is checked against its manifest entry. Lazy-info
 must describe exactly the manifest entries marked lazy, once each, with a
@@ -181,30 +181,13 @@ boundary. An unexpected line-restoration failure explicitly stops the lane
 before it is rethrown; other orchestration failures become terminal when that
 boundary disposes the snapshot.
 
-A backend cache expiration is neither an ordinary file failure nor a
-`LazyFile`. It invalidates the complete snapshot because its manifest,
-lazy-info, and files all refer to one disposable backend cache handle.
+An unknown `snapshot_id` is a backend-contract failure and remains visible like
+any other request failure. The frontend does not classify it or replace the
+manifest automatically.
 
-## Cache expiration and replacement
-
-Cache expiration is recognized from a `RequestError` by the application’s
-expiration classifier. The backend currently exposes the reason as a stable
-`detail` prefix rather than a dedicated machine-readable error code; replacing
-that string classification remains an explicit follow-up. A recognized
-expiration causes one snapshot replacement:
-
-1. stop the current lane;
-2. dispose the keyed snapshot and all observers tied to its `cache_id`;
-3. refetch the manifest with the same `DiffParams`;
-4. mount a new snapshot from the replacement manifest;
-5. restart lazy metadata and ordered loading with the new `cache_id`.
-
-Several expiration responses from the same snapshot share that replacement.
-The expired snapshot and its loaded files are not restored.
-
-An explicit reload uses the same stop-and-replace lifecycle. Repository or
-workspace reset boundaries additionally clear client state and reconstruct it
-from the current URL.
+An explicit reload stops the lane, disposes the keyed snapshot, resets file
+expansion, and refetches the manifest. Repository or workspace reset boundaries
+additionally clear client state and reconstruct it from the current URL.
 
 ## Cancellation and disposal
 
@@ -233,7 +216,7 @@ For each manifest index, `ChangeSet` supplies `FileCard` with:
 
 ## Lane invariants
 
-- One snapshot has one immutable `DiffParams`, manifest, and `cache_id`.
+- One snapshot has one immutable `DiffParams`, manifest, and `snapshot_id`.
 - File indexes are manifest indexes and remain stable for the snapshot.
 - Automatic file fetches and admissions are sequential in manifest order.
 - One canonical file query represents one manifest entry in one snapshot.
@@ -241,7 +224,6 @@ For each manifest index, `ChangeSet` supplies `FileCard` with:
 - Admission is separate from fetch success and yields before mounting the
   expensive `FileBody`.
 - One file failure does not stop later files.
-- Cache expiration replaces the complete snapshot rather than damaging one
-  file.
+- An unknown `snapshot_id` receives no special recovery path.
 - Disposed snapshots perform no later loading, presentation, or navigation
   work.

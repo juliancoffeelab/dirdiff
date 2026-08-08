@@ -56,7 +56,7 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     )
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    paths = service.list_repo_diff_paths(left="head", right="worktree")
+    paths = service.list_repo_diff_paths(left="HEAD", right="worktree")
 
     assert len(paths) == 1
     assert paths[0].display_name == "alpha.txt -> renamed.txt"

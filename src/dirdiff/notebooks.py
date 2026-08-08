@@ -485,7 +485,6 @@ def build_notebook_diff_payload(
     *,
     renderer: DiffEngineProtocol,
     display_name: str,
-    mode: str,
     left_label: str,
     right_label: str,
     left_exists: bool,
@@ -502,10 +501,8 @@ def build_notebook_diff_payload(
     are not renderable until notebook support has a snapshot-safe design. Only
     eager cell-source rows participate in the file-local hunk order.
 
-    `None` means the supplied text should not be treated as a notebook.  The
-    server uses that signal to preserve the old behavior for malformed
-    `.ipynb` files by allowing the selected text engine to render them as
-    ordinary text.
+    `None` means the supplied text is not a valid notebook payload. The server
+    then sends the captured text to the selected ordinary-file engine.
 
     Pairing is done at the notebook-cell level before row rendering.  Stable
     cell ids are preferred when they are unique on both sides; otherwise cell
@@ -609,7 +606,6 @@ def build_notebook_diff_payload(
 
     payload = {
         "display_name": display_name,
-        "mode": mode,
         "render_kind": "notebook",
         "left_label": left_label,
         "right_label": right_label,

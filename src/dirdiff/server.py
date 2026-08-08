@@ -1,11 +1,13 @@
-"""FastAPI wiring and request-level diff orchestration.
+"""FastAPI wiring and request-level diff rendering.
 
-The server owns REST concerns: resolving modes, refs, presets, repository
-marks, and response validation.  Diff engines render already-loaded text; they
-do not decide whether a file is a notebook.  For `.ipynb` paths, this module
-loads the two file versions through the selected `WorkspaceBackendProtocol` and calls
-the public notebook payload builders before falling back to the selected text
-engine.
+The server validates HTTP inputs and constructs concrete workspace backends for
+manifest. `RoomLord.corresponding_room` applies the Tab law there, while
+follow-up routes recover a Room directly from the returned Snapshot key. Room
+methods expose captured Paths and metadata; private capture stores never cross
+the application boundary. Diff engines render already-loaded text and do not
+decide whether a file is a notebook.
+For `.ipynb` paths, this module calls the public notebook payload builders
+before using the selected text engine.
 
 Keeping notebook routing here preserves the REST API while preventing concrete
 engines from depending on notebook internals.
@@ -18,38 +20,39 @@ from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, Optional, TypedDict
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from dirdiff.backend import (
     BranchSelection,
     BranchSource,
-    CacheBackendProtocol,
     DefaultBaseSelection,
     GitBackend,
+    LazyReason,
     LoadedDiffSides,
-    MemoryCacheBackend,
     PreparedPullRequest,
     PreparedPullRequestBranch,
     PresetBackend,
     RefChoices,
     RepoDiffPath,
-    RepoInfo,
+    TextVersion,
     WorkspaceBackendProtocol,
     build_lazy_info_for_paths,
     build_repo_manifest_for_paths,
+    decode_text_content,
     display_name_for_repo_paths,
     file_kind_for_change_type,
-    load_diff_sides,
     prepare_pull_request,
 )
 from dirdiff.db import (
     PreferencesStore,
     RepoMainBranchRecord,
     RepoMarkStore,
+    RoomStore,
     UserProfileStore,
     open_sqlite_engine,
 )
@@ -75,6 +78,7 @@ from dirdiff.rendering import (
     default_expanded_for_payload,
     enrich_rows_for_display,
 )
+from dirdiff.room_lord import RoomLord
 
 LOGGER = logging.getLogger(__name__)
 
@@ -84,8 +88,6 @@ __all__ = [
     "RUNTIME_CONFIG_ENV",
     "RuntimeConfig",
     "branch_selection_request_to_selection",
-    "build_repo_info_for_request",
-    "cached_path_for_request",
     "create_app",
     "repo_main_branch_record_to_selection",
     "selected_branch_selections",
@@ -113,15 +115,25 @@ class RuntimeConfig:
     reload workers do not need to know how command-line defaults were chosen.
     """
 
+    store_path: str
+    """
+    Directory containing immutable Snapshot files.
+
+    The CLI defaults this to a `store` directory beside `db_path`, while an
+    explicit `--store-path` supplies a separate location. Persistent databases
+    use a database-adjacent `.room.lock` file so every store root shares one
+    publication lock.
+    """
+
     mode: Literal["head", "refs", "branch-review"] = "head"
     """
-    Initial comparison mode encoded into the browser URL.
+    Initial Tab encoded into the browser URL.
 
     This is startup navigation state, not a server-wide restriction; the API can
     still serve other modes after the frontend is running.
     """
 
-    left: str = "head"
+    left: str = "HEAD"
     """
     Left ref or side name for `refs` startup mode.
     """
@@ -154,16 +166,16 @@ class RuntimeConfig:
 
 
 ModeParam = Literal[
-    "files", "staged", "head", "refs", "branch-review", "preset"
+    "head",
+    "refs",
+    "branch-review",
+    "pull-request",
+    "preset",
 ]
 EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
 PresetTypeParam = Literal["diff", "fold", "gumtree", "scroll"]
 BranchSourceParam = BranchSource
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
-LazyReason = (
-    Literal["too_big", "generated", "deleted", "untracked", "pure_renamed"]
-    | None
-)
 BranchSelections = tuple[BranchSelection | None, BranchSelection | None]
 
 
@@ -191,9 +203,8 @@ class DiffPayload(TypedDict):
 
     This is intentionally wider than `DiffEngineResult`.  It carries the
     rendered engine core plus request/UI metadata: the file display name, the
-    source mode selected by the API route, human-facing side labels, file-kind
-    metadata, and the normalized paths used to load each side.  Engines should
-    not construct this type directly.
+    human-facing side labels, file-kind metadata, and the normalized paths used
+    to load each side. Engines should not construct this type directly.
     """
 
     summary: DiffPayloadSummary
@@ -219,11 +230,6 @@ class DiffPayload(TypedDict):
     display_name: str
     """
     Human-facing file display name chosen by the API/backend layer.
-    """
-
-    mode: str
-    """
-    Source mode reported to the frontend for this payload.
     """
 
     left_label: str
@@ -497,17 +503,33 @@ class NotebookDiffSummaryResponse(DiffSummaryResponse):
 
 
 class RepoDiffSummaryResponse(ApiModel):
+    """Validate manifest-wide File totals and optional backend line totals.
+
+    Added and removed line counts are either both backend-reported integers or
+    both absent. They need not include additional untracked Files. Cell totals
+    remain optional because only notebook-aware payloads can provide them.
+    """
+
     changed_files: int
     added_files: int
     removed_files: int
     updated_files: int
-    added_lines: int
-    removed_lines: int
+    added_lines: Optional[int]
+    removed_lines: Optional[int]
     skipped_files: int
     changed_cells: int | None = None
     added_cells: int | None = None
     removed_cells: int | None = None
     modified_cells: int | None = None
+
+    @model_validator(mode="after")
+    def validate_line_count_presence(self) -> RepoDiffSummaryResponse:
+        """Reject a response carrying only one aggregate line count."""
+        if (self.added_lines is None) != (self.removed_lines is None):
+            raise ValueError(
+                "added_lines and removed_lines must have equal presence"
+            )
+        return self
 
 
 class GitFileKindResponse(ApiModel):
@@ -533,7 +555,6 @@ class EngineWarningResponse(ApiModel):
 
 class TextFileDiffResponse(ApiModel):
     display_name: str
-    mode: Literal["git"]
     left_label: str
     right_label: str
     summary: DiffSummaryResponse
@@ -542,7 +563,7 @@ class TextFileDiffResponse(ApiModel):
     file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
-    lazy: LazyReason = None
+    lazy: LazyReason | None = None
     default_expanded: bool = True
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
     engine_warning: EngineWarningResponse | None = None
@@ -580,7 +601,6 @@ class NotebookCellDiffResponse(ApiModel):
 
 class NotebookFileDiffResponse(ApiModel):
     display_name: str
-    mode: Literal["git"]
     render_kind: Literal["notebook"]
     left_label: str
     right_label: str
@@ -598,7 +618,7 @@ class RepoFileEntryResponse(ApiModel):
     file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
-    lazy: LazyReason = None
+    lazy: LazyReason | None = None
 
 
 class RepoManifestFileNodeResponse(ApiModel):
@@ -629,13 +649,18 @@ class LazyInfoFileResponse(ApiModel):
     changed_lines: int | None = None
     added_lines: int | None = None
     removed_lines: int | None = None
-    lazy: LazyReason = None
+    lazy: LazyReason | None = None
 
 
 class RepoManifestResponse(ApiModel):
-    cache_id: str
+    """Return one complete manifest and its retained Snapshot address.
+
+    `snapshot_id` is exactly 32 lowercase hexadecimal characters and is the
+    only Room lookup input accepted by follow-up endpoints.
+    """
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     display_name: str
-    mode: Literal["repo"]
     left_label: str
     right_label: str
     summary: RepoDiffSummaryResponse
@@ -650,126 +675,58 @@ def selected_branch_selections(
     mode: ModeParam = Query(description="UI diff mode."),
     base_source: BranchSourceParam | None = Query(
         default=None,
-        description="Base branch source for branch-review mode.",
+        description="Base branch source for a branch-backed Tab.",
     ),
     base_remote: str | None = Query(
         default=None,
-        description="Base remote for remote branch-review selections.",
+        description="Base remote for remote branch-backed selections.",
     ),
     base_branch: str | None = Query(
         default=None,
-        description="Base branch name for branch-review mode.",
+        description="Base branch name for a branch-backed Tab.",
     ),
     review_source: BranchSourceParam | None = Query(
         default=None,
-        description="Review branch source for branch-review mode.",
+        description="Review branch source for a branch-backed Tab.",
     ),
     review_remote: str | None = Query(
         default=None,
-        description="Review remote for remote branch-review selections.",
+        description="Review remote for remote branch-backed selections.",
     ),
     review_branch: str | None = Query(
         default=None,
-        description="Review branch name for branch-review mode.",
+        description="Review branch name for a branch-backed Tab.",
     ),
 ) -> BranchSelections:
-    """Return structured branch-review selections for the active mode.
+    """Return structured branch selections for a branch-backed Tab.
 
     The UI can keep base/review branch controls populated while the user moves
-    between modes.  API handlers call this helper so branch-review parameters
-    do not accidentally influence normal file, ref, or preset comparisons.
+    between Tabs. API handlers call this helper so branch parameters do not
+    accidentally influence Head, Compare Refs, or Preset manifests.
     """
-    if mode != "branch-review":
+    mode_label: Literal["branch-review", "pull-request"]
+    if mode == "branch-review":
+        mode_label = "branch-review"
+    elif mode == "pull-request":
+        mode_label = "pull-request"
+    else:
         return None, None
 
     return (
         _branch_selection_from_query(
             label="base",
+            mode_label=mode_label,
             source=base_source,
             remote=base_remote,
             branch=base_branch,
         ),
         _branch_selection_from_query(
             label="review",
+            mode_label=mode_label,
             source=review_source,
             remote=review_remote,
             branch=review_branch,
         ),
-    )
-
-
-def build_repo_info_for_request(
-    *,
-    backend: WorkspaceBackendProtocol,
-    mode: ModeParam,
-    branch_selections: BranchSelections,
-    left: str | None,
-    right: str | None,
-    preset: str | None,
-    show_untracked: bool,
-) -> RepoInfo:
-    """Resolve API diff parameters into backend cache entry.
-
-    This is server request orchestration, not backend package logic: modes,
-    branch-review controls, and preset query parameters belong to the REST API.
-    The returned `RepoInfo` is the operational state cached after
-    `/api/manifest` and reused by follow-up detail endpoints.
-    """
-    selected_base, selected_review = branch_selections
-    if mode == "preset":
-        if preset is None or (requested_preset := preset.strip()) == "":
-            raise DirdiffError("preset is required for preset mode.")
-        preset_name = backend.normalize_side(requested_preset)
-        paths = backend.list_repo_diff_paths(
-            left=preset_name,
-            right="new",
-            show_untracked=False,
-        )
-        return RepoInfo(
-            left_side=preset_name,
-            right_side="new",
-            left_label="old",
-            right_label="new",
-            paths=tuple(paths),
-        )
-    if mode == "branch-review":
-        if selected_base is None or selected_review is None:
-            raise DirdiffError("branch selections are required.")
-        resolved_base_branch, merge_base, normalized_branch = (
-            backend.resolve_branch_diff_sides(
-                base_selection=selected_base,
-                review_selection=selected_review,
-            )
-        )
-        paths = backend.list_repo_diff_paths(
-            left=merge_base,
-            right=normalized_branch,
-            show_untracked=False,
-        )
-        return RepoInfo(
-            left_side=merge_base,
-            right_side=normalized_branch,
-            left_label=f"{resolved_base_branch.strip()}...{normalized_branch}",
-            right_label=normalized_branch,
-            paths=tuple(paths),
-        )
-    if left is None or (requested_left := left.strip()) == "":
-        raise DirdiffError("left is required for this diff mode.")
-    if right is None or (requested_right := right.strip()) == "":
-        raise DirdiffError("right is required for this diff mode.")
-    normalized_left = backend.normalize_side(requested_left)
-    normalized_right = backend.normalize_side(requested_right)
-    paths = backend.list_repo_diff_paths(
-        left=normalized_left,
-        right=normalized_right,
-        show_untracked=show_untracked,
-    )
-    return RepoInfo(
-        left_side=normalized_left,
-        right_side=normalized_right,
-        left_label=normalized_left,
-        right_label=normalized_right,
-        paths=tuple(paths),
     )
 
 
@@ -778,13 +735,13 @@ def preset_project_parts(
     project_id: str | None,
     preset_subset: str | None,
 ) -> tuple[PresetTypeParam, str]:
-    """Parse a preset project id from `/api/manifest` and follow-up requests.
+    """Parse the preset catalog and subset used to prepare a manifest.
 
     Preset mode uses `project_id` as the catalog discriminator (`diff`, `fold`,
     `gumtree`, or `scroll`) and `preset_subset` as the selected group within that
-    catalog.
-    The preset backend still owns validating the subset itself, including
-    traversal and unknown-group checks.
+    catalog. Follow-up endpoints find the prepared Room by Snapshot key and do
+    not call this parser. The preset backend still validates traversal and
+    unknown-group errors while preparing the manifest.
     """
     if project_id is None or project_id.strip() == "":
         raise DirdiffError("project_id is required for preset mode.")
@@ -804,7 +761,11 @@ def preset_project_parts(
 
 
 def marked_project_id(project_id: str | None) -> int:
-    """Parse the marked project id carried by repo-backed manifest requests."""
+    """Parse a positive Mark id from a repo-backed HTTP parameter.
+
+    Manifest uses the result to construct the workspace backend. Follow-up
+    operations never call this parser because their Snapshot id is sufficient.
+    """
     if project_id is None or project_id.strip() == "":
         raise DirdiffError("project_id is required for repo-backed modes.")
     try:
@@ -816,55 +777,35 @@ def marked_project_id(project_id: str | None) -> int:
     return parsed_project_id
 
 
-def cached_path_for_request(
-    *,
-    repo_info: RepoInfo,
-    left_path: str | None,
-    right_path: str | None,
-) -> RepoDiffPath:
-    """Return the cached manifest path addressed by a follow-up file request.
-
-    Follow-up endpoints receive the opaque cache id plus the left/right path
-    locator from one manifest entry.  Change type, display name, and file kind
-    come back from the cached manifest facts so the frontend cannot send stale
-    or contradictory metadata.
-    """
-    if left_path is None and right_path is None:
-        raise DirdiffError("left_path or right_path is required.")
-    for path in repo_info.paths:
-        if path.left_path == left_path and path.right_path == right_path:
-            return path
-    raise DirdiffError("Cached manifest path is missing.")
-
-
 def _branch_selection_from_query(
     *,
     label: str,
+    mode_label: Literal["branch-review", "pull-request"],
     source: BranchSourceParam | None,
     remote: str | None,
     branch: str | None,
 ) -> BranchSelection:
-    """Parse one split branch-review selection from query params.
+    """Parse one split branch-backed selection from query params.
 
-    Used only while building a manifest for branch-review mode. Follow-up file
-    endpoints use the cache id returned by that manifest request.
+    Used only while building a manifest for a branch-backed Tab. Follow-up file
+    endpoints use the snapshot id returned by that manifest request.
     """
     if source is None:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_source is required for branch-review mode.",
+            detail=f"{label}_source is required for {mode_label} mode.",
         )
     if branch is None or (branch_name := branch.strip()) == "":
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_branch is required for branch-review mode.",
+            detail=f"{label}_branch is required for {mode_label} mode.",
         )
     if source == "local":
         return {"source": source, "branch": branch_name}
     if remote is None or (remote_name := remote.strip()) == "":
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_remote is required for remote branch-review selections.",
+            detail=f"{label}_remote is required for remote {mode_label} selections.",
         )
     return {
         "source": source,
@@ -899,24 +840,23 @@ def create_app(
     db: RepoMarkStore,
     user_profile_store: UserProfileStore | None = None,
     preferences_store: PreferencesStore | None = None,
-    cache: CacheBackendProtocol | None = None,
     *,
+    room_lord: RoomLord,
     presets_root: str | None = None,
 ) -> FastAPI:
     """Create the dirdiff FastAPI app and wire request orchestration.
 
-    The app layer owns HTTP validation, database-backed repo marks, preset
-    catalog selection, notebook detection, and response-model validation.  It
-    constructs a backend for each request, optionally builds notebook payloads
-    at the API boundary, and otherwise delegates already-loaded text rendering
-    to the selected diff engine.
+    The app layer owns HTTP validation, database-backed repo marks, concrete
+    backend construction, notebook detection, and response-model validation.
+    The caller provides the `RoomLord` that selects prepared Rooms for manifest
+    and recovers them by Snapshot key for follow-up operations. Storage and
+    capture remain behind that interface. The server delegates already-loaded
+    text rendering to the selected diff engine.
     """
     if user_profile_store is None:
         user_profile_store = UserProfileStore(db.engine)
     if preferences_store is None:
         preferences_store = PreferencesStore(db.engine)
-    if cache is None:
-        cache = MemoryCacheBackend()
 
     app = FastAPI()
 
@@ -961,36 +901,6 @@ def create_app(
                 "groups": preset_backend.list_preset_groups(),
             }
         )
-
-    def backend_for_request(
-        *,
-        mode: ModeParam,
-        project_id: str | None,
-        preset_subset: str | None,
-    ) -> WorkspaceBackendProtocol:
-        """Resolve the file/ref loader for a request.
-
-        Preset requests use `project_id` as the preset catalog (`diff`, `fold`,
-        or `gumtree`) and `preset_subset` as the concrete fixture group.
-        Repo-backed project ids are marked project ids encoded as query strings.
-        Engines stay out of this decision because they render loaded text; they
-        do not know where refs, presets, or repo paths come from.
-
-        Keeping backend resolution separate from renderer construction is also
-        what lets notebook routing happen before text diff rendering.
-        """
-        if mode == "preset":
-            preset_type, _preset = preset_project_parts(
-                project_id=project_id,
-                preset_subset=preset_subset,
-            )
-            return preset_backend_for_type(preset_type)
-
-        parsed_project_id = marked_project_id(project_id)
-        mark = db.get(parsed_project_id)
-        if mark is None:
-            raise DirdiffError(f"Invalid project_id: {parsed_project_id}")
-        return GitBackend.discover(repo_root=Path(mark.path))
 
     def looks_like_notebook_path(path: str | None) -> bool:
         """Return whether a repo path should be routed through notebook logic."""
@@ -1043,7 +953,6 @@ def create_app(
         )
         payload: DiffPayload = {
             "display_name": resolved_display_name,
-            "mode": "git",
             "left_label": context["left_label"],
             "right_label": context["right_label"],
             "rows": display["rows"],
@@ -1081,11 +990,10 @@ def create_app(
         """Return a notebook file payload when the request targets a notebook.
 
         This is the boundary that keeps engines notebook-agnostic.  The server
-        inspects paths, loads file text through the source, and asks
-        `notebooks.py` to build the `render_kind: "notebook"` payload.  If a
-        path looks like a notebook but parsing fails, `None` is returned so
-        the selected diff engine can render the file as plain text, matching the
-        previous fallback behavior.
+        inspects paths and asks `notebooks.py` to build the
+        `render_kind: "notebook"` payload from already captured text. If a path
+        looks like a notebook but parsing fails, `None` tells the caller to
+        render that text as an ordinary file.
 
         The returned payload is shaped exactly like the existing
         `NotebookFileDiffResponse` branch of `/api/file-diff`.  The REST API
@@ -1108,7 +1016,6 @@ def create_app(
         payload = build_notebook_diff_payload(
             renderer=renderer,
             display_name=resolved_display_name,
-            mode="git",
             left_label=context["left_label"],
             right_label=context["right_label"],
             left_exists=left_version.exists,
@@ -1496,49 +1403,92 @@ def create_app(
             description="Include untracked worktree files when supported by the selected mode.",
         ),
     ) -> RepoManifestResponse:
+        """Return the current prepared state selected by the active Tab.
+
+        The handler constructs the concrete backend and supplies the complete
+        Tab state to `RoomLord.corresponding_room`. The response contains the
+        manifest tree, aggregate backend totals, and the opaque Snapshot key
+        required by follow-up endpoints.
+        """
         try:
+            preset_catalog: str | None = None
             preset_name: str | None = None
             parsed_project_id: int | None = None
             if mode == "preset":
-                _preset_type, preset_name = preset_project_parts(
+                preset_catalog, preset_name = preset_project_parts(
                     project_id=project_id,
                     preset_subset=preset_subset,
                 )
+                backend: WorkspaceBackendProtocol = preset_backend_for_type(
+                    preset_catalog
+                )
             else:
                 parsed_project_id = marked_project_id(project_id)
-            backend = backend_for_request(
-                mode=mode,
-                project_id=project_id,
-                preset_subset=preset_subset,
-            )
-            repo_info = build_repo_info_for_request(
+                mark = db.get(parsed_project_id)
+                if mark is None:
+                    raise DirdiffError(
+                        f"Invalid project_id: {parsed_project_id}"
+                    )
+                backend = GitBackend.discover(repo_root=Path(mark.path))
+            room, snapshot_id = room_lord.corresponding_room(
+                mark_id=parsed_project_id,
+                tab=mode,
                 backend=backend,
-                mode=mode,
                 branch_selections=branch_selections,
                 left=left,
                 right=right,
-                preset=preset_name,
+                preset_catalog=preset_catalog,
+                preset_subset=preset_name,
                 show_untracked=show_untracked,
             )
-            if mode == "preset":
-                # Presets are fixture-backed and cheap to resolve from
-                # project_id + preset_subset on follow-up requests, so they do
-                # not occupy the repo cache.
-                cache_id = ""
-            else:
-                assert parsed_project_id is not None
-                cache_id = cache.store_repo_info(
-                    project_id=parsed_project_id,
-                    repo_info=repo_info,
+            snapshot_meta = room.meta(snapshot_id)
+            manifest_paths = tuple(
+                sorted(
+                    (
+                        RepoDiffPath(
+                            left_path=left_path.as_posix()
+                            if left_path is not None
+                            else None,
+                            right_path=right_path.as_posix()
+                            if right_path is not None
+                            else None,
+                            display_name=(
+                                right_path.as_posix()
+                                if snapshot_meta["tab"] == "preset"
+                                and right_path is not None
+                                else display_name_for_repo_paths(
+                                    left_path.as_posix()
+                                    if left_path is not None
+                                    else None,
+                                    right_path.as_posix()
+                                    if right_path is not None
+                                    else None,
+                                )
+                            ),
+                            change_type=file_meta["change_type"],
+                            lazy_reason_override=file_meta[
+                                "lazy_reason_override"
+                            ],
+                            untracked=not file_meta["tracked"],
+                        )
+                        for left_path, right_path, file_meta in room.manifested(
+                            snapshot_id
+                        )
+                    ),
+                    key=lambda path: (path.display_name, path.change_type),
                 )
+            )
             payload = build_repo_manifest_for_paths(
-                left_label=repo_info.left_label,
-                right_label=repo_info.right_label,
-                paths=repo_info.paths,
+                left_label=snapshot_meta["left_label"],
+                right_label=snapshot_meta["right_label"],
+                paths=manifest_paths,
+                added_lines=snapshot_meta["added_lines"],
+                removed_lines=snapshot_meta["removed_lines"],
             )
             if mode == "preset":
-                payload["display_name"] = repo_info.left_side
-            payload["cache_id"] = cache_id
+                assert preset_name is not None
+                payload["display_name"] = preset_name
+            payload["snapshot_id"] = snapshot_id.hex
         except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -1562,44 +1512,62 @@ def create_app(
         summary="Load repository lazy file metadata",
     )
     def serve_lazy_info(
-        project_id: str = Query(
-            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
-        ),
-        mode: ModeParam = Query(description="UI diff mode."),
-        preset_subset: str | None = Query(
-            default=None,
-            description="Preset subset/group id for preset mode.",
-        ),
-        cache_id: str = Query(
-            default="",
-            description="Backend cache id returned by /api/manifest for repo-backed modes.",
+        snapshot_id: str = Query(
+            description="Opaque Snapshot id returned by /api/manifest.",
         ),
     ) -> LazyInfoResponse:
+        """Return delayed-file metadata from one manifest Snapshot.
+
+        `snapshot_id` is the sole Room lookup input. The containing Room's
+        persisted Tab supplies presentation behavior; no live Git, worktree,
+        index, or preset state is read.
+        """
         try:
-            repo_info: RepoInfo
-            if mode == "preset":
-                preset_type, preset_name = preset_project_parts(
-                    project_id=project_id,
-                    preset_subset=preset_subset,
+            try:
+                snapshot_key = UUID(hex=snapshot_id)
+            except ValueError as exc:
+                raise DirdiffError(
+                    f"Unknown snapshot id: {snapshot_id}"
+                ) from exc
+            room = room_lord.find_room(snapshot_key)
+            snapshot_meta = room.meta(snapshot_key)
+            lazy_paths = tuple(
+                sorted(
+                    (
+                        RepoDiffPath(
+                            left_path=left_path.as_posix()
+                            if left_path is not None
+                            else None,
+                            right_path=right_path.as_posix()
+                            if right_path is not None
+                            else None,
+                            display_name=(
+                                right_path.as_posix()
+                                if snapshot_meta["tab"] == "preset"
+                                and right_path is not None
+                                else display_name_for_repo_paths(
+                                    left_path.as_posix()
+                                    if left_path is not None
+                                    else None,
+                                    right_path.as_posix()
+                                    if right_path is not None
+                                    else None,
+                                )
+                            ),
+                            change_type=file_meta["change_type"],
+                            lazy_reason_override=file_meta[
+                                "lazy_reason_override"
+                            ],
+                            untracked=not file_meta["tracked"],
+                        )
+                        for left_path, right_path, file_meta in room.manifested(
+                            snapshot_key
+                        )
+                    ),
+                    key=lambda path: (path.display_name, path.change_type),
                 )
-                repo_info = build_repo_info_for_request(
-                    backend=preset_backend_for_type(preset_type),
-                    mode=mode,
-                    branch_selections=(None, None),
-                    left=None,
-                    right=None,
-                    preset=preset_name,
-                    show_untracked=False,
-                )
-            else:
-                parsed_project_id = marked_project_id(project_id)
-                cached_repo_info = cache.repo_info(
-                    project_id=parsed_project_id, cache_id=cache_id
-                )
-                if cached_repo_info is None:
-                    raise DirdiffError(f"Unknown cache id: {cache_id}")
-                repo_info = cached_repo_info
-            payload = build_lazy_info_for_paths(paths=repo_info.paths)
+            )
+            payload = build_lazy_info_for_paths(paths=lazy_paths)
         except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -1623,19 +1591,10 @@ def create_app(
         summary="Load a single file diff",
     )
     def serve_file_diff(
-        project_id: str = Query(
-            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
-        ),
-        cache_id: str = Query(
-            default="",
-            description="Backend cache id returned by /api/manifest for repo-backed modes.",
+        snapshot_id: str = Query(
+            description="Opaque Snapshot id returned by /api/manifest.",
         ),
         engine: EngineParam = Query(description="Diff engine."),
-        mode: ModeParam = Query(description="UI diff mode."),
-        preset_subset: str | None = Query(
-            default=None,
-            description="Preset subset/group id for preset mode.",
-        ),
         left_path: str | None = Query(
             default=None, description="Repo-relative path on the left side."
         ),
@@ -1643,67 +1602,79 @@ def create_app(
             default=None, description="Repo-relative path on the right side."
         ),
     ) -> TextFileDiffResponse | NotebookFileDiffResponse:
+        """Render one exact filepath pair from a manifest Snapshot.
+
+        The opaque key finds the containing Room and is passed again with the
+        repository-relative paths to select the exact captured File. Rendering
+        reads only the returned absolute capture paths; it never reloads the
+        workspace backend.
+        """
         try:
-            backend: WorkspaceBackendProtocol
-            repo_info: RepoInfo
-            if mode == "preset":
-                preset_type, preset_name = preset_project_parts(
-                    project_id=project_id,
-                    preset_subset=preset_subset,
-                )
-                backend = preset_backend_for_type(preset_type)
-                repo_info = build_repo_info_for_request(
-                    backend=backend,
-                    mode=mode,
-                    branch_selections=(None, None),
-                    left=None,
-                    right=None,
-                    preset=preset_name,
-                    show_untracked=False,
-                )
-            else:
-                parsed_project_id = marked_project_id(project_id)
-                backend = backend_for_request(
-                    mode=mode,
-                    project_id=project_id,
-                    preset_subset=preset_subset,
-                )
-                cached_repo_info = cache.repo_info(
-                    project_id=parsed_project_id, cache_id=cache_id
-                )
-                if cached_repo_info is None:
-                    raise DirdiffError(f"Unknown cache id: {cache_id}")
-                repo_info = cached_repo_info
-            renderer = service_for_engine(engine, cwd=backend.cwd)
-            cached_path = cached_path_for_request(
-                repo_info=repo_info,
-                left_path=left_path,
-                right_path=right_path,
+            try:
+                snapshot_key = UUID(hex=snapshot_id)
+            except ValueError as exc:
+                raise DirdiffError(
+                    f"Unknown snapshot id: {snapshot_id}"
+                ) from exc
+            room = room_lord.find_room(snapshot_key)
+            left = Path(left_path) if left_path is not None else None
+            right = Path(right_path) if right_path is not None else None
+            left_file, right_file, file_meta = room.get(
+                snapshot_key,
+                left,
+                right,
             )
+            snapshot_meta = room.meta(snapshot_key)
+            context: LoadedDiffSides = {
+                "left_path": left.as_posix() if left is not None else None,
+                "right_path": right.as_posix() if right is not None else None,
+                "left_label": snapshot_meta["left_label"],
+                "right_label": snapshot_meta["right_label"],
+                "left_version": TextVersion(
+                    label=snapshot_meta["left_label"],
+                    exists=left_file is not None,
+                    text=decode_text_content(
+                        left_file.read_bytes(),
+                        label=f"{snapshot_meta['left_label']}:{left}",
+                    )
+                    if left_file is not None
+                    else None,
+                ),
+                "right_version": TextVersion(
+                    label=snapshot_meta["right_label"],
+                    exists=right_file is not None,
+                    text=decode_text_content(
+                        right_file.read_bytes(),
+                        label=f"{snapshot_meta['right_label']}:{right}",
+                    )
+                    if right_file is not None
+                    else None,
+                ),
+            }
+            renderer = service_for_engine(engine, cwd=Path.cwd())
             file_kind: Literal["git", "untracked"] = (
-                "untracked" if cached_path.untracked else "git"
+                "git" if file_meta["tracked"] else "untracked"
             )
-            context = load_diff_sides(
-                backend=backend,
-                left_path=cached_path.left_path,
-                right_path=cached_path.right_path,
-                left=repo_info.left_side,
-                right=repo_info.right_side,
+            display_name = (
+                right.as_posix()
+                if snapshot_meta["tab"] == "preset" and right is not None
+                else display_name_for_repo_paths(
+                    left.as_posix() if left is not None else None,
+                    right.as_posix() if right is not None else None,
+                )
             )
-            context["left_label"] = repo_info.left_label
-            context["right_label"] = repo_info.right_label
             payload = build_notebook_file_payload_if_applicable(
                 renderer=renderer,
-                display_name=cached_path.display_name,
-                change_type=cached_path.change_type,
+                display_name=display_name,
+                change_type=file_meta["change_type"],
                 file_kind=file_kind,
                 context=context,
             )
             if payload is None:
                 payload = build_text_file_payload(
                     renderer=renderer,
-                    display_name=cached_path.display_name,
-                    change_type=cached_path.change_type,
+                    display_name=display_name,
+                    change_type=file_meta["change_type"],
                     file_kind=file_kind,
                     context=context,
                 )
@@ -1727,11 +1698,19 @@ def create_app(
 
 
 def uvicorn_entrypoint() -> FastAPI:
+    """Construct the production app from the CLI's serialized runtime config.
+
+    The factory opens one SQLite engine, builds the registry and Room
+    persistence interfaces over it, and supplies the configured store root to
+    `RoomLord`. The CLI must provide the environment payload and at least one
+    active Mark before uvicorn imports this function.
+    """
     payload = os.environ.get(RUNTIME_CONFIG_ENV)
     assert payload is not None, "dirdiff runtime config missing"
     config = RuntimeConfig(**json.loads(payload))
     engine = open_sqlite_engine(Path(config.db_path))
     repo_store = RepoMarkStore(engine)
+    room_lord = RoomLord(RoomStore(engine), Path(config.store_path))
     user_profile_store = UserProfileStore(engine)
     preferences_store = PreferencesStore(engine)
     marks = repo_store.list()
@@ -1740,5 +1719,6 @@ def uvicorn_entrypoint() -> FastAPI:
         repo_store,
         user_profile_store,
         preferences_store,
+        room_lord=room_lord,
         presets_root=config.presets_root,
     )

@@ -11,18 +11,41 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from dirdiff.db import RepoMarkStore, UserProfileStore, open_sqlite_engine
+from dirdiff.db import (
+    RepoMarkStore,
+    RoomStore,
+    UserProfileStore,
+    open_sqlite_engine,
+)
+from dirdiff.room_lord import RoomLord
 from dirdiff.server import create_app
 
 __all__: list[str] = []
 
 
 def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
-    engine = open_sqlite_engine(repo_path / ".dirdiff-test.sqlite")
+    # Persistent dirdiff state is not valid worktree input. Keep this API
+    # fixture outside the reviewed repository, as production configuration must.
+    engine = open_sqlite_engine(
+        repo_path.parent / f".{repo_path.name}-dirdiff-test.sqlite"
+    )
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
     mark = repo_marks.new_mark(path=repo_path, name=repo_path.name)
-    return TestClient(create_app(repo_marks, user_profile)), mark.id
+    room_lord = RoomLord(
+        RoomStore(engine),
+        repo_path.parent / f".{repo_path.name}-dirdiff-test-store",
+    )
+    return (
+        TestClient(
+            create_app(
+                repo_marks,
+                user_profile,
+                room_lord=room_lord,
+            )
+        ),
+        mark.id,
+    )
 
 
 def run_git(cwd: Path, *args: str) -> None:
@@ -416,15 +439,15 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         params={
             "project_id": str(project_id),
             "engine": "dirdiff",
-            "mode": "files",
+            "mode": "refs",
             "left": "index",
             "right": "worktree",
         },
     )
     repo_payload = repo_response.json()
-    cache_id = repo_payload["cache_id"]
-    assert isinstance(cache_id, str)
-    assert cache_id != ""
+    snapshot_id = repo_payload["snapshot_id"]
+    assert isinstance(snapshot_id, str)
+    assert snapshot_id != ""
     assert "files" not in repo_payload
     assert repo_payload["tree"] == [
         {
@@ -441,9 +464,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     lazy_info_response = client.get(
         "/api/lazy-info",
         params={
-            "project_id": str(project_id),
-            "mode": "files",
-            "cache_id": cache_id,
+            "snapshot_id": snapshot_id,
         },
     )
     lazy_info = lazy_info_response.json()["files"][0]
@@ -453,19 +474,17 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "left_path": "Cargo.lock",
         "right_path": "Cargo.lock",
         "display_name": "Cargo.lock",
-        "changed_lines": 2,
-        "added_lines": 1,
-        "removed_lines": 1,
+        "changed_lines": None,
+        "added_lines": None,
+        "removed_lines": None,
         "file_kind": {"type": "git", "status": "modified"},
     }
 
     response = client.get(
         "/api/file-diff",
         params={
-            "project_id": str(project_id),
-            "cache_id": cache_id,
+            "snapshot_id": snapshot_id,
             "engine": "dirdiff",
-            "mode": "files",
             "left_path": "Cargo.lock",
             "right_path": "Cargo.lock",
         },
@@ -483,45 +502,30 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         params={
             "project_id": str(project_id),
             "engine": "dirdiff",
-            "mode": "files",
+            "mode": "refs",
             "left": "index",
             "right": "worktree",
         },
     )
-    reloaded_cache_id = reloaded_manifest_response.json()["cache_id"]
+    reloaded_snapshot_id = reloaded_manifest_response.json()["snapshot_id"]
 
     assert reloaded_manifest_response.status_code == 200
-    assert reloaded_cache_id != cache_id
+    assert reloaded_snapshot_id == snapshot_id
 
-    stale_response = client.get(
+    repeated_response = client.get(
         "/api/file-diff",
         params={
-            "project_id": str(project_id),
-            "cache_id": cache_id,
+            "snapshot_id": snapshot_id,
             "engine": "dirdiff",
-            "mode": "files",
-            "left_path": "Cargo.lock",
-            "right_path": "Cargo.lock",
-        },
-    )
-    fresh_response = client.get(
-        "/api/file-diff",
-        params={
-            "project_id": str(project_id),
-            "cache_id": reloaded_cache_id,
-            "engine": "dirdiff",
-            "mode": "files",
             "left_path": "Cargo.lock",
             "right_path": "Cargo.lock",
         },
     )
 
-    assert stale_response.status_code == 400
-    assert stale_response.json()["detail"] == f"Unknown cache id: {cache_id}"
-    assert fresh_response.status_code == 200
+    assert repeated_response.status_code == 200
 
 
-def test_preset_manifest_and_file_diff_do_not_require_project_id(
+def test_preset_manifest_and_file_diff_do_not_require_a_mark(
     tmp_path: Path,
 ) -> None:
     """Preset mode is a checked-in fixture workflow, not a marked-repo workflow."""
@@ -532,6 +536,7 @@ def test_preset_manifest_and_file_diff_do_not_require_project_id(
         create_app(
             repo_marks,
             user_profile,
+            room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
         )
     )
@@ -549,7 +554,8 @@ def test_preset_manifest_and_file_diff_do_not_require_project_id(
 
     assert manifest_response.status_code == 200
     assert manifest["display_name"] == "python"
-    assert manifest["cache_id"] == ""
+    assert isinstance(manifest["snapshot_id"], str)
+    assert manifest["snapshot_id"] != ""
     assert manifest["tree"] != []
 
     stack = list(manifest["tree"])
@@ -567,20 +573,14 @@ def test_preset_manifest_and_file_diff_do_not_require_project_id(
     lazy_info_response = client.get(
         "/api/lazy-info",
         params={
-            "mode": "preset",
-            "project_id": "diff",
-            "preset_subset": "python",
-            "cache_id": manifest["cache_id"],
+            "snapshot_id": manifest["snapshot_id"],
         },
     )
     file_diff_response = client.get(
         "/api/file-diff",
         params={
-            "cache_id": manifest["cache_id"],
+            "snapshot_id": manifest["snapshot_id"],
             "engine": "dirdiff",
-            "mode": "preset",
-            "project_id": "diff",
-            "preset_subset": "python",
             "left_path": file_entry["left_path"],
             "right_path": file_entry["right_path"],
         },
@@ -619,6 +619,7 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
         create_app(
             repo_marks,
             user_profile,
+            room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
         )
     )
@@ -642,7 +643,8 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
 
         assert response.status_code == 200
         assert payload["display_name"] == preset_subset
-        assert payload["cache_id"] == ""
+        assert isinstance(payload["snapshot_id"], str)
+        assert payload["snapshot_id"] != ""
         assert payload["tree"] != []
 
 
@@ -653,6 +655,7 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
         create_app(
             RepoMarkStore(engine),
             UserProfileStore(engine),
+            room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
         )
     )
@@ -666,17 +669,17 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
             "preset_subset": "lazy-files",
         },
     )
+    snapshot_id = manifest_response.json()["snapshot_id"]
     lazy_info_response = client.get(
         "/api/lazy-info",
         params={
-            "mode": "preset",
-            "project_id": "scroll",
-            "preset_subset": "lazy-files",
-            "cache_id": "",
+            "snapshot_id": snapshot_id,
         },
     )
 
     assert manifest_response.status_code == 200
+    assert isinstance(snapshot_id, str)
+    assert snapshot_id != ""
     assert lazy_info_response.status_code == 200
     lazy_files = lazy_info_response.json()["files"]
     assert [file["display_name"] for file in lazy_files] == [
@@ -700,6 +703,7 @@ def test_preset_manifest_validates_required_preset_fields(
         create_app(
             repo_marks,
             user_profile,
+            room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
         )
     )
@@ -785,7 +789,7 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
         params={
             "project_id": str(project_id),
             "engine": "dirdiff",
-            "mode": "files",
+            "mode": "refs",
             "left": "index",
             "right": "worktree",
         },

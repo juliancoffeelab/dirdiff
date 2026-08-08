@@ -1,9 +1,10 @@
-"""Public database storage surface for dirdiff.
+"""Package facade for dirdiff's database persistence interfaces.
 
 Import this package when application code needs the supported SQLite table
-bootstrap helpers or typed store classes.  The package re-exports store
-records and constructors only; table definitions stay in their owning modules
-and route handlers should depend on stores rather than SQLAlchemy internals.
+bootstrap helpers, typed stores, or Room and Snapshot records. The package
+re-exports public records and constructors only; table definitions stay in
+their modules and application logic lives outside this package. These are
+persistence interfaces for backend modules, not HTTP or rendering contracts.
 """
 
 from dirdiff.db.base import (
@@ -21,6 +22,15 @@ from dirdiff.db.repo_registry import (
     RepoMarkRecord,
     RepoMarkStore,
 )
+from dirdiff.db.room import (
+    RoomIdentity,
+    RoomStore,
+    SnapshotFileLoadRecord,
+    SnapshotFileRecord,
+    SnapshotFileSideRecord,
+    SnapshotMetaRecord,
+    SnapshotRecord,
+)
 from dirdiff.db.user_profile import (
     UserProfileRecord,
     UserProfileStore,
@@ -32,6 +42,13 @@ __all__ = [
     "RepoMainBranchRecord",
     "RepoMarkRecord",
     "RepoMarkStore",
+    "RoomIdentity",
+    "RoomStore",
+    "SnapshotFileLoadRecord",
+    "SnapshotFileRecord",
+    "SnapshotFileSideRecord",
+    "SnapshotMetaRecord",
+    "SnapshotRecord",
     "TableBase",
     "UserProfileRecord",
     "UserProfileStore",

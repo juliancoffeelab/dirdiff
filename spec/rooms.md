@@ -1,0 +1,208 @@
+# Rooms and captured file state
+
+## Purpose
+
+A Room represents the sequence of retained file states selected by one Tab's
+law of correspondence. The application boundary used by HTTP and rendering is
+`RoomLord` and `Room`; Snapshot capture, publication, and relational records do
+not cross that boundary. `room_lord.py` reaches the separate `dirdiff.db`
+persistence facade only to implement those two classes.
+
+The HUD knows only the opaque `snapshot_id` returned by `/api/manifest`. It does
+not know Room identity, Room lifetime, or storage layout.
+
+## Public interface
+
+`RoomLord` has two distinct lookup operations:
+
+```python
+corresponding_room(...) -> tuple[Room, UUID]
+find_room(snapshot_id: UUID) -> Room
+```
+
+`corresponding_room` is used only by manifest. It applies the Tab's law of
+correspondence, finds or creates the Room, captures or reuses its current state,
+and returns the Room and Snapshot key separately.
+
+`find_room` is used by follow-up endpoints. A Snapshot key is globally unique,
+so it finds the containing Room directly without executing a correspondence law
+or reading live backend state.
+
+A Room never stores or implies a selected Snapshot key. Every operation names
+the exact state explicitly:
+
+```python
+meta(snapshot_id: UUID) -> SnapshotMeta
+manifested(snapshot_id: UUID) -> Iterator[
+    tuple[Optional[Path], Optional[Path], FileMeta]
+]
+get(
+    snapshot_id: UUID,
+    left: Optional[Path],
+    right: Optional[Path],
+) -> tuple[Optional[Path], Optional[Path], FileMeta]
+```
+
+`manifested` yields repository-relative left/right Paths, including Files whose
+contents could not be captured. `get` accepts one such pair and returns absolute
+Paths to the captured contents. Added and deleted Files use `None` for the absent
+side. For a File with a persisted capture error, `get` raises `DirdiffError` with
+that reason instead of exposing its generated diagnostic contents.
+
+`FileMeta` contains tracked provenance, backend change classification, and an
+explicit lazy override. It contains no renderer output or per-File line counts.
+
+`SnapshotMeta` exposes the containing Room's persisted Tab, the two captured
+side labels, and the backend-supplied aggregate added/removed line counts. The
+Tab is not duplicated in the Snapshot relation; `Room.meta()` combines the
+Room and Snapshot facts. The counts are both present or both `None`.
+
+## Law of correspondence
+
+`corresponding_room` selects a Room from:
+
+- nullable Mark id;
+- one of the five HUD Tabs;
+- an opaque correspondence key.
+
+The key is constructed as follows:
+
+- Diff against HEAD uses the current HEAD commit id;
+- Compare Refs freezes commit-backed refs to commit ids and retains `index` and
+  `worktree` as explicit ephemeral sides. Snapshot labels use those same
+  canonical values rather than the request's ref spelling;
+- Branch Review uses the structured symbolic base/review branch pair;
+- Pull Request uses the same branch-pair rule under a distinct Tab;
+- each preset catalog/subset pair uses one Mark-less Room.
+
+SQLite compares the complete opaque key for equality but does not interpret its
+structure. Partial unique indexes preserve the intended marked and Mark-less
+Room identities despite SQLite nullable uniqueness behavior.
+
+## Captured state
+
+Manifest observation asks the concrete `WorkspaceBackend` for affected filepath
+pairs, File metadata, and one aggregate added/removed line-count pair. Git asks
+Git for the aggregate counts. Backends without an authoritative aggregate return
+`(None, None)`. Additional untracked worktree Files do not suppress Git's
+reported aggregate; they remain additional to the tracked diff counted by Git.
+A replaced or modified line count does not exist before a diff engine aligns
+one File and is never manifest or Snapshot metadata.
+
+The private capture implementation loads every present side through the backend
+content interface and stores it unchanged. Capture does not decode or classify
+files. A backend loading failure is contained to that File: capture retains its
+repository paths and metadata, writes clearly machine-generated diagnostic
+content for each failed side, and persists the actual `DirdiffError` reason.
+The genuine contents of a side that loaded successfully are retained. Unrelated
+Files continue to be captured. Unexpected programming failures still abort the
+operation.
+
+Snapshot equality includes:
+
+- left and right repository-path presence;
+- tracked provenance and backend change classification;
+- complete captured left and right contents;
+- persisted capture error, when present;
+- explicit lazy override;
+- complete `preset.toml` content when it supplies that override.
+
+Backend order, human labels, aggregate line counts, directory-tree output, and
+renderer output do not participate in equality. Canonical filepath sorting is
+used only while hashing this set; it is not persisted presentation order.
+
+SHA-256 identifies equal captured state inside one Room and validates each
+captured side when `Room.get` returns its Path. Repeating manifest with equal
+captured state returns the existing `snapshot_id`. Incompatible capture changes
+advance the hash-domain version.
+
+Index and worktree capture remains sequential. No atomic multi-file view or
+implicit retry is claimed while another process mutates the repository.
+
+## Relational state
+
+The normalized relations are:
+
+```text
+room
+  id, mark_id, tab, backend_key
+
+snapshot
+  id, room_id, content_hash
+
+snapshot_meta
+  snapshot_id, left_label, right_label, added_lines, removed_lines
+
+snapshot_file
+  id, snapshot_id, absolute capture-directory path, tracked, change_type, error
+
+snapshot_file_left
+  file_id, repository_path, content_hash
+
+snapshot_file_right
+  file_id, repository_path, content_hash
+
+snapshot_file_lazy_reason
+  file_id, reason
+
+snapshot_file_lazy_reason_content
+  file_id, complete metadata content
+```
+
+The two Snapshot line-count columns are nullable together. A File's capture
+error is nullable because successful capture has no error. Optional File sides,
+lazy reasons, and lazy-reason source content are represented by row absence.
+
+The lazy-reason content relation retains the exact preset metadata input that
+participated in identity without adding that content to backend path or Room
+File metadata. No relation stores manifest ordering, directory trees, display
+names, rendered rows, or per-File line counts.
+
+## Publication
+
+Capture writes a process-unique staging directory. Under the database-wide
+advisory lock, it checks for equal captured state, renames a new complete directory under
+`snapshots/<snapshot_id>`, and publishes all relational rows in one database
+transaction.
+
+A Snapshot becomes visible only through committed relational rows referencing
+its complete immutable directory. A crash after rename and before transaction
+commit may leave an unreferenced directory, but cannot expose partial contents.
+No collector exists in this patch; a future garbage collector may remove those
+directories.
+
+When equal retained state is reused, capture verifies every referenced content
+digest before returning its key. A missing, moved, or modified retained File
+therefore fails manifest instead of advertising a Snapshot that cannot be read.
+
+The default store is `store` beside the SQLite database; `--store-path` selects
+another root. Database and store paths inside a reviewed repository are rejected
+before storage directories are created. Captured File rows retain absolute paths,
+so changing `--store-path` affects new publication and does not relocate existing
+Snapshots.
+
+## HTTP flow
+
+`/api/manifest` constructs the workspace backend and calls
+`corresponding_room`. It asks the returned Room for `meta(snapshot_id)` and
+`manifested(snapshot_id)`, builds the manifest tree and File totals, copies the
+aggregate line counts, and returns the same Snapshot key.
+
+`/api/lazy-info` accepts only `snapshot_id`, calls `find_room(snapshot_id)`, and
+then `manifested(snapshot_id)`. It reads captured File metadata and never
+reloads preset metadata. The Room's persisted Tab supplies the display-name
+rule. Persisted capture errors do not prevent either metadata operation.
+
+`/api/file-diff` accepts `snapshot_id`, engine, and the filepath pair. It calls
+`find_room(snapshot_id)` and then performs one direct
+`get(snapshot_id, left, right)`. The API layer reads the returned captured
+Paths, uses the Room's persisted Tab for display naming, starts the selected
+engine and renderer, and constructs the HTTP response. Because those consumers
+require text, this endpoint decodes the selected contents and rejects binary or
+non-UTF-8 input locally. A persisted capture error is raised by `get` and follows
+the endpoint's existing `DirdiffError` response path. The endpoint does not
+iterate the Room or reload Git, index, worktree, or preset contents.
+
+Repository-mark removal deactivates a Mark instead of deleting its row, leaving
+Room and Snapshot identity intact. Marking the same path again reactivates the
+same Mark id.

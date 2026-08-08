@@ -16,7 +16,6 @@ __all__: list[str] = []
 def test_counts_whitespace_only_changes_as_modified() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -41,7 +40,6 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
 def test_file_diff_assigns_ordered_file_local_hunk_indices() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -59,7 +57,6 @@ def test_file_diff_assigns_ordered_file_local_hunk_indices() -> None:
 def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
     diff = build_loaded_diff(
         display_name="demo.js",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -97,7 +94,6 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
 def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
     diff = build_loaded_diff(
         display_name="demo.js",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -137,7 +133,6 @@ def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
 def test_tree_sitter_highlights_multiline_python_strings() -> None:
     diff = build_loaded_diff(
         display_name="demo.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -166,7 +161,6 @@ def test_tree_sitter_highlights_multiline_python_strings() -> None:
 def test_tree_sitter_highlights_clojure_strings() -> None:
     diff = build_loaded_diff(
         display_name="demo.clj",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -193,7 +187,6 @@ def test_large_tree_sitter_diff_preserves_rows_and_syntax() -> None:
 
     diff = build_loaded_diff(
         display_name="large.py",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -241,7 +234,6 @@ def test_large_plaintext_diff_preserves_middle_rows_and_hunks() -> None:
 
     diff = build_loaded_diff(
         display_name="large.txt",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -315,7 +307,6 @@ def test_build_loaded_diff_renders_notebook_cells_when_ipynb_is_valid() -> None:
 
     diff = build_loaded_diff(
         display_name="demo.ipynb",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -382,7 +373,6 @@ def test_build_loaded_diff_pairs_notebook_cells_by_partial_unique_ids() -> None:
 
     diff = build_loaded_diff(
         display_name="demo.ipynb",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -451,7 +441,6 @@ def test_build_loaded_diff_keeps_notebook_secondary_changes_summary_only() -> (
 
     diff = build_loaded_diff(
         display_name="demo.ipynb",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
@@ -482,7 +471,6 @@ def test_build_loaded_diff_falls_back_to_text_for_invalid_notebook_json() -> (
 ):
     diff = build_loaded_diff(
         display_name="broken.ipynb",
-        mode="files",
         left_label="left",
         right_label="right",
         left_exists=True,
