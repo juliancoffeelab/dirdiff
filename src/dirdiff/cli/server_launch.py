@@ -120,19 +120,19 @@ def build_url(port: int, config: RuntimeConfig) -> str:
 
     The default Head launch uses the genuinely empty URL whose defaults belong
     to the frontend. Explicit CLI workflows use browser Tab fields rather than
-    backend API mode parameters.
+    backend API parameters.
     """
 
     root = f"http://127.0.0.1:{port}/"
-    if config.mode == "head":
+    if config.tab == "head":
         return root
 
     query = {
-        "tab": config.mode,
+        "tab": config.tab,
         "engine": "dirdiff",
         "view": "inline",
     }
-    if config.mode == "refs":
+    if config.tab == "refs":
         query["left"] = config.left
         query["right"] = config.right
     else:

@@ -36,6 +36,7 @@ import { isCancelledError, type QueryKey } from "@tanstack/query-core";
 import { CircleAlert, Clock3, LoaderCircle } from "lucide-solid";
 import {
   api,
+  type DiffEngine,
   type DiffParams,
   type FileDiff,
   type FileDiffTimeout,
@@ -82,15 +83,16 @@ function schedulerYield(): Promise<void> {
 /**
  * Defines every complete input needed to identify and activate one ChangeSet.
  *
- * `params` is a selected complete DiffParams value; view, FileTree visibility,
- * and DebugHud visibility are global reactive workspace inputs; `profile` is
- * genuine nullable profile identity; and `active` controls expensive observation.
- * Required callbacks report direct workspace actions. No field represents live
- * control input.
+ * `params` is one immutable selected Tab value. `engine` selects file rendering
+ * without participating in manifest identity. View, FileTree visibility, and
+ * DebugHud visibility are global reactive workspace inputs; `profile` is genuine
+ * nullable profile identity; and `active` controls expensive observation. Required
+ * callbacks report direct workspace actions. No field represents live control input.
  */
 type ChangeSetProps = {
   active: boolean;
   params: DiffParams;
+  engine: DiffEngine;
   view: DiffViewMode;
   fileTreeOpen: boolean;
   debugHudOpen: boolean;
@@ -194,82 +196,8 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
   const [state, setState] = createStore<ChangeSetState>({
     fileExpansion: {},
   });
-  // JSX may preserve the params object's identity while making its fields
-  // reactive. Materialize every identity field so complete DiffParams changes,
-  // including engine and nested branch selections, replace active content.
-  const params = createMemo<DiffParams>(() => {
-    const current = props.params;
-    switch (current.mode) {
-      case "head":
-        return {
-          project_id: current.project_id,
-          engine: current.engine,
-          mode: current.mode,
-          left: current.left,
-          right: current.right,
-          show_untracked: current.show_untracked,
-        };
-      case "refs":
-        return {
-          project_id: current.project_id,
-          engine: current.engine,
-          mode: current.mode,
-          left: current.left,
-          right: current.right,
-        };
-      case "branch-review":
-      case "pull-request": {
-        const baseSelection =
-          current.base_selection.source === "local"
-            ? {
-                source: current.base_selection.source,
-                branch: current.base_selection.branch,
-              }
-            : {
-                source: current.base_selection.source,
-                remote: current.base_selection.remote,
-                branch: current.base_selection.branch,
-              };
-        const reviewSelection =
-          current.review_selection.source === "local"
-            ? {
-                source: current.review_selection.source,
-                branch: current.review_selection.branch,
-              }
-            : {
-                source: current.review_selection.source,
-                remote: current.review_selection.remote,
-                branch: current.review_selection.branch,
-              };
-        if (current.mode === "branch-review") {
-          return {
-            project_id: current.project_id,
-            engine: current.engine,
-            mode: current.mode,
-            base_selection: baseSelection,
-            review_selection: reviewSelection,
-          };
-        }
-        return {
-          project_id: current.project_id,
-          engine: current.engine,
-          mode: current.mode,
-          base_selection: baseSelection,
-          review_selection: reviewSelection,
-        };
-      }
-      case "preset":
-        return {
-          project_id: current.project_id,
-          engine: current.engine,
-          mode: current.mode,
-          preset_subset: current.preset_subset,
-        };
-    }
-  });
-
   return (
-    <Show when={props.active ? params() : null} keyed>
+    <Show when={props.active ? props.params : null} keyed>
       {(activeParams) => (
         <UnexpectedErrorBoundary
           title="Could not render ChangeSet"
@@ -277,6 +205,7 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
         >
           <ChangeSetContent
             params={activeParams}
+            engine={props.engine}
             view={props.view}
             fileTreeOpen={props.fileTreeOpen}
             debugHudOpen={props.debugHudOpen}
@@ -305,6 +234,7 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
  */
 type ChangeSetContentProps = {
   params: DiffParams;
+  engine: DiffEngine;
   view: DiffViewMode;
   fileTreeOpen: boolean;
   debugHudOpen: boolean;
@@ -335,6 +265,14 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
       return undefined;
     }
     return manifest.data;
+  });
+  // Engine changes replace only the immutable file lane. The manifest observer
+  // remains attached to the selected Tab value and is never keyed by engine.
+  const renderedSnapshot = createMemo(() => {
+    const snapshot = visibleManifest();
+    return snapshot === undefined
+      ? undefined
+      : { manifest: snapshot, engine: props.engine };
   });
   let stopFileSequence: (() => Promise<void>) | null = null;
   let replacement: Promise<void> | null = null;
@@ -374,7 +312,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   return (
     <>
       <Show
-        when={visibleManifest()}
+        when={renderedSnapshot()}
         keyed
         fallback={
           <ChangeSetShell
@@ -414,7 +352,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
           </ChangeSetShell>
         }
       >
-        {(snapshot) => (
+        {(rendered) => (
           <ChangeSetShell
             helpOpen={props.helpOpen}
             debugOpen={props.debugHudOpen}
@@ -436,7 +374,8 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
               >
                 <ChangeSetSnapshot
                   params={props.params}
-                  manifest={snapshot}
+                  engine={rendered.engine}
+                  manifest={rendered.manifest}
                   view={props.view}
                   fileTreeOpen={props.fileTreeOpen}
                   profile={props.profile}
@@ -1231,6 +1170,7 @@ function HotkeyHelpRow(props: {
  */
 type ChangeSetSnapshotProps = {
   params: DiffParams;
+  engine: DiffEngine;
   manifest: Manifest;
   view: DiffViewMode;
   fileTreeOpen: boolean;
@@ -1283,7 +1223,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
    * is used only to assert file responses and resolve canonical line-pin identity.
    */
   function canonicalFileResponseName(entry: ManifestFile["entry"]): string {
-    if (props.params.mode !== "preset") {
+    if (props.params.tab !== "preset") {
       return fileDisplayName(entry);
     }
     return expect(
@@ -1347,7 +1287,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   const fileQueries = createQueries(() => ({
     queries: orderedFiles.map((file) => ({
       ...api.changeSet.file(
-        props.params.engine,
+        props.engine,
         props.manifest.snapshot_id,
         file.entry,
         "bounded",
@@ -1567,7 +1507,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   // This imperative lane is born with one immutable snapshot and dies with it.
   // No effect can retarget its closures to later params, manifests, or queries.
   {
-    const params = props.params;
+    const engine = props.engine;
     const snapshot = props.manifest;
     const files = orderedFiles;
     const selectedQueue: Array<{
@@ -1776,7 +1716,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
             throw new Error(`File lane selected invalid index ${fileIndex}.`);
           }
           const options = api.changeSet.file(
-            params.engine,
+            engine,
             snapshot.snapshot_id,
             file.entry,
             timeout,
@@ -2025,7 +1965,7 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                         ] === false
                       }
                       admitted={admittedFiles[fileIndex()] === true}
-                      engine={props.params.engine}
+                      engine={props.engine}
                       view={props.view}
                       aggressiveFolds={aggressiveFolds()}
                       linePins={pins}
@@ -2949,13 +2889,12 @@ function manifestEntryKey(entry: {
  * provide authoritative ref display. The function never mutates URL or requests.
  */
 function changeSetTitle(params: DiffParams, manifest: Manifest): string {
-  switch (params.mode) {
+  switch (params.tab) {
     case "head":
       return "Working tree vs HEAD";
     case "refs":
       return `${manifest.left_label} vs ${manifest.right_label}`;
-    case "branch-review":
-    case "pull-request": {
+    case "branch-review": {
       const base =
         params.base_selection.source === "remote"
           ? `${params.base_selection.remote}/${params.base_selection.branch}`
@@ -2966,6 +2905,8 @@ function changeSetTitle(params: DiffParams, manifest: Manifest): string {
           : params.review_selection.branch;
       return `${review} vs ${base}`;
     }
+    case "pull-request":
+      return `${manifest.right_label} vs ${manifest.left_label}`;
     case "preset": {
       const kind =
         params.project_id === "gumtree"

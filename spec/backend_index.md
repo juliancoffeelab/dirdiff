@@ -31,7 +31,10 @@ Provides repository and preset data.
 
 It resolves refs, lists changed paths and stable File metadata, reports
 backend-reported aggregate added/removed line counts when available, loads exact
-file contents without decoding them, and prepares pull requests. Additional
+file contents without decoding them, and prepares pull requests. Pull Request
+preparation parses the URL, identifies the marked repository and forge remote,
+fetches the required refs, and returns the canonical URL with the merge-base and
+Pull Request head commits. Additional
 untracked Files need not participate in those backend totals. Loading a listed
 File either returns its complete contents or raises `DirdiffError` with the
 backend failure reason. Workspace backends do not select Rooms, retain state
@@ -104,9 +107,12 @@ The Room and Snapshot lifecycle is described in
 
 Defines FastAPI routes and request-level rendering orchestration.
 
-It validates HTTP inputs and outputs, constructs the concrete workspace
-backend, calls `RoomLord` for manifests and follow-up Snapshot lookup, selects
-engines, routes notebooks, and assembles response payloads.
+It validates HTTP inputs and outputs, constructs the concrete workspace backend,
+calls `RoomLord` for manifests and follow-up Snapshot lookup, selects engines,
+routes notebooks, and assembles response payloads. `/api/manifest` receives the
+complete selected Tab parameters, shows that state, and provides Snapshot/File
+keys; it performs no Pull Request preparation. `/api/pull-request/prepare` is the
+sole HTTP boundary for Pull Request preparation.
 
 ## `dirdiff.cli`
 

@@ -152,7 +152,7 @@ def refs(
     """Launch the browser with an arbitrary-ref comparison selected.
 
     This subcommand keeps the same local app startup behavior as the default
-    command, but seeds the frontend URL with `refs` mode and the two side
+    command, but seeds the frontend URL with the Refs Tab and the two side
     names the user supplied.
     """
 
@@ -162,7 +162,7 @@ def refs(
     config = RuntimeConfig(
         db_path=str(options.db_path),
         store_path=str(options.store_path or options.db_path.parent / "store"),
-        mode="refs",
+        tab="refs",
         left=left,
         right=right,
         presets_root=options.presets_root,
@@ -201,7 +201,7 @@ def branch(
     config = RuntimeConfig(
         db_path=str(options.db_path),
         store_path=str(options.store_path or options.db_path.parent / "store"),
-        mode="branch-review",
+        tab="branch-review",
         base_selection={"source": "local", "branch": base_branch},
         review_selection={"source": "local", "branch": review_branch},
         presets_root=options.presets_root,

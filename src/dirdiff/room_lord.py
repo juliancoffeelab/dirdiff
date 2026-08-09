@@ -349,6 +349,9 @@ class RoomLord:
         ],
         left: Optional[str],
         right: Optional[str],
+        pull_request_url: Optional[str],
+        left_commit: Optional[str],
+        right_commit: Optional[str],
         preset_catalog: Optional[str],
         preset_subset: Optional[str],
         show_untracked: bool,
@@ -357,9 +360,9 @@ class RoomLord:
 
         Every keyword is required because the server supplies one complete Tab
         state. Values that do not apply to that Tab must be `None`; applicable
-        values are asserted or rejected here. Commit-backed refs are frozen
-        before Room selection, while branch-backed Tabs retain their structured
-        symbolic selections as correspondence identity.
+        values are asserted or rejected here. The law of correspondence selects
+        only the Room. The independently derived sides are supplied to Snapshot
+        capture after that Room identity is complete.
         """
         repo_root = backend.repo_root
         if mark_id is not None and repo_root is not None:
@@ -390,28 +393,73 @@ class RoomLord:
             assert mark_id is None, "preset Rooms cannot belong to a Mark"
             assert selected_base is None and selected_review is None
             assert left is None and right is None
+            assert pull_request_url is None
+            assert left_commit is None and right_commit is None
             if (
                 preset_catalog is None
                 or (catalog := preset_catalog.strip()) == ""
             ):
                 raise DirdiffError(
-                    "preset_catalog is required for preset mode."
+                    "preset_catalog is required for the Preset Tab."
                 )
             if preset_subset is None or (subset := preset_subset.strip()) == "":
-                raise DirdiffError("preset_subset is required for preset mode.")
+                raise DirdiffError(
+                    "preset_subset is required for the Preset Tab."
+                )
             left_side = backend.normalize_side(subset)
             right_side = "new"
             left_label = "old"
             right_label = "new"
             correspondence: object = {"catalog": catalog, "subset": subset}
-        elif tab in {"branch-review", "pull-request"}:
-            assert mark_id is not None, "branch Rooms require a Mark"
+        elif tab == "pull-request":
+            assert mark_id is not None, "Pull Request Rooms require a Mark"
+            assert selected_base is None and selected_review is None
             assert left is None and right is None
+            assert preset_catalog is None and preset_subset is None
+            assert not show_untracked, (
+                "the Pull Request Tab does not support intruding Files"
+            )
+            if (
+                pull_request_url is None
+                or (corresponding_url := pull_request_url.strip()) == ""
+            ):
+                raise DirdiffError(
+                    "pull_request_url is required for the Pull Request Tab."
+                )
+            if (
+                left_commit is None
+                or (prepared_left := left_commit.strip()) == ""
+            ):
+                raise DirdiffError(
+                    "left_commit is required for the Pull Request Tab."
+                )
+            if (
+                right_commit is None
+                or (prepared_right := right_commit.strip()) == ""
+            ):
+                raise DirdiffError(
+                    "right_commit is required for the Pull Request Tab."
+                )
+            assert git_backend is not None
+            left_side = git_backend.commit_id(prepared_left)
+            right_side = git_backend.commit_id(prepared_right)
+            if left_side != prepared_left or right_side != prepared_right:
+                raise DirdiffError(
+                    "Pull Request capture inputs must be complete commit ids."
+                )
+            left_label = left_side
+            right_label = right_side
+            correspondence = corresponding_url
+        elif tab == "branch-review":
+            assert mark_id is not None, "Branch Review Rooms require a Mark"
+            assert left is None and right is None
+            assert pull_request_url is None
+            assert left_commit is None and right_commit is None
             assert preset_catalog is None and preset_subset is None
             if selected_base is None or selected_review is None:
                 raise DirdiffError("branch selections are required.")
             assert not show_untracked, (
-                "branch-backed Tabs do not support intruding Files"
+                "the Branch Review Tab does not support intruding Files"
             )
             assert git_backend is not None
             resolved_base, left_side, review = (
@@ -427,6 +475,8 @@ class RoomLord:
         elif tab == "head":
             assert mark_id is not None, "Diff against HEAD requires a Mark"
             assert selected_base is None and selected_review is None
+            assert pull_request_url is None
+            assert left_commit is None and right_commit is None
             assert preset_catalog is None and preset_subset is None
             if left is None or right is None:
                 raise DirdiffError(
@@ -445,12 +495,14 @@ class RoomLord:
         elif tab == "refs":
             assert mark_id is not None, "repo Rooms require a Mark"
             assert selected_base is None and selected_review is None
+            assert pull_request_url is None
+            assert left_commit is None and right_commit is None
             assert preset_catalog is None and preset_subset is None
             assert git_backend is not None
             if left is None or left.strip() == "":
-                raise DirdiffError("left is required for this diff mode.")
+                raise DirdiffError("left is required for the Refs Tab.")
             if right is None or right.strip() == "":
-                raise DirdiffError("right is required for this diff mode.")
+                raise DirdiffError("right is required for the Refs Tab.")
             left_label = backend.normalize_side(left.strip())
             right_label = backend.normalize_side(right.strip())
             left_side = (

@@ -13,13 +13,15 @@ a `Husk`, `Full`, or `Lazy` state; that lifecycle is described in
 
 ## Snapshot creation
 
-An active Tab renders `ChangeSetContent`, which observes one manifest for one
-complete `DiffParams` value. A successful manifest creates a keyed
+An active Tab renders `ChangeSetContent`, which observes one manifest for the
+complete selected `DiffParams` value. The diff engine is supplied separately and
+does not participate in manifest identity. A successful manifest creates a keyed
 `ChangeSetSnapshot`.
 
 The snapshot treats these values as immutable for its entire lifetime:
 
 - `DiffParams`;
+- the file-rendering engine;
 - the manifest tree and manifest statistics;
 - the manifest `snapshot_id`;
 - the manifest-order list of files.
@@ -216,7 +218,8 @@ For each manifest index, `ChangeSet` supplies `FileCard` with:
 
 ## Lane invariants
 
-- One snapshot has one immutable `DiffParams`, manifest, and `snapshot_id`.
+- One mounted snapshot has one immutable `DiffParams`, engine, manifest, and
+  `snapshot_id`; engine remains outside manifest and Room identity.
 - File indexes are manifest indexes and remain stable for the snapshot.
 - Automatic file fetches and admissions are sequential in manifest order.
 - One canonical file query represents one manifest entry in one snapshot.

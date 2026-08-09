@@ -2,10 +2,10 @@
  * Defines the five eternal application Tabs and their selection workflows.
  *
  * The module exports TabId, TabStrip, and Tabs. Private controls store their local
- * workflow state, observe only canonical metadata queries, and return complete
- * selected values. Tabs combines those values with the repository and engine stored
- * by Workspace to form DiffParams. Tabs does not store global workspace state, backend
- * response copies, or ChangeSet internals.
+ * workflow state, observe only canonical metadata queries, and retain complete
+ * selected Tab values. Engine remains a separate Workspace concern used only while
+ * rendering files. Tabs does not store global workspace state, backend response
+ * copies, or ChangeSet internals.
  */
 import {
   type Accessor,
@@ -56,8 +56,8 @@ import { assert, expect } from "../utils";
 /**
  * Identifies one user-visible application Tab.
  *
- * The value selects a mounted control workflow and URL tab field. It must not be
- * used as a backend mode without the owning Tab constructing complete DiffParams.
+ * The value selects a mounted control workflow and the same `tab` field carried by
+ * that workflow's complete manifest parameters.
  */
 export type TabId =
   | "head"
@@ -157,11 +157,7 @@ type TabsProps = {
     review: BranchSelection,
   ) => void;
   onPresetSelected: (presetType: PresetType, preset: string) => void;
-  onPullRequestSelected: (
-    pullRequestUrl: string,
-    base: BranchSelection,
-    review: BranchSelection,
-  ) => void;
+  onPullRequestSelected: (selection: PullRequestDiffParams) => void;
   onPullRequestPrepared: (prepared: PreparedPullRequest) => void;
   onToggleView: () => void;
   onFileTreeOpenChange: (open: boolean) => void;
@@ -172,8 +168,8 @@ type TabsProps = {
  * Defines shared inputs for one mounted private Tab.
  *
  * Active controls and expensive ChangeSet content depend on `active`; the outer
- * Tab remains mounted. Engine changes update derived DiffParams without replacing
- * selected workflow values.
+ * Tab remains mounted. Engine changes replace file rendering without changing a
+ * selected workflow value or manifest identity.
  */
 type TabProps = {
   active: boolean;
@@ -257,12 +253,12 @@ type RepoGateProps = {
 /**
  * Renders the persistent top-level Tab buttons.
  *
- * Activation reports exactly one TabId. Buttons remain visually identical to
- * the established mode selector and do not mount or unmount Tab components.
+ * Activation reports exactly one TabId. Buttons retain the established Tab
+ * selector presentation and do not mount or unmount Tab components.
  */
 export function TabStrip(props: TabStripProps): JSX.Element {
   return (
-    <fieldset class="mode-tabs">
+    <fieldset class="tab-choices">
       <legend>View</legend>
       <For each={tabIds}>
         {(tab) => (
@@ -506,14 +502,32 @@ function selectedBranch(
  * while engine remains reactive and does not replace the mounted ChangeSet.
  */
 function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
-  const [selected, setSelected] = createSignal<object | null>(
-    props.active ? {} : null,
+  const [selected, setSelected] = createSignal<HeadDiffParams | null>(
+    props.active && props.repoId !== null
+      ? {
+          project_id: props.repoId,
+          tab: "head",
+          left: "HEAD",
+          right: "worktree",
+          show_untracked: true,
+        }
+      : null,
   );
   onTabReactivated(
     () => props.active,
     () => {
       if (selected() === null) {
-        setSelected({});
+        const projectId = expect(
+          props.repoId,
+          "Selecting the Head Tab requires a repository.",
+        );
+        setSelected({
+          project_id: projectId,
+          tab: "head",
+          left: "HEAD",
+          right: "worktree",
+          show_untracked: true,
+        });
       }
       props.onSelected();
     },
@@ -525,7 +539,17 @@ function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
         hidden={!props.active}
         onSubmit={(event) => {
           event.preventDefault();
-          setSelected({});
+          const projectId = expect(
+            props.repoId,
+            "Loading the Head Tab requires a repository.",
+          );
+          setSelected({
+            project_id: projectId,
+            tab: "head",
+            left: "HEAD",
+            right: "worktree",
+            show_untracked: true,
+          });
           props.onSelected();
         }}
       >
@@ -545,32 +569,20 @@ function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
         </Show>
       </form>
       <Show when={selected()} keyed>
-        {(_selection) => (
-          <Show when={props.repoId} keyed>
-            {(projectId) => (
-              <ChangeSet
-                active={props.active}
-                params={
-                  {
-                    project_id: projectId,
-                    engine: props.engine,
-                    mode: "head",
-                    left: "HEAD",
-                    right: "worktree",
-                    show_untracked: true,
-                  } satisfies HeadDiffParams
-                }
-                view={props.view}
-                fileTreeOpen={props.fileTreeOpen}
-                debugHudOpen={props.debugHudOpen}
-                profile={props.selectedProfile}
-                appHeaderOutlets={props.appHeaderOutlets}
-                onToggleView={props.onToggleView}
-                onFileTreeOpenChange={props.onFileTreeOpenChange}
-                onDebugHudOpenChange={props.onDebugHudOpenChange}
-              />
-            )}
-          </Show>
+        {(selection) => (
+          <ChangeSet
+            active={props.active}
+            engine={props.engine}
+            params={selection}
+            view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
+            profile={props.selectedProfile}
+            appHeaderOutlets={props.appHeaderOutlets}
+            onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
+          />
         )}
       </Show>
     </>
@@ -750,15 +762,25 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
    * pairs are one invalid entity: the user is notified after mount and the whole
    * pair is reconstructed from defaults without rewriting browser state.
    */
-  function parseInitialRefs(): { left: string; right: string } {
+  function parseInitialRefs(): RefsDiffParams {
     if (!props.active) {
-      return { left: "HEAD~1", right: "HEAD" };
+      return {
+        project_id: props.projectId,
+        tab: "refs",
+        left: "HEAD~1",
+        right: "HEAD",
+      };
     }
     const search = new URLSearchParams(window.location.search);
     const left = search.get("left");
     const right = search.get("right");
     if (left === null && right === null) {
-      return { left: "HEAD~1", right: "HEAD" };
+      return {
+        project_id: props.projectId,
+        tab: "refs",
+        left: "HEAD~1",
+        right: "HEAD",
+      };
     }
     if (
       left === null ||
@@ -774,18 +796,27 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
           ),
         );
       });
-      return { left: "HEAD~1", right: "HEAD" };
+      return {
+        project_id: props.projectId,
+        tab: "refs",
+        left: "HEAD~1",
+        right: "HEAD",
+      };
     }
-    return { left, right };
+    return {
+      project_id: props.projectId,
+      tab: "refs",
+      left,
+      right,
+    };
   }
 
   const initial = parseInitialRefs();
   const [left, setLeft] = createSignal(initial.left);
   const [right, setRight] = createSignal(initial.right);
-  const [selected, setSelected] = createSignal<{
-    left: string;
-    right: string;
-  } | null>(props.active ? initial : null);
+  const [selected, setSelected] = createSignal<RefsDiffParams | null>(
+    props.active ? initial : null,
+  );
   const loadReady = createMemo(() => {
     const currentLeft = left();
     const currentRight = right();
@@ -822,7 +853,12 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
     if (currentLeft.trim().length === 0 || currentRight.trim().length === 0) {
       throw new Error("Loading refs requires nonblank old and new refs.");
     }
-    const next = { left: currentLeft, right: currentRight };
+    const next: RefsDiffParams = {
+      project_id: props.projectId,
+      tab: "refs",
+      left: currentLeft,
+      right: currentRight,
+    };
     setSelected(next);
     props.onSelected(next.left, next.right);
   }
@@ -879,14 +915,8 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
         {(selection) => (
           <ChangeSet
             active={props.active}
-            params={
-              {
-                project_id: props.projectId,
-                engine: props.engine,
-                mode: "refs",
-                ...selection,
-              } satisfies RefsDiffParams
-            }
+            engine={props.engine}
+            params={selection}
             view={props.view}
             fileTreeOpen={props.fileTreeOpen}
             debugHudOpen={props.debugHudOpen}
@@ -990,39 +1020,27 @@ type BranchReviewRepoTabProps = RepoTabProps & {
 
 /**
  * Represents whether Branch Review has no selection, awaits defaults requested by
- * activation, or contains a complete immutable selected pair.
+ * activation, or contains the complete immutable manifest parameters.
  *
- * Live control edits are deliberately absent. Only the values variant may produce
- * DiffParams; waiting exists so asynchronous defaults cannot imply selection alone.
+ * Live control edits are deliberately absent. The waiting command exists so
+ * asynchronous defaults cannot imply selection alone.
  */
 type BranchReviewSelected =
   | { kind: "waiting-defaults" }
-  | { kind: "values"; base: BranchSelection; review: BranchSelection }
+  | BranchReviewDiffParams
   | null;
 
 /**
  * Represents whether Preset has no selection, awaits its requested catalog
- * default, or contains one complete immutable kind/subset pair.
+ * default, or contains the complete immutable manifest parameters.
  *
  * Catalog arrival alone cannot create a ChangeSet without the waiting command.
- * Live kind and highlighted control state are not selected DiffParams.
+ * Live kind and highlighted control state are not selected Tab parameters.
  */
 type PresetSelected =
   | { kind: "waiting-default"; presetType: PresetType }
-  | { kind: "value"; presetType: PresetType; preset: string }
+  | PresetDiffParams
   | null;
-
-/**
- * Stores one authoritative prepared Pull Request selection.
- *
- * The URL and both structured branches come from the same backend preparation.
- * Live Pull Request input is excluded so later edits cannot alter this identity.
- */
-type SelectedPullRequest = {
-  pullRequestUrl: string;
-  base: BranchSelection;
-  review: BranchSelection;
-};
 
 /**
  * Defines the shared presentational contract of Branch Review controls.
@@ -1133,7 +1151,12 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   const [selected, setSelected] = createSignal<BranchReviewSelected>(
     props.active
       ? initialBranches !== null
-        ? { kind: "values", ...initialBranches }
+        ? {
+            project_id: props.projectId,
+            tab: "branch-review",
+            base_selection: initialBranches.base,
+            review_selection: initialBranches.review,
+          }
         : { kind: "waiting-defaults" }
       : null,
   );
@@ -1163,7 +1186,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   );
   const selectedValues = createMemo(() => {
     const current = selected();
-    if (current === null || current.kind !== "values") {
+    if (current === null || "kind" in current) {
       return null;
     }
     return current;
@@ -1187,8 +1210,8 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     () => props.active,
     () => {
       const current = selected();
-      if (current !== null && current.kind === "values") {
-        props.onSelected(current.base, current.review);
+      if (current !== null && !("kind" in current)) {
+        props.onSelected(current.base_selection, current.review_selection);
       } else {
         const baseSelection = selectedBranch(base());
         const reviewSelection = selectedBranch(review());
@@ -1207,8 +1230,9 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
    * The effect observes active state, the tagged selection, and realtime default
    * derivations. It is inert unless this Tab requested a default-backed selection;
    * once both sides become complete it performs the external URL/selection command,
-   * changes the tag to `values`, and therefore makes itself inert. It stores no
-   * subscription requiring cleanup and is disposed with the eternal Tab.
+   * replaces the command with complete parameters, and therefore makes itself
+   * inert. It stores no subscription requiring cleanup and is disposed with the
+   * eternal Tab.
    */
   createEffect(
     on(
@@ -1217,6 +1241,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
         if (
           !active ||
           current === null ||
+          !("kind" in current) ||
           current.kind !== "waiting-defaults"
         ) {
           return;
@@ -1241,9 +1266,10 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     reviewSelection: BranchSelection,
   ): void {
     setSelected({
-      kind: "values",
-      base: baseSelection,
-      review: reviewSelection,
+      project_id: props.projectId,
+      tab: "branch-review",
+      base_selection: baseSelection,
+      review_selection: reviewSelection,
     });
     props.onSelected(baseSelection, reviewSelection);
   }
@@ -1379,15 +1405,8 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
         {(selection) => (
           <ChangeSet
             active={props.active}
-            params={
-              {
-                project_id: props.projectId,
-                engine: props.engine,
-                mode: "branch-review",
-                base_selection: selection.base,
-                review_selection: selection.review,
-              } satisfies BranchReviewDiffParams
-            }
+            engine={props.engine}
+            params={selection}
             view={props.view}
             fileTreeOpen={props.fileTreeOpen}
             debugHudOpen={props.debugHudOpen}
@@ -1468,7 +1487,7 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
   /**
    * Switches between local and remote selection while preserving branch text.
    *
-   * Entering remote mode uses the repository default remote. When defaults provide
+   * Entering a remote selection uses the repository default remote. When defaults provide
    * none, the remote field remains empty and the incomplete selection cannot load.
    */
   function toggleSource(): void {
@@ -1550,11 +1569,7 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
  */
 function PullRequestTab(
   props: TabProps & {
-    onSelected: (
-      pullRequestUrl: string,
-      base: BranchSelection,
-      review: BranchSelection,
-    ) => void;
+    onSelected: (selection: PullRequestDiffParams) => void;
     onPrepared: (prepared: PreparedPullRequest) => void;
   },
 ): JSX.Element {
@@ -1563,30 +1578,45 @@ function PullRequestTab(
   let pullRequestInput!: HTMLInputElement;
   const initialUrl = props.active ? (search.get("pull_request_url") ?? "") : "";
   const [url, setUrl] = createSignal(initialUrl);
-  let initialBranches: ReturnType<typeof branchPairFromUrl> = null;
+  let initialSelection: PullRequestDiffParams | null = null;
   if (props.active) {
     try {
-      initialBranches = branchPairFromUrl();
+      const leftCommit = search.get("left_commit");
+      const rightCommit = search.get("right_commit");
+      if (leftCommit !== null || rightCommit !== null) {
+        assert(
+          initialUrl.trim().length > 0,
+          "pull_request_url must be nonblank.",
+        );
+        assert(
+          leftCommit !== null && leftCommit.trim().length > 0,
+          "left_commit must be nonblank.",
+        );
+        assert(
+          rightCommit !== null && rightCommit.trim().length > 0,
+          "right_commit must be nonblank.",
+        );
+        assert(
+          props.repoId !== null,
+          "A selected Pull Request requires repo_id.",
+        );
+        initialSelection = {
+          tab: "pull-request",
+          project_id: props.repoId,
+          pull_request_url: initialUrl,
+          left_commit: leftCommit,
+          right_commit: rightCommit,
+        };
+      }
     } catch (error) {
       onMount(() => {
         toast.showError("Could not restore pull request from URL", error);
       });
     }
   }
-  const [selected] = createSignal<SelectedPullRequest | null>(
-    props.active && initialBranches !== null
-      ? {
-          pullRequestUrl: initialUrl,
-          ...initialBranches,
-        }
-      : null,
+  const [selected] = createSignal<PullRequestDiffParams | null>(
+    initialSelection,
   );
-  if (selected() !== null && initialUrl.length === 0) {
-    throw new Error("A selected pull request requires pull_request_url.");
-  }
-  if (selected() !== null && props.repoId === null) {
-    throw new Error("A selected pull request requires repo_id.");
-  }
   const prepare = createMutation(() => ({
     ...api.pullRequest.prepare(),
     /**
@@ -1605,7 +1635,7 @@ function PullRequestTab(
     () => {
       const current = selected();
       if (current !== null) {
-        props.onSelected(current.pullRequestUrl, current.base, current.review);
+        props.onSelected(current);
       }
     },
   );
@@ -1675,30 +1705,19 @@ function PullRequestTab(
       />
       <Show when={selected()} keyed>
         {(selection) => (
-          <Show when={props.repoId} keyed>
-            {(projectId) => (
-              <ChangeSet
-                active={props.active}
-                params={
-                  {
-                    project_id: projectId,
-                    engine: props.engine,
-                    mode: "pull-request",
-                    base_selection: selection.base,
-                    review_selection: selection.review,
-                  } satisfies PullRequestDiffParams
-                }
-                view={props.view}
-                fileTreeOpen={props.fileTreeOpen}
-                debugHudOpen={props.debugHudOpen}
-                profile={props.selectedProfile}
-                appHeaderOutlets={props.appHeaderOutlets}
-                onToggleView={props.onToggleView}
-                onFileTreeOpenChange={props.onFileTreeOpenChange}
-                onDebugHudOpenChange={props.onDebugHudOpenChange}
-              />
-            )}
-          </Show>
+          <ChangeSet
+            active={props.active}
+            engine={props.engine}
+            params={selection}
+            view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            debugHudOpen={props.debugHudOpen}
+            profile={props.selectedProfile}
+            appHeaderOutlets={props.appHeaderOutlets}
+            onToggleView={props.onToggleView}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onDebugHudOpenChange={props.onDebugHudOpenChange}
+          />
         )}
       </Show>
     </>
@@ -1753,7 +1772,11 @@ function PresetTab(
     props.active
       ? initialPreset === null
         ? { kind: "waiting-default", presetType: presetType() }
-        : { kind: "value", presetType: presetType(), preset: initialPreset }
+        : {
+            project_id: presetType(),
+            tab: "preset",
+            preset_subset: initialPreset,
+          }
       : null,
   );
   const [highlightedPreset, setHighlightedPreset] = createSignal<string | null>(
@@ -1772,7 +1795,7 @@ function PresetTab(
   });
   const selectedValue = createMemo(() => {
     const current = selected();
-    if (current === null || current.kind !== "value") {
+    if (current === null || "kind" in current) {
       return null;
     }
     return current;
@@ -1782,8 +1805,8 @@ function PresetTab(
     () => props.active,
     () => {
       const current = selected();
-      if (current !== null && current.kind === "value") {
-        props.onSelected(current.presetType, current.preset);
+      if (current !== null && !("kind" in current)) {
+        props.onSelected(current.project_id, current.preset_subset);
       } else {
         const preset = effectivePreset();
         if (preset === null) {
@@ -1800,8 +1823,9 @@ function PresetTab(
    *
    * The effect observes active state, the tagged selection, current preset kind,
    * and effective catalog default. Once a concrete preset appears it performs the
-   * external URL/selection command and changes the tag to `value`, making itself
-   * inert. It creates no external subscription and is disposed with the eternal Tab.
+   * external URL/selection command and replaces the command with complete
+   * parameters, making itself inert. It creates no external subscription and is
+   * disposed with the eternal Tab.
    */
   createEffect(
     on(
@@ -1810,6 +1834,7 @@ function PresetTab(
         if (
           !active ||
           current === null ||
+          !("kind" in current) ||
           current.kind !== "waiting-default" ||
           current.presetType !== type
         ) {
@@ -1831,7 +1856,11 @@ function PresetTab(
   function selectPreset(preset: string): void {
     const type = presetType();
     setHighlightedPreset(preset);
-    setSelected({ kind: "value", presetType: type, preset });
+    setSelected({
+      project_id: type,
+      tab: "preset",
+      preset_subset: preset,
+    });
     props.onSelected(type, preset);
   }
 
@@ -1850,7 +1879,7 @@ function PresetTab(
           selectPreset(preset);
         }}
       >
-        <fieldset class="mode-tabs preset-tabs preset-kind-tabs">
+        <fieldset class="tab-choices preset-tabs preset-kind-tabs">
           <legend>Preset type</legend>
           <For each={presetTypes}>
             {(kind) => (
@@ -1877,7 +1906,7 @@ function PresetTab(
         </fieldset>
         <Show when={catalogs.data?.[presetType()]} keyed>
           {(catalog) => (
-            <fieldset class="mode-tabs preset-tabs preset-subset-tabs">
+            <fieldset class="tab-choices preset-tabs preset-subset-tabs">
               <legend>Presets</legend>
               <For each={catalog.groups}>
                 {(group) => (
@@ -1916,14 +1945,8 @@ function PresetTab(
         {(selection) => (
           <ChangeSet
             active={props.active}
-            params={
-              {
-                project_id: selection.presetType,
-                engine: props.engine,
-                mode: "preset",
-                preset_subset: selection.preset,
-              } satisfies PresetDiffParams
-            }
+            engine={props.engine}
+            params={selection}
             view={props.view}
             fileTreeOpen={props.fileTreeOpen}
             debugHudOpen={props.debugHudOpen}

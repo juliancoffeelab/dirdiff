@@ -35,7 +35,6 @@ from dirdiff.backend import (
     LazyReason,
     LoadedDiffSides,
     PreparedPullRequest,
-    PreparedPullRequestBranch,
     PresetBackend,
     RefChoices,
     RepoDiffPath,
@@ -125,27 +124,27 @@ class RuntimeConfig:
     publication lock.
     """
 
-    mode: Literal["head", "refs", "branch-review"] = "head"
+    tab: Literal["head", "refs", "branch-review"] = "head"
     """
     Initial Tab encoded into the browser URL.
 
     This is startup navigation state, not a server-wide restriction; the API can
-    still serve other modes after the frontend is running.
+    still serve other Tabs after the frontend is running.
     """
 
     left: str = "HEAD"
     """
-    Left ref or side name for `refs` startup mode.
+    Left ref or side name for the Refs startup Tab.
     """
 
     right: str = "worktree"
     """
-    Right ref or side name for `refs` startup mode.
+    Right ref or side name for the Refs startup Tab.
     """
 
     base_selection: BranchSelection | None = None
     """
-    Base branch selection for `branch-review` startup mode.
+    Base branch selection for the Branch Review startup Tab.
 
     The CLI writes this structured value into the first browser URL; API
     handlers parse the same local/remote shape from query params afterward.
@@ -153,7 +152,7 @@ class RuntimeConfig:
 
     review_selection: BranchSelection | None = None
     """
-    Review branch selection for `branch-review` startup mode.
+    Review branch selection for the Branch Review startup Tab.
 
     This is startup navigation state only.  Diff requests still carry their own
     explicit branch-review selections.
@@ -165,13 +164,14 @@ class RuntimeConfig:
     """
 
 
-ModeParam = Literal[
+TabParam = Literal[
     "head",
     "refs",
     "branch-review",
     "pull-request",
     "preset",
 ]
+"""One complete HUD Tab discriminator accepted by manifest."""
 EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
 PresetTypeParam = Literal["diff", "fold", "gumtree", "scroll"]
 BranchSourceParam = BranchSource
@@ -350,43 +350,26 @@ class PullRequestPrepareRequest(ApiModel):
     url: str
 
 
-class PullRequestBranchResponse(ApiModel):
-    """Remote branch data prepared for a pull request diff."""
-
-    remote: str
-    branch: str
-
-
 class PullRequestPrepareResponse(ApiModel):
-    """Prepared pull request data returned after the PR ref has been fetched."""
+    """Prepared Pull Request identity and immutable capture commits."""
 
     project_id: int
     pull_request_url: str
-    base_branch: PullRequestBranchResponse
-    review_branch: PullRequestBranchResponse
+    left_commit: str
+    right_commit: str
 
 
 def pull_request_prepare_response(
     prepared: PreparedPullRequest,
 ) -> PullRequestPrepareResponse:
-    """Serialize prepared pull request data for the HTTP API."""
-
-    def pull_request_branch_response(
-        branch: PreparedPullRequestBranch,
-    ) -> PullRequestBranchResponse:
-        """Serialize one prepared branch for the enclosing HTTP response."""
-        return PullRequestBranchResponse.model_validate(
-            {"remote": branch.remote, "branch": branch.branch}
-        )
+    """Serialize the complete prepared Pull Request for the HTTP API."""
 
     return PullRequestPrepareResponse.model_validate(
         {
             "project_id": prepared.project_id,
             "pull_request_url": prepared.pull_request_url,
-            "base_branch": pull_request_branch_response(prepared.base_branch),
-            "review_branch": pull_request_branch_response(
-                prepared.review_branch
-            ),
+            "left_commit": prepared.left_commit,
+            "right_commit": prepared.right_commit,
         }
     )
 
@@ -672,7 +655,7 @@ class LazyInfoResponse(ApiModel):
 
 
 def selected_branch_selections(
-    mode: ModeParam = Query(description="UI diff mode."),
+    tab: TabParam = Query(description="HUD Tab."),
     base_source: BranchSourceParam | None = Query(
         default=None,
         description="Base branch source for a branch-backed Tab.",
@@ -698,31 +681,24 @@ def selected_branch_selections(
         description="Review branch name for a branch-backed Tab.",
     ),
 ) -> BranchSelections:
-    """Return structured branch selections for a branch-backed Tab.
+    """Return structured branch selections for Branch Review.
 
     The UI can keep base/review branch controls populated while the user moves
     between Tabs. API handlers call this helper so branch parameters do not
-    accidentally influence Head, Compare Refs, or Preset manifests.
+    accidentally influence another Tab's manifest.
     """
-    mode_label: Literal["branch-review", "pull-request"]
-    if mode == "branch-review":
-        mode_label = "branch-review"
-    elif mode == "pull-request":
-        mode_label = "pull-request"
-    else:
+    if tab != "branch-review":
         return None, None
 
     return (
         _branch_selection_from_query(
             label="base",
-            mode_label=mode_label,
             source=base_source,
             remote=base_remote,
             branch=base_branch,
         ),
         _branch_selection_from_query(
             label="review",
-            mode_label=mode_label,
             source=review_source,
             remote=review_remote,
             branch=review_branch,
@@ -737,16 +713,16 @@ def preset_project_parts(
 ) -> tuple[PresetTypeParam, str]:
     """Parse the preset catalog and subset used to prepare a manifest.
 
-    Preset mode uses `project_id` as the catalog discriminator (`diff`, `fold`,
+    The Preset Tab uses `project_id` as the catalog discriminator (`diff`, `fold`,
     `gumtree`, or `scroll`) and `preset_subset` as the selected group within that
     catalog. Follow-up endpoints find the prepared Room by Snapshot key and do
     not call this parser. The preset backend still validates traversal and
     unknown-group errors while preparing the manifest.
     """
     if project_id is None or project_id.strip() == "":
-        raise DirdiffError("project_id is required for preset mode.")
+        raise DirdiffError("project_id is required for the Preset Tab.")
     if preset_subset is None or preset_subset.strip() == "":
-        raise DirdiffError("preset_subset is required for preset mode.")
+        raise DirdiffError("preset_subset is required for the Preset Tab.")
     if project_id == "diff":
         preset_type: PresetTypeParam = "diff"
     elif project_id == "fold":
@@ -767,7 +743,7 @@ def marked_project_id(project_id: str | None) -> int:
     operations never call this parser because their Snapshot id is sufficient.
     """
     if project_id is None or project_id.strip() == "":
-        raise DirdiffError("project_id is required for repo-backed modes.")
+        raise DirdiffError("project_id is required for repo-backed Tabs.")
     try:
         parsed_project_id = int(project_id)
     except ValueError as exc:
@@ -780,12 +756,11 @@ def marked_project_id(project_id: str | None) -> int:
 def _branch_selection_from_query(
     *,
     label: str,
-    mode_label: Literal["branch-review", "pull-request"],
     source: BranchSourceParam | None,
     remote: str | None,
     branch: str | None,
 ) -> BranchSelection:
-    """Parse one split branch-backed selection from query params.
+    """Parse one split Branch Review selection from query parameters.
 
     Used only while building a manifest for a branch-backed Tab. Follow-up file
     endpoints use the snapshot id returned by that manifest request.
@@ -793,19 +768,19 @@ def _branch_selection_from_query(
     if source is None:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_source is required for {mode_label} mode.",
+            detail=f"{label}_source is required for the Branch Review Tab.",
         )
     if branch is None or (branch_name := branch.strip()) == "":
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_branch is required for {mode_label} mode.",
+            detail=f"{label}_branch is required for the Branch Review Tab.",
         )
     if source == "local":
         return {"source": source, "branch": branch_name}
     if remote is None or (remote_name := remote.strip()) == "":
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_remote is required for remote {mode_label} selections.",
+            detail=f"{label}_remote is required for remote Branch Review selections.",
         )
     return {
         "source": source,
@@ -1252,7 +1227,7 @@ def create_app(
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
         },
-        summary="Fetch a pull request ref into a matching marked repository",
+        summary="Prepare immutable repository state for a Pull Request Tab",
     )
     def prepare_pull_request_endpoint(
         request: PullRequestPrepareRequest,
@@ -1377,14 +1352,13 @@ def create_app(
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
         },
-        summary="Load a repository diff manifest",
+        summary="Show the repository state selected by a Tab",
     )
     def serve_manifest(
         project_id: str = Query(
-            description="Manifest project id: marked project id for repo-backed modes, preset catalog id for preset mode.",
+            description="Manifest project id: marked project id for repo-backed Tabs, preset catalog id for Preset.",
         ),
-        engine: EngineParam = Query(description="Diff engine."),
-        mode: ModeParam = Query(description="UI diff mode."),
+        tab: TabParam = Query(description="HUD Tab."),
         branch_selections: BranchSelections = Depends(
             selected_branch_selections
         ),
@@ -1394,27 +1368,40 @@ def create_app(
         right: str | None = Query(
             default=None, description="Right ref or diff side."
         ),
+        pull_request_url: str | None = Query(
+            default=None,
+            description="Pull Request URL used only for Room correspondence.",
+        ),
+        left_commit: str | None = Query(
+            default=None,
+            description="Left commit prepared for the Pull Request Tab.",
+        ),
+        right_commit: str | None = Query(
+            default=None,
+            description="Right commit prepared for the Pull Request Tab.",
+        ),
         preset_subset: str | None = Query(
             default=None,
-            description="Preset subset/group id for preset mode.",
+            description="Preset subset/group id for the Preset Tab.",
         ),
         show_untracked: bool = Query(
             default=False,
-            description="Include untracked worktree files when supported by the selected mode.",
+            description="Include untracked worktree files when supported by the selected Tab.",
         ),
     ) -> RepoManifestResponse:
-        """Return the current prepared state selected by the active Tab.
+        """Show the supplied repository state and provide follow-up keys.
 
         The handler constructs the concrete backend and supplies the complete
         Tab state to `RoomLord.corresponding_room`. The response contains the
         manifest tree, aggregate backend totals, and the opaque Snapshot key
-        required by follow-up endpoints.
+        required by follow-up endpoints. It does not prepare Pull Requests;
+        Pull Request parameters already contain the URL and capture commits.
         """
         try:
             preset_catalog: str | None = None
             preset_name: str | None = None
             parsed_project_id: int | None = None
-            if mode == "preset":
+            if tab == "preset":
                 preset_catalog, preset_name = preset_project_parts(
                     project_id=project_id,
                     preset_subset=preset_subset,
@@ -1432,11 +1419,14 @@ def create_app(
                 backend = GitBackend.discover(repo_root=Path(mark.path))
             room, snapshot_id = room_lord.corresponding_room(
                 mark_id=parsed_project_id,
-                tab=mode,
+                tab=tab,
                 backend=backend,
                 branch_selections=branch_selections,
                 left=left,
                 right=right,
+                pull_request_url=pull_request_url,
+                left_commit=left_commit,
+                right_commit=right_commit,
                 preset_catalog=preset_catalog,
                 preset_subset=preset_name,
                 show_untracked=show_untracked,
@@ -1485,7 +1475,7 @@ def create_app(
                 added_lines=snapshot_meta["added_lines"],
                 removed_lines=snapshot_meta["removed_lines"],
             )
-            if mode == "preset":
+            if tab == "preset":
                 assert preset_name is not None
                 payload["display_name"] = preset_name
             payload["snapshot_id"] = snapshot_id.hex

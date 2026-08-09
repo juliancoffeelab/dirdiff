@@ -107,7 +107,8 @@ Defines the complete backend data model and exports the `api` facade.
 Main exported type groups:
 
 - repositories, profiles, preferences, refs, branches, and presets;
-- `DiffParams` and its workflow-specific variants;
+- `DiffParams` and its Tab-specific variants, whose `tab` discriminator and
+  complete parameters are sent unchanged to manifest;
 - manifest trees and manifest statistics;
 - lazy-file information;
 - text and notebook file diffs;
@@ -376,7 +377,11 @@ Private metadata components:
 - `MetadataStatusPortal`;
 - `MetadataRefresh`.
 
-Each Tab stores its workflow-specific selected data. When that data is complete, the Tab constructs one complete `DiffParams` value and renders `ChangeSet`.
+Each Tab retains one complete selected `DiffParams` value and passes that same
+value to `ChangeSet`. `ChangeSet` does not switch over the Tab to reconstruct it.
+The Pull Request value contains its URL and the two commits returned by
+preparation; it contains no Branch Review selections. Engine is independent of
+the selected value and is supplied separately for file rendering.
 
 Shared inputs from `App` include:
 
@@ -405,6 +410,7 @@ ChangeSet
 ```ts
 active
 params
+engine
 view
 fileTreeOpen
 debugHudOpen
@@ -443,7 +449,9 @@ Private presentation components:
 - `TreeStatistics`;
 - `TreeVisibilityIndicator`.
 
-`ChangeSet` stores per-file expansion across replacement of its mounted
+`params` is the complete selected Tab value used by manifest. `engine` is a
+separate file-rendering choice and does not participate in manifest or Room
+identity. `ChangeSet` stores per-file expansion across replacement of its mounted
 snapshot.
 
 `ChangeSetSnapshot`:
@@ -675,7 +683,7 @@ type LinePins = {
 | `main.tsx` | `App.tsx` | `App` |
 | `App.tsx` | `AppHeader.tsx` | workspace values and explicit selection callbacks |
 | `App.tsx` | `Tabs.tsx` | shared workspace values and workflow callbacks |
-| `Tabs.tsx` | `ChangeSet.tsx` | complete `DiffParams` and shared display state |
+| `Tabs.tsx` | `ChangeSet.tsx` | complete selected `DiffParams`, separate engine, and shared display state |
 | `ChangeSet.tsx` | `api.ts` | manifest, lazy-info, file, and preferences definitions |
 | `ChangeSet.tsx` | `FileCard.tsx` | one manifest-position file state and explicit file actions |
 | `ChangeSet.tsx` | `navigation.tsx` | mounted ChangeSet root and navigation operations |

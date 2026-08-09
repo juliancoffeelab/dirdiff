@@ -547,7 +547,7 @@ h1 {
   align-items: end;
 }
 
-.mode-tabs {
+.tab-choices {
   grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
@@ -558,7 +558,7 @@ h1 {
   border: 0;
 }
 
-.mode-tabs legend {
+.tab-choices legend {
   width: 100%;
   margin-bottom: 6px;
   color: #6a665d;
@@ -566,7 +566,7 @@ h1 {
   text-align: center;
 }
 
-.mode-tabs button,
+.tab-choices button,
 .load-button {
   border: 1px solid #d8d0c2;
   background: #fffdf8;
@@ -574,7 +574,7 @@ h1 {
   padding: 8px 11px;
 }
 
-.mode-tabs button.is-active,
+.tab-choices button.is-active,
 .load-button {
   border-color: #24231f;
   background: #24231f;

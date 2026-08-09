@@ -300,9 +300,9 @@ def load_diff_sides(
 ) -> LoadedDiffSides:
     """Load and validate the left/right text sides for one file diff.
 
-    The caller supplies already-resolved side names: raw refs for ordinary
-    modes, preset names for preset mode, or merge-base/review refs for branch
-    review.  Missing paths are represented as `TextVersion` values with
+    The caller supplies already-resolved side names: raw refs for repository
+    Tabs, preset names for the Preset Tab, or merge-base/review refs for Branch
+    Review. Missing paths are represented as `TextVersion` values with
     `exists=False` so added/deleted files can still render through the same
     downstream payload builders.
 

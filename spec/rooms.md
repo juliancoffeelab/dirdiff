@@ -21,8 +21,9 @@ find_room(snapshot_id: UUID) -> Room
 ```
 
 `corresponding_room` is used only by manifest. It applies the Tab's law of
-correspondence, finds or creates the Room, captures or reuses its current state,
-and returns the Room and Snapshot key separately.
+correspondence only to find or create the Room. It separately uses the supplied
+capture inputs to capture or reuse the current state, then returns the Room and
+Snapshot key separately. Snapshot identity never participates in correspondence.
 
 `find_room` is used by follow-up endpoints. A Snapshot key is globally unique,
 so it finds the containing Room directly without executing a correspondence law
@@ -72,12 +73,17 @@ The key is constructed as follows:
   `worktree` as explicit ephemeral sides. Snapshot labels use those same
   canonical values rather than the request's ref spelling;
 - Branch Review uses the structured symbolic base/review branch pair;
-- Pull Request uses the same branch-pair rule under a distinct Tab;
+- Pull Request uses the Pull Request URL;
 - each preset catalog/subset pair uses one Mark-less Room.
 
 SQLite compares the complete opaque key for equality but does not interpret its
 structure. Partial unique indexes preserve the intended marked and Mark-less
 Room identities despite SQLite nullable uniqueness behavior.
+
+The values used to capture a Snapshot are separate from this law. In particular,
+the Pull Request Tab captures the prepared merge-base commit on the left and the
+prepared Pull Request head commit on the right. Those commits do not identify the
+Room and cannot replace, extend, or verify the URL correspondence key.
 
 ## Captured state
 
@@ -183,10 +189,20 @@ Snapshots.
 
 ## HTTP flow
 
-`/api/manifest` constructs the workspace backend and calls
-`corresponding_room`. It asks the returned Room for `meta(snapshot_id)` and
-`manifested(snapshot_id)`, builds the manifest tree and File totals, copies the
-aggregate line counts, and returns the same Snapshot key.
+`/api/pull-request/prepare` is the complete Pull Request preparation boundary. It
+parses the URL, finds the marked repository and forge remote, fetches the required
+refs, and returns the repository id, canonical Pull Request URL, merge-base commit,
+and Pull Request head commit. No part of that operation belongs to manifest.
+
+`/api/manifest` accepts one complete Tab parameter value in order to show the
+specified repository state and provide keys for later `/api/file-diff` operations.
+It constructs the workspace backend and calls `corresponding_room`. It asks the
+returned Room for `meta(snapshot_id)` and `manifested(snapshot_id)`, builds the
+manifest tree and File totals, copies the aggregate line counts, and returns the
+same Snapshot key. For Pull Request parameters, manifest uses the URL only for
+Room correspondence and the two commits only for capture. It does not parse a
+Pull Request URL, contact a forge, fetch refs, derive commits, or apply Branch
+Review selection logic.
 
 `/api/lazy-info` accepts only `snapshot_id`, calls `find_room(snapshot_id)`, and
 then `manifested(snapshot_id)`. It reads captured File metadata and never

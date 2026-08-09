@@ -15,8 +15,9 @@ const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic", "gumtree"]);
 /**
  * Selects the backend diff implementation used for every requested file.
  *
- * Callers must pass one supported engine as part of complete DiffParams. The
- * value controls backend rendering and must not represent inline/split view.
+ * Callers pass the engine to file requests separately from DiffParams because
+ * manifest observation does not render files. The value must not represent
+ * inline/split view.
  */
 export type DiffEngine = z.infer<typeof DiffEngineSchema>;
 
@@ -188,23 +189,20 @@ const RepoMainBranchSchema = z.strictObject({
  */
 export type RepoMainBranch = z.infer<typeof RepoMainBranchSchema>;
 
-const PreparedPullRequestBranchSchema = z.strictObject({
-  remote: z.string(),
-  branch: z.string(),
-});
-
 const PreparedPullRequestSchema = z.strictObject({
   project_id: z.number().int().positive(),
-  pull_request_url: z.string(),
-  base_branch: PreparedPullRequestBranchSchema,
-  review_branch: PreparedPullRequestBranchSchema,
+  pull_request_url: z.string().min(1),
+  left_commit: z.string().min(1),
+  right_commit: z.string().min(1),
 });
 
 /**
- * Contains the authoritative repository and branches resolved from a PR URL.
+ * Contains the authoritative repository, Room identity, and commits prepared
+ * from one Pull Request URL.
  *
- * Successful preparation supplies every value needed to reconstruct a canonical
- * Branch Review workspace. Callers must not combine it with a previous repo.
+ * The URL participates only in Pull Request correspondence. The commits
+ * participate only in manifest capture. Callers must preserve the complete value
+ * and must not convert it into Branch Review selections.
  */
 export type PreparedPullRequest = z.infer<typeof PreparedPullRequestSchema>;
 
@@ -250,25 +248,24 @@ const PresetCatalogsSchema = z.strictObject({
 export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
 
 /**
- * Contains fields shared by every repository-backed diff request.
+ * Contains fields shared by every repository-backed manifest request.
  *
- * The project and engine are always required. Preset requests use their own
- * complete parameter shape because their project identity is a PresetType.
+ * The project is always required. Preset requests use their own complete
+ * parameter shape because their project identity is a PresetType.
  */
 type RepoBackedDiffParams = {
   project_id: ProjectId;
-  engine: DiffEngine;
 };
 
 /**
  * Requests the current HEAD against the complete worktree, including untracked
  * files.
  *
- * Callers construct the complete fixed mode fields; none are optional or
+ * Callers construct the complete fixed Tab fields; none are optional or
  * inferred by the transport layer.
  */
 export type HeadDiffParams = RepoBackedDiffParams & {
-  mode: "head";
+  tab: "head";
   left: "HEAD";
   right: "worktree";
   show_untracked: true;
@@ -281,7 +278,7 @@ export type HeadDiffParams = RepoBackedDiffParams & {
  * input or autocomplete suggestions.
  */
 export type RefsDiffParams = RepoBackedDiffParams & {
-  mode: "refs";
+  tab: "refs";
   left: string;
   right: string;
 };
@@ -293,33 +290,33 @@ export type RefsDiffParams = RepoBackedDiffParams & {
  * reconstruct missing remotes or substitute repository defaults.
  */
 export type BranchReviewDiffParams = RepoBackedDiffParams & {
-  mode: "branch-review";
+  tab: "branch-review";
   base_selection: BranchSelection;
   review_selection: BranchSelection;
 };
 
 /**
- * Requests the prepared branch pair belonging to the Pull Request Tab.
+ * Requests the repository state prepared for one Pull Request.
  *
- * Its loading parameters match Branch Review, while the distinct mode preserves
- * the Pull Request Tab's identity at the API boundary.
+ * The URL is the complete Room correspondence key. The two commits are capture
+ * inputs and must never be represented as Branch Review selections.
  */
 export type PullRequestDiffParams = RepoBackedDiffParams & {
-  mode: "pull-request";
-  base_selection: BranchSelection;
-  review_selection: BranchSelection;
+  tab: "pull-request";
+  pull_request_url: string;
+  left_commit: string;
+  right_commit: string;
 };
 
 /**
- * Requests one selected preset fixture using the chosen diff engine.
+ * Requests one selected preset fixture.
  *
  * The preset kind is the backend project ID and `preset_subset` is the selected
  * catalog group. Repository selection is deliberately absent.
  */
 export type PresetDiffParams = {
   project_id: PresetType;
-  engine: DiffEngine;
-  mode: "preset";
+  tab: "preset";
   preset_subset: string;
 };
 
@@ -1280,7 +1277,7 @@ function requestSavePreferences(input: {
 }
 
 /**
- * Resolves one pull-request URL into authoritative repository and ref state.
+ * Resolves one Pull Request URL into its repository, URL identity, and commits.
  *
  * The complete URL is sent to the backend. Callers must replace workspace
  * selection from the validated result rather than preserving conflicting data.
@@ -1304,21 +1301,19 @@ function requestPreparePullRequest(url: string): Promise<PreparedPullRequest> {
 /**
  * Encodes complete DiffParams for the snapshot-producing manifest endpoint.
  *
- * Every discriminated variant is translated into the stable backend contract.
+ * Each Tab variant serializes its own exact fields into the HTTP parameters.
  * This function performs encoding only and never changes or defaults selection.
  */
 function manifestSearchParams(params: DiffParams): URLSearchParams {
   const search = new URLSearchParams({
-    engine: params.engine,
-    mode: params.mode,
+    tab: params.tab,
     project_id: String(params.project_id),
   });
-  switch (params.mode) {
+  switch (params.tab) {
     case "preset":
       search.set("preset_subset", params.preset_subset);
       return search;
     case "branch-review":
-    case "pull-request":
       search.set("base_source", params.base_selection.source);
       search.set("base_branch", params.base_selection.branch);
       if (params.base_selection.source === "remote") {
@@ -1329,6 +1324,11 @@ function manifestSearchParams(params: DiffParams): URLSearchParams {
       if (params.review_selection.source === "remote") {
         search.set("review_remote", params.review_selection.remote);
       }
+      return search;
+    case "pull-request":
+      search.set("pull_request_url", params.pull_request_url);
+      search.set("left_commit", params.left_commit);
+      search.set("right_commit", params.right_commit);
       return search;
     case "head":
       search.set("left", params.left);

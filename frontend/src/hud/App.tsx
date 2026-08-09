@@ -17,6 +17,7 @@ import {
   type PreparedPullRequest,
   type PresetType,
   type ProjectId,
+  type PullRequestDiffParams,
 } from "../api/api";
 import { assert } from "../utils";
 import { AppHeader, type AppHeaderOutlets } from "./AppHeader";
@@ -74,8 +75,7 @@ type WorkspaceProps = {
  * Parses the active Tab from canonical browser URL state.
  *
  * A valid explicit `tab` selects its matching Tab, and a genuinely empty query
- * starts at Head. A populated query must identify its Tab. Backend `mode` is not
- * browser Tab identity and is never accepted here.
+ * starts at Head. A populated query must identify its Tab.
  */
 function initialTab(search: URLSearchParams): TabId {
   const tab = search.get("tab");
@@ -370,7 +370,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   }
 
   /**
-   * Selects one eternal Tab and records only its active identity/mode.
+   * Selects one eternal Tab and records only its active identity.
    *
    * The selected Tab immediately reports its retained selection, replacing fields
    * from the previously active Tab without copying any control state.
@@ -425,8 +425,8 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   /**
    * Selects the global diff engine and updates browser workspace state.
    *
-   * Mounted Tabs and outer ChangeSets survive. Their reactive DiffParams switch to
-   * the new engine without resetting inputs or presentation state.
+   * Mounted Tabs and outer ChangeSets survive. Their file rendering switches to
+   * the new engine without changing selected values or manifest identity.
    */
   function selectEngine(engine: DiffEngine): void {
     setWorkspace("engine", engine);
@@ -504,25 +504,21 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   /**
    * Restores one already prepared PR selection when its eternal Tab is revisited.
    *
-   * Preparation remains the only operation allowed to change repo or branches.
+   * Preparation remains the only operation allowed to change repo or commits.
    * This command merely serializes the retained complete result into a clean URL.
    */
-  function selectPreparedPullRequest(
-    pullRequestUrl: string,
-    base: BranchSelection,
-    review: BranchSelection,
-  ): void {
+  function selectPreparedPullRequest(selection: PullRequestDiffParams): void {
     const search = selectionSearch("pull-request");
-    search.set("pull_request_url", pullRequestUrl);
-    writeBranchSelection(search, "base", base);
-    writeBranchSelection(search, "review", review);
+    search.set("pull_request_url", selection.pull_request_url);
+    search.set("left_commit", selection.left_commit);
+    search.set("right_commit", selection.right_commit);
     replaceSelectionSearch(search);
   }
 
   /**
    * Applies authoritative PR preparation through one URL-backed workspace reset.
    *
-   * The returned repo and branches replace conflicting workspace state. Refs for
+   * The returned repo and commits replace conflicting workspace state. Refs for
    * that project are invalidated before the reconstructed controls observe them.
    */
   function applyPreparedPullRequest(prepared: PreparedPullRequest): void {
@@ -536,16 +532,8 @@ function Workspace(props: WorkspaceProps): JSX.Element {
       workspace.view,
     );
     search.set("pull_request_url", prepared.pull_request_url);
-    writeBranchSelection(search, "base", {
-      source: "remote",
-      remote: prepared.base_branch.remote,
-      branch: prepared.base_branch.branch,
-    });
-    writeBranchSelection(search, "review", {
-      source: "remote",
-      remote: prepared.review_branch.remote,
-      branch: prepared.review_branch.branch,
-    });
+    search.set("left_commit", prepared.left_commit);
+    search.set("right_commit", prepared.right_commit);
     props.onReset(search);
   }
 

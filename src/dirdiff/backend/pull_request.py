@@ -1,15 +1,14 @@
 """Pull request preparation for repo-backed diffs.
 
 This module is the backend boundary for turning a forge pull request URL into
-local Git state that dirdiff can compare.  Its public interface accepts a pull
+local Git state that dirdiff can show. Its public interface accepts a pull
 request URL plus the registered repository marks, finds the matching marked Git
-repository by remote URL, fetches the review ref into that repository, and
-returns the prepared repository id plus branch data.
+repository by remote URL, fetches the required refs, and returns the prepared
+repository id, canonical URL, merge-base commit, and review commit.
 
 The module does not render diffs, build manifests, own FastAPI routes, or mutate
-the user's checked-out branch.  It prepares remote-tracking refs only; the
-existing repository diff pipeline remains responsible for listing changed files
-and loading file versions.
+the user's checked-out branch. Manifest receives the already-prepared commits
+and only shows their repository state.
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from dirdiff.engines import DirdiffError
 
 __all__ = [
     "PreparedPullRequest",
-    "PreparedPullRequestBranch",
     "prepare_pull_request",
 ]
 
@@ -56,21 +54,18 @@ class RepoMarkLike(Protocol):
 
 
 @dataclass(frozen=True)
-class PreparedPullRequestBranch:
-    """Remote branch prepared for a pull request comparison."""
-
-    remote: str
-    branch: str
-
-
-@dataclass(frozen=True)
 class PreparedPullRequest:
-    """Prepared pull request state returned to the API layer."""
+    """Complete Pull Request state prepared for manifest observation.
+
+    `pull_request_url` is the Room correspondence key. `left_commit` and
+    `right_commit` are immutable Git commits supplied only as Snapshot capture
+    inputs. The value must not contain Branch Review selections.
+    """
 
     project_id: int
     pull_request_url: str
-    base_branch: PreparedPullRequestBranch
-    review_branch: PreparedPullRequestBranch
+    left_commit: str
+    right_commit: str
 
 
 @dataclass(frozen=True)
@@ -104,8 +99,9 @@ def prepare_pull_request(
     The URL must point at a supported GitHub pull request or GitLab merge
     request.  The request base repository must match at least one configured
     remote in the registered repo list.  The review ref is fetched into a
-    remote-tracking ref so existing branch comparison code can diff it without
-    checking out or creating a local branch.
+    remote-tracking ref without checking out or creating a local branch. This
+    operation also freezes the merge base and review head to commit ids so
+    manifest does not perform Pull Request preparation.
     """
     value = url.strip()
     if GITHUB_PULL_REQUEST_RE.match(value) is not None:
@@ -150,17 +146,31 @@ def _prepare_github_pull_request(
             source_ref=f"pull/{pull_request.number}/head",
             target_ref=f"refs/remotes/{remote}/{review_branch}",
         )
+        base_ref = f"refs/remotes/{remote}/{pull_request.base_branch}"
+        review_ref = f"refs/remotes/{remote}/{review_branch}"
+        merge_base = _run_git_text(
+            repo_path,
+            ["merge-base", base_ref, review_ref],
+            check=False,
+        )
+        if merge_base.returncode != 0 or merge_base.stdout.strip() == "":
+            raise DirdiffError(
+                "Could not find a merge base for the prepared pull request."
+            )
+        review_commit = _run_git_text(
+            repo_path,
+            ["rev-parse", "--verify", f"{review_ref}^{{commit}}"],
+            check=False,
+        )
+        if review_commit.returncode != 0 or review_commit.stdout.strip() == "":
+            raise DirdiffError(
+                "Could not read the prepared pull request head commit."
+            )
         return PreparedPullRequest(
             project_id=mark.id,
             pull_request_url=pull_request.url,
-            base_branch=PreparedPullRequestBranch(
-                remote=remote,
-                branch=pull_request.base_branch,
-            ),
-            review_branch=PreparedPullRequestBranch(
-                remote=remote,
-                branch=review_branch,
-            ),
+            left_commit=merge_base.stdout.strip(),
+            right_commit=review_commit.stdout.strip(),
         )
     raise DirdiffError(
         "No marked repository has a remote for this pull request."
@@ -194,17 +204,31 @@ def _prepare_gitlab_merge_request(
             source_ref=f"merge-requests/{merge_request.iid}/head",
             target_ref=f"refs/remotes/{remote}/{review_branch}",
         )
+        base_ref = f"refs/remotes/{remote}/{merge_request.target_branch}"
+        review_ref = f"refs/remotes/{remote}/{review_branch}"
+        merge_base = _run_git_text(
+            repo_path,
+            ["merge-base", base_ref, review_ref],
+            check=False,
+        )
+        if merge_base.returncode != 0 or merge_base.stdout.strip() == "":
+            raise DirdiffError(
+                "Could not find a merge base for the prepared merge request."
+            )
+        review_commit = _run_git_text(
+            repo_path,
+            ["rev-parse", "--verify", f"{review_ref}^{{commit}}"],
+            check=False,
+        )
+        if review_commit.returncode != 0 or review_commit.stdout.strip() == "":
+            raise DirdiffError(
+                "Could not read the prepared merge request head commit."
+            )
         return PreparedPullRequest(
             project_id=mark.id,
             pull_request_url=merge_request.url,
-            base_branch=PreparedPullRequestBranch(
-                remote=remote,
-                branch=merge_request.target_branch,
-            ),
-            review_branch=PreparedPullRequestBranch(
-                remote=remote,
-                branch=review_branch,
-            ),
+            left_commit=merge_base.stdout.strip(),
+            right_commit=review_commit.stdout.strip(),
         )
     raise DirdiffError(
         "No marked repository has a remote for this merge request."

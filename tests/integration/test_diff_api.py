@@ -381,8 +381,7 @@ def test_branch_review_query_validation_returns_bad_request(
         "/api/manifest",
         params={
             "project_id": str(project_id),
-            "engine": "dirdiff",
-            "mode": "branch-review",
+            "tab": "branch-review",
             "base_branch": "master",
             "review_source": "local",
             "review_branch": "feature",
@@ -391,7 +390,7 @@ def test_branch_review_query_validation_returns_bad_request(
 
     assert response.status_code == 400
     assert response.json()["detail"] == (
-        "base_source is required for branch-review mode."
+        "base_source is required for the Branch Review Tab."
     )
 
 
@@ -438,8 +437,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "/api/manifest",
         params={
             "project_id": str(project_id),
-            "engine": "dirdiff",
-            "mode": "refs",
+            "tab": "refs",
             "left": "index",
             "right": "worktree",
         },
@@ -501,8 +499,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "/api/manifest",
         params={
             "project_id": str(project_id),
-            "engine": "dirdiff",
-            "mode": "refs",
+            "tab": "refs",
             "left": "index",
             "right": "worktree",
         },
@@ -544,8 +541,7 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
     manifest_response = client.get(
         "/api/manifest",
         params={
-            "engine": "dirdiff",
-            "mode": "preset",
+            "tab": "preset",
             "project_id": "diff",
             "preset_subset": "python",
         },
@@ -633,8 +629,7 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
         response = client.get(
             "/api/manifest",
             params={
-                "engine": "dirdiff",
-                "mode": "preset",
+                "tab": "preset",
                 "project_id": project_id,
                 "preset_subset": preset_subset,
             },
@@ -663,8 +658,7 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
     manifest_response = client.get(
         "/api/manifest",
         params={
-            "engine": "dirdiff",
-            "mode": "preset",
+            "tab": "preset",
             "project_id": "scroll",
             "preset_subset": "lazy-files",
         },
@@ -711,24 +705,21 @@ def test_preset_manifest_validates_required_preset_fields(
     missing_subset = client.get(
         "/api/manifest",
         params={
-            "engine": "dirdiff",
-            "mode": "preset",
+            "tab": "preset",
             "project_id": "diff",
         },
     )
     missing_project = client.get(
         "/api/manifest",
         params={
-            "engine": "dirdiff",
-            "mode": "preset",
+            "tab": "preset",
             "preset_subset": "python",
         },
     )
     traversal = client.get(
         "/api/manifest",
         params={
-            "engine": "dirdiff",
-            "mode": "preset",
+            "tab": "preset",
             "project_id": "diff",
             "preset_subset": "../python",
         },
@@ -736,7 +727,7 @@ def test_preset_manifest_validates_required_preset_fields(
 
     assert missing_subset.status_code == 400
     assert missing_subset.json()["detail"] == (
-        "preset_subset is required for preset mode."
+        "preset_subset is required for the Preset Tab."
     )
     assert missing_project.status_code == 422
     assert traversal.status_code == 400
@@ -788,8 +779,7 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
         "/api/manifest",
         params={
             "project_id": str(project_id),
-            "engine": "dirdiff",
-            "mode": "refs",
+            "tab": "refs",
             "left": "index",
             "right": "worktree",
         },

@@ -44,7 +44,6 @@ from dirdiff.backend.manifest import (
 from dirdiff.backend.preset import PresetBackend
 from dirdiff.backend.pull_request import (
     PreparedPullRequest,
-    PreparedPullRequestBranch,
     prepare_pull_request,
 )
 
@@ -59,7 +58,6 @@ __all__ = [
     "LoadedDiffSides",
     "LocalBranchSelection",
     "PreparedPullRequest",
-    "PreparedPullRequestBranch",
     "PresetBackend",
     "RefChoices",
     "RemoteBranchRef",
