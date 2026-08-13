@@ -10,7 +10,27 @@ export default defineConfig(() => {
   }
 
   return {
-    plugins: [solid()],
+    plugins: [
+      {
+        name: "full-reload-javascript",
+        hotUpdate(options) {
+          if (
+            this.environment.name === "client" &&
+            options.modules.some((module) => module.type === "js")
+          ) {
+            // Solid contexts cannot span independently replaced module graphs.
+            // Stop the JavaScript update and reload the complete application.
+            this.environment.hot.send({
+              type: "full-reload",
+              path: "*",
+              triggeredBy: options.file,
+            });
+            return [];
+          }
+        },
+      },
+      solid(),
+    ],
     build: {
       outDir: "../src/dirdiff/frontend",
       emptyOutDir: true,

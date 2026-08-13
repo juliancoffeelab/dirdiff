@@ -78,7 +78,9 @@ Direct interfaces:
 - imports the application-lifetime `ReviewDraftRoot` from `hud/Review.tsx`;
 - imports `styles.css`.
 
-JavaScript module updates reload the page. CSS updates use Vite’s normal stylesheet replacement.
+The Vite server turns JavaScript module changes into a full page reload before
+module replacement begins. CSS updates use Vite's normal stylesheet
+replacement.
 
 ### `styles.css`
 

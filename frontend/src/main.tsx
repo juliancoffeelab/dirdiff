@@ -15,14 +15,6 @@ import { App } from "./hud/App";
 import { ReviewDraftRoot } from "./hud/Review";
 import "./styles.css";
 
-if (import.meta.hot !== undefined) {
-  import.meta.hot.on("vite:beforeUpdate", ({ updates }) => {
-    if (updates.some((update) => update.type === "js-update")) {
-      window.location.reload();
-    }
-  });
-}
-
 /**
  * Connects Toast reporting to query failures and the root error boundary.
  *
