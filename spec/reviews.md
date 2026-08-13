@@ -283,15 +283,17 @@ later page; no query drains later pages automatically. Its explicit refresh
 control refetches the currently loaded pages while retaining their presentation;
 it does not introduce a browser activity-delta protocol. Every expanded Thread
 labels its retained excerpt with the original selected-side File path and line
-range. Inline view starts with History open in a fixed right column. Split view
-uses one right-side host below the sticky File header; its closed control and
-expanded overlay occupy that same host. The `m` hotkey and visible panel controls
-toggle one ChangeSet-local History state in either mode. The panel has its own
-scroll and does not follow File-lane scrolling for content or navigation. The
-host measures the currently sticky content-sized File header so both forms
-remain directly below it. When the Snapshot has no File header, the same host
-sits directly below the application header so unlocated Threads remain
-accessible. Resolved and deleted Threads start folded; open Threads show
+range. Inline view starts with History closed in a right-side ChangeSet grid
+column mirroring the FileTree rail; opening it expands that same column. The
+rail carries a vertical label, Thread count, and `m` hint. Split view uses one
+right-side host below the sticky File header; its closed eye-and-`m` control and
+expanded overlay occupy that same host. The `m` hotkey and visible panel
+controls toggle one ChangeSet-local History state in either mode. The panel has
+its own scroll and does not follow File-lane scrolling for content or
+navigation. The host measures the currently sticky content-sized File header so
+both forms remain directly below it. When the Snapshot has no File header, the
+same host sits directly below the application header so unlocated Threads
+remain accessible. Resolved and deleted Threads start folded; open Threads show
 complete Comments and retained code context.
 
 The code-aligned composer and inline Thread panel use one viewport placement

@@ -32,7 +32,7 @@ import {
   type InfiniteData,
 } from "@tanstack/solid-query";
 import { Portal } from "solid-js/web";
-import { RefreshCw } from "lucide-solid";
+import { Eye, RefreshCw } from "lucide-solid";
 import { z } from "zod";
 import {
   ReviewIdSchema,
@@ -374,9 +374,9 @@ export function useReview(): ReviewBinding {
  * Defines one Snapshot review boundary and its complete external presentation.
  *
  * The caller supplies the exact Snapshot, selected Profile, History visibility,
- * child File lane, and the sole permitted File-view operation. The provider may
- * observe or write review data but must not store Profile, History, navigation,
- * or File-lane state itself.
+ * inline ChangeSet grid position, child File lane, and the sole permitted
+ * File-view operation. The provider may observe or write review data but must
+ * not store Profile, History, navigation, or File-lane state itself.
  */
 type ReviewProviderProps = {
   snapshotId: ReviewId;
@@ -385,6 +385,7 @@ type ReviewProviderProps = {
   onHistoryOpenChange(open: boolean): void;
   profile: StoredProfile | null;
   children: JSX.Element;
+  inlineHistoryTarget: Accessor<HTMLElement | null>;
   canViewThread(location: ThreadCodeLocation): boolean;
   viewThread(location: ThreadCodeLocation): void;
 };
@@ -1281,223 +1282,258 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
             void changeThreadState(thread, action);
           }}
         />
-        <aside
-          class="review-history-host"
-          classList={{
-            "review-history-inline": props.view === "inline",
-            "review-history-open": props.historyOpen,
-          }}
-          hidden={props.view === "split" && splitHistoryTop() === null}
-          style={
-            props.view === "split" && splitHistoryTop() !== null
-              ? { "--review-history-top": `${splitHistoryTop()}px` }
-              : undefined
+        <Show
+          when={
+            props.view === "inline"
+              ? props.inlineHistoryTarget()
+              : document.body
           }
+          keyed
         >
-          <Show
-            when={props.historyOpen}
-            fallback={
-              <button
-                class="review-history-toggle"
-                type="button"
-                onClick={() => props.onHistoryOpenChange(true)}
+          {(historyTarget) => (
+            <Portal mount={historyTarget}>
+              <aside
+                class="review-history-host"
+                classList={{
+                  "review-history-inline": props.view === "inline",
+                  "review-history-open": props.historyOpen,
+                }}
+                hidden={props.view === "split" && splitHistoryTop() === null}
+                style={
+                  props.view === "split" && splitHistoryTop() !== null
+                    ? { "--review-history-top": `${splitHistoryTop()}px` }
+                    : undefined
+                }
               >
-                History <span>{totalThreads()}</span>
-              </button>
-            }
-          >
-            <section class="review-history-panel" aria-label="Review History">
-              <header>
-                <strong>History</strong>
-                <span>
-                  {orderedThreads().length} / {totalThreads()} Threads
-                </span>
-                <button
-                  type="button"
-                  class="field-icon-button metadata-refresh-button review-history-refresh"
-                  aria-label="Reload Threads"
-                  title="Reload Threads"
-                  disabled={review.isFetching}
-                  onClick={() => void review.refetch({ cancelRefetch: false })}
-                >
-                  <RefreshCw
-                    class="field-icon"
-                    classList={{ spinning: review.isFetching }}
-                    aria-hidden="true"
-                  />
-                </button>
-                <Show when={props.view === "split"}>
-                  <button
-                    type="button"
-                    onClick={() => props.onHistoryOpenChange(false)}
-                    aria-label="Close History"
-                  >
-                    ×
-                  </button>
-                </Show>
-              </header>
-              <Show when={review.isPending}>
-                <p class="review-status">Loading Threads…</p>
-              </Show>
-              <Show when={review.error} keyed>
-                {(error) => (
-                  <ErrorPanel
-                    title="Failed to load review Threads"
-                    error={error}
-                  >
-                    <RetryButton
-                      onRetry={() => review.refetch().then(() => undefined)}
-                    />
-                  </ErrorPanel>
-                )}
-              </Show>
-              <Show when={draftError()} keyed>
-                {(error) => (
-                  <ErrorPanel title="Review drafts unavailable" error={error}>
+                <Show
+                  when={props.historyOpen}
+                  fallback={
                     <button
+                      class="review-history-toggle"
                       type="button"
-                      disabled={submittingDraftIds().size > 0}
-                      onClick={() => {
-                        if (draftContext.clear()) {
-                          setActiveComposer(null);
-                        }
-                      }}
+                      onClick={() => props.onHistoryOpenChange(true)}
+                      aria-expanded="false"
+                      aria-label="Open History"
                     >
-                      Clear stored drafts
+                      <kbd>m</kbd>
+                      <span class="review-history-label">
+                        History ({totalThreads()})
+                      </span>
+                      <Eye class="review-history-icon" aria-hidden="true" />
                     </button>
-                  </ErrorPanel>
-                )}
-              </Show>
-              <div class="review-history-scroll">
-                <Show when={drafts().length > 0}>
-                  <section class="review-drafts" aria-label="Review drafts">
-                    <h3>Drafts</h3>
-                    <For each={drafts()}>
-                      {(draft) => (
-                        <article>
-                          <strong>
-                            {draft.kind === "new-thread"
-                              ? "New Thread"
-                              : draft.kind === "reply"
-                                ? "Reply"
-                                : "Edit Comment"}
-                          </strong>
-                          <p>
-                            {draft.body.length === 0
-                              ? "Empty draft"
-                              : draft.body}
-                          </p>
-                          <div class="review-actions">
-                            <Show
-                              when={
-                                draft.snapshot_id === props.snapshotId &&
-                                draft.profile_id === currentProfileId()
-                              }
-                            >
-                              <button
-                                type="button"
-                                disabled={
-                                  draftError() !== null ||
-                                  submittingDraftIds().has(draft.draft_id)
-                                }
-                                onClick={() => {
-                                  setActiveThreadPanel(null);
-                                  setActiveComposer({
-                                    draftId: draft.draft_id,
-                                    anchor: null,
-                                  });
-                                }}
-                              >
-                                Open
-                              </button>
-                            </Show>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void navigator.clipboard
-                                  .writeText(draft.body)
-                                  .catch((error: unknown) =>
-                                    toast.showError(
-                                      "Could not copy draft",
-                                      error,
-                                    ),
-                                  );
-                              }}
-                            >
-                              Copy Text
-                            </button>
-                            <button
-                              type="button"
-                              disabled={
-                                draftError() !== null ||
-                                submittingDraftIds().has(draft.draft_id)
-                              }
-                              onClick={() => removeDraft(draft.draft_id)}
-                            >
-                              Discard
-                            </button>
-                          </div>
-                        </article>
+                  }
+                >
+                  <section
+                    class="review-history-panel"
+                    aria-label="Review History"
+                  >
+                    <header onClick={() => props.onHistoryOpenChange(false)}>
+                      <kbd>m</kbd>
+                      <strong>History</strong>
+                      <span>
+                        {orderedThreads().length} / {totalThreads()} Threads
+                      </span>
+                      <button
+                        type="button"
+                        class="field-icon-button metadata-refresh-button review-history-refresh"
+                        aria-label="Reload Threads"
+                        title="Reload Threads"
+                        disabled={review.isFetching}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void review.refetch({ cancelRefetch: false });
+                        }}
+                      >
+                        <RefreshCw
+                          class="field-icon"
+                          classList={{ spinning: review.isFetching }}
+                          aria-hidden="true"
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        class="review-history-collapse"
+                        aria-label="Close History"
+                        title="Close History"
+                      >
+                        <Eye class="review-history-icon" aria-hidden="true" />
+                      </button>
+                    </header>
+                    <Show when={review.isPending}>
+                      <p class="review-status">Loading Threads…</p>
+                    </Show>
+                    <Show when={review.error} keyed>
+                      {(error) => (
+                        <ErrorPanel
+                          title="Failed to load review Threads"
+                          error={error}
+                        >
+                          <RetryButton
+                            onRetry={() =>
+                              review.refetch().then(() => undefined)
+                            }
+                          />
+                        </ErrorPanel>
                       )}
-                    </For>
+                    </Show>
+                    <Show when={draftError()} keyed>
+                      {(error) => (
+                        <ErrorPanel
+                          title="Review drafts unavailable"
+                          error={error}
+                        >
+                          <button
+                            type="button"
+                            disabled={submittingDraftIds().size > 0}
+                            onClick={() => {
+                              if (draftContext.clear()) {
+                                setActiveComposer(null);
+                              }
+                            }}
+                          >
+                            Clear stored drafts
+                          </button>
+                        </ErrorPanel>
+                      )}
+                    </Show>
+                    <div class="review-history-scroll">
+                      <Show when={drafts().length > 0}>
+                        <section
+                          class="review-drafts"
+                          aria-label="Review drafts"
+                        >
+                          <h3>Drafts</h3>
+                          <For each={drafts()}>
+                            {(draft) => (
+                              <article>
+                                <strong>
+                                  {draft.kind === "new-thread"
+                                    ? "New Thread"
+                                    : draft.kind === "reply"
+                                      ? "Reply"
+                                      : "Edit Comment"}
+                                </strong>
+                                <p>
+                                  {draft.body.length === 0
+                                    ? "Empty draft"
+                                    : draft.body}
+                                </p>
+                                <div class="review-actions">
+                                  <Show
+                                    when={
+                                      draft.snapshot_id === props.snapshotId &&
+                                      draft.profile_id === currentProfileId()
+                                    }
+                                  >
+                                    <button
+                                      type="button"
+                                      disabled={
+                                        draftError() !== null ||
+                                        submittingDraftIds().has(draft.draft_id)
+                                      }
+                                      onClick={() => {
+                                        setActiveThreadPanel(null);
+                                        setActiveComposer({
+                                          draftId: draft.draft_id,
+                                          anchor: null,
+                                        });
+                                      }}
+                                    >
+                                      Open
+                                    </button>
+                                  </Show>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void navigator.clipboard
+                                        .writeText(draft.body)
+                                        .catch((error: unknown) =>
+                                          toast.showError(
+                                            "Could not copy draft",
+                                            error,
+                                          ),
+                                        );
+                                    }}
+                                  >
+                                    Copy Text
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      draftError() !== null ||
+                                      submittingDraftIds().has(draft.draft_id)
+                                    }
+                                    onClick={() => removeDraft(draft.draft_id)}
+                                  >
+                                    Discard
+                                  </button>
+                                </div>
+                              </article>
+                            )}
+                          </For>
+                        </section>
+                      </Show>
+                      <For each={orderedThreads()}>
+                        {(thread) => {
+                          const expanded = () =>
+                            expandedThreads().get(thread.thread_id) ??
+                            thread.state === "open";
+                          const viewable = () =>
+                            thread.code_location !== null &&
+                            props.canViewThread(thread.code_location);
+                          return (
+                            <ThreadCard
+                              thread={thread}
+                              expanded={expanded()}
+                              viewable={viewable()}
+                              onToggle={() => {
+                                const next = new Map(expandedThreads());
+                                next.set(thread.thread_id, !expanded());
+                                setExpandedThreads(next);
+                              }}
+                              onView={() => {
+                                if (thread.code_location !== null)
+                                  props.viewThread(thread.code_location);
+                              }}
+                              onState={(action) => {
+                                void changeThreadState(thread, action);
+                              }}
+                              profileId={currentProfileId()}
+                              commentDeletePending={commentDeletePending}
+                              threadStatePending={threadStatePending}
+                              onReply={() => openReplyDraft(thread)}
+                              onEdit={(comment) =>
+                                openEditDraft(thread, comment)
+                              }
+                              onDeleteComment={(comment) =>
+                                tombstoneComment(thread, comment)
+                              }
+                              inline={false}
+                            />
+                          );
+                        }}
+                      </For>
+                      <Show when={review.hasNextPage}>
+                        <button
+                          type="button"
+                          class="review-history-more"
+                          disabled={review.isFetchingNextPage}
+                          onClick={() => {
+                            void review.fetchNextPage();
+                          }}
+                        >
+                          {review.isFetchingNextPage
+                            ? "Loading…"
+                            : "Load more Threads"}
+                        </button>
+                      </Show>
+                    </div>
                   </section>
                 </Show>
-                <For each={orderedThreads()}>
-                  {(thread) => {
-                    const expanded = () =>
-                      expandedThreads().get(thread.thread_id) ??
-                      thread.state === "open";
-                    const viewable = () =>
-                      thread.code_location !== null &&
-                      props.canViewThread(thread.code_location);
-                    return (
-                      <ThreadCard
-                        thread={thread}
-                        expanded={expanded()}
-                        viewable={viewable()}
-                        onToggle={() => {
-                          const next = new Map(expandedThreads());
-                          next.set(thread.thread_id, !expanded());
-                          setExpandedThreads(next);
-                        }}
-                        onView={() => {
-                          if (thread.code_location !== null)
-                            props.viewThread(thread.code_location);
-                        }}
-                        onState={(action) => {
-                          void changeThreadState(thread, action);
-                        }}
-                        profileId={currentProfileId()}
-                        commentDeletePending={commentDeletePending}
-                        threadStatePending={threadStatePending}
-                        onReply={() => openReplyDraft(thread)}
-                        onEdit={(comment) => openEditDraft(thread, comment)}
-                        onDeleteComment={(comment) =>
-                          tombstoneComment(thread, comment)
-                        }
-                        inline={false}
-                      />
-                    );
-                  }}
-                </For>
-                <Show when={review.hasNextPage}>
-                  <button
-                    type="button"
-                    class="review-history-more"
-                    disabled={review.isFetchingNextPage}
-                    onClick={() => {
-                      void review.fetchNextPage();
-                    }}
-                  >
-                    {review.isFetchingNextPage
-                      ? "Loading…"
-                      : "Load more Threads"}
-                  </button>
-                </Show>
-              </div>
-            </section>
-          </Show>
-        </aside>
+              </aside>
+            </Portal>
+          )}
+        </Show>
       </UnexpectedErrorBoundary>
     </ReviewContext.Provider>
   );

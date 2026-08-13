@@ -676,10 +676,13 @@ exclude trigger activation from the row's fold action. Each File header also
 closes its own anchored UI before state replacement; the stable Full header sits
 outside the fallible body-renderer boundary.
 
-Inline History is a fixed right column that starts open. Split History starts as
-a closed control or expands into an overlay in one stable right-side host below
-the sticky File header. The panel and `m` hotkey update the same ChangeSet-local
-visibility state in both modes. Its compact refresh control explicitly refetches
+Inline History starts closed in a right-side ChangeSet grid column mirroring the
+closed FileTree rail. The rail shows its eye mark, vertical label, Thread count,
+and `m` hint; opening it expands that same grid column. Split
+History starts as a compact eye-and-`m` control or expands into an overlay in
+one stable right-side host below the sticky File header. The panel, rail, and
+`m` hotkey update the same ChangeSet-local visibility state in both modes. Its
+compact refresh control explicitly refetches
 only the bounded pages already loaded; it does not drain later pages or use the
 agent activity boundary. Every expanded original excerpt identifies its
 selected-side File path and line range above the retained source.

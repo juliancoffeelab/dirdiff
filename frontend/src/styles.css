@@ -1134,7 +1134,7 @@ h1 {
   display: grid;
   grid-template-columns:
     var(--file-tree-closed-width) minmax(0, 1fr)
-    var(--file-tree-open-width);
+    var(--file-tree-closed-width);
   align-items: start;
   gap: 0;
   overflow-x: clip;
@@ -1154,6 +1154,20 @@ h1 {
 }
 
 .diff-workspace-inline.diff-workspace-tree-open {
+  grid-template-columns:
+    var(--file-tree-open-width) minmax(0, 1fr)
+    var(--file-tree-closed-width);
+}
+
+.change-set-root:has(.review-history-inline.review-history-open)
+  .diff-workspace-inline {
+  grid-template-columns:
+    var(--file-tree-closed-width) minmax(0, 1fr)
+    var(--file-tree-open-width);
+}
+
+.change-set-root:has(.review-history-inline.review-history-open)
+  .diff-workspace-inline.diff-workspace-tree-open {
   grid-template-columns:
     var(--file-tree-open-width) minmax(0, 1fr)
     var(--file-tree-open-width);
@@ -1180,13 +1194,27 @@ h1 {
   pointer-events: none;
 }
 
+.review-history-slot {
+  min-width: 0;
+}
+
 .review-history-inline {
-  position: fixed;
+  position: sticky;
   top: var(--app-header-sticky-offset, 0px);
-  right: 0;
+  right: auto;
   z-index: 2;
-  width: var(--file-tree-open-width);
+  width: 100%;
   max-height: calc(100vh - var(--app-header-sticky-offset, 0px));
+}
+
+.review-history-inline.review-history-open {
+  width: 100%;
+}
+
+.review-history-inline:not(.review-history-open) {
+  height: calc(100vh - var(--app-header-sticky-offset, 0px));
+  border-left: 1px solid #d8d0c2;
+  background: #fffdf8;
 }
 
 .review-history-toggle,
@@ -1201,10 +1229,67 @@ h1 {
 
 .review-history-toggle {
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 8px;
   min-height: 38px;
   padding: 8px 12px;
   font-weight: 700;
+}
+
+.review-history-inline:not(.review-history-open) .review-history-toggle {
+  flex-direction: column;
+  justify-content: start;
+  gap: 5px;
+  min-height: 0;
+  border: 0;
+  border-bottom: 1px solid #d8d0c2;
+  background: transparent;
+  padding: 10px 0 12px;
+  box-shadow: none;
+}
+
+.review-history-inline:not(.review-history-open) .review-history-icon {
+  order: 0;
+}
+
+.review-history-inline:not(.review-history-open) .review-history-label {
+  order: 1;
+}
+
+.review-history-inline:not(.review-history-open) .review-history-toggle kbd {
+  order: 2;
+}
+
+.review-history-host:not(.review-history-inline):not(.review-history-open) {
+  width: auto;
+}
+
+.review-history-host:not(.review-history-inline):not(.review-history-open)
+  .review-history-toggle {
+  width: auto;
+  min-width: 42px;
+  padding: 6px 9px;
+}
+
+.review-history-host:not(.review-history-inline):not(.review-history-open)
+  .review-history-label {
+  display: none;
+}
+
+.review-history-icon {
+  width: 16px;
+  height: 16px;
+  color: #6a665d;
+}
+
+.review-history-inline:not(.review-history-open) .review-history-label {
+  color: #6a665d;
+  font-size: 12px;
+  line-height: 1.05;
+  text-transform: uppercase;
+  text-orientation: mixed;
+  writing-mode: vertical-rl;
 }
 
 .review-history-panel {
@@ -1227,6 +1312,11 @@ h1 {
   min-height: 40px;
   border-bottom: 1px solid #d8d0c2;
   padding: 7px 10px;
+  cursor: pointer;
+}
+
+.review-history-panel > header > kbd {
+  flex: 0 0 auto;
 }
 
 .review-history-panel > header > span {
@@ -1242,9 +1332,20 @@ h1 {
 }
 
 .review-history-panel > header > .review-history-refresh {
-  border: 1px solid #d8d0c2;
-  background: #fffdf8;
+  border: 0;
+  background: transparent;
   font-size: inherit;
+}
+
+.review-history-panel > header > .review-history-collapse {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  margin: -7px -10px -7px 0;
+  padding: 6px 9px;
+  line-height: 1;
 }
 
 .review-history-scroll {
@@ -1599,7 +1700,9 @@ h1 {
   margin-right: auto;
 }
 
-.file-tree-toggle kbd {
+.file-tree-toggle kbd,
+.review-history-toggle kbd,
+.review-history-panel > header > kbd {
   min-width: 18px;
   border: 1px solid #ded8cc;
   background: #f4f1ea;
@@ -3124,6 +3227,10 @@ h1 {
 }
 
 .change-set-root:has(.review-history-inline) .hud-stack {
+  right: calc(var(--file-tree-closed-width) + 24px);
+}
+
+.change-set-root:has(.review-history-inline.review-history-open) .hud-stack {
   right: calc(var(--file-tree-open-width) + 24px);
 }
 

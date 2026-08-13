@@ -20,6 +20,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   requestCallback,
@@ -198,14 +199,17 @@ type HunkDisplay = {
  */
 export function ChangeSet(props: ChangeSetProps): JSX.Element {
   const [helpOpen, setHelpOpen] = createSignal(false);
-  const [historyOpen, setHistoryOpen] = createSignal(props.view === "inline");
+  const [historyOpen, setHistoryOpen] = createSignal(false);
   const [state, setState] = createStore<ChangeSetState>({
     fileExpansion: {},
   });
-  createEffect(() => {
-    // A deliberate view-mode change restores that mode's History default.
-    setHistoryOpen(props.view === "inline");
-  });
+  // Each deliberate view-mode change restores that mode's closed History.
+  createEffect(
+    on(
+      () => props.view,
+      () => setHistoryOpen(false),
+    ),
+  );
   return (
     <Show when={props.active ? props.params : null} keyed>
       {(activeParams) => (
@@ -1223,13 +1227,16 @@ type ReviewSnapshotBoundaryProps = ChangeSetSnapshotProps & {
 };
 
 /**
- * Supplies the engine-bound File lane's current scroll-only destinations.
+ * Supplies the engine-bound File lane's current scroll-only destinations and
+ * inline History grid position.
  *
  * The callback publishes manifest indexes whose current state is not Husk. It
- * must not load, expand, select, or navigate a File.
+ * must not load, expand, select, or navigate a File. The History callback
+ * publishes only the concrete third grid child mounted beside the File lane.
  */
 type ChangeSetFileLaneProps = ChangeSetSnapshotProps & {
   onFileNavigabilityChange(indexes: ReadonlySet<number>): void;
+  onInlineHistoryTargetChange(target: HTMLElement): void;
 };
 
 /**
@@ -1257,6 +1264,10 @@ function ReviewSnapshotBoundary(
   const [navigableFileIndexes, setNavigableFileIndexes] = createSignal<
     ReadonlySet<number>
   >(new Set());
+  // Inline History is rendered by the surrounding review boundary into this
+  // exact third ChangeSet grid child; Split History keeps its fixed host.
+  const [inlineHistoryTarget, setInlineHistoryTarget] =
+    createSignal<HTMLElement | null>(null);
 
   /** Resolves one located Thread to its unique immutable manifest index. */
   function reviewFileIndex(location: ThreadCodeLocation): number {
@@ -1299,6 +1310,7 @@ function ReviewSnapshotBoundary(
       historyOpen={props.historyOpen}
       onHistoryOpenChange={props.onHistoryOpenChange}
       profile={props.profile}
+      inlineHistoryTarget={inlineHistoryTarget}
       canViewThread={canViewReviewThread}
       viewThread={viewReviewThread}
     >
@@ -1318,6 +1330,7 @@ function ReviewSnapshotBoundary(
             onFileTreeOpenChange={props.onFileTreeOpenChange}
             onFileSequenceChange={props.onFileSequenceChange}
             onFileNavigabilityChange={setNavigableFileIndexes}
+            onInlineHistoryTargetChange={setInlineHistoryTarget}
           />
         )}
       </Show>
@@ -2158,6 +2171,12 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             </div>
           </Show>
         </section>
+        <Show when={props.view === "inline"}>
+          <div
+            ref={props.onInlineHistoryTargetChange}
+            class="review-history-slot"
+          />
+        </Show>
       </div>
     </>
   );
