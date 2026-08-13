@@ -7,7 +7,11 @@
  * and request functions. It must not contain UI state, component behavior, query
  * observers, Toast presentation, or ChangeSet file-fetch sequencing.
  */
-import { mutationOptions, queryOptions } from "@tanstack/solid-query";
+import {
+  infiniteQueryOptions,
+  mutationOptions,
+  queryOptions,
+} from "@tanstack/solid-query";
 import { z } from "zod";
 
 const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic", "gumtree"]);
@@ -768,15 +772,367 @@ const FileDiffSchema = z.union([NotebookFileDiffSchema, TextFileDiffSchema]);
  */
 export type FileDiff = z.infer<typeof FileDiffSchema>;
 
+export const ReviewIdSchema = z.string().regex(/^[0-9a-f]{32}$/u);
+
+/** Identifies one review entity, operation, or retained Snapshot. */
+export type ReviewId = z.infer<typeof ReviewIdSchema>;
+
+const ReviewFilePathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      path !== "." &&
+      path !== ".." &&
+      path
+        .split("/")
+        .every((part) => part !== "" && part !== "." && part !== ".."),
+    { message: "Review File paths must be normalized relative names." },
+  );
+
+export const ReviewFilePairSchema = z
+  .strictObject({
+    left_path: ReviewFilePathSchema.nullable(),
+    right_path: ReviewFilePathSchema.nullable(),
+  })
+  .superRefine((pair, context) => {
+    if (pair.left_path === null && pair.right_path === null) {
+      context.addIssue({
+        code: "custom",
+        message: "A review File pair requires at least one side.",
+      });
+    }
+  });
+
+/** Identifies one File through the complete nullable manifest pair. */
+export type ReviewFilePair = z.infer<typeof ReviewFilePairSchema>;
+
+export const ReviewLineRangeSchema = z
+  .strictObject({
+    start_line: z.number().int().positive(),
+    end_line: z.number().int().positive(),
+  })
+  .superRefine((range, context) => {
+    if (range.end_line < range.start_line) {
+      context.addIssue({
+        code: "custom",
+        message: "Review range end precedes its start.",
+      });
+    }
+  });
+
+/** Identifies one one-based inclusive review line range. */
+export type ReviewLineRange = z.infer<typeof ReviewLineRangeSchema>;
+
+const OrdinaryReviewRegionSchema = z.strictObject({
+  kind: z.literal("ordinary"),
+});
+const NotebookReviewRegionSchema = z.strictObject({
+  kind: z.literal("notebook-cell-source"),
+  cell_key: z.string().min(1),
+});
+export const ReviewTextRegionSchema = z.discriminatedUnion("kind", [
+  OrdinaryReviewRegionSchema,
+  NotebookReviewRegionSchema,
+]);
+
+/** Identifies one public rendered text region. */
+export type ReviewTextRegion = z.infer<typeof ReviewTextRegionSchema>;
+
+const TextReviewTargetSchema = z
+  .strictObject({
+    kind: z.literal("text"),
+    file: ReviewFilePairSchema,
+    region: ReviewTextRegionSchema,
+    side: z.enum(["left", "right"]),
+    range: ReviewLineRangeSchema,
+  })
+  .superRefine((target, context) => {
+    if (
+      (target.side === "left" && target.file.left_path === null) ||
+      (target.side === "right" && target.file.right_path === null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "The selected review side is absent from the File pair.",
+      });
+    }
+  });
+export const ReviewTargetSchema = TextReviewTargetSchema;
+
+/** Identifies one rendered text range. */
+export type ReviewTarget = z.infer<typeof ReviewTargetSchema>;
+
+const ReviewAuthorSchema = z.strictObject({
+  profile_id: z.number().int().positive(),
+  display_name: z.string().min(1),
+});
+
+/** Returns one ordinary Profile attribution. */
+export type ReviewAuthor = z.infer<typeof ReviewAuthorSchema>;
+
+const ReviewCommentSchema = z
+  .strictObject({
+    comment_id: ReviewIdSchema,
+    sequence: z.number().int().nonnegative(),
+    author: ReviewAuthorSchema,
+    revision: z.number().int().nonnegative(),
+    body: z.string().nullable(),
+    deleted: z.boolean(),
+    created_at: z.string().datetime({ offset: true }),
+    updated_at: z.string().datetime({ offset: true }),
+  })
+  .superRefine((comment, context) => {
+    if (comment.deleted !== (comment.body === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Deleted Comment state and body presence disagree.",
+      });
+    }
+  });
+
+/** Returns one current Comment or retained deletion tombstone. */
+export type ReviewComment = z.infer<typeof ReviewCommentSchema>;
+
+const RangeThreadCodeLocationSchema = z.strictObject({
+  kind: z.literal("range"),
+  file: ReviewFilePairSchema,
+  region: ReviewTextRegionSchema,
+  side: z.enum(["left", "right"]),
+  range: ReviewLineRangeSchema,
+});
+const FileStartThreadCodeLocationSchema = z.strictObject({
+  kind: z.literal("file-start"),
+  file: ReviewFilePairSchema,
+  side: z.enum(["left", "right"]),
+});
+const ThreadCodeLocationSchema = z.discriminatedUnion("kind", [
+  RangeThreadCodeLocationSchema,
+  FileStartThreadCodeLocationSchema,
+]);
+
+/** Identifies one current public code location for a Thread. */
+export type ThreadCodeLocation = z.infer<typeof ThreadCodeLocationSchema>;
+
+const ReviewExcerptSchema = z
+  .strictObject({
+    side: z.enum(["left", "right"]),
+    start_line: z.number().int().positive(),
+    selected_start_line: z.number().int().positive(),
+    selected_end_line: z.number().int().positive(),
+    lines: z.array(z.string()).min(1),
+  })
+  .superRefine((excerpt, context) => {
+    const endLine = excerpt.start_line + excerpt.lines.length - 1;
+    if (
+      excerpt.selected_start_line < excerpt.start_line ||
+      excerpt.selected_end_line < excerpt.selected_start_line ||
+      excerpt.selected_end_line > endLine
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Selected review range exceeds its excerpt.",
+      });
+    }
+  });
+
+/** Returns one bounded selected-side excerpt from the origin Snapshot. */
+export type ReviewExcerpt = z.infer<typeof ReviewExcerptSchema>;
+
+const ReviewThreadSchema = z
+  .strictObject({
+    thread_id: ReviewIdSchema,
+    snapshot_id: ReviewIdSchema,
+    created_at: z.string().datetime({ offset: true }),
+    state: z.enum(["open", "resolved", "deleted"]),
+    state_revision: z.number().int().nonnegative(),
+    origin_target: ReviewTargetSchema,
+    code_location: ThreadCodeLocationSchema.nullable(),
+    outdated_reason: z
+      .enum(["region_changed", "region_not_found", "file_missing"])
+      .nullable(),
+    original_excerpt: ReviewExcerptSchema,
+    comments: z.array(ReviewCommentSchema).min(1),
+  })
+  .superRefine((thread, context) => {
+    const location = thread.code_location;
+    const reason = thread.outdated_reason;
+    const validCodeState =
+      (reason === null && location?.kind === "range") ||
+      (reason === "region_changed" && location?.kind === "range") ||
+      (reason === "region_not_found" && location?.kind === "file-start") ||
+      (reason === "file_missing" && location === null);
+    if (!validCodeState) {
+      context.addIssue({
+        code: "custom",
+        message: "Thread code location and outdated state disagree.",
+      });
+    }
+    const origin = thread.origin_target;
+    const locationMatchesOriginFile =
+      location !== null &&
+      origin.file.left_path === location.file.left_path &&
+      origin.file.right_path === location.file.right_path;
+    if (reason !== "file_missing") {
+      const sameRegionKind =
+        location?.kind === "range" &&
+        origin.region.kind === location.region.kind;
+      const sameSide = location !== null && location.side === origin.side;
+      const validTextLocation =
+        locationMatchesOriginFile &&
+        sameSide &&
+        ((reason === "region_not_found" && location.kind === "file-start") ||
+          ((reason === null || reason === "region_changed") && sameRegionKind));
+      if (!validTextLocation) {
+        context.addIssue({
+          code: "custom",
+          message: "Text Thread origin and current location disagree.",
+        });
+      }
+    }
+    const commentIds = new Set<string>();
+    thread.comments.forEach((comment, index) => {
+      if (comment.sequence !== index) {
+        context.addIssue({
+          code: "custom",
+          message: "Thread Comments must have contiguous sequence order.",
+          path: ["comments", index, "sequence"],
+        });
+      }
+      if (commentIds.has(comment.comment_id)) {
+        context.addIssue({
+          code: "custom",
+          message: "Thread Comment identities must be unique.",
+          path: ["comments", index, "comment_id"],
+        });
+      }
+      commentIds.add(comment.comment_id);
+    });
+  });
+
+/** Returns one runtime-validated discussion through an exact Snapshot. */
+export type ReviewThread = z.infer<typeof ReviewThreadSchema>;
+
+const ReviewThreadUpdateSchema = z.strictObject({
+  thread_id: ReviewIdSchema,
+  snapshot_id: ReviewIdSchema,
+  state: z.enum(["open", "resolved", "deleted"]),
+  state_revision: z.number().int().nonnegative(),
+  comment: ReviewCommentSchema.nullable(),
+});
+
+/** Returns only state and the Comment changed by one accepted action. */
+export type ReviewThreadUpdate = z.infer<typeof ReviewThreadUpdateSchema>;
+
+const ReviewThreadPageSchema = z
+  .strictObject({
+    snapshot_id: ReviewIdSchema,
+    threads: z.array(ReviewThreadSchema),
+    page: z.number().int().positive(),
+    limit: z.number().int().positive(),
+    total_threads: z.number().int().nonnegative(),
+    has_more: z.boolean(),
+  })
+  .superRefine((page, context) => {
+    const threadIds = new Set<ReviewId>();
+    const commentIds = new Set<ReviewId>();
+    page.threads.forEach((thread, index) => {
+      if (thread.snapshot_id !== page.snapshot_id) {
+        context.addIssue({
+          code: "custom",
+          message: "Review page contains a Thread from another Snapshot.",
+          path: ["threads", index, "snapshot_id"],
+        });
+      }
+      if (threadIds.has(thread.thread_id)) {
+        context.addIssue({
+          code: "custom",
+          message: "Review Snapshot Thread identities must be unique.",
+          path: ["threads", index, "thread_id"],
+        });
+      }
+      threadIds.add(thread.thread_id);
+      thread.comments.forEach((comment, commentIndex) => {
+        if (commentIds.has(comment.comment_id)) {
+          context.addIssue({
+            code: "custom",
+            message: "Review Snapshot Comment identities must be unique.",
+            path: ["threads", index, "comments", commentIndex, "comment_id"],
+          });
+        }
+        commentIds.add(comment.comment_id);
+      });
+    });
+  });
+
+/** Returns one explicitly bounded History page for an exact Snapshot. */
+export type ReviewThreadPage = z.infer<typeof ReviewThreadPageSchema>;
+
+const ReviewBodySchema = z
+  .string()
+  .min(1)
+  .refine((body) => body.trim().length > 0, {
+    message: "Review bodies cannot contain only whitespace.",
+  });
+const CreateReviewThreadRequestSchema = z.strictObject({
+  profile_id: z.number().int().positive(),
+  target: ReviewTargetSchema,
+  body: ReviewBodySchema,
+});
+const AddReviewCommentRequestSchema = z.strictObject({
+  profile_id: z.number().int().positive(),
+  body: ReviewBodySchema,
+});
+const EditReviewCommentRequestSchema = AddReviewCommentRequestSchema;
+const ReviewProfileActionRequestSchema = z.strictObject({
+  profile_id: z.number().int().positive(),
+});
+
+/** Creates one Thread and its first Comment. */
+export type CreateReviewThreadRequest = z.infer<
+  typeof CreateReviewThreadRequestSchema
+>;
+/** Appends one Comment to an existing Thread. */
+export type AddReviewCommentRequest = z.infer<
+  typeof AddReviewCommentRequestSchema
+>;
+/** Replaces one authored Comment body. */
+export type EditReviewCommentRequest = z.infer<
+  typeof EditReviewCommentRequestSchema
+>;
+/** Attributes one Comment or Thread action to an existing Profile. */
+export type ReviewProfileActionRequest = z.infer<
+  typeof ReviewProfileActionRequestSchema
+>;
+
 const ErrorResponseSchema = z.strictObject({
   error: z.string(),
 });
+
+const ReviewErrorCodeSchema = z.enum([
+  "profile_not_found",
+  "thread_not_found",
+  "comment_not_found",
+  "invalid_target",
+  "revision_conflict",
+  "state_conflict",
+  "forbidden",
+]);
+const ReviewErrorResponseSchema = z.strictObject({
+  code: ReviewErrorCodeSchema,
+  message: z.string().min(1),
+});
+
+/** Classifies one stable browser review domain failure. */
+export type ReviewErrorCode = z.infer<typeof ReviewErrorCodeSchema>;
 
 const HttpExceptionResponseSchema = z.strictObject({
   detail: z.string(),
 });
 
 const REQUEST_TIMEOUT_MS = 8_000;
+const REVIEW_REQUEST_TIMEOUT_MS = 1_000;
 const SLOW_DIFF_TIMEOUT_MS = 20_000;
 const PULL_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -850,6 +1206,23 @@ class RequestError extends Error {
     super(message, cause === null ? undefined : { cause });
     this.name = "RequestError";
     this.error_reason = errorReason;
+  }
+}
+
+/**
+ * Represents one validated browser review domain failure.
+ *
+ * `code` is the stable backend classification and `message` remains presentation
+ * text. Consumers must branch on `code` rather than interpreting prose.
+ */
+export class ReviewRequestError extends RequestError {
+  readonly code: ReviewErrorCode;
+
+  /** Constructs one failure from the complete structured review error body. */
+  constructor(code: ReviewErrorCode, message: string) {
+    super("other", message, null);
+    this.name = "ReviewRequestError";
+    this.code = code;
   }
 }
 
@@ -949,6 +1322,13 @@ async function throwResponseError(response: Response): Promise<never> {
 
   try {
     const payload: unknown = JSON.parse(bodyText);
+    const parsedReviewError = ReviewErrorResponseSchema.safeParse(payload);
+    if (parsedReviewError.success) {
+      throw new ReviewRequestError(
+        parsedReviewError.data.code,
+        parsedReviewError.data.message,
+      );
+    }
     const parsedError = ErrorResponseSchema.safeParse(payload);
     if (parsedError.success) {
       throw new RequestError("other", parsedError.data.error, null);
@@ -1204,6 +1584,19 @@ function requestRegisterProfile(username: string): Promise<UserProfile> {
   );
 }
 
+/** Selects the one existing profile with an exact username. */
+function requestLoginProfile(username: string): Promise<UserProfile> {
+  return requestJson(
+    {
+      input: `/api/user-profile?username=${encodeURIComponent(username)}`,
+      init: {},
+      abortSignal: null,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    },
+    UserProfileSchema,
+  );
+}
+
 /**
  * Renames one existing profile selected by its exact backend ID.
  *
@@ -1435,6 +1828,201 @@ function requestFileDiff(
   );
 }
 
+/** Reads one persisted History page for one exact Snapshot. */
+async function requestReviewThreadPage(
+  snapshotId: ReviewId,
+  page: number,
+  abortSignal: AbortSignal,
+): Promise<ReviewThreadPage> {
+  const search = snapshotSearchParams(snapshotId);
+  search.set("page", String(page));
+  search.set("limit", "20");
+  const response = await requestJson(
+    {
+      input: `/api/review/threads?${search.toString()}`,
+      init: {},
+      abortSignal,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    },
+    ReviewThreadPageSchema,
+  );
+  if (response.snapshot_id !== snapshotId || response.page !== page) {
+    throw new Error("Review response returned another page identity.");
+  }
+  return response;
+}
+
+type CreateReviewThreadInput = {
+  snapshotId: ReviewId;
+  body: CreateReviewThreadRequest;
+};
+
+/** Requires one mutation response to match the exact addressed Thread pair. */
+function assertReviewThreadIdentity(
+  thread: { snapshot_id: ReviewId; thread_id: ReviewId },
+  snapshotId: ReviewId,
+  threadId: ReviewId,
+): void {
+  if (thread.snapshot_id !== snapshotId || thread.thread_id !== threadId) {
+    throw new Error(
+      "Review mutation response returned another Snapshot-bound Thread.",
+    );
+  }
+}
+
+/** Creates one Snapshot-bound Thread and its first Comment. */
+async function requestCreateReviewThread(
+  input: CreateReviewThreadInput,
+): Promise<ReviewThread> {
+  const thread = await requestJson(
+    {
+      input: "/api/review/post_comment",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: input.snapshotId,
+          ...CreateReviewThreadRequestSchema.parse(input.body),
+        }),
+      },
+      abortSignal: null,
+      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+    },
+    ReviewThreadSchema,
+  );
+  if (thread.snapshot_id !== input.snapshotId) {
+    throw new Error("Review mutation response returned another Snapshot.");
+  }
+  return thread;
+}
+
+type AddReviewCommentInput = {
+  snapshotId: ReviewId;
+  threadId: ReviewId;
+  body: AddReviewCommentRequest;
+};
+
+/** Appends one Comment through an exact Snapshot-bound Thread. */
+async function requestAddReviewComment(
+  input: AddReviewCommentInput,
+): Promise<ReviewThreadUpdate> {
+  const thread = await requestJson(
+    {
+      input: "/api/review/post_comment",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: input.snapshotId,
+          thread_id: input.threadId,
+          ...AddReviewCommentRequestSchema.parse(input.body),
+        }),
+      },
+      abortSignal: null,
+      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+    },
+    ReviewThreadUpdateSchema,
+  );
+  assertReviewThreadIdentity(thread, input.snapshotId, input.threadId);
+  return thread;
+}
+
+type EditReviewCommentInput = {
+  snapshotId: ReviewId;
+  threadId: ReviewId;
+  commentId: ReviewId;
+  body: EditReviewCommentRequest;
+};
+
+/** Edits one authored Comment through an exact Snapshot-bound Thread. */
+async function requestEditReviewComment(
+  input: EditReviewCommentInput,
+): Promise<ReviewThreadUpdate> {
+  const thread = await requestJson(
+    {
+      input: "/api/review/edit_comment",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: input.snapshotId,
+          comment_id: input.commentId,
+          ...EditReviewCommentRequestSchema.parse(input.body),
+        }),
+      },
+      abortSignal: null,
+      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+    },
+    ReviewThreadUpdateSchema,
+  );
+  assertReviewThreadIdentity(thread, input.snapshotId, input.threadId);
+  return thread;
+}
+
+type ReviewCommentActionInput = {
+  snapshotId: ReviewId;
+  threadId: ReviewId;
+  commentId: ReviewId;
+  body: ReviewProfileActionRequest;
+};
+
+/** Tombstones one current Comment through an exact Snapshot-bound Thread. */
+async function requestDeleteReviewComment(
+  input: ReviewCommentActionInput,
+): Promise<ReviewThreadUpdate> {
+  const thread = await requestJson(
+    {
+      input: "/api/review/delete_comment",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: input.snapshotId,
+          comment_id: input.commentId,
+          ...ReviewProfileActionRequestSchema.parse(input.body),
+        }),
+      },
+      abortSignal: null,
+      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+    },
+    ReviewThreadUpdateSchema,
+  );
+  assertReviewThreadIdentity(thread, input.snapshotId, input.threadId);
+  return thread;
+}
+
+type ReviewThreadActionInput = {
+  snapshotId: ReviewId;
+  threadId: ReviewId;
+  body: ReviewProfileActionRequest;
+};
+
+/** Applies one explicit lifecycle action to an exact Snapshot-bound Thread. */
+async function requestChangeReviewThreadState(
+  action: "resolve" | "reopen" | "delete",
+  input: ReviewThreadActionInput,
+): Promise<ReviewThreadUpdate> {
+  const thread = await requestJson(
+    {
+      input: `/api/review/${action}_thread`,
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: input.snapshotId,
+          thread_id: input.threadId,
+          ...ReviewProfileActionRequestSchema.parse(input.body),
+        }),
+      },
+      abortSignal: null,
+      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+    },
+    ReviewThreadUpdateSchema,
+  );
+  assertReviewThreadIdentity(thread, input.snapshotId, input.threadId);
+  return thread;
+}
+
 const snapshotQuery = {
   staleTime: Infinity,
   gcTime: 0,
@@ -1509,6 +2097,69 @@ export const api = {
         meta: { errorTitle: "Failed to load file diff" },
         ...snapshotQuery,
       });
+    },
+  },
+
+  review: {
+    /** Defines explicitly loaded bounded History pages for an exact Snapshot. */
+    snapshot(snapshotId: ReviewId) {
+      return infiniteQueryOptions({
+        queryKey: ["review", snapshotId] as const,
+        queryFn: ({ signal: abortSignal, pageParam }) =>
+          requestReviewThreadPage(snapshotId, pageParam, abortSignal),
+        initialPageParam: 1,
+        getNextPageParam: (lastPage) =>
+          lastPage.has_more ? lastPage.page + 1 : undefined,
+        meta: { errorTitle: "Failed to load review Threads" },
+        ...snapshotQuery,
+      });
+    },
+
+    thread: {
+      /** Defines Thread creation with its first Comment. */
+      create() {
+        return mutationOptions({
+          mutationKey: ["review", "thread", "create"] as const,
+          mutationFn: requestCreateReviewThread,
+          meta: { errorTitle: "Failed to create review Thread" },
+        });
+      },
+      /** Defines one explicit Thread lifecycle transition. */
+      changeState(action: "resolve" | "reopen" | "delete") {
+        return mutationOptions({
+          mutationKey: ["review", "thread", action] as const,
+          mutationFn: (input: ReviewThreadActionInput) =>
+            requestChangeReviewThreadState(action, input),
+          meta: { errorTitle: `Failed to ${action} review Thread` },
+        });
+      },
+    },
+
+    comment: {
+      /** Defines appending one Comment. */
+      add() {
+        return mutationOptions({
+          mutationKey: ["review", "comment", "add"] as const,
+          mutationFn: requestAddReviewComment,
+          meta: { errorTitle: "Failed to add review Comment" },
+        });
+      },
+      /** Defines editing one authored Comment. */
+      edit() {
+        return mutationOptions({
+          mutationKey: ["review", "comment", "edit"] as const,
+          mutationFn: requestEditReviewComment,
+          meta: { errorTitle: "Failed to edit review Comment" },
+        });
+      },
+      /** Defines tombstoning one authored Comment. */
+      delete() {
+        return mutationOptions({
+          mutationKey: ["review", "comment", "delete"] as const,
+          mutationFn: requestDeleteReviewComment,
+          meta: { errorTitle: "Failed to delete review Comment" },
+        });
+      },
     },
   },
 
@@ -1625,6 +2276,20 @@ export const api = {
         queryFn: ({ signal: abortSignal }) =>
           requestPreferences(profileId, abortSignal),
         meta: { errorTitle: "Failed to load preferences" },
+      });
+    },
+
+    /**
+     * Defines explicit selection of one existing profile by exact username.
+     *
+     * Login is a local identity choice rather than authentication. It never
+     * creates a Profile when the supplied name does not exist.
+     */
+    login() {
+      return mutationOptions({
+        mutationKey: ["profile", "login"] as const,
+        mutationFn: requestLoginProfile,
+        meta: { errorTitle: "Failed to log in" },
       });
     },
 

@@ -1,29 +1,34 @@
 """SQLAlchemy engine and table-base boundary for dirdiff persistence.
 
 Database modules define their tables against `TableBase` and callers obtain
-ready-to-use engines through this module.  It owns table bootstrapping for both
-persistent user databases and in-memory test databases.  It does not expose
-query helpers or application records; those live in the feature-specific store
+ready-to-use engines through this module. It also defines the User Profile
+table and record shared by profile and Room persistence. It owns table
+bootstrapping for both persistent user databases and in-memory test databases.
+It does not expose query helpers; those live in the feature-specific store
 modules under `dirdiff.db`.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, String, UniqueConstraint, create_engine, event
 from sqlalchemy.engine.interfaces import DBAPIConnection
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 
 from alembic import command
 
 __all__ = [
     "TableBase",
+    "UserProfile",
+    "UserProfileRecord",
     "open_ephemeral_engine",
     "open_sqlite_engine",
+    "profile_record",
 ]
 
 
@@ -33,6 +38,48 @@ class TableBase(DeclarativeBase):
     """
 
     pass
+
+
+class UserProfile(TableBase):
+    """Persist one durable identity used by review data.
+
+    The generated positive id is the stable relational identity. The username
+    is globally unique current display data and may change without changing
+    authored actions. Agent registration refers to this same identity through
+    its separate one-to-one relation.
+    """
+
+    __tablename__ = "user_profile"
+    __table_args__ = (
+        UniqueConstraint("username", name="uq_user_profile_username"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String, nullable=False)
+
+
+@dataclass(frozen=True)
+class UserProfileRecord:
+    """Expose one durable review Profile without exposing its table row."""
+
+    id: int
+    """Stable positive database id used by Profile-authored review actions."""
+
+    username: str
+    """Current display name shown by Profile controls or Comments."""
+
+
+def profile_record(
+    profile_id: int,
+    username: str,
+) -> UserProfileRecord:
+    """Validate persisted Profile fields before exposing the shared record."""
+    assert profile_id > 0, "persisted Profile id must be positive"
+    assert username != "", "persisted Profile name must not be empty"
+    return UserProfileRecord(
+        id=profile_id,
+        username=username,
+    )
 
 
 def enable_sqlite_foreign_keys(

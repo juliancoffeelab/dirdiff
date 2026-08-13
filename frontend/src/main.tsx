@@ -1,16 +1,18 @@
 /**
  * Mounts the complete browser application and its top-level providers.
  *
- * This is the sole Vite entrypoint. It composes Toast, TanStack Query, root
- * error handling, and App around the required document mount. JavaScript
- * updates reload the complete URL-backed application; CSS retains Vite's
- * ordinary hot replacement.
+ * This is the sole Vite entrypoint. It composes Toast, TanStack Query,
+ * application-lifetime persisted-review-draft/write boundary,
+ * root error handling, and App around the required document mount. JavaScript
+ * updates reload the complete URL-backed application; CSS retains Vite's normal
+ * stylesheet replacement.
  */
 import { ErrorBoundary, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { QueryProvider } from "./api/queryClient";
 import { ApplicationErrorPanel, ToastProvider, useToasts } from "./comp/Toasts";
 import { App } from "./hud/App";
+import { ReviewDraftRoot } from "./hud/Review";
 import "./styles.css";
 
 if (import.meta.hot !== undefined) {
@@ -38,7 +40,9 @@ function Root(): JSX.Element {
           <ApplicationErrorPanel error={error} onRetry={reset} />
         )}
       >
-        <App />
+        <ReviewDraftRoot>
+          <App />
+        </ReviewDraftRoot>
       </ErrorBoundary>
     </QueryProvider>
   );

@@ -1,10 +1,9 @@
-"""Native dirdiff text-engine logic.
+"""Dirdiff text-engine logic.
 
-`render_native_text_diff` is the pure Python comparison algorithm used by
-`TextDiffEngine`: it aligns lines, tokenizes inline changes, assigns token
-statuses, and returns native text summary counts. This module does not attach
-syntax highlighting, fold hints, hunk identities, request labels, repository
-paths, or HTTP payload metadata.
+`TextDiffEngine` aligns lines, tokenizes inline changes, assigns token statuses,
+and returns text summary counts. This module does not attach syntax
+highlighting, fold hints, hunk identities, request labels, repository paths, or
+HTTP payload metadata.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from dirdiff.engines.base import (
 
 __all__ = [
     "TextDiffEngine",
-    "render_native_text_diff",
 ]
 
 INLINE_TOKEN_PATTERN = re.compile(r"\w+|\s+|[^\w\s]+", flags=re.UNICODE)
@@ -37,10 +35,10 @@ ALIGNMENT_NOISE_WORDS = frozenset({"none", "true", "false", "null"})
 MIN_SIMILAR_LINE_RATIO = 0.45
 
 
-def _native_text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
-    """Return line-count summary for native text rows.
+def _text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
+    """Return line-count summary for TextDiff rows.
 
-    The native text algorithm does not report moved lines.  GumTree owns move
+    The TextDiff algorithm does not report moved lines. GumTree owns move
     detection, so this summary keeps `moved_lines` at zero while counting
     replace/insert/delete rows exactly as the native text renderer produced
     them.
@@ -62,32 +60,9 @@ def _native_text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
     }
 
 
-def render_native_text_diff(
-    *,
-    left_text: str | None,
-    right_text: str | None,
-) -> DiffEngineResult:
-    """Render already-loaded text through dirdiff's native text algorithm.
-
-    The text engine accepts missing sides as `None` because the engine
-    protocol receives existence separately from content.  Native text
-    comparison treats missing content as an empty string, then returns only the
-    engine-level result: summary counts plus strict engine rows.  Display
-    enrichment such as syntax highlighting and folding is applied later by
-    `dirdiff.rendering`.
-    """
-    left_text_value = "" if left_text is None else left_text
-    right_text_value = "" if right_text is None else right_text
-    rows = _build_native_text_rows(left_text_value, right_text_value)
-    return {
-        "summary": _native_text_summary(rows),
-        "rows": strict_engine_rows(rows),
-    }
-
-
 @final
 class TextDiffEngine(DiffEngineProtocol):
-    """Native dirdiff renderer for already-loaded text sides."""
+    """TextDiff renderer for already-loaded text sides."""
 
     @override
     def render_diff(
@@ -96,22 +71,21 @@ class TextDiffEngine(DiffEngineProtocol):
         old: DiffSide,
         new: DiffSide,
     ) -> DiffEngineResult:
-        """Build a native dirdiff engine result from already-loaded sides.
+        """Build a TextDiff engine result from already-loaded sides.
 
         Source loading and request metadata are handled before this engine is
         called.  Display enrichment such as syntax highlighting and folding is
         applied later by server-side payload assembly.
         """
-        return render_native_text_diff(
-            left_text=old.text,
-            right_text=new.text,
-        )
+        rows = _build_text_rows(old.text or "", new.text or "")
+        return {
+            "summary": _text_summary(rows),
+            "rows": strict_engine_rows(rows),
+        }
 
 
-def _build_native_text_rows(
-    left_text: str, right_text: str
-) -> list[dict[str, Any]]:
-    """Build neutral native text rows before display enrichment."""
+def _build_text_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
+    """Build neutral TextDiff rows before display enrichment."""
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
     rows: list[dict[str, Any]] = []

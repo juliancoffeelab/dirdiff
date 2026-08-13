@@ -3,12 +3,13 @@
  *
  * The module exports DiffGrid and its row contracts. DiffGrid contains the imperative DOM
  * kernel, fold-row construction, syntax decoration, side-selection behavior,
- * hunk anchor attributes, and the frontend-only floating comment mock for one
- * FullFile body. Callers provide fully validated backend rows and complete
+ * hunk anchor attributes, and locally contained review markers for one FullFile body.
+ * Callers provide fully validated backend rows and complete
  * presentation inputs. It must not fetch data, own ChangeSet state, navigate
  * hunks, virtualize files, or render notebook framing.
  */
 import {
+  ErrorBoundary,
   For,
   Show,
   createEffect,
@@ -16,17 +17,22 @@ import {
   createSignal,
   onCleanup,
   onMount,
-  untrack,
   type JSX,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { Portal } from "solid-js/web";
-import type { DecoratedPart, DiffRow, FoldHint, RowStatus } from "../api/api";
+import type {
+  DecoratedPart,
+  DiffRow,
+  FoldHint,
+  ReviewFilePair,
+  RowStatus,
+} from "../api/api";
 import type { DiffViewMode } from "./App";
 import { addFoldRows, isFoldRow, type FoldRow, type RenderRow } from "./folds";
 import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import type { RealHunkIdentity } from "./navigation";
 import { assert } from "../utils";
+import { presentError } from "../comp/Toasts";
+import { useReview, type ReviewTextGridBinding } from "./Review";
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -62,99 +68,6 @@ type InlineMarker = " " | "-" | "+" | "*";
 type InlineRowStatus = "equal" | "delete" | "insert" | "replace" | "move";
 
 /**
- * Identifies one exact rendered line selected for the floating comment mock.
- *
- * File and nullable notebook region identify the rendered text region; side and
- * positive decimal line identify the visible backend coordinate. This is
- * transient presentation identity only and must not represent a persisted
- * comment, line pin, or backend entity.
- */
-type CommentTarget = {
-  file: string;
-  region: string | null;
-  side: Side;
-  line: string;
-};
-
-/**
- * Represents one comment posted into the page-lifetime frontend mock.
- *
- * The UUID distinguishes records, target identifies one rendered backend line,
- * and body preserves the exact submitted text. It must not represent a backend
- * comment, unsubmitted textarea input, author identity, or delivery state.
- */
-type MockComment = {
-  id: string;
-  target: CommentTarget;
-  body: string;
-};
-
-/**
- * Represents one unfinished page-lifetime mock comment.
- *
- * Target identifies the exact rendered backend line and the non-empty body is
- * material the user may revise, submit, or clear. It must not represent a
- * posted comment, author identity, or delivery state.
- */
-type MockCommentDraft = {
-  target: CommentTarget;
-  body: string;
-};
-
-declare global {
-  /**
-   * Exposes both authoritative page-lifetime comment stores for inspection.
-   *
-   * DiffGrid assigns these properties during module initialization to their
-   * Solid store proxies. Consumers may inspect records but must not replace or
-   * mutate either array outside DiffGrid's validated editing actions.
-   */
-  interface Window {
-    /** Contains comments submitted through the mock composer. */
-    COMMENTS: MockComment[];
-
-    /** Contains unfinished comments keyed by their exact rendered line. */
-    COMMENT_DRAFTS: MockCommentDraft[];
-  }
-}
-
-/**
- * Holds every mock comment posted during the current browser page lifetime.
- *
- * This module-lifetime Solid store is the single authoritative representation:
- * mounted floaters react to it directly, and `window.COMMENTS` exposes the same
- * proxy for inspection. Page reload intentionally discards all records.
- */
-const [mockComments, setMockComments] = createStore<MockComment[]>([]);
-window.COMMENTS = mockComments;
-
-/**
- * Holds every unfinished mock comment during the current browser page lifetime.
- *
- * This module-lifetime Solid store is authoritative for textarea contents
- * across floater and DiffGrid disposal. `window.COMMENT_DRAFTS` exposes the
- * same proxy for inspection; submitting or clearing an entry removes it.
- */
-const [mockCommentDrafts, setMockCommentDrafts] = createStore<
-  MockCommentDraft[]
->([]);
-window.COMMENT_DRAFTS = mockCommentDrafts;
-
-/**
- * Describes one mounted comment floater and its imperative row attachment.
- *
- * The target supplies visible context, the code cell supplies exact viewport
- * geometry, and the nested trigger receives restored focus when the user
- * dismisses the floater. The value exists only while its exact rendered row
- * remains connected and must not survive a DiffGrid row replacement.
- */
-type CommentFloaterState = {
-  target: CommentTarget;
-  codeCell: HTMLElement;
-  trigger: HTMLButtonElement;
-};
-
-/**
  * Renders one complete immutable text FileDiff using the established grid DOM.
  *
  * Callers provide the stable manifest file index, canonical display name,
@@ -162,11 +75,12 @@ type CommentFloaterState = {
  * current view, and both fold policies. Every pinnable line receives its exact
  * side and line coordinates; the component supplies file and region from these
  * typed inputs. It owns its rendered row DOM, one delegated activation listener,
- * and at most one comment floater. Posted mock comments outlive the component in
- * the module store; DiffGrid performs no fetching, navigation, backend
- * persistence, or file-level state.
+ * and routes review activation through its Snapshot-bound Review binding. A
+ * marker-only child observes indexed review facts beside, never around, valid
+ * row DOM.
  */
 export function DiffGrid(props: {
+  reviewFile: ReviewFilePair;
   fileIndex: number;
   displayName: string;
   region: string | null;
@@ -201,6 +115,7 @@ export function DiffGrid(props: {
         />
       )}
       <ImperativeDiffLines
+        reviewFile={props.reviewFile}
         fileIndex={props.fileIndex}
         displayName={props.displayName}
         region={props.region}
@@ -253,278 +168,6 @@ function InlineHeader(props: { leftLabel: string; rightLabel: string }) {
 }
 
 /**
- * Renders a temporary line-comment composer outside the imperative diff DOM.
- *
- * The caller supplies one connected code cell and its row's nested line
- * trigger. The component writes exact fixed-position geometry from the code
- * cell, follows scroll and resize while mounted, autofocuses the textarea,
- * edits its exact page-lifetime draft, posts that draft into the comment store,
- * dismisses on Escape or an explicit close action, and restores trigger focus.
- * It has no backend interface.
- */
-function CommentFloater(props: {
-  state: CommentFloaterState;
-  onClose: () => void;
-}): JSX.Element {
-  let floater!: HTMLDivElement;
-  let textarea!: HTMLTextAreaElement;
-  let placementFrame: number | null = null;
-
-  /**
-   * Returns the single page-lifetime draft for this exact rendered line.
-   *
-   * Null means that the user has not entered any text for the target. Store
-   * identity is returned directly so edits never copy a draft into local state.
-   */
-  const commentDraft = createMemo<MockCommentDraft | null>(() => {
-    const storedDraft = mockCommentDrafts.find(
-      (candidate) =>
-        candidate.target.file === props.state.target.file &&
-        candidate.target.region === props.state.target.region &&
-        candidate.target.side === props.state.target.side &&
-        candidate.target.line === props.state.target.line,
-    );
-    return storedDraft === undefined ? null : storedDraft;
-  });
-
-  /**
-   * Writes the floater’s complete geometry from its exact rendered code cell.
-   *
-   * The connected cell must have a positive border-box width. The floater
-   * starts at its block end, matches its inline edges without covering the line
-   * number gutter, and uses only the remaining viewport height. A cell outside
-   * the viewport hides its floater.
-   */
-  function placeAgainstCodeCell(): void {
-    assert(
-      props.state.codeCell.isConnected && floater.isConnected,
-      "Comment floater and code cell must remain connected during placement.",
-    );
-    const codeRect = props.state.codeCell.getBoundingClientRect();
-    assert(
-      Number.isFinite(codeRect.left) &&
-        Number.isFinite(codeRect.bottom) &&
-        codeRect.width > 0,
-      "Comment code cell must expose finite positive viewport geometry.",
-    );
-    floater.style.left = `${codeRect.left}px`;
-    floater.style.top = `${codeRect.bottom}px`;
-    floater.style.width = `${codeRect.width}px`;
-    floater.style.maxHeight = `${Math.max(0, window.innerHeight - codeRect.bottom - 12)}px`;
-    floater.style.visibility =
-      codeRect.bottom > 0 &&
-      codeRect.top < window.innerHeight &&
-      codeRect.right > 0 &&
-      codeRect.left < window.innerWidth
-        ? "visible"
-        : "hidden";
-  }
-
-  /**
-   * Coalesces scroll and resize placement into the next rendered frame.
-   *
-   * At most one frame is pending. Running after the originating browser event
-   * lets imperative row virtualization finish before geometry is read.
-   */
-  function schedulePlacement(): void {
-    if (placementFrame !== null) {
-      return;
-    }
-    placementFrame = requestAnimationFrame(() => {
-      placementFrame = null;
-      placeAgainstCodeCell();
-    });
-  }
-
-  /**
-   * Dismisses this transient floater and restores its initiating control.
-   *
-   * Callers invoke this only for user-directed dismissal. Renderer replacement
-   * clears the parent state directly because its detached trigger cannot receive
-   * focus.
-   */
-  function close(): void {
-    props.onClose();
-    if (props.state.trigger.isConnected) {
-      props.state.trigger.focus();
-    }
-  }
-
-  onMount(() => {
-    placeAgainstCodeCell();
-    window.addEventListener("scroll", schedulePlacement, {
-      capture: true,
-      passive: true,
-    });
-    window.addEventListener("resize", schedulePlacement);
-    queueMicrotask(() => {
-      if (textarea.isConnected) {
-        textarea.focus();
-      }
-    });
-  });
-  onCleanup(() => {
-    window.removeEventListener("scroll", schedulePlacement, true);
-    window.removeEventListener("resize", schedulePlacement);
-    if (placementFrame !== null) {
-      cancelAnimationFrame(placementFrame);
-    }
-  });
-
-  return (
-    <div
-      ref={floater}
-      class="comment-floater"
-      role="dialog"
-      aria-label={`Comment on ${props.state.target.side === "left" ? "old" : "new"} line ${props.state.target.line}`}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          close();
-        }
-      }}
-    >
-      <header class="comment-floater-header">
-        <div class="comment-floater-heading">
-          <strong>
-            {props.state.target.side === "left" ? "Old" : "New"} line{" "}
-            {props.state.target.line}
-          </strong>
-          <span title={props.state.target.file}>
-            {props.state.target.region === null
-              ? props.state.target.file
-              : `${props.state.target.file} · ${props.state.target.region}`}
-          </span>
-        </div>
-        <button
-          type="button"
-          class="comment-floater-close"
-          aria-label="Close comment"
-          title="Close comment"
-          onClick={close}
-        >
-          ×
-        </button>
-      </header>
-      <p class="comment-floater-notice">
-        Frontend mock — page-lifetime comments and drafts
-      </p>
-      <ol class="comment-floater-comments" aria-label="Comments on this line">
-        <For
-          each={mockComments.filter(
-            (comment) =>
-              comment.target.file === props.state.target.file &&
-              comment.target.region === props.state.target.region &&
-              comment.target.side === props.state.target.side &&
-              comment.target.line === props.state.target.line,
-          )}
-        >
-          {(comment) => (
-            <li>
-              <p>{comment.body}</p>
-            </li>
-          )}
-        </For>
-      </ol>
-      <form
-        class="comment-floater-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const storedDraft = commentDraft();
-          assert(
-            storedDraft !== null && storedDraft.body.trim().length > 0,
-            "A mock comment must contain non-whitespace text.",
-          );
-          setMockComments(mockComments.length, {
-            id: crypto.randomUUID(),
-            target: { ...props.state.target },
-            body: storedDraft.body,
-          });
-          const draftIndex = mockCommentDrafts.indexOf(storedDraft);
-          assert(
-            draftIndex >= 0,
-            "Submitted mock comment draft must remain in its store.",
-          );
-          setMockCommentDrafts(
-            produce((drafts) => {
-              drafts.splice(draftIndex, 1);
-            }),
-          );
-          props.state.trigger.classList.remove("line-comment-trigger-draft");
-          props.state.trigger.classList.add("line-comment-trigger-commented");
-        }}
-      >
-        <label class="comment-floater-field">
-          <span>Comment</span>
-          <textarea
-            ref={textarea}
-            rows="5"
-            value={commentDraft()?.body ?? ""}
-            placeholder="Leave a comment on this line…"
-            onInput={(event) => {
-              const body = event.currentTarget.value;
-              const storedDraft = commentDraft();
-              if (body.length === 0) {
-                if (storedDraft !== null) {
-                  const draftIndex = mockCommentDrafts.indexOf(storedDraft);
-                  assert(
-                    draftIndex >= 0,
-                    "Cleared mock comment draft must remain in its store.",
-                  );
-                  setMockCommentDrafts(
-                    produce((drafts) => {
-                      drafts.splice(draftIndex, 1);
-                    }),
-                  );
-                }
-                props.state.trigger.classList.remove(
-                  "line-comment-trigger-draft",
-                );
-                return;
-              }
-              if (storedDraft === null) {
-                setMockCommentDrafts(mockCommentDrafts.length, {
-                  target: { ...props.state.target },
-                  body,
-                });
-              } else {
-                const draftIndex = mockCommentDrafts.indexOf(storedDraft);
-                assert(
-                  draftIndex >= 0,
-                  "Edited mock comment draft must remain in its store.",
-                );
-                setMockCommentDrafts(draftIndex, "body", body);
-              }
-              props.state.trigger.classList.add("line-comment-trigger-draft");
-            }}
-          />
-        </label>
-        <div class="comment-floater-actions">
-          <span>Comments and drafts live until this page reloads.</span>
-          <button
-            type="button"
-            class="comment-floater-secondary"
-            onClick={close}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            class="comment-floater-primary"
-            disabled={
-              commentDraft() === null ||
-              commentDraft()?.body.trim().length === 0
-            }
-          >
-            Comment
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-/**
  * Tracks the most recently rendered number on each inline side.
  *
  * The state is local to one fragment render and suppresses duplicate line
@@ -556,12 +199,13 @@ type PreparableDiffLines = HTMLDivElement & {
  * or fold policies change. It clears local expanded-fold state when any such
  * renderer input changes and replaces every child of its root atomically. One
  * delegated root listener handles line pins and comment triggers across all
- * explicit row replacements. Solid renders at most one frontend-only comment
- * floater through `document.body`; renderer replacement closes it when its
- * trigger disappears. The listener and preparation operation are removed on
- * cleanup.
+ * explicit row replacements. The Snapshot review boundary renders at most one
+ * persistent-Comment composer through `document.body`; renderer replacement
+ * closes it when its trigger disappears. The listener and preparation
+ * operation are removed on cleanup.
  */
 function ImperativeDiffLines(props: {
+  reviewFile: ReviewFilePair;
   fileIndex: number;
   displayName: string;
   region: string | null;
@@ -575,9 +219,18 @@ function ImperativeDiffLines(props: {
   linePins: LinePins;
 }) {
   let root!: PreparableDiffLines;
+  const review = useReview();
+  const [rowRevision, setRowRevision] = createSignal(0);
+  let reviewMarkersFailed = false;
+  const reviewBinding: ReviewTextGridBinding = {
+    snapshot_id: review.snapshotId,
+    file: props.reviewFile,
+    region:
+      props.region === null
+        ? { kind: "ordinary" }
+        : { kind: "notebook-cell-source", cell_key: props.region },
+  };
   const expandedFolds = new Set<number>();
-  const [activeComment, setActiveComment] =
-    createSignal<CommentFloaterState | null>(null);
   let previousDisplayName: string | undefined;
   let previousRows: DiffRow[] | undefined;
   let previousFoldHints: FoldHint[] | undefined;
@@ -586,6 +239,23 @@ function ImperativeDiffLines(props: {
   let previousViewMode: DiffViewMode | undefined;
   let previousAggressiveFolds: boolean | undefined;
   let previousCombineInsertOnlyReplaceRows: boolean | undefined;
+
+  /** Refreshes only review decorations and disables them if this owner fails. */
+  function ReviewMarkerRefresh(): JSX.Element {
+    createEffect(() => {
+      try {
+        review.markerRevision();
+        rowRevision();
+        refreshReviewMarkers();
+      } catch (error) {
+        reviewMarkersFailed = true;
+        disableReviewMarkers();
+        throw error;
+      }
+    });
+    onCleanup(disableReviewMarkers);
+    return <></>;
+  }
 
   /**
    * Resolves the unique rendered row for one exact target inside this DiffGrid.
@@ -658,11 +328,6 @@ function ImperativeDiffLines(props: {
       throw new Error("Pinnable line has an invalid backend line identity.");
     }
     if (commentTrigger !== null) {
-      const comment = untrack(activeComment);
-      if (comment !== null && comment.trigger === commentTrigger) {
-        setActiveComment(null);
-        return;
-      }
       const commentRowPart = lineNumber.parentElement;
       const commentCodeCell =
         commentRowPart?.querySelector<HTMLElement>(":scope > .line-code") ??
@@ -675,16 +340,13 @@ function ImperativeDiffLines(props: {
           commentCodeCell !== null,
         "Comment trigger must belong to a rendered diff code cell.",
       );
-      setActiveComment({
-        target: {
-          file: props.displayName,
-          region: props.region,
-          side,
-          line,
-        },
-        codeCell: commentCodeCell,
-        trigger: commentTrigger,
-      });
+      review.activateTextComposer(
+        reviewBinding,
+        side,
+        Number(line),
+        { codeCell: commentCodeCell, trigger: commentTrigger },
+        event.shiftKey,
+      );
       return;
     }
     const target: LinePinTarget = {
@@ -794,78 +456,89 @@ function ImperativeDiffLines(props: {
   }
 
   /**
+   * Derives review classes for every currently mounted Comment trigger.
+   *
+   * Callers provide no renderer input: this operation changes classes in place
+   * and must not replace rows, anchors, line-pin state, or selected-hunk DOM.
+   */
+  function refreshReviewMarkers(): void {
+    for (const lineNumber of root.querySelectorAll<HTMLElement>(
+      ".line-no[data-line-pin-line]",
+    )) {
+      const trigger = lineNumber.querySelector(
+        ":scope > .line-comment-trigger",
+      );
+      const side = lineNumber.dataset.linePinSide;
+      const line = lineNumber.dataset.linePinLine;
+      assert(
+        trigger instanceof HTMLButtonElement &&
+          (side === "left" || side === "right") &&
+          line !== undefined &&
+          /^[1-9]\d*$/u.test(line),
+        "Rendered comment trigger must expose its exact line identity.",
+      );
+      const storedState = review.markerState(reviewBinding, side, Number(line));
+      trigger.classList.toggle(
+        "line-comment-trigger-commented",
+        storedState.hasThread,
+      );
+      trigger.classList.toggle(
+        "line-comment-trigger-draft",
+        storedState.hasDraft,
+      );
+      trigger.classList.toggle("line-comment-trigger-muted", storedState.muted);
+      trigger.classList.toggle(
+        "line-comment-trigger-warning",
+        storedState.warning,
+      );
+      trigger.disabled = storedState.disabled;
+    }
+  }
+
+  /** Removes possibly partial review decoration while preserving every row. */
+  function disableReviewMarkers(): void {
+    for (const trigger of root.querySelectorAll<HTMLButtonElement>(
+      ".line-comment-trigger",
+    )) {
+      trigger.classList.remove(
+        "line-comment-trigger-commented",
+        "line-comment-trigger-draft",
+        "line-comment-trigger-muted",
+        "line-comment-trigger-warning",
+      );
+      trigger.disabled = true;
+    }
+  }
+
+  /**
+   * Restores transient marker and URL state after a renderer-owned row change.
+   *
+   * The row renderer calls this only after a complete or folded-range DOM
+   * replacement. It publishes only a row-DOM revision; the marker-local effect
+   * reads review state without making the complete renderer reactive.
+   */
+  function afterRowsChanged(): void {
+    setRowRevision((current) => current + 1);
+    if (reviewMarkersFailed) {
+      disableReviewMarkers();
+    }
+    const parsed = props.linePins.parseUrl();
+    if (
+      parsed.state === "valid" &&
+      parsed.target.file === props.displayName &&
+      parsed.target.region === props.region
+    ) {
+      restoreOldPin();
+    }
+  }
+
+  /**
    * Rebuilds the complete owned row subtree from current reactive inputs.
    *
    * The function resets local fold expansion only when an identity-bearing
    * renderer input changes and atomically replaces every child of `root`.
    */
   const render = () => {
-    /**
-     * Applies transient UI state after any complete or local row replacement.
-     *
-     * A floater whose imperative trigger disappeared is closed explicitly.
-     * Every current comment trigger derives persistent visibility from the
-     * page-lifetime comment and draft stores. Matching URL decoration is then
-     * restored through the established single routing point; invalid targets
-     * remain ChangeSet restoration's concern.
-     */
-    function afterRowsChanged(): void {
-      const comment = untrack(activeComment);
-      if (comment !== null && !comment.trigger.isConnected) {
-        setActiveComment(null);
-      }
-      for (const lineNumber of root.querySelectorAll<HTMLElement>(
-        ".line-no[data-line-pin-line]",
-      )) {
-        const trigger = lineNumber.querySelector(
-          ":scope > .line-comment-trigger",
-        );
-        const side = lineNumber.dataset.linePinSide;
-        const line = lineNumber.dataset.linePinLine;
-        assert(
-          trigger instanceof HTMLButtonElement &&
-            (side === "left" || side === "right") &&
-            line !== undefined &&
-            /^[1-9]\d*$/u.test(line),
-          "Rendered comment trigger must expose its exact line identity.",
-        );
-        // Row refresh is explicit; observing the stores here would rebuild every
-        // imperative row after an edit instead of changing only its trigger.
-        const storedState = untrack(() => ({
-          hasComments: mockComments.some(
-            (storedComment) =>
-              storedComment.target.file === props.displayName &&
-              storedComment.target.region === props.region &&
-              storedComment.target.side === side &&
-              storedComment.target.line === line,
-          ),
-          hasDraft: mockCommentDrafts.some(
-            (storedDraft) =>
-              storedDraft.target.file === props.displayName &&
-              storedDraft.target.region === props.region &&
-              storedDraft.target.side === side &&
-              storedDraft.target.line === line,
-          ),
-        }));
-        trigger.classList.toggle(
-          "line-comment-trigger-commented",
-          storedState.hasComments,
-        );
-        trigger.classList.toggle(
-          "line-comment-trigger-draft",
-          storedState.hasDraft,
-        );
-      }
-      const parsed = props.linePins.parseUrl();
-      if (
-        parsed.state === "valid" &&
-        parsed.target.file === props.displayName &&
-        parsed.target.region === props.region
-      ) {
-        restoreOldPin();
-      }
-    }
-
     const inputChanged = [
       props.displayName !== previousDisplayName,
       props.rows !== previousRows,
@@ -901,6 +574,7 @@ function ImperativeDiffLines(props: {
             expandedFolds,
             props.fileIndex,
             0,
+            review.closeAnchoredUi,
             afterRowsChanged,
           )
         : props.viewMode === "inline"
@@ -909,6 +583,7 @@ function ImperativeDiffLines(props: {
               expandedFolds,
               props.fileIndex,
               0,
+              review.closeAnchoredUi,
               afterRowsChanged,
             )
           : renderSplitRowsDom(
@@ -918,18 +593,20 @@ function ImperativeDiffLines(props: {
               expandedFolds,
               props.fileIndex,
               0,
+              review.closeAnchoredUi,
               afterRowsChanged,
             );
+    review.closeAnchoredUi(root);
     root.replaceChildren(fragment);
     afterRowsChanged();
   };
 
   createEffect(render);
-
   onMount(() => {
     root.prepareLine_impl = prepareLine_impl;
     root.addEventListener("click", handleLineActivation);
     onCleanup(() => {
+      review.closeAnchoredUi(root);
       root.removeEventListener("click", handleLineActivation);
       Reflect.deleteProperty(root, "prepareLine_impl");
     });
@@ -938,16 +615,15 @@ function ImperativeDiffLines(props: {
   return (
     <>
       <div ref={root} class="diff-lines" />
-      <Show when={activeComment()} keyed>
-        {(state) => (
-          <Portal mount={document.body}>
-            <CommentFloater
-              state={state}
-              onClose={() => setActiveComment(null)}
-            />
-          </Portal>
+      <ErrorBoundary
+        fallback={(error) => (
+          <div class="review-marker-error" role="alert">
+            Review markers unavailable: {presentError(error).message}
+          </div>
         )}
-      </Show>
+      >
+        <ReviewMarkerRefresh />
+      </ErrorBoundary>
     </>
   );
 }
@@ -965,6 +641,7 @@ function renderSplitRowsDom(
   expandedFolds: Set<number>,
   fileIndex: number,
   startRow: number,
+  beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -980,6 +657,7 @@ function renderSplitRowsDom(
           rightLabel,
           expandedFolds,
           fileIndex,
+          beforeRowsReplaced,
           onRowsChanged,
         ),
       );
@@ -1003,6 +681,7 @@ function renderInlineRowsDom(
   expandedFolds: Set<number>,
   fileIndex: number,
   startRow: number,
+  beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -1021,6 +700,7 @@ function renderInlineRowsDom(
           expandedFolds,
           fileIndex,
           false,
+          beforeRowsReplaced,
           onRowsChanged,
         ),
       );
@@ -1049,6 +729,7 @@ function renderCombinedInlineRowsDom(
   expandedFolds: Set<number>,
   fileIndex: number,
   startRow: number,
+  beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -1067,6 +748,7 @@ function renderCombinedInlineRowsDom(
           expandedFolds,
           fileIndex,
           true,
+          beforeRowsReplaced,
           onRowsChanged,
         ),
       );
@@ -1101,6 +783,7 @@ function renderSplitFoldDom(
   rightLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
+  beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
 ): HTMLElement {
   const wrapper = document.createElement("div");
@@ -1118,6 +801,7 @@ function renderSplitFoldDom(
     } else {
       expandedFolds.add(rowIndex);
     }
+    beforeRowsReplaced(wrapper);
     renderFold();
     onRowsChanged();
   };
@@ -1138,6 +822,7 @@ function renderSplitFoldDom(
         expandedFolds,
         fileIndex,
         row.startRow,
+        beforeRowsReplaced,
         onRowsChanged,
       );
       attachExpandedFoldToggle(fragment, toggle);
@@ -1174,6 +859,7 @@ function renderInlineFoldDom(
   expandedFolds: Set<number>,
   fileIndex: number,
   combineInsertOnlyReplaceRows: boolean,
+  beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
 ): HTMLElement {
   const wrapper = document.createElement("div");
@@ -1191,6 +877,7 @@ function renderInlineFoldDom(
     } else {
       expandedFolds.add(rowIndex);
     }
+    beforeRowsReplaced(wrapper);
     renderFold();
     onRowsChanged();
   };
@@ -1212,6 +899,7 @@ function renderInlineFoldDom(
               expandedFolds,
               fileIndex,
               row.startRow,
+              beforeRowsReplaced,
               onRowsChanged,
             )
           : renderInlineRowsDom(
@@ -1219,6 +907,7 @@ function renderInlineFoldDom(
               expandedFolds,
               fileIndex,
               row.startRow,
+              beforeRowsReplaced,
               onRowsChanged,
             );
       attachExpandedFoldToggle(fragment, toggle);
@@ -1278,6 +967,12 @@ function attachExpandedFoldToggle(
   row.classList.add("fold-toggle-row", "fold-expanded");
   row.title = "Fold rows";
   row.addEventListener("click", (event) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest(".line-comment-trigger") !== null
+    ) {
+      return;
+    }
     event.stopPropagation();
     onToggle();
   });

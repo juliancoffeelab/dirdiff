@@ -1,4 +1,4 @@
-"""FastAPI wiring and request-level diff rendering.
+"""FastAPI wiring for diff rendering and persistent review operations.
 
 The server validates HTTP inputs and constructs concrete workspace backends for
 manifest. `RoomLord.corresponding_room` applies the Tab law there, while
@@ -11,6 +11,14 @@ before using the selected text engine.
 
 Keeping notebook routing here preserves the REST API while preventing concrete
 engines from depending on notebook internals.
+
+Snapshot-keyed browser routes expose Thread, Comment, and lifecycle operations.
+Agent routes capture and continue a logical Tab, expose its changed Files on
+disk, page discussions, and apply atomic create/reply/resolve batches. This
+module validates and translates HTTP entities; Room
+and Thread perform discussion operations, while RoomStore alone persists their
+records. The server must not own review state, placement rules, or private
+source coordinates.
 """
 
 import json
@@ -20,12 +28,32 @@ from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Literal, NotRequired, Optional, TypedDict
-from uuid import UUID
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    NotRequired,
+    Optional,
+    Self,
+    TypedDict,
+)
+from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from dirdiff.backend import (
     BranchSelection,
@@ -77,9 +105,36 @@ from dirdiff.rendering import (
     default_expanded_for_payload,
     enrich_rows_for_display,
 )
-from dirdiff.room_lord import RoomLord
+from dirdiff.review import (
+    AddComment,
+    ChangeThreadState,
+    CreateThread,
+    FilePair,
+    LineRange,
+    NotebookCellSourceRegion,
+    OrdinaryRegion,
+    ProfileAuthor,
+    ReplyToThread,
+    ResolveThread,
+    ReviewError,
+    ReviewErrorCode,
+    TextTarget,
+    ThreadDiscussionView,
+)
+from dirdiff.room_lord import FileMeta, Room, RoomLord
 
 LOGGER = logging.getLogger(__name__)
+
+_AGENT_ROUTE_PATHS = frozenset(
+    {
+        "/api/agent/reviews/new",
+        "/api/agent/thread_summary",
+        "/api/agent/threads",
+        "/api/agent/thread/{thread_id}",
+        "/api/agent/continue_review",
+        "/api/agent/actions",
+    }
+)
 
 RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
 
@@ -277,6 +332,585 @@ class ApiModel(BaseModel):
         validate_default=True,
         allow_inf_nan=False,
     )
+
+
+class ReviewFilePairModel(ApiModel):
+    """Identify one File through its complete nullable side pair."""
+
+    left_path: str | None
+    right_path: str | None
+
+    @model_validator(mode="after")
+    def validate_presence(self) -> Self:
+        """Require at least one normalized relative side value."""
+        FilePair(self.left_path, self.right_path)
+        return self
+
+
+class ReviewLineRange(ApiModel):
+    """Identify one positive one-based inclusive range."""
+
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> Self:
+        """Reject a range whose end precedes its start."""
+        LineRange(self.start_line, self.end_line)
+        return self
+
+
+class OrdinaryTextRegion(ApiModel):
+    """Address ordinary rendered File text."""
+
+    kind: Literal["ordinary"]
+
+
+class NotebookCellSourceRegionModel(ApiModel):
+    """Address rendered source inside one notebook cell."""
+
+    kind: Literal["notebook-cell-source"]
+    cell_key: str = Field(min_length=1)
+
+
+ReviewTextRegionModel = Annotated[
+    OrdinaryTextRegion | NotebookCellSourceRegionModel,
+    Field(discriminator="kind"),
+]
+"""Identify one rendered text region accepted by review HTTP input."""
+
+
+class TextReviewTarget(ApiModel):
+    """Address one line range on one present side of a rendered region."""
+
+    kind: Literal["text"]
+    file: ReviewFilePairModel
+    region: ReviewTextRegionModel
+    side: Literal["left", "right"]
+    range: ReviewLineRange
+
+    @model_validator(mode="after")
+    def validate_selected_side(self) -> Self:
+        """Require the selected side in the exact File pair."""
+        if self.side == "left" and self.file.left_path is None:
+            raise ValueError("The selected left side is absent.")
+        if self.side == "right" and self.file.right_path is None:
+            raise ValueError("The selected right side is absent.")
+        return self
+
+
+ReviewTargetModel = TextReviewTarget
+"""Identify one rendered text range in HTTP payloads."""
+
+
+class NewCodeCommentRequest(ApiModel):
+    """Post a Comment on code and let the backend start its Thread."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_id: int = Field(gt=0)
+    target: ReviewTargetModel
+    body: str = Field(min_length=1)
+
+
+class ReplyCommentRequest(ApiModel):
+    """Post a Comment to one existing Snapshot-bound Thread."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_id: int = Field(gt=0)
+    body: str = Field(min_length=1)
+
+
+PostCommentRequest = NewCodeCommentRequest | ReplyCommentRequest
+"""Post either the first Comment on code or a reply to one Thread."""
+
+
+class EditReviewCommentRequest(ApiModel):
+    """Replace one authored Comment body by Comment ID."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_id: int = Field(gt=0)
+    body: str = Field(min_length=1)
+
+
+class DeleteReviewCommentRequest(ApiModel):
+    """Attribute one Comment tombstone to a valid acting Profile."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_id: int = Field(gt=0)
+
+
+class ChangeReviewThreadStateRequest(ApiModel):
+    """Apply the route's explicit state action to one Thread."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_id: int = Field(gt=0)
+
+
+class ReviewAuthorResponse(ApiModel):
+    """Return one ordinary Profile attribution."""
+
+    profile_id: int = Field(gt=0)
+    display_name: str = Field(min_length=1)
+
+
+class ReviewCommentResponse(ApiModel):
+    """Return one current Comment or retained deletion tombstone."""
+
+    comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    sequence: int = Field(ge=0)
+    author: ReviewAuthorResponse
+    revision: int = Field(ge=0)
+    body: str | None
+    deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_tombstone(self) -> Self:
+        """Require deletion state and retained body absence to agree."""
+        if self.deleted != (self.body is None):
+            raise ValueError("Deleted Comments must be body-less tombstones.")
+        return self
+
+
+class RangeThreadCodeLocationResponse(ApiModel):
+    """Locate one Thread on an exact rendered range."""
+
+    kind: Literal["range"]
+    file: ReviewFilePairModel
+    region: ReviewTextRegionModel
+    side: Literal["left", "right"]
+    range: ReviewLineRange
+
+
+class FileStartThreadCodeLocationResponse(ApiModel):
+    """Locate one unmatched text Thread on its File start or header."""
+
+    kind: Literal["file-start"]
+    file: ReviewFilePairModel
+    side: Literal["left", "right"]
+
+
+ThreadCodeLocationResponse = Annotated[
+    RangeThreadCodeLocationResponse | FileStartThreadCodeLocationResponse,
+    Field(discriminator="kind"),
+]
+"""Return one valid current code-location variant."""
+
+
+class ReviewExcerptResponse(ApiModel):
+    """Return one bounded selected-side excerpt from the origin Snapshot."""
+
+    side: Literal["left", "right"]
+    start_line: int = Field(ge=1)
+    selected_start_line: int = Field(ge=1)
+    selected_end_line: int = Field(ge=1)
+    lines: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_coordinates(self) -> Self:
+        """Require the selected range to lie within the returned lines."""
+        excerpt_end = self.start_line + len(self.lines) - 1
+        if not (
+            self.start_line
+            <= self.selected_start_line
+            <= self.selected_end_line
+            <= excerpt_end
+        ):
+            raise ValueError("Selected review range exceeds its excerpt.")
+        return self
+
+
+class ReviewThreadResponse(ApiModel):
+    """Return one complete live discussion through one exact Snapshot."""
+
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    created_at: datetime
+    state: Literal["open", "resolved", "deleted"]
+    state_revision: int = Field(ge=0)
+    origin_target: ReviewTargetModel
+    code_location: ThreadCodeLocationResponse | None
+    outdated_reason: (
+        Literal["region_changed", "region_not_found", "file_missing"] | None
+    )
+    original_excerpt: ReviewExcerptResponse
+    comments: list[ReviewCommentResponse] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_review_state(self) -> Self:
+        """Require exact code, reason, and snippet combinations."""
+        if self.outdated_reason is None:
+            if not isinstance(
+                self.code_location,
+                RangeThreadCodeLocationResponse,
+            ):
+                raise ValueError(
+                    "A current Thread requires a current location."
+                )
+        elif self.outdated_reason == "region_changed":
+            if not isinstance(
+                self.code_location, RangeThreadCodeLocationResponse
+            ):
+                raise ValueError("A changed Thread requires its new range.")
+        elif self.outdated_reason == "region_not_found":
+            if not isinstance(
+                self.code_location, FileStartThreadCodeLocationResponse
+            ):
+                raise ValueError("An unmatched Thread requires File start.")
+        elif self.code_location is not None:
+            raise ValueError("A missing File cannot have a code location.")
+        return self
+
+
+class ReviewThreadUpdateResponse(ApiModel):
+    """Return bounded authoritative state changed by one Thread action."""
+
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    state: Literal["open", "resolved", "deleted"]
+    state_revision: int = Field(ge=0)
+    comment: ReviewCommentResponse | None
+
+
+class ReviewThreadPage(ApiModel):
+    """Return one bounded page of Threads represented in a Snapshot."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    threads: list[ReviewThreadResponse]
+    page: int = Field(ge=1)
+    limit: int = Field(ge=1)
+    total_threads: int = Field(ge=0)
+    has_more: bool
+
+
+class AgentBranch(ApiModel):
+    """Name one local or remote branch in a Branch Review Tab."""
+
+    remote: str | None
+    name: str = Field(min_length=1)
+
+
+class AgentHeadTab(ApiModel):
+    """Capture HEAD against the worktree of one marked repository path."""
+
+    kind: Literal["head"]
+    repo_path: str = Field(min_length=1)
+
+
+class AgentRefsTab(ApiModel):
+    """Capture two explicit sides of one marked repository path."""
+
+    kind: Literal["refs"]
+    repo_path: str = Field(min_length=1)
+    left: str = Field(min_length=1)
+    right: str = Field(min_length=1)
+
+
+class AgentBranchReviewTab(ApiModel):
+    """Capture one symbolic base and review branch pair."""
+
+    kind: Literal["branch-review"]
+    repo_path: str = Field(min_length=1)
+    base: AgentBranch
+    review: AgentBranch
+
+
+class AgentPullRequestTab(ApiModel):
+    """Prepare and capture one supported Pull Request URL."""
+
+    kind: Literal["pull-request"]
+    url: str = Field(min_length=1)
+
+
+AgentReviewTab = Annotated[
+    AgentHeadTab | AgentRefsTab | AgentBranchReviewTab | AgentPullRequestTab,
+    Field(discriminator="kind"),
+]
+"""Describe one complete agent-known Tab context."""
+
+
+class NewAgentReviewRequest(ApiModel):
+    """Register one disposable ordinary Profile and capture its Tab."""
+
+    agent_uuid: str = Field(pattern=r"^[0-9a-f]{32}$")
+    name: str = Field(min_length=1)
+    tab: AgentReviewTab
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        """Require a nonblank display name without edge whitespace."""
+        if value != value.strip() or value.strip() == "":
+            raise ValueError("Invalid agent name.")
+        return value
+
+
+class NewAgentReviewResponse(ApiModel):
+    """Return the minimal initial context for one captured review."""
+
+    profile_id: int = Field(gt=0)
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    last_activity_id: int = Field(ge=0)
+    snapshot_path: str = Field(min_length=1)
+    unresolved_thread_count: int = Field(ge=0)
+
+
+class AgentLineRange(ApiModel):
+    """Expose one inclusive one-based whole-line region."""
+
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> Self:
+        """Reject a region whose end precedes its start."""
+        LineRange(self.start_line, self.end_line)
+        return self
+
+
+class AgentAuthor(ApiModel):
+    """Expose the ordinary Profile attribution of one review action."""
+
+    profile_id: int = Field(gt=0)
+    name: str = Field(min_length=1)
+
+
+class AgentComment(ApiModel):
+    """Expose one complete Comment or retained deletion tombstone."""
+
+    comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    author: AgentAuthor
+    body: str | None
+    deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_tombstone(self) -> Self:
+        """Require deletion state and body absence to agree."""
+        if self.deleted != (self.body is None):
+            raise ValueError("Deleted Comments must be body-less tombstones.")
+        return self
+
+
+class AgentCommentPreview(ApiModel):
+    """Expose bounded Comment text for discovery and activity pages."""
+
+    body: str | None
+    deleted: bool
+    truncated: bool
+
+
+class AgentThreadSummary(ApiModel):
+    """Expose enough of one open Thread to decide whether to read it."""
+
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["open"]
+    file: str | None
+    region: AgentLineRange | None
+    first_comment: AgentCommentPreview
+    latest_comment: AgentCommentPreview
+    comment_count: int = Field(ge=1)
+
+
+class AgentThread(ApiModel):
+    """Expose one complete Snapshot-bound review discussion."""
+
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["open", "resolved", "deleted"]
+    file: str | None
+    region: AgentLineRange | None
+    original_excerpt: ReviewExcerptResponse
+    outdated_reason: (
+        Literal["region_changed", "region_not_found", "file_missing"] | None
+    )
+    comments: list[AgentComment]
+
+
+class AgentPage[AgentPageItem](ApiModel):
+    """Expose one one-based bounded page and its complete item count."""
+
+    items: list[AgentPageItem]
+    page: int = Field(ge=1)
+    limit: int = Field(ge=1)
+    total: int = Field(ge=0)
+    has_more: bool
+
+
+class AgentThreadPage(ApiModel):
+    """Expose one Thread with an independently paged Comment sequence."""
+
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["open", "resolved", "deleted"]
+    file: str | None
+    region: AgentLineRange | None
+    original_excerpt: ReviewExcerptResponse
+    outdated_reason: (
+        Literal["region_changed", "region_not_found", "file_missing"] | None
+    )
+    comments: list[AgentComment]
+    page: int = Field(ge=1)
+    limit: int = Field(ge=1)
+    total_comments: int = Field(ge=0)
+    has_more: bool
+
+
+class ContinueAgentReviewRequest(ApiModel):
+    """Capture a Tab again and read later authored Thread activity."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    last_activity_id: int = Field(ge=0)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class AgentFileDelta(ApiModel):
+    """Expose changed filesystem paths between two captured Snapshots."""
+
+    added: list[str]
+    changed: list[str]
+    removed: list[str]
+
+
+class AgentThreadChangeBase(ApiModel):
+    """Expose fields shared by every authored action after a boundary."""
+
+    activity_id: int = Field(gt=0)
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    author: AgentAuthor
+    created_at: datetime
+
+
+class AgentCommentThreadChange(AgentThreadChangeBase):
+    """Expose one authored Comment creation, replacement, or tombstone."""
+
+    kind: Literal[
+        "comment_created",
+        "comment_edited",
+        "comment_deleted",
+    ]
+    comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    comment: AgentCommentPreview
+
+
+class AgentStateThreadChange(AgentThreadChangeBase):
+    """Expose one authored Thread lifecycle transition."""
+
+    kind: Literal["thread_resolved", "thread_reopened", "thread_deleted"]
+
+
+AgentThreadChange = Annotated[
+    AgentCommentThreadChange | AgentStateThreadChange,
+    Field(discriminator="kind"),
+]
+"""Expose exactly one valid authored Thread action variant."""
+
+
+class ContinueAgentReviewResponse(ApiModel):
+    """Return a fresh Snapshot plus bounded File and Thread changes."""
+
+    previous_snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    snapshot_path: str = Field(min_length=1)
+    last_activity_id: int = Field(ge=0)
+    unresolved_thread_count: int = Field(ge=0)
+    file_delta: AgentFileDelta
+    thread_delta: list[AgentThreadChange]
+    has_more_thread_changes: bool
+
+
+class AgentCreateAction(ApiModel):
+    """Create one ordinary text Thread and its first Comment."""
+
+    kind: Literal["create"]
+    file: str = Field(min_length=1)
+    region: AgentLineRange
+    body: str = Field(min_length=1)
+
+
+class AgentReplyAction(ApiModel):
+    """Append one Comment to a Snapshot-bound Thread."""
+
+    kind: Literal["reply"]
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    body: str = Field(min_length=1)
+
+
+class AgentResolveAction(ApiModel):
+    """Resolve one open Snapshot-bound Thread."""
+
+    kind: Literal["resolve"]
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+AgentAction = Annotated[
+    AgentCreateAction | AgentReplyAction | AgentResolveAction,
+    Field(discriminator="kind"),
+]
+"""Describe exactly one action available through the agent boundary."""
+
+
+class AgentActionsRequest(ApiModel):
+    """Apply one ordered atomic batch as an ordinary Profile."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_id: int = Field(gt=0)
+    actions: list[AgentAction] = Field(min_length=1, max_length=100)
+
+
+class AgentActionResult(ApiModel):
+    """Expose identifiers created or affected by one applied batch item."""
+
+    kind: Literal["create", "reply", "resolve"]
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    comment_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_variant(self) -> Self:
+        """Require Comment ids exactly for create and reply results."""
+        if (self.comment_id is not None) != (self.kind != "resolve"):
+            raise ValueError("Action result Comment presence is invalid.")
+        return self
+
+
+class AgentActionsResponse(ApiModel):
+    """Return one result in the same order as every applied action."""
+
+    results: list[AgentActionResult]
+
+
+class ReviewErrorResponse(ApiModel):
+    """Return stable browser review failure classification and presentation."""
+
+    code: ReviewErrorCode
+    message: str = Field(min_length=1)
+
+
+class _ReviewHttpException(Exception):
+    """Carry one validated browser review failure to its JSON handler."""
+
+    def __init__(self, status: HTTPStatus, error: ReviewError) -> None:
+        """Bind the mapped HTTP status to one typed review-domain failure."""
+        super().__init__(str(error))
+        self.status = status
+        self.response = ReviewErrorResponse(
+            code=error.code,
+            message=str(error),
+        )
+
+
+_REVIEW_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    int(HTTPStatus.BAD_REQUEST): {"model": ReviewErrorResponse},
+    int(HTTPStatus.NOT_FOUND): {"model": ReviewErrorResponse},
+    int(HTTPStatus.FORBIDDEN): {"model": ReviewErrorResponse},
+    int(HTTPStatus.CONFLICT): {"model": ReviewErrorResponse},
+}
 
 
 class ErrorResponse(ApiModel):
@@ -832,8 +1466,56 @@ def create_app(
         user_profile_store = UserProfileStore(db.engine)
     if preferences_store is None:
         preferences_store = PreferencesStore(db.engine)
-
     app = FastAPI()
+
+    def review_http_exception(error: ReviewError) -> _ReviewHttpException:
+        """Map one typed domain failure to the browser review HTTP contract."""
+        if error.code in {
+            "profile_not_found",
+            "thread_not_found",
+            "comment_not_found",
+        }:
+            status = HTTPStatus.NOT_FOUND
+        elif error.code == "forbidden":
+            status = HTTPStatus.FORBIDDEN
+        elif error.code in {
+            "revision_conflict",
+            "state_conflict",
+        }:
+            status = HTTPStatus.CONFLICT
+        else:
+            assert error.code == "invalid_target"
+            status = HTTPStatus.BAD_REQUEST
+        return _ReviewHttpException(status, error)
+
+    @app.exception_handler(_ReviewHttpException)
+    async def serve_review_error(
+        request: Request,
+        error: _ReviewHttpException,
+    ) -> JSONResponse:
+        """Serialize one typed review failure without an HTTP detail wrapper."""
+        del request
+        return JSONResponse(
+            status_code=error.status,
+            content=error.response.model_dump(mode="json"),
+        )
+
+    @app.exception_handler(Exception)
+    async def serve_unexpected_error(
+        request: Request,
+        error: Exception,
+    ) -> JSONResponse:
+        """Log an unexpected HTTP failure before returning a generic response."""
+        LOGGER.error(
+            "Unexpected %s %s failure",
+            request.method,
+            request.url.path,
+            exc_info=error,
+        )
+        return JSONResponse(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error."},
+        )
 
     def preset_backend_for_type(preset_type: PresetTypeParam) -> PresetBackend:
         """Resolve which preset catalog backs a preset request.
@@ -876,6 +1558,59 @@ def create_app(
                 "groups": preset_backend.list_preset_groups(),
             }
         )
+
+    def capture_snapshot(
+        *,
+        project_id: str,
+        tab: TabParam,
+        branch_selections: BranchSelections,
+        left: str | None,
+        right: str | None,
+        pull_request_url: str | None,
+        left_commit: str | None,
+        right_commit: str | None,
+        preset_subset: str | None,
+        show_untracked: bool,
+    ) -> tuple[Room, UUID, str | None]:
+        """Capture one exact Tab selection for browser and agent callers.
+
+        The caller supplies the complete logical selection. This operation
+        selects its active mark or preset backend, applies Room
+        correspondence, and returns the immutable Snapshot address plus the
+        validated preset subset used only for its display name.
+        """
+        preset_catalog: str | None = None
+        preset_name: str | None = None
+        parsed_project_id: int | None = None
+        if tab == "preset":
+            preset_catalog, preset_name = preset_project_parts(
+                project_id=project_id,
+                preset_subset=preset_subset,
+            )
+            backend: WorkspaceBackendProtocol = preset_backend_for_type(
+                preset_catalog
+            )
+        else:
+            parsed_project_id = marked_project_id(project_id)
+            mark = db.get(parsed_project_id)
+            if mark is None:
+                raise DirdiffError(f"Invalid project_id: {parsed_project_id}")
+            backend = GitBackend.discover(repo_root=Path(mark.path))
+        room, snapshot_id = room_lord.corresponding_room(
+            mark_id=parsed_project_id,
+            tab=tab,
+            backend=backend,
+            branch_selections=branch_selections,
+            left=left,
+            right=right,
+            pull_request_url=pull_request_url,
+            left_commit=left_commit,
+            right_commit=right_commit,
+            preset_catalog=preset_catalog,
+            preset_subset=preset_name,
+            show_untracked=show_untracked,
+        )
+        return room, snapshot_id, preset_name
 
     def looks_like_notebook_path(path: str | None) -> bool:
         """Return whether a repo path should be routed through notebook logic."""
@@ -1018,6 +1753,204 @@ def create_app(
         payload["right_path"] = context["right_path"]
         return payload
 
+    def render_loaded_snapshot_file(
+        *,
+        room: Room,
+        snapshot_id: UUID,
+        engine: EngineParam,
+        pair: FilePair,
+        left_file: Optional[Path],
+        right_file: Optional[Path],
+        file_meta: FileMeta,
+    ) -> dict[str, Any]:
+        """Render one focused File through its already-recovered Room."""
+        left = Path(pair.left_path) if pair.left_path is not None else None
+        right = Path(pair.right_path) if pair.right_path is not None else None
+        if file_meta["capture_error"] is not None:
+            raise DirdiffError(file_meta["capture_error"])
+        snapshot_meta = room.meta(snapshot_id)
+        context: LoadedDiffSides = {
+            "left_path": pair.left_path,
+            "right_path": pair.right_path,
+            "left_label": snapshot_meta["left_label"],
+            "right_label": snapshot_meta["right_label"],
+            "left_version": TextVersion(
+                label=snapshot_meta["left_label"],
+                exists=left_file is not None,
+                text=decode_text_content(
+                    left_file.read_bytes(),
+                    label=f"{snapshot_meta['left_label']}:{left}",
+                )
+                if left_file is not None
+                else None,
+            ),
+            "right_version": TextVersion(
+                label=snapshot_meta["right_label"],
+                exists=right_file is not None,
+                text=decode_text_content(
+                    right_file.read_bytes(),
+                    label=f"{snapshot_meta['right_label']}:{right}",
+                )
+                if right_file is not None
+                else None,
+            ),
+        }
+        renderer = service_for_engine(engine, cwd=Path.cwd())
+        file_kind: Literal["git", "untracked"] = (
+            "git" if file_meta["tracked"] else "untracked"
+        )
+        display_name = (
+            pair.right_path
+            if snapshot_meta["tab"] == "preset" and pair.right_path is not None
+            else display_name_for_repo_paths(pair.left_path, pair.right_path)
+        )
+        payload = build_notebook_file_payload_if_applicable(
+            renderer=renderer,
+            display_name=display_name,
+            change_type=file_meta["change_type"],
+            file_kind=file_kind,
+            context=context,
+        )
+        if payload is None:
+            payload = build_text_file_payload(
+                renderer=renderer,
+                display_name=display_name,
+                change_type=file_meta["change_type"],
+                file_kind=file_kind,
+                context=context,
+            )
+        return payload
+
+    def snapshot_room(snapshot_id: UUID) -> Room:
+        """Return the Room containing one exact agent-selected Snapshot."""
+        try:
+            return room_lord.find_room(snapshot_id)
+        except DirdiffError:
+            raise DirdiffError(
+                f"Unknown snapshot id: {snapshot_id.hex}"
+            ) from None
+
+    def agent_failure(status: HTTPStatus) -> PlainTextResponse:
+        """Return the deliberately detail-free agent failure entity."""
+        return PlainTextResponse("i fucked up", status_code=status)
+
+    def agent_preview(body: str | None, deleted: bool) -> AgentCommentPreview:
+        """Bound one Comment body to the shared 256-character preview rule."""
+        if body is None:
+            return AgentCommentPreview(
+                body=None, deleted=deleted, truncated=False
+            )
+        if len(body) <= 256:
+            return AgentCommentPreview(
+                body=body, deleted=deleted, truncated=False
+            )
+        return AgentCommentPreview(
+            body=f"{body[:255]}…", deleted=deleted, truncated=True
+        )
+
+    def agent_captured_files(
+        room: Room, snapshot_id: UUID
+    ) -> dict[tuple[str | None, str | None], tuple[Path | None, Path | None]]:
+        """Index actual retained File paths without reading their contents."""
+        return {
+            (
+                left.as_posix() if left is not None else None,
+                right.as_posix() if right is not None else None,
+            ): (left_file, right_file)
+            for left, right, left_file, right_file in room._captured_paths(
+                snapshot_id
+            )
+        }
+
+    def agent_thread(
+        captured_files: dict[
+            tuple[str | None, str | None], tuple[Path | None, Path | None]
+        ],
+        view: ThreadDiscussionView,
+    ) -> AgentThread:
+        """Translate one discussion using its existing captured File path."""
+        location = view["code_location"]
+        file_path: str | None = None
+        region: AgentLineRange | None = None
+        if location is not None:
+            pair = location["file"]
+            assert isinstance(pair, dict)
+            left_value = pair.get("left_path")
+            right_value = pair.get("right_path")
+            assert left_value is None or isinstance(left_value, str)
+            assert right_value is None or isinstance(right_value, str)
+            left_file, right_file = captured_files[(left_value, right_value)]
+            side_value = location.get("side")
+            if side_value == "left":
+                selected_file = left_file
+            elif side_value == "right" or right_file is not None:
+                selected_file = right_file
+            else:
+                selected_file = left_file
+            assert selected_file is not None
+            file_path = str(selected_file)
+            range_value = location.get("range")
+            if isinstance(range_value, dict):
+                region = AgentLineRange.model_validate(range_value)
+        comments = [
+            AgentComment(
+                comment_id=comment["comment_id"],
+                author=AgentAuthor(
+                    profile_id=comment["author"]["profile_id"],
+                    name=comment["author"]["display_name"],
+                ),
+                body=comment["body"],
+                deleted=comment["deleted"],
+                created_at=comment["created_at"],
+                updated_at=comment["updated_at"],
+            )
+            for comment in view["comments"]
+        ]
+        return AgentThread(
+            thread_id=view["thread_id"],
+            snapshot_id=view["snapshot_id"],
+            status=view["state"],
+            file=file_path,
+            region=region,
+            original_excerpt=ReviewExcerptResponse.model_validate(
+                view["original_excerpt"]
+            ),
+            outdated_reason=view["outdated_reason"],
+            comments=comments,
+        )
+
+    def agent_page[AgentPageItem](
+        items: list[AgentPageItem], page: int, limit: int, total: int
+    ) -> AgentPage[AgentPageItem]:
+        """Build one valid one-based page response."""
+        return AgentPage[AgentPageItem](
+            items=items,
+            page=page,
+            limit=limit,
+            total=total,
+            has_more=page * limit < total,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_failure(
+        request: Request, exc: RequestValidationError
+    ) -> Any:
+        """Hide validation detail only at the deliberately opaque agent API."""
+        route = request.scope.get("route")
+        if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
+            return agent_failure(HTTPStatus.UNPROCESSABLE_ENTITY)
+        return await request_validation_exception_handler(request, exc)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_failure(
+        request: Request, exc: StarletteHTTPException
+    ) -> Any:
+        """Hide framework detail only for one registered agent operation."""
+        route = request.scope.get("route")
+        if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
+            return agent_failure(HTTPStatus(exc.status_code))
+        return await http_exception_handler(request, exc)
+
     @app.get("/", response_class=HTMLResponse)
     def serve_frontend_missing() -> HTMLResponse:
         return HTMLResponse(
@@ -1069,6 +2002,685 @@ def create_app(
             """,
             status_code=503,
         )
+
+    @app.get(
+        "/api/review/threads",
+        response_model=ReviewThreadPage,
+        responses=_REVIEW_ERROR_RESPONSES,
+        summary="Read one page of review Threads",
+    )
+    def serve_review(
+        snapshot_id: UUID = Query(description="Exact retained Snapshot id."),
+        page: int = Query(default=1, ge=1),
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> ReviewThreadPage:
+        """Return one complete-Thread page for the History UI."""
+        try:
+            room = room_lord.find_room(snapshot_id)
+            threads, total = room.threads(
+                snapshot_id, page=page, limit=limit, state="all"
+            )
+            return ReviewThreadPage(
+                snapshot_id=snapshot_id.hex,
+                threads=[
+                    ReviewThreadResponse.model_validate(thread.discussion())
+                    for thread in threads
+                ],
+                page=page,
+                limit=limit,
+                total_threads=total,
+                has_more=page * limit < total,
+            )
+        except ReviewError as exc:
+            raise review_http_exception(exc) from exc
+        except DirdiffError as exc:
+            raise review_http_exception(
+                ReviewError("invalid_target", str(exc))
+            ) from exc
+
+    def review_target(request: NewCodeCommentRequest) -> TextTarget:
+        """Translate one validated browser code target to Thread input."""
+        file = FilePair(
+            request.target.file.left_path, request.target.file.right_path
+        )
+        region = (
+            OrdinaryRegion()
+            if isinstance(request.target.region, OrdinaryTextRegion)
+            else NotebookCellSourceRegion(request.target.region.cell_key)
+        )
+        return TextTarget(
+            file,
+            region,
+            request.target.side,
+            LineRange(
+                request.target.range.start_line,
+                request.target.range.end_line,
+            ),
+        )
+
+    @app.post(
+        "/api/review/post_comment",
+        response_model=ReviewThreadResponse | ReviewThreadUpdateResponse,
+        responses=_REVIEW_ERROR_RESPONSES,
+        summary="Post one review Comment",
+    )
+    def post_review_comment(
+        request: PostCommentRequest,
+    ) -> ReviewThreadResponse | ReviewThreadUpdateResponse:
+        """Start one Thread or append one Comment to an existing Thread."""
+        try:
+            snapshot_id = UUID(hex=request.snapshot_id)
+            room = room_lord.find_room(snapshot_id)
+            if isinstance(request, NewCodeCommentRequest):
+                thread = room.create_thread(
+                    snapshot_id,
+                    CreateThread(
+                        uuid4(),
+                        uuid4(),
+                        uuid4(),
+                        ProfileAuthor(request.profile_id),
+                        review_target(request),
+                        request.body,
+                    ),
+                )
+                return ReviewThreadResponse.model_validate(thread.discussion())
+            update = room._write_thread_action(
+                snapshot_id,
+                UUID(hex=request.thread_id),
+                uuid4(),
+                ProfileAuthor(request.profile_id),
+                "comment-created",
+                uuid4(),
+                request.body,
+            )
+            return ReviewThreadUpdateResponse.model_validate(update)
+        except ReviewError as exc:
+            raise review_http_exception(exc) from exc
+        except DirdiffError as exc:
+            raise review_http_exception(
+                ReviewError("invalid_target", str(exc))
+            ) from exc
+
+    @app.post(
+        "/api/review/edit_comment",
+        response_model=ReviewThreadUpdateResponse,
+        responses=_REVIEW_ERROR_RESPONSES,
+        summary="Edit one review Comment",
+    )
+    def edit_review_comment(
+        request: EditReviewCommentRequest,
+    ) -> ReviewThreadUpdateResponse:
+        """Edit one authored Comment using the backend's current revision."""
+        try:
+            snapshot_id = UUID(hex=request.snapshot_id)
+            room = room_lord.find_room(snapshot_id)
+            thread_id = room._thread_id_for_comment(
+                snapshot_id, UUID(hex=request.comment_id)
+            )
+            return ReviewThreadUpdateResponse.model_validate(
+                room._write_thread_action(
+                    snapshot_id,
+                    thread_id,
+                    uuid4(),
+                    ProfileAuthor(request.profile_id),
+                    "comment-edited",
+                    UUID(hex=request.comment_id),
+                    request.body,
+                )
+            )
+        except ReviewError as exc:
+            raise review_http_exception(exc) from exc
+        except DirdiffError as exc:
+            raise review_http_exception(
+                ReviewError("invalid_target", str(exc))
+            ) from exc
+
+    @app.post(
+        "/api/review/delete_comment",
+        response_model=ReviewThreadUpdateResponse,
+        responses=_REVIEW_ERROR_RESPONSES,
+        summary="Delete one review Comment",
+    )
+    def delete_review_comment(
+        request: DeleteReviewCommentRequest,
+    ) -> ReviewThreadUpdateResponse:
+        """Tombstone one Comment and retain its acting Profile in the action log."""
+        try:
+            snapshot_id = UUID(hex=request.snapshot_id)
+            room = room_lord.find_room(snapshot_id)
+            thread_id = room._thread_id_for_comment(
+                snapshot_id, UUID(hex=request.comment_id)
+            )
+            return ReviewThreadUpdateResponse.model_validate(
+                room._write_thread_action(
+                    snapshot_id,
+                    thread_id,
+                    uuid4(),
+                    ProfileAuthor(request.profile_id),
+                    "comment-deleted",
+                    UUID(hex=request.comment_id),
+                    None,
+                )
+            )
+        except ReviewError as exc:
+            raise review_http_exception(exc) from exc
+        except DirdiffError as exc:
+            raise review_http_exception(
+                ReviewError("invalid_target", str(exc))
+            ) from exc
+
+    def change_review_thread_state(
+        *,
+        request: ChangeReviewThreadStateRequest,
+        action: Literal["resolve", "reopen", "delete"],
+    ) -> ReviewThreadUpdateResponse:
+        """Apply one exact lifecycle operation shared by three HTTP routes."""
+        try:
+            snapshot_id = UUID(hex=request.snapshot_id)
+            thread_id = UUID(hex=request.thread_id)
+            room = room_lord.find_room(snapshot_id)
+            kind: Literal[
+                "thread-resolved", "thread-reopened", "thread-deleted"
+            ]
+            if action == "resolve":
+                kind = "thread-resolved"
+            elif action == "reopen":
+                kind = "thread-reopened"
+            else:
+                kind = "thread-deleted"
+            updated = room._write_thread_action(
+                snapshot_id,
+                thread_id,
+                uuid4(),
+                ProfileAuthor(request.profile_id),
+                kind,
+                None,
+                None,
+            )
+            return ReviewThreadUpdateResponse.model_validate(updated)
+        except ReviewError as exc:
+            raise review_http_exception(exc) from exc
+        except DirdiffError as exc:
+            raise review_http_exception(
+                ReviewError("invalid_target", str(exc))
+            ) from exc
+
+    @app.post(
+        "/api/review/resolve_thread",
+        response_model=ReviewThreadUpdateResponse,
+        responses=_REVIEW_ERROR_RESPONSES,
+        summary="Resolve one review Thread",
+    )
+    def resolve_review_thread(
+        request: ChangeReviewThreadStateRequest,
+    ) -> ReviewThreadUpdateResponse:
+        """Resolve an open Thread at its exact current revision."""
+        return change_review_thread_state(
+            request=request,
+            action="resolve",
+        )
+
+    @app.post(
+        "/api/review/reopen_thread",
+        response_model=ReviewThreadUpdateResponse,
+        responses=_REVIEW_ERROR_RESPONSES,
+        summary="Reopen one review Thread",
+    )
+    def reopen_review_thread(
+        request: ChangeReviewThreadStateRequest,
+    ) -> ReviewThreadUpdateResponse:
+        """Reopen a resolved Thread at its exact current revision."""
+        return change_review_thread_state(
+            request=request,
+            action="reopen",
+        )
+
+    @app.post(
+        "/api/review/delete_thread",
+        response_model=ReviewThreadUpdateResponse,
+        responses=_REVIEW_ERROR_RESPONSES,
+        summary="Delete one review Thread",
+    )
+    def delete_review_thread(
+        request: ChangeReviewThreadStateRequest,
+    ) -> ReviewThreadUpdateResponse:
+        """Record terminal Thread deletion at its exact current revision."""
+        return change_review_thread_state(
+            request=request,
+            action="delete",
+        )
+
+    @app.post(
+        "/api/agent/reviews/new",
+        response_model=NewAgentReviewResponse,
+    )
+    def new_agent_review(
+        request: NewAgentReviewRequest,
+    ) -> NewAgentReviewResponse | PlainTextResponse:
+        """Register one disposable Profile and capture its explicit Tab."""
+        try:
+            if user_profile_store.agent_exists(request.agent_uuid):
+                raise DirdiffError("Agent UUID already exists.")
+            tab = request.tab
+            if isinstance(tab, AgentPullRequestTab):
+                prepared = prepare_pull_request(
+                    url=tab.url, repo_marks=db.list()
+                )
+                room, snapshot_id, _ = capture_snapshot(
+                    project_id=str(prepared.project_id),
+                    tab="pull-request",
+                    branch_selections=(None, None),
+                    left=None,
+                    right=None,
+                    pull_request_url=prepared.pull_request_url,
+                    left_commit=prepared.left_commit,
+                    right_commit=prepared.right_commit,
+                    preset_subset=None,
+                    show_untracked=False,
+                )
+            else:
+                matches = [
+                    mark for mark in db.list() if mark.path == tab.repo_path
+                ]
+                if len(matches) != 1:
+                    raise DirdiffError("Tab path does not identify one Mark.")
+                project_id = str(matches[0].id)
+
+                def branch(value: AgentBranch) -> BranchSelection:
+                    """Translate one explicit API branch to backend input."""
+                    if value.remote is None:
+                        return {"source": "local", "branch": value.name}
+                    return {
+                        "source": "remote",
+                        "remote": value.remote,
+                        "branch": value.name,
+                    }
+
+                capture_tab: Literal["head", "refs", "branch-review"]
+                capture_branches: BranchSelections
+                capture_left: str | None
+                capture_right: str | None
+                capture_untracked: bool
+                if isinstance(tab, AgentHeadTab):
+                    capture_tab = "head"
+                    capture_branches = (None, None)
+                    capture_left = "HEAD"
+                    capture_right = "worktree"
+                    capture_untracked = True
+                elif isinstance(tab, AgentRefsTab):
+                    capture_tab = "refs"
+                    capture_branches = (None, None)
+                    capture_left = tab.left
+                    capture_right = tab.right
+                    capture_untracked = False
+                else:
+                    assert isinstance(tab, AgentBranchReviewTab)
+                    capture_tab = "branch-review"
+                    capture_branches = (branch(tab.base), branch(tab.review))
+                    capture_left = None
+                    capture_right = None
+                    capture_untracked = False
+                room, snapshot_id, _ = capture_snapshot(
+                    project_id=project_id,
+                    tab=capture_tab,
+                    branch_selections=capture_branches,
+                    left=capture_left,
+                    right=capture_right,
+                    pull_request_url=None,
+                    left_commit=None,
+                    right_commit=None,
+                    preset_subset=None,
+                    show_untracked=capture_untracked,
+                )
+            try:
+                profile = user_profile_store.create_agent(
+                    request.name, request.agent_uuid
+                )
+            except ValueError as exc:
+                raise DirdiffError(str(exc)) from exc
+            _threads, unresolved_count = room.threads(
+                snapshot_id, page=1, limit=1, state="open"
+            )
+            return NewAgentReviewResponse(
+                profile_id=profile.id,
+                snapshot_id=snapshot_id.hex,
+                last_activity_id=room._review_activity_boundary(snapshot_id),
+                snapshot_path=str(room_lord.snapshot_path(snapshot_id)),
+                unresolved_thread_count=unresolved_count,
+            )
+        except DirdiffError, ReviewError:
+            LOGGER.exception("Agent new-review request failed")
+            return agent_failure(HTTPStatus.BAD_REQUEST)
+
+    @app.get(
+        "/api/agent/thread_summary",
+        response_model=AgentPage[AgentThreadSummary],
+    )
+    def agent_thread_summary(
+        snapshot_id: UUID,
+        page: int = Query(default=1, ge=1),
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> AgentPage[AgentThreadSummary] | PlainTextResponse:
+        """Return a bounded discovery page of unresolved Threads."""
+        try:
+            room = snapshot_room(snapshot_id)
+            page_threads, total = room.threads(
+                snapshot_id, page=page, limit=limit, state="open"
+            )
+            captured_files = agent_captured_files(room, snapshot_id)
+            open_threads = [
+                agent_thread(captured_files, thread.summary())
+                for thread in page_threads
+            ]
+            summaries = []
+            for thread in open_threads:
+                first = thread.comments[0]
+                latest = thread.comments[-1]
+                summaries.append(
+                    AgentThreadSummary(
+                        thread_id=thread.thread_id,
+                        status="open",
+                        file=thread.file,
+                        region=thread.region,
+                        first_comment=agent_preview(first.body, first.deleted),
+                        latest_comment=agent_preview(
+                            latest.body, latest.deleted
+                        ),
+                        comment_count=len(thread.comments),
+                    )
+                )
+            return agent_page(summaries, page, limit, total)
+        except DirdiffError, ReviewError:
+            LOGGER.exception("Agent Thread-summary request failed")
+            return agent_failure(HTTPStatus.BAD_REQUEST)
+
+    @app.get("/api/agent/threads", response_model=AgentPage[AgentThread])
+    def agent_threads(
+        snapshot_id: UUID,
+        page: int = Query(default=1, ge=1),
+        limit: int = Query(default=5, ge=1, le=20),
+    ) -> AgentPage[AgentThread] | PlainTextResponse:
+        """Return complete unresolved Threads in bounded batches."""
+        try:
+            room = snapshot_room(snapshot_id)
+            page_threads, total = room.threads(
+                snapshot_id, page=page, limit=limit, state="open"
+            )
+            captured_files = agent_captured_files(room, snapshot_id)
+            threads = [
+                agent_thread(captured_files, thread.discussion())
+                for thread in page_threads
+            ]
+            return agent_page(threads, page, limit, total)
+        except DirdiffError, ReviewError:
+            LOGGER.exception("Agent Threads request failed")
+            return agent_failure(HTTPStatus.BAD_REQUEST)
+
+    @app.get("/api/agent/thread/{thread_id}", response_model=AgentThreadPage)
+    def agent_thread_by_id(
+        thread_id: UUID,
+        snapshot_id: UUID,
+        page: int = Query(default=1, ge=1),
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> AgentThreadPage | PlainTextResponse:
+        """Return one exact Thread with an independently paged discussion."""
+        try:
+            room = snapshot_room(snapshot_id)
+            thread = agent_thread(
+                agent_captured_files(room, snapshot_id),
+                room.get_thread(snapshot_id, thread_id).discussion(),
+            )
+            total = len(thread.comments)
+            start = (page - 1) * limit
+            return AgentThreadPage(
+                **thread.model_dump(exclude={"comments"}),
+                comments=thread.comments[start : start + limit],
+                page=page,
+                limit=limit,
+                total_comments=total,
+                has_more=page * limit < total,
+            )
+        except DirdiffError, ReviewError:
+            LOGGER.exception("Agent Thread request failed")
+            return agent_failure(HTTPStatus.BAD_REQUEST)
+
+    @app.post(
+        "/api/agent/continue_review",
+        response_model=ContinueAgentReviewResponse,
+    )
+    def continue_agent_review(
+        request: ContinueAgentReviewRequest,
+    ) -> ContinueAgentReviewResponse | PlainTextResponse:
+        """Recapture one Tab and return its bounded File and Thread changes."""
+        try:
+            previous_id = UUID(hex=request.snapshot_id)
+            context = room_lord.capture_context(previous_id)
+            mark = db.get(context["mark_id"])
+            if mark is None:
+                raise DirdiffError("Snapshot Mark no longer exists.")
+            backend = GitBackend.discover(repo_root=Path(mark.path))
+            if context["tab"] == "pull-request":
+                assert context["pull_request_url"] is not None
+                prepared = prepare_pull_request(
+                    url=context["pull_request_url"], repo_marks=db.list()
+                )
+                if prepared.project_id != mark.id:
+                    raise DirdiffError("Pull Request Mark changed.")
+                room, snapshot_id = room_lord.recapture(
+                    previous_id,
+                    backend,
+                    pull_request_left=prepared.left_commit,
+                    pull_request_right=prepared.right_commit,
+                )
+            else:
+                room, snapshot_id = room_lord.recapture(previous_id, backend)
+            snapshot_path = room_lord.snapshot_path(snapshot_id)
+
+            file_delta = room.file_delta(previous_id, snapshot_id)
+            actions, has_more = room._review_actions_after(
+                snapshot_id, request.last_activity_id, request.limit
+            )
+            changes: list[AgentThreadChange] = []
+            for action in actions:
+                assert action.activity_id is not None
+                profile = user_profile_store.get(action.profile_id)
+                if profile is None:
+                    raise AssertionError(
+                        "review action references missing Profile"
+                    )
+                author = AgentAuthor(
+                    profile_id=profile.id, name=profile.username
+                )
+                created_at = datetime.fromisoformat(action.created_at)
+                change: AgentCommentThreadChange | AgentStateThreadChange
+                match action.kind:
+                    case "comment-created":
+                        assert action.comment_id is not None
+                        change = AgentCommentThreadChange(
+                            activity_id=action.activity_id,
+                            thread_id=action.thread_id,
+                            author=author,
+                            created_at=created_at,
+                            kind="comment_created",
+                            comment_id=action.comment_id,
+                            comment=agent_preview(action.body, False),
+                        )
+                    case "comment-edited":
+                        assert action.comment_id is not None
+                        change = AgentCommentThreadChange(
+                            activity_id=action.activity_id,
+                            thread_id=action.thread_id,
+                            author=author,
+                            created_at=created_at,
+                            kind="comment_edited",
+                            comment_id=action.comment_id,
+                            comment=agent_preview(action.body, False),
+                        )
+                    case "comment-deleted":
+                        assert action.comment_id is not None
+                        change = AgentCommentThreadChange(
+                            activity_id=action.activity_id,
+                            thread_id=action.thread_id,
+                            author=author,
+                            created_at=created_at,
+                            kind="comment_deleted",
+                            comment_id=action.comment_id,
+                            comment=agent_preview(None, True),
+                        )
+                    case "thread-resolved":
+                        change = AgentStateThreadChange(
+                            activity_id=action.activity_id,
+                            thread_id=action.thread_id,
+                            author=author,
+                            created_at=created_at,
+                            kind="thread_resolved",
+                        )
+                    case "thread-reopened":
+                        change = AgentStateThreadChange(
+                            activity_id=action.activity_id,
+                            thread_id=action.thread_id,
+                            author=author,
+                            created_at=created_at,
+                            kind="thread_reopened",
+                        )
+                    case "thread-deleted":
+                        change = AgentStateThreadChange(
+                            activity_id=action.activity_id,
+                            thread_id=action.thread_id,
+                            author=author,
+                            created_at=created_at,
+                            kind="thread_deleted",
+                        )
+                changes.append(change)
+            _threads, unresolved_count = room.threads(
+                snapshot_id, page=1, limit=1, state="open"
+            )
+            return ContinueAgentReviewResponse(
+                previous_snapshot_id=previous_id.hex,
+                snapshot_id=snapshot_id.hex,
+                snapshot_path=str(snapshot_path),
+                last_activity_id=(
+                    changes[-1].activity_id
+                    if changes
+                    else request.last_activity_id
+                ),
+                unresolved_thread_count=unresolved_count,
+                file_delta=AgentFileDelta(
+                    added=[str(path) for path in file_delta["added"]],
+                    changed=[str(path) for path in file_delta["changed"]],
+                    removed=[str(path) for path in file_delta["removed"]],
+                ),
+                thread_delta=changes,
+                has_more_thread_changes=has_more,
+            )
+        except DirdiffError, ReviewError:
+            LOGGER.exception("Agent continue-review request failed")
+            return agent_failure(HTTPStatus.BAD_REQUEST)
+
+    @app.post("/api/agent/actions", response_model=AgentActionsResponse)
+    def apply_agent_actions(
+        request: AgentActionsRequest,
+    ) -> AgentActionsResponse | PlainTextResponse:
+        """Validate and atomically apply one ordered agent-authored batch."""
+        try:
+            snapshot_id = UUID(hex=request.snapshot_id)
+            room = snapshot_room(snapshot_id)
+            if user_profile_store.get(request.profile_id) is None:
+                raise DirdiffError("Unknown Profile.")
+            captured_paths: dict[
+                Path, tuple[Path | None, Path | None, Literal["left", "right"]]
+            ] = {}
+            if any(
+                isinstance(action, AgentCreateAction)
+                for action in request.actions
+            ):
+                for left, right, left_file, right_file in room._captured_paths(
+                    snapshot_id
+                ):
+                    if left_file is not None:
+                        assert left_file not in captured_paths
+                        captured_paths[left_file] = (left, right, "left")
+                    if right_file is not None:
+                        assert right_file not in captured_paths
+                        captured_paths[right_file] = (left, right, "right")
+            batch: list[CreateThread | ReplyToThread | ResolveThread] = []
+            author = ProfileAuthor(request.profile_id)
+            for action in request.actions:
+                operation_id = uuid4()
+                if isinstance(action, AgentCreateAction):
+                    path = Path(action.file)
+                    if not path.is_absolute():
+                        raise DirdiffError("Invalid captured File path.")
+                    match = captured_paths.get(path)
+                    if match is None:
+                        raise DirdiffError("File is absent from the Snapshot.")
+                    left, right, side = match
+                    batch.append(
+                        CreateThread(
+                            thread_id=uuid4(),
+                            operation_id=operation_id,
+                            comment_id=uuid4(),
+                            author=author,
+                            target=TextTarget(
+                                FilePair(
+                                    left.as_posix()
+                                    if left is not None
+                                    else None,
+                                    right.as_posix()
+                                    if right is not None
+                                    else None,
+                                ),
+                                OrdinaryRegion(),
+                                side,
+                                LineRange(
+                                    action.region.start_line,
+                                    action.region.end_line,
+                                ),
+                            ),
+                            body=action.body,
+                        )
+                    )
+                elif isinstance(action, AgentReplyAction):
+                    batch.append(
+                        ReplyToThread(
+                            UUID(hex=action.thread_id),
+                            AddComment(
+                                operation_id=operation_id,
+                                comment_id=uuid4(),
+                                author=author,
+                                body=action.body,
+                            ),
+                        )
+                    )
+                else:
+                    assert isinstance(action, AgentResolveAction)
+                    batch.append(
+                        ResolveThread(
+                            UUID(hex=action.thread_id),
+                            ChangeThreadState(
+                                operation_id=operation_id,
+                                author=author,
+                            ),
+                        )
+                    )
+            results = room._apply_review_batch(snapshot_id, tuple(batch))
+            return AgentActionsResponse(
+                results=[
+                    AgentActionResult(
+                        kind=result.kind,
+                        thread_id=result.thread_id.hex,
+                        comment_id=(
+                            result.comment_id.hex
+                            if result.comment_id is not None
+                            else None
+                        ),
+                    )
+                    for result in results
+                ]
+            )
+        except DirdiffError, ReviewError:
+            LOGGER.exception("Agent actions request failed")
+            return agent_failure(HTTPStatus.BAD_REQUEST)
 
     @app.get("/api/repo-defaults")
     def serve_repo_defaults(
@@ -1272,6 +2884,33 @@ def create_app(
                 detail=str(exc),
             ) from exc
 
+    @app.get(
+        "/api/user-profile",
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
+        },
+        summary="Select persisted user profile data by exact username",
+    )
+    def get_user_profile(username: str) -> UserProfileResponse:
+        """Return the one existing Profile selected by its exact username."""
+        try:
+            profile = user_profile_store.get_by_username(username)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        if profile is None:
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=f"User profile not found: {username}.",
+            )
+        return UserProfileResponse.model_validate(
+            profile,
+            from_attributes=True,
+        )
+
     @app.patch(
         "/api/user-profile/{profile_id}",
         responses={
@@ -1398,37 +3037,16 @@ def create_app(
         Pull Request parameters already contain the URL and capture commits.
         """
         try:
-            preset_catalog: str | None = None
-            preset_name: str | None = None
-            parsed_project_id: int | None = None
-            if tab == "preset":
-                preset_catalog, preset_name = preset_project_parts(
-                    project_id=project_id,
-                    preset_subset=preset_subset,
-                )
-                backend: WorkspaceBackendProtocol = preset_backend_for_type(
-                    preset_catalog
-                )
-            else:
-                parsed_project_id = marked_project_id(project_id)
-                mark = db.get(parsed_project_id)
-                if mark is None:
-                    raise DirdiffError(
-                        f"Invalid project_id: {parsed_project_id}"
-                    )
-                backend = GitBackend.discover(repo_root=Path(mark.path))
-            room, snapshot_id = room_lord.corresponding_room(
-                mark_id=parsed_project_id,
+            room, snapshot_id, preset_name = capture_snapshot(
+                project_id=project_id,
                 tab=tab,
-                backend=backend,
                 branch_selections=branch_selections,
                 left=left,
                 right=right,
                 pull_request_url=pull_request_url,
                 left_commit=left_commit,
                 right_commit=right_commit,
-                preset_catalog=preset_catalog,
-                preset_subset=preset_name,
+                preset_subset=preset_subset,
                 show_untracked=show_untracked,
             )
             snapshot_meta = room.meta(snapshot_id)
@@ -1606,68 +3224,27 @@ def create_app(
                 raise DirdiffError(
                     f"Unknown snapshot id: {snapshot_id}"
                 ) from exc
+            try:
+                pair = FilePair(left_path, right_path)
+            except ValueError as exc:
+                raise DirdiffError(str(exc)) from exc
             room = room_lord.find_room(snapshot_key)
-            left = Path(left_path) if left_path is not None else None
-            right = Path(right_path) if right_path is not None else None
+            left = Path(pair.left_path) if pair.left_path is not None else None
+            right = (
+                Path(pair.right_path) if pair.right_path is not None else None
+            )
             left_file, right_file, file_meta = room.get(
-                snapshot_key,
-                left,
-                right,
+                snapshot_key, left, right
             )
-            snapshot_meta = room.meta(snapshot_key)
-            context: LoadedDiffSides = {
-                "left_path": left.as_posix() if left is not None else None,
-                "right_path": right.as_posix() if right is not None else None,
-                "left_label": snapshot_meta["left_label"],
-                "right_label": snapshot_meta["right_label"],
-                "left_version": TextVersion(
-                    label=snapshot_meta["left_label"],
-                    exists=left_file is not None,
-                    text=decode_text_content(
-                        left_file.read_bytes(),
-                        label=f"{snapshot_meta['left_label']}:{left}",
-                    )
-                    if left_file is not None
-                    else None,
-                ),
-                "right_version": TextVersion(
-                    label=snapshot_meta["right_label"],
-                    exists=right_file is not None,
-                    text=decode_text_content(
-                        right_file.read_bytes(),
-                        label=f"{snapshot_meta['right_label']}:{right}",
-                    )
-                    if right_file is not None
-                    else None,
-                ),
-            }
-            renderer = service_for_engine(engine, cwd=Path.cwd())
-            file_kind: Literal["git", "untracked"] = (
-                "git" if file_meta["tracked"] else "untracked"
+            payload = render_loaded_snapshot_file(
+                room=room,
+                snapshot_id=snapshot_key,
+                engine=engine,
+                pair=pair,
+                left_file=left_file,
+                right_file=right_file,
+                file_meta=file_meta,
             )
-            display_name = (
-                right.as_posix()
-                if snapshot_meta["tab"] == "preset" and right is not None
-                else display_name_for_repo_paths(
-                    left.as_posix() if left is not None else None,
-                    right.as_posix() if right is not None else None,
-                )
-            )
-            payload = build_notebook_file_payload_if_applicable(
-                renderer=renderer,
-                display_name=display_name,
-                change_type=file_meta["change_type"],
-                file_kind=file_kind,
-                context=context,
-            )
-            if payload is None:
-                payload = build_text_file_payload(
-                    renderer=renderer,
-                    display_name=display_name,
-                    change_type=file_meta["change_type"],
-                    file_kind=file_kind,
-                    context=context,
-                )
         except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,

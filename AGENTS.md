@@ -229,10 +229,12 @@ Names that commonly expose bad patterns require architectural scrutiny:
   code review.
 - Review affected implementation, adjacent callers, documentation, lifecycle,
   cancellation, errors, and user-visible behavior in proportion to the change.
-- When the user requires a zero-objection review, fix every accepted finding and
-  repeat review with a fresh reviewer, started with fresh context and given the
-  required input from `reviewer.md`, until the reviewer explicitly reports zero
-  remaining objections.
+- When the user requires a zero-objection review, the existing reviewer reviews
+  every accepted fix and continues reviewing until that reviewer explicitly
+  reports zero remaining objections. Start a fresh independent reviewer only
+  after the existing reviewer has no objections. Give each fresh reviewer fresh
+  context and the required input from `reviewer.md`, then repeat the same
+  sequential process until the required independent review is complete.
 
 ## Project commands and environment
 

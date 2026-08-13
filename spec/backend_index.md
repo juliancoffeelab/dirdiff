@@ -85,23 +85,48 @@ added/removed counts. A File records its absolute capture-directory path,
 tracked provenance, backend change classification, and an optional capture
 error. Separate non-null side rows record repository paths and content digests;
 optional relations record a lazy override and its complete source metadata when
-present. `db.room` contains these relations, immutable records, and transactions
-through `RoomStore`.
+present. Review persistence adds one placement row per Thread/Snapshot pair and
+append-only actions authored through one existing ordinary Profile. The
+shared internal Profile table contract lets Profile and Room persistence
+reference the same identity. Profile usernames are globally unique and select
+one existing local identity without credentials. Agent registration adds a one-to-one UUID binding
+without changing that Profile shape. `db.room` contains these relations,
+immutable records, and transactions through `RoomStore`.
 
 Its public interface is exported from `dirdiff.db`.
 
 ## `dirdiff.room_lord`
 
 Exposes `RoomLord` and `Room`. `RoomLord.corresponding_room` applies a Tab's law
-for manifest and returns the Room and current Snapshot key separately;
+for the shared manifest/agent-review capture and returns the Room and current
+Snapshot key separately;
 `RoomLord.find_room` recovers a Room from an existing Snapshot key for follow-up
 operations. Room methods require that key explicitly while providing metadata,
-manifested filepath iteration, and direct captured-file lookup. Capture and
+manifested filepath iteration, direct captured-file lookup, and the three
+Thread operations `threads`, `get_thread`, and `create_thread`. The agent
+boundary also uses explicit activity reads, an atomic review batch,
+persisted-Tab recapture, and read-only access to the already published Snapshot
+directory. Capture and
 publication stores remain private. The module calls `dirdiff.db` and does not
 issue SQL.
 
 The Room and Snapshot lifecycle is described in
 [`rooms.md`](rooms.md).
+
+## `dirdiff.review`
+
+Implements persistent review discussions. Its public `Thread` is bound to one
+exact `(snapshot_id, thread_id)` pair and performs Comment and lifecycle
+operations through that placement. It reconstructs current discussion state
+from authored actions and original code context as a bounded selected-side
+excerpt from immutable captured Files, independently of every rendering engine.
+
+The module privately derives missing placements only for a genuinely new
+Snapshot; selecting an equal retained Snapshot performs no derivation. Private
+source coordinates do not cross Room, HTTP, frontend, draft, or cache
+boundaries. Public matching outcomes are limited to `region_changed`,
+`region_not_found`, and `file_missing`. The review model is described in
+[`reviews.md`](reviews.md).
 
 ## `dirdiff.server`
 
@@ -109,7 +134,20 @@ Defines FastAPI routes and request-level rendering orchestration.
 
 It validates HTTP inputs and outputs, constructs the concrete workspace backend,
 calls `RoomLord` for manifests and follow-up Snapshot lookup, selects engines,
-routes notebooks, and assembles response payloads. `/api/manifest` receives the
+routes notebooks, and assembles response payloads. Snapshot-keyed browser review
+routes read one bounded Thread page and apply Profile-authored Thread and
+Comment actions directly to stored action sequences. Existing-Thread writes
+return only current state and the changed Comment.
+Agent review routes register an ordinary Profile with its agent UUID, capture a
+logical Tab into the same Snapshot identity, expose captured changed Files on
+disk, page open Threads, recapture the persisted Tab with File and authored
+Thread deltas, and submit one atomic batch of create, reply, or resolve actions.
+Browser review failures expose stable structured codes and messages.
+Profile routes explicitly select an existing exact username, create a unique
+username, or rename one Profile to another unique username.
+Unexpected HTTP failures are logged with their method, path, and traceback at
+the application boundary before the generic internal-error response is sent.
+`/api/manifest` receives the
 complete selected Tab parameters, shows that state, and provides Snapshot/File
 keys; it performs no Pull Request preparation. `/api/pull-request/prepare` is the
 sole HTTP boundary for Pull Request preparation.

@@ -1,11 +1,13 @@
-"""Relational persistence for Rooms, Snapshots, and captured Files.
+"""Relational persistence for Rooms, Snapshots, Files, and review discussions.
 
 `RoomStore` is the public database interface. A `SnapshotFile` row represents
 one affected File and records the absolute path of its capture directory.
 Separate left and right relations record whichever captured sides exist,
 without nullable side columns or a discriminator.
 
-This module owns SQLAlchemy tables, queries, and transactions only. It does not
+Review relations retain represented Thread/Snapshot pairs and append-only
+actions authored by an existing Profile. This
+module owns SQLAlchemy tables, queries, and transactions only. It does not
 apply Tab rules, call workspace backends, hash or load contents, manage
 directories or locks, derive manifest output, or change repository-mark
 deletion behavior. Those responsibilities remain outside `dirdiff.db`.
@@ -15,25 +17,39 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Engine,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
+    Integer,
     LargeBinary,
     String,
     UniqueConstraint,
+    case,
+    func,
     insert,
     select,
+    tuple_,
 )
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from dirdiff.db.base import TableBase
+from dirdiff.db.base import (
+    TableBase,
+    UserProfile,
+    UserProfileRecord,
+    profile_record,
+)
 
 __all__ = [
+    "ReviewActionRecord",
+    "ReviewSnapshotRecord",
+    "ReviewThreadRecord",
     "RoomIdentity",
     "RoomStore",
     "SnapshotFileLoadRecord",
@@ -170,6 +186,11 @@ class SnapshotFile(TableBase):
     __tablename__ = "snapshot_file"
     __table_args__ = (
         UniqueConstraint("path", name="uq_snapshot_file_path"),
+        UniqueConstraint(
+            "id",
+            "snapshot_id",
+            name="uq_snapshot_file_id_snapshot",
+        ),
         CheckConstraint(
             "length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*'",
             name="ck_snapshot_file_id",
@@ -312,6 +333,200 @@ class SnapshotFileLazyReasonContent(TableBase):
     content: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class ReviewThread(TableBase):
+    """Persist one immutable code placement for a Thread in one Snapshot."""
+
+    __tablename__ = "review_thread"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["snapshot_file_id", "snapshot_id"],
+            ["snapshot_file.id", "snapshot_file.snapshot_id"],
+            name="fk_review_thread_snapshot_file",
+        ),
+        CheckConstraint(
+            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            name="ck_review_thread_id",
+        ),
+        CheckConstraint(
+            "target_kind IS NULL OR target_kind IN ('range', 'file-start')",
+            name="ck_review_thread_target_kind",
+        ),
+        CheckConstraint(
+            "region_kind IS NULL OR region_kind IN ('ordinary', 'notebook-cell-source')",
+            name="ck_review_thread_region_kind",
+        ),
+        CheckConstraint(
+            "side IS NULL OR side IN ('left', 'right')",
+            name="ck_review_thread_side",
+        ),
+        CheckConstraint(
+            "outdated_reason IS NULL OR outdated_reason IN "
+            "('region_changed', 'region_not_found', 'file_missing')",
+            name="ck_review_thread_outdated_reason",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN region_kind = 'ordinary' THEN region_key IS NULL "
+            "WHEN region_kind = 'notebook-cell-source' THEN "
+            "region_key IS NOT NULL AND length(region_key) > 0 "
+            "WHEN region_kind IS NULL THEN region_key IS NULL "
+            "ELSE 0 END",
+            name="ck_review_thread_region",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN snapshot_file_id IS NULL THEN "
+            "target_kind IS NULL AND region_kind IS NULL AND "
+            "region_key IS NULL AND side IS NULL AND start_line IS NULL AND "
+            "end_line IS NULL AND outdated_reason IS NOT NULL AND "
+            "outdated_reason = 'file_missing' "
+            "WHEN target_kind = 'range' THEN "
+            "region_kind IS NOT NULL AND side IS NOT NULL AND "
+            "start_line IS NOT NULL AND start_line >= 1 AND "
+            "end_line IS NOT NULL AND end_line >= start_line AND "
+            "(outdated_reason IS NULL OR outdated_reason = 'region_changed') "
+            "WHEN target_kind = 'file-start' THEN "
+            "region_kind IS NULL AND region_key IS NULL AND side IS NOT NULL AND "
+            "start_line IS NULL AND end_line IS NULL AND "
+            "outdated_reason IS NOT NULL AND outdated_reason = 'region_not_found' "
+            "ELSE 0 END",
+            name="ck_review_thread_location",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN is_origin = 1 AND target_kind = 'range' THEN "
+            "private_locator IS NOT NULL AND "
+            "outdated_reason IS NULL "
+            "WHEN is_origin = 0 THEN "
+            "private_locator IS NULL "
+            "ELSE 0 END",
+            name="ck_review_thread_locator",
+        ),
+    )
+
+    thread_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("snapshot.id"), primary_key=True
+    )
+    snapshot_file_id: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True
+    )
+    is_origin: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    target_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    region_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    region_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    side: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    start_line: Mapped[Optional[int]] = mapped_column(nullable=True)
+    end_line: Mapped[Optional[int]] = mapped_column(nullable=True)
+    outdated_reason: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    private_locator: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary, nullable=True
+    )
+
+
+Index(
+    "uq_review_thread_origin",
+    ReviewThread.thread_id,
+    unique=True,
+    sqlite_where=ReviewThread.is_origin.is_(True),
+)
+Index("ix_review_thread_snapshot", ReviewThread.snapshot_id)
+
+
+class ReviewAction(TableBase):
+    """Persist one authored operation in global Room activity order."""
+
+    __tablename__ = "review_action"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["thread_id", "snapshot_id"],
+            ["review_thread.thread_id", "review_thread.snapshot_id"],
+            name="fk_review_action_thread",
+        ),
+        UniqueConstraint("activity_id", name="uq_review_action_activity"),
+        UniqueConstraint(
+            "thread_id",
+            "sequence",
+            name="uq_review_action_sequence",
+        ),
+        CheckConstraint(
+            "length(operation_id) = 32 AND operation_id NOT GLOB '*[^0-9a-f]*'",
+            name="ck_review_action_operation_id",
+        ),
+        CheckConstraint(
+            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            name="ck_review_action_thread_id",
+        ),
+        CheckConstraint(
+            "snapshot_id IS NOT NULL AND length(snapshot_id) = 32 AND "
+            "snapshot_id NOT GLOB '*[^0-9a-f]*'",
+            name="ck_review_action_snapshot_id",
+        ),
+        CheckConstraint(
+            "profile_id > 0",
+            name="ck_review_action_profile_id",
+        ),
+        CheckConstraint(
+            "comment_id IS NULL OR "
+            "(length(comment_id) = 32 AND comment_id NOT GLOB '*[^0-9a-f]*')",
+            name="ck_review_action_comment_id",
+        ),
+        CheckConstraint(
+            "sequence >= 0 AND "
+            "(expected_revision IS NULL OR expected_revision >= 0)",
+            name="ck_review_action_revisions",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN kind = 'comment-created' THEN "
+            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
+            "comment_id IS NOT NULL AND expected_revision IS NULL AND "
+            "body IS NOT NULL AND length(body) > 0 "
+            "WHEN kind = 'comment-edited' THEN "
+            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
+            "comment_id IS NOT NULL AND expected_revision IS NOT NULL AND "
+            "body IS NOT NULL AND length(body) > 0 "
+            "WHEN kind = 'comment-deleted' THEN "
+            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
+            "comment_id IS NOT NULL AND expected_revision IS NOT NULL AND "
+            "body IS NULL "
+            "WHEN kind IN ('thread-resolved', 'thread-reopened', 'thread-deleted') "
+            "THEN thread_id IS NOT NULL AND sequence IS NOT NULL AND "
+            "comment_id IS NULL AND expected_revision IS NOT NULL AND body IS NULL "
+            "ELSE 0 END",
+            name="ck_review_action_variant",
+        ),
+        CheckConstraint(
+            "length(created_at) > 0",
+            name="ck_review_action_created_at",
+        ),
+    )
+
+    operation_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    activity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    snapshot_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    sequence: Mapped[int] = mapped_column(nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=False
+    )
+    comment_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    expected_revision: Mapped[Optional[int]] = mapped_column(nullable=True)
+    body: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+Index(
+    "uq_review_action_comment_created",
+    ReviewAction.comment_id,
+    unique=True,
+    sqlite_where=ReviewAction.kind == "comment-created",
+)
+
+
 @dataclass(frozen=True)
 class RoomIdentity:
     """Database address produced after a Tab law has selected one Room.
@@ -432,12 +647,83 @@ class SnapshotFileLoadRecord:
     """Explicit loading override for this File, when one was captured."""
 
 
+@dataclass(frozen=True)
+class ReviewThreadRecord:
+    """Immutable placement facts for one Thread and Snapshot pair.
+
+    A missing `snapshot_file_id` is valid only for `file_missing`.  Private
+    locator fields occur only on a text Thread's unique origin record.
+    """
+
+    thread_id: str
+    snapshot_id: str
+    snapshot_file_id: Optional[str]
+    is_origin: bool
+    target_kind: Optional[Literal["range", "file-start"]]
+    region_kind: Optional[Literal["ordinary", "notebook-cell-source"]]
+    region_key: Optional[str]
+    side: Optional[Literal["left", "right"]]
+    start_line: Optional[int]
+    end_line: Optional[int]
+    outdated_reason: Optional[
+        Literal["region_changed", "region_not_found", "file_missing"]
+    ]
+    private_locator: Optional[bytes]
+
+
+@dataclass(frozen=True)
+class ReviewActionRecord:
+    """One immutable authored operation in a live Thread discussion."""
+
+    operation_id: str
+    thread_id: str
+    snapshot_id: str
+    sequence: int
+    kind: Literal[
+        "comment-created",
+        "comment-edited",
+        "comment-deleted",
+        "thread-resolved",
+        "thread-reopened",
+        "thread-deleted",
+    ]
+    profile_id: int
+    comment_id: Optional[str]
+    expected_revision: Optional[int]
+    body: Optional[str]
+    created_at: str
+    activity_id: Optional[int] = None
+    """Global Room order after persistence; `None` only before insertion."""
+
+    def __post_init__(self) -> None:
+        """Require one valid relational Profile identity."""
+        assert self.profile_id > 0
+
+
+@dataclass(frozen=True)
+class ReviewSnapshotRecord:
+    """Bulk persistence result for all Threads visible in one Snapshot.
+
+    `threads` contains exactly one selected placement per discussion. `origins`
+    contains the unique origin placements for those discussions, while actions,
+    Profiles contain every fact needed to fold their live state.
+    """
+
+    threads: tuple[ReviewThreadRecord, ...]
+    origins: tuple[ReviewThreadRecord, ...]
+    actions: tuple[ReviewActionRecord, ...]
+    profiles: tuple[UserProfileRecord, ...]
+    total_threads: int
+    """Number of placements before page bounds are applied."""
+
+
 class RoomStore:
     """Provide the complete relational interface for Room persistence.
 
     Each operation opens a short-lived SQLAlchemy session. The store publishes
     complete relational state transactionally but never touches captured files,
-    applies correspondence rules, or performs rendering.
+    applies correspondence rules, folds discussion actions, interprets private
+    source coordinates, or performs rendering.
     """
 
     def __init__(self, engine: Engine) -> None:
@@ -447,6 +733,152 @@ class RoomStore:
         store performs no query and creates no tables.
         """
         self.engine = engine
+
+    @staticmethod
+    def _review_thread_values(record: ReviewThreadRecord) -> dict[str, object]:
+        """Translate one immutable Thread placement into insert values."""
+        return {
+            "thread_id": record.thread_id,
+            "snapshot_id": record.snapshot_id,
+            "snapshot_file_id": record.snapshot_file_id,
+            "is_origin": record.is_origin,
+            "target_kind": record.target_kind,
+            "region_kind": record.region_kind,
+            "region_key": record.region_key,
+            "side": record.side,
+            "start_line": record.start_line,
+            "end_line": record.end_line,
+            "outdated_reason": record.outdated_reason,
+            "private_locator": record.private_locator,
+        }
+
+    @staticmethod
+    def _review_action_values(record: ReviewActionRecord) -> dict[str, object]:
+        """Translate one immutable authored action into insert values."""
+        values: dict[str, object] = {
+            "operation_id": record.operation_id,
+            "thread_id": record.thread_id,
+            "snapshot_id": record.snapshot_id,
+            "sequence": record.sequence,
+            "kind": record.kind,
+            "profile_id": record.profile_id,
+            "comment_id": record.comment_id,
+            "expected_revision": record.expected_revision,
+            "body": record.body,
+            "created_at": record.created_at,
+        }
+        if record.activity_id is not None:
+            values["activity_id"] = record.activity_id
+        return values
+
+    @staticmethod
+    def _next_review_activity_id(session: Session) -> int:
+        """Return the next durable authored-action order in this database."""
+        latest = session.execute(
+            select(func.max(ReviewAction.activity_id))
+        ).scalar_one()
+        return 1 if latest is None else latest + 1
+
+    @staticmethod
+    def _thread_record(row: Row[Any]) -> ReviewThreadRecord:
+        """Validate one selected database row as a Thread placement record."""
+        target_kind_value = row.target_kind
+        match target_kind_value:
+            case "file" | "range" | "file-start" | None:
+                target_kind = target_kind_value
+            case _:
+                raise AssertionError(
+                    f"invalid persisted review target kind: {target_kind_value!r}"
+                )
+        region_kind_value = row.region_kind
+        match region_kind_value:
+            case "ordinary" | "notebook-cell-source" | None:
+                region_kind = region_kind_value
+            case _:
+                raise AssertionError(
+                    f"invalid persisted review region kind: {region_kind_value!r}"
+                )
+        side_value = row.side
+        match side_value:
+            case "left" | "right" | None:
+                side = side_value
+            case _:
+                raise AssertionError(
+                    f"invalid persisted review side: {side_value!r}"
+                )
+        reason_value = row.outdated_reason
+        match reason_value:
+            case "region_changed" | "region_not_found" | "file_missing" | None:
+                outdated_reason = reason_value
+            case _:
+                raise AssertionError(
+                    f"invalid persisted outdated reason: {reason_value!r}"
+                )
+        return ReviewThreadRecord(
+            thread_id=row.thread_id,
+            snapshot_id=row.snapshot_id,
+            snapshot_file_id=row.snapshot_file_id,
+            is_origin=row.is_origin,
+            target_kind=target_kind,
+            region_kind=region_kind,
+            region_key=row.region_key,
+            side=side,
+            start_line=row.start_line,
+            end_line=row.end_line,
+            outdated_reason=outdated_reason,
+            private_locator=row.private_locator,
+        )
+
+    @staticmethod
+    def _action_record(row: Row[Any]) -> ReviewActionRecord:
+        """Validate one selected database row as an authored action record."""
+        assert row.thread_id is not None
+        assert row.sequence is not None
+        kind_value = row.kind
+        match kind_value:
+            case (
+                "comment-created"
+                | "comment-edited"
+                | "comment-deleted"
+                | "thread-resolved"
+                | "thread-reopened"
+                | "thread-deleted"
+            ):
+                kind = kind_value
+            case _:
+                raise AssertionError(
+                    f"invalid persisted review action kind: {kind_value!r}"
+                )
+        return ReviewActionRecord(
+            operation_id=row.operation_id,
+            thread_id=row.thread_id,
+            snapshot_id=row.snapshot_id,
+            sequence=row.sequence,
+            kind=kind,
+            profile_id=row.profile_id,
+            comment_id=row.comment_id,
+            expected_revision=row.expected_revision,
+            body=row.body,
+            created_at=row.created_at,
+            activity_id=row.activity_id,
+        )
+
+    def review_profile(self, profile_id: int) -> Optional[UserProfileRecord]:
+        """Return one current Profile identity, or `None` when absent.
+
+        Review writes use this boundary to reject a missing browser author
+        before attempting an action whose foreign key could not be satisfied.
+        """
+        with Session(self.engine) as session:
+            row = session.execute(
+                select(
+                    UserProfile.id,
+                    UserProfile.username,
+                ).where(UserProfile.id == profile_id)
+            ).one_or_none()
+        if row is None:
+            return None
+        return profile_record(row.id, row.username)
 
     def room_identity(self, snapshot_id: str) -> Optional[RoomIdentity]:
         """Return the complete Room identity containing one Snapshot key.
@@ -544,11 +976,14 @@ class RoomStore:
         snapshot: SnapshotRecord,
         *,
         lazy_reasons: dict[str, tuple[str, Optional[str]]],
+        review_threads: tuple[ReviewThreadRecord, ...],
     ) -> None:
-        """Commit one complete Snapshot and its separate lazy-reason rows.
+        """Commit one complete Snapshot and every dependent immutable row.
 
         `lazy_reasons` maps Snapshot File ids to the parsed reason and complete
-        metadata content. Every key must identify a File in `snapshot`.
+        metadata content. Every review placement must address this Snapshot and
+        may reference only one of its Files. The one transaction makes the
+        complete Snapshot universe visible at once.
         """
         assert identity.tab in {
             "head",
@@ -659,6 +1094,17 @@ class RoomStore:
             assert (identity.tab == "preset") == (content is not None), (
                 "only preset lazy reasons carry complete metadata content"
             )
+        for thread in review_threads:
+            assert thread.snapshot_id == snapshot.id, (
+                "published review Thread must address the new Snapshot"
+            )
+            assert not thread.is_origin, (
+                "a new Snapshot cannot contain an existing Thread origin"
+            )
+            assert (
+                thread.snapshot_file_id is None
+                or thread.snapshot_file_id in file_ids
+            ), "published review Thread references a File outside its Snapshot"
 
         mark_clause = (
             Room.mark_id.is_(None)
@@ -756,6 +1202,11 @@ class RoomStore:
                 session.execute(
                     insert(SnapshotFileLazyReasonContent),
                     lazy_reason_content_rows,
+                )
+            if review_threads != ():
+                session.execute(
+                    insert(ReviewThread),
+                    [self._review_thread_values(row) for row in review_threads],
                 )
 
     def snapshot(
@@ -1014,3 +1465,471 @@ class RoomStore:
             ),
             lazy_reason=row.lazy_reason,
         )
+
+    def review_snapshot(
+        self,
+        identity: RoomIdentity,
+        snapshot_id: str,
+        offset: int = 0,
+        limit: Optional[int] = None,
+        state: Literal["all", "open"] = "all",
+    ) -> Optional[ReviewSnapshotRecord]:
+        """Bulk-load every discussion placed in one exact Snapshot.
+
+        `None` means the Snapshot is absent or belongs to another Room. Threads
+        from other temporal slices are intentionally absent.
+        """
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            room_id = session.execute(
+                select(Snapshot.room_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .where(
+                    Snapshot.id == snapshot_id,
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    mark_clause,
+                )
+            ).scalar_one_or_none()
+            if room_id is None:
+                return None
+            last_lifecycle = (
+                select(ReviewAction.kind)
+                .where(
+                    ReviewAction.thread_id == ReviewThread.thread_id,
+                    ReviewAction.kind.in_(
+                        (
+                            "thread-resolved",
+                            "thread-reopened",
+                            "thread-deleted",
+                        )
+                    ),
+                )
+                .order_by(ReviewAction.sequence.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            state_rank = case(
+                (last_lifecycle == "thread-deleted", 2),
+                (last_lifecycle == "thread-resolved", 1),
+                else_=0,
+            )
+            first_activity = (
+                select(ReviewAction.activity_id)
+                .where(
+                    ReviewAction.thread_id == ReviewThread.thread_id,
+                    ReviewAction.sequence == 0,
+                )
+                .scalar_subquery()
+            )
+            selected_where = [ReviewThread.snapshot_id == snapshot_id]
+            if state == "open":
+                selected_where.append(state_rank == 0)
+            else:
+                assert state == "all"
+            total_threads = session.execute(
+                select(func.count())
+                .select_from(ReviewThread)
+                .where(*selected_where)
+            ).scalar_one()
+            selected_query = (
+                select(*ReviewThread.__table__.c)
+                .where(*selected_where)
+                .order_by(state_rank, first_activity, ReviewThread.thread_id)
+                .offset(offset)
+            )
+            if limit is not None:
+                selected_query = selected_query.limit(limit)
+            selected_rows = session.execute(selected_query).all()
+            thread_ids = [row.thread_id for row in selected_rows]
+            if thread_ids == []:
+                return ReviewSnapshotRecord((), (), (), (), total_threads)
+            origin_rows = session.execute(
+                select(*ReviewThread.__table__.c).where(
+                    ReviewThread.thread_id.in_(thread_ids),
+                    ReviewThread.is_origin.is_(True),
+                )
+            ).all()
+            assert {row.thread_id for row in origin_rows} == set(thread_ids), (
+                "Snapshot review placement exists without a Thread origin"
+            )
+            action_rows = session.execute(
+                select(*ReviewAction.__table__.c)
+                .where(ReviewAction.thread_id.in_(thread_ids))
+                .order_by(ReviewAction.thread_id, ReviewAction.sequence)
+            ).all()
+            profile_ids = {row.profile_id for row in action_rows}
+            profile_rows = session.execute(
+                select(
+                    UserProfile.id,
+                    UserProfile.username,
+                ).where(UserProfile.id.in_(profile_ids))
+            ).all()
+        profiles = [
+            profile_record(row.id, row.username) for row in profile_rows
+        ]
+        assert {profile.id for profile in profiles} == profile_ids, (
+            "review action references a missing Profile"
+        )
+        return ReviewSnapshotRecord(
+            threads=tuple(self._thread_record(row) for row in selected_rows),
+            origins=tuple(self._thread_record(row) for row in origin_rows),
+            actions=tuple(self._action_record(row) for row in action_rows),
+            profiles=tuple(profiles),
+            total_threads=total_threads,
+        )
+
+    def review_thread(
+        self,
+        identity: RoomIdentity,
+        snapshot_id: str,
+        thread_id: str,
+    ) -> Optional[ReviewSnapshotRecord]:
+        """Load one discussion at one exact Snapshot without bulk hydration.
+
+        `None` means the Snapshot is absent or belongs to another Room. An empty
+        record means that Snapshot contains no such Thread. A present result
+        contains exactly its selected placement, unique origin, complete action
+        sequence, and referenced Profile authors.
+        """
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            room_id = session.execute(
+                select(Snapshot.room_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .where(
+                    Snapshot.id == snapshot_id,
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    mark_clause,
+                )
+            ).scalar_one_or_none()
+            if room_id is None:
+                return None
+            selected_row = session.execute(
+                select(*ReviewThread.__table__.c).where(
+                    ReviewThread.snapshot_id == snapshot_id,
+                    ReviewThread.thread_id == thread_id,
+                )
+            ).one_or_none()
+            origin_row = session.execute(
+                select(*ReviewThread.__table__.c)
+                .join(Snapshot, Snapshot.id == ReviewThread.snapshot_id)
+                .where(
+                    Snapshot.room_id == room_id,
+                    ReviewThread.thread_id == thread_id,
+                    ReviewThread.is_origin.is_(True),
+                )
+            ).one_or_none()
+            if origin_row is None:
+                assert selected_row is None, (
+                    "Snapshot placement exists without a Room Thread origin"
+                )
+                return ReviewSnapshotRecord((), (), (), (), 0)
+            if selected_row is None:
+                return ReviewSnapshotRecord((), (), (), (), 0)
+            action_rows = session.execute(
+                select(*ReviewAction.__table__.c)
+                .where(ReviewAction.thread_id == thread_id)
+                .order_by(ReviewAction.sequence)
+            ).all()
+            assert action_rows != [], "review Thread has no creation action"
+            profile_ids = {row.profile_id for row in action_rows}
+            profile_rows = session.execute(
+                select(
+                    UserProfile.id,
+                    UserProfile.username,
+                ).where(UserProfile.id.in_(profile_ids))
+            ).all()
+        profiles = tuple(
+            profile_record(row.id, row.username) for row in profile_rows
+        )
+        assert {profile.id for profile in profiles} == profile_ids, (
+            "review action references a missing Profile"
+        )
+        return ReviewSnapshotRecord(
+            threads=(self._thread_record(selected_row),),
+            origins=(self._thread_record(origin_row),),
+            actions=tuple(self._action_record(row) for row in action_rows),
+            profiles=profiles,
+            total_threads=1,
+        )
+
+    def review_actions(
+        self,
+        snapshot_id: str,
+        thread_id: str,
+    ) -> Optional[
+        tuple[tuple[ReviewActionRecord, ...], tuple[UserProfileRecord, ...]]
+    ]:
+        """Load authoritative actions and authors for one placed Thread.
+
+        This write-validation read deliberately excludes Snapshots, Files, and
+        placement rendering. `None` means the exact Thread/Snapshot pair does
+        not exist.
+        """
+        with Session(self.engine) as session:
+            placed = session.execute(
+                select(ReviewThread.thread_id).where(
+                    ReviewThread.snapshot_id == snapshot_id,
+                    ReviewThread.thread_id == thread_id,
+                )
+            ).scalar_one_or_none()
+            if placed is None:
+                return None
+            action_rows = session.execute(
+                select(*ReviewAction.__table__.c)
+                .where(ReviewAction.thread_id == thread_id)
+                .order_by(ReviewAction.sequence)
+            ).all()
+            assert action_rows != [], "review Thread has no creation action"
+            profile_ids = {row.profile_id for row in action_rows}
+            profile_rows = session.execute(
+                select(UserProfile.id, UserProfile.username).where(
+                    UserProfile.id.in_(profile_ids)
+                )
+            ).all()
+        profiles = tuple(
+            profile_record(row.id, row.username) for row in profile_rows
+        )
+        assert {profile.id for profile in profiles} == profile_ids, (
+            "review action references a missing Profile"
+        )
+        return (
+            tuple(self._action_record(row) for row in action_rows),
+            profiles,
+        )
+
+    def review_origins_missing(
+        self,
+        identity: RoomIdentity,
+        target_snapshot_id: str,
+    ) -> tuple[ReviewThreadRecord, ...]:
+        """Return Room Thread origins without a target-Snapshot placement."""
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(*ReviewThread.__table__.c)
+                .join(Snapshot, Snapshot.id == ReviewThread.snapshot_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .where(
+                    ReviewThread.is_origin.is_(True),
+                    ReviewThread.thread_id.not_in(
+                        select(ReviewThread.thread_id).where(
+                            ReviewThread.snapshot_id == target_snapshot_id
+                        )
+                    ),
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    mark_clause,
+                )
+            ).all()
+        return tuple(self._thread_record(row) for row in rows)
+
+    def insert_review_threads(
+        self,
+        rows: tuple[ReviewThreadRecord, ...],
+    ) -> None:
+        """Insert missing immutable placements and validate existing pairs.
+
+        The caller holds the shared Room lock. Existing equal records make the
+        operation idempotent; an existing different record is an invariant
+        violation because placements are immutable.
+        """
+        if rows == ():
+            return
+        pairs = [(row.thread_id, row.snapshot_id) for row in rows]
+        assert len(pairs) == len(set(pairs)), (
+            "duplicate review Thread pair supplied for insertion"
+        )
+        with Session(self.engine) as session, session.begin():
+            persisted_rows = session.execute(
+                select(*ReviewThread.__table__.c).where(
+                    tuple_(
+                        ReviewThread.thread_id,
+                        ReviewThread.snapshot_id,
+                    ).in_(pairs)
+                )
+            ).all()
+            persisted = {
+                (row.thread_id, row.snapshot_id): self._thread_record(row)
+                for row in persisted_rows
+            }
+            additions = []
+            for record in rows:
+                previous = persisted.get((record.thread_id, record.snapshot_id))
+                if previous is None:
+                    additions.append(self._review_thread_values(record))
+                else:
+                    assert previous == record, (
+                        "immutable review Thread placement changed"
+                    )
+            if additions != []:
+                session.execute(insert(ReviewThread), additions)
+
+    def create_review_thread(
+        self,
+        rows: tuple[ReviewThreadRecord, ...],
+        first_action: ReviewActionRecord,
+    ) -> None:
+        """Atomically create one discussion in its origin Snapshot."""
+        assert rows != (), "Thread creation requires at least its origin row"
+        assert sum(1 for row in rows if row.is_origin) == 1, (
+            "Thread creation requires exactly one origin row"
+        )
+        assert {row.thread_id for row in rows} == {first_action.thread_id}, (
+            "Thread creation rows and first action must share one Thread id"
+        )
+        assert first_action.kind == "comment-created"
+        assert first_action.sequence == 0
+        assert first_action.activity_id is None
+        with Session(self.engine) as session, session.begin():
+            session.execute(
+                insert(ReviewThread),
+                [self._review_thread_values(row) for row in rows],
+            )
+            session.execute(
+                insert(ReviewAction).values(
+                    **self._review_action_values(first_action),
+                    activity_id=self._next_review_activity_id(session),
+                )
+            )
+
+    def apply_review_batch(
+        self,
+        thread_rows: tuple[ReviewThreadRecord, ...],
+        actions: tuple[ReviewActionRecord, ...],
+    ) -> None:
+        """Insert prevalidated Thread placements and actions atomically.
+
+        The caller holds the Room write lock and supplies actions in authored
+        order. Placement rows belong only to Threads created by this batch;
+        actions may address those new Threads or existing Snapshot-bound
+        Threads.
+        """
+        assert actions != (), "review batch must contain at least one action"
+        pairs = [(row.thread_id, row.snapshot_id) for row in thread_rows]
+        assert len(pairs) == len(set(pairs)), (
+            "review batch contains duplicate Thread placements"
+        )
+        with Session(self.engine) as session, session.begin():
+            if thread_rows != ():
+                session.execute(
+                    insert(ReviewThread),
+                    [self._review_thread_values(row) for row in thread_rows],
+                )
+            next_activity_id = self._next_review_activity_id(session)
+            for offset, action in enumerate(actions):
+                assert action.activity_id is None, (
+                    "new review action must not supply activity order"
+                )
+                session.execute(
+                    insert(ReviewAction).values(
+                        **self._review_action_values(action),
+                        activity_id=next_activity_id + offset,
+                    )
+                )
+
+    def review_activity_boundary(self, identity: RoomIdentity) -> int:
+        """Return the greatest authored activity id currently in one Room."""
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            value = session.execute(
+                select(func.max(ReviewAction.activity_id))
+                .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .where(
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    mark_clause,
+                )
+            ).scalar_one()
+        return 0 if value is None else value
+
+    def review_actions_after(
+        self,
+        identity: RoomIdentity,
+        activity_id: int,
+        limit: int,
+    ) -> tuple[tuple[ReviewActionRecord, ...], bool]:
+        """Return one bounded ordered page of later actions in one Room."""
+        assert activity_id >= 0, "review activity boundary must be nonnegative"
+        assert limit > 0, "review activity limit must be positive"
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(*ReviewAction.__table__.c)
+                .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .where(
+                    ReviewAction.activity_id > activity_id,
+                    ReviewAction.kind.in_(
+                        (
+                            "comment-created",
+                            "comment-edited",
+                            "comment-deleted",
+                            "thread-resolved",
+                            "thread-reopened",
+                            "thread-deleted",
+                        )
+                    ),
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    mark_clause,
+                )
+                .order_by(ReviewAction.activity_id)
+                .limit(limit + 1)
+            ).all()
+        return (
+            tuple(self._action_record(row) for row in rows[:limit]),
+            len(rows) > limit,
+        )
+
+    def review_thread_for_comment(
+        self, snapshot_id: str, comment_id: str
+    ) -> Optional[str]:
+        """Return the placed Thread containing one created Comment."""
+        with Session(self.engine) as session:
+            return session.execute(
+                select(ReviewAction.thread_id)
+                .join(
+                    ReviewThread,
+                    ReviewThread.thread_id == ReviewAction.thread_id,
+                )
+                .where(
+                    ReviewThread.snapshot_id == snapshot_id,
+                    ReviewAction.comment_id == comment_id,
+                    ReviewAction.kind == "comment-created",
+                )
+            ).scalar_one_or_none()
+
+    def append_review_action(self, record: ReviewActionRecord) -> None:
+        """Append one already-validated action to its Snapshot-bound Thread."""
+        assert record.activity_id is None
+        with Session(self.engine) as session, session.begin():
+            session.execute(
+                insert(ReviewAction).values(
+                    **self._review_action_values(record),
+                    activity_id=self._next_review_activity_id(session),
+                )
+            )

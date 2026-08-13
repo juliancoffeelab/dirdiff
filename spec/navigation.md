@@ -227,12 +227,13 @@ Hotkeys are attached to the mounted ChangeSet shell:
 | `p` | Top of page |
 | `t` | Toggle FileTree |
 | `i` | Toggle inline/split view |
+| `m` | Toggle review History |
 | `r` | Reload the ChangeSet snapshot |
 | `d` | Toggle DebugHud |
 | `h` | Toggle HelpModal |
 
-Ctrl, Meta, and Alt combinations are ignored. Hunk and page hotkeys are ignored
-while editing an input, textarea, select, or content-editable element.
+Ctrl, Meta, and Alt combinations are ignored. ChangeSet hotkeys are ignored while
+editing an input, textarea, select, or content-editable element.
 
 FileTree and DebugHud visibility are workspace-global, so switching Tabs or
 presets does not reset them. `HintHud` contains Next, Previous, and Help.
@@ -366,6 +367,21 @@ Unexpected structural failures remain exceptions and are handled by the
 snapshot’s nearest error boundary. They are not converted into missing
 coordinates or file failures.
 
+## History File jumps
+
+History is static with respect to the main File lane. It never follows scroll,
+changes selection, ordering, open state, or content in response to scrolling,
+and never calls scroll-follow. In Split view only, one coalesced geometry
+observer hit-tests the current sticky File header so the fixed History host
+remains directly beneath it; scrolling inside History is explicitly ignored.
+A located Thread exposes an explicit
+`View` action in its header and beside every individual Comment. ChangeSet maps
+the Thread's exact nullable File pair to one manifest index and sends ordinary
+`kind: "file"` navigation. The controls are disabled while the destination is a
+Husk, matching FileTree's caller contract without loading it. The action follows
+FileTree's layout preparation and final scroll behavior, and never selects a
+hunk or navigates to the Thread's line. Unlocated Threads have no `View` action.
+
 ## Navigation invariants
 
 - File and hunk indexes in the mounted DOM are the authoritative selected-hunk
@@ -386,3 +402,5 @@ coordinates or file failures.
   restoration cancellation; the lane owns loading; Navigation owns the final
   scroll.
 - Line pins never call `selectHunk()`.
+- History `View` is enabled only for a non-Husk destination, performs File
+  navigation only, and never calls `selectHunk()` or `scrollFollow()`.

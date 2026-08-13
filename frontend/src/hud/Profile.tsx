@@ -46,8 +46,9 @@ export type StoredProfile = z.infer<typeof StoredProfileSchema>;
  * Defines the complete inputs and profile-selection operations supplied by App.
  *
  * App provides the selected identity or explicit null. Successful mutations and
- * forgetting return complete selection changes; Profile performs persistence
- * before notifying App and never exposes partial username input.
+ * login, creation, rename, and logout return complete selection changes;
+ * Profile performs persistence before notifying App and never exposes partial
+ * username input.
  */
 type ProfileProps = {
   selected: StoredProfile | null;
@@ -65,7 +66,9 @@ type ProfileProps = {
 type ProfileUiState =
   | { view: "closed" }
   | { view: "menu" }
-  | { view: "username"; input: string }
+  | { view: "login"; input: string }
+  | { view: "create"; input: string }
+  | { view: "rename"; input: string }
   | { view: "preferences" };
 
 /**
@@ -117,9 +120,10 @@ export function loadStoredProfile(): StoredProfile | null {
 /**
  * Renders the profile trigger, menu, username workflow, and preferences dialog.
  *
- * The caller stores only selected identity. Profile stores all transient interaction state,
- * performs backend mutations, persists confirmed identity explicitly, and reports
- * complete selection changes only after successful backend responses.
+ * The caller stores only selected identity. Profile stores all transient
+ * interaction state, performs backend mutations, persists confirmed identity
+ * explicitly, and reports complete selection changes only after successful
+ * backend responses.
  */
 export function Profile(props: ProfileProps): JSX.Element {
   /**
@@ -139,6 +143,15 @@ export function Profile(props: ProfileProps): JSX.Element {
   let trigger!: HTMLButtonElement;
   const [ui, setUi] = createSignal<ProfileUiState>({ view: "closed" });
 
+  const loginProfile = createMutation(() => ({
+    ...api.profile.login(),
+    /** Persists and publishes the exact existing Profile selected by name. */
+    onSuccess(profile: UserProfile) {
+      storeProfile(profile);
+      props.onSelected(profile);
+      setUi({ view: "closed" });
+    },
+  }));
   const registerProfile = createMutation(() => ({
     ...api.profile.register(),
     /**
@@ -171,8 +184,8 @@ export function Profile(props: ProfileProps): JSX.Element {
   /**
    * Synchronizes the open profile-menu lifetime with document dismissal events.
    *
-   * The effect explicitly tracks only the UI view. Entering `menu` or `username`
-   * installs one listener pair; leaving either state, replacing the view, or
+   * The effect explicitly tracks only the UI view. Entering the menu or a
+   * username action installs one listener pair; leaving those states or
    * disposing Profile removes that pair before any later installation. The
    * preferences dialog handles Escape locally and is deliberately excluded.
    */
@@ -219,34 +232,45 @@ export function Profile(props: ProfileProps): JSX.Element {
   );
 
   /**
-   * Submits the current username input through the correct backend mutation.
-   *
-   * A missing selected profile registers a new identity; an existing identity is
-   * renamed by exact ID. Empty or invalid usernames remain backend-visible errors.
+   * Submits the explicit login, creation, or rename action selected by the user.
    */
   function submitUsername(): void {
     const state = ui();
-    if (state.view !== "username") {
+    if (
+      state.view !== "login" &&
+      state.view !== "create" &&
+      state.view !== "rename"
+    ) {
       throw new Error("Username submission requires the username editor.");
     }
-    const selected = props.selected;
-    if (selected === null) {
+    if (state.view === "login") {
+      loginProfile.mutate(state.input);
+    } else if (state.view === "create") {
       registerProfile.mutate(state.input);
     } else {
-      renameProfile.mutate({ profileId: selected.id, username: state.input });
+      const selected = props.selected;
+      if (selected === null) {
+        throw new Error("Profile rename requires a selected Profile.");
+      }
+      renameProfile.mutate({
+        profileId: selected.id,
+        username: state.input,
+      });
     }
   }
 
   /**
-   * Returns the active username mutation selected by profile presence.
-   *
-   * Registration and rename share presentation but retain separate backend
-   * contracts; callers may inspect their common pending and error state only.
+   * Returns the mutation for the explicit username action currently presented.
    */
   function activeProfileMutation():
+    | typeof loginProfile
     | typeof registerProfile
     | typeof renameProfile {
-    return props.selected === null ? registerProfile : renameProfile;
+    const state = ui();
+    if (state.view === "login") return loginProfile;
+    if (state.view === "create") return registerProfile;
+    if (state.view === "rename") return renameProfile;
+    throw new Error("Profile mutation requires a username action.");
   }
 
   /**
@@ -257,7 +281,11 @@ export function Profile(props: ProfileProps): JSX.Element {
    */
   function usernameInput(): string {
     const state = ui();
-    if (state.view !== "username") {
+    if (
+      state.view !== "login" &&
+      state.view !== "create" &&
+      state.view !== "rename"
+    ) {
       throw new Error("Username editor state changed unexpectedly.");
     }
     return state.input;
@@ -268,7 +296,7 @@ export function Profile(props: ProfileProps): JSX.Element {
       ref={root}
       class="profile-menu"
       data-open={
-        ui().view === "menu" || ui().view === "username" ? "true" : "false"
+        ui().view !== "closed" && ui().view !== "preferences" ? "true" : "false"
       }
     >
       <button
@@ -276,7 +304,7 @@ export function Profile(props: ProfileProps): JSX.Element {
         type="button"
         class="profile-trigger"
         aria-haspopup="menu"
-        aria-expanded={ui().view === "menu" || ui().view === "username"}
+        aria-expanded={ui().view !== "closed" && ui().view !== "preferences"}
         aria-label="Profile"
         title="Profile"
         onClick={() =>
@@ -285,7 +313,7 @@ export function Profile(props: ProfileProps): JSX.Element {
       >
         <CircleUserRound class="profile-trigger-icon" aria-hidden="true" />
       </button>
-      <Show when={ui().view === "menu" || ui().view === "username"}>
+      <Show when={ui().view !== "closed" && ui().view !== "preferences"}>
         <div class="profile-popover" role="menu" aria-label="Profile">
           <div class="profile-popover-header">
             <CircleUserRound class="profile-popover-icon" aria-hidden="true" />
@@ -296,23 +324,57 @@ export function Profile(props: ProfileProps): JSX.Element {
           </div>
           <div class="profile-popover-divider" />
           <Show
-            when={ui().view === "username"}
+            when={
+              ui().view === "login" ||
+              ui().view === "create" ||
+              ui().view === "rename"
+            }
             fallback={
               <>
-                <button
-                  type="button"
-                  class="profile-popover-option"
-                  role="menuitem"
-                  onClick={() =>
-                    setUi({
-                      view: "username",
-                      input: props.selected?.username ?? "",
-                    })
+                <Show
+                  when={props.selected !== null}
+                  fallback={
+                    <>
+                      <button
+                        type="button"
+                        class="profile-popover-option"
+                        role="menuitem"
+                        onClick={() => setUi({ view: "login", input: "" })}
+                      >
+                        Log in
+                      </button>
+                      <button
+                        type="button"
+                        class="profile-popover-option"
+                        role="menuitem"
+                        onClick={() => setUi({ view: "create", input: "" })}
+                      >
+                        Create profile
+                      </button>
+                    </>
                   }
                 >
-                  {props.selected === null ? "Log in" : "Edit username"}
-                </button>
-                <Show when={props.selected !== null}>
+                  <button
+                    type="button"
+                    class="profile-popover-option"
+                    role="menuitem"
+                    onClick={() => setUi({ view: "login", input: "" })}
+                  >
+                    Log in as another profile
+                  </button>
+                  <button
+                    type="button"
+                    class="profile-popover-option"
+                    role="menuitem"
+                    onClick={() =>
+                      setUi({
+                        view: "rename",
+                        input: props.selected?.username ?? "",
+                      })
+                    }
+                  >
+                    Edit username
+                  </button>
                   <button
                     type="button"
                     class="profile-popover-option"
@@ -326,13 +388,12 @@ export function Profile(props: ProfileProps): JSX.Element {
                     class="profile-popover-option"
                     role="menuitem"
                     onClick={() => {
-                      // Forgetting removes browser persistence, not backend data.
                       window.localStorage.removeItem(PROFILE_STORAGE_KEY);
                       props.onForgotten();
                       setUi({ view: "closed" });
                     }}
                   >
-                    Forget local profile
+                    Log out
                   </button>
                 </Show>
               </>
@@ -351,22 +412,32 @@ export function Profile(props: ProfileProps): JSX.Element {
                 <input
                   type="text"
                   value={usernameInput()}
-                  onInput={(event) =>
+                  onInput={(event) => {
+                    const state = ui();
+                    if (
+                      state.view !== "login" &&
+                      state.view !== "create" &&
+                      state.view !== "rename"
+                    ) {
+                      throw new Error(
+                        "Username input requires a username action.",
+                      );
+                    }
                     setUi({
-                      view: "username",
+                      view: state.view,
                       input: event.currentTarget.value,
-                    })
-                  }
+                    });
+                  }}
                   disabled={activeProfileMutation().isPending}
                 />
               </label>
               <Show when={activeProfileMutation().error} keyed>
                 {(error) => (
                   <ErrorPopover
-                    title="Failed to save profile"
+                    title="Profile action failed"
                     error={error}
                     onRetry={submitUsername}
-                    trigger={<span>Failed to save profile</span>}
+                    trigger={<span>Profile action failed</span>}
                     triggerClass="profile-form-error compact-error-trigger"
                     triggerLabel="Show profile error"
                   />
@@ -379,10 +450,12 @@ export function Profile(props: ProfileProps): JSX.Element {
                   disabled={activeProfileMutation().isPending}
                 >
                   {activeProfileMutation().isPending
-                    ? "Saving..."
-                    : props.selected === null
-                      ? "Create"
-                      : "Save"}
+                    ? "Working..."
+                    : ui().view === "login"
+                      ? "Log in"
+                      : ui().view === "create"
+                        ? "Create profile"
+                        : "Save"}
                 </button>
                 <button
                   type="button"

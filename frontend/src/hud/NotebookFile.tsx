@@ -8,7 +8,11 @@
  * outer file, or merge notebook regions into ordinary text-file identity.
  */
 import { For, Show, type JSX } from "solid-js";
-import type { NotebookCell, NotebookFileDiff } from "../api/api";
+import type {
+  NotebookCell,
+  NotebookFileDiff,
+  ReviewFilePair,
+} from "../api/api";
 import { assert } from "../utils";
 import type { DiffViewMode } from "./App";
 import { DiffGrid } from "./DiffGrid";
@@ -21,6 +25,7 @@ import type { LinePins } from "./linePins";
  * inputs are reactive client state and must not be copied into notebook state.
  */
 type NotebookFileProps = {
+  reviewFile: ReviewFilePair;
   fileIndex: number;
   backend_data: NotebookFileDiff;
   view: DiffViewMode;
@@ -35,6 +40,7 @@ type NotebookFileProps = {
  * The component does not fetch metadata/output details or invent region identity.
  */
 type NotebookCellProps = {
+  reviewFile: ReviewFilePair;
   fileIndex: number;
   fileDisplayName: string;
   cell: NotebookCell;
@@ -99,6 +105,7 @@ export function NotebookFile(props: NotebookFileProps): JSX.Element {
           <For each={props.backend_data.cells}>
             {(cell) => (
               <NotebookCellView
+                reviewFile={props.reviewFile}
                 fileIndex={props.fileIndex}
                 fileDisplayName={props.backend_data.display_name}
                 cell={cell}
@@ -168,6 +175,7 @@ function NotebookCellView(props: NotebookCellProps): JSX.Element {
       <section class="notebook-section">
         <p class="notebook-section-heading">Cell source</p>
         <DiffGrid
+          reviewFile={props.reviewFile}
           fileIndex={props.fileIndex}
           displayName={props.fileDisplayName}
           region={props.cell.cell_key}

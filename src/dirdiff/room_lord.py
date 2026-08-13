@@ -1,11 +1,14 @@
 """Expose Rooms while keeping Snapshot capture and persistence private.
 
-`RoomLord.corresponding_room` applies the active Tab's law for manifest and
-returns a `Room` plus the current Snapshot key. `RoomLord.find_room` recovers the
-containing Room from an existing key for follow-up operations. A Room exposes
-Snapshot metadata, repository-relative filepath pairs, and direct lookup of the
-absolute captured files under a caller-supplied Snapshot key; it never retains a
-selected key itself.
+`RoomLord.corresponding_room` applies the active Tab's law for an explicit
+capture and returns a `Room` plus the current Snapshot key.
+`RoomLord.find_room` recovers the containing Room from an existing key for
+follow-up operations. A Room contains Snapshots and Threads. It exposes
+Snapshot metadata, repository-relative filepath pairs, direct lookup of the
+absolute captured files, and `threads`, `get_thread`, and `create_thread` under
+a caller-supplied Snapshot key; it never retains a selected key itself. A bound
+Thread performs Comment and lifecycle operations and privately interprets its
+placement.
 
 The private store captures affected files, hashes their contents, publishes
 immutable directories, and delegates relational work to `RoomStore`. Neither
@@ -34,6 +37,7 @@ from dirdiff.backend import (
     WorkspaceBackendProtocol,
 )
 from dirdiff.db import (
+    ReviewActionRecord,
     RoomIdentity,
     RoomStore,
     SnapshotFileRecord,
@@ -42,12 +46,28 @@ from dirdiff.db import (
     SnapshotRecord,
 )
 from dirdiff.engines import DirdiffError
+from dirdiff.review import (
+    CreateThread,
+    ProfileAuthor,
+    ReviewBatchAction,
+    ReviewBatchResult,
+    ReviewError,
+    Thread,
+    ThreadUpdateView,
+    _append_review_action,
+    _apply_review_batch,
+    _create_thread,
+    _derive_room_threads,
+    _get_thread,
+    _thread_objects,
+)
 
 __all__ = [
     "FileMeta",
     "Room",
     "RoomLord",
     "SnapshotMeta",
+    "Thread",
 ]
 
 RoomTab = Literal[
@@ -92,25 +112,50 @@ class SnapshotMeta(TypedDict):
     removed_lines: Optional[int]
 
 
+class RoomCaptureContext(TypedDict):
+    """Expose only the persisted facts needed to continue one agent review.
+
+    Agent review supports repository-backed Tabs. The Mark identifies the
+    already registered workspace, while a Pull Request additionally exposes
+    its canonical URL so the HTTP boundary can prepare its current commits.
+    """
+
+    tab: Literal["head", "refs", "branch-review", "pull-request"]
+    mark_id: int
+    pull_request_url: Optional[str]
+
+
 class FileMeta(TypedDict):
     """Stable backend facts accompanying one captured filepath pair.
 
     The metadata preserves tracked provenance, Git/preset change
-    classification, and an explicit backend lazy override. It contains no
-    renderer output or per-File line counts.
+    classification, an explicit backend lazy override, and the exact capture
+    failure when publication could not retain the File contents. It contains
+    no renderer output or per-File line counts.
     """
 
     tracked: bool
     change_type: ChangeType
     lazy_reason_override: Optional[LazyReason]
+    capture_error: Optional[str]
+
+
+class SnapshotFileDelta(TypedDict):
+    """List captured File sides added, changed, and removed between Snapshots."""
+
+    added: tuple[Path, ...]
+    changed: tuple[Path, ...]
+    removed: tuple[Path, ...]
 
 
 class Room:
-    """Provide immutable file state for one correspondence-selected Room.
+    """Provide Snapshots and Threads for one correspondence-selected Room.
 
-    A Room can contain many Snapshots. `meta`, `manifested`, and `get` therefore
-    require the exact Snapshot key on every call. The class never stores a
-    selected Snapshot id or exposes its private publication store.
+    `meta`, `manifested`, `get`, `threads`, `get_thread`, and `create_thread`
+    require the exact Snapshot key on every call. Returned bound Threads perform
+    Comment and lifecycle operations and privately interpret their placements;
+    Room does neither. The class never stores a selected Snapshot id or exposes
+    its private publication store.
     """
 
     def __init__(
@@ -118,6 +163,8 @@ class Room:
         *,
         database: RoomStore,
         identity: RoomIdentity,
+        lock_path: Path,
+        thread_lock: Lock,
     ) -> None:
         """Create a Room over one correspondence identity.
 
@@ -127,6 +174,8 @@ class Room:
         """
         self._database = database
         self._identity = identity
+        self._lock_path = lock_path
+        self._thread_lock = thread_lock
 
     def meta(self, snapshot_id: UUID) -> SnapshotMeta:
         """Return retained Snapshot facts and the containing Room's Tab.
@@ -215,6 +264,7 @@ class Room:
                     "tracked": file.tracked,
                     "change_type": change_type,
                     "lazy_reason_override": lazy_reason,
+                    "capture_error": file.error,
                 },
             )
 
@@ -229,8 +279,8 @@ class Room:
         Input Paths are repository-relative. Returned Paths are absolute paths to
         the persisted files.
 
-        # Raises
-          - `DirdiffError` with the persisted reason for an errored file.
+        A captured File failure is returned in `FileMeta.capture_error`; callers
+        decide whether their boundary presents or classifies that exact reason.
         """
         if left is None and right is None:
             raise DirdiffError("left or right filepath is required.")
@@ -254,8 +304,6 @@ class Room:
         if loaded is None:
             raise DirdiffError("Snapshot manifest path is missing.")
         file = loaded.file
-        if file.error is not None:
-            raise DirdiffError(file.error)
         directory = Path(file.path)
         assert directory.is_absolute(), (
             f"persisted Snapshot File path is not absolute: {file.path!r}"
@@ -301,14 +349,225 @@ class Room:
                 "tracked": file.tracked,
                 "change_type": change_type,
                 "lazy_reason_override": lazy_reason,
+                "capture_error": file.error,
             },
+        )
+
+    def file_delta(
+        self, previous_snapshot_id: UUID, snapshot_id: UUID
+    ) -> SnapshotFileDelta:
+        """Compare persisted File-side hashes without rereading captured bytes."""
+        snapshots = []
+        for captured_id in (previous_snapshot_id, snapshot_id):
+            snapshot = self._database.snapshot(self._identity, captured_id.hex)
+            if snapshot is None:
+                raise DirdiffError(f"Unknown snapshot id: {captured_id.hex}")
+            snapshots.append(snapshot)
+
+        def sides(
+            snapshot: SnapshotRecord,
+        ) -> dict[tuple[str, str], tuple[Path, bytes]]:
+            """Index one retained Snapshot's present sides by stable path."""
+            indexed: dict[tuple[str, str], tuple[Path, bytes]] = {}
+            for file in snapshot.files:
+                for side, record in (
+                    ("left", file.left),
+                    ("right", file.right),
+                ):
+                    if record is not None:
+                        indexed[(side, record.repository_path)] = (
+                            Path(file.path) / side,
+                            record.content_hash,
+                        )
+            return indexed
+
+        previous = sides(snapshots[0])
+        current = sides(snapshots[1])
+        return {
+            "added": tuple(
+                sorted(
+                    current[key][0] for key in current.keys() - previous.keys()
+                )
+            ),
+            "changed": tuple(
+                sorted(
+                    current[key][0]
+                    for key in current.keys() & previous.keys()
+                    if current[key][1] != previous[key][1]
+                )
+            ),
+            "removed": tuple(
+                sorted(
+                    previous[key][0] for key in previous.keys() - current.keys()
+                )
+            ),
+        }
+
+    def _captured_paths(
+        self, snapshot_id: UUID
+    ) -> tuple[
+        tuple[Optional[Path], Optional[Path], Optional[Path], Optional[Path]],
+        ...,
+    ]:
+        """Return retained relative pairs and actual side paths without reads."""
+        snapshot = self._database.snapshot(self._identity, snapshot_id.hex)
+        if snapshot is None:
+            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        result = []
+        for file in snapshot.files:
+            directory = Path(file.path)
+            left = (
+                Path(file.left.repository_path)
+                if file.left is not None
+                else None
+            )
+            right = (
+                Path(file.right.repository_path)
+                if file.right is not None
+                else None
+            )
+            left_file = directory / "left" if file.left is not None else None
+            right_file = directory / "right" if file.right is not None else None
+            assert left_file is None or left_file.is_file()
+            assert right_file is None or right_file.is_file()
+            result.append((left, right, left_file, right_file))
+        return tuple(result)
+
+    def threads(
+        self,
+        snapshot_id: UUID,
+        *,
+        page: int,
+        limit: int,
+        state: Literal["all", "open"],
+    ) -> tuple[tuple[Thread, ...], int]:
+        """Return one bounded Thread page and its total placement count."""
+        assert page >= 1 and limit >= 1
+        return _thread_objects(
+            database=self._database,
+            identity=self._identity,
+            snapshot_id=snapshot_id,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+            offset=(page - 1) * limit,
+            limit=limit,
+            state=state,
+        )
+
+    def get_thread(self, snapshot_id: UUID, thread_id: UUID) -> Thread:
+        """Return one Thread bound to the exact Snapshot and Thread IDs."""
+        return _get_thread(
+            database=self._database,
+            identity=self._identity,
+            snapshot_id=snapshot_id,
+            thread_id=thread_id,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+        )
+
+    def _write_thread_action(
+        self,
+        snapshot_id: UUID,
+        thread_id: UUID,
+        operation_id: UUID,
+        author: ProfileAuthor,
+        kind: Literal[
+            "comment-created",
+            "comment-edited",
+            "comment-deleted",
+            "thread-resolved",
+            "thread-reopened",
+            "thread-deleted",
+        ],
+        comment_id: Optional[UUID],
+        body: Optional[str],
+    ) -> ThreadUpdateView:
+        """Append one HTTP action and return its bounded authoritative update."""
+        _, _, update = _append_review_action(
+            database=self._database,
+            snapshot_id=snapshot_id,
+            thread_id=thread_id,
+            operation_id=operation_id,
+            author=author,
+            kind=kind,
+            comment_id=comment_id,
+            body=body,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+        )
+        return update
+
+    def _thread_id_for_comment(
+        self, snapshot_id: UUID, comment_id: UUID
+    ) -> UUID:
+        """Return the placed Thread containing one exact Comment."""
+        thread_id = self._database.review_thread_for_comment(
+            snapshot_id.hex, comment_id.hex
+        )
+        if thread_id is None:
+            raise ReviewError(
+                "comment_not_found", f"Unknown Comment: {comment_id.hex}"
+            )
+        return UUID(hex=thread_id)
+
+    def create_thread(
+        self,
+        snapshot_id: UUID,
+        command: CreateThread,
+    ) -> Thread:
+        """Create one Thread in the exact Snapshot and return it bound."""
+        return _create_thread(
+            database=self._database,
+            identity=self._identity,
+            snapshot_id=snapshot_id,
+            command=command,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+        )
+
+    def _review_activity_boundary(self, snapshot_id: UUID) -> int:
+        """Return the current authored-review boundary for this Room.
+
+        The Snapshot key proves the caller is operating in this Room; activity
+        itself is shared by all placements of the same discussions.
+        """
+        self.meta(snapshot_id)
+        return self._database.review_activity_boundary(self._identity)
+
+    def _review_actions_after(
+        self,
+        snapshot_id: UUID,
+        activity_id: int,
+        limit: int,
+    ) -> tuple[tuple[ReviewActionRecord, ...], bool]:
+        """Return one bounded ordered page of later Thread changes."""
+        self.meta(snapshot_id)
+        return self._database.review_actions_after(
+            self._identity,
+            activity_id,
+            limit,
+        )
+
+    def _apply_review_batch(
+        self,
+        snapshot_id: UUID,
+        batch: tuple[ReviewBatchAction, ...],
+    ) -> tuple[ReviewBatchResult, ...]:
+        """Apply one validated agent batch in a single database transaction."""
+        return _apply_review_batch(
+            database=self._database,
+            identity=self._identity,
+            snapshot_id=snapshot_id,
+            batch=batch,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
         )
 
 
 class RoomLord:
     """Apply the active Tab's law of correspondence and return a Room.
 
-    `corresponding_room` applies the law for a manifest operation and returns
+    `corresponding_room` applies the law for one explicit capture and returns
     both the Room and the captured Snapshot key. `find_room` uses an existing
     Snapshot key to recover its Room for follow-up operations. Neither method
     exposes the private Snapshot store.
@@ -546,7 +805,12 @@ class RoomLord:
             right_label=right_label,
             show_untracked=show_untracked,
         )
-        return Room(database=self._database, identity=identity), snapshot_id
+        return Room(
+            database=self._database,
+            identity=identity,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+        ), snapshot_id
 
     def find_room(self, snapshot_id: UUID) -> Room:
         """Return the Room containing an existing Snapshot key.
@@ -568,7 +832,188 @@ class RoomLord:
             raise AssertionError(
                 f"invalid persisted Room Tab: {identity.tab!r}"
             )
-        return Room(database=self._database, identity=identity)
+        return Room(
+            database=self._database,
+            identity=identity,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+        )
+
+    def capture_context(self, snapshot_id: UUID) -> RoomCaptureContext:
+        """Return the repository context required to continue one Snapshot."""
+        identity = self._database.room_identity(snapshot_id.hex)
+        if identity is None:
+            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        if identity.mark_id is None or identity.tab == "preset":
+            raise DirdiffError("Agent review does not support preset Rooms.")
+        try:
+            correspondence = json.loads(identity.correspondence_key)
+        except (TypeError, ValueError) as exc:
+            raise AssertionError(
+                "invalid persisted Room correspondence"
+            ) from exc
+        match identity.tab:
+            case "head" | "refs" | "branch-review":
+                assert isinstance(correspondence, dict)
+                tab: Literal[
+                    "head", "refs", "branch-review", "pull-request"
+                ] = identity.tab
+                pull_request_url = None
+            case "pull-request":
+                tab = "pull-request"
+                assert isinstance(correspondence, str) and correspondence != ""
+                pull_request_url = correspondence
+            case _:
+                raise AssertionError(
+                    f"invalid persisted Room Tab: {identity.tab!r}"
+                )
+        return {
+            "tab": tab,
+            "mark_id": identity.mark_id,
+            "pull_request_url": pull_request_url,
+        }
+
+    def recapture(
+        self,
+        snapshot_id: UUID,
+        backend: WorkspaceBackendProtocol,
+        *,
+        pull_request_left: Optional[str] = None,
+        pull_request_right: Optional[str] = None,
+    ) -> tuple[Room, UUID]:
+        """Capture the persisted Tab context of one existing Snapshot.
+
+        The concrete backend comes from the HTTP boundary's active Mark. A Pull
+        Request continuation must supply the newly prepared complete commits;
+        other Tabs reject them. The new Snapshot remains in the exact Room.
+        """
+        identity = self._database.room_identity(snapshot_id.hex)
+        if identity is None:
+            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        if identity.mark_id is None or identity.tab == "preset":
+            raise DirdiffError("Agent review does not support preset Rooms.")
+        try:
+            correspondence = json.loads(identity.correspondence_key)
+        except (TypeError, ValueError) as exc:
+            raise AssertionError(
+                "invalid persisted Room correspondence"
+            ) from exc
+        assert isinstance(backend, GitBackend)
+        left_side: str
+        right_side: str
+
+        if identity.tab == "pull-request":
+            assert isinstance(correspondence, str) and correspondence != ""
+        else:
+            assert isinstance(correspondence, dict)
+
+        def persisted_branch(value: object) -> BranchSelection:
+            """Validate one structured branch stored in correspondence JSON."""
+            assert isinstance(value, dict)
+            source = value.get("source")
+            branch = value.get("branch")
+            assert isinstance(branch, str) and branch != ""
+            if source == "local":
+                return {"source": "local", "branch": branch}
+            assert source == "remote"
+            remote = value.get("remote")
+            assert isinstance(remote, str) and remote != ""
+            return {
+                "source": "remote",
+                "remote": remote,
+                "branch": branch,
+            }
+
+        if identity.tab == "head":
+            assert pull_request_left is None and pull_request_right is None
+            stored_commit = correspondence.get("commit")
+            assert isinstance(stored_commit, str) and stored_commit != ""
+            left_side = stored_commit
+            right_side = "worktree"
+            left_label = "HEAD"
+            right_label = "worktree"
+            show_untracked = True
+        elif identity.tab == "refs":
+            assert pull_request_left is None and pull_request_right is None
+            stored_left = correspondence.get("left")
+            stored_right = correspondence.get("right")
+            assert isinstance(stored_left, str) and stored_left != ""
+            assert isinstance(stored_right, str) and stored_right != ""
+            left_side = stored_left
+            right_side = stored_right
+            left_label = left_side
+            right_label = right_side
+            show_untracked = False
+        elif identity.tab == "branch-review":
+            assert pull_request_left is None and pull_request_right is None
+            base_value = correspondence.get("base")
+            review_value = correspondence.get("review")
+            resolved_base, left_side, review_side = (
+                backend.resolve_branch_diff_sides(
+                    base_selection=persisted_branch(base_value),
+                    review_selection=persisted_branch(review_value),
+                )
+            )
+            right_side = backend.commit_id(review_side)
+            left_label = f"{resolved_base.strip()}...{review_side}"
+            right_label = review_side
+            show_untracked = False
+        else:
+            assert identity.tab == "pull-request"
+            if pull_request_left is None or pull_request_right is None:
+                raise DirdiffError(
+                    "Pull Request continuation requires prepared commits."
+                )
+            left_side = backend.commit_id(pull_request_left)
+            right_side = backend.commit_id(pull_request_right)
+            if (
+                left_side != pull_request_left
+                or right_side != pull_request_right
+            ):
+                raise DirdiffError(
+                    "Pull Request continuation requires complete commit ids."
+                )
+            left_label = left_side
+            right_label = right_side
+            show_untracked = False
+
+        store = _SnapshotStore(
+            database=self._database,
+            staging_path=self._staging_path,
+            snapshots_path=self._snapshots_path,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+            identity=identity,
+        )
+        captured_id = store.capture(
+            backend=backend,
+            left_side=left_side,
+            right_side=right_side,
+            left_label=left_label,
+            right_label=right_label,
+            show_untracked=show_untracked,
+        )
+        return (
+            Room(
+                database=self._database,
+                identity=identity,
+                lock_path=self._lock_path,
+                thread_lock=self._thread_lock,
+            ),
+            captured_id,
+        )
+
+    def snapshot_path(self, snapshot_id: UUID) -> Path:
+        """Return the existing durable directory of one captured Snapshot.
+
+        The key must identify a persisted Snapshot. This read exposes the
+        directory already published by ordinary Snapshot capture and creates no
+        file, directory, link, row, or alternative representation.
+        """
+        self.find_room(snapshot_id)
+        path = self._snapshots_path / snapshot_id.hex
+        assert path.is_dir(), f"Snapshot directory is missing: {path}"
+        return path
 
 
 class _SnapshotStore:
@@ -620,7 +1065,8 @@ class _SnapshotStore:
         Equality includes repository paths, tracked provenance, change type,
         captured contents, capture errors, and complete explicit preset metadata.
         Backend order, human labels, and aggregate line counts do not affect
-        identity.
+        identity. Every Thread contained by the Room is placed in the captured
+        Snapshot before it becomes visible.
         """
         self._staging_path.mkdir(parents=True, exist_ok=True)
         self._snapshots_path.mkdir(parents=True, exist_ok=True)
@@ -838,20 +1284,27 @@ class _SnapshotStore:
                     )
                     if visible_id is None:
                         staging_path.rename(final_path)
+                        published_snapshot = SnapshotRecord(
+                            id=snapshot_id.hex,
+                            content_hash=snapshot_hash,
+                            meta=SnapshotMetaRecord(
+                                left_label=left_label,
+                                right_label=right_label,
+                                added_lines=added_lines,
+                                removed_lines=removed_lines,
+                            ),
+                            files=tuple(files),
+                        )
+                        review_threads = _derive_room_threads(
+                            database=self._database,
+                            identity=self._identity,
+                            target_snapshot=published_snapshot,
+                        )
                         self._database.publish(
                             self._identity,
-                            SnapshotRecord(
-                                id=snapshot_id.hex,
-                                content_hash=snapshot_hash,
-                                meta=SnapshotMetaRecord(
-                                    left_label=left_label,
-                                    right_label=right_label,
-                                    added_lines=added_lines,
-                                    removed_lines=removed_lines,
-                                ),
-                                files=tuple(files),
-                            ),
+                            published_snapshot,
                             lazy_reasons=lazy_reasons,
+                            review_threads=review_threads,
                         )
                         visible_id = snapshot_id.hex
                     else:

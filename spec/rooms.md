@@ -2,8 +2,8 @@
 
 ## Purpose
 
-A Room represents the sequence of retained file states selected by one Tab's
-law of correspondence. The application boundary used by HTTP and rendering is
+A Room contains Snapshots and review Threads. One Tab's law of correspondence
+selects the Room. The application boundary used by HTTP and rendering is
 `RoomLord` and `Room`; Snapshot capture, publication, and relational records do
 not cross that boundary. `room_lord.py` reaches the separate `dirdiff.db`
 persistence facade only to implement those two classes.
@@ -20,17 +20,18 @@ corresponding_room(...) -> tuple[Room, UUID]
 find_room(snapshot_id: UUID) -> Room
 ```
 
-`corresponding_room` is used only by manifest. It applies the Tab's law of
-correspondence only to find or create the Room. It separately uses the supplied
-capture inputs to capture or reuse the current state, then returns the Room and
-Snapshot key separately. Snapshot identity never participates in correspondence.
+`corresponding_room` is used by the shared explicit capture operation behind
+manifest and agent review opening. It applies the Tab's law of correspondence
+only to find or create the Room. It separately uses the supplied capture inputs
+to capture or reuse the current state, then returns the Room and Snapshot key
+separately. Snapshot identity never participates in correspondence.
 
 `find_room` is used by follow-up endpoints. A Snapshot key is globally unique,
 so it finds the containing Room directly without executing a correspondence law
 or reading live backend state.
 
-A Room never stores or implies a selected Snapshot key. Every operation names
-the exact state explicitly:
+A Room never stores or implies a selected Snapshot key. Every File and Thread
+operation names the exact state explicitly:
 
 ```python
 meta(snapshot_id: UUID) -> SnapshotMeta
@@ -42,16 +43,26 @@ get(
     left: Optional[Path],
     right: Optional[Path],
 ) -> tuple[Optional[Path], Optional[Path], FileMeta]
+threads(snapshot_id: UUID) -> tuple[Thread, ...]
+get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
+create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
 ```
 
 `manifested` yields repository-relative left/right Paths, including Files whose
 contents could not be captured. `get` accepts one such pair and returns absolute
 Paths to the captured contents. Added and deleted Files use `None` for the absent
-side. For a File with a persisted capture error, `get` raises `DirdiffError` with
-that reason instead of exposing its generated diagnostic contents.
+side. For a File with a persisted capture error, `get` returns that exact reason
+in `FileMeta.capture_error`; rendering boundaries reject or classify it before
+decoding the generated diagnostic contents.
 
-`FileMeta` contains tracked provenance, backend change classification, and an
-explicit lazy override. It contains no renderer output or per-File line counts.
+`FileMeta` contains tracked provenance, backend change classification, an
+explicit lazy override, and required-with-null `capture_error`. A non-null
+capture error is the exact persisted reason the File contents are unavailable.
+It contains no renderer output or per-File line counts.
+
+Every returned `Thread` is bound to the exact `(snapshot_id, thread_id)` pair.
+Comment and lifecycle operations belong to that object. Room neither interprets
+private source coordinates nor implements discussion state transitions.
 
 `SnapshotMeta` exposes the containing Room's persisted Tab, the two captured
 side labels, and the backend-supplied aggregate added/removed line counts. The
@@ -153,6 +164,19 @@ snapshot_file_lazy_reason
 
 snapshot_file_lazy_reason_content
   file_id, complete metadata content
+
+user_profile
+  id, username
+
+agent_profile
+  profile_id, agent_uuid
+
+review_thread
+  thread_id, snapshot_id, nullable snapshot_file_id, immutable placement facts
+
+review_action
+  activity_id, operation_id, thread_id, snapshot_id, sequence,
+  non-null profile_id author, authored action fields
 ```
 
 The two Snapshot line-count columns are nullable together. A File's capture
@@ -176,6 +200,14 @@ its complete immutable directory. A crash after rename and before transaction
 commit may leave an unreferenced directory, but cannot expose partial contents.
 No collector exists in this patch; a future garbage collector may remove those
 directories.
+
+A genuinely new Snapshot derives only the Room Thread placements missing for
+that new Snapshot, and publication commits them with the Snapshot. Reuse of an
+equal retained Snapshot performs no placement derivation. Capture callers do
+not select a predecessor or supply Snapshot ancestry.
+
+Creating a Thread inserts only its origin row and first Comment action in one
+transaction. Ordinary Thread reads never create or repair placement rows.
 
 When equal retained state is reused, capture verifies every referenced content
 digest before returning its key. A missing, moved, or modified retained File
@@ -204,6 +236,15 @@ Room correspondence and the two commits only for capture. It does not parse a
 Pull Request URL, contact a forge, fetch refs, derive commits, or apply Branch
 Review selection logic.
 
+`POST /api/agent/reviews/new` registers one disposable ordinary Profile, maps
+the supplied Tab into the shared capture operation, and returns the resulting
+Snapshot id, Profile id, activity boundary, and the existing durable Snapshot
+directory.
+`POST /api/agent/continue_review` recovers the exact Room and persisted Tab from
+the supplied Snapshot and passes the new captured state through the same
+publication path. Neither operation introduces another Room identity or
+persistent review-handle entity.
+
 `/api/lazy-info` accepts only `snapshot_id`, calls `find_room(snapshot_id)`, and
 then `manifested(snapshot_id)`. It reads captured File metadata and never
 reloads preset metadata. The Room's persisted Tab supplies the display-name
@@ -211,13 +252,16 @@ rule. Persisted capture errors do not prevent either metadata operation.
 
 `/api/file-diff` accepts `snapshot_id`, engine, and the filepath pair. It calls
 `find_room(snapshot_id)` and then performs one direct
-`get(snapshot_id, left, right)`. The API layer reads the returned captured
-Paths, uses the Room's persisted Tab for display naming, starts the selected
-engine and renderer, and constructs the HTTP response. Because those consumers
-require text, this endpoint decodes the selected contents and rejects binary or
-non-UTF-8 input locally. A persisted capture error is raised by `get` and follows
-the endpoint's existing `DirdiffError` response path. The endpoint does not
-iterate the Room or reload Git, index, worktree, or preset contents.
+`get(snapshot_id, left, right)`. The API layer checks the returned capture error,
+then reads the captured Paths, uses the Room's persisted Tab for display naming,
+starts the selected engine and renderer, and constructs the HTTP response.
+Because those consumers require text, this endpoint decodes the selected
+contents and rejects binary or non-UTF-8 input locally. A persisted capture error
+follows the endpoint's existing `DirdiffError` response path. The endpoint does
+not iterate the Room or reload Git, index, worktree, or preset contents. The
+agent API instead returns the existing Snapshot directory already published by
+ordinary capture. It creates no additional File, directory, link, or Snapshot
+representation.
 
 Repository-mark removal deactivates a Mark instead of deleting its row, leaving
 Room and Snapshot identity intact. Marking the same path again reactivates the

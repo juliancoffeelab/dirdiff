@@ -7,6 +7,7 @@ __pycache__/
 frontend/dist/
 frontend/node_modules/
 frontend/.vite
+.vite
 
 # temporary test and report artifacts
 output/

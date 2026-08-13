@@ -21,7 +21,9 @@ from dirdiff.db import TableBase
 # Or to config we supply programmatically.
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Migrations run while the application is starting. Preserve Uvicorn's
+    # already-configured startup, access, and error loggers.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Table base metadata for, uh, all fun things.
 target_metadata = TableBase.metadata

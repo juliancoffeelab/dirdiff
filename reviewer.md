@@ -23,6 +23,18 @@ Independently determine whether the change fulfills the user’s intent without
 breaking existing contracts. Report only concrete objections supported by
 evidence.
 
+## Three things we cant compromise on
+
+First, and the *most* important is simplicity. Implementation must be as simple as possible and as minimal as possible. YAGNI and KISS are the main principle.
+The job of reviewer is to find code that breaks that and reject it. Even if it *seemingly* follows the spec.
+
+Second is performance. The product must be fast, and most importantly responsive. This doesn't override simplcity, it must be fast *and* simple.
+The job of reviewer is to find operations that take longer than a blink of an eye, and reject them. Even if they are *seemingly* follow the spec.
+
+Third is correctness. The product must be correct, but that's fairly obvious.
+The job of reviewer is to find bugs, and demand correctness.
+This doesn't override two previous points. The implementation can't become slower or more complex just to satisfy correctness. If the approach can't be made correct in a simple way, reviewer should reject such approach.
+
 # Goal
 
 The review ensures that:
@@ -42,6 +54,10 @@ Look for suspicious pieces and run fast, surgical checks to act on these
 suspicions.
 
 # The protocol.
+
+The existing reviewer reviews accepted fixes until it reports no objections.
+Only then may the implementor start a fresh independent reviewer. A fresh
+reviewer never replaces or bypasses an unresolved existing review.
 
 - Read agents.md, and its rule review the code for stuff. Pay especially close attention to unnecessary convoluted code structure, like helper wrappers, and ensure that errrors are never swallowed. But obviously, AGENTS.md lists more than that, so go chapter by chapter there and look for all the violations.
 You can use `make humancheck` to highlight potential issues, and if touched files introduce lints, judge the code critically and if you don't like what you see, object. The lint is to highlight the issues, not to propose the solution.

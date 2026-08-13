@@ -1,10 +1,15 @@
-"""Notebook payload construction for the dirdiff REST API.
+"""Notebook pairing and payload construction for the dirdiff REST API.
 
 Notebook diffs are an API-level representation, not a diff-engine feature.
 The server loads the left and right `.ipynb` texts through a
 `WorkspaceBackendProtocol`, asks this module to parse and compare notebook structure,
 and returns a `render_kind: "notebook"` payload from the existing
 `/api/file-diff` endpoint.
+
+`rendered_notebook_cell_pairs` is the shared public contract for the cell
+regions that the notebook File surface actually emits. Review target validation
+uses that exact sequence rather than independently approximating renderer
+visibility.
 
 This module depends on display payload helpers from `dirdiff.rendering` to
 enrich rows after a renderer has produced text rows.  It uses the selected
@@ -17,13 +22,13 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Literal
 
 from dirdiff.engines import (
     DiffEngineProtocol,
     DiffSide,
-    DirdiffError,
     TextDiffEngine,
 )
 from dirdiff.rendering import (
@@ -36,9 +41,75 @@ NOTEBOOK_SECONDARY_TEXT_RENDERER = TextDiffEngine()
 
 __all__ = [
     "NOTEBOOK_SECONDARY_TEXT_RENDERER",
+    "NotebookCellPair",
     "build_notebook_diff_payload",
     "normalize_notebook_document",
+    "notebook_cell_pairs",
+    "rendered_notebook_cell_pairs",
 ]
+
+
+@dataclass(frozen=True)
+class NotebookCellPair:
+    """Describe one renderer-defined notebook cell pair and its public key.
+
+    The cell dictionaries are the exact objects supplied to
+    `notebook_cell_pairs`.  A missing dictionary represents a one-sided cell;
+    indices retain the corresponding position in each supplied cell list.
+    `cell_key` is the identity emitted to HTTP and frontend callers.
+    """
+
+    pair_kind: Literal["paired", "left_only", "right_only"]
+    left_index: int | None
+    right_index: int | None
+    left_cell: dict[str, Any] | None
+    right_cell: dict[str, Any] | None
+    cell_key: str
+
+
+def _cell_metadata(cell: dict[str, Any] | None) -> dict[str, Any]:
+    """Return one cell's structurally valid metadata mapping."""
+    if cell is None:
+        return {}
+    metadata = cell.get("metadata", {})
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _cell_outputs(cell: dict[str, Any] | None) -> list[Any]:
+    """Return the outputs of one structurally valid code cell."""
+    if cell is None or cell.get("cell_type") != "code":
+        return []
+    outputs = cell.get("outputs", [])
+    return outputs if isinstance(outputs, list) else []
+
+
+def rendered_notebook_cell_pairs(
+    left_cells: list[dict[str, Any]],
+    right_cells: list[dict[str, Any]],
+) -> list[NotebookCellPair]:
+    """Return exactly the cell pairs emitted by the notebook File surface.
+
+    A paired cell with identical source, type, metadata, and outputs produces no
+    notebook cell region. One-sided or otherwise changed pairs remain in the
+    renderer-defined order with their public keys unchanged.
+    """
+
+    def is_rendered(pair: NotebookCellPair) -> bool:
+        """Apply the renderer's complete changed-cell admission contract."""
+        return (
+            pair.pair_kind != "paired"
+            or _cell_source(pair.left_cell) != _cell_source(pair.right_cell)
+            or (pair.left_cell or {}).get("cell_type")
+            != (pair.right_cell or {}).get("cell_type")
+            or _cell_metadata(pair.left_cell) != _cell_metadata(pair.right_cell)
+            or _cell_outputs(pair.left_cell) != _cell_outputs(pair.right_cell)
+        )
+
+    rendered: list[NotebookCellPair] = []
+    for pair in notebook_cell_pairs(left_cells, right_cells):
+        if is_rendered(pair):
+            rendered.append(pair)
+    return rendered
 
 
 def normalize_notebook_document(text: str) -> dict[str, Any] | None:
@@ -117,18 +188,9 @@ def _cell_identity(
     right_id = _notebook_cell_id(right_cell) if right_cell is not None else None
     cell_id = right_id if right_id is not None else left_id
 
-    cell_key = cell_id
-    if cell_key is None and right_index is not None:
-        cell_key = f"right-{right_index}"
-    if cell_key is None and left_index is not None:
-        cell_key = f"left-{left_index}"
-    if cell_key is None:
-        cell_key = "cell-unknown"
-
     return {
         "cell_type": _cell_type_name(left_cell, right_cell),
         "cell_id": cell_id,
-        "cell_key": cell_key,
         "left_id": left_id,
         "right_id": right_id,
         "left_source": left_source,
@@ -226,14 +288,17 @@ def _pair_notebook_cells(
     )
 
 
-def _find_notebook_cell_pair(
+def notebook_cell_pairs(
     left_cells: list[dict[str, Any]],
     right_cells: list[dict[str, Any]],
-    *,
-    cell_key: str,
-) -> tuple[
-    str, int | None, int | None, dict[str, Any] | None, dict[str, Any] | None
-]:
+) -> tuple[NotebookCellPair, ...]:
+    """Return the exact ordered cell pairs and keys used by rendering.
+
+    Callers must supply the normalized left and right cell lists.  The result
+    is the single shared bridge between paired notebook contents and public
+    cell keys; consumers must not independently reconstruct positional keys.
+    """
+    result: list[NotebookCellPair] = []
     for pair_kind, left_index, right_index in _pair_notebook_cells(
         left_cells,
         right_cells,
@@ -242,15 +307,27 @@ def _find_notebook_cell_pair(
         right_cell = (
             right_cells[right_index] if right_index is not None else None
         )
-        identity = _cell_identity(
-            left_cell=left_cell,
-            right_cell=right_cell,
-            left_index=left_index,
-            right_index=right_index,
+        match pair_kind:
+            case "paired" | "left_only" | "right_only":
+                typed_pair_kind = pair_kind
+            case _:
+                raise AssertionError(
+                    f"unknown notebook pair kind: {pair_kind!r}"
+                )
+        result.append(
+            NotebookCellPair(
+                pair_kind=typed_pair_kind,
+                left_index=left_index,
+                right_index=right_index,
+                left_cell=left_cell,
+                right_cell=right_cell,
+                cell_key=(
+                    f"cell-{left_index if left_index is not None else 'x'}-"
+                    f"{right_index if right_index is not None else 'x'}"
+                ),
+            )
         )
-        if str(identity["cell_key"]) == cell_key:
-            return pair_kind, left_index, right_index, left_cell, right_cell
-    raise DirdiffError(f"Unknown notebook cell: {cell_key}")
+    return tuple(result)
 
 
 def _render_notebook_text_payload(
@@ -315,6 +392,7 @@ def _build_notebook_cell_diff(
     left_index: int | None,
     right_index: int | None,
     pair_kind: str,
+    cell_key: str,
 ) -> dict[str, Any] | None:
     def _notebook_source_path(cell_type: str) -> str | None:
         """Return the syntax path hint for one notebook cell type."""
@@ -325,20 +403,6 @@ def _build_notebook_cell_diff(
         if cell_type == "raw":
             return "cell.txt"
         return None
-
-    def _cell_metadata(cell: dict[str, Any] | None) -> dict[str, Any]:
-        """Return one cell's structurally valid metadata mapping."""
-        if cell is None:
-            return {}
-        metadata = cell.get("metadata", {})
-        return metadata if isinstance(metadata, dict) else {}
-
-    def _cell_outputs(cell: dict[str, Any] | None) -> list[Any]:
-        """Return the outputs of one structurally valid code cell."""
-        if cell is None or cell.get("cell_type") != "code":
-            return []
-        outputs = cell.get("outputs", [])
-        return outputs if isinstance(outputs, list) else []
 
     identity = _cell_identity(
         left_cell=left_cell,
@@ -410,7 +474,7 @@ def _build_notebook_cell_diff(
         ),
         "cell_type": cell_type,
         "cell_id": identity["cell_id"],
-        "cell_key": identity["cell_key"],
+        "cell_key": cell_key,
         "left_index": left_index,
         "right_index": right_index,
         "left_id": identity["left_id"],
@@ -504,11 +568,16 @@ def build_notebook_diff_payload(
     `None` means the supplied text is not a valid notebook payload. The server
     then sends the captured text to the selected ordinary-file engine.
 
-    Pairing is done at the notebook-cell level before row rendering.  Stable
-    cell ids are preferred when they are unique on both sides; otherwise cell
-    source ordering is used.  The payload therefore represents notebook intent
-    first, then renders cell source through the selected diff engine and
+    Pairing is done at the notebook-cell level before row rendering. Stable cell
+    ids are preferred when they are unique on both sides; otherwise cell source
+    ordering is used. The payload therefore represents notebook intent first,
+    then renders cell source through the selected diff engine and
     secondary JSON surfaces through the native text renderer.
+
+    `rendered_notebook_cell_pairs` is the shared bridge from normalized cell
+    dictionaries to the cell regions and public keys actually emitted here.
+    Review placement uses that same sequence, so it cannot accept an omitted
+    cell or invent a second positional-key scheme.
     """
     left_notebook = None
     if left_exists:
@@ -562,23 +631,19 @@ def build_notebook_diff_payload(
         added_lines += notebook_metadata_stats["added_lines"]
         removed_lines += notebook_metadata_stats["removed_lines"]
 
-    for pair_kind, left_index, right_index in _pair_notebook_cells(
-        left_cells, right_cells
-    ):
-        left_cell = left_cells[left_index] if left_index is not None else None
-        right_cell = (
-            right_cells[right_index] if right_index is not None else None
-        )
+    for pair in rendered_notebook_cell_pairs(left_cells, right_cells):
         cell_diff = _build_notebook_cell_diff(
             renderer=renderer,
-            left_cell=left_cell,
-            right_cell=right_cell,
-            left_index=left_index,
-            right_index=right_index,
-            pair_kind=pair_kind,
+            left_cell=pair.left_cell,
+            right_cell=pair.right_cell,
+            left_index=pair.left_index,
+            right_index=pair.right_index,
+            pair_kind=pair.pair_kind,
+            cell_key=pair.cell_key,
         )
-        if cell_diff is None:
-            continue
+        assert cell_diff is not None, (
+            "notebook changed-cell admission disagrees with rendering"
+        )
         cells.append(cell_diff)
         changed_lines += (
             cell_diff["source_changed_lines"]

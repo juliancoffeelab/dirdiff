@@ -3,7 +3,9 @@
 Import this package when application code needs the supported SQLite table
 bootstrap helpers, typed stores, or Room and Snapshot records. The package
 re-exports public records and constructors only; table definitions stay in
-their modules and application logic lives outside this package. These are
+their modules and application logic lives outside this package. RoomStore also
+persists Profile-authored review actions and placements without interpreting
+discussion state. These are
 persistence interfaces for backend modules, not HTTP or rendering contracts.
 """
 
@@ -23,6 +25,9 @@ from dirdiff.db.repo_registry import (
     RepoMarkStore,
 )
 from dirdiff.db.room import (
+    ReviewActionRecord,
+    ReviewSnapshotRecord,
+    ReviewThreadRecord,
     RoomIdentity,
     RoomStore,
     SnapshotFileLoadRecord,
@@ -42,6 +47,9 @@ __all__ = [
     "RepoMainBranchRecord",
     "RepoMarkRecord",
     "RepoMarkStore",
+    "ReviewActionRecord",
+    "ReviewSnapshotRecord",
+    "ReviewThreadRecord",
     "RoomIdentity",
     "RoomStore",
     "SnapshotFileLoadRecord",

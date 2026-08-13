@@ -27,7 +27,8 @@ exposes none.
 
 A `HuskFile` preserves the file’s manifest position without reserving its future
 body height. Its header shows the path and whether work is queued or fetching.
-It has no file statistics, expansion control, or rendered code.
+It has no file statistics, expansion control, or rendered code. The shared
+File-level Comment trigger remains inside this sticky header while loading.
 
 Its pseudo-hunk identity is:
 
@@ -55,6 +56,7 @@ consecutive backend coordinates beginning at zero.
 
 The `FullFileHeader` is sticky and file-local. It contains:
 
+- the File-level Comment trigger and its persisted/draft/outdated marker state;
 - the path;
 - file kind or status;
 - engine warning, when present;
@@ -63,6 +65,11 @@ The `FullFileHeader` is sticky and file-local. It contains:
 
 The square in the header is the sole file-collapse control. The rest of the
 header is inert and remains selectable as text.
+
+The Full header is outside `FileRendererBoundary`; unexpected body-renderer
+damage replaces only the body with its local error strip. Husk, Full, and Lazy
+headers explicitly close only review UI anchored inside their outgoing DOM when
+a File state replacement disposes them.
 
 A zero-hunk `FullFile` exposes one pseudo-hunk with `kind: "zero"` and
 `hunkIndex: 0`. A nonzero expanded `FullFile` exposes its real backend hunk
@@ -84,7 +91,23 @@ preference, file identity, and the shared line-pin interface.
 
 `DiffGrid` owns the visible row DOM for one text region. It uses one persistent
 root and replaces its row children atomically when identity-bearing renderer
-inputs change.
+inputs change. Review marker changes update classes on the mounted Comment
+triggers and never enter that complete-render effect, replace rows, detach a
+composer anchor, or erase selected-hunk DOM.
+
+Every explicit row replacement, including fold changes, first closes only the
+review composer or inline Thread panel whose trigger is inside that grid. This
+prevents a detached floater without observing the DOM or affecting review UI in
+another File.
+
+After each complete render or fold replacement, the grid reports the exact
+ordinary sides whose mounted DOM contains a real line-one Comment trigger. The
+File marker uses that mounted fact to place `file-start` on line one or the File
+header; it does not infer render availability from backend rows.
+
+The first row of an expanded fold retains its visible Comment triggers. Trigger
+activation bypasses that row's fold action and reaches the ordinary delegated
+review handler.
 
 The grid renders:
 
@@ -95,6 +118,8 @@ The grid renders:
 - unchanged fold rows;
 - the selected old/new pointer side;
 - line-pin decoration for the exact current URL target.
+- one Comment trigger on every real line number, with persisted, draft, and
+  outdated marker state from the Snapshot review boundary.
 
 Backend row order is authoritative. Difftastic insert-only replacement rows may
 be combined for presentation, but hunk identity remains attached to the backend
@@ -116,6 +141,11 @@ Each real hunk target contains all of:
 
 Line-number elements contain only their rendered side and backend line number.
 The surrounding `DiffGrid` supplies file and notebook-region identity.
+
+Clicking the Comment trigger opens the one code-aligned composer without
+changing URL, File loading, scrolling, or hunk selection. Shift-click extends
+the active draft only when File, rendered region, and side are unchanged.
+Ordinary line-number clicks retain line-pin behavior.
 
 `ChangeSetShell` owns one document-level pointer listener for side selection. A
 pointer-down inside a grid clears the previous grid marker and marks the current
@@ -199,7 +229,8 @@ A `LazyFile` represents either:
 Both use the ordinary Lazy header and one pseudo-hunk with the file index,
 `kind: "lazy"`, and `hunkIndex: 0`. Collapsing keeps `kind: "lazy"` and the same
 coordinates, moves the target into the collapsed anchor container, and adds
-`.skip`.
+`.skip`. The shared File-level Comment trigger remains inside the sticky Lazy
+header in deferred and failed states.
 
 A deferred Lazy body is one colored, clickable plank. The plank is the sole
 explicit load action. Its color records the lazy reason. FileTree retains the

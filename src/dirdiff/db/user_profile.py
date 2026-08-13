@@ -1,9 +1,11 @@
 """Persistence for local dirdiff users.
 
 `UserProfileStore` is used by FastAPI profile routes in `dirdiff.server` to
-create, fetch, list, and rename local dirdiff users.  The exported
-`UserProfileRecord` is the read model returned to that route layer, and the
-private `UserProfile` SQLAlchemy table stores the generated id plus username.
+create, fetch, and rename ordinary Profiles. Agent registration adds only a
+UUID binding to the same Profile shape. The exported
+`UserProfileRecord` is the read model returned to that route layer. The shared
+internal `UserProfile` table lets Room persistence retain Profile-authored
+review actions without duplicating Profile identity.
 
 This module owns username validation and profile rows only.  It does not manage
 UI preferences or repository marks; those belong to `PreferencesStore` and
@@ -12,12 +14,25 @@ UI preferences or repository marks; those belong to `PreferencesStore` and
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from sqlalchemy import Engine, String, insert, select, update
+from sqlalchemy import (
+    CheckConstraint,
+    Engine,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    insert,
+    select,
+    update,
+)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from dirdiff.db.base import TableBase
+from dirdiff.db.base import (
+    TableBase,
+    UserProfile,
+    UserProfileRecord,
+    profile_record,
+)
 
 __all__ = [
     "UserProfileRecord",
@@ -25,28 +40,27 @@ __all__ = [
 ]
 
 
-class UserProfile(TableBase):
+class AgentProfile(TableBase):
+    """Bind one disposable Profile to the UUID supplied by an agent.
+
+    The Profile row contains the display name and authored-action identity.
+    This relation contains only the caller's unique registration identifier;
+    it does not create another author shape or classify Profiles.
     """
-    Persistent user profile table.
 
-    The first version stores only the local username.
-    """
+    __tablename__ = "agent_profile"
+    __table_args__ = (
+        UniqueConstraint("agent_uuid", name="uq_agent_profile_uuid"),
+        CheckConstraint(
+            "length(agent_uuid) = 32 AND agent_uuid NOT GLOB '*[^0-9a-f]*'",
+            name="ck_agent_profile_uuid",
+        ),
+    )
 
-    __tablename__ = "user_profile"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    username: Mapped[str] = mapped_column(String, nullable=False)
-
-
-@dataclass(frozen=True)
-class UserProfileRecord:
-    """Persisted local dirdiff user."""
-
-    id: int
-    """Stable database id used as the profile key in related stores."""
-
-    username: str
-    """Human-readable local name shown by profile controls."""
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("user_profile.id"), primary_key=True
+    )
+    agent_uuid: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
 def _validate_username(username: str) -> None:
@@ -66,19 +80,86 @@ class UserProfileStore:
 
         self.engine: Engine = engine
 
-    def create(self, username: str) -> UserProfileRecord:
+    def create(
+        self,
+        username: str,
+    ) -> UserProfileRecord:
         """
-        Create a persisted user profile row.
+        Create one persisted Profile.
         """
 
         _validate_username(username)
-        with Session(self.engine) as session, session.begin():
+        try:
+            with Session(self.engine) as session, session.begin():
+                row = session.execute(
+                    insert(UserProfile)
+                    .values(username=username)
+                    .returning(
+                        UserProfile.id,
+                        UserProfile.username,
+                    )
+                ).one()
+                return profile_record(row.id, row.username)
+        except IntegrityError as exc:
+            raise ValueError("Username already exists.") from exc
+
+    def get_by_username(self, username: str) -> UserProfileRecord | None:
+        """Return the one persisted Profile with an exact username."""
+        _validate_username(username)
+        with Session(self.engine) as session:
             row = session.execute(
-                insert(UserProfile)
-                .values(username=username)
-                .returning(UserProfile.id, UserProfile.username)
-            ).one()
-            return UserProfileRecord(id=row[0], username=row[1])
+                select(UserProfile.id, UserProfile.username).where(
+                    UserProfile.username == username
+                )
+            ).one_or_none()
+            if row is None:
+                return None
+            return profile_record(row.id, row.username)
+
+    def agent_exists(self, agent_uuid: str) -> bool:
+        """Return whether one exact agent registration UUID already exists."""
+        with Session(self.engine) as session:
+            return (
+                session.execute(
+                    select(AgentProfile.profile_id).where(
+                        AgentProfile.agent_uuid == agent_uuid
+                    )
+                ).scalar_one_or_none()
+                is not None
+            )
+
+    def create_agent(
+        self,
+        username: str,
+        agent_uuid: str,
+    ) -> UserProfileRecord:
+        """Atomically create a disposable Profile and its agent UUID binding.
+
+        The UUID must be 32 lowercase hexadecimal characters and must not have
+        been registered before. A uniqueness race rolls back both inserts and
+        is reported as invalid registration input.
+        """
+        _validate_username(username)
+        if len(agent_uuid) != 32 or bool(
+            set(agent_uuid) - set("0123456789abcdef")
+        ):
+            raise ValueError("Invalid agent UUID.")
+        try:
+            with Session(self.engine) as session, session.begin():
+                row = session.execute(
+                    insert(UserProfile)
+                    .values(username=username)
+                    .returning(UserProfile.id, UserProfile.username)
+                ).one()
+                session.execute(
+                    insert(AgentProfile).values(
+                        profile_id=row.id,
+                        agent_uuid=agent_uuid,
+                    )
+                )
+                return profile_record(row.id, row.username)
+        except IntegrityError as exc:
+            raise ValueError("Agent UUID or username already exists.") from exc
 
     def get(self, profile_id: int) -> UserProfileRecord | None:
         """
@@ -87,13 +168,14 @@ class UserProfileStore:
 
         with Session(self.engine) as session:
             row = session.execute(
-                select(UserProfile.id, UserProfile.username).where(
-                    UserProfile.id == profile_id
-                )
+                select(
+                    UserProfile.id,
+                    UserProfile.username,
+                ).where(UserProfile.id == profile_id)
             ).one_or_none()
             if row is None:
                 return None
-            return UserProfileRecord(id=row[0], username=row[1])
+            return profile_record(row.id, row.username)
 
     def update_username(
         self, profile_id: int, username: str
@@ -103,13 +185,19 @@ class UserProfileStore:
         """
 
         _validate_username(username)
-        with Session(self.engine) as session, session.begin():
-            row = session.execute(
-                update(UserProfile)
-                .where(UserProfile.id == profile_id)
-                .values(username=username)
-                .returning(UserProfile.id, UserProfile.username)
-            ).one_or_none()
-            if row is None:
-                return None
-            return UserProfileRecord(id=row[0], username=row[1])
+        try:
+            with Session(self.engine) as session, session.begin():
+                row = session.execute(
+                    update(UserProfile)
+                    .where(UserProfile.id == profile_id)
+                    .values(username=username)
+                    .returning(
+                        UserProfile.id,
+                        UserProfile.username,
+                    )
+                ).one_or_none()
+                if row is None:
+                    return None
+                return profile_record(row.id, row.username)
+        except IntegrityError as exc:
+            raise ValueError("Username already exists.") from exc

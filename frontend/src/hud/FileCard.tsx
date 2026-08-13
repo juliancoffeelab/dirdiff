@@ -24,6 +24,7 @@ import type {
   DiffEngine,
   FileDiff,
   LazyInfoFile,
+  ReviewFilePair,
   TextFileDiff,
 } from "../api/api";
 import {
@@ -37,6 +38,7 @@ import { DiffGrid } from "./DiffGrid";
 import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import { NotebookFile } from "./NotebookFile";
 import type { PseudoHunkIdentity, RealHunkIdentity } from "./navigation";
+import { useReview } from "./Review";
 
 /**
  * Classifies one hydrated text file by the cost of fully rendering its rows.
@@ -238,6 +240,8 @@ type FileCardState = HuskFileState | FullFileState | LazyFileState;
  * begin a query independently.
  */
 type FileCardProps = {
+  /** Supplies the exact pair used by rendered line Thread targets. */
+  reviewFile: ReviewFilePair;
   file_state: FileCardState;
   expanded: boolean;
   explicitlyCollapsed: boolean;
@@ -266,6 +270,7 @@ type FileCardProps = {
 export function FileCard(props: FileCardProps): JSX.Element {
   return (
     <FileCardContent
+      reviewFile={props.reviewFile}
       file_state={props.file_state}
       expanded={props.expanded}
       explicitlyCollapsed={props.explicitlyCollapsed}
@@ -292,7 +297,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
  */
 function FileCardContent(props: FileCardProps): JSX.Element {
   let card!: HTMLElement;
-
+  const review = useReview();
   /**
    * Describes this FileCard's complete semantic hunk target set.
    *
@@ -356,28 +361,24 @@ function FileCardContent(props: FileCardProps): JSX.Element {
         keyed
       >
         {(backend_data) => (
-          <FileRendererBoundary
+          <FullFile
+            reviewFile={props.reviewFile}
+            file_state={{
+              state: "full",
+              fileIndex: props.file_state.fileIndex,
+              backend_data,
+            }}
+            expanded={props.expanded}
+            admitted={props.admitted}
+            engine={props.engine}
+            view={props.view}
+            aggressiveFolds={props.aggressiveFolds}
+            linePins={props.linePins}
+            globalSelectedHunk={props.globalSelectedHunk}
+            fileSelectedHunk={props.fileSelectedHunk}
             card={() => card}
-            path={backend_data.display_name}
-          >
-            <FullFile
-              file_state={{
-                state: "full",
-                fileIndex: props.file_state.fileIndex,
-                backend_data,
-              }}
-              expanded={props.expanded}
-              admitted={props.admitted}
-              engine={props.engine}
-              view={props.view}
-              aggressiveFolds={props.aggressiveFolds}
-              linePins={props.linePins}
-              globalSelectedHunk={props.globalSelectedHunk}
-              fileSelectedHunk={props.fileSelectedHunk}
-              card={() => card}
-              onExpandedChange={props.onExpandedChange}
-            />
-          </FileRendererBoundary>
+            onExpandedChange={props.onExpandedChange}
+          />
         )}
       </Show>
       <Show
@@ -501,6 +502,13 @@ function HuskFileHeader(
     explicitlyCollapsed: boolean;
   } & HunkCounterProps,
 ): JSX.Element {
+  let header!: HTMLElement;
+  const review = useReview();
+  onMount(() => review.setFileHeaderMounted(header, true));
+  onCleanup(() => {
+    review.setFileHeaderMounted(header, false);
+    review.closeAnchoredUi(header);
+  });
   const identity: PseudoHunkIdentity = {
     fileIndex: props.file_state.fileIndex,
     kind: "husk",
@@ -508,6 +516,7 @@ function HuskFileHeader(
   };
   return (
     <header
+      ref={header}
       class="file-card-header husk-file-header"
       classList={{ skip: props.explicitlyCollapsed }}
       data-hunk-target
@@ -587,6 +596,7 @@ function HunkCounterBadges(props: HunkCounterProps): JSX.Element {
  */
 function FullFile(
   props: {
+    reviewFile: ReviewFilePair;
     file_state: FullFileState;
     expanded: boolean;
     admitted: boolean;
@@ -596,6 +606,58 @@ function FullFile(
     linePins: LinePins;
     card: Accessor<HTMLElement>;
     onExpandedChange: (expanded: boolean) => void;
+  } & HunkCounterProps,
+): JSX.Element {
+  const backend_data = props.file_state.backend_data;
+  const [renderMode, setRenderMode] = createSignal<FileRenderMode | null>(null);
+
+  return (
+    <>
+      <FullFileHeader
+        file_state={props.file_state}
+        expanded={props.expanded}
+        virtualized={props.expanded && renderMode() === "virtual"}
+        awaitingAdmission={
+          props.expanded &&
+          !props.admitted &&
+          props.file_state.backend_data.hunk_count > 0
+        }
+        globalSelectedHunk={props.globalSelectedHunk}
+        fileSelectedHunk={props.fileSelectedHunk}
+        onExpandedChange={props.onExpandedChange}
+      />
+      <FileRendererBoundary card={props.card} path={backend_data.display_name}>
+        <FullFileRenderer
+          {...props}
+          renderMode={renderMode}
+          onRenderModeChange={setRenderMode}
+        />
+      </FileRendererBoundary>
+    </>
+  );
+}
+
+/**
+ * Renders and operates the fallible body beneath one stable Full File header.
+ *
+ * FileRendererBoundary contains this complete subtree. The component may expose
+ * body preparation operations on its FileCard, but it neither renders nor
+ * replaces the independent header review action.
+ */
+function FullFileRenderer(
+  props: {
+    reviewFile: ReviewFilePair;
+    file_state: FullFileState;
+    expanded: boolean;
+    admitted: boolean;
+    engine: DiffEngine;
+    view: DiffViewMode;
+    aggressiveFolds: boolean;
+    linePins: LinePins;
+    card: Accessor<HTMLElement>;
+    onExpandedChange: (expanded: boolean) => void;
+    renderMode: Accessor<FileRenderMode | null>;
+    onRenderModeChange(mode: FileRenderMode): void;
   } & HunkCounterProps,
 ): JSX.Element {
   const backend_data = props.file_state.backend_data;
@@ -627,11 +689,19 @@ function FullFile(
       );
     }
   }
-  const [renderMode, setRenderMode] = createSignal<FileRenderMode>(
+  props.onRenderModeChange(
     textFile === null
       ? "rich"
       : initialRenderMode(props.card(), textFile.rows.length),
   );
+  /** Reads the representation initialized inside this renderer boundary. */
+  const renderMode: Accessor<FileRenderMode> = () => {
+    const current = props.renderMode();
+    if (current === null) {
+      throw new Error("FullFile renderer mode was not initialized.");
+    }
+    return current;
+  };
   const [reservedRichHeight, setReservedRichHeight] = createSignal<
     number | null
   >(null);
@@ -667,7 +737,7 @@ function FullFile(
         setReservedRichHeight(measuredHeight);
       }
     }
-    setRenderMode(mode);
+    props.onRenderModeChange(mode);
     props.card().dataset.fileRender = mode;
   }
 
@@ -914,19 +984,6 @@ function FullFile(
 
   return (
     <>
-      <FullFileHeader
-        file_state={props.file_state}
-        expanded={props.expanded}
-        virtualized={props.expanded && renderMode() === "virtual"}
-        awaitingAdmission={
-          props.expanded &&
-          !props.admitted &&
-          props.file_state.backend_data.hunk_count > 0
-        }
-        globalSelectedHunk={props.globalSelectedHunk}
-        fileSelectedHunk={props.fileSelectedHunk}
-        onExpandedChange={props.onExpandedChange}
-      />
       <Show
         when={!props.expanded && props.file_state.backend_data.hunk_count > 0}
       >
@@ -963,6 +1020,7 @@ function FullFile(
           fallback={
             <div class="file-card-body rich-file-body" data-file-body>
               <FileBody
+                reviewFile={props.reviewFile}
                 fileIndex={props.file_state.fileIndex}
                 backend_data={props.file_state.backend_data}
                 engine={props.engine}
@@ -986,6 +1044,7 @@ function FullFile(
             >
               <div class="file-card-body rich-file-body" data-file-body>
                 <FileBody
+                  reviewFile={props.reviewFile}
                   fileIndex={props.file_state.fileIndex}
                   backend_data={backend_data}
                   engine={props.engine}
@@ -1084,6 +1143,13 @@ function FullFileHeader(
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
 ): JSX.Element {
+  let header!: HTMLElement;
+  const review = useReview();
+  onMount(() => review.setFileHeaderMounted(header, true));
+  onCleanup(() => {
+    review.setFileHeaderMounted(header, false);
+    review.closeAnchoredUi(header);
+  });
   const zeroHunkFile = props.file_state.backend_data.hunk_count === 0;
 
   /**
@@ -1112,6 +1178,7 @@ function FullFileHeader(
 
   return (
     <header
+      ref={header}
       class="file-card-header full-file-header"
       classList={{ skip: zeroHunkFile && !props.expanded }}
       data-hunk-target={targetIdentity() === null ? undefined : ""}
@@ -1261,10 +1328,19 @@ function LazyFileView(
  * only; the explicit plank remains the sole individual LazyFile action.
  */
 function LazyFileHeader(
-  props: { file_state: LazyFileState } & HunkCounterProps,
+  props: {
+    file_state: LazyFileState;
+  } & HunkCounterProps,
 ): JSX.Element {
+  let header!: HTMLElement;
+  const review = useReview();
+  onMount(() => review.setFileHeaderMounted(header, true));
+  onCleanup(() => {
+    review.setFileHeaderMounted(header, false);
+    review.closeAnchoredUi(header);
+  });
   return (
-    <header class="file-card-header lazy-file-header">
+    <header ref={header} class="file-card-header lazy-file-header">
       <span class="file-card-heading">
         <VisibilityIndicator visible={false} virtualized={false} />
         <span class="file-card-title-row">
@@ -1390,6 +1466,7 @@ function DeferredFilePlank(props: {
  * not subscribe to progress, headers, other files, or navigation state.
  */
 function FileBody(props: {
+  reviewFile: ReviewFilePair;
   fileIndex: number;
   backend_data: FileDiff;
   engine: DiffEngine;
@@ -1400,6 +1477,7 @@ function FileBody(props: {
   if ("render_kind" in props.backend_data) {
     return (
       <NotebookFile
+        reviewFile={props.reviewFile}
         fileIndex={props.fileIndex}
         backend_data={props.backend_data}
         view={props.view}
@@ -1410,6 +1488,7 @@ function FileBody(props: {
   }
   return (
     <DiffGrid
+      reviewFile={props.reviewFile}
       fileIndex={props.fileIndex}
       displayName={props.backend_data.display_name}
       region={null}

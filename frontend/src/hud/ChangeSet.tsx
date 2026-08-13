@@ -2,8 +2,9 @@
  * Implements one selected ChangeSet's backend observation, file lane, and presentation.
  *
  * The module exports ChangeSet. The lightweight outer ChangeSet stores file
- * expansion and local Help state while receiving workspace-wide FileTree and
- * DebugHud visibility. Each mounted ChangeSetShell stores its HunkDisplay signal.
+ * expansion, local Help state, and local History visibility while receiving
+ * workspace-wide FileTree and DebugHud visibility. Each mounted ChangeSetShell
+ * stores its HunkDisplay signal.
  * Active ChangeSetContent observes the manifest, while ChangeSetSnapshot stores
  * the lazy-info, file, and profile-preference observers together with file-lane state.
  * Together they render Navigation, hotkeys, HUD, Portals, title, FileTree, and
@@ -29,6 +30,7 @@ import { createStore, type SetStoreFunction } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import {
   createQueries,
+  createMutation,
   createQuery,
   useQueryClient,
 } from "@tanstack/solid-query";
@@ -46,6 +48,7 @@ import {
   type ManifestFile,
   type ManifestNode,
   type ManifestSummary,
+  type ThreadCodeLocation,
 } from "../api/api";
 import {
   ErrorPanel,
@@ -64,6 +67,7 @@ import {
 } from "./linePins";
 import { NavigationProvider, useNavigation } from "./navigation";
 import type { StoredProfile } from "./Profile";
+import { ReviewProvider } from "./Review";
 
 const SLOW_FILE_THRESHOLD_MS = 8_000;
 
@@ -188,13 +192,19 @@ type HunkDisplay = {
  *
  * Callers keep this boundary mounted across Tab switches and global view/engine
  * changes. Only active content observes queries and renders expensive file DOM;
- * file expansion and local Help state survive inactive periods. Workspace-wide
- * FileTree and DebugHud visibility survive switching Tabs or selected ChangeSets.
+ * file expansion, local Help state, and History visibility survive inactive
+ * periods. Workspace-wide FileTree and DebugHud visibility survive switching
+ * Tabs or selected ChangeSets.
  */
 export function ChangeSet(props: ChangeSetProps): JSX.Element {
   const [helpOpen, setHelpOpen] = createSignal(false);
+  const [historyOpen, setHistoryOpen] = createSignal(props.view === "inline");
   const [state, setState] = createStore<ChangeSetState>({
     fileExpansion: {},
+  });
+  createEffect(() => {
+    // A deliberate view-mode change restores that mode's History default.
+    setHistoryOpen(props.view === "inline");
   });
   return (
     <Show when={props.active ? props.params : null} keyed>
@@ -212,6 +222,8 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
             profile={props.profile}
             appHeaderOutlets={props.appHeaderOutlets}
             onToggleView={props.onToggleView}
+            historyOpen={historyOpen()}
+            onHistoryOpenChange={setHistoryOpen}
             helpOpen={helpOpen()}
             onHelpOpenChange={setHelpOpen}
             onFileTreeOpenChange={props.onFileTreeOpenChange}
@@ -241,6 +253,8 @@ type ChangeSetContentProps = {
   profile: StoredProfile | null;
   appHeaderOutlets: AppHeaderOutlets;
   onToggleView: () => void;
+  historyOpen: boolean;
+  onHistoryOpenChange: (open: boolean) => void;
   helpOpen: boolean;
   onHelpOpenChange: (open: boolean) => void;
   onFileTreeOpenChange: (open: boolean) => void;
@@ -266,14 +280,6 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     }
     return manifest.data;
   });
-  // Engine changes replace only the immutable file lane. The manifest observer
-  // remains attached to the selected Tab value and is never keyed by engine.
-  const renderedSnapshot = createMemo(() => {
-    const snapshot = visibleManifest();
-    return snapshot === undefined
-      ? undefined
-      : { manifest: snapshot, engine: props.engine };
-  });
   let stopFileSequence: (() => Promise<void>) | null = null;
   let replacement: Promise<void> | null = null;
 
@@ -296,7 +302,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
     props.setState("fileExpansion", {});
     const currentReplacement = (async () => {
       await stopPromise;
-      await manifest.refetch();
+      await manifest.refetch({ cancelRefetch: false });
     })();
     replacement = currentReplacement;
     try {
@@ -312,7 +318,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
   return (
     <>
       <Show
-        when={renderedSnapshot()}
+        when={visibleManifest()}
         keyed
         fallback={
           <ChangeSetShell
@@ -320,6 +326,9 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             debugOpen={props.debugHudOpen}
             onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
+            onToggleHistory={() =>
+              props.onHistoryOpenChange(!props.historyOpen)
+            }
             onReload={() => {
               // Reload replaces the snapshot and resets only its file expansion.
               void reloadSnapshot();
@@ -352,12 +361,15 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
           </ChangeSetShell>
         }
       >
-        {(rendered) => (
+        {(snapshot) => (
           <ChangeSetShell
             helpOpen={props.helpOpen}
             debugOpen={props.debugHudOpen}
             onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
+            onToggleHistory={() =>
+              props.onHistoryOpenChange(!props.historyOpen)
+            }
             onReload={() => {
               void reloadSnapshot();
             }}
@@ -372,11 +384,13 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
                 title="Could not render ChangeSet snapshot"
                 retryOnR={false}
               >
-                <ChangeSetSnapshot
+                <ReviewSnapshotBoundary
                   params={props.params}
-                  engine={rendered.engine}
-                  manifest={rendered.manifest}
+                  engine={props.engine}
+                  manifest={snapshot}
                   view={props.view}
+                  historyOpen={props.historyOpen}
+                  onHistoryOpenChange={props.onHistoryOpenChange}
                   fileTreeOpen={props.fileTreeOpen}
                   profile={props.profile}
                   appHeaderOutlets={props.appHeaderOutlets}
@@ -408,6 +422,7 @@ type ChangeSetShellProps = {
   debugOpen: boolean;
   onToggleTree: () => void;
   onToggleView: () => void;
+  onToggleHistory: () => void;
   onReload: () => void;
   onToggleHelp: () => void;
   onHelpOpenChange: (open: boolean) => void;
@@ -471,6 +486,7 @@ function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
         <Hotkeys
           onToggleTree={props.onToggleTree}
           onToggleView={props.onToggleView}
+          onToggleHistory={props.onToggleHistory}
           onReload={props.onReload}
           onToggleHelp={props.onToggleHelp}
           onToggleDebug={props.onToggleDebug}
@@ -511,6 +527,7 @@ function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
 type HotkeysProps = {
   onToggleTree: () => void;
   onToggleView: () => void;
+  onToggleHistory: () => void;
   onReload: () => void;
   onToggleHelp: () => void;
   onToggleDebug: () => void;
@@ -596,6 +613,11 @@ function Hotkeys(props: HotkeysProps): null {
       if (event.code === "KeyI") {
         event.preventDefault();
         props.onToggleView();
+        return;
+      }
+      if (event.code === "KeyM") {
+        event.preventDefault();
+        props.onToggleHistory();
         return;
       }
       if (event.code === "KeyR") {
@@ -1096,6 +1118,11 @@ function HelpModal(props: {
               label="Toggle inline diff view"
               disabled={false}
             />
+            <HotkeyHelpRow
+              keys="m"
+              label="Toggle review History"
+              disabled={false}
+            />
           </HotkeyHelpSection>
           <HotkeyHelpSection title="Misc">
             <HotkeyHelpRow
@@ -1184,13 +1211,128 @@ type ChangeSetSnapshotProps = {
 };
 
 /**
+ * Supplies ChangeSet-owned History visibility to one Snapshot review boundary.
+ *
+ * `historyOpen` is the complete current presentation state shared by the global
+ * hotkey and History controls. The callback replaces only that state and never
+ * performs review transport, navigation, or File-lane work.
+ */
+type ReviewSnapshotBoundaryProps = ChangeSetSnapshotProps & {
+  historyOpen: boolean;
+  onHistoryOpenChange(open: boolean): void;
+};
+
+/**
+ * Supplies the engine-bound File lane's current scroll-only destinations.
+ *
+ * The callback publishes manifest indexes whose current state is not Husk. It
+ * must not load, expand, select, or navigate a File.
+ */
+type ChangeSetFileLaneProps = ChangeSetSnapshotProps & {
+  onFileNavigabilityChange(indexes: ReadonlySet<number>): void;
+};
+
+/**
+ * Keeps Snapshot review state mounted while engine changes replace the file lane.
+ *
+ * The manifest and Snapshot identity are immutable for this lifetime. History's
+ * explicit View action uses the exact File pair and ordinary FileTree navigation;
+ * the nested keyed branch replaces only engine-dependent File rendering.
+ */
+function ReviewSnapshotBoundary(
+  props: ReviewSnapshotBoundaryProps,
+): JSX.Element {
+  const navigation = useNavigation();
+  const toast = useToasts();
+  const files = manifestFilesInOrder(props.manifest.tree);
+  const reviewFileIndexes = new Map<string, number>();
+  files.forEach((file, fileIndex) => {
+    const key = JSON.stringify([file.entry.left_path, file.entry.right_path]);
+    assert(
+      !reviewFileIndexes.has(key),
+      "Review navigation requires unique manifest File pairs.",
+    );
+    reviewFileIndexes.set(key, fileIndex);
+  });
+  const [navigableFileIndexes, setNavigableFileIndexes] = createSignal<
+    ReadonlySet<number>
+  >(new Set());
+
+  /** Resolves one located Thread to its unique immutable manifest index. */
+  function reviewFileIndex(location: ThreadCodeLocation): number {
+    const fileIndex = reviewFileIndexes.get(
+      JSON.stringify([location.file.left_path, location.file.right_path]),
+    );
+    if (fileIndex === undefined) {
+      throw new Error(
+        "A located review Thread requires one exact manifest File.",
+      );
+    }
+    return fileIndex;
+  }
+
+  /** Reports whether ordinary File navigation currently accepts the Thread. */
+  function canViewReviewThread(location: ThreadCodeLocation): boolean {
+    return navigableFileIndexes().has(reviewFileIndex(location));
+  }
+
+  /** Jumps to the unique current File without selecting a hunk. */
+  function viewReviewThread(location: ThreadCodeLocation): void {
+    const fileIndex = reviewFileIndex(location);
+    if (!navigableFileIndexes().has(fileIndex)) {
+      throw new Error("Review File navigation cannot target a HuskFile.");
+    }
+    void navigation
+      .navigate({
+        kind: "file",
+        fileIndex,
+      })
+      .catch((error: unknown) =>
+        toast.showError("Could not view Thread", error),
+      );
+  }
+
+  return (
+    <ReviewProvider
+      snapshotId={props.manifest.snapshot_id}
+      view={props.view}
+      historyOpen={props.historyOpen}
+      onHistoryOpenChange={props.onHistoryOpenChange}
+      profile={props.profile}
+      canViewThread={canViewReviewThread}
+      viewThread={viewReviewThread}
+    >
+      <Show when={props.engine} keyed>
+        {(engine) => (
+          <ChangeSetSnapshot
+            params={props.params}
+            engine={engine}
+            manifest={props.manifest}
+            view={props.view}
+            fileTreeOpen={props.fileTreeOpen}
+            profile={props.profile}
+            appHeaderOutlets={props.appHeaderOutlets}
+            hunkDisplay={props.hunkDisplay}
+            state={props.state}
+            setState={props.setState}
+            onFileTreeOpenChange={props.onFileTreeOpenChange}
+            onFileSequenceChange={props.onFileSequenceChange}
+            onFileNavigabilityChange={setNavigableFileIndexes}
+          />
+        )}
+      </Show>
+    </ReviewProvider>
+  );
+}
+
+/**
  * Owns every observer, lane value, derivation, and rendered node for one manifest.
  *
  * All query definitions use the same immutable params and opaque `snapshot_id`.
  * File failures remain localized. Disposal cancels the lane and releases every
  * snapshot query.
  */
-function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
+function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   const queryClient = useQueryClient();
   const toast = useToasts();
   const pins = linePins();
@@ -1442,6 +1584,16 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
   const fileStates = createMemo(() =>
     fileStateAccessors.map((fileState) => fileState()),
   );
+  createEffect(() => {
+    const navigable = new Set<number>();
+    for (const [fileIndex, state] of fileStates().entries()) {
+      if (state.state !== "husk") {
+        navigable.add(fileIndex);
+      }
+    }
+    props.onFileNavigabilityChange(navigable);
+  });
+  onCleanup(() => props.onFileNavigabilityChange(new Set()));
 
   /**
    * Resolves one manifest file to its current canonical presentation state.
@@ -1953,6 +2105,10 @@ function ChangeSetSnapshot(props: ChangeSetSnapshotProps): JSX.Element {
                   );
                   return (
                     <FileCard
+                      reviewFile={{
+                        left_path: file.entry.left_path,
+                        right_path: file.entry.right_path,
+                      }}
                       file_state={currentState()}
                       expanded={fileExpanded(
                         file,
