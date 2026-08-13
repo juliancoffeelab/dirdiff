@@ -748,8 +748,7 @@ type RefsRepoTabProps = RepoTabProps & {
  * Renders free-form ref controls backed by shared autocomplete metadata.
  *
  * Both inputs remain usable without refs data. A separate selected entity controls
- * ChangeSet lifetime; live/default input does not become selected until activation
- * or explicit completion.
+ * ChangeSet lifetime; URL and live input seed only the controls until explicit Load.
  */
 function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   const queryClient = useQueryClient();
@@ -814,9 +813,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   const initial = parseInitialRefs();
   const [left, setLeft] = createSignal(initial.left);
   const [right, setRight] = createSignal(initial.right);
-  const [selected, setSelected] = createSignal<RefsDiffParams | null>(
-    props.active ? initial : null,
-  );
+  const [selected, setSelected] = createSignal<RefsDiffParams | null>(null);
   const loadReady = createMemo(() => {
     const currentLeft = left();
     const currentRight = right();
@@ -831,11 +828,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
     () => props.active,
     () => {
       const current = selected();
-      if (current === null) {
-        if (loadReady()) {
-          loadRefs();
-        }
-      } else {
+      if (current !== null) {
         props.onSelected(current.left, current.right);
       }
     },
@@ -1019,18 +1012,6 @@ type BranchReviewRepoTabProps = RepoTabProps & {
 };
 
 /**
- * Represents whether Branch Review has no selection, awaits defaults requested by
- * activation, or contains the complete immutable manifest parameters.
- *
- * Live control edits are deliberately absent. The waiting command exists so
- * asynchronous defaults cannot imply selection alone.
- */
-type BranchReviewSelected =
-  | { kind: "waiting-defaults" }
-  | BranchReviewDiffParams
-  | null;
-
-/**
  * Represents whether Preset has no selection, awaits its requested catalog
  * default, or contains the complete immutable manifest parameters.
  *
@@ -1125,9 +1106,9 @@ function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
 /**
  * Renders structured branch controls backed by canonical refs/defaults queries.
  *
- * Untouched inputs derive realtime defaults. Activation requests a default-backed
- * selection, while explicit Load snapshots current control values. Later edits do
- * not alter the mounted ChangeSet until another completion.
+ * Untouched inputs derive realtime defaults. URL and default values seed only the
+ * controls; explicit Load snapshots the current values. Later edits do not alter
+ * the mounted ChangeSet until another Load.
  */
 function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   const queryClient = useQueryClient();
@@ -1148,17 +1129,8 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   const [reviewEdit, setReviewEdit] = createSignal<BranchSelection | null>(
     initialBranches?.review ?? null,
   );
-  const [selected, setSelected] = createSignal<BranchReviewSelected>(
-    props.active
-      ? initialBranches !== null
-        ? {
-            project_id: props.projectId,
-            tab: "branch-review",
-            base_selection: initialBranches.base,
-            review_selection: initialBranches.review,
-          }
-        : { kind: "waiting-defaults" }
-      : null,
+  const [selected, setSelected] = createSignal<BranchReviewDiffParams | null>(
+    null,
   );
   const refs = createQuery(() => ({
     ...api.repos.refs(props.projectId),
@@ -1184,13 +1156,6 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   const reviewControl = createMemo<BranchSelection>(
     () => review() ?? { source: "local", branch: "" },
   );
-  const selectedValues = createMemo(() => {
-    const current = selected();
-    if (current === null || "kind" in current) {
-      return null;
-    }
-    return current;
-  });
   const saveMainBranch = createMutation(() => ({
     ...api.repos.saveMainBranch(),
     /**
@@ -1210,49 +1175,10 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     () => props.active,
     () => {
       const current = selected();
-      if (current !== null && !("kind" in current)) {
+      if (current !== null) {
         props.onSelected(current.base_selection, current.review_selection);
-      } else {
-        const baseSelection = selectedBranch(base());
-        const reviewSelection = selectedBranch(review());
-        if (baseSelection === null || reviewSelection === null) {
-          setSelected({ kind: "waiting-defaults" });
-        } else {
-          selectBranchReview(baseSelection, reviewSelection);
-        }
       }
     },
-  );
-
-  /**
-   * Completes only an explicitly waiting Branch Review selection from metadata.
-   *
-   * The effect observes active state, the tagged selection, and realtime default
-   * derivations. It is inert unless this Tab requested a default-backed selection;
-   * once both sides become complete it performs the external URL/selection command,
-   * replaces the command with complete parameters, and therefore makes itself
-   * inert. It stores no subscription requiring cleanup and is disposed with the
-   * eternal Tab.
-   */
-  createEffect(
-    on(
-      [() => props.active, selected, base, review] as const,
-      ([active, current, baseValue, reviewValue]) => {
-        if (
-          !active ||
-          current === null ||
-          !("kind" in current) ||
-          current.kind !== "waiting-defaults"
-        ) {
-          return;
-        }
-        const baseSelection = selectedBranch(baseValue);
-        const reviewSelection = selectedBranch(reviewValue);
-        if (baseSelection !== null && reviewSelection !== null) {
-          selectBranchReview(baseSelection, reviewSelection);
-        }
-      },
-    ),
   );
 
   /**
@@ -1401,7 +1327,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
         errorTitle="Failed to load repo defaults"
         onRetry={() => void defaults.refetch()}
       />
-      <Show when={selectedValues()} keyed>
+      <Show when={selected()} keyed>
         {(selection) => (
           <ChangeSet
             active={props.active}

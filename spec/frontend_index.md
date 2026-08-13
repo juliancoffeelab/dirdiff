@@ -403,6 +403,10 @@ The Pull Request value contains its URL and the two commits returned by
 preparation; it contains no Branch Review selections. Engine is independent of
 the selected value and is supplied separately for file rendering.
 
+Compare Refs and Branch Review seed their controls from URL and repository
+metadata but create no selected value or `ChangeSet` until explicit Load. Once
+loaded, their selected value and `ChangeSet` remain mounted across Tab switches.
+
 Shared inputs from `App` include:
 
 - active Tab;
