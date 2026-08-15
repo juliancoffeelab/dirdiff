@@ -2317,7 +2317,9 @@ function ThreadCard(props: {
     return (
       <>
         <span class="review-thread-state-dot" aria-hidden="true" />
-        <strong>{firstComment().author.display_name}</strong>
+        <strong title={firstComment().author.display_name}>
+          {firstComment().author.display_name}
+        </strong>
         <span class="review-thread-location" title={excerptPath}>
           {excerptFileName} · L
           {props.thread.original_excerpt.selected_start_line}
