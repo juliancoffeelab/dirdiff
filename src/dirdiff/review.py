@@ -1603,19 +1603,20 @@ def _thread_objects(
     offset: int,
     limit: int,
     state: Literal["all", "open"],
-    activity_id: int,
-) -> tuple[tuple[Thread, ...], int]:
-    """Bulk-hydrate one bounded Thread page at one activity boundary."""
-    data = database.review_snapshot(
+    through_activity_id: Optional[int],
+) -> tuple[tuple[Thread, ...], int, int]:
+    """Bulk-hydrate one bounded Thread page at one inclusive activity pivot."""
+    result = database.review_threads(
         identity,
         snapshot_id.hex,
         offset=offset,
         limit=limit,
         state=state,
-        activity_id=activity_id,
+        through_activity_id=through_activity_id,
     )
-    if data is None:
+    if result is None:
         raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+    data, concrete_activity_id = result
     required_snapshot_ids = {snapshot_id.hex} | {
         origin.snapshot_id for origin in data.origins
     }
@@ -1646,24 +1647,28 @@ def _thread_objects(
         "review read contains duplicate Profiles"
     )
     cache = _ReviewReadCache({}, {})
-    return tuple(
-        Thread(
-            database=database,
-            identity=identity,
-            snapshot_id=snapshot_id,
-            thread_id=UUID(hex=origin.thread_id),
-            lock_path=lock_path,
-            thread_lock=thread_lock,
-            placement=placements[origin.thread_id],
-            origin=origin,
-            actions=tuple(actions[origin.thread_id]),
-            profiles=profiles,
-            origin_files_by_id=file_indexes[origin.snapshot_id][0],
-            selected_files_by_pair=file_indexes[snapshot_id.hex][1],
-            cache=cache,
-        )
-        for origin in data.origins
-    ), data.total_threads
+    return (
+        tuple(
+            Thread(
+                database=database,
+                identity=identity,
+                snapshot_id=snapshot_id,
+                thread_id=UUID(hex=origin.thread_id),
+                lock_path=lock_path,
+                thread_lock=thread_lock,
+                placement=placements[origin.thread_id],
+                origin=origin,
+                actions=tuple(actions[origin.thread_id]),
+                profiles=profiles,
+                origin_files_by_id=file_indexes[origin.snapshot_id][0],
+                selected_files_by_pair=file_indexes[snapshot_id.hex][1],
+                cache=cache,
+            )
+            for origin in data.origins
+        ),
+        data.total_threads,
+        concrete_activity_id,
+    )
 
 
 def _get_thread(

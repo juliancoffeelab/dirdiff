@@ -1026,7 +1026,7 @@ export type ReviewThreadUpdate = z.infer<typeof ReviewThreadUpdateSchema>;
 const ReviewThreadPageSchema = z
   .strictObject({
     snapshot_id: ReviewIdSchema,
-    activity_id: z.number().int().nonnegative(),
+    through_activity_id: z.number().int().nonnegative(),
     threads: z.array(ReviewThreadSchema),
     page: z.number().int().positive(),
     limit: z.number().int().positive(),
@@ -1827,61 +1827,57 @@ function requestFileDiff(
   );
 }
 
-/** Reads one persisted Thread transport page for one exact Snapshot. */
-async function requestReviewThreadPage(
-  snapshotId: ReviewId,
-  page: number,
-  activityId: number | null,
-  abortSignal: AbortSignal,
-): Promise<ReviewThreadPage> {
-  const search = snapshotSearchParams(snapshotId);
-  search.set("page", String(page));
-  search.set("limit", "100");
-  if (activityId !== null) search.set("activity_id", String(activityId));
-  const response = await requestJson(
-    {
-      input: `/api/review/threads?${search.toString()}`,
-      init: {},
-      abortSignal,
-      timeoutMs: REQUEST_TIMEOUT_MS,
-    },
-    ReviewThreadPageSchema,
-  );
-  if (response.snapshot_id !== snapshotId || response.page !== page) {
-    throw new Error("Review response returned another page identity.");
-  }
-  return response;
-}
-
 /** Reads every bounded transport page into one complete Snapshot Thread set. */
 async function requestReviewThreads(
   snapshotId: ReviewId,
   abortSignal: AbortSignal,
 ): Promise<ReviewThread[]> {
+  /** Read and validate one transport page within this complete Snapshot read. */
+  async function page(
+    pageNumber: number,
+    throughActivityId: number | null,
+  ): Promise<ReviewThreadPage> {
+    const search = snapshotSearchParams(snapshotId);
+    search.set("page", String(pageNumber));
+    search.set("limit", "100");
+    if (throughActivityId !== null) {
+      search.set("through_activity_id", String(throughActivityId));
+    }
+    const response = await requestJson(
+      {
+        input: `/api/review/threads?${search.toString()}`,
+        init: {},
+        abortSignal,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      },
+      ReviewThreadPageSchema,
+    );
+    if (response.snapshot_id !== snapshotId || response.page !== pageNumber) {
+      throw new Error("Review response returned another page identity.");
+    }
+    return response;
+  }
+
   const threads: ReviewThread[] = [];
   const threadIds = new Set<ReviewId>();
   let pageNumber = 1;
-  let activityId: number | null = null;
+  let throughActivityId: number | null = null;
   while (true) {
-    const page = await requestReviewThreadPage(
-      snapshotId,
-      pageNumber,
-      activityId,
-      abortSignal,
-    );
-    if (activityId === null) activityId = page.activity_id;
-    else if (page.activity_id !== activityId) {
-      throw new Error("Review transport pages use different read boundaries.");
+    const response = await page(pageNumber, throughActivityId);
+    if (throughActivityId === null) {
+      throughActivityId = response.through_activity_id;
+    } else if (response.through_activity_id !== throughActivityId) {
+      throw new Error("Review transport pages use different activity pivots.");
     }
-    for (const thread of page.threads) {
+    for (const thread of response.threads) {
       if (threadIds.has(thread.thread_id)) {
         throw new Error("Review transport pages contain a duplicate Thread.");
       }
       threadIds.add(thread.thread_id);
       threads.push(thread);
     }
-    if (!page.has_more) {
-      if (threads.length !== page.total_threads) {
+    if (!response.has_more) {
+      if (threads.length !== response.total_threads) {
         throw new Error("Review transport pages do not contain every Thread.");
       }
       return threads;

@@ -440,16 +440,15 @@ class Room:
         page: int,
         limit: int,
         state: Literal["all", "open"],
-        activity_id: int | Literal["latest"],
-    ) -> tuple[tuple[Thread, ...], int]:
-        """Return one bounded Thread page at an explicit activity boundary.
+        through_activity_id: Optional[int],
+    ) -> tuple[tuple[Thread, ...], int, int]:
+        """Return one bounded Thread page and its inclusive activity pivot.
 
-        `latest` selects the boundary at call time for independent agent reads.
-        A concrete id keeps every page of one browser read coherent.
+        `None` selects the latest Room activity in the same persistence read.
+        Passing a returned concrete pivot makes later pages observe the same
+        Thread existence, lifecycle state, ordering, count, and actions.
         """
         assert page >= 1 and limit >= 1
-        if activity_id == "latest":
-            activity_id = self._review_activity_boundary(snapshot_id)
         return _thread_objects(
             database=self._database,
             identity=self._identity,
@@ -459,7 +458,7 @@ class Room:
             offset=(page - 1) * limit,
             limit=limit,
             state=state,
-            activity_id=activity_id,
+            through_activity_id=through_activity_id,
         )
 
     def get_thread(self, snapshot_id: UUID, thread_id: UUID) -> Thread:
@@ -532,15 +531,6 @@ class Room:
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
-
-    def _review_activity_boundary(self, snapshot_id: UUID) -> int:
-        """Return the current authored-review boundary for this Room.
-
-        The Snapshot key proves the caller is operating in this Room; activity
-        itself is shared by all placements of the same discussions.
-        """
-        self.meta(snapshot_id)
-        return self._database.review_activity_boundary(self._identity)
 
     def _review_actions_after(
         self,

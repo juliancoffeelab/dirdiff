@@ -30,9 +30,9 @@ threads(
     page: int,
     limit: int,
     state: Literal["all", "open"],
-    activity_id: int | Literal["latest"],
+    through_activity_id: int | None,
 )
-    -> tuple[tuple[Thread, ...], int]
+    -> tuple[tuple[Thread, ...], int, int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
 create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
 ```
@@ -201,7 +201,7 @@ or File references instead of repairing or substituting data.
 The browser API is keyed by Snapshot:
 
 ```text
-GET  /api/review/threads?snapshot_id=...&page=...&limit=...&activity_id=...
+GET  /api/review/threads?snapshot_id=...&page=...&limit=...&through_activity_id=...
 POST /api/review/post_comment
 POST /api/review/edit_comment
 POST /api/review/delete_comment
@@ -210,11 +210,13 @@ POST /api/review/reopen_thread
 POST /api/review/delete_thread
 ```
 
-The first page fixes an append-only review activity boundary; every later page
-repeats it. Membership, lifecycle ordering, count, and hydrated actions are all
-read at that boundary, so concurrent review writes wait for the next refetch
-instead of moving a Thread between pages. The paged read applies stable open,
-resolved, deleted ordering and page bounds in SQLite before hydrating Threads.
+The first page passes no activity pivot. The persistence read chooses the
+greatest current Room activity in the same database session as that page and
+returns the concrete inclusive `through_activity_id`; every later page repeats
+it. Membership, lifecycle ordering, count, and hydrated actions include only
+actions at or before that pivot, so concurrent review writes wait for the next
+refetch instead of moving a Thread between pages. The paged read applies stable
+open, resolved, deleted ordering and page bounds in SQLite before hydrating Threads.
 Each HTTP response is bounded. Pagination is only a transport bound: the
 canonical browser query consumes every page before publishing the complete
 Snapshot Thread set. Starting a Thread returns its bounded first

@@ -1466,7 +1466,7 @@ class RoomStore:
             lazy_reason=row.lazy_reason,
         )
 
-    def review_snapshot(
+    def review_threads(
         self,
         identity: RoomIdentity,
         snapshot_id: str,
@@ -1474,15 +1474,34 @@ class RoomStore:
         limit: Optional[int] = None,
         state: Literal["all", "open"] = "all",
         *,
-        activity_id: int,
-    ) -> Optional[ReviewSnapshotRecord]:
-        """Bulk-load discussions placed in one Snapshot at an activity boundary.
+        through_activity_id: Optional[int],
+    ) -> Optional[tuple[ReviewSnapshotRecord, int]]:
+        """Load one ordered, bounded set of Threads from a Snapshot.
 
-        `None` means the Snapshot is absent or belongs to another Room. Threads
-        from other temporal slices and actions after the boundary are absent.
+        `identity` must identify the Room containing `snapshot_id`.
+        `offset` and `limit` select a slice after ordering open, resolved, and
+        deleted Threads  by lifecycle state and creation activity.
+        `state="open"` excludes resolved and deleted Threads.
+
+        `through_activity_id` is an inclusive pivot over the Room's append-only
+        review actions.
+        Thread existence, lifecycle state, ordering, count, and returned actions
+        are all reconstructed using only actions at or before that pivot, so
+        separate page reads observe one stable discussion state.
+        `None` chooses the greatest current Room activity in this same database
+        session. The concrete pivot is returned for use by subsequent pages.
+
+        This function returns `None` when the Snapshot does not belong to the
+        supplied Room.
+        Otherwise returns the selected placements, origins, actions, Profiles,
+        total matching Thread count, and concrete inclusive pivot.
         """
-        assert activity_id >= 0, "review activity boundary must be nonnegative"
-        mark_clause = (
+        assert through_activity_id is None or through_activity_id >= 0, (
+            "review activity pivot must be nonnegative"
+        )
+        # Preset Rooms have no Mark; SQL NULL equality requires an explicit
+        # predicate.
+        matching_mark = (
             Room.mark_id.is_(None)
             if identity.mark_id is None
             else Room.mark_id == identity.mark_id
@@ -1495,11 +1514,20 @@ class RoomStore:
                     Snapshot.id == snapshot_id,
                     Room.tab == identity.tab,
                     Room.backend_key == identity.correspondence_key,
-                    mark_clause,
+                    matching_mark,
                 )
             ).scalar_one_or_none()
             if room_id is None:
                 return None
+            if through_activity_id is None:
+                latest_activity_id = session.execute(
+                    select(func.max(ReviewAction.activity_id))
+                    .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
+                    .where(Snapshot.room_id == room_id)
+                ).scalar_one()
+                through_activity_id = (
+                    0 if latest_activity_id is None else latest_activity_id
+                )
             last_lifecycle = (
                 select(ReviewAction.kind)
                 .where(
@@ -1511,7 +1539,7 @@ class RoomStore:
                             "thread-deleted",
                         )
                     ),
-                    ReviewAction.activity_id <= activity_id,
+                    ReviewAction.activity_id <= through_activity_id,
                 )
                 .order_by(ReviewAction.sequence.desc())
                 .limit(1)
@@ -1527,7 +1555,7 @@ class RoomStore:
                 .where(
                     ReviewAction.thread_id == ReviewThread.thread_id,
                     ReviewAction.sequence == 0,
-                    ReviewAction.activity_id <= activity_id,
+                    ReviewAction.activity_id <= through_activity_id,
                 )
                 .scalar_subquery()
             )
@@ -1555,21 +1583,28 @@ class RoomStore:
             selected_rows = session.execute(selected_query).all()
             thread_ids = [row.thread_id for row in selected_rows]
             if thread_ids == []:
-                return ReviewSnapshotRecord((), (), (), (), total_threads)
+                return (
+                    ReviewSnapshotRecord((), (), (), (), total_threads),
+                    through_activity_id,
+                )
             origin_rows = session.execute(
                 select(*ReviewThread.__table__.c).where(
                     ReviewThread.thread_id.in_(thread_ids),
                     ReviewThread.is_origin.is_(True),
                 )
             ).all()
-            assert {row.thread_id for row in origin_rows} == set(thread_ids), (
+            origins_by_thread = {row.thread_id: row for row in origin_rows}
+            assert origins_by_thread.keys() == set(thread_ids), (
                 "Snapshot review placement exists without a Thread origin"
             )
+            origin_rows = [
+                origins_by_thread[thread_id] for thread_id in thread_ids
+            ]
             action_rows = session.execute(
                 select(*ReviewAction.__table__.c)
                 .where(
                     ReviewAction.thread_id.in_(thread_ids),
-                    ReviewAction.activity_id <= activity_id,
+                    ReviewAction.activity_id <= through_activity_id,
                 )
                 .order_by(ReviewAction.thread_id, ReviewAction.sequence)
             ).all()
@@ -1586,12 +1621,17 @@ class RoomStore:
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
-        return ReviewSnapshotRecord(
-            threads=tuple(self._thread_record(row) for row in selected_rows),
-            origins=tuple(self._thread_record(row) for row in origin_rows),
-            actions=tuple(self._action_record(row) for row in action_rows),
-            profiles=tuple(profiles),
-            total_threads=total_threads,
+        return (
+            ReviewSnapshotRecord(
+                threads=tuple(
+                    self._thread_record(row) for row in selected_rows
+                ),
+                origins=tuple(self._thread_record(row) for row in origin_rows),
+                actions=tuple(self._action_record(row) for row in action_rows),
+                profiles=tuple(profiles),
+                total_threads=total_threads,
+            ),
+            through_activity_id,
         )
 
     def review_thread(
@@ -1852,26 +1892,6 @@ class RoomStore:
                         activity_id=next_activity_id + offset,
                     )
                 )
-
-    def review_activity_boundary(self, identity: RoomIdentity) -> int:
-        """Return the greatest authored activity id currently in one Room."""
-        mark_clause = (
-            Room.mark_id.is_(None)
-            if identity.mark_id is None
-            else Room.mark_id == identity.mark_id
-        )
-        with Session(self.engine) as session:
-            value = session.execute(
-                select(func.max(ReviewAction.activity_id))
-                .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
-                .join(Room, Room.id == Snapshot.room_id)
-                .where(
-                    Room.tab == identity.tab,
-                    Room.backend_key == identity.correspondence_key,
-                    mark_clause,
-                )
-            ).scalar_one()
-        return 0 if value is None else value
 
     def review_actions_after(
         self,

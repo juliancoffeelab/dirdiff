@@ -583,7 +583,7 @@ class ReviewThreadPage(ApiModel):
     """Return one bounded page of Threads represented in a Snapshot."""
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    activity_id: int = Field(ge=0)
+    through_activity_id: int = Field(ge=0)
     threads: list[ReviewThreadResponse]
     page: int = Field(ge=1)
     limit: int = Field(ge=1)
@@ -2016,37 +2016,36 @@ def create_app(
         snapshot_id: UUID = Query(description="Exact retained Snapshot id."),
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=100),
-        activity_id: int | None = Query(default=None, ge=0),
+        through_activity_id: int | None = Query(default=None, ge=0),
     ) -> ReviewThreadPage:
         """Return one stable complete-Thread page for the History UI.
 
-        Page one fixes the append-only review activity boundary. Later pages
+        Page one chooses the append-only review activity pivot. Later pages
         must repeat it so lifecycle changes cannot reorder the paged read.
         """
         try:
             room = room_lord.find_room(snapshot_id)
             if page == 1:
-                if activity_id is not None:
+                if through_activity_id is not None:
                     raise ReviewError(
                         "invalid_target",
-                        "First review page chooses its activity boundary.",
+                        "First review page chooses its activity pivot.",
                     )
-                activity_id = room._review_activity_boundary(snapshot_id)
-            elif activity_id is None:
+            elif through_activity_id is None:
                 raise ReviewError(
                     "invalid_target",
-                    "Later review pages require the first page activity boundary.",
+                    "Later review pages require the first page activity pivot.",
                 )
-            threads, total = room.threads(
+            threads, total, through_activity_id = room.threads(
                 snapshot_id,
                 page=page,
                 limit=limit,
                 state="all",
-                activity_id=activity_id,
+                through_activity_id=through_activity_id,
             )
             return ReviewThreadPage(
                 snapshot_id=snapshot_id.hex,
-                activity_id=activity_id,
+                through_activity_id=through_activity_id,
                 threads=[
                     ReviewThreadResponse.model_validate(thread.discussion())
                     for thread in threads
@@ -2363,17 +2362,17 @@ def create_app(
                 )
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
-            _threads, unresolved_count = room.threads(
+            _threads, unresolved_count, last_activity_id = room.threads(
                 snapshot_id,
                 page=1,
                 limit=1,
                 state="open",
-                activity_id="latest",
+                through_activity_id=None,
             )
             return NewAgentReviewResponse(
                 profile_id=profile.id,
                 snapshot_id=snapshot_id.hex,
-                last_activity_id=room._review_activity_boundary(snapshot_id),
+                last_activity_id=last_activity_id,
                 snapshot_path=str(room_lord.snapshot_path(snapshot_id)),
                 unresolved_thread_count=unresolved_count,
             )
@@ -2393,12 +2392,12 @@ def create_app(
         """Return a bounded discovery page of unresolved Threads."""
         try:
             room = snapshot_room(snapshot_id)
-            page_threads, total = room.threads(
+            page_threads, total, _through_activity_id = room.threads(
                 snapshot_id,
                 page=page,
                 limit=limit,
                 state="open",
-                activity_id="latest",
+                through_activity_id=None,
             )
             captured_files = agent_captured_files(room, snapshot_id)
             open_threads = [
@@ -2436,12 +2435,12 @@ def create_app(
         """Return complete unresolved Threads in bounded batches."""
         try:
             room = snapshot_room(snapshot_id)
-            page_threads, total = room.threads(
+            page_threads, total, _through_activity_id = room.threads(
                 snapshot_id,
                 page=page,
                 limit=limit,
                 state="open",
-                activity_id="latest",
+                through_activity_id=None,
             )
             captured_files = agent_captured_files(room, snapshot_id)
             threads = [
@@ -2589,12 +2588,12 @@ def create_app(
                             kind="thread_deleted",
                         )
                 changes.append(change)
-            _threads, unresolved_count = room.threads(
+            _threads, unresolved_count, _through_activity_id = room.threads(
                 snapshot_id,
                 page=1,
                 limit=1,
                 state="open",
-                activity_id="latest",
+                through_activity_id=None,
             )
             return ContinueAgentReviewResponse(
                 previous_snapshot_id=previous_id.hex,

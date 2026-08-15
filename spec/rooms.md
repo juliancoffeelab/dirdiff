@@ -43,7 +43,14 @@ get(
     left: Optional[Path],
     right: Optional[Path],
 ) -> tuple[Optional[Path], Optional[Path], FileMeta]
-threads(snapshot_id: UUID) -> tuple[Thread, ...]
+threads(
+    snapshot_id: UUID,
+    *,
+    page: int,
+    limit: int,
+    state: Literal["all", "open"],
+    through_activity_id: int | None,
+) -> tuple[tuple[Thread, ...], int, int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
 create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
 ```
