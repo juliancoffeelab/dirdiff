@@ -923,6 +923,16 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       mount,
       sourceAnchor,
     });
+    // Solid applies the active input synchronously; focus the resulting Portal
+    // content as part of the same explicit open action.
+    const textareas = mount.querySelectorAll<HTMLTextAreaElement>(
+      ".review-comment-input-line textarea",
+    );
+    assert(
+      textareas.length === 1,
+      "Opened Comment input requires one textarea.",
+    );
+    textareas[0].focus();
   }
 
   /** Persists meaningful Comment input and removes it when emptied again. */
@@ -2059,7 +2069,6 @@ function CommentInput(props: {
               <span>Comment</span>
               <textarea
                 rows="5"
-                autofocus
                 value={draft()?.body ?? ""}
                 disabled={props.draftError() !== null || submitting()}
                 onInput={(event) => {
@@ -2671,10 +2680,10 @@ function ReviewCommentView(props: {
           </Show>
         </div>
         <p>{props.comment.body ?? "Comment deleted"}</p>
-        <Show when={props.editDraft} keyed>
+        <Show when={props.editDraft}>
           {(draft) => {
             assert(
-              draft.kind === "edit",
+              draft().kind === "edit",
               "Comment editor requires an edit draft.",
             );
             return (
@@ -2684,25 +2693,25 @@ function ReviewCommentView(props: {
                   event.preventDefault();
                   if (
                     props.editable &&
-                    draft.body.trim().length > 0 &&
+                    draft().body.trim().length > 0 &&
                     !props.editSubmitting
                   ) {
-                    void props.onEditSubmit(draft);
+                    void props.onEditSubmit(draft());
                   }
                 }}
               >
                 <textarea
                   rows="3"
                   aria-label="Edit Comment"
-                  value={draft.body}
+                  value={draft().body}
                   disabled={props.editSubmitting || !props.editable}
                   onInput={(event) => {
                     const replacement = {
-                      ...draft,
+                      ...draft(),
                       body: event.currentTarget.value,
                     };
                     if (!props.onEditChange(replacement)) {
-                      event.currentTarget.value = draft.body;
+                      event.currentTarget.value = draft().body;
                     }
                   }}
                   onKeyDown={(event) => {
@@ -2722,7 +2731,7 @@ function ReviewCommentView(props: {
                     type="button"
                     class="comment-floater-secondary"
                     disabled={props.editSubmitting}
-                    onClick={() => props.onEditDiscard(draft)}
+                    onClick={() => props.onEditDiscard(draft())}
                   >
                     Discard
                   </button>
@@ -2732,7 +2741,7 @@ function ReviewCommentView(props: {
                     disabled={
                       !props.editable ||
                       props.editSubmitting ||
-                      draft.body.trim().length === 0
+                      draft().body.trim().length === 0
                     }
                   >
                     {props.editSubmitting ? "Submitting…" : "Save"}

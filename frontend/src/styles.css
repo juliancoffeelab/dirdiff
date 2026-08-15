@@ -1182,6 +1182,7 @@ h1 {
   position: relative;
   z-index: 1;
   display: grid;
+  grid-column: 2;
   min-width: 0;
   gap: 14px;
 }
@@ -1198,6 +1199,7 @@ h1 {
 .review-history-slot {
   position: sticky;
   top: var(--app-header-sticky-offset, 0px);
+  grid-column: 3;
   align-self: start;
   min-width: 0;
   height: calc(100vh - var(--app-header-sticky-offset, 0px));
@@ -2010,6 +2012,8 @@ h1 {
 }
 
 /* Solid's Portal wrapper contributes no box; code UI remains the row's grid item. */
+.diff-side > :has(> .review-inline-threads),
+.diff-side > :has(> .review-comment-input-line),
 .diff-row > :has(> .review-inline-threads),
 .diff-row > :has(> .review-comment-input-line) {
   display: contents;
@@ -3994,14 +3998,6 @@ h1 {
   .repo-picker-heading,
   .repo-option {
     grid-template-columns: 1fr;
-  }
-
-  .diff-workspace-inline {
-    display: block;
-  }
-
-  .diff-workspace-inline::before {
-    content: none;
   }
 
   .file-tree-shell {

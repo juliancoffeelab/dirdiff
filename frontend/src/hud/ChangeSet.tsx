@@ -20,7 +20,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  on,
   onCleanup,
   onMount,
   requestCallback,
@@ -203,13 +202,6 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
   const [state, setState] = createStore<ChangeSetState>({
     fileExpansion: {},
   });
-  // Each deliberate view-mode change restores that mode's closed History.
-  createEffect(
-    on(
-      () => props.view,
-      () => setHistoryOpen(false),
-    ),
-  );
   return (
     <Show when={props.active ? props.params : null} keyed>
       {(activeParams) => (
