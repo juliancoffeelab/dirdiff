@@ -68,7 +68,7 @@ import {
 } from "./linePins";
 import { NavigationProvider, useNavigation } from "./navigation";
 import type { StoredProfile } from "./Profile";
-import { ReviewProvider } from "./Review";
+import { ReviewProvider, type ReviewCodeAnchor } from "./Review";
 
 const SLOW_FILE_THRESHOLD_MS = 8_000;
 
@@ -1230,7 +1230,7 @@ type ReviewSnapshotBoundaryProps = ChangeSetSnapshotProps & {
  * Supplies the engine-bound File lane's current scroll-only destinations and
  * inline History grid position.
  *
- * The callback publishes manifest indexes whose current state is not Husk. It
+ * The callback publishes manifest indexes whose current state is a loaded FullFile. It
  * must not load, expand, select, or navigate a File. The History callback
  * publishes only the concrete third grid child mounted beside the File lane.
  */
@@ -1250,7 +1250,10 @@ function ReviewSnapshotBoundary(
   props: ReviewSnapshotBoundaryProps,
 ): JSX.Element {
   const navigation = useNavigation();
-  const toast = useToasts();
+  // History navigation shares this exact Snapshot boundary lifetime; disposal
+  // cancels any line preparation before it can scroll or return a detached row.
+  const reviewNavigationAbort = new AbortController();
+  onCleanup(() => reviewNavigationAbort.abort());
   const files = manifestFilesInOrder(props.manifest.tree);
   const reviewFileIndexes = new Map<string, number>();
   files.forEach((file, fileIndex) => {
@@ -1282,25 +1285,98 @@ function ReviewSnapshotBoundary(
     return fileIndex;
   }
 
-  /** Reports whether ordinary File navigation currently accepts the Thread. */
+  /** Reports whether exact line navigation currently accepts the Thread. */
   function canViewReviewThread(location: ThreadCodeLocation): boolean {
     return navigableFileIndexes().has(reviewFileIndex(location));
   }
 
-  /** Jumps to the unique current File without selecting a hunk. */
-  function viewReviewThread(location: ThreadCodeLocation): void {
+  /** Navigates to one loaded Thread line and returns its mounted review anchor. */
+  async function viewReviewThread(
+    location: ThreadCodeLocation,
+  ): Promise<ReviewCodeAnchor | null> {
     const fileIndex = reviewFileIndex(location);
     if (!navigableFileIndexes().has(fileIndex)) {
-      throw new Error("Review File navigation cannot target a HuskFile.");
+      throw new Error("Review navigation requires a loaded File.");
     }
-    void navigation
-      .navigate({
-        kind: "file",
-        fileIndex,
-      })
-      .catch((error: unknown) =>
-        toast.showError("Could not view Thread", error),
+    const selectedPath = expect(
+      location.side === "left"
+        ? location.file.left_path
+        : location.file.right_path,
+      "Located review Thread requires its selected-side File path.",
+    );
+    const line = location.kind === "range" ? location.range.start_line : 1;
+    const result = await navigation.navigate({
+      kind: "line",
+      fileIndex,
+      target: {
+        file: selectedPath,
+        region:
+          location.kind === "range" &&
+          location.region.kind === "notebook-cell-source"
+            ? location.region.cell_key
+            : null,
+        side: location.side,
+        line: String(line),
+      },
+      abortSignal: reviewNavigationAbort.signal,
+    });
+    if (result.state === "stopped") return null;
+    if (result.state === "missing") {
+      throw new Error(
+        "The exact reviewed line is absent from the loaded File.",
       );
+    }
+    assert(
+      result.state === "complete",
+      "Review line navigation did not finish.",
+    );
+    const changeSetRoot = inlineHistoryTarget()?.closest<HTMLElement>(
+      "[data-change-set-root]",
+    );
+    assert(
+      changeSetRoot !== null && changeSetRoot !== undefined,
+      "Review navigation requires its mounted ChangeSet.",
+    );
+    const card = changeSetRoot.querySelector<HTMLElement>(
+      `[data-file-card][data-file-index="${fileIndex}"]`,
+    );
+    assert(card !== null, "Review navigation lost its loaded FileCard.");
+    const region =
+      location.kind === "range" &&
+      location.region.kind === "notebook-cell-source"
+        ? location.region.cell_key
+        : "";
+    const matchingGrids = [
+      ...card.querySelectorAll<HTMLElement>(".diff-grid"),
+    ].filter((grid) => grid.dataset.reviewRegion === region);
+    assert(
+      matchingGrids.length === 1,
+      "Review navigation requires one exact rendered region.",
+    );
+    const matchingLines = expect(
+      matchingGrids[0],
+      "Reviewed region disappeared after navigation.",
+    ).querySelectorAll<HTMLElement>(
+      `.line-no[data-line-pin-side="${location.side}"][data-line-pin-line="${line}"]`,
+    );
+    assert(
+      matchingLines.length === 1,
+      "Review navigation requires one exact line in its prepared row.",
+    );
+    const lineNumber = expect(
+      matchingLines[0],
+      "Reviewed line disappeared after navigation.",
+    );
+    const rowPart = lineNumber.parentElement;
+    const codeCell = rowPart?.querySelector<HTMLElement>(":scope > .line-code");
+    const trigger = lineNumber.querySelector<HTMLButtonElement>(
+      ".line-comment-trigger:not([hidden])",
+    );
+    assert(
+      codeCell !== null && codeCell !== undefined && trigger !== null,
+      "Reviewed line requires its rendered code and marker.",
+    );
+    return { codeCell, trigger };
   }
 
   return (
@@ -1600,7 +1676,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   createEffect(() => {
     const navigable = new Set<number>();
     for (const [fileIndex, state] of fileStates().entries()) {
-      if (state.state !== "husk") {
+      if (state.state === "full") {
         navigable.add(fileIndex);
       }
     }
@@ -2843,8 +2919,8 @@ function FileTree(props: FileTreeProps): JSX.Element {
           <span class="file-tree-icon" aria-hidden="true">
             ▦
           </span>
+          <span class="file-tree-label">Files</span>
           <Show when={props.open}>
-            <span class="file-tree-label">Files</span>
             <TreeStatistics stats={sumTreeStatistics(props.states())} />
           </Show>
           <kbd>t</kbd>

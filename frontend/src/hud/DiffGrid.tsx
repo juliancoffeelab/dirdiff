@@ -32,7 +32,11 @@ import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import type { RealHunkIdentity } from "./navigation";
 import { assert } from "../utils";
 import { presentError } from "../comp/Toasts";
-import { useReview, type ReviewTextGridBinding } from "./Review";
+import {
+  useReview,
+  type ReviewMarkerKind,
+  type ReviewTextGridBinding,
+} from "./Review";
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -96,6 +100,7 @@ export function DiffGrid(props: {
   return (
     <div
       class="diff-grid"
+      data-review-region={props.region ?? ""}
       classList={{
         "diff-grid-inline": props.viewMode === "inline",
         "diff-grid-combine-insert-only-replace": Boolean(
@@ -200,7 +205,7 @@ type PreparableDiffLines = HTMLDivElement & {
  * renderer input changes and replaces every child of its root atomically. One
  * delegated root listener handles line pins and comment triggers across all
  * explicit row replacements. The Snapshot review boundary renders at most one
- * persistent-Comment composer through `document.body`; renderer replacement
+ * persistent Comment input through `document.body`; renderer replacement
  * closes it when its trigger disappears. The listener and preparation
  * operation are removed on cleanup.
  */
@@ -240,6 +245,21 @@ function ImperativeDiffLines(props: {
   let previousAggressiveFolds: boolean | undefined;
   let previousCombineInsertOnlyReplaceRows: boolean | undefined;
 
+  /** Reads the required marker discriminator from one rendered Comment control. */
+  function reviewMarkerKind(trigger: HTMLButtonElement): ReviewMarkerKind {
+    const markerKind = trigger.dataset.reviewMarkerKind;
+    if (
+      markerKind !== "new" &&
+      markerKind !== "draft" &&
+      markerKind !== "open" &&
+      markerKind !== "resolved" &&
+      markerKind !== "deleted"
+    ) {
+      throw new Error("Comment trigger has an invalid marker kind.");
+    }
+    return markerKind;
+  }
+
   /** Refreshes only review decorations and disables them if this owner fails. */
   function ReviewMarkerRefresh(): JSX.Element {
     createEffect(() => {
@@ -269,12 +289,8 @@ function ImperativeDiffLines(props: {
     if (target.file !== props.displayName || target.region !== props.region) {
       throw new Error("DiffGrid received a line target from another region.");
     }
-    const matchingLines = Array.from(
-      root.querySelectorAll<HTMLElement>(".line-no[data-line-pin-line]"),
-    ).filter(
-      (lineNumber) =>
-        lineNumber.dataset.linePinSide === target.side &&
-        lineNumber.dataset.linePinLine === target.line,
+    const matchingLines = root.querySelectorAll<HTMLElement>(
+      `.line-no[data-line-pin-side="${target.side}"][data-line-pin-line="${target.line}"]`,
     );
     if (matchingLines.length > 1) {
       throw new Error("DiffGrid contains duplicate line-pin coordinates.");
@@ -340,11 +356,12 @@ function ImperativeDiffLines(props: {
           commentCodeCell !== null,
         "Comment trigger must belong to a rendered diff code cell.",
       );
-      review.activateTextComposer(
+      review.activateTextCommentInput(
         reviewBinding,
         side,
         Number(line),
         { codeCell: commentCodeCell, trigger: commentTrigger },
+        reviewMarkerKind(commentTrigger),
         event.shiftKey,
       );
       return;
@@ -415,6 +432,10 @@ function ImperativeDiffLines(props: {
     if (abortSignal.aborted || !root.isConnected) {
       return { state: "stopped" };
     }
+    const existing = renderedRow(target);
+    if (existing !== null) {
+      return { state: "ready", row: existing };
+    }
     const lineNumber = Number(target.line);
     const matchingRowIndexes = props.rows.flatMap((row, rowIndex) => {
       const candidate = target.side === "left" ? row.left_no : row.right_no;
@@ -430,6 +451,7 @@ function ImperativeDiffLines(props: {
     if (targetRowIndex === undefined) {
       throw new Error("Matched line row index disappeared.");
     }
+    let expanded = false;
     const remaining = [
       ...addFoldRows(props.rows, props.foldHints, props.aggressiveFolds),
     ];
@@ -442,10 +464,17 @@ function ImperativeDiffLines(props: {
         targetRowIndex >= candidate.startRow &&
         targetRowIndex < candidate.startRow + candidate.count
       ) {
-        expandedFolds.add(candidate.startRow);
+        if (!expandedFolds.has(candidate.startRow)) {
+          expandedFolds.add(candidate.startRow);
+          expanded = true;
+        }
       }
       remaining.unshift(...candidate.foldedRows);
     }
+    assert(
+      expanded,
+      "A known unrendered line must belong to a collapsed fold.",
+    );
     render();
     await Promise.resolve();
     if (abortSignal.aborted || !root.isConnected) {
@@ -456,42 +485,119 @@ function ImperativeDiffLines(props: {
   }
 
   /**
-   * Derives review classes for every currently mounted Comment trigger.
+   * Refreshes Comment-trigger labels and state on the currently rendered lines.
    *
-   * Callers provide no renderer input: this operation changes classes in place
-   * and must not replace rows, anchors, line-pin state, or selected-hunk DOM.
+   * ReviewMarkerRefresh calls this after marker data changes or DiffGrid replaces
+   * its rows. It mutates only existing trigger elements; it does not render rows
+   * or change folds, line pins, or hunk selection.
    */
   function refreshReviewMarkers(): void {
-    for (const lineNumber of root.querySelectorAll<HTMLElement>(
-      ".line-no[data-line-pin-line]",
-    )) {
-      const trigger = lineNumber.querySelector(
-        ":scope > .line-comment-trigger",
-      );
-      const side = lineNumber.dataset.linePinSide;
-      const line = lineNumber.dataset.linePinLine;
-      assert(
-        trigger instanceof HTMLButtonElement &&
-          (side === "left" || side === "right") &&
-          line !== undefined &&
-          /^[1-9]\d*$/u.test(line),
-        "Rendered comment trigger must expose its exact line identity.",
-      );
-      const storedState = review.markerState(reviewBinding, side, Number(line));
+    /** Creates one control for one state actually represented at this line. */
+    function createTrigger(
+      markerKind: ReviewMarkerKind,
+      side: Side,
+      line: string,
+    ): HTMLButtonElement {
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "line-comment-trigger";
+      trigger.dataset.reviewMarkerKind = markerKind;
       trigger.classList.toggle(
         "line-comment-trigger-commented",
-        storedState.hasThread,
+        markerKind === "open" ||
+          markerKind === "resolved" ||
+          markerKind === "deleted",
       );
       trigger.classList.toggle(
         "line-comment-trigger-draft",
-        storedState.hasDraft,
+        markerKind === "draft",
       );
-      trigger.classList.toggle("line-comment-trigger-muted", storedState.muted);
       trigger.classList.toggle(
-        "line-comment-trigger-warning",
-        storedState.warning,
+        "line-comment-trigger-open",
+        markerKind === "open",
       );
-      trigger.disabled = storedState.disabled;
+      trigger.classList.toggle(
+        "line-comment-trigger-resolved",
+        markerKind === "resolved",
+      );
+      trigger.classList.toggle(
+        "line-comment-trigger-deleted",
+        markerKind === "deleted",
+      );
+      const icon = document.createElement("span");
+      icon.className = "line-comment-trigger-icon";
+      icon.ariaHidden = "true";
+      const label = document.createElement("span");
+      label.className = "line-comment-trigger-label";
+      trigger.append(icon, label);
+      trigger.ariaLabel = `Review action on ${side === "left" ? "old" : "new"} line ${line}`;
+      return trigger;
+    }
+
+    for (const lineNumber of root.querySelectorAll<HTMLElement>(
+      ".line-no[data-line-pin-line]",
+    )) {
+      const host = lineNumber.querySelector(":scope > .line-comment-triggers");
+      const side = lineNumber.dataset.linePinSide;
+      const line = lineNumber.dataset.linePinLine;
+      assert(
+        host instanceof HTMLSpanElement &&
+          (side === "left" || side === "right") &&
+          line !== undefined &&
+          /^[1-9]\d*$/u.test(line),
+        "Rendered Comment marker must expose its exact line identity.",
+      );
+      const storedState = review.markerState(reviewBinding, side, Number(line));
+      storedState.markers.forEach((marker, index) => {
+        const current = host.children.item(index);
+        let trigger =
+          current instanceof HTMLButtonElement &&
+          reviewMarkerKind(current) === marker.kind
+            ? current
+            : createTrigger(marker.kind, side, line);
+        if (trigger !== current) {
+          if (current === null) {
+            host.append(trigger);
+          } else {
+            current.replaceWith(trigger);
+          }
+        }
+        const label = trigger.lastElementChild;
+        assert(
+          label instanceof HTMLSpanElement,
+          "Rendered Comment trigger requires its visible label.",
+        );
+        let actionLabel: string;
+        if (marker.kind === "draft") {
+          actionLabel = "Draft";
+        } else if (marker.kind === "new") {
+          actionLabel = "Add comment";
+        } else {
+          actionLabel = `${marker.count} ${marker.kind === "resolved" ? "Resolved" : marker.kind === "deleted" ? "Deleted" : "Open"} Thread${marker.count === 1 ? "" : "s"}`;
+        }
+        const labelText =
+          marker.kind === "open" ||
+          marker.kind === "resolved" ||
+          marker.kind === "deleted"
+            ? String(marker.count)
+            : actionLabel;
+        if (label.textContent !== labelText) label.textContent = labelText;
+        if (trigger.title !== actionLabel) trigger.title = actionLabel;
+        const ariaLabel = `${actionLabel} on ${side === "left" ? "old" : "new"} line ${line}`;
+        if (trigger.ariaLabel !== ariaLabel) trigger.ariaLabel = ariaLabel;
+        const warning = "warning" in marker && marker.warning;
+        if (
+          trigger.classList.contains("line-comment-trigger-warning") !== warning
+        ) {
+          trigger.classList.toggle("line-comment-trigger-warning", warning);
+        }
+        if (trigger.disabled !== storedState.disabled) {
+          trigger.disabled = storedState.disabled;
+        }
+      });
+      while (host.children.length > storedState.markers.length) {
+        host.lastElementChild?.remove();
+      }
     }
   }
 
@@ -503,7 +609,9 @@ function ImperativeDiffLines(props: {
       trigger.classList.remove(
         "line-comment-trigger-commented",
         "line-comment-trigger-draft",
-        "line-comment-trigger-muted",
+        "line-comment-trigger-open",
+        "line-comment-trigger-resolved",
+        "line-comment-trigger-deleted",
         "line-comment-trigger-warning",
       );
       trigger.disabled = true;
@@ -1442,13 +1550,9 @@ function createLineNumberDom(lineNo: number | null, side: Side): HTMLElement {
     element.dataset.linePinSide = side;
     element.dataset.linePinLine = String(lineNo);
     element.title = "Pin line";
-    const commentTrigger = document.createElement("button");
-    commentTrigger.type = "button";
-    commentTrigger.className = "line-comment-trigger";
-    commentTrigger.ariaLabel = `Comment on ${side === "left" ? "old" : "new"} line ${lineNo}`;
-    commentTrigger.title = "Add comment";
-    commentTrigger.textContent = "+";
-    element.append(commentTrigger);
+    const commentTriggers = document.createElement("span");
+    commentTriggers.className = "line-comment-triggers";
+    element.append(commentTriggers);
   }
   element.append(lineNo === null ? "" : String(lineNo));
   return element;

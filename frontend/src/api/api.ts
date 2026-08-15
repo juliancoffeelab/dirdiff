@@ -7,11 +7,7 @@
  * and request functions. It must not contain UI state, component behavior, query
  * observers, Toast presentation, or ChangeSet file-fetch sequencing.
  */
-import {
-  infiniteQueryOptions,
-  mutationOptions,
-  queryOptions,
-} from "@tanstack/solid-query";
+import { mutationOptions, queryOptions } from "@tanstack/solid-query";
 import { z } from "zod";
 
 const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic", "gumtree"]);
@@ -907,7 +903,7 @@ const FileStartThreadCodeLocationSchema = z.strictObject({
   file: ReviewFilePairSchema,
   side: z.enum(["left", "right"]),
 });
-const ThreadCodeLocationSchema = z.discriminatedUnion("kind", [
+export const ThreadCodeLocationSchema = z.discriminatedUnion("kind", [
   RangeThreadCodeLocationSchema,
   FileStartThreadCodeLocationSchema,
 ]);
@@ -947,6 +943,7 @@ const ReviewThreadSchema = z
     created_at: z.string().datetime({ offset: true }),
     state: z.enum(["open", "resolved", "deleted"]),
     state_revision: z.number().int().nonnegative(),
+    discussion_revision: z.number().int().nonnegative(),
     origin_target: ReviewTargetSchema,
     code_location: ThreadCodeLocationSchema.nullable(),
     outdated_reason: z
@@ -1019,15 +1016,17 @@ const ReviewThreadUpdateSchema = z.strictObject({
   snapshot_id: ReviewIdSchema,
   state: z.enum(["open", "resolved", "deleted"]),
   state_revision: z.number().int().nonnegative(),
+  discussion_revision: z.number().int().nonnegative(),
   comment: ReviewCommentSchema.nullable(),
 });
 
-/** Returns only state and the Comment changed by one accepted action. */
+/** Returns the revision, state, and Comment changed by one accepted action. */
 export type ReviewThreadUpdate = z.infer<typeof ReviewThreadUpdateSchema>;
 
 const ReviewThreadPageSchema = z
   .strictObject({
     snapshot_id: ReviewIdSchema,
+    activity_id: z.number().int().nonnegative(),
     threads: z.array(ReviewThreadSchema),
     page: z.number().int().positive(),
     limit: z.number().int().positive(),
@@ -1066,8 +1065,8 @@ const ReviewThreadPageSchema = z
     });
   });
 
-/** Returns one explicitly bounded History page for an exact Snapshot. */
-export type ReviewThreadPage = z.infer<typeof ReviewThreadPageSchema>;
+/** Returns one explicitly bounded transport page for an exact Snapshot. */
+type ReviewThreadPage = z.infer<typeof ReviewThreadPageSchema>;
 
 const ReviewBodySchema = z
   .string()
@@ -1828,15 +1827,17 @@ function requestFileDiff(
   );
 }
 
-/** Reads one persisted History page for one exact Snapshot. */
+/** Reads one persisted Thread transport page for one exact Snapshot. */
 async function requestReviewThreadPage(
   snapshotId: ReviewId,
   page: number,
+  activityId: number | null,
   abortSignal: AbortSignal,
 ): Promise<ReviewThreadPage> {
   const search = snapshotSearchParams(snapshotId);
   search.set("page", String(page));
-  search.set("limit", "20");
+  search.set("limit", "100");
+  if (activityId !== null) search.set("activity_id", String(activityId));
   const response = await requestJson(
     {
       input: `/api/review/threads?${search.toString()}`,
@@ -1850,6 +1851,43 @@ async function requestReviewThreadPage(
     throw new Error("Review response returned another page identity.");
   }
   return response;
+}
+
+/** Reads every bounded transport page into one complete Snapshot Thread set. */
+async function requestReviewThreads(
+  snapshotId: ReviewId,
+  abortSignal: AbortSignal,
+): Promise<ReviewThread[]> {
+  const threads: ReviewThread[] = [];
+  const threadIds = new Set<ReviewId>();
+  let pageNumber = 1;
+  let activityId: number | null = null;
+  while (true) {
+    const page = await requestReviewThreadPage(
+      snapshotId,
+      pageNumber,
+      activityId,
+      abortSignal,
+    );
+    if (activityId === null) activityId = page.activity_id;
+    else if (page.activity_id !== activityId) {
+      throw new Error("Review transport pages use different read boundaries.");
+    }
+    for (const thread of page.threads) {
+      if (threadIds.has(thread.thread_id)) {
+        throw new Error("Review transport pages contain a duplicate Thread.");
+      }
+      threadIds.add(thread.thread_id);
+      threads.push(thread);
+    }
+    if (!page.has_more) {
+      if (threads.length !== page.total_threads) {
+        throw new Error("Review transport pages do not contain every Thread.");
+      }
+      return threads;
+    }
+    pageNumber += 1;
+  }
 }
 
 type CreateReviewThreadInput = {
@@ -2101,15 +2139,12 @@ export const api = {
   },
 
   review: {
-    /** Defines explicitly loaded bounded History pages for an exact Snapshot. */
+    /** Defines the complete canonical Thread set for an exact Snapshot. */
     snapshot(snapshotId: ReviewId) {
-      return infiniteQueryOptions({
+      return queryOptions({
         queryKey: ["review", snapshotId] as const,
-        queryFn: ({ signal: abortSignal, pageParam }) =>
-          requestReviewThreadPage(snapshotId, pageParam, abortSignal),
-        initialPageParam: 1,
-        getNextPageParam: (lastPage) =>
-          lastPage.has_more ? lastPage.page + 1 : undefined,
+        queryFn: ({ signal: abortSignal }) =>
+          requestReviewThreads(snapshotId, abortSignal),
         meta: { errorTitle: "Failed to load review Threads" },
         ...snapshotQuery,
       });

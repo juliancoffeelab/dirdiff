@@ -297,6 +297,7 @@ class ThreadDiscussionView(TypedDict):
     created_at: datetime
     state: Literal["open", "resolved", "deleted"]
     state_revision: int
+    discussion_revision: int
     origin_target: dict[str, object]
     code_location: Optional[dict[str, object]]
     outdated_reason: Optional[
@@ -307,12 +308,13 @@ class ThreadDiscussionView(TypedDict):
 
 
 class ThreadUpdateView(TypedDict):
-    """Return only state and the Comment changed by one accepted action."""
+    """Return the revision, state, and Comment changed by one action."""
 
     thread_id: str
     snapshot_id: str
     state: Literal["open", "resolved", "deleted"]
     state_revision: int
+    discussion_revision: int
     comment: Optional[ReviewCommentView]
 
 
@@ -1350,6 +1352,7 @@ def _append_review_action(
                 snapshot_id=snapshot_id.hex,
                 state=updated_state,
                 state_revision=updated_revision,
+                discussion_revision=len(updated_actions) - 1,
                 comment=updated_comment,
             ),
         )
@@ -1470,6 +1473,7 @@ class Thread:
             created_at=datetime.fromisoformat(actions[0].created_at),
             state=state,
             state_revision=state_revision,
+            discussion_revision=len(actions) - 1,
             origin_target=_origin_target_dict(origin, origin_file),
             code_location=code_location,
             outdated_reason=placement.outdated_reason,
@@ -1599,14 +1603,16 @@ def _thread_objects(
     offset: int,
     limit: int,
     state: Literal["all", "open"],
+    activity_id: int,
 ) -> tuple[tuple[Thread, ...], int]:
-    """Bulk-hydrate one bounded Thread page for one exact Snapshot."""
+    """Bulk-hydrate one bounded Thread page at one activity boundary."""
     data = database.review_snapshot(
         identity,
         snapshot_id.hex,
         offset=offset,
         limit=limit,
         state=state,
+        activity_id=activity_id,
     )
     if data is None:
         raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")

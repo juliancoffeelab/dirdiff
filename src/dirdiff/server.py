@@ -533,6 +533,7 @@ class ReviewThreadResponse(ApiModel):
     created_at: datetime
     state: Literal["open", "resolved", "deleted"]
     state_revision: int = Field(ge=0)
+    discussion_revision: int = Field(ge=0)
     origin_target: ReviewTargetModel
     code_location: ThreadCodeLocationResponse | None
     outdated_reason: (
@@ -574,6 +575,7 @@ class ReviewThreadUpdateResponse(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     state: Literal["open", "resolved", "deleted"]
     state_revision: int = Field(ge=0)
+    discussion_revision: int = Field(ge=0)
     comment: ReviewCommentResponse | None
 
 
@@ -581,6 +583,7 @@ class ReviewThreadPage(ApiModel):
     """Return one bounded page of Threads represented in a Snapshot."""
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    activity_id: int = Field(ge=0)
     threads: list[ReviewThreadResponse]
     page: int = Field(ge=1)
     limit: int = Field(ge=1)
@@ -2013,15 +2016,37 @@ def create_app(
         snapshot_id: UUID = Query(description="Exact retained Snapshot id."),
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=100),
+        activity_id: int | None = Query(default=None, ge=0),
     ) -> ReviewThreadPage:
-        """Return one complete-Thread page for the History UI."""
+        """Return one stable complete-Thread page for the History UI.
+
+        Page one fixes the append-only review activity boundary. Later pages
+        must repeat it so lifecycle changes cannot reorder the paged read.
+        """
         try:
             room = room_lord.find_room(snapshot_id)
+            if page == 1:
+                if activity_id is not None:
+                    raise ReviewError(
+                        "invalid_target",
+                        "First review page chooses its activity boundary.",
+                    )
+                activity_id = room._review_activity_boundary(snapshot_id)
+            elif activity_id is None:
+                raise ReviewError(
+                    "invalid_target",
+                    "Later review pages require the first page activity boundary.",
+                )
             threads, total = room.threads(
-                snapshot_id, page=page, limit=limit, state="all"
+                snapshot_id,
+                page=page,
+                limit=limit,
+                state="all",
+                activity_id=activity_id,
             )
             return ReviewThreadPage(
                 snapshot_id=snapshot_id.hex,
+                activity_id=activity_id,
                 threads=[
                     ReviewThreadResponse.model_validate(thread.discussion())
                     for thread in threads
@@ -2339,7 +2364,11 @@ def create_app(
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
             _threads, unresolved_count = room.threads(
-                snapshot_id, page=1, limit=1, state="open"
+                snapshot_id,
+                page=1,
+                limit=1,
+                state="open",
+                activity_id="latest",
             )
             return NewAgentReviewResponse(
                 profile_id=profile.id,
@@ -2365,7 +2394,11 @@ def create_app(
         try:
             room = snapshot_room(snapshot_id)
             page_threads, total = room.threads(
-                snapshot_id, page=page, limit=limit, state="open"
+                snapshot_id,
+                page=page,
+                limit=limit,
+                state="open",
+                activity_id="latest",
             )
             captured_files = agent_captured_files(room, snapshot_id)
             open_threads = [
@@ -2404,7 +2437,11 @@ def create_app(
         try:
             room = snapshot_room(snapshot_id)
             page_threads, total = room.threads(
-                snapshot_id, page=page, limit=limit, state="open"
+                snapshot_id,
+                page=page,
+                limit=limit,
+                state="open",
+                activity_id="latest",
             )
             captured_files = agent_captured_files(room, snapshot_id)
             threads = [
@@ -2553,7 +2590,11 @@ def create_app(
                         )
                 changes.append(change)
             _threads, unresolved_count = room.threads(
-                snapshot_id, page=1, limit=1, state="open"
+                snapshot_id,
+                page=1,
+                limit=1,
+                state="open",
+                activity_id="latest",
             )
             return ContinueAgentReviewResponse(
                 previous_snapshot_id=previous_id.hex,

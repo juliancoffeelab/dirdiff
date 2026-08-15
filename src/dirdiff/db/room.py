@@ -1473,12 +1473,15 @@ class RoomStore:
         offset: int = 0,
         limit: Optional[int] = None,
         state: Literal["all", "open"] = "all",
+        *,
+        activity_id: int,
     ) -> Optional[ReviewSnapshotRecord]:
-        """Bulk-load every discussion placed in one exact Snapshot.
+        """Bulk-load discussions placed in one Snapshot at an activity boundary.
 
         `None` means the Snapshot is absent or belongs to another Room. Threads
-        from other temporal slices are intentionally absent.
+        from other temporal slices and actions after the boundary are absent.
         """
+        assert activity_id >= 0, "review activity boundary must be nonnegative"
         mark_clause = (
             Room.mark_id.is_(None)
             if identity.mark_id is None
@@ -1508,6 +1511,7 @@ class RoomStore:
                             "thread-deleted",
                         )
                     ),
+                    ReviewAction.activity_id <= activity_id,
                 )
                 .order_by(ReviewAction.sequence.desc())
                 .limit(1)
@@ -1523,10 +1527,14 @@ class RoomStore:
                 .where(
                     ReviewAction.thread_id == ReviewThread.thread_id,
                     ReviewAction.sequence == 0,
+                    ReviewAction.activity_id <= activity_id,
                 )
                 .scalar_subquery()
             )
-            selected_where = [ReviewThread.snapshot_id == snapshot_id]
+            selected_where = [
+                ReviewThread.snapshot_id == snapshot_id,
+                first_activity.is_not(None),
+            ]
             if state == "open":
                 selected_where.append(state_rank == 0)
             else:
@@ -1559,7 +1567,10 @@ class RoomStore:
             )
             action_rows = session.execute(
                 select(*ReviewAction.__table__.c)
-                .where(ReviewAction.thread_id.in_(thread_ids))
+                .where(
+                    ReviewAction.thread_id.in_(thread_ids),
+                    ReviewAction.activity_id <= activity_id,
+                )
                 .order_by(ReviewAction.thread_id, ReviewAction.sequence)
             ).all()
             profile_ids = {row.profile_id for row in action_rows}

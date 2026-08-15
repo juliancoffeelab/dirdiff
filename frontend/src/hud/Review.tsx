@@ -6,7 +6,8 @@
  * draft boundary is the sole localStorage representation so a completed write
  * can safely outlive one Snapshot view. ReviewProvider observes the canonical
  * bulk query, performs explicit Comment and Thread actions, and renders the
- * code-aligned composer and Snapshot-wide History panel.
+ * code-aligned new-Thread, reply, and edit Comment inputs, and
+ * Snapshot-wide History panel.
  * It does not own Files, rendered rows, hunk selection, scrolling follow,
  * Profile state, or private Thread matching facts.
  */
@@ -26,13 +27,19 @@ import {
   type JSX,
 } from "solid-js";
 import {
-  createInfiniteQuery,
   createMutation,
+  createQuery,
   useQueryClient,
-  type InfiniteData,
 } from "@tanstack/solid-query";
 import { Portal } from "solid-js/web";
-import { Eye, RefreshCw } from "lucide-solid";
+import {
+  Eye,
+  LocateFixed,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  TriangleAlert,
+} from "lucide-solid";
 import { z } from "zod";
 import {
   ReviewIdSchema,
@@ -45,7 +52,6 @@ import {
   type ReviewTarget,
   type ReviewTextRegion,
   type ReviewThread,
-  type ReviewThreadPage,
   type ReviewThreadUpdate,
   type ThreadCodeLocation,
 } from "../api/api";
@@ -68,26 +74,21 @@ const NewThreadDraftSchema = z.strictObject({
   target: ReviewTargetSchema,
   profile_id: z.number().int().positive(),
   body: z.string(),
-  updated_at: z.string().datetime({ offset: true }),
 });
 const ReplyDraftSchema = z.strictObject({
   kind: z.literal("reply"),
   draft_id: ReviewIdSchema,
   thread_id: ReviewIdSchema,
-  snapshot_id: ReviewIdSchema,
   profile_id: z.number().int().positive(),
   body: z.string(),
-  updated_at: z.string().datetime({ offset: true }),
 });
 const EditDraftSchema = z.strictObject({
   kind: z.literal("edit"),
   draft_id: ReviewIdSchema,
   thread_id: ReviewIdSchema,
   comment_id: ReviewIdSchema,
-  snapshot_id: ReviewIdSchema,
   profile_id: z.number().int().positive(),
   body: z.string(),
-  updated_at: z.string().datetime({ offset: true }),
 });
 const ReviewDraftSchema = z.discriminatedUnion("kind", [
   NewThreadDraftSchema,
@@ -109,6 +110,8 @@ const StoredReviewDraftsSchema = z
   });
 /** Retains one unfinished browser-authored review operation. */
 type ReviewDraft = z.infer<typeof ReviewDraftSchema>;
+/** Retains unfinished input for a Thread that does not exist yet. */
+type NewThreadDraft = z.infer<typeof NewThreadDraftSchema>;
 
 /** Exposes application-lifetime drafts and their active submissions. */
 type ReviewDraftContextValue = {
@@ -152,7 +155,19 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
     try {
       const raw = localStorage.getItem(REVIEW_DRAFT_STORAGE_KEY);
       if (raw !== null) {
-        setDrafts(StoredReviewDraftsSchema.parse(JSON.parse(raw)).drafts);
+        const stored = StoredReviewDraftsSchema.parse(JSON.parse(raw)).drafts;
+        const draftsWithContent = stored.filter(
+          (draft) => draft.body.trim().length > 0,
+        );
+        // Empty input is not revisable material and must never enter the
+        // application as a persisted draft.
+        if (draftsWithContent.length !== stored.length) {
+          localStorage.setItem(
+            REVIEW_DRAFT_STORAGE_KEY,
+            JSON.stringify({ drafts: draftsWithContent }),
+          );
+        }
+        setDrafts(draftsWithContent);
       }
     } catch (caught) {
       setError(
@@ -186,101 +201,109 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
     }
   }
 
+  /** Adds one new draft identity to the persisted document. */
+  function add(draft: ReviewDraft): boolean {
+    assert(
+      drafts().every((candidate) => candidate.draft_id !== draft.draft_id),
+      "Review draft creation reused an identity.",
+    );
+    return store([...drafts(), draft]);
+  }
+
+  /** Replaces the one persisted draft with the same identity. */
+  function replace(replacement: ReviewDraft): boolean {
+    const matches = drafts().flatMap((draft, index) =>
+      draft.draft_id === replacement.draft_id ? [index] : [],
+    );
+    assert(
+      matches.length === 1,
+      "Review draft replacement requires one exact match.",
+    );
+    return store(
+      drafts().map((draft, index) =>
+        index === matches[0] ? replacement : draft,
+      ),
+    );
+  }
+
+  /** Removes the one persisted draft with the requested identity. */
+  function remove(draftId: ReviewId): boolean {
+    const matches = drafts().filter((draft) => draft.draft_id === draftId);
+    assert(
+      matches.length === 1,
+      "Review draft removal requires one exact match.",
+    );
+    return store(drafts().filter((draft) => draft.draft_id !== draftId));
+  }
+
+  /** Clears the complete persisted draft document after a storage failure. */
+  function clear(): boolean {
+    try {
+      localStorage.removeItem(REVIEW_DRAFT_STORAGE_KEY);
+    } catch (caught) {
+      const failure =
+        caught instanceof Error
+          ? caught
+          : new Error("Review draft clearing failed without an Error value.");
+      setError(failure);
+      toast.showError("Review drafts unavailable", failure);
+      return false;
+    }
+    batch(() => {
+      setDrafts([]);
+      setError(null);
+    });
+    return true;
+  }
+
+  /** Marks one persisted draft as the sole input to an in-flight write. */
+  function beginSubmission(draftId: ReviewId): ReviewDraft | null {
+    const matches = drafts().filter((draft) => draft.draft_id === draftId);
+    assert(
+      matches.length === 1,
+      "Review submission requires one persisted draft.",
+    );
+    assert(
+      !submittingDraftIds().has(draftId),
+      "Review draft submission is already in flight.",
+    );
+    setSubmittingDraftIds((current) => new Set(current).add(draftId));
+    return matches[0] ?? null;
+  }
+
+  /** Ends one draft write and removes its input only after success. */
+  function endSubmission(draftId: ReviewId, succeeded: boolean): void {
+    assert(
+      submittingDraftIds().has(draftId),
+      "Review draft submission completion has no matching start.",
+    );
+    setSubmittingDraftIds((current) => {
+      const next = new Set(current);
+      next.delete(draftId);
+      return next;
+    });
+    if (succeeded) {
+      const matches = drafts().filter((draft) => draft.draft_id === draftId);
+      assert(
+        matches.length === 1,
+        "Confirmed review submission lost its persisted draft.",
+      );
+      store(drafts().filter((draft) => draft.draft_id !== draftId));
+    }
+  }
+
   return (
     <ReviewDraftContext.Provider
       value={{
         drafts,
         error,
         submittingDraftIds,
-        add(draft) {
-          assert(
-            drafts().every(
-              (candidate) => candidate.draft_id !== draft.draft_id,
-            ),
-            "Review draft creation reused an identity.",
-          );
-          return store([...drafts(), draft]);
-        },
-        replace(replacement) {
-          const matches = drafts().flatMap((draft, index) =>
-            draft.draft_id === replacement.draft_id ? [index] : [],
-          );
-          assert(
-            matches.length === 1,
-            "Review draft replacement requires one exact match.",
-          );
-          return store(
-            drafts().map((draft, index) =>
-              index === matches[0] ? replacement : draft,
-            ),
-          );
-        },
-        remove(draftId) {
-          const matches = drafts().filter(
-            (draft) => draft.draft_id === draftId,
-          );
-          assert(
-            matches.length === 1,
-            "Review draft removal requires one exact match.",
-          );
-          return store(drafts().filter((draft) => draft.draft_id !== draftId));
-        },
-        clear() {
-          try {
-            localStorage.removeItem(REVIEW_DRAFT_STORAGE_KEY);
-          } catch (caught) {
-            const failure =
-              caught instanceof Error
-                ? caught
-                : new Error(
-                    "Review draft clearing failed without an Error value.",
-                  );
-            setError(failure);
-            toast.showError("Review drafts unavailable", failure);
-            return false;
-          }
-          batch(() => {
-            setDrafts([]);
-            setError(null);
-          });
-          return true;
-        },
-        beginSubmission(draftId) {
-          const matches = drafts().filter(
-            (draft) => draft.draft_id === draftId,
-          );
-          assert(
-            matches.length === 1,
-            "Review submission requires one persisted draft.",
-          );
-          assert(
-            !submittingDraftIds().has(draftId),
-            "Review draft submission is already in flight.",
-          );
-          setSubmittingDraftIds((current) => new Set(current).add(draftId));
-          return matches[0] ?? null;
-        },
-        endSubmission(draftId, succeeded) {
-          assert(
-            submittingDraftIds().has(draftId),
-            "Review draft submission completion has no matching start.",
-          );
-          setSubmittingDraftIds((current) => {
-            const next = new Set(current);
-            next.delete(draftId);
-            return next;
-          });
-          if (succeeded) {
-            const matches = drafts().filter(
-              (draft) => draft.draft_id === draftId,
-            );
-            assert(
-              matches.length === 1,
-              "Confirmed review submission lost its persisted draft.",
-            );
-            store(drafts().filter((draft) => draft.draft_id !== draftId));
-          }
-        },
+        add,
+        replace,
+        remove,
+        clear,
+        beginSubmission,
+        endSubmission,
       }}
     >
       {props.children}
@@ -300,6 +323,7 @@ type ReviewMarkerIndex = {
   persistedAvailable: boolean;
   lineThreads: ReadonlyMap<string, readonly ReviewThread[]>;
   lineDraftIds: ReadonlyMap<string, readonly ReviewId[]>;
+  lineStates: ReadonlyMap<string, ReviewMarkerState>;
 };
 
 /** Identifies the only draft facts that can alter a rendered marker. */
@@ -315,31 +339,57 @@ type ReviewMarkerRevision = readonly [
   boolean,
 ];
 
-/** Describes one connected row anchor used only while a composer is visible. */
-type ComposerAnchor = {
+/** Identifies one connected rendered row anchor for code-aligned review UI. */
+export type ReviewCodeAnchor = {
   codeCell: HTMLElement;
   trigger: HTMLButtonElement;
 };
 
-/** Describes the one active Snapshot-bound composer. */
-type ActiveComposer = {
+/** Places the one active Snapshot-bound Comment input at code or in its Thread. */
+type ActiveCommentInput = {
   draftId: ReviewId;
-  anchor: ComposerAnchor | null;
+  input: NewThreadDraft | null;
+  mount: HTMLElement;
+  sourceAnchor: ReviewCodeAnchor | null;
 };
 
 /** Describes code-aligned persisted Threads opened from one marker. */
 type ActiveThreadPanel = {
   threadIds: readonly ReviewId[];
-  anchor: ComposerAnchor;
+  anchor: ReviewCodeAnchor;
 };
 
-/** Reports marker facts for one rendered line without exposing review storage. */
+/** Identifies the exact line-local review action selected by one marker. */
+export type ReviewMarkerKind =
+  | "new"
+  | "draft"
+  | "open"
+  | "resolved"
+  | "deleted";
+
+/** Describes one control represented at an exact rendered line. */
+export type ReviewMarkerDescriptor =
+  | { kind: "new" }
+  | { kind: "draft" }
+  | {
+      kind: "open" | "resolved" | "deleted";
+      count: number;
+      warning: boolean;
+    };
+
+/** Reports the actual controls for one rendered line and their availability. */
 export type ReviewMarkerState = {
   disabled: boolean;
-  hasThread: boolean;
-  hasDraft: boolean;
-  muted: boolean;
-  warning: boolean;
+  markers: readonly ReviewMarkerDescriptor[];
+};
+
+const AVAILABLE_NEW_MARKER_STATE: ReviewMarkerState = {
+  disabled: false,
+  markers: [{ kind: "new" }],
+};
+const DISABLED_NEW_MARKER_STATE: ReviewMarkerState = {
+  disabled: true,
+  markers: [{ kind: "new" }],
 };
 
 /** Exposes narrow review interactions to code renderers and FileCard. */
@@ -352,11 +402,12 @@ export type ReviewBinding = {
     side: "left" | "right",
     line: number,
   ): ReviewMarkerState;
-  activateTextComposer(
+  activateTextCommentInput(
     binding: ReviewTextGridBinding,
     side: "left" | "right",
     line: number,
-    anchor: ComposerAnchor,
+    anchor: ReviewCodeAnchor,
+    markerKind: ReviewMarkerKind,
     extend: boolean,
   ): void;
   setFileHeaderMounted(header: HTMLElement, mounted: boolean): void;
@@ -387,11 +438,11 @@ type ReviewProviderProps = {
   children: JSX.Element;
   inlineHistoryTarget: Accessor<HTMLElement | null>;
   canViewThread(location: ThreadCodeLocation): boolean;
-  viewThread(location: ThreadCodeLocation): void;
+  viewThread(location: ThreadCodeLocation): Promise<ReviewCodeAnchor | null>;
 };
 
 /**
- * Owns one exact Snapshot's review observation and composers and renders History.
+ * Owns one exact Snapshot's review observation and Comment inputs and renders History.
  *
  * Snapshot replacement disposes this boundary. File rendering and engine
  * replacement remain below it. It consumes the application-owned draft
@@ -422,9 +473,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   );
   const queryClient = useQueryClient();
   const toast = useToasts();
-  const review = createInfiniteQuery(() =>
-    api.review.snapshot(props.snapshotId),
-  );
+  const review = createQuery(() => api.review.snapshot(props.snapshotId));
   const createThread = createMutation(() => api.review.thread.create());
   const addComment = createMutation(() => api.review.comment.add());
   const editComment = createMutation(() => api.review.comment.edit());
@@ -441,8 +490,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   const drafts = draftContext.drafts;
   const draftError = draftContext.error;
   const submittingDraftIds = draftContext.submittingDraftIds;
-  const [activeComposer, setActiveComposer] =
-    createSignal<ActiveComposer | null>(null);
+  const [activeCommentInput, setActiveCommentInput] =
+    createSignal<ActiveCommentInput | null>(null);
   const [activeThreadPanel, setActiveThreadPanel] =
     createSignal<ActiveThreadPanel | null>(null);
   const [splitHistoryTop, setSplitHistoryTop] = createSignal<number | null>(
@@ -457,28 +506,16 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   let splitHistoryFrame: number | null = null;
   let splitHistoryGeometryFailed = false;
   const currentProfileId = (): number | null => props.profile?.id ?? null;
-  const reviewThreads = createMemo(() => {
-    const threads: ReviewThread[] = [];
-    const seen = new Set<ReviewId>();
-    for (const page of review.data?.pages ?? []) {
-      for (const thread of page.threads) {
-        if (!seen.has(thread.thread_id)) {
-          seen.add(thread.thread_id);
-          threads.push(thread);
-        }
-      }
-    }
-    return threads;
-  });
-  const totalThreads = (): number => review.data?.pages[0]?.total_threads ?? 0;
+  const reviewThreads = (): readonly ReviewThread[] => review.data ?? [];
+  const totalThreads = (): number => review.data?.length ?? 0;
   const reviewAvailable = createMemo(
     () => review.data !== undefined && !review.isRefetching && !review.isError,
   );
-  /** Close a confirmed composer before its persisted draft is removed. */
+  /** Close a confirmed Comment input before its persisted draft is removed. */
   function endSubmission(draftId: ReviewId, succeeded: boolean): void {
     batch(() => {
-      if (succeeded && activeComposer()?.draftId === draftId) {
-        setActiveComposer(null);
+      if (succeeded && activeCommentInput()?.draftId === draftId) {
+        setActiveCommentInput(null);
       }
       draftContext.endSubmission(draftId, succeeded);
     });
@@ -502,6 +539,69 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           ? reopenThread
           : deleteThread;
     return mutation.isPending && mutation.variables?.threadId === threadId;
+  }
+  const profileDrafts = createMemo(() => {
+    const profileId = currentProfileId();
+    const replies = new Map<ReviewId, ReviewDraft>();
+    const edits = new Map<ReviewId, ReviewDraft>();
+    if (profileId === null) return { replies, edits };
+    for (const draft of drafts()) {
+      if (draft.profile_id !== profileId) continue;
+      if (draft.kind === "reply") {
+        assert(
+          !replies.has(draft.thread_id),
+          "A Thread has multiple matching reply drafts.",
+        );
+        replies.set(draft.thread_id, draft);
+      } else if (draft.kind === "edit") {
+        assert(
+          !edits.has(draft.comment_id),
+          "A Comment has multiple matching edit drafts.",
+        );
+        edits.set(draft.comment_id, draft);
+      }
+    }
+    return { replies, edits };
+  });
+  /** Returns the selected Profile's sole reply draft for one current Thread. */
+  function replyDraftForThread(threadId: ReviewId): ReviewDraft | null {
+    return profileDrafts().replies.get(threadId) ?? null;
+  }
+
+  /** Returns the selected Profile's sole edit draft for one current Comment. */
+  function editDraftForComment(
+    threadId: ReviewId,
+    commentId: ReviewId,
+  ): ReviewDraft | null {
+    const draft = profileDrafts().edits.get(commentId) ?? null;
+    assert(
+      draft === null || (draft.kind === "edit" && draft.thread_id === threadId),
+      "An edit draft belongs to another Thread.",
+    );
+    return draft;
+  }
+
+  /** Persists meaningful text from one Thread's permanent reply input. */
+  function updateReplyDraft(thread: ReviewThread, body: string): boolean {
+    const profile = profileForWrite();
+    if (profile === null) return false;
+    const existing = replyDraftForThread(thread.thread_id);
+    if (body.trim().length === 0) {
+      return existing === null || removeDraft(existing.draft_id);
+    }
+    if (existing !== null) {
+      return replaceDraft({
+        ...existing,
+        body,
+      });
+    }
+    return draftContext.add({
+      kind: "reply",
+      draft_id: newReviewId(),
+      thread_id: thread.thread_id,
+      profile_id: profile.id,
+      body,
+    });
   }
   const draftMarkers = createMemo<readonly ReviewDraftMarker[]>(
     () =>
@@ -570,6 +670,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     }
     const lineThreads = new Map<string, ReviewThread[]>();
     const lineDraftIds = new Map<string, ReviewId[]>();
+    const lineStates = new Map<string, ReviewMarkerState>();
 
     /** Appends one item to a derived marker bucket. */
     function append<T>(map: Map<string, T[]>, key: string, item: T): void {
@@ -616,10 +717,40 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     for (const marker of revision[1]) {
       append(lineDraftIds, marker.lineKey, marker.draftId);
     }
+    const lineKeys = new Set([...lineThreads.keys(), ...lineDraftIds.keys()]);
+    for (const key of lineKeys) {
+      const markers: ReviewMarkerDescriptor[] = [];
+      if ((lineDraftIds.get(key)?.length ?? 0) > 0) {
+        markers.push({ kind: "draft" });
+      }
+      if (revision[2]) {
+        const counts = {
+          open: { count: 0, warning: false },
+          resolved: { count: 0, warning: false },
+          deleted: { count: 0, warning: false },
+        };
+        for (const thread of lineThreads.get(key) ?? []) {
+          const state = counts[thread.state];
+          state.count += 1;
+          state.warning ||= thread.outdated_reason !== null;
+        }
+        for (const kind of ["open", "resolved", "deleted"] as const) {
+          const state = counts[kind];
+          if (state.count > 0) {
+            markers.push({ kind, count: state.count, warning: state.warning });
+          }
+        }
+      }
+      if (markers.length === 0) {
+        markers.push({ kind: "new" });
+      }
+      lineStates.set(key, { disabled: !revision[2], markers });
+    }
     const index: ReviewMarkerIndex = {
       persistedAvailable: revision[2],
       lineThreads,
       lineDraftIds,
+      lineStates,
     };
     cachedMarkerRevision = revision;
     cachedMarkerIndex = index;
@@ -746,88 +877,175 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     return draftContext.replace(replacement);
   }
 
+  /** Returns the active persisted draft or the transient empty input opening it. */
+  function activeCommentInputDraft(): NewThreadDraft | null {
+    const active = activeCommentInput();
+    if (active === null) return null;
+    if (active.input !== null) return active.input;
+    const draft = expect(
+      drafts().find((draft) => draft.draft_id === active.draftId),
+      "Active Comment input lost its persisted draft.",
+    );
+    assert(
+      draft.kind === "new-thread",
+      "Code input requires a new-Thread draft.",
+    );
+    return draft;
+  }
+
+  /** Closes the active input and discards only empty or unchanged work. */
+  function closeActiveCommentInput(): void {
+    const active = activeCommentInput();
+    if (active === null || submittingDraftIds().has(active.draftId)) return;
+    if (active.input !== null) {
+      setActiveCommentInput(null);
+      return;
+    }
+    const draft = activeCommentInputDraft();
+    const hasWork = draft !== null && draft.body.trim().length > 0;
+    if (draft !== null && !hasWork) {
+      removeDraft(draft.draft_id);
+    } else {
+      setActiveCommentInput(null);
+    }
+  }
+
+  /** Opens one prevalidated draft at its final inline mount. */
+  function openCommentInput(
+    draft: NewThreadDraft,
+    persisted: boolean,
+    mount: HTMLElement,
+    sourceAnchor: ReviewCodeAnchor | null,
+  ): void {
+    setActiveCommentInput({
+      draftId: draft.draft_id,
+      input: persisted ? null : draft,
+      mount,
+      sourceAnchor,
+    });
+  }
+
+  /** Persists meaningful Comment input and removes it when emptied again. */
+  function updateCommentInputDraft(replacement: NewThreadDraft): boolean {
+    const active = expect(
+      activeCommentInput(),
+      "Review input requires one active commentInput.",
+    );
+    assert(
+      active.draftId === replacement.draft_id,
+      "Review input changed another Comment input's draft.",
+    );
+    const stored = drafts().some(
+      (draft) => draft.draft_id === replacement.draft_id,
+    );
+    if (replacement.body.trim().length === 0) {
+      if (!stored) return true;
+      let removed = false;
+      batch(() => {
+        removed = draftContext.remove(replacement.draft_id);
+        if (removed) {
+          setActiveCommentInput({ ...active, input: replacement });
+        }
+      });
+      return removed;
+    }
+    if (stored) return draftContext.replace(replacement);
+    if (!draftContext.add(replacement)) return false;
+    setActiveCommentInput({ ...active, input: null });
+    return true;
+  }
+
   /** Removes one draft only after its persisted document confirms the removal. */
   function removeDraft(draftId: ReviewId): boolean {
     let removed = false;
     batch(() => {
       removed = draftContext.remove(draftId);
-      if (removed && activeComposer()?.draftId === draftId) {
-        setActiveComposer(null);
+      if (removed && activeCommentInput()?.draftId === draftId) {
+        setActiveCommentInput(null);
       }
     });
     return removed;
   }
 
+  /** Discards either transient input or its persisted draft. */
+  function discardCommentInputDraft(draftId: ReviewId): boolean {
+    const active = activeCommentInput();
+    if (active?.draftId === draftId && active.input !== null) {
+      setActiveCommentInput(null);
+      return true;
+    }
+    return removeDraft(draftId);
+  }
+
   /** Publish one newly created Thread into the canonical Snapshot query. */
   function acceptCreatedThread(thread: ReviewThread): void {
     const key = api.review.snapshot(thread.snapshot_id).queryKey;
-    const current =
-      queryClient.getQueryData<InfiniteData<ReviewThreadPage, number>>(key);
+    const current = queryClient.getQueryData<ReviewThread[]>(key);
     if (current === undefined) return;
-    const matches = current.pages.flatMap((page) =>
-      page.threads.filter(
-        (candidate) => candidate.thread_id === thread.thread_id,
-      ),
+    const matches = current.filter(
+      (candidate) => candidate.thread_id === thread.thread_id,
     );
     assert(matches.length === 0, "Created review Thread already exists.");
-    const total = (current.pages[0]?.total_threads ?? 0) + 1;
-    queryClient.setQueryData<InfiniteData<ReviewThreadPage, number>>(key, {
-      ...current,
-      pages: current.pages.map((page, index) => ({
-        ...page,
-        total_threads: total,
-        has_more: page.page * page.limit < total,
-        threads: index === 0 ? [...page.threads, thread] : page.threads,
-      })),
-    });
+    queryClient.setQueryData<ReviewThread[]>(key, [...current, thread]);
   }
 
-  /** Merge one bounded action result into its already loaded Thread. */
-  function acceptThreadUpdate(update: ReviewThreadUpdate): void {
+  /** Applies one contiguous action result to its authoritative loaded Thread. */
+  async function acceptThreadUpdate(update: ReviewThreadUpdate): Promise<void> {
     const key = api.review.snapshot(update.snapshot_id).queryKey;
-    const current =
-      queryClient.getQueryData<InfiniteData<ReviewThreadPage, number>>(key);
+    const current = queryClient.getQueryData<ReviewThread[]>(key);
     if (current === undefined) return;
-    const matches = current.pages.flatMap((page) =>
-      page.threads.filter(
-        (candidate) => candidate.thread_id === update.thread_id,
+    const matches = current.filter(
+      (candidate) => candidate.thread_id === update.thread_id,
+    );
+    if (matches.length === 0) {
+      await review.refetch();
+      return;
+    }
+    assert(
+      matches.length === 1,
+      "Updated review Thread requires one authoritative loaded entry.",
+    );
+    const existing = expect(matches[0], "Updated review Thread disappeared.");
+    if (update.discussion_revision !== existing.discussion_revision + 1) {
+      await review.refetch();
+      return;
+    }
+    if (
+      update.comment !== null &&
+      update.comment.sequence !== existing.comments.length
+    ) {
+      const commentMatches = existing.comments.filter(
+        (comment) => comment.comment_id === update.comment?.comment_id,
+      );
+      assert(
+        commentMatches.length === 1,
+        "Updated review Comment requires one authoritative loaded entry.",
+      );
+    }
+    let comments = existing.comments;
+    if (update.comment !== null) {
+      comments =
+        update.comment.sequence === comments.length
+          ? [...comments, update.comment]
+          : comments.map((comment) =>
+              comment.comment_id === update.comment?.comment_id
+                ? update.comment
+                : comment,
+            );
+    }
+    const updatedThread: ReviewThread = {
+      ...existing,
+      state: update.state,
+      state_revision: update.state_revision,
+      discussion_revision: update.discussion_revision,
+      comments,
+    };
+    queryClient.setQueryData<ReviewThread[]>(
+      key,
+      current.map((thread) =>
+        thread.thread_id === update.thread_id ? updatedThread : thread,
       ),
     );
-    assert(matches.length === 1, "Updated review Thread is not loaded once.");
-    queryClient.setQueryData<InfiniteData<ReviewThreadPage, number>>(key, {
-      ...current,
-      pages: current.pages.map((page) => ({
-        ...page,
-        threads: page.threads.map((thread) => {
-          if (thread.thread_id !== update.thread_id) return thread;
-          let comments = thread.comments;
-          if (update.comment !== null) {
-            if (update.comment.sequence === comments.length) {
-              comments = [...comments, update.comment];
-            } else {
-              const commentMatches = comments.filter(
-                (comment) => comment.comment_id === update.comment?.comment_id,
-              );
-              assert(
-                commentMatches.length === 1,
-                "Updated review Comment is not loaded once.",
-              );
-              comments = comments.map((comment) =>
-                comment.comment_id === update.comment?.comment_id
-                  ? update.comment
-                  : comment,
-              );
-            }
-          }
-          return {
-            ...thread,
-            state: update.state,
-            state_revision: update.state_revision,
-            comments,
-          };
-        }),
-      })),
-    });
   }
 
   /** Refreshes stale Thread state before a rejected command gate reopens. */
@@ -844,11 +1062,81 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     }
   }
 
-  /** Opens a new persisted Thread draft at one exact target. */
+  /** Submits one persisted draft through its single operation-specific action. */
+  async function submitReviewDraft(draftId: ReviewId): Promise<boolean> {
+    if (draftError() !== null || !reviewAvailable()) return false;
+    const profile = profileForWrite();
+    if (profile === null) return false;
+    const command = draftContext.beginSubmission(draftId);
+    if (command === null) return false;
+    if (command.kind === "new-thread") {
+      assert(
+        command.snapshot_id === props.snapshotId,
+        "A new-Thread draft cannot be submitted through another Snapshot.",
+      );
+    }
+    if (command.profile_id !== profile.id) {
+      endSubmission(command.draft_id, false);
+      toast.showError(
+        "Draft Profile conflict",
+        new Error(
+          "This draft belongs to another Profile. Copy or discard it explicitly.",
+        ),
+      );
+      return false;
+    }
+    let thread: ReviewThread | ReviewThreadUpdate;
+    try {
+      thread =
+        command.kind === "new-thread"
+          ? await createThread.mutateAsync({
+              snapshotId: props.snapshotId,
+              body: {
+                profile_id: profile.id,
+                target: command.target,
+                body: command.body,
+              },
+            })
+          : command.kind === "reply"
+            ? await addComment.mutateAsync({
+                snapshotId: props.snapshotId,
+                threadId: command.thread_id,
+                body: { profile_id: profile.id, body: command.body },
+              })
+            : await editComment.mutateAsync({
+                snapshotId: props.snapshotId,
+                threadId: command.thread_id,
+                commentId: command.comment_id,
+                body: { profile_id: profile.id, body: command.body },
+              });
+    } catch (error) {
+      if (error instanceof ReviewRequestError) {
+        await refreshReviewAfterConflict(error);
+      }
+      // QueryProvider presented the failure; retain the draft.
+      endSubmission(command.draft_id, false);
+      return false;
+    }
+    try {
+      if (command.kind === "new-thread") {
+        assert("origin_target" in thread);
+        acceptCreatedThread(thread);
+      } else {
+        assert(!("origin_target" in thread));
+        await acceptThreadUpdate(thread);
+      }
+    } catch (error) {
+      toast.showError("Could not refresh review Thread", error);
+    }
+    endSubmission(command.draft_id, true);
+    return true;
+  }
+
+  /** Opens transient new-Thread input at one exact target. */
   function openNewDraft(
     profile: StoredProfile,
     target: ReviewTarget,
-    anchor: ComposerAnchor | null,
+    anchor: ReviewCodeAnchor | null,
   ): void {
     if (!reviewAvailable()) {
       const reviewFailure = review.error;
@@ -872,11 +1160,16 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       target,
       profile_id: profile.id,
       body: "",
-      updated_at: new Date().toISOString(),
     };
-    if (draftContext.add(draft)) {
-      setActiveComposer({ draftId: draft.draft_id, anchor });
-    }
+    assert(anchor !== null, "New-Thread input requires its rendered line.");
+    const mount = anchor.codeCell.parentElement;
+    assert(
+      mount !== null &&
+        (mount.classList.contains("diff-side") ||
+          mount.classList.contains("inline-diff-row")),
+      "New-Thread input requires its exact rendered diff row.",
+    );
+    openCommentInput(draft, false, mount, anchor);
   }
 
   const binding: ReviewBinding = {
@@ -886,60 +1179,40 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     markerState(grid, side, line) {
       const index = markerIndex();
       const key = lineMarkerKey(grid, side, line);
-      const lineDraftIds = index.lineDraftIds.get(key) ?? [];
-      if (!index.persistedAvailable) {
-        return {
-          disabled: true,
-          hasThread: false,
-          hasDraft: lineDraftIds.length > 0,
-          muted: false,
-          warning: false,
-        };
-      }
-      const lineThreads = index.lineThreads.get(key) ?? [];
-      return {
-        disabled: false,
-        hasThread: lineThreads.length > 0,
-        hasDraft: lineDraftIds.length > 0,
-        muted:
-          lineDraftIds.length === 0 &&
-          lineThreads.length > 0 &&
-          lineThreads.every((thread) => thread.state !== "open"),
-        warning: lineThreads.some((thread) => thread.outdated_reason !== null),
-      };
+      return (
+        index.lineStates.get(key) ??
+        (index.persistedAvailable
+          ? AVAILABLE_NEW_MARKER_STATE
+          : DISABLED_NEW_MARKER_STATE)
+      );
     },
-    activateTextComposer(grid, side, line, anchor, extend) {
+    activateTextCommentInput(grid, side, line, anchor, markerKind, extend) {
       assert(
         reviewAvailable(),
         "Text review activation requires persisted Threads to be available.",
       );
       assert(
         grid.snapshot_id === props.snapshotId,
-        "Text composer targeted another Snapshot.",
+        "Text Comment input targeted another Snapshot.",
       );
-      const active = activeComposer();
+      const active = activeCommentInput();
       if (active !== null && submittingDraftIds().has(active.draftId)) {
         return;
       }
-      if (active?.anchor?.trigger === anchor.trigger) {
-        const draft = drafts().find(
-          (candidate) => candidate.draft_id === active.draftId,
-        );
-        if (draft?.body === "") {
-          removeDraft(active.draftId);
-        } else {
-          setActiveComposer(null);
-        }
+      if (active?.sourceAnchor?.trigger === anchor.trigger) {
+        closeActiveCommentInput();
         return;
       }
       if (activeThreadPanel()?.anchor.trigger === anchor.trigger) {
         setActiveThreadPanel(null);
         return;
       }
-      if (extend && active !== null) {
-        const draft = drafts().find(
-          (candidate) => candidate.draft_id === active.draftId,
-        );
+      if (
+        extend &&
+        active !== null &&
+        (markerKind === "new" || markerKind === "draft")
+      ) {
+        const draft = activeCommentInputDraft();
         if (
           draft?.kind === "new-thread" &&
           draft.target.kind === "text" &&
@@ -951,7 +1224,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
               draft.target.region.cell_key === grid.region.cell_key)) &&
           draft.target.side === side
         ) {
-          replaceDraft({
+          const replacement: ReviewDraft = {
             ...draft,
             target: {
               ...draft.target,
@@ -960,8 +1233,12 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
                 end_line: Math.max(draft.target.range.end_line, line),
               },
             },
-            updated_at: new Date().toISOString(),
-          });
+          };
+          if (active.input !== null) {
+            setActiveCommentInput({ ...active, input: replacement });
+          } else {
+            replaceDraft(replacement);
+          }
           return;
         }
       }
@@ -970,10 +1247,21 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         index.persistedAvailable,
         "Review Threads must be available before deriving line markers.",
       );
-      const existing =
+      const lineThreads =
         index.lineThreads.get(lineMarkerKey(grid, side, line)) ?? [];
-      if (existing.length > 0) {
-        setActiveComposer(null);
+      const existing = lineThreads.filter(
+        (thread) => thread.state === markerKind,
+      );
+      if (
+        markerKind === "open" ||
+        markerKind === "resolved" ||
+        markerKind === "deleted"
+      ) {
+        assert(
+          existing.length > 0,
+          "Thread marker requires at least one matching Thread.",
+        );
+        setActiveCommentInput(null);
         setActiveThreadPanel({
           threadIds: existing.map((thread) => thread.thread_id),
           anchor,
@@ -991,22 +1279,41 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       }
       const existingDraftId = existingDraftIds[0];
       if (existingDraftId !== undefined) {
+        assert(
+          markerKind === "draft",
+          "Persisted review draft requires its Draft marker.",
+        );
         const existingDraft = expect(
           drafts().find((draft) => draft.draft_id === existingDraftId),
           "Indexed review draft lost its authoritative value.",
+        );
+        assert(
+          existingDraft.kind === "new-thread",
+          "Code draft marker requires a new-Thread draft.",
         );
         if (active?.draftId === existingDraft.draft_id) {
           if (existingDraft.body === "") {
             removeDraft(existingDraft.draft_id);
           } else {
-            setActiveComposer(null);
+            setActiveCommentInput(null);
           }
           return;
         }
         setActiveThreadPanel(null);
-        setActiveComposer({ draftId: existingDraft.draft_id, anchor });
+        const mount = anchor.codeCell.parentElement;
+        assert(
+          mount !== null &&
+            (mount.classList.contains("diff-side") ||
+              mount.classList.contains("inline-diff-row")),
+          "Review draft requires its exact rendered diff row.",
+        );
+        openCommentInput(existingDraft, true, mount, anchor);
         return;
       }
+      assert(
+        markerKind === "new",
+        "Empty review location requires its new-Comment marker.",
+      );
       const profile = profileForWrite();
       if (profile === null) return;
       openNewDraft(
@@ -1062,14 +1369,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     closeAnchoredUi(container) {
       untrack(() => {
         batch(() => {
-          const composer = activeComposer();
+          const commentInput = activeCommentInput();
           if (
-            composer?.anchor !== null &&
-            composer?.anchor !== undefined &&
-            (!composer.anchor.trigger.isConnected ||
-              container.contains(composer.anchor.trigger))
+            commentInput !== null &&
+            commentInput.sourceAnchor !== null &&
+            (!commentInput.sourceAnchor.trigger.isConnected ||
+              container.contains(commentInput.sourceAnchor.trigger))
           ) {
-            setActiveComposer(null);
+            setActiveCommentInput(null);
           }
           const panel = activeThreadPanel();
           if (
@@ -1098,6 +1405,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     }
     const profile = profileForWrite();
     if (profile === null) return;
+    if (
+      action === "delete" &&
+      !window.confirm(
+        "Delete this Thread? Its discussion will remain in History as deleted.",
+      )
+    ) {
+      return;
+    }
     const mutation =
       action === "resolve"
         ? resolveThread
@@ -1112,7 +1427,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           profile_id: profile.id,
         },
       });
-      acceptThreadUpdate(updated);
+      await acceptThreadUpdate(updated);
     } catch (error) {
       if (error instanceof ReviewRequestError) {
         await refreshReviewAfterConflict(error);
@@ -1121,33 +1436,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     }
   }
 
-  /** Opens one persisted reply draft for the selected Thread. */
-  function openReplyDraft(thread: ReviewThread): void {
-    if (!reviewAvailable()) {
-      toast.showError(
-        "Review Threads unavailable",
-        new Error("Review Threads are loading or failed to refresh."),
-      );
-      return;
-    }
-    const profile = profileForWrite();
-    if (profile === null) return;
-    const draft: ReviewDraft = {
-      kind: "reply",
-      draft_id: newReviewId(),
-      thread_id: thread.thread_id,
-      snapshot_id: props.snapshotId,
-      profile_id: profile.id,
-      body: "",
-      updated_at: new Date().toISOString(),
-    };
-    if (draftContext.add(draft)) {
-      setActiveThreadPanel(null);
-      setActiveComposer({ draftId: draft.draft_id, anchor: null });
-    }
-  }
-
-  /** Opens one persisted replacement draft for an authored Comment. */
+  /** Activates the one persisted replacement draft for an authored Comment. */
   function openEditDraft(thread: ReviewThread, comment: ReviewComment): void {
     if (!reviewAvailable()) {
       toast.showError(
@@ -1161,20 +1450,17 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     if (comment.author.profile_id !== profile.id || comment.body === null) {
       throw new Error("Only the original Profile may edit a current Comment.");
     }
+    if (editDraftForComment(thread.thread_id, comment.comment_id) !== null)
+      return;
     const draft: ReviewDraft = {
       kind: "edit",
       draft_id: newReviewId(),
       thread_id: thread.thread_id,
       comment_id: comment.comment_id,
-      snapshot_id: props.snapshotId,
       profile_id: profile.id,
       body: comment.body,
-      updated_at: new Date().toISOString(),
     };
-    if (draftContext.add(draft)) {
-      setActiveThreadPanel(null);
-      setActiveComposer({ draftId: draft.draft_id, anchor: null });
-    }
+    draftContext.add(draft);
   }
 
   /** Tombstone one current Comment as the selected acting Profile. */
@@ -1191,6 +1477,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     }
     const profile = profileForWrite();
     if (profile === null) return;
+    if (!window.confirm("Delete this Comment?")) return;
     void (async () => {
       try {
         const updated = await deleteComment.mutateAsync({
@@ -1201,7 +1488,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
             profile_id: profile.id,
           },
         });
-        acceptThreadUpdate(updated);
+        await acceptThreadUpdate(updated);
       } catch (error) {
         if (error instanceof ReviewRequestError) {
           await refreshReviewAfterConflict(error);
@@ -1220,6 +1507,110 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         left.thread_id.localeCompare(right.thread_id),
     );
   });
+  const groupedThreads = createMemo(() => ({
+    open: orderedThreads().filter((thread) => thread.state === "open"),
+    resolved: orderedThreads().filter((thread) => thread.state === "resolved"),
+    deleted: orderedThreads().filter((thread) => thread.state === "deleted"),
+  }));
+
+  /** Renders one loaded History Thread with its Snapshot-bound actions. */
+  function HistoryThread(historyProps: { thread: ReviewThread }): JSX.Element {
+    const thread = () => historyProps.thread;
+    const location = historyProps.thread.code_location;
+    const replyDraft = () => replyDraftForThread(thread().thread_id);
+    const hasEditDraft = () =>
+      thread().comments.some(
+        (comment) =>
+          editDraftForComment(thread().thread_id, comment.comment_id) !== null,
+      );
+    const expanded = () =>
+      expandedThreads().get(thread().thread_id) ??
+      (thread().state === "open" || replyDraft() !== null || hasEditDraft());
+    return (
+      <ThreadCard
+        thread={thread()}
+        expanded={expanded()}
+        navigation={{
+          kind: "history",
+          viewable: location !== null && props.canViewThread(location),
+          onView: () => {
+            if (location === null) return;
+            const next = new Map(expandedThreads());
+            next.set(thread().thread_id, true);
+            setExpandedThreads(next);
+            void (async () => {
+              const anchor = await props.viewThread(location);
+              if (anchor === null) return;
+              const trigger = anchor.trigger.parentElement?.querySelector(
+                `[data-review-marker-kind="${thread().state}"]`,
+              );
+              assert(
+                trigger instanceof HTMLButtonElement && !trigger.hidden,
+                "Viewed Thread requires its visible state marker.",
+              );
+              setActiveCommentInput(null);
+              setActiveThreadPanel({
+                threadIds: [thread().thread_id],
+                anchor: { codeCell: anchor.codeCell, trigger },
+              });
+            })().catch((error: unknown) =>
+              toast.showError("Could not view Thread", error),
+            );
+          },
+        }}
+        onToggle={() => {
+          const commentInput = activeCommentInput();
+          if (
+            commentInput?.sourceAnchor === null &&
+            commentInput.mount.closest(
+              `[data-review-history-thread-id="${thread().thread_id}"]`,
+            ) !== null
+          ) {
+            if (submittingDraftIds().has(commentInput.draftId)) {
+              return;
+            }
+            closeActiveCommentInput();
+          }
+          const next = new Map(expandedThreads());
+          next.set(thread().thread_id, !expanded());
+          setExpandedThreads(next);
+        }}
+        onState={(action) => {
+          void changeThreadState(thread(), action);
+        }}
+        profileId={currentProfileId()}
+        submittingDraftIds={submittingDraftIds()}
+        commentDeletePending={commentDeletePending}
+        threadStatePending={threadStatePending}
+        replyDraft={replyDraft()}
+        replySubmitting={
+          replyDraft() !== null &&
+          submittingDraftIds().has(
+            expect(replyDraft(), "Submitting reply requires its draft.")
+              .draft_id,
+          )
+        }
+        toggleable={true}
+        onReplyChange={(body) => updateReplyDraft(thread(), body)}
+        onReplySubmit={async () => {
+          const draft = replyDraftForThread(thread().thread_id);
+          return draft !== null && submitReviewDraft(draft.draft_id);
+        }}
+        onReplyDiscard={() => {
+          const draft = replyDraftForThread(thread().thread_id);
+          return draft === null || removeDraft(draft.draft_id);
+        }}
+        editDraft={(comment) =>
+          editDraftForComment(thread().thread_id, comment.comment_id)
+        }
+        onEdit={(comment) => openEditDraft(thread(), comment)}
+        onEditChange={replaceDraft}
+        onEditSubmit={(draft) => submitReviewDraft(draft.draft_id)}
+        onEditDiscard={(draft) => removeDraft(draft.draft_id)}
+        onDeleteComment={(comment) => tombstoneComment(thread(), comment)}
+      />
+    );
+  }
 
   return (
     <ReviewContext.Provider value={binding}>
@@ -1228,55 +1619,47 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         title="Could not render review Threads"
         retryOnR={false}
       >
-        <ReviewComposer
-          snapshotId={props.snapshotId}
+        <CommentInput
           drafts={drafts}
-          active={activeComposer}
-          profile={() => props.profile}
+          active={activeCommentInput}
           draftError={draftError}
           reviewAvailable={reviewAvailable}
           submittingDraftIds={submittingDraftIds}
-          onSubmissionStart={draftContext.beginSubmission}
-          onSubmissionEnd={endSubmission}
-          onStructuredRejection={refreshReviewAfterConflict}
-          onDraftChange={replaceDraft}
-          onDiscard={removeDraft}
-          onClose={() => {
-            const active = activeComposer();
-            const draft = drafts().find(
-              (candidate) => candidate.draft_id === active?.draftId,
-            );
-            if (draft?.body === "") {
-              removeDraft(draft.draft_id);
-            } else {
-              setActiveComposer(null);
-            }
-          }}
-          onThread={async (result, _submittedDraft, creation) => {
-            assert(result.snapshot_id === props.snapshotId);
-            if (creation) {
-              assert("origin_target" in result);
-              acceptCreatedThread(result);
-            } else {
-              assert(!("origin_target" in result));
-              acceptThreadUpdate(result);
-            }
-          }}
-          createThread={createThread.mutateAsync}
-          addComment={addComment.mutateAsync}
-          editComment={editComment.mutateAsync}
+          onDraftChange={updateCommentInputDraft}
+          onDiscard={discardCommentInputDraft}
+          onClose={closeActiveCommentInput}
+          onSubmit={submitReviewDraft}
         />
         <InlineThreadPanel
           active={activeThreadPanel}
           threads={reviewThreads}
           profileId={currentProfileId}
+          submittingDraftIds={submittingDraftIds}
           commentDeletePending={commentDeletePending}
           threadStatePending={threadStatePending}
-          canView={props.canViewThread}
-          onView={props.viewThread}
-          onClose={() => setActiveThreadPanel(null)}
-          onReply={openReplyDraft}
+          onClose={() => {
+            const commentInput = activeCommentInput();
+            if (commentInput !== null && commentInput.sourceAnchor !== null) {
+              if (submittingDraftIds().has(commentInput.draftId)) return;
+              closeActiveCommentInput();
+            }
+            setActiveThreadPanel(null);
+          }}
+          replyDraft={replyDraftForThread}
+          editDraft={editDraftForComment}
+          onReplyChange={updateReplyDraft}
+          onReplySubmit={async (thread) => {
+            const draft = replyDraftForThread(thread.thread_id);
+            return draft !== null && submitReviewDraft(draft.draft_id);
+          }}
+          onReplyDiscard={(thread) => {
+            const draft = replyDraftForThread(thread.thread_id);
+            return draft === null || removeDraft(draft.draft_id);
+          }}
           onEdit={openEditDraft}
+          onEditChange={replaceDraft}
+          onEditSubmit={(draft) => submitReviewDraft(draft.draft_id)}
+          onEditDiscard={(draft) => removeDraft(draft.draft_id)}
           onDeleteComment={tombstoneComment}
           onState={(thread, action) => {
             void changeThreadState(thread, action);
@@ -1387,7 +1770,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
                             disabled={submittingDraftIds().size > 0}
                             onClick={() => {
                               if (draftContext.clear()) {
-                                setActiveComposer(null);
+                                setActiveCommentInput(null);
                               }
                             }}
                           >
@@ -1397,135 +1780,176 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
                       )}
                     </Show>
                     <div class="review-history-scroll">
-                      <Show when={drafts().length > 0}>
+                      <Show
+                        when={drafts().some(
+                          (draft) => draft.kind === "new-thread",
+                        )}
+                      >
                         <section
                           class="review-drafts"
                           aria-label="Review drafts"
                         >
                           <h3>Drafts</h3>
-                          <For each={drafts()}>
-                            {(draft) => (
-                              <article>
-                                <strong>
-                                  {draft.kind === "new-thread"
-                                    ? "New Thread"
-                                    : draft.kind === "reply"
-                                      ? "Reply"
-                                      : "Edit Comment"}
-                                </strong>
-                                <p>
-                                  {draft.body.length === 0
-                                    ? "Empty draft"
-                                    : draft.body}
-                                </p>
-                                <div class="review-actions">
-                                  <Show
-                                    when={
-                                      draft.snapshot_id === props.snapshotId &&
-                                      draft.profile_id === currentProfileId()
-                                    }
-                                  >
+                          <For
+                            each={drafts().filter(
+                              (draft) => draft.kind === "new-thread",
+                            )}
+                          >
+                            {(draft) => {
+                              assert(
+                                draft.kind === "new-thread",
+                                "History Drafts contains only new Threads.",
+                              );
+                              const location: ThreadCodeLocation = {
+                                kind: "range",
+                                file: draft.target.file,
+                                region: draft.target.region,
+                                side: draft.target.side,
+                                range: draft.target.range,
+                              };
+                              const continuable = () =>
+                                draft.profile_id === currentProfileId() &&
+                                draft.snapshot_id === props.snapshotId;
+                              const path = expect(
+                                location.side === "left"
+                                  ? location.file.left_path
+                                  : location.file.right_path,
+                                "A new Thread draft requires its selected-side File path.",
+                              );
+                              return (
+                                <article class="review-draft">
+                                  <div class="review-draft-heading">
+                                    <strong>New Thread</strong>
+                                    <span>Saved</span>
+                                  </div>
+                                  <p class="review-draft-location">
+                                    <strong>{path}</strong>
+                                    <span>
+                                      {location.side === "left" ? "old" : "new"}{" "}
+                                      · L{location.range.start_line}
+                                      {location.range.start_line ===
+                                      location.range.end_line
+                                        ? ""
+                                        : `–${location.range.end_line}`}
+                                    </span>
+                                  </p>
+                                  <Show when={!continuable()}>
+                                    <p class="review-draft-unavailable">
+                                      {draft.profile_id !== currentProfileId()
+                                        ? "Log in as the draft's Profile to continue editing."
+                                        : "A new Thread draft remains bound to the review where it was written."}
+                                    </p>
+                                  </Show>
+                                  <p class="review-draft-body">{draft.body}</p>
+                                  <div class="review-actions">
                                     <button
                                       type="button"
+                                      class="review-action-primary"
                                       disabled={
+                                        !continuable() ||
                                         draftError() !== null ||
                                         submittingDraftIds().has(draft.draft_id)
                                       }
                                       onClick={() => {
-                                        setActiveThreadPanel(null);
-                                        setActiveComposer({
-                                          draftId: draft.draft_id,
-                                          anchor: null,
-                                        });
-                                      }}
-                                    >
-                                      Open
-                                    </button>
-                                  </Show>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      void navigator.clipboard
-                                        .writeText(draft.body)
-                                        .catch((error: unknown) =>
+                                        void (async () => {
+                                          if (!props.canViewThread(location)) {
+                                            throw new Error(
+                                              "Load the reviewed File before continuing this draft.",
+                                            );
+                                          }
+                                          const anchor =
+                                            await props.viewThread(location);
+                                          if (anchor === null) return;
+                                          setActiveThreadPanel(null);
+                                          const mount =
+                                            anchor.codeCell.parentElement;
+                                          assert(
+                                            mount !== null &&
+                                              (mount.classList.contains(
+                                                "diff-side",
+                                              ) ||
+                                                mount.classList.contains(
+                                                  "inline-diff-row",
+                                                )),
+                                            "Continuing a new Thread requires its exact rendered row.",
+                                          );
+                                          openCommentInput(
+                                            draft,
+                                            true,
+                                            mount,
+                                            anchor,
+                                          );
+                                        })().catch((error: unknown) =>
                                           toast.showError(
-                                            "Could not copy draft",
+                                            "Could not continue editing draft",
                                             error,
                                           ),
                                         );
-                                    }}
-                                  >
-                                    Copy Text
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      draftError() !== null ||
-                                      submittingDraftIds().has(draft.draft_id)
-                                    }
-                                    onClick={() => removeDraft(draft.draft_id)}
-                                  >
-                                    Discard
-                                  </button>
-                                </div>
-                              </article>
-                            )}
+                                      }}
+                                    >
+                                      Continue editing
+                                    </button>
+                                    <Show when={!continuable()}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void navigator.clipboard
+                                            .writeText(draft.body)
+                                            .catch((error: unknown) =>
+                                              toast.showError(
+                                                "Could not copy draft",
+                                                error,
+                                              ),
+                                            );
+                                        }}
+                                      >
+                                        Copy Text
+                                      </button>
+                                    </Show>
+                                    <button
+                                      type="button"
+                                      class="review-action-danger"
+                                      disabled={
+                                        draftError() !== null ||
+                                        submittingDraftIds().has(draft.draft_id)
+                                      }
+                                      onClick={() =>
+                                        removeDraft(draft.draft_id)
+                                      }
+                                    >
+                                      Discard
+                                    </button>
+                                  </div>
+                                </article>
+                              );
+                            }}
                           </For>
                         </section>
                       </Show>
-                      <For each={orderedThreads()}>
-                        {(thread) => {
-                          const expanded = () =>
-                            expandedThreads().get(thread.thread_id) ??
-                            thread.state === "open";
-                          const viewable = () =>
-                            thread.code_location !== null &&
-                            props.canViewThread(thread.code_location);
-                          return (
-                            <ThreadCard
-                              thread={thread}
-                              expanded={expanded()}
-                              viewable={viewable()}
-                              onToggle={() => {
-                                const next = new Map(expandedThreads());
-                                next.set(thread.thread_id, !expanded());
-                                setExpandedThreads(next);
-                              }}
-                              onView={() => {
-                                if (thread.code_location !== null)
-                                  props.viewThread(thread.code_location);
-                              }}
-                              onState={(action) => {
-                                void changeThreadState(thread, action);
-                              }}
-                              profileId={currentProfileId()}
-                              commentDeletePending={commentDeletePending}
-                              threadStatePending={threadStatePending}
-                              onReply={() => openReplyDraft(thread)}
-                              onEdit={(comment) =>
-                                openEditDraft(thread, comment)
-                              }
-                              onDeleteComment={(comment) =>
-                                tombstoneComment(thread, comment)
-                              }
-                              inline={false}
-                            />
-                          );
-                        }}
+                      <For each={groupedThreads().open}>
+                        {(thread) => <HistoryThread thread={thread} />}
                       </For>
-                      <Show when={review.hasNextPage}>
-                        <button
-                          type="button"
-                          class="review-history-more"
-                          disabled={review.isFetchingNextPage}
-                          onClick={() => {
-                            void review.fetchNextPage();
-                          }}
-                        >
-                          {review.isFetchingNextPage
-                            ? "Loading…"
-                            : "Load more Threads"}
-                        </button>
+                      <Show when={groupedThreads().resolved.length > 0}>
+                        <section class="review-thread-group review-thread-group-resolved">
+                          <header class="review-thread-group-heading">
+                            <strong>Resolved</strong>
+                            <span>{groupedThreads().resolved.length}</span>
+                          </header>
+                          <For each={groupedThreads().resolved}>
+                            {(thread) => <HistoryThread thread={thread} />}
+                          </For>
+                        </section>
+                      </Show>
+                      <Show when={groupedThreads().deleted.length > 0}>
+                        <details class="review-thread-group review-thread-group-deleted">
+                          <summary class="review-thread-group-heading">
+                            <strong>Deleted</strong>
+                            <span>{groupedThreads().deleted.length}</span>
+                          </summary>
+                          <For each={groupedThreads().deleted}>
+                            {(thread) => <HistoryThread thread={thread} />}
+                          </For>
+                        </details>
                       </Show>
                     </div>
                   </section>
@@ -1539,178 +1963,59 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   );
 }
 
-/**
- * Places one anchored review floater wholly inside the current viewport.
- *
- * The floater uses the anchor width when practical, chooses the side with
- * enough visible room (preferring below on ties), and scrolls its own content
- * when neither side can display it at natural height. The operation performs
- * no document scrolling and must be called again after viewport or ancestor
- * scroll changes.
- */
-function placeAnchoredReviewFloater(
-  floater: HTMLElement,
-  anchor: HTMLElement,
-): void {
-  const margin = 8;
-  const gap = 4;
-  const anchorRect = anchor.getBoundingClientRect();
-  const availableWidth = Math.max(0, window.innerWidth - margin * 2);
-  const width = Math.min(
-    availableWidth,
-    Math.max(300, Math.min(anchorRect.width, availableWidth)),
-  );
-  const left = Math.min(
-    Math.max(margin, anchorRect.left),
-    window.innerWidth - margin - width,
-  );
-  const belowTop = Math.min(
-    Math.max(margin, anchorRect.bottom + gap),
-    window.innerHeight - margin,
-  );
-  const aboveBottom = Math.min(
-    Math.max(margin, anchorRect.top - gap),
-    window.innerHeight - margin,
-  );
-  const belowHeight = Math.max(0, window.innerHeight - margin - belowTop);
-  const aboveHeight = Math.max(0, aboveBottom - margin);
-  const placeBelow = belowHeight >= aboveHeight;
-  const availableHeight = placeBelow ? belowHeight : aboveHeight;
-
-  floater.style.left = `${left}px`;
-  floater.style.width = `${width}px`;
-  floater.style.maxHeight = `${availableHeight}px`;
-  floater.style.top = placeBelow
-    ? `${belowTop}px`
-    : `${Math.max(margin, aboveBottom - floater.getBoundingClientRect().height)}px`;
-}
-
-/** Renders the active new-Thread draft at its connected code anchor. */
-function ReviewComposer(props: {
-  snapshotId: ReviewId;
+/** Renders the one active new-Thread draft at its final inline mount. */
+function CommentInput(props: {
   drafts: Accessor<readonly ReviewDraft[]>;
-  active: Accessor<ActiveComposer | null>;
-  profile: Accessor<StoredProfile | null>;
+  active: Accessor<ActiveCommentInput | null>;
   draftError: Accessor<Error | null>;
   reviewAvailable: Accessor<boolean>;
   submittingDraftIds: Accessor<ReadonlySet<ReviewId>>;
-  onSubmissionStart(draftId: ReviewId): ReviewDraft | null;
-  onSubmissionEnd(draftId: ReviewId, succeeded: boolean): void;
-  onStructuredRejection(error: ReviewRequestError): Promise<void>;
-  onDraftChange(draft: ReviewDraft): boolean;
+  onDraftChange(draft: NewThreadDraft): boolean;
   onDiscard(draftId: ReviewId): boolean;
   onClose(): void;
-  onThread(
-    thread: ReviewThread | ReviewThreadUpdate,
-    draft: ReviewDraft,
-    creation: boolean,
-  ): Promise<void>;
-  createThread(input: {
-    snapshotId: ReviewId;
-    body: {
-      profile_id: number;
-      target: ReviewTarget;
-      body: string;
-    };
-  }): Promise<ReviewThread>;
-  addComment(input: {
-    snapshotId: ReviewId;
-    threadId: ReviewId;
-    body: { profile_id: number; body: string };
-  }): Promise<ReviewThreadUpdate>;
-  editComment(input: {
-    snapshotId: ReviewId;
-    threadId: ReviewId;
-    commentId: ReviewId;
-    body: {
-      profile_id: number;
-      body: string;
-    };
-  }): Promise<ReviewThreadUpdate>;
+  onSubmit(draftId: ReviewId): Promise<boolean>;
 }): JSX.Element {
-  const toast = useToasts();
-  let floater!: HTMLDivElement;
-  let frame: number | null = null;
   const draft = createMemo(() => {
     const active = props.active();
     if (active === null) return null;
-    return expect(
-      props.drafts().find((candidate) => candidate.draft_id === active.draftId),
-      "Active review composer lost its persisted draft.",
+    const current =
+      active.input ??
+      expect(
+        props
+          .drafts()
+          .find((candidate) => candidate.draft_id === active.draftId),
+        "Active Comment input lost its persisted draft.",
+      );
+    assert(
+      current.kind === "new-thread",
+      "Code input requires a new-Thread draft.",
     );
+    return current;
   });
   const submitting = createMemo(() => {
     const current = draft();
     return current !== null && props.submittingDraftIds().has(current.draft_id);
   });
-
-  createEffect(() => {
-    const visible = props.active();
-    if (visible?.anchor === null || visible?.anchor === undefined) {
-      return;
-    }
-    /** Positions the floater against its active connected code anchor. */
-    function place(): void {
-      const active = props.active();
-      if (
-        active?.anchor === null ||
-        active?.anchor === undefined ||
-        !floater?.isConnected
-      ) {
-        if (active?.anchor === null && floater?.isConnected) {
-          floater.style.removeProperty("left");
-          floater.style.removeProperty("width");
-          floater.style.removeProperty("top");
-          floater.style.removeProperty("max-height");
-        }
-        return;
-      }
-      if (!active.anchor.codeCell.isConnected) {
-        props.onClose();
-        return;
-      }
-      placeAnchoredReviewFloater(floater, active.anchor.codeCell);
-    }
-    /** Coalesces viewport events for one visible anchored Composer. */
-    function schedule(): void {
-      if (frame !== null) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        place();
-      });
-    }
-    window.addEventListener("scroll", schedule, true);
-    window.addEventListener("resize", schedule);
-    schedule();
-    onCleanup(() => {
-      if (frame !== null) {
-        cancelAnimationFrame(frame);
-        frame = null;
-      }
-      window.removeEventListener("scroll", schedule, true);
-      window.removeEventListener("resize", schedule);
-    });
+  const mount = createMemo(() => {
+    const active = props.active();
+    return active?.mount ?? document.body;
   });
 
   return (
     <Show when={props.active() !== null && draft() !== null}>
-      <Portal mount={document.body}>
+      <Portal mount={mount()}>
         <div
-          ref={floater}
-          class="comment-floater review-composer"
+          class="review-comment-input review-comment-input-inline"
           classList={{
-            "review-composer-centered": props.active()?.anchor === null,
+            "review-comment-input-line": draft()?.kind === "new-thread",
           }}
         >
           <header class="comment-floater-header">
             <div class="comment-floater-heading">
-              <strong>
-                {draft()?.kind === "new-thread"
-                  ? "New Thread"
-                  : draft()?.kind === "reply"
-                    ? "Reply"
-                    : "Edit Comment"}
-              </strong>
+              <strong>New Thread</strong>
+              <Show when={props.active()?.input === null}>
+                <span>Saved</span>
+              </Show>
             </div>
             <button
               type="button"
@@ -1734,11 +2039,7 @@ function ReviewComposer(props: {
               const current = draft();
               assert(
                 current !== null,
-                "Review composer requires its persisted draft.",
-              );
-              assert(
-                current.snapshot_id === props.snapshotId,
-                "Review draft cannot be submitted through another Snapshot.",
+                "Comment input requires its persisted draft.",
               );
               if (
                 props.draftError() !== null ||
@@ -1747,82 +2048,7 @@ function ReviewComposer(props: {
               ) {
                 return;
               }
-              const profile = props.profile();
-              if (profile === null) {
-                toast.showTransient(
-                  "Profile required",
-                  "Select or create a Profile from the Profile control to write review Comments.",
-                  5000,
-                );
-                return;
-              }
-              if (current.profile_id !== profile.id) {
-                toast.showError(
-                  "Draft Profile conflict",
-                  new Error(
-                    "This draft belongs to another Profile. Copy or discard it explicitly.",
-                  ),
-                );
-                return;
-              }
-              const command = props.onSubmissionStart(current.draft_id);
-              if (command === null) {
-                toast.showTransient(
-                  "Thread write pending",
-                  "Wait for the current Comment submission to finish.",
-                  5000,
-                );
-                return;
-              }
-              void (async () => {
-                let thread: ReviewThread | ReviewThreadUpdate;
-                try {
-                  thread =
-                    command.kind === "new-thread"
-                      ? await props.createThread({
-                          snapshotId: props.snapshotId,
-                          body: {
-                            profile_id: profile.id,
-                            target: command.target,
-                            body: command.body,
-                          },
-                        })
-                      : command.kind === "reply"
-                        ? await props.addComment({
-                            snapshotId: props.snapshotId,
-                            threadId: command.thread_id,
-                            body: {
-                              profile_id: profile.id,
-                              body: command.body,
-                            },
-                          })
-                        : await props.editComment({
-                            snapshotId: props.snapshotId,
-                            threadId: command.thread_id,
-                            commentId: command.comment_id,
-                            body: {
-                              profile_id: profile.id,
-                              body: command.body,
-                            },
-                          });
-                } catch (error) {
-                  if (error instanceof ReviewRequestError) {
-                    await props.onStructuredRejection(error);
-                  }
-                  // QueryProvider presented the failure; retain the draft.
-                  props.onSubmissionEnd(command.draft_id, false);
-                  return;
-                }
-                try {
-                  await props.onThread(
-                    thread,
-                    command,
-                    command.kind === "new-thread",
-                  );
-                } finally {
-                  props.onSubmissionEnd(command.draft_id, true);
-                }
-              })();
+              void props.onSubmit(current.draft_id);
             }}
           >
             <label class="comment-floater-field">
@@ -1842,10 +2068,25 @@ function ReviewComposer(props: {
                     !props.onDraftChange({
                       ...current,
                       body: event.currentTarget.value,
-                      updated_at: new Date().toISOString(),
                     })
                   ) {
                     event.currentTarget.value = current.body;
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey) &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    const form = event.currentTarget.form;
+                    assert(
+                      form !== null,
+                      "Comment input requires its submission form.",
+                    );
+                    form.requestSubmit();
                   }
                 }}
               />
@@ -1887,21 +2128,25 @@ function InlineThreadPanel(props: {
   active: Accessor<ActiveThreadPanel | null>;
   threads: Accessor<readonly ReviewThread[]>;
   profileId: Accessor<number | null>;
+  submittingDraftIds: Accessor<ReadonlySet<ReviewId>>;
   commentDeletePending(commentId: ReviewId): boolean;
   threadStatePending(
     threadId: ReviewId,
     action: "resolve" | "reopen" | "delete",
   ): boolean;
-  canView(location: ThreadCodeLocation): boolean;
-  onView(location: ThreadCodeLocation): void;
+  replyDraft(threadId: ReviewId): ReviewDraft | null;
+  editDraft(threadId: ReviewId, commentId: ReviewId): ReviewDraft | null;
   onClose(): void;
-  onReply(thread: ReviewThread): void;
+  onReplyChange(thread: ReviewThread, body: string): boolean;
+  onReplySubmit(thread: ReviewThread): Promise<boolean>;
+  onReplyDiscard(thread: ReviewThread): boolean;
   onEdit(thread: ReviewThread, comment: ReviewComment): void;
+  onEditChange(draft: ReviewDraft): boolean;
+  onEditSubmit(draft: ReviewDraft): Promise<boolean>;
+  onEditDiscard(draft: ReviewDraft): boolean;
   onDeleteComment(thread: ReviewThread, comment: ReviewComment): void;
   onState(thread: ReviewThread, action: "resolve" | "reopen" | "delete"): void;
 }): JSX.Element {
-  let panel!: HTMLDivElement;
-  let frame: number | null = null;
   const visibleThreads = createMemo(() => {
     const active = props.active();
     if (active === null) {
@@ -1919,95 +2164,105 @@ function InlineThreadPanel(props: {
     });
   });
 
-  createEffect(() => {
-    if (props.active() === null) {
-      return;
-    }
-    /** Positions the Thread panel against its connected marker row. */
-    function place(): void {
-      const active = props.active();
-      if (active === null || !panel?.isConnected) {
-        return;
-      }
-      if (!active.anchor.codeCell.isConnected) {
-        props.onClose();
-        return;
-      }
-      placeAnchoredReviewFloater(panel, active.anchor.codeCell);
-    }
-    /** Coalesces viewport events for one visible anchored Thread panel. */
-    function schedule(): void {
-      if (frame !== null) {
-        cancelAnimationFrame(frame);
-      }
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        place();
-      });
-    }
-    window.addEventListener("scroll", schedule, true);
-    window.addEventListener("resize", schedule);
-    schedule();
-    onCleanup(() => {
-      if (frame !== null) {
-        cancelAnimationFrame(frame);
-        frame = null;
-      }
-      window.removeEventListener("scroll", schedule, true);
-      window.removeEventListener("resize", schedule);
-    });
-  });
-
   return (
-    <Show when={props.active() !== null}>
-      <Portal mount={document.body}>
-        <div ref={panel} class="comment-floater review-inline-threads">
-          <header class="comment-floater-header">
-            <div class="comment-floater-heading">
-              <strong>Threads</strong>
-            </div>
-            <button
-              type="button"
-              class="comment-floater-close"
-              onClick={props.onClose}
-            >
-              ×
-            </button>
-          </header>
-          <div class="review-inline-thread-scroll">
-            <For each={visibleThreads()}>
-              {(thread) => {
-                const viewable = () =>
-                  thread.code_location !== null &&
-                  props.canView(thread.code_location);
-                return (
-                  <ThreadCard
-                    thread={thread}
-                    expanded={true}
-                    viewable={viewable()}
-                    profileId={props.profileId()}
-                    commentDeletePending={props.commentDeletePending}
-                    threadStatePending={props.threadStatePending}
-                    onToggle={() => undefined}
-                    onView={() => {
-                      if (thread.code_location !== null) {
-                        props.onView(thread.code_location);
+    <Show when={props.active()} keyed>
+      {(active) => {
+        const [expandedThreadIds, setExpandedThreadIds] = createSignal<
+          ReadonlySet<ReviewId>
+        >(new Set());
+        const multiple = () => visibleThreads().length > 1;
+        const mount = active.anchor.codeCell.parentElement;
+        assert(
+          mount !== null &&
+            (mount.classList.contains("diff-side") ||
+              mount.classList.contains("inline-diff-row")),
+          "Inline Threads require their exact rendered diff row.",
+        );
+        return (
+          <Portal mount={mount}>
+            <div class="comment-floater review-inline-threads">
+              <header class="comment-floater-header">
+                <div class="comment-floater-heading">
+                  <strong>Threads</strong>
+                </div>
+                <button
+                  type="button"
+                  class="comment-floater-close"
+                  onClick={props.onClose}
+                >
+                  ×
+                </button>
+              </header>
+              <For each={visibleThreads()}>
+                {(thread) => {
+                  const replyDraft = () => props.replyDraft(thread.thread_id);
+                  return (
+                    <ThreadCard
+                      thread={thread}
+                      expanded={
+                        !multiple() ||
+                        expandedThreadIds().has(thread.thread_id) ||
+                        replyDraft() !== null ||
+                        thread.comments.some(
+                          (comment) =>
+                            props.editDraft(
+                              thread.thread_id,
+                              comment.comment_id,
+                            ) !== null,
+                        )
                       }
-                    }}
-                    onState={(action) => props.onState(thread, action)}
-                    onReply={() => props.onReply(thread)}
-                    onEdit={(comment) => props.onEdit(thread, comment)}
-                    onDeleteComment={(comment) =>
-                      props.onDeleteComment(thread, comment)
-                    }
-                    inline={true}
-                  />
-                );
-              }}
-            </For>
-          </div>
-        </div>
-      </Portal>
+                      navigation={{ kind: "inline" }}
+                      profileId={props.profileId()}
+                      submittingDraftIds={props.submittingDraftIds()}
+                      commentDeletePending={props.commentDeletePending}
+                      threadStatePending={props.threadStatePending}
+                      replyDraft={replyDraft()}
+                      replySubmitting={
+                        replyDraft() !== null &&
+                        props
+                          .submittingDraftIds()
+                          .has(
+                            expect(
+                              replyDraft(),
+                              "Submitting reply requires its draft.",
+                            ).draft_id,
+                          )
+                      }
+                      toggleable={multiple()}
+                      onToggle={() => {
+                        if (!multiple()) return;
+                        const next = new Set(expandedThreadIds());
+                        if (next.has(thread.thread_id)) {
+                          next.delete(thread.thread_id);
+                        } else {
+                          next.add(thread.thread_id);
+                        }
+                        setExpandedThreadIds(next);
+                      }}
+                      onState={(action) => props.onState(thread, action)}
+                      onReplyChange={(body) =>
+                        props.onReplyChange(thread, body)
+                      }
+                      onReplySubmit={() => props.onReplySubmit(thread)}
+                      onReplyDiscard={() => props.onReplyDiscard(thread)}
+                      editDraft={(comment) =>
+                        props.editDraft(thread.thread_id, comment.comment_id)
+                      }
+                      onEdit={(comment) => props.onEdit(thread, comment)}
+                      onEditChange={props.onEditChange}
+                      onEditSubmit={props.onEditSubmit}
+                      onEditDiscard={props.onEditDiscard}
+                      onDeleteComment={(comment) =>
+                        props.onDeleteComment(thread, comment)
+                      }
+                    />
+                  );
+                }}
+              </For>
+            </div>
+          </Portal>
+        );
+      }}
     </Show>
   );
 }
@@ -2016,26 +2271,37 @@ function InlineThreadPanel(props: {
 function ThreadCard(props: {
   thread: ReviewThread;
   expanded: boolean;
-  viewable: boolean;
+  navigation:
+    | { kind: "inline" }
+    | { kind: "history"; viewable: boolean; onView(): void };
   profileId: number | null;
+  submittingDraftIds: ReadonlySet<ReviewId>;
   commentDeletePending(commentId: ReviewId): boolean;
   threadStatePending(
     threadId: ReviewId,
     action: "resolve" | "reopen" | "delete",
   ): boolean;
+  replyDraft: ReviewDraft | null;
+  replySubmitting: boolean;
+  toggleable: boolean;
   onToggle(): void;
-  onView(): void;
   onState(action: "resolve" | "reopen" | "delete"): void;
-  onReply(): void;
+  onReplyChange(body: string): boolean;
+  onReplySubmit(): Promise<boolean>;
+  onReplyDiscard(): boolean;
+  editDraft(comment: ReviewComment): ReviewDraft | null;
   onEdit(comment: ReviewComment): void;
+  onEditChange(draft: ReviewDraft): boolean;
+  onEditSubmit(draft: ReviewDraft): Promise<boolean>;
+  onEditDiscard(draft: ReviewDraft): boolean;
   onDeleteComment(comment: ReviewComment): void;
-  inline: boolean;
 }): JSX.Element {
   const origin = props.thread.origin_target;
   const excerptPath = expect(
     origin.side === "left" ? origin.file.left_path : origin.file.right_path,
     "A review origin requires its selected-side File path.",
   );
+  const excerptFileName = excerptPath.slice(excerptPath.lastIndexOf("/") + 1);
   const firstComment = () =>
     expect(
       props.thread.comments[0],
@@ -2046,63 +2312,121 @@ function ThreadCard(props: {
     const author = comment.author;
     return author.profile_id === props.profileId;
   }
+  /** Renders the shared Thread identity displayed by both header variants. */
+  function ThreadHeading(): JSX.Element {
+    return (
+      <>
+        <span class="review-thread-state-dot" aria-hidden="true" />
+        <strong>{firstComment().author.display_name}</strong>
+        <span class="review-thread-location" title={excerptPath}>
+          {excerptFileName} · L
+          {props.thread.original_excerpt.selected_start_line}
+        </span>
+        <Show when={props.thread.outdated_reason !== null}>
+          <span
+            class="review-warning"
+            title={
+              props.thread.code_location === null
+                ? "The reviewed file is not present in this Snapshot."
+                : "The reviewed code changed after this Thread was created."
+            }
+          >
+            <TriangleAlert aria-hidden="true" />
+          </span>
+        </Show>
+      </>
+    );
+  }
   return (
     <article
       class="review-thread"
+      data-review-history-thread-id={
+        props.navigation.kind === "inline" ? undefined : props.thread.thread_id
+      }
       classList={{
+        "review-thread-expanded": props.expanded,
         "review-thread-resolved": props.thread.state === "resolved",
         "review-thread-deleted": props.thread.state === "deleted",
         "review-thread-outdated": props.thread.outdated_reason !== null,
       }}
     >
-      <header onClick={props.inline ? undefined : props.onToggle}>
-        <Show when={!props.inline}>
+      <header>
+        <Show
+          when={props.navigation.kind === "history" || props.toggleable}
+          fallback={
+            <div class="review-thread-heading">
+              <ThreadHeading />
+            </div>
+          }
+        >
           <button
             type="button"
-            class="review-thread-fold"
+            class="review-thread-heading review-thread-toggle"
             aria-expanded={props.expanded}
+            onClick={props.onToggle}
           >
-            {props.expanded ? "▾" : "▸"}
+            <ThreadHeading />
+            <Show when={!props.expanded}>
+              <span class="review-thread-summary">
+                {firstComment().body ?? "Comment deleted"} ·{" "}
+                {props.thread.comments.length}
+              </span>
+            </Show>
           </button>
         </Show>
-        <strong>{firstComment().author.display_name}</strong>
-        <span>{props.thread.state}</span>
-        <Show when={props.thread.outdated_reason !== null}>
-          <span class="review-warning">outdated</span>
-        </Show>
-        <Show when={props.thread.code_location !== null}>
-          <button
-            type="button"
-            class="review-view"
-            disabled={!props.viewable}
-            onClick={(event) => {
-              event.stopPropagation();
-              props.onView();
-            }}
-          >
-            View
-          </button>
+        <Show
+          when={
+            props.navigation.kind === "history" ? props.navigation : undefined
+          }
+          keyed
+        >
+          {(navigation) => (
+            <Show
+              when={props.thread.code_location !== null}
+              fallback={
+                <span
+                  class="review-view-unavailable"
+                  title="The reviewed file is not present in this Snapshot."
+                >
+                  <button
+                    type="button"
+                    class="review-view review-thread-goto"
+                    disabled
+                    aria-label="Go to code unavailable: the reviewed file is not present in this Snapshot."
+                  >
+                    <LocateFixed aria-hidden="true" />
+                  </button>
+                </span>
+              }
+            >
+              <button
+                type="button"
+                class="review-view review-thread-goto"
+                title={
+                  navigation.viewable
+                    ? "Go to reviewed code"
+                    : "The reviewed File is not loaded."
+                }
+                aria-label={
+                  navigation.viewable
+                    ? "Go to reviewed code"
+                    : "Go to code unavailable: the reviewed File is not loaded."
+                }
+                disabled={!navigation.viewable}
+                onClick={navigation.onView}
+              >
+                <LocateFixed aria-hidden="true" />
+              </button>
+            </Show>
+          )}
         </Show>
       </header>
-      <Show when={!props.expanded}>
-        <p class="review-thread-summary">
-          {firstComment().body ?? "Comment deleted"} ·{" "}
-          {props.thread.comments.length}
-        </p>
-      </Show>
       <Show when={props.expanded}>
         <Show when={props.thread.code_location === null}>
-          <p class="review-no-location">No current location</p>
+          <p class="review-no-location">
+            The reviewed file is not present in this Snapshot.
+          </p>
         </Show>
-        <div class="review-excerpt-heading">
-          <strong title={excerptPath}>{excerptPath}</strong>
-          <span>
-            {props.thread.original_excerpt.selected_start_line ===
-            props.thread.original_excerpt.selected_end_line
-              ? `L${props.thread.original_excerpt.selected_start_line}`
-              : `L${props.thread.original_excerpt.selected_start_line}–${props.thread.original_excerpt.selected_end_line}`}
-          </span>
-        </div>
         <pre
           class="review-excerpt"
           data-side={props.thread.original_excerpt.side}
@@ -2129,35 +2453,119 @@ function ThreadCard(props: {
         </pre>
         <ol class="review-comments">
           <For each={props.thread.comments}>
-            {(comment) => (
-              <ReviewCommentView
-                comment={comment}
-                hasLocation={props.thread.code_location !== null}
-                viewable={props.viewable}
-                editable={
-                  props.thread.state !== "deleted" &&
-                  !comment.deleted &&
-                  authoredByCurrentProfile(comment)
-                }
-                deletable={props.thread.state !== "deleted" && !comment.deleted}
-                deletePending={props.commentDeletePending(comment.comment_id)}
-                onView={props.onView}
-                onEdit={() => props.onEdit(comment)}
-                onDelete={() => props.onDeleteComment(comment)}
-              />
-            )}
+            {(comment) => {
+              const editDraft = () => props.editDraft(comment);
+              return (
+                <ReviewCommentView
+                  comment={comment}
+                  editDraft={editDraft()}
+                  editSubmitting={
+                    editDraft() !== null &&
+                    props.submittingDraftIds.has(
+                      expect(editDraft(), "Submitting edit requires its draft.")
+                        .draft_id,
+                    )
+                  }
+                  response={
+                    comment.author.profile_id !==
+                    firstComment().author.profile_id
+                  }
+                  editable={
+                    props.thread.state !== "deleted" &&
+                    !comment.deleted &&
+                    authoredByCurrentProfile(comment)
+                  }
+                  deletable={
+                    props.thread.state !== "deleted" && !comment.deleted
+                  }
+                  deletePending={props.commentDeletePending(comment.comment_id)}
+                  onEdit={() => props.onEdit(comment)}
+                  onEditChange={props.onEditChange}
+                  onEditSubmit={props.onEditSubmit}
+                  onEditDiscard={props.onEditDiscard}
+                  onDelete={() => props.onDeleteComment(comment)}
+                />
+              );
+            }}
           </For>
         </ol>
+        <Show
+          when={props.thread.state !== "deleted" || props.replyDraft !== null}
+        >
+          <form
+            class="review-reply-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (
+                (props.replyDraft?.body.trim().length ?? 0) === 0 ||
+                props.replySubmitting
+              ) {
+                return;
+              }
+              void props.onReplySubmit();
+            }}
+          >
+            <textarea
+              class="review-reply-input"
+              rows="2"
+              aria-label="Reply"
+              placeholder="Write a reply…"
+              value={props.replyDraft?.body ?? ""}
+              disabled={
+                props.thread.state === "deleted" || props.replySubmitting
+              }
+              onInput={(event) => {
+                const body = event.currentTarget.value;
+                if (!props.onReplyChange(body)) {
+                  event.currentTarget.value = props.replyDraft?.body ?? "";
+                }
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  (event.metaKey || event.ctrlKey) &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <div class="review-reply-actions">
+              <Show when={props.replyDraft !== null}>
+                <button
+                  type="button"
+                  class="comment-floater-secondary"
+                  disabled={props.replySubmitting}
+                  onClick={props.onReplyDiscard}
+                >
+                  Discard
+                </button>
+              </Show>
+              <Show when={props.thread.state !== "deleted"}>
+                <button
+                  type="submit"
+                  class="comment-floater-primary"
+                  disabled={
+                    props.replySubmitting ||
+                    (props.replyDraft?.body.trim().length ?? 0) === 0
+                  }
+                >
+                  {props.replySubmitting ? "Submitting…" : "Reply"}
+                </button>
+              </Show>
+            </div>
+          </form>
+        </Show>
         <Show when={props.thread.state !== "deleted"}>
           <div class="review-actions">
-            <button type="button" onClick={props.onReply}>
-              Reply
-            </button>
             <Show
               when={props.thread.state === "open"}
               fallback={
                 <button
                   type="button"
+                  class="review-action-state"
                   disabled={props.threadStatePending(
                     props.thread.thread_id,
                     "reopen",
@@ -2170,6 +2578,7 @@ function ThreadCard(props: {
             >
               <button
                 type="button"
+                class="review-action-state"
                 disabled={props.threadStatePending(
                   props.thread.thread_id,
                   "resolve",
@@ -2181,6 +2590,7 @@ function ThreadCard(props: {
             </Show>
             <button
               type="button"
+              class="review-action-danger"
               disabled={props.threadStatePending(
                 props.thread.thread_id,
                 "delete",
@@ -2199,47 +2609,134 @@ function ThreadCard(props: {
 /** Renders immutable author attribution and one current body or tombstone. */
 function ReviewCommentView(props: {
   comment: ReviewComment;
-  hasLocation: boolean;
-  viewable: boolean;
+  editDraft: ReviewDraft | null;
+  editSubmitting: boolean;
+  response: boolean;
   editable: boolean;
   deletable: boolean;
   deletePending: boolean;
-  onView(): void;
   onEdit(): void;
+  onEditChange(draft: ReviewDraft): boolean;
+  onEditSubmit(draft: ReviewDraft): Promise<boolean>;
+  onEditDiscard(draft: ReviewDraft): boolean;
   onDelete(): void;
 }): JSX.Element {
   return (
-    <li classList={{ "review-comment-deleted": props.comment.deleted }}>
-      <strong>{props.comment.author.display_name}</strong>
-      <p>{props.comment.body ?? "Comment deleted"}</p>
-      <Show when={props.hasLocation || props.editable || props.deletable}>
-        <div class="review-actions">
-          <Show when={props.hasLocation}>
-            <button
-              type="button"
-              class="review-view"
-              disabled={!props.viewable}
-              onClick={props.onView}
-            >
-              View
-            </button>
-          </Show>
-          <Show when={props.editable}>
-            <button type="button" onClick={props.onEdit}>
-              Edit
-            </button>
-          </Show>
-          <Show when={props.deletable}>
-            <button
-              type="button"
-              disabled={props.deletePending}
-              onClick={props.onDelete}
-            >
-              Delete
-            </button>
+    <li
+      data-review-comment-id={props.comment.comment_id}
+      classList={{
+        "review-comment-deleted": props.comment.deleted,
+        "review-comment-response": props.response,
+      }}
+    >
+      <span class="review-comment-avatar" aria-hidden="true">
+        {props.comment.author.display_name.slice(0, 1).toUpperCase()}
+      </span>
+      <div class="review-comment-bubble">
+        <div class="review-comment-heading">
+          <strong title={props.comment.author.display_name}>
+            {props.comment.author.display_name}
+          </strong>
+          <Show when={props.editable || props.deletable}>
+            <div class="review-comment-actions">
+              <Show when={props.editable}>
+                <button
+                  type="button"
+                  aria-label="Edit Comment"
+                  title="Edit Comment"
+                  onClick={props.onEdit}
+                >
+                  <Pencil aria-hidden="true" />
+                </button>
+              </Show>
+              <Show when={props.deletable}>
+                <button
+                  type="button"
+                  class="review-action-danger"
+                  aria-label="Delete Comment"
+                  title="Delete Comment"
+                  disabled={props.deletePending}
+                  onClick={props.onDelete}
+                >
+                  <Trash2 aria-hidden="true" />
+                </button>
+              </Show>
+            </div>
           </Show>
         </div>
-      </Show>
+        <p>{props.comment.body ?? "Comment deleted"}</p>
+        <Show when={props.editDraft} keyed>
+          {(draft) => {
+            assert(
+              draft.kind === "edit",
+              "Comment editor requires an edit draft.",
+            );
+            return (
+              <form
+                class="review-comment-edit-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (
+                    props.editable &&
+                    draft.body.trim().length > 0 &&
+                    !props.editSubmitting
+                  ) {
+                    void props.onEditSubmit(draft);
+                  }
+                }}
+              >
+                <textarea
+                  rows="3"
+                  aria-label="Edit Comment"
+                  value={draft.body}
+                  disabled={props.editSubmitting || !props.editable}
+                  onInput={(event) => {
+                    const replacement = {
+                      ...draft,
+                      body: event.currentTarget.value,
+                    };
+                    if (!props.onEditChange(replacement)) {
+                      event.currentTarget.value = draft.body;
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      (event.metaKey || event.ctrlKey) &&
+                      !event.shiftKey &&
+                      !event.altKey
+                    ) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                />
+                <div class="review-reply-actions">
+                  <button
+                    type="button"
+                    class="comment-floater-secondary"
+                    disabled={props.editSubmitting}
+                    onClick={() => props.onEditDiscard(draft)}
+                  >
+                    Discard
+                  </button>
+                  <button
+                    type="submit"
+                    class="comment-floater-primary"
+                    disabled={
+                      !props.editable ||
+                      props.editSubmitting ||
+                      draft.body.trim().length === 0
+                    }
+                  >
+                    {props.editSubmitting ? "Submitting…" : "Save"}
+                  </button>
+                </div>
+              </form>
+            );
+          }}
+        </Show>
+      </div>
     </li>
   );
 }

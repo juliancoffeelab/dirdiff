@@ -492,10 +492,12 @@ snapshot.
 
 `ReviewSnapshotBoundary` wraps the engine-keyed File lane in `ReviewProvider`
 and passes the exact selected Profile through as browser review authorship.
-History's explicit `View` action finds the exact manifest File pair and invokes
-ordinary File navigation; it does not select a hunk or address a line. The File
-lane publishes which manifest indexes satisfy the same non-Husk caller contract
-as FileTree, so History keeps View disabled until ordinary navigation is valid.
+Each History Thread's explicit go-to action finds the exact manifest File pair and invokes
+exact-line navigation for an already loaded FullFile; it does not select a hunk
+or load a File. The File lane publishes only indexes whose FullFile is mounted,
+so History keeps go-to disabled for Lazy and Husk entries. Drafts expose one
+`Continue editing` action for new Threads. Reply and edit drafts render directly
+in their complete canonical Thread and Comment.
 
 ## 10. Files
 
@@ -626,87 +628,30 @@ newReviewId
 ReviewBinding
 ReviewMarkerState
 ReviewTextGridBinding
+ReviewCodeAnchor
 ```
 
 `ReviewDraftRoot` owns the application-lifetime strict persisted draft document
-and the set of drafts whose single HTTP action is in flight. Draft IDs are local
-only; new-Thread drafts allocate no server entity or operation identity.
-`ReviewProvider` observes explicitly loaded bounded Thread pages for one exact
+and the set of drafts whose single HTTP action is in flight.
+`ReviewProvider` observes the complete canonical Thread set for one exact
 Snapshot, receives the selected `StoredProfile` and ChangeSet-owned History
-visibility, owns the one active composer, and renders History. With no Profile,
-reads remain available and an attempted write
-presents verbal direction to the existing Profile control without opening,
-focusing, clicking, or dispatching to it. History loads one later page only
-through its explicit control and shows loaded and total counts; it never drains
-pages eagerly. A confirmed write updates the canonical Snapshot pages when they
-still exist. After provider disposal
-it creates no substitute.
-A draft document is published to Solid only
-after its synchronous localStorage write succeeds. Write failure leaves the
-previous document authoritative, presents a local failure, and disables draft
-editing, removal, and submission without damaging Files or persisted Threads.
-Stored input is validated when it enters the application; later typed draft
-operations are serialized directly rather than reparsing the complete document.
-Pending or failed bulk Thread reads likewise disable code and File review
-activation, including a refetch with retained data; renderer bindings never
-substitute an empty Thread set.
+visibility, performs explicit Thread and Comment actions, owns active Comment
+input and inline-Thread presentation, and renders History. HTTP pagination is a
+private transport detail of the canonical Snapshot query; every page uses the
+append-only activity boundary returned by its first page.
 
-`ReviewBinding` is the narrow renderer interface. FileCard reads File marker
-state and activates File-level composers. DiffGrid reads line marker state and
-activates text composers with exact File, public region, side, and line
-coordinates. A trigger is a toggle: activating its visible composer or Thread
-panel closes that UI, while activating a persisted draft at the same exact
-target reopens it instead of creating another draft. Closing discards a draft
-only when its body is exactly empty; any entered body remains persisted.
-Marker-only changes update mounted trigger classes in place;
-DiffGrid's complete row renderer does not observe them. Neither renderer
-performs review HTTP operations. One memo derives exact File and rendered-line
-indexes from the canonical query and marker-relevant draft identity and location,
-so mounted triggers use keyed reads without becoming another review store. Draft
-body and timestamp changes do not publish a marker revision or wake mounted
-DiffGrids. A File-marker invariant
-failure substitutes only its trigger; a line-marker failure disables only that
-grid's decorations and presents a sibling review error without replacing valid
-rows. The failed state remains for that DiffGrid lifetime and disables triggers
-created by every later fold or renderer replacement. DiffGrid reports which ordinary line-one sides
-its current mounted DOM actually supplies after every render and fold change so
-`file-start` binds to exactly one trigger. FileCard puts its one File trigger
-inside every Husk, Full, and Lazy sticky header. DiffGrid explicitly closes
-review UI anchored inside its row root immediately before replacing or
-disposing that root. Expanded fold edges keep their Comment trigger visible and
-exclude trigger activation from the row's fold action. Each File header also
-closes its own anchored UI before state replacement; the stable Full header sits
-outside the fallible body-renderer boundary.
+`ReviewBinding` is the narrow renderer interface. FileCard reports mounted File
+headers used by History placement and File-start targets. DiffGrid reads compact
+line-marker descriptors and activates exact File, public-region, side, and line
+actions. Neither renderer performs review HTTP operations or stores Thread data.
 
-Inline History starts closed in a right-side ChangeSet grid column mirroring the
-closed FileTree rail. The rail shows its eye mark, vertical label, Thread count,
-and `m` hint; opening it expands that same grid column. Split
-History starts as a compact eye-and-`m` control or expands into an overlay in
-one stable right-side host below the sticky File header. The panel, rail, and
-`m` hotkey update the same ChangeSet-local visibility state in both modes. Its
-compact refresh control explicitly refetches
-only the bounded pages already loaded; it does not drain later pages or use the
-agent activity boundary. Every expanded original excerpt identifies its
-selected-side File path and line range above the retained source.
-The host measures the current content-sized sticky header; its internal scroll
-and displayed content remain independent of File-lane navigation. Without a
-File header it uses the application-header offset instead of disappearing.
-Thread rows fold locally; each located Comment row and the Thread header expose
-explicit `View`. Those
-controls use one immutable exact-pair manifest index and the same File-only
-action, and remain disabled while the File is a Husk.
+`ReviewMarkerState` contains only the controls actually represented on a line.
+`ReviewTextGridBinding` identifies one immutable text grid.
+`ReviewCodeAnchor` identifies one connected code cell and its selected marker.
 
-The code-aligned composer and inline Thread panel share one viewport placement
-operation. It chooses above or below from measured room, clamps the floater to
-the viewport, and limits its own scroll without navigating or scrolling the
-File lane. A failed submission leaves its ordinary editable draft; lifecycle
-and deletion controls retain no replay command.
-
-One focused unexpected-error boundary contains the review composer, inline
-Thread panel, and History presentation. Marker-local boundaries separately
-contain the review triggers and imperative decorations embedded in File DOM.
-The File lane remains outside those damage regions, so review derivation damage
-cannot replace rendered Files.
+The complete review persistence, marker, History, Comment-input, navigation,
+error, and browser/agent HTTP behavior is specified once in
+[`reviews.md`](reviews.md).
 
 ### `hud/folds.ts`
 
@@ -823,8 +768,8 @@ type LinePins = {
 | `ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |
 | `ChangeSet.tsx` | `Review.tsx` | one exact Snapshot review boundary and explicit File jump |
 | `Review.tsx` | `api.ts` | bulk Snapshot review query and Profile-authored Thread and Comment mutations |
-| `FileCard.tsx` | `Review.tsx` | File marker state and File composer activation |
-| `DiffGrid.tsx` | `Review.tsx` | line marker state and text composer activation |
+| `FileCard.tsx` | `Review.tsx` | File marker state and File Comment-input activation |
+| `DiffGrid.tsx` | `Review.tsx` | line marker state and text Comment-input activation |
 | `FileCard.tsx` | `DiffGrid.tsx` | complete text-file rendering inputs |
 | `FileCard.tsx` | `NotebookFile.tsx` | complete notebook rendering inputs |
 | `NotebookFile.tsx` | `DiffGrid.tsx` | one notebook source region |

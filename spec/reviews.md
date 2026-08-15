@@ -24,7 +24,14 @@ same result.
 Room adds exactly three review operations:
 
 ```python
-threads(snapshot_id: UUID, *, page: int, limit: int, state: Literal["all", "open"])
+threads(
+    snapshot_id: UUID,
+    *,
+    page: int,
+    limit: int,
+    state: Literal["all", "open"],
+    activity_id: int | Literal["latest"],
+)
     -> tuple[tuple[Thread, ...], int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
 create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
@@ -194,7 +201,7 @@ or File references instead of repairing or substituting data.
 The browser API is keyed by Snapshot:
 
 ```text
-GET  /api/review/threads?snapshot_id=...&page=...&limit=...
+GET  /api/review/threads?snapshot_id=...&page=...&limit=...&activity_id=...
 POST /api/review/post_comment
 POST /api/review/edit_comment
 POST /api/review/delete_comment
@@ -203,12 +210,19 @@ POST /api/review/reopen_thread
 POST /api/review/delete_thread
 ```
 
-The read applies stable open, resolved, deleted ordering and page bounds in
-SQLite before hydrating Threads. Each HTTP response is bounded; the browser
-loads another page only through the explicit History action. Starting a Thread
-returns its bounded first discussion. Existing-Thread writes return the exact
-Thread/Snapshot IDs, current state and revision, and only the changed Comment;
-lifecycle actions return no Comment. No follow-up read is required.
+The first page fixes an append-only review activity boundary; every later page
+repeats it. Membership, lifecycle ordering, count, and hydrated actions are all
+read at that boundary, so concurrent review writes wait for the next refetch
+instead of moving a Thread between pages. The paged read applies stable open,
+resolved, deleted ordering and page bounds in SQLite before hydrating Threads.
+Each HTTP response is bounded. Pagination is only a transport bound: the
+canonical browser query consumes every page before publishing the complete
+Snapshot Thread set. Starting a Thread returns its bounded first
+discussion. Existing-Thread writes return the exact Thread/Snapshot IDs,
+current state, state revision, discussion revision, and only the changed
+Comment; lifecycle actions return no Comment. The discussion revision is the
+accepted action's per-Thread sequence. No follow-up read is required for a
+contiguous action result.
 No History endpoint exists. Expected browser review failures return a direct
 `{code, message}` body using the stable review error enum; clients never parse
 presentation text to distinguish conflicts.
@@ -230,12 +244,18 @@ control. Review does not open, focus, click, dispatch an event to, or otherwise
 control that UI, and it does not invent an anonymous author.
 
 `ReviewDraftRoot` lives for the application lifetime and is the sole Solid and
-localStorage representation of the strict draft document.
-It validates stored input when loading it and directly serializes later typed
-draft operations before publishing them to Solid.
+localStorage representation of the strict draft document. Empty Comment input
+is not a draft: it remains only in the open input, enters the document on the
+first non-whitespace input, and is removed again if emptied.
+The root removes empty stored input before publishing the document, validates
+the remaining values, and directly serializes later typed draft operations
+before publishing them to Solid.
 `ReviewProvider` lives for one exact Snapshot outside engine-keyed File
-rendering. It observes explicitly loaded pages of the canonical review query,
-performs explicit writes, and updates those pages with each returned Thread.
+rendering. It observes the complete Thread set of the canonical review query. It
+performs explicit writes and updates a contiguous cached Thread with each
+returned action. When the returned discussion revision does not immediately
+follow the loaded revision, it refetches the canonical pages instead of leaving
+any unseen Comment, Comment change, or Thread-state action absent from the HUD.
 When provider disposal has removed that cache, completion constructs no
 substitute. It does not copy backend Threads into a second client store.
 
@@ -248,39 +268,59 @@ until the authoritative Thread set is current.
 File headers and rendered line numbers expose Comment triggers derived from the
 Snapshot query and local drafts. Text selection is one-side, one-based, and
 inclusive; Shift-click extends the active range in the same File, rendered
-region, and side. Notebook source uses its public cell key. Drafts retain their
-local draft ID, Snapshot, target, Profile, and only existing Thread or Comment
-IDs needed for reply and edit. A History draft can open only in its exact
-Snapshot with its exact Profile selected; otherwise Copy Text and Discard
-remain available without silently retargeting authorship. Submission disables
-that draft for one HTTP action. Success removes it; failure leaves the ordinary
-editable local draft. Thread state and Comment deletion controls send one
-direct action and retain no replay state.
+region, and side. Notebook source uses its public cell key. A new-Thread draft
+retains its local draft ID, Snapshot, Profile, public target, and body. A reply
+draft retains only its draft ID, Thread ID, Profile, and body; an edit draft adds
+its Comment ID. Reply and edit drafts do not retain a Snapshot, code location,
+or timestamp because their loaded Thread supplies current placement and
+submission context. No draft copies source excerpts or Thread data.
+New-Thread drafts appear in the Drafts section and expose `Continue editing` for
+their saved code target. Reply drafts appear only in their Thread's permanent
+reply input. Edit drafts appear only beneath their Comment. Their stable Thread
+and Comment identities carry them into a later Snapshot representation of the
+same discussion without rewriting localStorage on mount. Because the
+canonical query contains every Thread, persisted reply and edit input has
+an ordinary rendering in that Thread and requires no focused Thread read or
+separate navigation action. A new-Thread draft remains bound to its original
+Snapshot. Submission disables that draft for one HTTP
+action. Success removes it; failure leaves the ordinary editable local draft.
+Thread state and Comment deletion controls send one direct action and retain no
+replay state.
 
 A `file-start` placement binds to ordinary line one when that side is available
 in the current mounted full text renderer; otherwise it binds to the File
 header. DiffGrid reports the actual mounted line-one triggers after every
 complete render and fold replacement instead of inferring them from backend
 rows. It never appears in both places. Before a renderer replaces or disposes row DOM,
-it explicitly closes only the composer or inline Thread panel anchored inside
-that DOM; centered reply/edit drafts and anchors in other Files remain open. An
-expanded fold-edge Comment trigger remains visible and its activation skips the
-row's fold action.
+it explicitly closes only the Comment input or inline Thread panel anchored inside
+that DOM; unfinished input remains saved, and Comment inputs anchored in other Files
+remain open. An expanded fold-edge Comment trigger remains visible and its
+activation skips the row's fold action.
 
 Marker facts are one memoized derivation indexed by exact rendered
-line coordinates from the canonical Snapshot query and marker-relevant draft
-identity and location. Draft body and timestamp changes do not publish a marker
-revision or wake mounted DiffGrids. Trigger reads perform keyed lookups; the
-index is never a writable review store. A
+line coordinates from the canonical Snapshot query and new-Thread draft target.
+Draft body changes do not publish a marker revision or wake mounted DiffGrids.
+Trigger reads perform keyed lookups; the
+index is never a writable review store. A rendered line contains only controls
+for its actually represented states; absent lifecycle states have no hidden DOM
+controls. One rendered line exposes distinct
+markers for its open, resolved, and deleted Threads. Resolved markers are green;
+clicking any state marker opens only the Threads in that state instead of
+combining every Thread on the line. State markers show a compact Comment icon and
+count, expose the complete state in their label and tooltip, and grow rightward
+so adjacent states remain visible. New-Thread and draft markers remain separate.
+A
 line-marker failure disables and clears only the affected grid's review decorations and
 presents a local error beside its otherwise intact rows. That failed state
 persists for the grid lifetime, so every later fold or renderer replacement
 also receives disabled review triggers.
 
-History renders explicitly loaded bounded pages in open, resolved, then deleted
-order and shows loaded and total Thread counts. `Load more Threads` fetches one
-later page; no query drains later pages automatically. Its explicit refresh
-control refetches the currently loaded pages while retaining their presentation;
+History renders the complete canonical Thread set in open, resolved, then
+deleted order and shows its Thread count. Open Threads appear directly;
+Resolved has a labelled visible group; Deleted has a labelled, counted native
+disclosure group that starts folded. Every Thread carries the small status dot
+for its open, resolved, or deleted state. Its explicit refresh control refetches
+the complete canonical query while retaining its presentation;
 it does not introduce a browser activity-delta protocol. Every expanded Thread
 labels its retained excerpt with the original selected-side File path and line
 range. Inline view starts with History closed in a right-side ChangeSet grid
@@ -290,25 +330,64 @@ right-side host below the sticky File header; its closed eye-and-`m` control and
 expanded overlay occupy that same host. The `m` hotkey and visible panel
 controls toggle one ChangeSet-local History state in either mode. The panel has
 its own scroll and does not follow File-lane scrolling for content or
-navigation. The host measures the currently sticky content-sized File header so
-both forms remain directly below it. When the Snapshot has no File header, the
-same host sits directly below the application header so unlocated Threads
-remain accessible. Resolved and deleted Threads start folded; open Threads show
-complete Comments and retained code context.
+navigation. Inline History occupies a viewport-height sticky grid slot, so its
+header and independently scrolling contents remain visible during File-lane
+scrolling. The split host measures the currently sticky content-sized File
+header so both forms remain directly below it. When the Snapshot has no File
+header, the same host sits directly below the application header so unlocated
+Threads remain accessible. Resolved and deleted Threads start folded; open
+Threads show complete Comments and retained code context. An expanded Thread
+presents the initiating participant on the left and other participants on the
+right, with one compact square-cornered retained excerpt beneath the header's
+File-and-line identity. History does not repeat that identity above the excerpt.
+Retained source wraps long lines inside its bordered excerpt. The open inline
+rail uses the same width as the open FileTree. Their closed controls share the
+same icon, vertical-label, and key-hint geometry, so `Files` and `History` begin
+on the same horizontal line.
+The expanded Thread uses a light vertical conversation guide instead of an
+enclosing card; only the excerpt, Comment bubbles, and input carry their own
+quiet boundaries, with no shadow.
 
-The code-aligned composer and inline Thread panel use one viewport placement
-rule. They use the anchor width when practical, choose above or below according
-to visible room, stay within the viewport, and constrain their own vertical
-scroll. Placement reacts to viewport and ancestor scrolling only to remain
-attached to its anchor; it never scrolls the document or drives navigation.
+The new-Thread Comment input and inline Thread panel are inserted directly beneath
+their selected-side line inside the diff grid. They expand the document instead
+of floating over it; ordinary document scrolling moves the complete input or
+Thread and its Comment inputs with their code, with no separate clipped viewport.
+One matching Thread opens expanded. Multiple matching Threads open as compact
+folded strips, and each strip expands or folds independently.
 
-A located Thread alone exposes `View`. It performs the established FileTree
-style File navigation for the Thread's exact File pair. It never selects a
-hunk, starts scroll-follow, or adds line navigation. Folding a History row does
-not navigate.
+Every expanded, non-deleted Thread renders a reply textarea directly inside its
+complete context. It is the actual input, not a read-only control replaced after
+focus. Its first meaningful text creates the one matching persisted reply draft
+for the Thread, Snapshot, and Profile; emptying or discarding it removes that
+draft. A deleted Thread with an existing reply draft keeps its disabled reply
+textarea and Discard action visible inside that Thread; it cannot submit. Edit
+renders below its affected Comment and reopens the one matching
+persisted draft. A visible close removes an empty new-Thread input and an
+unchanged or empty edit draft; otherwise it merely closes the input. Renderer
+detachment preserves the draft. Submit actions are labelled `Comment`, `Reply`,
+and `Save`. Meta+Enter on macOS and Ctrl+Enter on Windows and Linux submit the
+focused Comment input. Enter and Shift+Enter remain ordinary textarea input; a
+Shift- or Alt-modified shortcut does not submit. Comment rows expose compact labelled Edit/Delete icons at the top
+right and no Comment-level `View`. Comment and Thread deletion require explicit
+confirmation before their HTTP action begins.
+
+Each History Thread header strip toggles that Thread's folded state; it has no
+separate fold control. A folded strip contains the author and location on its
+first line and a one-line Comment summary beneath it. The go-to-code icon is the
+only part of the strip that does not toggle. It expands the Thread, navigates to
+its rendered marker, and
+opens that exact Thread in the code-aligned panel. A warning icon with hover
+text replaces a textual outdated label. Go-to is enabled only for an already
+loaded full File. It uses the existing exact-line navigation to reveal the
+selected side and first selected line, then opens only that Thread in the
+code-aligned panel. It never loads or admits a lazy File or Husk. Neither the
+navigation nor Thread opening selects a hunk or starts scroll-follow. A
+`file_missing` Thread disables
+the control and states on hover and in its expanded content that the reviewed
+File is not present in the Snapshot. Folding a History row does not navigate.
 
 Unexpected review-presentation derivation failures are contained around the
-composer, inline Thread panel, and History presentation. The File lane is a
+Comment input, inline Thread panel, and History presentation. The File lane is a
 sibling of that boundary and remains mounted; renderer-local failures continue
 to stop at their individual File boundary.
 

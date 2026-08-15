@@ -440,9 +440,16 @@ class Room:
         page: int,
         limit: int,
         state: Literal["all", "open"],
+        activity_id: int | Literal["latest"],
     ) -> tuple[tuple[Thread, ...], int]:
-        """Return one bounded Thread page and its total placement count."""
+        """Return one bounded Thread page at an explicit activity boundary.
+
+        `latest` selects the boundary at call time for independent agent reads.
+        A concrete id keeps every page of one browser read coherent.
+        """
         assert page >= 1 and limit >= 1
+        if activity_id == "latest":
+            activity_id = self._review_activity_boundary(snapshot_id)
         return _thread_objects(
             database=self._database,
             identity=self._identity,
@@ -452,6 +459,7 @@ class Room:
             offset=(page - 1) * limit,
             limit=limit,
             state=state,
+            activity_id=activity_id,
         )
 
     def get_thread(self, snapshot_id: UUID, thread_id: UUID) -> Thread:
