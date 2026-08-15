@@ -117,9 +117,10 @@ The Room and Snapshot lifecycle is described in
 
 Implements persistent review discussions. Its public `Thread` is bound to one
 exact `(snapshot_id, thread_id)` pair and performs Comment and lifecycle
-operations through that placement. It reconstructs current discussion state
-from authored actions and original code context as a bounded selected-side
-excerpt from immutable captured Files, independently of every rendering engine.
+operations through that placement. It selects the latest persisted lifecycle
+and attention outcome, folds Comment content, and reconstructs original code
+context as a bounded selected-side excerpt from immutable captured Files,
+independently of every rendering engine.
 
 The module privately derives missing placements only for a genuinely new
 Snapshot; selecting an equal retained Snapshot performs no derivation. Private
@@ -141,7 +142,11 @@ return only current state and the changed Comment.
 Agent review routes register an ordinary Profile with its agent UUID, capture a
 logical Tab into the same Snapshot identity, expose captured changed Files on
 disk, page open Threads, recapture the persisted Tab with File and authored
-Thread deltas, and submit one atomic batch of create, reply, or resolve actions.
+Thread deltas, role-filtered attention inboxes, and one atomic batch of the
+role-specific review instruments.
+The agent-visible Snapshot filesystem contract is documented in
+[`reviews.md`](reviews.md) and mirrored by both project-local agent skills;
+changes to capture layout must update those operational references together.
 Browser review failures expose stable structured codes and messages.
 Profile routes explicitly select an existing exact username, create a unique
 username, or rename one Profile to another unique username.

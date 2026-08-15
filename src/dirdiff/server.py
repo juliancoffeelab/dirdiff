@@ -109,6 +109,7 @@ from dirdiff.review import (
     AddComment,
     ChangeThreadState,
     CreateThread,
+    DeleteThread,
     FilePair,
     LineRange,
     NotebookCellSourceRegion,
@@ -127,7 +128,7 @@ LOGGER = logging.getLogger(__name__)
 
 _AGENT_ROUTE_PATHS = frozenset(
     {
-        "/api/agent/reviews/new",
+        "/api/agent/join_review",
         "/api/agent/thread_summary",
         "/api/agent/threads",
         "/api/agent/thread/{thread_id}",
@@ -419,6 +420,7 @@ class ReplyCommentRequest(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     profile_id: int = Field(gt=0)
     body: str = Field(min_length=1)
+    attention: Literal["inert", "alert"]
 
 
 PostCommentRequest = NewCodeCommentRequest | ReplyCommentRequest
@@ -443,7 +445,16 @@ class DeleteReviewCommentRequest(ApiModel):
 
 
 class ChangeReviewThreadStateRequest(ApiModel):
-    """Apply the route's explicit state action to one Thread."""
+    """Resolve or reopen one Thread, optionally adding a Comment."""
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_id: int = Field(gt=0)
+    body: str | None = Field(default=None, min_length=1)
+
+
+class DeleteReviewThreadRequest(ApiModel):
+    """Delete one Thread without creating a Comment."""
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -532,7 +543,7 @@ class ReviewThreadResponse(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     created_at: datetime
     state: Literal["open", "resolved", "deleted"]
-    state_revision: int = Field(ge=0)
+    attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int = Field(ge=0)
     origin_target: ReviewTargetModel
     code_location: ThreadCodeLocationResponse | None
@@ -574,7 +585,7 @@ class ReviewThreadUpdateResponse(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     state: Literal["open", "resolved", "deleted"]
-    state_revision: int = Field(ge=0)
+    attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int = Field(ge=0)
     comment: ReviewCommentResponse | None
 
@@ -660,7 +671,7 @@ class NewAgentReviewResponse(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     last_activity_id: int = Field(ge=0)
     snapshot_path: str = Field(min_length=1)
-    unresolved_thread_count: int = Field(ge=0)
+    attention_counts: dict[Literal["author", "reviewer", "both"], int]
 
 
 class AgentLineRange(ApiModel):
@@ -714,6 +725,7 @@ class AgentThreadSummary(ApiModel):
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     status: Literal["open"]
+    attention: Literal["author", "reviewer", "both"]
     file: str | None
     region: AgentLineRange | None
     first_comment: AgentCommentPreview
@@ -727,6 +739,7 @@ class AgentThread(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     status: Literal["open", "resolved", "deleted"]
+    attention: Literal["author", "reviewer", "both", "none"]
     file: str | None
     region: AgentLineRange | None
     original_excerpt: ReviewExcerptResponse
@@ -744,6 +757,7 @@ class AgentPage[AgentPageItem](ApiModel):
     limit: int = Field(ge=1)
     total: int = Field(ge=0)
     has_more: bool
+    through_activity_id: int | None = Field(default=None, ge=0)
 
 
 class AgentThreadPage(ApiModel):
@@ -752,6 +766,7 @@ class AgentThreadPage(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     status: Literal["open", "resolved", "deleted"]
+    attention: Literal["author", "reviewer", "both", "none"]
     file: str | None
     region: AgentLineRange | None
     original_excerpt: ReviewExcerptResponse
@@ -831,29 +846,40 @@ class ContinueAgentReviewResponse(ApiModel):
 class AgentCreateAction(ApiModel):
     """Create one ordinary text Thread and its first Comment."""
 
-    kind: Literal["create"]
+    kind: Literal["create-finding"]
     file: str = Field(min_length=1)
     region: AgentLineRange
     body: str = Field(min_length=1)
 
 
 class AgentReplyAction(ApiModel):
-    """Append one Comment to a Snapshot-bound Thread."""
+    """Append one role-directed Comment to a Snapshot-bound Thread."""
 
-    kind: Literal["reply"]
+    kind: Literal["author-response", "reviewer-return", "inert-comment"]
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     body: str = Field(min_length=1)
 
 
 class AgentResolveAction(ApiModel):
-    """Resolve one open Snapshot-bound Thread."""
+    """Resolve one open reviewer-attention Thread with an explanation."""
 
-    kind: Literal["resolve"]
+    kind: Literal["reviewer-resolve"]
+    thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    body: str = Field(min_length=1)
+
+
+class AgentDeleteAction(ApiModel):
+    """Apply exceptional terminal deletion to one Thread."""
+
+    kind: Literal["reviewer-delete"]
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
 
 
 AgentAction = Annotated[
-    AgentCreateAction | AgentReplyAction | AgentResolveAction,
+    AgentCreateAction
+    | AgentReplyAction
+    | AgentResolveAction
+    | AgentDeleteAction,
     Field(discriminator="kind"),
 ]
 """Describe exactly one action available through the agent boundary."""
@@ -870,14 +896,23 @@ class AgentActionsRequest(ApiModel):
 class AgentActionResult(ApiModel):
     """Expose identifiers created or affected by one applied batch item."""
 
-    kind: Literal["create", "reply", "resolve"]
+    kind: Literal[
+        "create-finding",
+        "author-response",
+        "reviewer-return",
+        "reviewer-resolve",
+        "inert-comment",
+        "reviewer-delete",
+    ]
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     comment_id: str | None = None
+    status: Literal["open", "resolved", "deleted"]
+    attention: Literal["author", "reviewer", "both", "none"]
 
     @model_validator(mode="after")
     def validate_variant(self) -> Self:
-        """Require Comment ids exactly for create and reply results."""
-        if (self.comment_id is not None) != (self.kind != "resolve"):
+        """Require Comment ids for every instrument except deletion."""
+        if (self.comment_id is not None) != (self.kind != "reviewer-delete"):
             raise ValueError("Action result Comment presence is invalid.")
         return self
 
@@ -1833,9 +1868,9 @@ def create_app(
                 f"Unknown snapshot id: {snapshot_id.hex}"
             ) from None
 
-    def agent_failure(status: HTTPStatus) -> PlainTextResponse:
-        """Return the deliberately detail-free agent failure entity."""
-        return PlainTextResponse("i fucked up", status_code=status)
+    def agent_failure(status: HTTPStatus, detail: object) -> PlainTextResponse:
+        """Return one concrete diagnostic for a rejected agent operation."""
+        return PlainTextResponse(str(detail), status_code=status)
 
     def agent_preview(body: str | None, deleted: bool) -> AgentCommentPreview:
         """Bound one Comment body to the shared 256-character preview rule."""
@@ -1913,6 +1948,7 @@ def create_app(
             thread_id=view["thread_id"],
             snapshot_id=view["snapshot_id"],
             status=view["state"],
+            attention=view["attention"],
             file=file_path,
             region=region,
             original_excerpt=ReviewExcerptResponse.model_validate(
@@ -1923,7 +1959,11 @@ def create_app(
         )
 
     def agent_page[AgentPageItem](
-        items: list[AgentPageItem], page: int, limit: int, total: int
+        items: list[AgentPageItem],
+        page: int,
+        limit: int,
+        total: int,
+        through_activity_id: int | None = None,
     ) -> AgentPage[AgentPageItem]:
         """Build one valid one-based page response."""
         return AgentPage[AgentPageItem](
@@ -1932,26 +1972,36 @@ def create_app(
             limit=limit,
             total=total,
             has_more=page * limit < total,
+            through_activity_id=through_activity_id,
         )
 
     @app.exception_handler(RequestValidationError)
     async def validation_failure(
         request: Request, exc: RequestValidationError
     ) -> Any:
-        """Hide validation detail only at the deliberately opaque agent API."""
+        """Return validation detail at the agent API boundary."""
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
-            return agent_failure(HTTPStatus.UNPROCESSABLE_ENTITY)
+            errors = exc.errors()
+            bounded = errors[:20]
+            detail = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc'])}: "
+                f"{error['msg']}"
+                for error in bounded
+            )
+            if len(errors) > len(bounded):
+                detail += f"; {len(errors) - len(bounded)} more errors"
+            return agent_failure(HTTPStatus.UNPROCESSABLE_ENTITY, detail)
         return await request_validation_exception_handler(request, exc)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_failure(
         request: Request, exc: StarletteHTTPException
     ) -> Any:
-        """Hide framework detail only for one registered agent operation."""
+        """Return framework failure detail at the agent API boundary."""
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
-            return agent_failure(HTTPStatus(exc.status_code))
+            return agent_failure(HTTPStatus(exc.status_code), exc.detail)
         return await http_exception_handler(request, exc)
 
     @app.get("/", response_class=HTMLResponse)
@@ -2116,6 +2166,7 @@ def create_app(
                 "comment-created",
                 uuid4(),
                 request.body,
+                request.attention,
             )
             return ReviewThreadUpdateResponse.model_validate(update)
         except ReviewError as exc:
@@ -2195,7 +2246,7 @@ def create_app(
 
     def change_review_thread_state(
         *,
-        request: ChangeReviewThreadStateRequest,
+        request: ChangeReviewThreadStateRequest | DeleteReviewThreadRequest,
         action: Literal["resolve", "reopen", "delete"],
     ) -> ReviewThreadUpdateResponse:
         """Apply one exact lifecycle operation shared by three HTTP routes."""
@@ -2212,14 +2263,19 @@ def create_app(
                 kind = "thread-reopened"
             else:
                 kind = "thread-deleted"
+            body = (
+                request.body
+                if isinstance(request, ChangeReviewThreadStateRequest)
+                else None
+            )
             updated = room._write_thread_action(
                 snapshot_id,
                 thread_id,
                 uuid4(),
                 ProfileAuthor(request.profile_id),
                 kind,
-                None,
-                None,
+                uuid4() if body is not None else None,
+                body,
             )
             return ReviewThreadUpdateResponse.model_validate(updated)
         except ReviewError as exc:
@@ -2266,7 +2322,7 @@ def create_app(
         summary="Delete one review Thread",
     )
     def delete_review_thread(
-        request: ChangeReviewThreadStateRequest,
+        request: DeleteReviewThreadRequest,
     ) -> ReviewThreadUpdateResponse:
         """Record terminal Thread deletion at its exact current revision."""
         return change_review_thread_state(
@@ -2275,10 +2331,10 @@ def create_app(
         )
 
     @app.post(
-        "/api/agent/reviews/new",
+        "/api/agent/join_review",
         response_model=NewAgentReviewResponse,
     )
-    def new_agent_review(
+    def join_agent_review(
         request: NewAgentReviewRequest,
     ) -> NewAgentReviewResponse | PlainTextResponse:
         """Register one disposable Profile and capture its explicit Tab."""
@@ -2362,7 +2418,7 @@ def create_app(
                 )
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
-            _threads, unresolved_count, last_activity_id = room.threads(
+            _threads, _unresolved_count, last_activity_id = room.threads(
                 snapshot_id,
                 page=1,
                 limit=1,
@@ -2374,11 +2430,13 @@ def create_app(
                 snapshot_id=snapshot_id.hex,
                 last_activity_id=last_activity_id,
                 snapshot_path=str(room_lord.snapshot_path(snapshot_id)),
-                unresolved_thread_count=unresolved_count,
+                attention_counts=room.review_attention_counts(
+                    snapshot_id, last_activity_id
+                ),
             )
-        except DirdiffError, ReviewError:
+        except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent new-review request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST)
+            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.get(
         "/api/agent/thread_summary",
@@ -2392,7 +2450,7 @@ def create_app(
         """Return a bounded discovery page of unresolved Threads."""
         try:
             room = snapshot_room(snapshot_id)
-            page_threads, total, _through_activity_id = room.threads(
+            page_threads, total, _concrete_activity_id = room.threads(
                 snapshot_id,
                 page=page,
                 limit=limit,
@@ -2406,12 +2464,14 @@ def create_app(
             ]
             summaries = []
             for thread in open_threads:
+                assert thread.attention != "none"
                 first = thread.comments[0]
                 latest = thread.comments[-1]
                 summaries.append(
                     AgentThreadSummary(
                         thread_id=thread.thread_id,
                         status="open",
+                        attention=thread.attention,
                         file=thread.file,
                         region=thread.region,
                         first_comment=agent_preview(first.body, first.deleted),
@@ -2422,35 +2482,40 @@ def create_app(
                     )
                 )
             return agent_page(summaries, page, limit, total)
-        except DirdiffError, ReviewError:
+        except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Thread-summary request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST)
+            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.get("/api/agent/threads", response_model=AgentPage[AgentThread])
     def agent_threads(
         snapshot_id: UUID,
+        for_role: Literal["author", "reviewer"] | None = Query(
+            default=None, alias="for"
+        ),
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=5, ge=1, le=20),
+        through_activity_id: int | None = Query(default=None, ge=0),
     ) -> AgentPage[AgentThread] | PlainTextResponse:
         """Return complete unresolved Threads in bounded batches."""
         try:
             room = snapshot_room(snapshot_id)
-            page_threads, total, _through_activity_id = room.threads(
+            page_threads, total, concrete_activity_id = room.threads(
                 snapshot_id,
                 page=page,
                 limit=limit,
                 state="open",
-                through_activity_id=None,
+                attention=for_role,
+                through_activity_id=through_activity_id,
             )
             captured_files = agent_captured_files(room, snapshot_id)
             threads = [
                 agent_thread(captured_files, thread.discussion())
                 for thread in page_threads
             ]
-            return agent_page(threads, page, limit, total)
-        except DirdiffError, ReviewError:
+            return agent_page(threads, page, limit, total, concrete_activity_id)
+        except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Threads request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST)
+            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.get("/api/agent/thread/{thread_id}", response_model=AgentThreadPage)
     def agent_thread_by_id(
@@ -2476,9 +2541,9 @@ def create_app(
                 total_comments=total,
                 has_more=page * limit < total,
             )
-        except DirdiffError, ReviewError:
+        except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Thread request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST)
+            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.post(
         "/api/agent/continue_review",
@@ -2530,7 +2595,7 @@ def create_app(
                 created_at = datetime.fromisoformat(action.created_at)
                 change: AgentCommentThreadChange | AgentStateThreadChange
                 match action.kind:
-                    case "comment-created":
+                    case "thread-created" | "comment-created":
                         assert action.comment_id is not None
                         change = AgentCommentThreadChange(
                             activity_id=action.activity_id,
@@ -2613,9 +2678,9 @@ def create_app(
                 thread_delta=changes,
                 has_more_thread_changes=has_more,
             )
-        except DirdiffError, ReviewError:
+        except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent continue-review request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST)
+            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.post("/api/agent/actions", response_model=AgentActionsResponse)
     def apply_agent_actions(
@@ -2643,7 +2708,9 @@ def create_app(
                     if right_file is not None:
                         assert right_file not in captured_paths
                         captured_paths[right_file] = (left, right, "right")
-            batch: list[CreateThread | ReplyToThread | ResolveThread] = []
+            batch: list[
+                CreateThread | ReplyToThread | ResolveThread | DeleteThread
+            ] = []
             author = ProfileAuthor(request.profile_id)
             for action in request.actions:
                 operation_id = uuid4()
@@ -2690,17 +2757,27 @@ def create_app(
                                 author=author,
                                 body=action.body,
                             ),
+                            action.kind,
                         )
                     )
-                else:
-                    assert isinstance(action, AgentResolveAction)
+                elif isinstance(action, AgentResolveAction):
                     batch.append(
                         ResolveThread(
                             UUID(hex=action.thread_id),
-                            ChangeThreadState(
+                            AddComment(
                                 operation_id=operation_id,
+                                comment_id=uuid4(),
                                 author=author,
+                                body=action.body,
                             ),
+                        )
+                    )
+                else:
+                    assert isinstance(action, AgentDeleteAction)
+                    batch.append(
+                        DeleteThread(
+                            UUID(hex=action.thread_id),
+                            ChangeThreadState(operation_id, author),
                         )
                     )
             results = room._apply_review_batch(snapshot_id, tuple(batch))
@@ -2714,13 +2791,15 @@ def create_app(
                             if result.comment_id is not None
                             else None
                         ),
+                        status=result.status,
+                        attention=result.attention,
                     )
                     for result in results
                 ]
             )
-        except DirdiffError, ReviewError:
+        except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent actions request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST)
+            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.get("/api/repo-defaults")
     def serve_repo_defaults(

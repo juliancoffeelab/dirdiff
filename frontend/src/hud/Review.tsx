@@ -1036,7 +1036,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     const updatedThread: ReviewThread = {
       ...existing,
       state: update.state,
-      state_revision: update.state_revision,
+      attention: update.attention,
       discussion_revision: update.discussion_revision,
       comments,
     };
@@ -1101,7 +1101,11 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
             ? await addComment.mutateAsync({
                 snapshotId: props.snapshotId,
                 threadId: command.thread_id,
-                body: { profile_id: profile.id, body: command.body },
+                body: {
+                  profile_id: profile.id,
+                  body: command.body,
+                  attention: "alert",
+                },
               })
             : await editComment.mutateAsync({
                 snapshotId: props.snapshotId,

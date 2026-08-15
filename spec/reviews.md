@@ -3,16 +3,16 @@
 ## Purpose
 
 A Room contains Threads and Snapshots. One `thread_id` identifies a live
-discussion; one `review_thread` row binds that discussion to one exact captured
-code universe:
+discussion; one `review_thread` row records its origin and one
+`review_thread_placement` row binds it to each exact captured code universe:
 
 ```text
 (snapshot_id, thread_id)
 ```
 
-Rows sharing a `thread_id` share Comments and Thread state while retaining
-independent immutable code placements. A Snapshot fixes captured code, not an
-as-of discussion state.
+Rows sharing a `thread_id` retain independent immutable code placements. Every
+action persists `status_after` and `attention_after`; a Snapshot fixes captured
+code, while `through_activity_id` fixes the discussion outcome used by a read.
 
 History is the HUD over every Thread returned for one Snapshot. It is not a
 relation, placement kind, transition log, or separate read. Located and
@@ -31,6 +31,7 @@ threads(
     limit: int,
     state: Literal["all", "open"],
     through_activity_id: int | None,
+    attention: Literal["author", "reviewer"] | None = None,
 )
     -> tuple[tuple[Thread, ...], int, int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
@@ -164,16 +165,18 @@ user_profile(id, username UNIQUE)
 
 agent_profile(profile_id, agent_uuid)
 
-review_thread(
+review_thread(thread_id, origin_snapshot_id)
+
+review_thread_placement(
   thread_id, snapshot_id, snapshot_file_id,
-  is_origin, target_kind, public location fields,
+  target_kind, public location fields,
   outdated_reason, private origin coordinate,
   PRIMARY KEY(thread_id, snapshot_id)
 )
 
 review_action(
   activity_id, operation_id, thread_id, snapshot_id, sequence, kind, profile_id,
-  comment_id, expected_revision, body, created_at
+  comment_id, expected_revision, body, created_at, status_after, attention_after
 )
 ```
 
@@ -181,8 +184,9 @@ review_action(
 every author. Agent Profiles have the same author shape as frontend Profiles;
 `agent_profile` retains only the UUID supplied at agent registration.
 
-Every action row has Thread and sequence values and is folded into its live
-discussion. `activity_id` is a durable increasing order used by agent
+Every action row has Thread and sequence values. Comments are folded, while
+lifecycle and attention are read directly from the latest persisted outcome.
+`activity_id` is a durable increasing order used by agent
 continuation reads. There is no separate event, submission, delta, checkpoint,
 or agent-authorship action variant.
 
@@ -221,8 +225,8 @@ Each HTTP response is bounded. Pagination is only a transport bound: the
 canonical browser query consumes every page before publishing the complete
 Snapshot Thread set. Starting a Thread returns its bounded first
 discussion. Existing-Thread writes return the exact Thread/Snapshot IDs,
-current state, state revision, discussion revision, and only the changed
-Comment; lifecycle actions return no Comment. The discussion revision is the
+current status, attention, discussion revision, and only the changed Comment.
+Lifecycle actions return a Comment when their optional body is present. The discussion revision is the
 accepted action's per-Thread sequence. No follow-up read is required for a
 contiguous action result.
 No History endpoint exists. Expected browser review failures return a direct
@@ -399,26 +403,46 @@ The agent API is a filesystem-oriented boundary over the same Rooms,
 Snapshots, Threads, Comments, and Profiles as the browser:
 
 ```text
-POST /api/agent/reviews/new
+POST /api/agent/join_review
 GET  /api/agent/thread_summary?snapshot_id=...&page=...&limit=...
-GET  /api/agent/threads?snapshot_id=...&page=...&limit=...
+GET  /api/agent/threads?snapshot_id=...&for=author|reviewer&page=...&limit=...&through_activity_id=...
 GET  /api/agent/thread/{thread_id}?snapshot_id=...&page=...&limit=...
 POST /api/agent/continue_review
 POST /api/agent/actions
 ```
 
-New review accepts an agent UUID, display name, and an explicit HEAD, refs,
+Join review accepts an agent UUID, display name, and an explicit HEAD, refs,
 Branch Review, or Pull Request Tab. Repository-backed Tabs name the exact
 path of an active Mark; nothing marks a path implicitly. Registration creates
 one ordinary `user_profile` and its one-to-one `agent_profile` UUID binding.
 The response contains only the Profile id, Snapshot id, current activity
-boundary, unresolved count, and absolute filesystem Snapshot path.
+boundary, actionable author/reviewer/both counts, and absolute filesystem
+Snapshot path.
 
 The filesystem path is the existing durable Snapshot directory already
 published by normal capture. Agents use ordinary filesystem operations on the
 exact captured Files used by the frontend. The API creates no copy, hardlink,
 materialized directory, generated layout, File reference, or HTTP File-content
 operation.
+
+The returned directory has one immediate opaque File-id directory per captured
+File pair. Each pair directory contains an exact `left` file when the left side
+exists and an exact `right` file when the right side exists. File ids are not
+repository paths, and the tree contains no manifest, ordering, display name, or
+repository-path mapping. Agents enumerate every pair, inspect each present side
+with content-appropriate tools, and pass the exact absolute side path to
+`create-finding`. Missing `left` or `right` files represent absent sides; the
+Snapshot tree is immutable and never a worktree.
+
+This filesystem contract has separate role-specific operational instructions
+in `.agents/skills/review-patch/references/snapshot_structure.md` and the
+implementor appendix in
+`.agents/skills/babysit-patch/references/snapshot_structure.md`. Any change to
+Snapshot directory organization, side filenames, path meaning, mutability, or
+the way agents obtain captured bytes must update both skill references and this
+specification in the same change. The reviewer document defines complete
+capture inspection and finding paths; the implementor document defines
+finding-evidence reads, live-worktree changes, recapture, and reviewer handoff.
 
 Thread summary returns open Threads with first/latest Comment previews and
 counts. It defaults to 20 items and permits at most 100. Bulk Threads returns
@@ -439,8 +463,9 @@ authored `review_action` rows after the supplied activity id, ordered by
 `activity_id`; placement changes and code changes are not Thread activity.
 The default activity limit is 20 and the maximum is 100.
 
-Actions accepts one to 100 ordered create, reply, or resolve items. The Profile
-is the ordinary Profile returned by new review. Creation accepts the actual
+Actions accepts one to 100 ordered `create-finding`, `author-response`,
+`reviewer-return`, `reviewer-resolve`, `inert-comment`, or `reviewer-delete`
+items. The Profile is the ordinary Profile returned by join review. Creation accepts the actual
 absolute path of an existing captured File in the named Snapshot and an
 inclusive one-based ordinary text range.
 The complete array is validated and appended under the Room write lock in one
@@ -449,5 +474,7 @@ Thread, Comment, and operation ids are fresh. Re-sending an HTTP entity simply
 performs its actions again; the agent boundary has no submission identity,
 retry, replay, checkpoint, or recovery contract.
 
-Every failed agent HTTP operation returns a non-2xx response whose exact
-plain-text body is `i fucked up`. No agent failure exposes structured detail.
+Every rejected agent HTTP operation returns a non-2xx response whose
+plain-text body describes the concrete validation, HTTP, or domain failure.
+Unexpected failures remain ordinary internal-server errors and do not expose
+tracebacks.

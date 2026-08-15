@@ -52,6 +52,7 @@ __all__ = [
     "ChangeThreadState",
     "CreateThread",
     "DeleteComment",
+    "DeleteThread",
     "EditComment",
     "FilePair",
     "LineRange",
@@ -213,35 +214,53 @@ class AddComment:
 
 @dataclass(frozen=True)
 class ReplyToThread:
-    """Append one Comment to an existing Thread within an atomic batch."""
+    """Apply one role-directed Comment instrument in an atomic batch."""
+
+    thread_id: UUID
+    command: AddComment
+    instrument: Literal["author-response", "reviewer-return", "inert-comment"]
+
+
+@dataclass(frozen=True)
+class ResolveThread:
+    """Resolve one existing Thread with a required reviewer Comment."""
 
     thread_id: UUID
     command: AddComment
 
 
 @dataclass(frozen=True)
-class ResolveThread:
-    """Resolve one existing Thread within an atomic batch."""
+class DeleteThread:
+    """Delete one existing Thread through the exceptional reviewer instrument."""
 
     thread_id: UUID
     command: ChangeThreadState
 
 
-ReviewBatchAction = CreateThread | ReplyToThread | ResolveThread
-"""Describe the three ordered write variants accepted by an agent batch."""
+ReviewBatchAction = CreateThread | ReplyToThread | ResolveThread | DeleteThread
+"""Describe the role-specific write variants accepted by an agent batch."""
 
 
 @dataclass(frozen=True)
 class ReviewBatchResult:
     """Return identifiers created or addressed by one applied batch action."""
 
-    kind: Literal["create", "reply", "resolve"]
+    kind: Literal[
+        "create-finding",
+        "author-response",
+        "reviewer-return",
+        "reviewer-resolve",
+        "inert-comment",
+        "reviewer-delete",
+    ]
     thread_id: UUID
     comment_id: Optional[UUID]
+    status: Literal["open", "resolved", "deleted"]
+    attention: Literal["author", "reviewer", "both", "none"]
 
     def __post_init__(self) -> None:
-        """Require Comments exactly for create and reply results."""
-        assert (self.comment_id is not None) == (self.kind != "resolve")
+        """Require Comments for every instrument except reviewer deletion."""
+        assert (self.comment_id is not None) == (self.kind != "reviewer-delete")
 
 
 @dataclass(frozen=True)
@@ -296,7 +315,7 @@ class ThreadDiscussionView(TypedDict):
     snapshot_id: str
     created_at: datetime
     state: Literal["open", "resolved", "deleted"]
-    state_revision: int
+    attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int
     origin_target: dict[str, object]
     code_location: Optional[dict[str, object]]
@@ -313,7 +332,7 @@ class ThreadUpdateView(TypedDict):
     thread_id: str
     snapshot_id: str
     state: Literal["open", "resolved", "deleted"]
-    state_revision: int
+    attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int
     comment: Optional[ReviewCommentView]
 
@@ -1055,24 +1074,28 @@ def _fold_actions(
     profiles: dict[int, UserProfileRecord],
 ) -> tuple[
     Literal["open", "resolved", "deleted"],
-    int,
+    Literal["author", "reviewer", "both", "none"],
     list[ReviewCommentView],
 ]:
     """Fold ordered authored actions into current discussion state."""
 
-    assert actions != () and actions[0].kind == "comment-created"
+    assert actions != () and actions[0].kind == "thread-created"
     assert [action.sequence for action in actions] == list(
         range(len(actions))
     ), "review action sequence must be contiguous"
-    state: Literal["open", "resolved", "deleted"] = "open"
-    state_revision = 0
+    state = actions[-1].status_after
+    attention = actions[-1].attention_after
     comments: dict[str, _CommentState] = {}
     order: list[str] = []
     for action in actions:
         profile_id = action.profile_id
         assert profile_id in profiles, "review action has no Profile"
-        assert state != "deleted", "deleted Thread has later actions"
-        if action.kind == "comment-created":
+        if action.comment_id is not None and action.kind in {
+            "thread-created",
+            "comment-created",
+            "thread-resolved",
+            "thread-reopened",
+        }:
             assert action.comment_id is not None and action.body is not None
             assert action.expected_revision is None
             assert action.comment_id not in comments
@@ -1113,27 +1136,12 @@ def _fold_actions(
             comment.body = None
             comment.deleted = True
             comment.updated_at = action.created_at
-        elif action.kind == "thread-resolved":
-            assert action.expected_revision == state_revision, (
-                "Thread resolve has a stale revision"
-            )
-            assert state == "open", "only an open Thread may be resolved"
-            state = "resolved"
-            state_revision += 1
-        elif action.kind == "thread-reopened":
-            assert action.expected_revision == state_revision, (
-                "Thread reopen has a stale revision"
-            )
-            assert state == "resolved", "only a resolved Thread may be reopened"
-            state = "open"
-            state_revision += 1
         else:
-            assert action.kind == "thread-deleted"
-            assert action.expected_revision == state_revision, (
-                "Thread deletion has a stale revision"
-            )
-            state = "deleted"
-            state_revision += 1
+            assert action.kind in {
+                "thread-resolved",
+                "thread-reopened",
+                "thread-deleted",
+            }
     views: list[ReviewCommentView] = []
     for comment_id in order:
         comment = comments[comment_id]
@@ -1154,7 +1162,7 @@ def _fold_actions(
                 "updated_at": datetime.fromisoformat(comment.updated_at),
             }
         )
-    return state, state_revision, views
+    return state, attention, views
 
 
 def _build_original_excerpt(
@@ -1256,6 +1264,7 @@ def _append_review_action(
     ],
     comment_id: Optional[UUID],
     body: Optional[str],
+    comment_attention: Literal["inert", "alert"],
     lock_path: Path,
     thread_lock: Lock,
 ) -> tuple[
@@ -1277,7 +1286,7 @@ def _append_review_action(
             persisted_profile.id: persisted_profile
             for persisted_profile in persisted_profiles
         }
-        state, state_revision, comments = _fold_actions(actions, profiles)
+        state, attention, comments = _fold_actions(actions, profiles)
         if state == "deleted":
             raise ReviewError("state_conflict", "Thread is deleted.")
         comment_by_id = {comment["comment_id"]: comment for comment in comments}
@@ -1307,7 +1316,7 @@ def _append_review_action(
                 assert body is not None
                 _nonblank(body)
         else:
-            accepted_revision = state_revision
+            accepted_revision = None
             if kind == "thread-resolved" and state != "open":
                 raise ReviewError(
                     "state_conflict", "Only an open Thread may be resolved."
@@ -1328,11 +1337,28 @@ def _append_review_action(
             expected_revision=accepted_revision,
             body=body,
             created_at=_now(),
+            status_after=(
+                "resolved"
+                if kind == "thread-resolved"
+                else "open"
+                if kind == "thread-reopened"
+                else "deleted"
+                if kind == "thread-deleted"
+                else state
+            ),
+            attention_after=(
+                "none"
+                if kind in {"thread-resolved", "thread-deleted"}
+                else "both"
+                if kind == "thread-reopened"
+                or (kind == "comment-created" and comment_attention == "alert")
+                else attention
+            ),
         )
         database.append_review_action(record)
         profiles[profile.id] = profile
         updated_actions = (*actions, record)
-        updated_state, updated_revision, updated_comments = _fold_actions(
+        updated_state, updated_attention, updated_comments = _fold_actions(
             updated_actions, profiles
         )
         updated_comment = (
@@ -1351,7 +1377,7 @@ def _append_review_action(
                 thread_id=thread_id.hex,
                 snapshot_id=snapshot_id.hex,
                 state=updated_state,
-                state_revision=updated_revision,
+                attention=updated_attention,
                 discussion_revision=len(updated_actions) - 1,
                 comment=updated_comment,
             ),
@@ -1420,7 +1446,7 @@ class Thread:
         )
 
         actions = self._actions()
-        state, state_revision, comments = _fold_actions(actions, self._profiles)
+        state, attention, comments = _fold_actions(actions, self._profiles)
         code_location: Optional[dict[str, object]]
         target_file: Optional[SnapshotFileRecord] = None
         expected_file = self._selected_files_by_pair.get(
@@ -1472,7 +1498,7 @@ class Thread:
             snapshot_id=self.snapshot_id.hex,
             created_at=datetime.fromisoformat(actions[0].created_at),
             state=state,
-            state_revision=state_revision,
+            attention=attention,
             discussion_revision=len(actions) - 1,
             origin_target=_origin_target_dict(origin, origin_file),
             code_location=code_location,
@@ -1521,6 +1547,7 @@ class Thread:
             kind=kind,
             comment_id=comment_id,
             body=body,
+            comment_attention="inert",
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
@@ -1603,6 +1630,7 @@ def _thread_objects(
     offset: int,
     limit: int,
     state: Literal["all", "open"],
+    attention: Optional[Literal["author", "reviewer"]],
     through_activity_id: Optional[int],
 ) -> tuple[tuple[Thread, ...], int, int]:
     """Bulk-hydrate one bounded Thread page at one inclusive activity pivot."""
@@ -1612,6 +1640,7 @@ def _thread_objects(
         offset=offset,
         limit=limit,
         state=state,
+        attention=attention,
         through_activity_id=through_activity_id,
     )
     if result is None:
@@ -1942,12 +1971,14 @@ def _plan_thread_creation(
             thread_id=command.thread_id.hex,
             snapshot_id=selected_snapshot.id,
             sequence=0,
-            kind="comment-created",
+            kind="thread-created",
             profile_id=profile_id,
             comment_id=command.comment_id.hex,
             expected_revision=None,
             body=command.body,
             created_at=created_at,
+            status_after="open",
+            attention_after="author",
         ),
     )
 
@@ -2044,7 +2075,11 @@ def _apply_review_batch(
                 records.append(first_action)
                 results.append(
                     ReviewBatchResult(
-                        "create", action.thread_id, action.comment_id
+                        "create-finding",
+                        action.thread_id,
+                        action.comment_id,
+                        "open",
+                        "author",
                     )
                 )
                 continue
@@ -2078,7 +2113,7 @@ def _apply_review_batch(
                     "profile_not_found", f"Unknown Profile: {profile_id}"
                 )
             thread_profiles[profile.id] = profile
-            state, state_revision, _comments = _fold_actions(
+            state, attention, _comments = _fold_actions(
                 tuple(thread_actions), thread_profiles
             )
             if state == "deleted":
@@ -2086,6 +2121,25 @@ def _apply_review_batch(
             if isinstance(action, ReplyToThread):
                 reply = action.command
                 _nonblank(reply.body)
+                allowed_attention = {
+                    "author-response": {"author", "both"},
+                    "reviewer-return": {"reviewer", "both"},
+                    "inert-comment": {"author", "reviewer", "both", "none"},
+                }[action.instrument]
+                if action.instrument != "inert-comment" and (
+                    state != "open" or attention not in allowed_attention
+                ):
+                    raise ReviewError(
+                        "state_conflict",
+                        f"{action.instrument} is not valid for this Thread outcome.",
+                    )
+                next_attention: Literal["author", "reviewer", "both", "none"]
+                if action.instrument == "author-response":
+                    next_attention = "reviewer"
+                elif action.instrument == "reviewer-return":
+                    next_attention = "author"
+                else:
+                    next_attention = attention
                 record = ReviewActionRecord(
                     operation_id=reply.operation_id.hex,
                     thread_id=thread_key,
@@ -2097,29 +2151,69 @@ def _apply_review_batch(
                     expected_revision=None,
                     body=reply.body,
                     created_at=_now(),
+                    status_after=state,
+                    attention_after=next_attention,
                 )
                 result = ReviewBatchResult(
-                    "reply", action.thread_id, reply.comment_id
+                    action.instrument,
+                    action.thread_id,
+                    reply.comment_id,
+                    state,
+                    next_attention,
                 )
-            else:
-                assert isinstance(action, ResolveThread)
-                if state != "open":
+            elif isinstance(action, ResolveThread):
+                resolve = action.command
+                if state != "open" or attention not in {"reviewer", "both"}:
                     raise ReviewError(
-                        "state_conflict", "Only an open Thread may be resolved."
+                        "state_conflict",
+                        "reviewer-resolve requires an open reviewer-attention Thread.",
                     )
+                _nonblank(resolve.body)
                 record = ReviewActionRecord(
-                    operation_id=command.operation_id.hex,
+                    operation_id=resolve.operation_id.hex,
                     thread_id=thread_key,
                     snapshot_id=snapshot_id.hex,
                     sequence=len(thread_actions),
                     kind="thread-resolved",
                     profile_id=profile_id,
+                    comment_id=resolve.comment_id.hex,
+                    expected_revision=None,
+                    body=resolve.body,
+                    created_at=_now(),
+                    status_after="resolved",
+                    attention_after="none",
+                )
+                result = ReviewBatchResult(
+                    "reviewer-resolve",
+                    action.thread_id,
+                    resolve.comment_id,
+                    "resolved",
+                    "none",
+                )
+            else:
+                assert isinstance(action, DeleteThread)
+                deletion = action.command
+                record = ReviewActionRecord(
+                    operation_id=deletion.operation_id.hex,
+                    thread_id=thread_key,
+                    snapshot_id=snapshot_id.hex,
+                    sequence=len(thread_actions),
+                    kind="thread-deleted",
+                    profile_id=profile_id,
                     comment_id=None,
-                    expected_revision=state_revision,
+                    expected_revision=None,
                     body=None,
                     created_at=_now(),
+                    status_after="deleted",
+                    attention_after="none",
                 )
-                result = ReviewBatchResult("resolve", action.thread_id, None)
+                result = ReviewBatchResult(
+                    "reviewer-delete",
+                    action.thread_id,
+                    None,
+                    "deleted",
+                    "none",
+                )
             thread_actions.append(record)
             records.append(record)
             results.append(result)

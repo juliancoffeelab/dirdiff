@@ -31,8 +31,10 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     case,
+    column,
     func,
     insert,
+    literal,
     select,
     tuple_,
 )
@@ -334,34 +336,58 @@ class SnapshotFileLazyReasonContent(TableBase):
 
 
 class ReviewThread(TableBase):
-    """Persist one immutable code placement for a Thread in one Snapshot."""
+    """Persist one logical Thread and the Snapshot where it originated."""
 
     __tablename__ = "review_thread"
     __table_args__ = (
-        ForeignKeyConstraint(
-            ["snapshot_file_id", "snapshot_id"],
-            ["snapshot_file.id", "snapshot_file.snapshot_id"],
-            name="fk_review_thread_snapshot_file",
-        ),
         CheckConstraint(
             "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
             name="ck_review_thread_id",
         ),
+    )
+
+    thread_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    origin_snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("snapshot.id"), nullable=False
+    )
+
+
+Index("ix_review_thread_origin_snapshot", ReviewThread.origin_snapshot_id)
+
+
+class ReviewThreadPlacement(TableBase):
+    """Persist one immutable code placement for a Thread in one Snapshot."""
+
+    __tablename__ = "review_thread_placement"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["snapshot_file_id", "snapshot_id"],
+            ["snapshot_file.id", "snapshot_file.snapshot_id"],
+            name="fk_review_thread_placement_snapshot_file",
+        ),
         CheckConstraint(
-            "target_kind IS NULL OR target_kind IN ('range', 'file-start')",
+            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            name="ck_review_thread_placement_id",
+        ),
+        CheckConstraint(
+            column("target_kind").is_(None)
+            | column("target_kind").in_(("range", "file-start")),
             name="ck_review_thread_target_kind",
         ),
         CheckConstraint(
-            "region_kind IS NULL OR region_kind IN ('ordinary', 'notebook-cell-source')",
+            column("region_kind").is_(None)
+            | column("region_kind").in_(("ordinary", "notebook-cell-source")),
             name="ck_review_thread_region_kind",
         ),
         CheckConstraint(
-            "side IS NULL OR side IN ('left', 'right')",
+            column("side").is_(None) | column("side").in_(("left", "right")),
             name="ck_review_thread_side",
         ),
         CheckConstraint(
-            "outdated_reason IS NULL OR outdated_reason IN "
-            "('region_changed', 'region_not_found', 'file_missing')",
+            column("outdated_reason").is_(None)
+            | column("outdated_reason").in_(
+                ("region_changed", "region_not_found", "file_missing")
+            ),
             name="ck_review_thread_outdated_reason",
         ),
         CheckConstraint(
@@ -393,25 +419,24 @@ class ReviewThread(TableBase):
             name="ck_review_thread_location",
         ),
         CheckConstraint(
-            "CASE "
-            "WHEN is_origin = 1 AND target_kind = 'range' THEN "
-            "private_locator IS NOT NULL AND "
-            "outdated_reason IS NULL "
-            "WHEN is_origin = 0 THEN "
-            "private_locator IS NULL "
-            "ELSE 0 END",
-            name="ck_review_thread_locator",
+            column("private_locator").is_(None)
+            | (
+                (column("target_kind") == "range")
+                & column("outdated_reason").is_(None)
+            ),
+            name="ck_review_thread_placement_locator",
         ),
     )
 
-    thread_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(
+        ForeignKey("review_thread.thread_id"), primary_key=True
+    )
     snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"), primary_key=True
     )
     snapshot_file_id: Mapped[Optional[str]] = mapped_column(
         String(32), nullable=True
     )
-    is_origin: Mapped[bool] = mapped_column(Boolean, nullable=False)
     target_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     region_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     region_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -426,13 +451,7 @@ class ReviewThread(TableBase):
     )
 
 
-Index(
-    "uq_review_thread_origin",
-    ReviewThread.thread_id,
-    unique=True,
-    sqlite_where=ReviewThread.is_origin.is_(True),
-)
-Index("ix_review_thread_snapshot", ReviewThread.snapshot_id)
+Index("ix_review_thread_placement_snapshot", ReviewThreadPlacement.snapshot_id)
 
 
 class ReviewAction(TableBase):
@@ -442,7 +461,10 @@ class ReviewAction(TableBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["thread_id", "snapshot_id"],
-            ["review_thread.thread_id", "review_thread.snapshot_id"],
+            [
+                "review_thread_placement.thread_id",
+                "review_thread_placement.snapshot_id",
+            ],
             name="fk_review_action_thread",
         ),
         UniqueConstraint("activity_id", name="uq_review_action_activity"),
@@ -480,7 +502,7 @@ class ReviewAction(TableBase):
         ),
         CheckConstraint(
             "CASE "
-            "WHEN kind = 'comment-created' THEN "
+            "WHEN kind IN ('thread-created', 'comment-created') THEN "
             "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
             "comment_id IS NOT NULL AND expected_revision IS NULL AND "
             "body IS NOT NULL AND length(body) > 0 "
@@ -492,11 +514,26 @@ class ReviewAction(TableBase):
             "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
             "comment_id IS NOT NULL AND expected_revision IS NOT NULL AND "
             "body IS NULL "
-            "WHEN kind IN ('thread-resolved', 'thread-reopened', 'thread-deleted') "
-            "THEN thread_id IS NOT NULL AND sequence IS NOT NULL AND "
-            "comment_id IS NULL AND expected_revision IS NOT NULL AND body IS NULL "
+            "WHEN kind IN ('thread-resolved', 'thread-reopened') THEN "
+            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
+            "expected_revision IS NULL AND "
+            "((comment_id IS NULL AND body IS NULL) OR "
+            "(comment_id IS NOT NULL AND body IS NOT NULL AND length(body) > 0)) "
+            "WHEN kind = 'thread-deleted' THEN thread_id IS NOT NULL AND "
+            "sequence IS NOT NULL AND comment_id IS NULL AND "
+            "expected_revision IS NULL AND body IS NULL "
             "ELSE 0 END",
             name="ck_review_action_variant",
+        ),
+        CheckConstraint(
+            column("status_after").in_(("open", "resolved", "deleted")),
+            name="ck_review_action_status_after",
+        ),
+        CheckConstraint(
+            column("attention_after").in_(
+                ("author", "reviewer", "both", "none")
+            ),
+            name="ck_review_action_attention_after",
         ),
         CheckConstraint(
             "length(created_at) > 0",
@@ -517,13 +554,27 @@ class ReviewAction(TableBase):
     expected_revision: Mapped[Optional[int]] = mapped_column(nullable=True)
     body: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+    status_after: Mapped[str] = mapped_column(String, nullable=False)
+    attention_after: Mapped[str] = mapped_column(String, nullable=False)
 
 
 Index(
     "uq_review_action_comment_created",
     ReviewAction.comment_id,
     unique=True,
-    sqlite_where=ReviewAction.kind == "comment-created",
+    sqlite_where=ReviewAction.kind.in_(
+        (
+            "thread-created",
+            "comment-created",
+            "thread-resolved",
+            "thread-reopened",
+        )
+    ),
+)
+Index(
+    "ix_review_action_thread_activity",
+    ReviewAction.thread_id,
+    ReviewAction.activity_id.desc(),
 )
 
 
@@ -680,6 +731,7 @@ class ReviewActionRecord:
     snapshot_id: str
     sequence: int
     kind: Literal[
+        "thread-created",
         "comment-created",
         "comment-edited",
         "comment-deleted",
@@ -692,6 +744,8 @@ class ReviewActionRecord:
     expected_revision: Optional[int]
     body: Optional[str]
     created_at: str
+    status_after: Literal["open", "resolved", "deleted"]
+    attention_after: Literal["author", "reviewer", "both", "none"]
     activity_id: Optional[int] = None
     """Global Room order after persistence; `None` only before insertion."""
 
@@ -741,7 +795,6 @@ class RoomStore:
             "thread_id": record.thread_id,
             "snapshot_id": record.snapshot_id,
             "snapshot_file_id": record.snapshot_file_id,
-            "is_origin": record.is_origin,
             "target_kind": record.target_kind,
             "region_kind": record.region_kind,
             "region_key": record.region_key,
@@ -766,6 +819,8 @@ class RoomStore:
             "expected_revision": record.expected_revision,
             "body": record.body,
             "created_at": record.created_at,
+            "status_after": record.status_after,
+            "attention_after": record.attention_after,
         }
         if record.activity_id is not None:
             values["activity_id"] = record.activity_id
@@ -838,6 +893,7 @@ class RoomStore:
         match kind_value:
             case (
                 "comment-created"
+                | "thread-created"
                 | "comment-edited"
                 | "comment-deleted"
                 | "thread-resolved"
@@ -860,6 +916,8 @@ class RoomStore:
             expected_revision=row.expected_revision,
             body=row.body,
             created_at=row.created_at,
+            status_after=row.status_after,
+            attention_after=row.attention_after,
             activity_id=row.activity_id,
         )
 
@@ -1205,7 +1263,7 @@ class RoomStore:
                 )
             if review_threads != ():
                 session.execute(
-                    insert(ReviewThread),
+                    insert(ReviewThreadPlacement),
                     [self._review_thread_values(row) for row in review_threads],
                 )
 
@@ -1473,6 +1531,7 @@ class RoomStore:
         offset: int = 0,
         limit: Optional[int] = None,
         state: Literal["all", "open"] = "all",
+        attention: Optional[Literal["author", "reviewer"]] = None,
         *,
         through_activity_id: Optional[int],
     ) -> Optional[tuple[ReviewSnapshotRecord, int]]:
@@ -1528,54 +1587,64 @@ class RoomStore:
                 through_activity_id = (
                     0 if latest_activity_id is None else latest_activity_id
                 )
-            last_lifecycle = (
-                select(ReviewAction.kind)
+            latest_status = (
+                select(ReviewAction.status_after)
                 .where(
-                    ReviewAction.thread_id == ReviewThread.thread_id,
-                    ReviewAction.kind.in_(
-                        (
-                            "thread-resolved",
-                            "thread-reopened",
-                            "thread-deleted",
-                        )
-                    ),
+                    ReviewAction.thread_id == ReviewThreadPlacement.thread_id,
                     ReviewAction.activity_id <= through_activity_id,
                 )
-                .order_by(ReviewAction.sequence.desc())
+                .order_by(ReviewAction.activity_id.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            latest_attention = (
+                select(ReviewAction.attention_after)
+                .where(
+                    ReviewAction.thread_id == ReviewThreadPlacement.thread_id,
+                    ReviewAction.activity_id <= through_activity_id,
+                )
+                .order_by(ReviewAction.activity_id.desc())
                 .limit(1)
                 .scalar_subquery()
             )
             state_rank = case(
-                (last_lifecycle == "thread-deleted", 2),
-                (last_lifecycle == "thread-resolved", 1),
+                (latest_status == "deleted", 2),
+                (latest_status == "resolved", 1),
                 else_=0,
             )
             first_activity = (
                 select(ReviewAction.activity_id)
                 .where(
-                    ReviewAction.thread_id == ReviewThread.thread_id,
+                    ReviewAction.thread_id == ReviewThreadPlacement.thread_id,
                     ReviewAction.sequence == 0,
                     ReviewAction.activity_id <= through_activity_id,
                 )
                 .scalar_subquery()
             )
             selected_where = [
-                ReviewThread.snapshot_id == snapshot_id,
+                ReviewThreadPlacement.snapshot_id == snapshot_id,
                 first_activity.is_not(None),
             ]
             if state == "open":
-                selected_where.append(state_rank == 0)
+                selected_where.append(latest_status == "open")
             else:
                 assert state == "all"
+            if attention is not None:
+                selected_where.append(latest_attention.in_((attention, "both")))
             total_threads = session.execute(
                 select(func.count())
-                .select_from(ReviewThread)
+                .select_from(ReviewThreadPlacement)
                 .where(*selected_where)
             ).scalar_one()
             selected_query = (
-                select(*ReviewThread.__table__.c)
+                select(
+                    *ReviewThreadPlacement.__table__.c,
+                    literal(False).label("is_origin"),
+                )
                 .where(*selected_where)
-                .order_by(state_rank, first_activity, ReviewThread.thread_id)
+                .order_by(
+                    state_rank, first_activity, ReviewThreadPlacement.thread_id
+                )
                 .offset(offset)
             )
             if limit is not None:
@@ -1588,10 +1657,19 @@ class RoomStore:
                     through_activity_id,
                 )
             origin_rows = session.execute(
-                select(*ReviewThread.__table__.c).where(
-                    ReviewThread.thread_id.in_(thread_ids),
-                    ReviewThread.is_origin.is_(True),
+                select(
+                    *ReviewThreadPlacement.__table__.c,
+                    literal(True).label("is_origin"),
                 )
+                .join(
+                    ReviewThread,
+                    (ReviewThread.thread_id == ReviewThreadPlacement.thread_id)
+                    & (
+                        ReviewThread.origin_snapshot_id
+                        == ReviewThreadPlacement.snapshot_id
+                    ),
+                )
+                .where(ReviewThreadPlacement.thread_id.in_(thread_ids))
             ).all()
             origins_by_thread = {row.thread_id: row for row in origin_rows}
             assert origins_by_thread.keys() == set(thread_ids), (
@@ -1666,18 +1744,31 @@ class RoomStore:
             if room_id is None:
                 return None
             selected_row = session.execute(
-                select(*ReviewThread.__table__.c).where(
-                    ReviewThread.snapshot_id == snapshot_id,
-                    ReviewThread.thread_id == thread_id,
+                select(
+                    *ReviewThreadPlacement.__table__.c,
+                    literal(False).label("is_origin"),
+                ).where(
+                    ReviewThreadPlacement.snapshot_id == snapshot_id,
+                    ReviewThreadPlacement.thread_id == thread_id,
                 )
             ).one_or_none()
             origin_row = session.execute(
-                select(*ReviewThread.__table__.c)
-                .join(Snapshot, Snapshot.id == ReviewThread.snapshot_id)
+                select(
+                    *ReviewThreadPlacement.__table__.c,
+                    literal(True).label("is_origin"),
+                )
+                .join(
+                    ReviewThread,
+                    ReviewThread.thread_id == ReviewThreadPlacement.thread_id,
+                )
+                .join(
+                    Snapshot, Snapshot.id == ReviewThreadPlacement.snapshot_id
+                )
                 .where(
                     Snapshot.room_id == room_id,
-                    ReviewThread.thread_id == thread_id,
-                    ReviewThread.is_origin.is_(True),
+                    ReviewThreadPlacement.thread_id == thread_id,
+                    ReviewThread.origin_snapshot_id
+                    == ReviewThreadPlacement.snapshot_id,
                 )
             ).one_or_none()
             if origin_row is None:
@@ -1729,9 +1820,9 @@ class RoomStore:
         """
         with Session(self.engine) as session:
             placed = session.execute(
-                select(ReviewThread.thread_id).where(
-                    ReviewThread.snapshot_id == snapshot_id,
-                    ReviewThread.thread_id == thread_id,
+                select(ReviewThreadPlacement.thread_id).where(
+                    ReviewThreadPlacement.snapshot_id == snapshot_id,
+                    ReviewThreadPlacement.thread_id == thread_id,
                 )
             ).scalar_one_or_none()
             if placed is None:
@@ -1772,14 +1863,25 @@ class RoomStore:
         )
         with Session(self.engine) as session:
             rows = session.execute(
-                select(*ReviewThread.__table__.c)
-                .join(Snapshot, Snapshot.id == ReviewThread.snapshot_id)
+                select(
+                    *ReviewThreadPlacement.__table__.c,
+                    literal(True).label("is_origin"),
+                )
+                .join(
+                    ReviewThread,
+                    ReviewThread.thread_id == ReviewThreadPlacement.thread_id,
+                )
+                .join(
+                    Snapshot, Snapshot.id == ReviewThreadPlacement.snapshot_id
+                )
                 .join(Room, Room.id == Snapshot.room_id)
                 .where(
-                    ReviewThread.is_origin.is_(True),
-                    ReviewThread.thread_id.not_in(
-                        select(ReviewThread.thread_id).where(
-                            ReviewThread.snapshot_id == target_snapshot_id
+                    ReviewThread.origin_snapshot_id
+                    == ReviewThreadPlacement.snapshot_id,
+                    ReviewThreadPlacement.thread_id.not_in(
+                        select(ReviewThreadPlacement.thread_id).where(
+                            ReviewThreadPlacement.snapshot_id
+                            == target_snapshot_id
                         )
                     ),
                     Room.tab == identity.tab,
@@ -1807,10 +1909,21 @@ class RoomStore:
         )
         with Session(self.engine) as session, session.begin():
             persisted_rows = session.execute(
-                select(*ReviewThread.__table__.c).where(
+                select(
+                    *ReviewThreadPlacement.__table__.c,
+                    (
+                        ReviewThread.origin_snapshot_id
+                        == ReviewThreadPlacement.snapshot_id
+                    ).label("is_origin"),
+                )
+                .join(
+                    ReviewThread,
+                    ReviewThread.thread_id == ReviewThreadPlacement.thread_id,
+                )
+                .where(
                     tuple_(
-                        ReviewThread.thread_id,
-                        ReviewThread.snapshot_id,
+                        ReviewThreadPlacement.thread_id,
+                        ReviewThreadPlacement.snapshot_id,
                     ).in_(pairs)
                 )
             ).all()
@@ -1828,7 +1941,7 @@ class RoomStore:
                         "immutable review Thread placement changed"
                     )
             if additions != []:
-                session.execute(insert(ReviewThread), additions)
+                session.execute(insert(ReviewThreadPlacement), additions)
 
     def create_review_thread(
         self,
@@ -1843,12 +1956,20 @@ class RoomStore:
         assert {row.thread_id for row in rows} == {first_action.thread_id}, (
             "Thread creation rows and first action must share one Thread id"
         )
-        assert first_action.kind == "comment-created"
+        assert first_action.kind == "thread-created"
         assert first_action.sequence == 0
         assert first_action.activity_id is None
         with Session(self.engine) as session, session.begin():
             session.execute(
-                insert(ReviewThread),
+                insert(ReviewThread).values(
+                    thread_id=first_action.thread_id,
+                    origin_snapshot_id=next(
+                        row.snapshot_id for row in rows if row.is_origin
+                    ),
+                )
+            )
+            session.execute(
+                insert(ReviewThreadPlacement),
                 [self._review_thread_values(row) for row in rows],
             )
             session.execute(
@@ -1877,8 +1998,20 @@ class RoomStore:
         )
         with Session(self.engine) as session, session.begin():
             if thread_rows != ():
+                origins = [row for row in thread_rows if row.is_origin]
+                if origins != []:
+                    session.execute(
+                        insert(ReviewThread),
+                        [
+                            {
+                                "thread_id": row.thread_id,
+                                "origin_snapshot_id": row.snapshot_id,
+                            }
+                            for row in origins
+                        ],
+                    )
                 session.execute(
-                    insert(ReviewThread),
+                    insert(ReviewThreadPlacement),
                     [self._review_thread_values(row) for row in thread_rows],
                 )
             next_activity_id = self._next_review_activity_id(session)
@@ -1916,6 +2049,7 @@ class RoomStore:
                     ReviewAction.activity_id > activity_id,
                     ReviewAction.kind.in_(
                         (
+                            "thread-created",
                             "comment-created",
                             "comment-edited",
                             "comment-deleted",
@@ -1936,6 +2070,70 @@ class RoomStore:
             len(rows) > limit,
         )
 
+    def review_attention_counts(
+        self, identity: RoomIdentity, through_activity_id: int
+    ) -> dict[Literal["author", "reviewer", "both"], int]:
+        """Count open logical Threads by actionable attention at one pivot."""
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        room_threads = (
+            select(ReviewThread.thread_id)
+            .join(Snapshot, Snapshot.id == ReviewThread.origin_snapshot_id)
+            .join(Room, Room.id == Snapshot.room_id)
+            .where(
+                Room.tab == identity.tab,
+                Room.backend_key == identity.correspondence_key,
+                mark_clause,
+            )
+            .cte("room_threads")
+            .prefix_with("MATERIALIZED")
+        )
+        latest_for_thread = (
+            select(func.max(ReviewAction.activity_id))
+            .where(
+                ReviewAction.thread_id == room_threads.c.thread_id,
+                ReviewAction.activity_id <= through_activity_id,
+            )
+            .correlate(room_threads)
+            .scalar_subquery()
+        )
+        latest_outcomes = (
+            select(
+                ReviewAction.status_after,
+                ReviewAction.attention_after,
+            )
+            .select_from(room_threads)
+            .join(
+                ReviewAction,
+                ReviewAction.activity_id == latest_for_thread,
+            )
+            .cte("latest_outcomes")
+            .prefix_with("MATERIALIZED")
+        )
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(latest_outcomes.c.attention_after, func.count())
+                .where(
+                    latest_outcomes.c.status_after == "open",
+                    latest_outcomes.c.attention_after.in_(
+                        ("author", "reviewer", "both")
+                    ),
+                )
+                .group_by(latest_outcomes.c.attention_after)
+            ).all()
+        counts: dict[Literal["author", "reviewer", "both"], int] = {
+            "author": 0,
+            "reviewer": 0,
+            "both": 0,
+        }
+        for attention, count in rows:
+            assert attention in counts
+            counts[attention] = count
+        return counts
+
     def review_thread_for_comment(
         self, snapshot_id: str, comment_id: str
     ) -> Optional[str]:
@@ -1944,13 +2142,13 @@ class RoomStore:
             return session.execute(
                 select(ReviewAction.thread_id)
                 .join(
-                    ReviewThread,
-                    ReviewThread.thread_id == ReviewAction.thread_id,
+                    ReviewThreadPlacement,
+                    ReviewThreadPlacement.thread_id == ReviewAction.thread_id,
                 )
                 .where(
-                    ReviewThread.snapshot_id == snapshot_id,
+                    ReviewThreadPlacement.snapshot_id == snapshot_id,
                     ReviewAction.comment_id == comment_id,
-                    ReviewAction.kind == "comment-created",
+                    ReviewAction.comment_id.is_not(None),
                 )
             ).scalar_one_or_none()
 

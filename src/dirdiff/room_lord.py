@@ -441,6 +441,7 @@ class Room:
         limit: int,
         state: Literal["all", "open"],
         through_activity_id: Optional[int],
+        attention: Optional[Literal["author", "reviewer"]] = None,
     ) -> tuple[tuple[Thread, ...], int, int]:
         """Return one bounded Thread page and its inclusive activity pivot.
 
@@ -458,6 +459,7 @@ class Room:
             offset=(page - 1) * limit,
             limit=limit,
             state=state,
+            attention=attention,
             through_activity_id=through_activity_id,
         )
 
@@ -488,6 +490,7 @@ class Room:
         ],
         comment_id: Optional[UUID],
         body: Optional[str],
+        comment_attention: Literal["inert", "alert"] = "inert",
     ) -> ThreadUpdateView:
         """Append one HTTP action and return its bounded authoritative update."""
         _, _, update = _append_review_action(
@@ -499,6 +502,7 @@ class Room:
             kind=kind,
             comment_id=comment_id,
             body=body,
+            comment_attention=comment_attention,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
@@ -544,6 +548,15 @@ class Room:
             self._identity,
             activity_id,
             limit,
+        )
+
+    def review_attention_counts(
+        self, snapshot_id: UUID, through_activity_id: int
+    ) -> dict[Literal["author", "reviewer", "both"], int]:
+        """Return actionable open-Thread counts at one activity boundary."""
+        self.meta(snapshot_id)
+        return self._database.review_attention_counts(
+            self._identity, through_activity_id
         )
 
     def _apply_review_batch(

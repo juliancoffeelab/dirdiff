@@ -942,7 +942,7 @@ const ReviewThreadSchema = z
     snapshot_id: ReviewIdSchema,
     created_at: z.string().datetime({ offset: true }),
     state: z.enum(["open", "resolved", "deleted"]),
-    state_revision: z.number().int().nonnegative(),
+    attention: z.enum(["author", "reviewer", "both", "none"]),
     discussion_revision: z.number().int().nonnegative(),
     origin_target: ReviewTargetSchema,
     code_location: ThreadCodeLocationSchema.nullable(),
@@ -1015,7 +1015,7 @@ const ReviewThreadUpdateSchema = z.strictObject({
   thread_id: ReviewIdSchema,
   snapshot_id: ReviewIdSchema,
   state: z.enum(["open", "resolved", "deleted"]),
-  state_revision: z.number().int().nonnegative(),
+  attention: z.enum(["author", "reviewer", "both", "none"]),
   discussion_revision: z.number().int().nonnegative(),
   comment: ReviewCommentSchema.nullable(),
 });
@@ -1082,8 +1082,12 @@ const CreateReviewThreadRequestSchema = z.strictObject({
 const AddReviewCommentRequestSchema = z.strictObject({
   profile_id: z.number().int().positive(),
   body: ReviewBodySchema,
+  attention: z.enum(["inert", "alert"]),
 });
-const EditReviewCommentRequestSchema = AddReviewCommentRequestSchema;
+const EditReviewCommentRequestSchema = z.strictObject({
+  profile_id: z.number().int().positive(),
+  body: ReviewBodySchema,
+});
 const ReviewProfileActionRequestSchema = z.strictObject({
   profile_id: z.number().int().positive(),
 });

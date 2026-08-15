@@ -1,0 +1,4 @@
+interface:
+  display_name: "Babysit Patch"
+  short_description: "Coordinate patch authoring through dirdiff"
+  default_prompt: "Use $babysit-patch to coordinate this patch through dirdiff."

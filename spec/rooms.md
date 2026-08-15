@@ -179,11 +179,15 @@ agent_profile
   profile_id, agent_uuid
 
 review_thread
+  thread_id, origin_snapshot_id
+
+review_thread_placement
   thread_id, snapshot_id, nullable snapshot_file_id, immutable placement facts
 
 review_action
   activity_id, operation_id, thread_id, snapshot_id, sequence,
-  non-null profile_id author, authored action fields
+  non-null profile_id author, authored action fields, status_after,
+  attention_after
 ```
 
 The two Snapshot line-count columns are nullable together. A File's capture
@@ -243,7 +247,7 @@ Room correspondence and the two commits only for capture. It does not parse a
 Pull Request URL, contact a forge, fetch refs, derive commits, or apply Branch
 Review selection logic.
 
-`POST /api/agent/reviews/new` registers one disposable ordinary Profile, maps
+`POST /api/agent/join_review` registers one disposable ordinary Profile, maps
 the supplied Tab into the shared capture operation, and returns the resulting
 Snapshot id, Profile id, activity boundary, and the existing durable Snapshot
 directory.
@@ -251,6 +255,11 @@ directory.
 the supplied Snapshot and passes the new captured state through the same
 publication path. Neither operation introduces another Room identity or
 persistent review-handle entity.
+
+An agent retains the Profile id, latest Snapshot id/path, and activity boundary
+returned by these operations for later rounds in the same task. Later rounds
+start with continue review; they do not register another Profile through join
+review.
 
 `/api/lazy-info` accepts only `snapshot_id`, calls `find_room(snapshot_id)`, and
 then `manifested(snapshot_id)`. It reads captured File metadata and never
@@ -269,6 +278,16 @@ not iterate the Room or reload Git, index, worktree, or preset contents. The
 agent API instead returns the existing Snapshot directory already published by
 ordinary capture. It creates no additional File, directory, link, or Snapshot
 representation.
+
+That returned directory is an agent-facing contract: immediate children are
+opaque captured File ids, and each child contains the exact `left` and/or
+`right` side bytes. It is read-only and does not encode repository paths or
+manifest presentation. The reviewer and implementor skills provide distinct
+role-specific instructions over this layout in their respective
+`references/snapshot_structure.md` files. Changes to publication
+layout, side naming, byte meaning, or path interpretation must update
+`spec/reviews.md` and both skill references together so capture changes cannot
+silently break the agent workflow.
 
 Repository-mark removal deactivates a Mark instead of deleting its row, leaving
 Room and Snapshot identity intact. Marking the same path again reactivates the

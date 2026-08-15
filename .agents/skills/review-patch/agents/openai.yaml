@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Patch"
+  short_description: "Review a captured patch through dirdiff"
+  default_prompt: "Use $review-patch to independently review this patch through dirdiff."
