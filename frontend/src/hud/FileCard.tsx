@@ -933,7 +933,11 @@ function FullFileRenderer(
       const zone = richZone(rowCount);
       enterObserver = new IntersectionObserver(
         (entries) => {
-          const entry = entries[0];
+          // Entries queue oldest-first; a fast programmatic jump can batch
+          // an out-then-in transition, and acting on the stale first entry
+          // left visible files stuck virtual. Only the newest entry is the
+          // card's current state.
+          const entry = entries[entries.length - 1];
           if (entry === undefined) {
             throw new Error("Rich-zone observer omitted its FileCard entry.");
           }
@@ -947,7 +951,8 @@ function FullFileRenderer(
       );
       exitObserver = new IntersectionObserver(
         (entries) => {
-          const entry = entries[0];
+          // Same newest-entry rule as the enter observer above.
+          const entry = entries[entries.length - 1];
           if (entry === undefined) {
             throw new Error(
               "Virtual-zone observer omitted its FileCard entry.",

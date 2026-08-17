@@ -339,7 +339,12 @@ column mirroring the FileTree rail; opening it expands that same column. The
 rail carries a vertical label, Thread count, and `m` hint. Split view uses one
 right-side host below the sticky File header; its closed eye-and-`m` control and
 expanded overlay occupy that same host. The `m` hotkey and visible panel
-controls toggle one ChangeSet-local History state in either mode. The panel has
+controls toggle one ChangeSet-local History state in either mode. The closed
+panel stays mounted — the host's open class swaps which of the permanent
+toggle-and-panel siblings displays — so closing cannot destroy per-Thread UI
+state, warmed Thread heights, or the reading position; only an inline/split
+view switch rebuilds the panel, and the tracked scroll position is restored
+after it. The panel has
 its own scroll and does not follow File-lane scrolling for content or
 navigation. Inline History occupies a viewport-height sticky grid slot, so its
 header and independently scrolling contents remain visible during File-lane

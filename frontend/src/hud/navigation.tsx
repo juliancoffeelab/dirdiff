@@ -607,6 +607,42 @@ export function NavigationProvider(
   }
 
   /**
+   * Centers one target and re-centers it until its geometry holds still.
+   *
+   * content-visibility chunks near the destination render only after the
+   * first scroll and replace their estimated heights with real ones (wrapped
+   * lines are taller than the estimate), shifting the document under the
+   * viewport; each pass waits one frame and re-centers until the target
+   * stops moving, within a small bound. The operation performs no selection.
+   */
+  async function settleCenteredScroll(target: HTMLElement): Promise<void> {
+    target.scrollIntoView({ block: "center", behavior: "instant" });
+    // Chunks render lazily for several frames after arrival, so the loop
+    // demands three consecutive still frames before trusting the position;
+    // the pass bound keeps a pathological layout from pinning the scroll.
+    let stillFrames = 0;
+    for (let pass = 0; pass < 30 && alive; pass += 1) {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      if (!target.isConnected) {
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      const offset = rect.top + rect.height / 2 - window.innerHeight / 2;
+      if (Math.abs(offset) <= 1) {
+        stillFrames += 1;
+        if (stillFrames >= 3) {
+          return;
+        }
+        continue;
+      }
+      stillFrames = 0;
+      target.scrollIntoView({ block: "center", behavior: "instant" });
+    }
+  }
+
+  /**
    * Scrolls to one manifest file's exact first current DOM target.
    *
    * The immutable file index must resolve to one stable FileCard. Every
@@ -616,8 +652,9 @@ export function NavigationProvider(
    * and resolved again before Navigation calculates its hypothetical centered
    * viewport. Virtual FileCards intersecting their own exact rich-entry zones at
    * that position are enriched one at a time. The destination and hypothetical
-   * viewport are recalculated after every layout change, and one final scroll
-   * occurs after geometry settles. A local set bounds the operation to one
+   * viewport are recalculated after every layout change, and the final
+   * centering re-runs until nearby chunk rendering stops moving the
+   * destination. A local set bounds the operation to one
    * enrichment per FileCard. The operation never selects its destination,
    * expands, collapses, fetches, calculates counters, or updates the FileTree.
    */
@@ -778,7 +815,10 @@ export function NavigationProvider(
     }
 
     target = firstTarget();
-    target.scrollIntoView({ block: "center", behavior: "instant" });
+    await settleCenteredScroll(target);
+    if (!alive) {
+      return;
+    }
     card.classList.remove("file-card-flash");
     void card.offsetWidth;
     card.classList.add("file-card-flash");
@@ -790,7 +830,8 @@ export function NavigationProvider(
    * The file sequence has already expanded, loaded, and admitted the target
    * FullFile. Navigation enriches virtual layout, repeatedly resolves the target
    * from required coordinates, prepares intersecting virtual FileCards for the
-   * hypothetical centered viewport, and performs exactly one final scroll.
+   * hypothetical centered viewport, and centers the destination, re-running
+   * the centering until nearby chunk rendering stops moving it.
    */
   async function navigateToLine(
     fileIndex: number,
@@ -903,10 +944,7 @@ export function NavigationProvider(
           return { state: "stopped" };
         }
         scrollGuard.stop();
-        prepared.row.scrollIntoView({
-          block: "center",
-          behavior: "instant",
-        });
+        await settleCenteredScroll(prepared.row);
         return { state: "complete" };
       }
       enrichedFileCards.add(intersectingVirtualCard);

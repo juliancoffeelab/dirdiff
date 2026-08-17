@@ -401,8 +401,11 @@ behavior, and never selects a hunk. Unlocated Threads have no go-to action.
 - FileTree navigation scrolls only and never loads, selects, or changes
   expansion.
 - Scroll-follow selects only rich participating real hunks and never scrolls.
-- Programmatic file and line navigation perform one final scroll after layout
-  preparation.
+- Programmatic file and line navigation center their destination after layout
+  preparation and re-center until nearby chunk rendering stops moving it. An
+  idle warm-up pass renders every chunk once so skipped-chunk geometry becomes
+  exact (DiffGrid's `warmPendingChunk`); after it completes the re-centering
+  loop converges immediately.
 - The URL is the sole line-pin identity.
 - DiffGrid owns pin decoration; LinePins owns parsing, URL toggling, and active
   restoration cancellation; the lane owns loading; Navigation owns the final

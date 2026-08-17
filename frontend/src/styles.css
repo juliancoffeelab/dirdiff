@@ -35,7 +35,10 @@ button {
   cursor: pointer;
 }
 
-.app-shell {
+/* Layout variables live on :root: the split-view History host portals to
+   document.body, outside .app-shell, and an unresolvable width variable
+   stretched it across the whole viewport. */
+:root {
   --header-control-height: 34px;
   --app-header-height: 47px;
   --app-header-sticky-offset: var(--app-header-height);
@@ -43,7 +46,9 @@ button {
   --file-tree-closed-width: 42px;
   --file-tree-open-width: 320px;
   --review-history-open-width: var(--file-tree-open-width);
+}
 
+.app-shell {
   width: 100vw;
   margin: 0 auto;
   padding: 0 0 72px;
@@ -1293,6 +1298,17 @@ h1 {
   max-height: calc(100vh - var(--review-history-top) - 14px);
 }
 
+/* Toggle and panel are both always mounted; the host's open class decides
+   which one displays. Keeping the closed panel mounted preserves warmed
+   Thread heights and per-Thread UI state across close and reopen. */
+.review-history-host:not(.review-history-open) .review-history-panel {
+  display: none;
+}
+
+.review-history-host.review-history-open .review-history-toggle {
+  display: none;
+}
+
 .review-history-inline .review-history-panel {
   height: calc(100vh - var(--app-header-sticky-offset, 0px));
   max-height: none;
@@ -1443,6 +1459,13 @@ h1 {
      scroll stability; 120px approximates an unrendered collapsed row. */
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
+}
+
+/* A warmed Thread has rendered once: its height is real, so it leaves the
+   content-visibility regime entirely and can never shift the scroller again.
+   The History scroller warms Threads progressively after opening. */
+.review-thread[data-review-history-thread-id].review-thread-warmed {
+  content-visibility: visible;
 }
 
 .review-thread[data-review-history-thread-id].review-thread-expanded {
@@ -3083,6 +3106,14 @@ h1 {
   content-visibility: auto;
   contain-intrinsic-width: none;
   contain-intrinsic-height: auto 1100px;
+}
+
+/* Held for one rendered frame by the warm-up pass (see warmPendingChunk in
+   DiffGrid.tsx): the forced render records the chunk's real height as the
+   last remembered size, so the `auto` keyword above serves exact geometry
+   ever after and the 1100px estimate stops mattering. */
+.diff-row-chunk.diff-row-chunk-warming {
+  content-visibility: visible;
 }
 
 .diff-row {

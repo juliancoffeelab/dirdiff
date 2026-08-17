@@ -19,6 +19,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   untrack,
@@ -584,6 +585,11 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     createSignal<ActiveCommentInput | null>(null);
   const [activeThreadPanel, setActiveThreadPanel] =
     createSignal<ActiveThreadPanel | null>(null);
+  // The History panel stays mounted while closed (CSS hides it), but a
+  // hidden scroller's box reads scrollTop 0, so the reading position is
+  // tracked from scroll events and written back when the panel opens or
+  // its keyed Portal remounts on an inline/split view switch.
+  let historyScrollTop = 0;
   const [splitHistoryTop, setSplitHistoryTop] = createSignal<number | null>(
     null,
   );
@@ -1952,272 +1958,368 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
                     : undefined
                 }
               >
-                <Show
-                  when={props.historyOpen}
-                  fallback={
+                {/* Toggle and panel both stay mounted; CSS on the host's
+                    review-history-open class swaps which one displays, so
+                    closing History cannot destroy per-Thread state, warmed
+                    heights, or the scroller. */}
+                <button
+                  class="review-history-toggle"
+                  type="button"
+                  onClick={() => props.onHistoryOpenChange(true)}
+                  aria-expanded={props.historyOpen ? "true" : "false"}
+                  aria-label="Open History"
+                >
+                  <kbd>m</kbd>
+                  <span class="review-history-label">
+                    History ({totalThreads()})
+                  </span>
+                  <Eye class="review-history-icon" aria-hidden="true" />
+                </button>
+                <section
+                  class="review-history-panel"
+                  aria-label="Review History"
+                >
+                  <header onClick={() => props.onHistoryOpenChange(false)}>
+                    <kbd>m</kbd>
+                    <strong>History</strong>
+                    <span>
+                      {orderedThreads().length} / {totalThreads()} Threads
+                    </span>
                     <button
-                      class="review-history-toggle"
                       type="button"
-                      onClick={() => props.onHistoryOpenChange(true)}
-                      aria-expanded="false"
-                      aria-label="Open History"
+                      class="field-icon-button metadata-refresh-button review-history-refresh"
+                      aria-label="Reload Threads"
+                      title="Reload Threads"
+                      disabled={review.isFetching}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void review.refetch({ cancelRefetch: false });
+                      }}
                     >
-                      <kbd>m</kbd>
-                      <span class="review-history-label">
-                        History ({totalThreads()})
-                      </span>
+                      <RefreshCw
+                        class="field-icon"
+                        classList={{ spinning: review.isFetching }}
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      class="review-history-collapse"
+                      aria-label="Close History"
+                      title="Close History"
+                    >
                       <Eye class="review-history-icon" aria-hidden="true" />
                     </button>
-                  }
-                >
-                  <section
-                    class="review-history-panel"
-                    aria-label="Review History"
-                  >
-                    <header onClick={() => props.onHistoryOpenChange(false)}>
-                      <kbd>m</kbd>
-                      <strong>History</strong>
-                      <span>
-                        {orderedThreads().length} / {totalThreads()} Threads
-                      </span>
-                      <button
-                        type="button"
-                        class="field-icon-button metadata-refresh-button review-history-refresh"
-                        aria-label="Reload Threads"
-                        title="Reload Threads"
-                        disabled={review.isFetching}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void review.refetch({ cancelRefetch: false });
-                        }}
+                  </header>
+                  <Show when={review.isPending}>
+                    <p class="review-status">Loading Threads…</p>
+                  </Show>
+                  <Show when={review.error} keyed>
+                    {(error) => (
+                      <ErrorPanel
+                        title="Failed to load review Threads"
+                        error={error}
                       >
-                        <RefreshCw
-                          class="field-icon"
-                          classList={{ spinning: review.isFetching }}
-                          aria-hidden="true"
+                        <RetryButton
+                          onRetry={() => review.refetch().then(() => undefined)}
                         />
-                      </button>
-                      <button
-                        type="button"
-                        class="review-history-collapse"
-                        aria-label="Close History"
-                        title="Close History"
+                      </ErrorPanel>
+                    )}
+                  </Show>
+                  <Show when={draftError()} keyed>
+                    {(error) => (
+                      <ErrorPanel
+                        title="Review drafts unavailable"
+                        error={error}
                       >
-                        <Eye class="review-history-icon" aria-hidden="true" />
-                      </button>
-                    </header>
-                    <Show when={review.isPending}>
-                      <p class="review-status">Loading Threads…</p>
-                    </Show>
-                    <Show when={review.error} keyed>
-                      {(error) => (
-                        <ErrorPanel
-                          title="Failed to load review Threads"
-                          error={error}
-                        >
-                          <RetryButton
-                            onRetry={() =>
-                              review.refetch().then(() => undefined)
+                        <button
+                          type="button"
+                          disabled={submittingDraftIds().size > 0}
+                          onClick={() => {
+                            if (draftContext.clear()) {
+                              setActiveCommentInput(null);
                             }
-                          />
-                        </ErrorPanel>
-                      )}
-                    </Show>
-                    <Show when={draftError()} keyed>
-                      {(error) => (
-                        <ErrorPanel
-                          title="Review drafts unavailable"
-                          error={error}
+                          }}
                         >
-                          <button
-                            type="button"
-                            disabled={submittingDraftIds().size > 0}
-                            onClick={() => {
-                              if (draftContext.clear()) {
-                                setActiveCommentInput(null);
-                              }
-                            }}
-                          >
-                            Clear stored drafts
-                          </button>
-                        </ErrorPanel>
+                          Clear stored drafts
+                        </button>
+                      </ErrorPanel>
+                    )}
+                  </Show>
+                  <div
+                    class="review-history-scroll"
+                    ref={(scroller) => {
+                      // This ref runs only when the keyed Portal remounts
+                      // on an inline/split view switch; open/close leaves
+                      // the panel mounted. Track the reading position from
+                      // scroll events: the closed panel is display: none,
+                      // whose box reads scrollTop 0, so capturing at close
+                      // time would record nothing.
+                      scroller.addEventListener(
+                        "scroll",
+                        () => {
+                          historyScrollTop = scroller.scrollTop;
+                        },
+                        { passive: true },
+                      );
+                      createEffect(
+                        on(
+                          () => props.historyOpen,
+                          (open) => {
+                            if (!open) {
+                              return;
+                            }
+                            // Restore after the browser lays the panel
+                            // out; writing before layout is silently
+                            // clamped.
+                            requestAnimationFrame(() => {
+                              scroller.scrollTop = historyScrollTop;
+                            });
+                          },
+                        ),
+                      );
+                      // Warm every Thread over the frames after opening: a
+                      // warmed Thread has rendered once, its height is
+                      // real, and the estimate-replacement shifts that made
+                      // History scrolling jumpy become impossible. Opening
+                      // stays instant because warming is spread across
+                      // frames, and a manual scroll anchor keeps the
+                      // Thread at the top of the viewport pinned while
+                      // heights above it change.
+                      let warmFrame: number | null = null;
+                      const warmBatch = () => {
+                        warmFrame = null;
+                        // A hidden panel must not warm: warmed Threads
+                        // leave the content-visibility regime, so warming
+                        // without rendering would make the next open lay
+                        // out every Thread at once.
+                        if (!scroller.isConnected || !props.historyOpen) {
+                          return;
+                        }
+                        const pending = scroller.querySelectorAll(
+                          ".review-thread[data-review-history-thread-id]:not(.review-thread-warmed)",
+                        );
+                        if (pending.length === 0) {
+                          return;
+                        }
+                        const threads = scroller.querySelectorAll<HTMLElement>(
+                          ".review-thread[data-review-history-thread-id]",
+                        );
+                        let anchor: HTMLElement | null = null;
+                        for (const thread of threads) {
+                          if (
+                            thread.offsetTop + thread.offsetHeight >
+                            scroller.scrollTop
+                          ) {
+                            anchor = thread;
+                            break;
+                          }
+                        }
+                        const anchorOffset =
+                          anchor === null
+                            ? 0
+                            : anchor.offsetTop - scroller.scrollTop;
+                        for (
+                          let index = 0;
+                          index < 8 && index < pending.length;
+                          index += 1
+                        ) {
+                          pending[index]?.classList.add("review-thread-warmed");
+                        }
+                        if (anchor !== null) {
+                          scroller.scrollTop = anchor.offsetTop - anchorOffset;
+                        }
+                        if (pending.length > 8) {
+                          warmFrame = requestAnimationFrame(warmBatch);
+                        }
+                      };
+                      // (Re)arm warming when the panel opens and when new
+                      // Threads arrive while it is open; already-warmed
+                      // Threads keep their class across close and reopen.
+                      createEffect(() => {
+                        if (!props.historyOpen) {
+                          return;
+                        }
+                        orderedThreads();
+                        if (warmFrame === null) {
+                          warmFrame = requestAnimationFrame(warmBatch);
+                        }
+                      });
+                      onCleanup(() => {
+                        if (warmFrame !== null) {
+                          cancelAnimationFrame(warmFrame);
+                        }
+                      });
+                    }}
+                  >
+                    <Show
+                      when={drafts().some(
+                        (draft) => draft.kind === "new-thread",
                       )}
-                    </Show>
-                    <div class="review-history-scroll">
-                      <Show
-                        when={drafts().some(
-                          (draft) => draft.kind === "new-thread",
-                        )}
-                      >
-                        <section
-                          class="review-drafts"
-                          aria-label="Review drafts"
+                    >
+                      <section class="review-drafts" aria-label="Review drafts">
+                        <h3>Drafts</h3>
+                        <For
+                          each={drafts().filter(
+                            (draft) => draft.kind === "new-thread",
+                          )}
                         >
-                          <h3>Drafts</h3>
-                          <For
-                            each={drafts().filter(
-                              (draft) => draft.kind === "new-thread",
-                            )}
-                          >
-                            {(draft) => {
-                              assert(
-                                draft.kind === "new-thread",
-                                "History Drafts contains only new Threads.",
-                              );
-                              const location: ThreadCodeLocation = {
-                                kind: "range",
-                                file: draft.target.file,
-                                region: draft.target.region,
-                                side: draft.target.side,
-                                range: draft.target.range,
-                              };
-                              const continuable = () =>
-                                draft.profile_id === currentProfileId() &&
-                                draft.snapshot_id === props.snapshotId;
-                              const path = expect(
-                                location.side === "left"
-                                  ? location.file.left_path
-                                  : location.file.right_path,
-                                "A new Thread draft requires its selected-side File path.",
-                              );
-                              return (
-                                <article class="review-draft">
-                                  <div class="review-draft-heading">
-                                    <strong>New Thread</strong>
-                                    <span>Saved</span>
-                                  </div>
-                                  <p class="review-draft-location">
-                                    <strong>{path}</strong>
-                                    <span>
-                                      {location.side === "left" ? "old" : "new"}{" "}
-                                      · L{location.range.start_line}
-                                      {location.range.start_line ===
-                                      location.range.end_line
-                                        ? ""
-                                        : `–${location.range.end_line}`}
-                                    </span>
+                          {(draft) => {
+                            assert(
+                              draft.kind === "new-thread",
+                              "History Drafts contains only new Threads.",
+                            );
+                            const location: ThreadCodeLocation = {
+                              kind: "range",
+                              file: draft.target.file,
+                              region: draft.target.region,
+                              side: draft.target.side,
+                              range: draft.target.range,
+                            };
+                            const continuable = () =>
+                              draft.profile_id === currentProfileId() &&
+                              draft.snapshot_id === props.snapshotId;
+                            const path = expect(
+                              location.side === "left"
+                                ? location.file.left_path
+                                : location.file.right_path,
+                              "A new Thread draft requires its selected-side File path.",
+                            );
+                            return (
+                              <article class="review-draft">
+                                <div class="review-draft-heading">
+                                  <strong>New Thread</strong>
+                                  <span>Saved</span>
+                                </div>
+                                <p class="review-draft-location">
+                                  <strong>{path}</strong>
+                                  <span>
+                                    {location.side === "left" ? "old" : "new"} ·
+                                    L{location.range.start_line}
+                                    {location.range.start_line ===
+                                    location.range.end_line
+                                      ? ""
+                                      : `–${location.range.end_line}`}
+                                  </span>
+                                </p>
+                                <Show when={!continuable()}>
+                                  <p class="review-draft-unavailable">
+                                    {draft.profile_id !== currentProfileId()
+                                      ? "Log in as the draft's Profile to continue editing."
+                                      : "A new Thread draft remains bound to the review where it was written."}
                                   </p>
+                                </Show>
+                                <p class="review-draft-body">{draft.body}</p>
+                                <div class="review-actions">
+                                  <button
+                                    type="button"
+                                    class="review-action-primary"
+                                    disabled={
+                                      !continuable() ||
+                                      draftError() !== null ||
+                                      submittingDraftIds().has(draft.draft_id)
+                                    }
+                                    onClick={() => {
+                                      void (async () => {
+                                        if (!props.canViewThread(location)) {
+                                          throw new Error(
+                                            "Load the reviewed File before continuing this draft.",
+                                          );
+                                        }
+                                        const anchor =
+                                          await props.viewThread(location);
+                                        if (anchor === null) return;
+                                        setActiveThreadPanel(null);
+                                        const mount =
+                                          anchor.codeCell.parentElement;
+                                        assert(
+                                          mount !== null &&
+                                            (mount.classList.contains(
+                                              "diff-side",
+                                            ) ||
+                                              mount.classList.contains(
+                                                "inline-diff-row",
+                                              )),
+                                          "Continuing a new Thread requires its exact rendered row.",
+                                        );
+                                        openCommentInput(
+                                          draft,
+                                          true,
+                                          mount,
+                                          anchor,
+                                        );
+                                      })().catch((error: unknown) =>
+                                        toast.showError(
+                                          "Could not continue editing draft",
+                                          error,
+                                        ),
+                                      );
+                                    }}
+                                  >
+                                    Continue editing
+                                  </button>
                                   <Show when={!continuable()}>
-                                    <p class="review-draft-unavailable">
-                                      {draft.profile_id !== currentProfileId()
-                                        ? "Log in as the draft's Profile to continue editing."
-                                        : "A new Thread draft remains bound to the review where it was written."}
-                                    </p>
-                                  </Show>
-                                  <p class="review-draft-body">{draft.body}</p>
-                                  <div class="review-actions">
                                     <button
                                       type="button"
-                                      class="review-action-primary"
-                                      disabled={
-                                        !continuable() ||
-                                        draftError() !== null ||
-                                        submittingDraftIds().has(draft.draft_id)
-                                      }
                                       onClick={() => {
-                                        void (async () => {
-                                          if (!props.canViewThread(location)) {
-                                            throw new Error(
-                                              "Load the reviewed File before continuing this draft.",
-                                            );
-                                          }
-                                          const anchor =
-                                            await props.viewThread(location);
-                                          if (anchor === null) return;
-                                          setActiveThreadPanel(null);
-                                          const mount =
-                                            anchor.codeCell.parentElement;
-                                          assert(
-                                            mount !== null &&
-                                              (mount.classList.contains(
-                                                "diff-side",
-                                              ) ||
-                                                mount.classList.contains(
-                                                  "inline-diff-row",
-                                                )),
-                                            "Continuing a new Thread requires its exact rendered row.",
+                                        void navigator.clipboard
+                                          .writeText(draft.body)
+                                          .catch((error: unknown) =>
+                                            toast.showError(
+                                              "Could not copy draft",
+                                              error,
+                                            ),
                                           );
-                                          openCommentInput(
-                                            draft,
-                                            true,
-                                            mount,
-                                            anchor,
-                                          );
-                                        })().catch((error: unknown) =>
-                                          toast.showError(
-                                            "Could not continue editing draft",
-                                            error,
-                                          ),
-                                        );
                                       }}
                                     >
-                                      Continue editing
+                                      Copy Text
                                     </button>
-                                    <Show when={!continuable()}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          void navigator.clipboard
-                                            .writeText(draft.body)
-                                            .catch((error: unknown) =>
-                                              toast.showError(
-                                                "Could not copy draft",
-                                                error,
-                                              ),
-                                            );
-                                        }}
-                                      >
-                                        Copy Text
-                                      </button>
-                                    </Show>
-                                    <button
-                                      type="button"
-                                      class="review-action-danger"
-                                      disabled={
-                                        draftError() !== null ||
-                                        submittingDraftIds().has(draft.draft_id)
-                                      }
-                                      onClick={() =>
-                                        removeDraft(draft.draft_id)
-                                      }
-                                    >
-                                      Discard
-                                    </button>
-                                  </div>
-                                </article>
-                              );
-                            }}
-                          </For>
-                        </section>
-                      </Show>
-                      <For each={groupedThreads().open}>
-                        {(thread) => <HistoryThread thread={thread} />}
-                      </For>
-                      <Show when={groupedThreads().resolved.length > 0}>
-                        <section class="review-thread-group review-thread-group-resolved">
-                          <header class="review-thread-group-heading">
-                            <strong>Resolved</strong>
-                            <span>{groupedThreads().resolved.length}</span>
-                          </header>
-                          <For each={groupedThreads().resolved}>
-                            {(thread) => <HistoryThread thread={thread} />}
-                          </For>
-                        </section>
-                      </Show>
-                      <Show when={groupedThreads().deleted.length > 0}>
-                        <details class="review-thread-group review-thread-group-deleted">
-                          <summary class="review-thread-group-heading">
-                            <strong>Deleted</strong>
-                            <span>{groupedThreads().deleted.length}</span>
-                          </summary>
-                          <For each={groupedThreads().deleted}>
-                            {(thread) => <HistoryThread thread={thread} />}
-                          </For>
-                        </details>
-                      </Show>
-                    </div>
-                  </section>
-                </Show>
+                                  </Show>
+                                  <button
+                                    type="button"
+                                    class="review-action-danger"
+                                    disabled={
+                                      draftError() !== null ||
+                                      submittingDraftIds().has(draft.draft_id)
+                                    }
+                                    onClick={() => removeDraft(draft.draft_id)}
+                                  >
+                                    Discard
+                                  </button>
+                                </div>
+                              </article>
+                            );
+                          }}
+                        </For>
+                      </section>
+                    </Show>
+                    <For each={groupedThreads().open}>
+                      {(thread) => <HistoryThread thread={thread} />}
+                    </For>
+                    <Show when={groupedThreads().resolved.length > 0}>
+                      <section class="review-thread-group review-thread-group-resolved">
+                        <header class="review-thread-group-heading">
+                          <strong>Resolved</strong>
+                          <span>{groupedThreads().resolved.length}</span>
+                        </header>
+                        <For each={groupedThreads().resolved}>
+                          {(thread) => <HistoryThread thread={thread} />}
+                        </For>
+                      </section>
+                    </Show>
+                    <Show when={groupedThreads().deleted.length > 0}>
+                      <details class="review-thread-group review-thread-group-deleted">
+                        <summary class="review-thread-group-heading">
+                          <strong>Deleted</strong>
+                          <span>{groupedThreads().deleted.length}</span>
+                        </summary>
+                        <For each={groupedThreads().deleted}>
+                          {(thread) => <HistoryThread thread={thread} />}
+                        </For>
+                      </details>
+                    </Show>
+                  </div>
+                </section>
               </aside>
             </Portal>
           )}
@@ -2614,6 +2716,30 @@ function ThreadCard(props: {
       </>
     );
   }
+  /** Estimates the rendered height for pre-render History scroll geometry.
+   *
+   * History Threads render lazily under content-visibility; before first
+   * render the browser uses the intrinsic estimate, and a constant 120px is
+   * about five times short for an expanded discussion, which made History
+   * scrolling jump as real heights replaced estimates. The model prices the
+   * chrome, the code excerpt, and each Comment by its body length; `auto`
+   * sizing replaces it with the real height after first render.
+   */
+  function intrinsicHeightEstimate(): number {
+    if (!props.expanded) {
+      return 120;
+    }
+    // The History panel is ~320px wide, so bodies wrap at roughly 40
+    // characters per 18px line — length/2.5 approximates the wrapped text
+    // height; constants price the comment chrome and the code excerpt.
+    const commentPixels = props.thread.comments.reduce(
+      (total, comment) => total + 90 + (comment.body ?? "").length / 2.5,
+      0,
+    );
+    return Math.round(
+      140 + (props.thread.original_excerpt !== null ? 240 : 0) + commentPixels,
+    );
+  }
   return (
     <article
       class="review-thread"
@@ -2626,6 +2752,13 @@ function ThreadCard(props: {
         "review-thread-deleted": props.thread.state === "deleted",
         "review-thread-outdated": props.thread.outdated_reason !== null,
       }}
+      style={
+        props.navigation.kind === "history"
+          ? {
+              "contain-intrinsic-height": `auto ${intrinsicHeightEstimate()}px`,
+            }
+          : undefined
+      }
     >
       <header>
         <Show

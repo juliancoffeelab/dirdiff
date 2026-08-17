@@ -845,6 +845,54 @@ function ImperativeDiffLines(props: {
 const ROW_CHUNK_SIZE = 50;
 const ROW_CHUNK_THRESHOLD = 600;
 
+// One idle-paced warm-up pass owns these; see requestChunkWarming.
+let chunkWarmHandle: number | null = null;
+let warmingChunk: Element | null = null;
+
+/**
+ * Warms every mounted `.diff-row-chunk` once so its real height is known.
+ *
+ * A skipped chunk's height is the 1100px estimate until its first render,
+ * and every estimate-to-real replacement moves document geometry — felt as
+ * scroll-time pop-in and as navigation landing short. Warming renders one
+ * pending chunk per idle callback by holding `.diff-row-chunk-warming`
+ * (content-visibility: visible) on it for one rendered frame, which records
+ * the chunk's real height as the browser's last remembered size; the chunk
+ * then returns to `auto` and keeps skipping off-viewport work with exact
+ * geometry. `.diff-row-chunk-warmed` is the bookkeeping marker, so a chunk
+ * warms at most once and rebuilt chunks (re-render, fold expansion) warm
+ * again. Idle pacing defers warming behind load and scroll work; one chunk
+ * per pass keeps the forced layout within a frame budget.
+ */
+function warmPendingChunk(): void {
+  chunkWarmHandle = null;
+  // The previous chunk has had a rendered frame; returning it to `auto`
+  // keeps its now-remembered real height.
+  warmingChunk?.classList.remove("diff-row-chunk-warming");
+  warmingChunk = null;
+  const pending = document.querySelector(
+    ".diff-row-chunk:not(.diff-row-chunk-warmed)",
+  );
+  if (pending === null) {
+    return;
+  }
+  pending.classList.add("diff-row-chunk-warmed", "diff-row-chunk-warming");
+  warmingChunk = pending;
+  chunkWarmHandle = requestIdleCallback(warmPendingChunk);
+}
+
+/**
+ * Starts the chunk warm-up pass unless one is already scheduled.
+ *
+ * Called whenever a chunked render is built, so freshly mounted chunks are
+ * picked up; the pass ends itself once no unwarmed chunk remains mounted.
+ */
+function requestChunkWarming(): void {
+  if (chunkWarmHandle === null) {
+    chunkWarmHandle = requestIdleCallback(warmPendingChunk);
+  }
+}
+
 /**
  * Groups appended row elements into `.diff-row-chunk` containers.
  *
@@ -876,6 +924,9 @@ function createRowChunkAppender(
         chunk.className = "diff-row-chunk";
         fragment.append(chunk);
         chunkCount = 0;
+        // Chunks are born only here, so this is the one warming trigger;
+        // the idle pass finds them once the caller mounts the fragment.
+        requestChunkWarming();
       }
       // Count emitted elements, not append calls: an inline replace row
       // arrives as a two-element fragment, and the chunk's intrinsic-height

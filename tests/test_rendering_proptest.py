@@ -16,6 +16,7 @@ from dirdiff.engines import (
     InlineToken,
     InlineTokenStatus,
     TextDiffEngine,
+    text_diff_summary,
 )
 from dirdiff.rendering import (
     SyntaxClass,
@@ -221,8 +222,6 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
 
 def test_text_diff_summary_matches_render_diff_counts() -> None:
     """The token-free summary path must count exactly as render_diff does."""
-    from dirdiff.engines import text_diff_summary
-
     cases = [
         # whitespace-only change: equal-status paired row that still counts
         ("    indented\nsame\n", "  indented\nsame\n"),
