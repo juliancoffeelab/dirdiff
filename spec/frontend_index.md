@@ -30,7 +30,12 @@ frontend/src/
 │   ├── FileCard.tsx
 │   ├── NotebookFile.tsx
 │   ├── Profile.tsx
-│   ├── Review.tsx
+│   ├── review/
+│   │   ├── discussion.ts
+│   │   ├── drafts.tsx
+│   │   ├── History.tsx
+│   │   ├── Review.tsx
+│   │   └── threadViews.tsx
 │   ├── Tabs.tsx
 │   ├── linePins.ts
 │   └── navigation.tsx
@@ -81,7 +86,7 @@ Direct interfaces:
 - imports `QueryProvider` from `api/queryClient.tsx`;
 - imports Toast components from `comp/Toasts.tsx`;
 - imports `App` from `hud/App.tsx`;
-- imports the application-lifetime `ReviewDraftRoot` from `hud/Review.tsx`;
+- imports the application-lifetime `ReviewDraftRoot` from `hud/review/drafts.tsx`;
 - imports `styles.css`.
 
 The Vite server turns JavaScript module changes into a full page reload before
@@ -711,29 +716,33 @@ Inputs:
 
 `NotebookFile` renders the notebook summary and changed cells in backend order. Each source region delegates its text rows to `DiffGrid` with a stable notebook region key.
 
-### `hud/Review.tsx`
+The review subsystem lives in the `hud/review/` directory: `Review.tsx` is
+the Snapshot review boundary, `drafts.tsx` is the application-lifetime draft
+document, and `threadViews.tsx` is the shared discussion presentation.
+
+### `hud/review/Review.tsx`
 
 Exports:
 
 ```ts
-ReviewDraftRoot
 ReviewProvider
 useReview
-newReviewId
 ReviewBinding
 ReviewMarkerState
 ReviewTextGridBinding
 ReviewCodeAnchor
+ActiveCommentInput
+ActiveThreadPanel
 ```
 
-`ReviewDraftRoot` owns the application-lifetime strict persisted draft document
-and the set of drafts whose single HTTP action is in flight.
 `ReviewProvider` observes the complete canonical Thread set for one exact
 Snapshot, receives the selected `StoredProfile` and ChangeSet-owned History
-visibility, performs explicit Thread and Comment actions, owns active Comment
-input and inline-Thread presentation, and renders History. HTTP pagination is a
-private transport detail of the canonical Snapshot query; every page uses the
-append-only activity boundary returned by its first page.
+visibility, owns the anchored Comment input and inline-Thread presentation
+with their discussion instance, computes split-History placement geometry,
+and mounts `ReviewHistory` with its host facts and the anchored-UI behaviors
+only the provider can perform. HTTP pagination is a private transport detail
+of the canonical Snapshot query; every page uses the append-only activity
+boundary returned by its first page.
 
 `ReviewBinding` is the narrow renderer interface. FileCard reports mounted File
 headers used by History placement and File-start targets. DiffGrid reads compact
@@ -743,6 +752,80 @@ actions. Neither renderer performs review HTTP operations or stores Thread data.
 `ReviewMarkerState` contains only the controls actually represented on a line.
 `ReviewTextGridBinding` identifies one immutable text grid.
 `ReviewCodeAnchor` identifies one connected code cell and its selected marker.
+
+### `hud/review/drafts.tsx`
+
+Exports:
+
+```ts
+ReviewDraftRoot
+useReviewDrafts
+newReviewId
+ReviewDraft
+NewThreadDraft
+ReviewDraftContextValue
+```
+
+`ReviewDraftRoot` owns the application-lifetime strict persisted draft document
+and the set of drafts whose single HTTP action is in flight. It is mounted once
+by `main.tsx` and owns the localStorage representation; consumers read and
+write drafts only through `useReviewDrafts`. The module knows no Snapshots,
+queries, mutations, markers, or review presentation.
+
+### `hud/review/discussion.ts`
+
+Exports:
+
+```ts
+createThreadDiscussion
+ThreadDiscussion
+ThreadDiscussionArgs
+```
+
+`createThreadDiscussion` builds one Snapshot-scoped discussion instance over
+the three shared authorities: the persisted draft document, the canonical
+Snapshot query cache, and the TanStack mutation cache. It owns its own
+mutation and query observers (the cache deduplicates the query against every
+other observer of the same Snapshot), the cancel-then-publish protocol that
+keeps an in-flight refetch from reverting a committed write, and pending
+probes read from the shared mutation cache, so concurrent instances see one
+another's in-flight work. The single outward call is the required
+`onSubmitted` construction behavior, batched with submission settlement.
+The module owns no presentation, anchored-UI state, or Thread data.
+
+### `hud/review/History.tsx`
+
+Exports:
+
+```ts
+ReviewHistory
+```
+
+History is an independent consumer of the shared authorities: it observes the
+canonical Snapshot review query itself (deduplicated by the cache), reads the
+application draft document, and creates its own Thread discussion instance,
+so no action callbacks cross its boundary. Its props are host facts —
+Snapshot identity, selected Profile, view and visibility, mount targets,
+split placement — plus the anchored-UI behaviors only the review provider
+can perform: viewing a Thread or continuing a draft at its rendered line,
+closing a Comment input mounted in a History card, discarding a new-Thread
+draft, and clearing the draft document. It owns per-Thread expansion, the
+keep-mounted reading position, and idle warming.
+
+### `hud/review/threadViews.tsx`
+
+Exports:
+
+```ts
+CommentInput
+InlineThreadPanel
+ThreadCard
+```
+
+Pure discussion presentation: every component receives all data and operations
+through props, consumes no context, and originates no query, mutation, draft
+write, or navigation. `ThreadCard` is the shared discussion card rendered by
+both the anchored panel and History.
 
 The complete review persistence, marker, History, Comment-input, navigation,
 error, and browser/agent HTTP behavior is specified once in
@@ -854,7 +937,7 @@ type LinePins = {
 | Caller | Callee | Interface |
 |---|---|---|
 | `main.tsx` | `App.tsx` | `App` |
-| `main.tsx` | `Review.tsx` | application-lifetime persisted draft boundary |
+| `main.tsx` | `review/drafts.tsx` | application-lifetime persisted draft boundary |
 | `App.tsx` | `AppHeader.tsx` | workspace values and explicit selection callbacks |
 | `App.tsx` | `Tabs.tsx` | shared workspace values and workflow callbacks |
 | `Tabs.tsx` | `changeSet/ChangeSet.tsx` | complete selected `DiffParams`, separate engine, and shared display state |
@@ -866,10 +949,13 @@ type LinePins = {
 | `changeSet/ChangeSet.tsx` | `FileCard.tsx` | one manifest-position file state and explicit file actions |
 | `changeSet/*` | `navigation.tsx` | mounted ChangeSet root and navigation operations |
 | `changeSet/ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |
-| `changeSet/ChangeSet.tsx` | `Review.tsx` | one exact Snapshot review boundary and explicit File jump |
-| `Review.tsx` | `api.ts` | bulk Snapshot review query and Profile-authored Thread and Comment mutations |
-| `FileCard.tsx` | `Review.tsx` | File marker state and File Comment-input activation |
-| `diffGrid/DiffGrid.tsx` | `Review.tsx` | line marker state and text Comment-input activation |
+| `changeSet/ChangeSet.tsx` | `review/Review.tsx` | one exact Snapshot review boundary and explicit File jump |
+| `review/Review.tsx` | `review/History.tsx` | host facts, split placement, and the provider's anchored-UI behaviors |
+| `review/Review.tsx` | `review/discussion.ts` | one Snapshot-scoped discussion instance and its submission reaction |
+| `review/History.tsx` | `review/discussion.ts` | History's own Snapshot-scoped discussion instance |
+| `review/discussion.ts` | `api.ts` | canonical Snapshot review query and Profile-authored Thread and Comment mutations |
+| `FileCard.tsx` | `review/Review.tsx` | File marker state and File Comment-input activation |
+| `diffGrid/DiffGrid.tsx` | `review/Review.tsx` | line marker state and text Comment-input activation |
 | `FileCard.tsx` | `diffGrid/DiffGrid.tsx` | complete text-file rendering inputs |
 | `FileCard.tsx` | `NotebookFile.tsx` | complete notebook rendering inputs |
 | `NotebookFile.tsx` | `diffGrid/DiffGrid.tsx` | one notebook source region |

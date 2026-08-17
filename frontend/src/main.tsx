@@ -12,7 +12,7 @@ import { render } from "solid-js/web";
 import { QueryProvider } from "./api/queryClient";
 import { ApplicationErrorPanel, ToastProvider, useToasts } from "./comp/Toasts";
 import { App } from "./hud/App";
-import { ReviewDraftRoot } from "./hud/Review";
+import { ReviewDraftRoot } from "./hud/review/drafts";
 import "./styles.css";
 
 /**

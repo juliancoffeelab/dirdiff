@@ -44,7 +44,7 @@ import type {
 import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import { NotebookFile } from "./NotebookFile";
 import type { PseudoHunkIdentity, RealHunkIdentity } from "./navigation";
-import { useReview } from "./Review";
+import { useReview } from "./review/Review";
 
 /**
  * Classifies one hydrated text file by the cost of fully rendering its rows.

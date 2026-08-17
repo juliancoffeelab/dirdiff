@@ -67,7 +67,7 @@ import {
 import { linePins } from "../linePins";
 import { useNavigation, writeInitialHunkSelection } from "../navigation";
 import type { StoredProfile } from "../Profile";
-import { ReviewProvider, type ReviewCodeAnchor } from "../Review";
+import { ReviewProvider, type ReviewCodeAnchor } from "../review/Review";
 import {
   calculateDirectoryExpansion,
   fileExpanded,

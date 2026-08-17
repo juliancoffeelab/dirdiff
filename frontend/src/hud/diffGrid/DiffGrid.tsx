@@ -32,7 +32,7 @@ import {
   useReview,
   type ReviewMarkerKind,
   type ReviewTextGridBinding,
-} from "../Review";
+} from "../review/Review";
 import {
   renderCombinedInlineRowsDom,
   renderInlineRowsDom,
