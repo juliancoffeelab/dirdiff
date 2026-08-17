@@ -35,6 +35,7 @@ import {
 } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import { DiffGrid } from "./diffGrid/DiffGrid";
+import { finishForcedChunkLayout, forceChunkLayout } from "./diffGrid/rowDom";
 import type {
   FileState,
   FullFileState,
@@ -652,6 +653,12 @@ function FullFileRenderer(
           );
         }
       } else {
+        // An off-screen body with unwarmed chunks measures the intrinsic
+        // estimate, not its real height; pinning that onto the virtual body
+        // moves the page under the reader. Force real layout first — the
+        // rich body unmounts with this transition, so the visible chunks
+        // need no restoration.
+        forceChunkLayout(richBody);
         const measuredHeight = richBody.getBoundingClientRect().height;
         if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
           throw new Error(
@@ -689,6 +696,22 @@ function FullFileRenderer(
       const richBody = card.querySelector<HTMLElement>(".rich-file-body");
       if (richBody === null) {
         throw new Error("FullFile did not mount its rich body.");
+      }
+      // Enrichment is complete only when its geometry is real: fresh chunks
+      // still carry the intrinsic estimate, and the callers (navigation's
+      // pre-enrichment and centering) read heights immediately. Lay the
+      // chunks out now and give the browser one rendered frame to record
+      // their remembered sizes before returning them to skippable
+      // containment.
+      const freshChunks = forceChunkLayout(richBody);
+      if (freshChunks.length > 0) {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        });
+        if (!card.isConnected) {
+          return;
+        }
+        finishForcedChunkLayout(freshChunks);
       }
     }
   }

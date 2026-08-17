@@ -134,6 +134,49 @@ function requestChunkWarming(): void {
 }
 
 /**
+ * Forces real layout for every unwarmed chunk inside one container, now.
+ *
+ * Off-screen geometry reads (navigation enrichment, rich-to-virtual height
+ * capture) must see true heights, not the fixed intrinsic estimate the idle
+ * pass has not yet replaced. Every unwarmed chunk becomes visible and one
+ * synchronous layout makes the container's height real. The caller decides
+ * the chunks' fate: pass them to `finishForcedChunkLayout` after a rendered
+ * frame to keep the body mounted with remembered sizes, or discard them
+ * when the body unmounts immediately. Returns the affected chunks.
+ */
+export function forceChunkLayout(
+  container: HTMLElement,
+): readonly HTMLElement[] {
+  const pending = Array.from(
+    container.querySelectorAll<HTMLElement>(
+      ".diff-row-chunk:not(.diff-row-chunk-warmed)",
+    ),
+  );
+  for (const chunk of pending) {
+    chunk.classList.add("diff-row-chunk-warming");
+  }
+  if (pending.length > 0) {
+    // One forced reflow lays the now-visible chunks out synchronously.
+    void container.offsetHeight;
+  }
+  return pending;
+}
+
+/**
+ * Returns force-laid-out chunks to skippable containment as warmed chunks.
+ *
+ * The caller must have kept the chunks visible across one rendered frame so
+ * the browser recorded their real heights as the remembered sizes that
+ * `contain-intrinsic-height: auto` serves afterwards.
+ */
+export function finishForcedChunkLayout(chunks: readonly HTMLElement[]): void {
+  for (const chunk of chunks) {
+    chunk.classList.add("diff-row-chunk-warmed");
+    chunk.classList.remove("diff-row-chunk-warming");
+  }
+}
+
+/**
  * Groups appended row elements into `.diff-row-chunk` containers.
  *
  * With `chunked` false every append lands directly on the fragment,

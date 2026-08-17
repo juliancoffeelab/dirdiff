@@ -682,6 +682,8 @@ Exports:
 renderSplitRowsDom
 renderInlineRowsDom
 renderCombinedInlineRowsDom
+forceChunkLayout
+finishForcedChunkLayout
 Side
 ```
 
@@ -690,8 +692,12 @@ backend rows and fold state; every function is a pure DOM constructor with no
 Solid reactivity, component state, or queries. It owns row chunking: large
 renders stream rows through fixed-size content-visibility containers, and one
 idle-paced module-level warm-up pass renders each new chunk once so the
-browser records its real height. It must not listen to events, own review
-markers or line pins, decide view modes, or fetch anything.
+browser records its real height, and `forceChunkLayout` /
+`finishForcedChunkLayout` let off-screen geometry reads (navigation
+enrichment, rich-to-virtual height capture) lay unwarmed chunks out
+immediately instead of measuring the intrinsic estimate. It must not listen
+to events, own review markers or line pins, decide view modes, or fetch
+anything.
 
 ### `hud/NotebookFile.tsx`
 

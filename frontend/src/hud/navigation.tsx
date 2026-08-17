@@ -843,9 +843,11 @@ export function NavigationProvider(
       const viewportTop = centeredViewportTop(target);
       // Test the viewport that the final scroll will occupy without moving the
       // page. Each enrichment changes geometry, so the next pass recalculates it.
-      // `waitToEnrich()` completes through Solid's mount microtask only: browser
-      // input and IntersectionObserver callbacks cannot interleave before the
-      // single final scroll.
+      // `waitToEnrich()` spans a rendered frame when it warms fresh chunks, so
+      // observer-driven render-mode flips may interleave; that is safe because
+      // enrichment completes with real geometry and every mode transition
+      // measures real heights, so each pass recalculates against settled
+      // layout and the loop's one-enrichment-per-card set still terminates it.
       let intersectingVirtualCard: HTMLElement | undefined;
       for (const candidate of Array.from(
         root.querySelectorAll<HTMLElement>(
@@ -1099,7 +1101,7 @@ export function NavigationProvider(
   /**
    * Selects and scrolls to the next participating hunk in current DOM order.
    *
-   * This is one of exactly three operations permitted to call `selectHunk`.
+   * This is one of exactly four operations permitted to call `selectHunk`.
    */
   async function nextHunk(): Promise<void> {
     const root = props.root();
@@ -1114,7 +1116,7 @@ export function NavigationProvider(
   /**
    * Selects and scrolls to the previous participating hunk in current DOM order.
    *
-   * This is one of exactly three operations permitted to call `selectHunk`.
+   * This is one of exactly four operations permitted to call `selectHunk`.
    */
   async function prevHunk(): Promise<void> {
     const root = props.root();

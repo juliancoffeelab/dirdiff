@@ -3108,10 +3108,11 @@ h1 {
   contain-intrinsic-height: auto 1100px;
 }
 
-/* Held for one rendered frame by the warm-up pass (see warmPendingChunk in
-   DiffGrid.tsx): the forced render records the chunk's real height as the
-   last remembered size, so the `auto` keyword above serves exact geometry
-   ever after and the 1100px estimate stops mattering. */
+/* Held for one rendered frame by the warm-up pass (see warmPendingChunk and
+   forceChunkLayout in diffGrid/rowDom.ts): the forced render records the
+   chunk's real height as the last remembered size, so the `auto` keyword
+   above serves exact geometry ever after and the 1100px estimate stops
+   mattering. */
 .diff-row-chunk.diff-row-chunk-warming {
   content-visibility: visible;
 }

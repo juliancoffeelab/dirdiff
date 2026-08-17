@@ -84,6 +84,10 @@ element when the selected coordinates cannot be resolved.
 If the selected target is outside the main viewport, the operation first
 returns to that same target and stops. A virtual selected FullFile is enriched,
 the exact target is resolved again after layout changes, and then centered.
+Enrichment completes only with real geometry: fresh chunks are laid out and
+warmed before the operation reads heights, and a rich-to-virtual transition
+measures real chunk layout before pinning its reserved height, so completed
+navigation cannot be displaced by later render-mode transitions.
 Selection does not advance.
 
 If the selected target is already on screen:
