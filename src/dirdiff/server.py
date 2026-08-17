@@ -1005,6 +1005,12 @@ class ErrorResponse(ApiModel):
 def branch_selection_request_to_selection(
     request: BranchSelection,
 ) -> BranchSelection:
+    """Validate one client-sent branch selection into its canonical value.
+
+    Whitespace-padded names are trimmed; an empty branch, or an empty remote
+    on a remote selection, is a request error. The result carries exactly the
+    fields its source variant defines.
+    """
     branch = request["branch"].strip()
     if branch == "":
         raise DirdiffError("branch is required.")
@@ -1023,6 +1029,11 @@ def branch_selection_request_to_selection(
 def repo_main_branch_record_to_selection(
     record: RepoMainBranchRecord,
 ) -> BranchSelection:
+    """Reshape one stored main-branch row into a canonical branch selection.
+
+    The database row is trusted except for its variant invariant: a remote
+    row must carry its remote. An unknown source value is a contract failure.
+    """
     if record.source == "local":
         return {"source": "local", "branch": record.branch}
     if record.source == "remote":

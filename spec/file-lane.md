@@ -6,10 +6,14 @@ The file lane is the data lifecycle of one mounted `ChangeSetSnapshot`. It start
 with one manifest and its opaque `snapshot_id`, produces the canonical file
 states consumed by `FileCard`, and ends when that snapshot is disposed.
 
-The lane lives in `ChangeSet.tsx`. Backend types, query keys, and HTTP operations
-come from `api/api.ts`. File presentation begins only after the lane has produced
-a `Husk`, `Full`, or `Lazy` state; that lifecycle is described in
-[`file-meat.md`](file-meat.md).
+The lane lives in `fileLane.ts` as `createFileLane`, born once per immutable
+snapshot by `ChangeSetSnapshot` in `ChangeSet.tsx` with plain data — engine,
+`snapshot_id`, the validated manifest-order file list, and its canonical
+response names — plus two host behaviors: an optional line-target restoration
+gate and the explicit-load notification behind the host's expansion policy.
+Backend types, query keys, and HTTP operations come from `api/api.ts`. File
+presentation begins only after the lane has produced a `Husk`, `Full`, or
+`Lazy` state; that lifecycle is described in [`file-meat.md`](file-meat.md).
 
 ## Snapshot creation
 
@@ -148,8 +152,10 @@ The timeout policy belongs to the attempt:
 The timeout policy is not part of file identity, query identity, or backend
 parameters.
 
-When an explicit load succeeds, the resulting `FullFile` is expanded unless the
-user explicitly collapsed it while the request was active.
+When an explicit load succeeds, the lane notifies the host before admission;
+the host expands the resulting `FullFile` unless the user explicitly collapsed
+it while the request was active. Expansion stays host-owned — the lane never
+touches it.
 
 ## Line-pin priority
 
@@ -158,6 +164,9 @@ resolved to one exact manifest index.
 
 A pending line pin changes scheduling without creating another loader:
 
+- the host resolves the URL pin to one manifest index and hands the lane only
+  that index and a restoration gate; URL identity, parsing, and toasts stay
+  with the host;
 - the ordinary sequence loads every required non-lazy file up to the target in
   manifest order;
 - the target itself is loaded even when the manifest marked it lazy;

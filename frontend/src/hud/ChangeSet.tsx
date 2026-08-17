@@ -1,17 +1,19 @@
 /**
- * Implements one selected ChangeSet's backend observation, file lane, and presentation.
+ * Implements one selected ChangeSet's backend observation and presentation.
  *
  * The module exports ChangeSet. The lightweight outer ChangeSet stores file
  * expansion, local Help state, and local History visibility while receiving
  * workspace-wide FileTree and DebugHud visibility. Each mounted ChangeSetShell
  * stores its HunkDisplay signal.
- * Active ChangeSetContent observes the manifest, while ChangeSetSnapshot stores
- * the lazy-info, file, and profile-preference observers together with file-lane state.
- * Together they render Navigation, hotkeys, HUD, Portals, title, FileTree, and
- * FileCards. They must not copy backend results into Solid state, start concurrent
- * file-diff requests, store workspace or Tab selections, or follow user scrolling.
- * Line-pin URL identity and decoration remain in LinePins; the existing file lane
- * accepts only its semantic target and reports when that target has layout.
+ * Active ChangeSetContent observes the manifest, while ChangeSetSnapshot owns
+ * the profile-preference observer, resolves the URL line pin, and creates its
+ * one file lane (`fileLane.ts`), which owns the lazy-info and file queries and
+ * every canonical file state. Together they render Navigation, hotkeys, HUD,
+ * Portals, title, FileTree, and FileCards. They must not copy backend results
+ * into Solid state, start file-diff requests outside the lane, store workspace
+ * or Tab selections, or follow user scrolling.
+ * Line-pin URL identity and decoration remain in LinePins; the file lane
+ * accepts only its resolved target index and restoration gate.
  */
 import {
   For,
@@ -22,7 +24,6 @@ import {
   createSignal,
   onCleanup,
   onMount,
-  requestCallback,
   type Accessor,
   type JSX,
 } from "solid-js";
@@ -34,16 +35,11 @@ import {
   createQuery,
   useQueryClient,
 } from "@tanstack/solid-query";
-import { isCancelledError, type QueryKey } from "@tanstack/query-core";
 import { CircleAlert, Clock3, LoaderCircle } from "lucide-solid";
 import {
   api,
   type DiffEngine,
   type DiffParams,
-  type FileDiff,
-  type FileDiffTimeout,
-  isHeavyEngine,
-  type LazyInfoFile,
   type Manifest,
   type ManifestDirectory,
   type ManifestFile,
@@ -62,36 +58,17 @@ import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets } from "./AppHeader";
 import { FileCard, type HunkPosition } from "./FileCard";
 import {
-  linePins,
-  type LinePinRestoration,
-  type LinePinTarget,
-} from "./linePins";
+  createFileLane,
+  fileDisplayName,
+  manifestEntryKey,
+  type FileLaneActivity,
+  type FileLaneLineTarget,
+  type FileState,
+} from "./fileLane";
+import { linePins } from "./linePins";
 import { NavigationProvider, useNavigation } from "./navigation";
 import type { StoredProfile } from "./Profile";
 import { ReviewProvider, type ReviewCodeAnchor } from "./Review";
-
-const SLOW_FILE_THRESHOLD_MS = 8_000;
-// Automatic loading overlaps this many upcoming file fetches with the active
-// one, so backend latency stops serializing with render admission. Admission
-// itself stays strictly sequential in manifest order; the constant bounds
-// concurrent requests and undelivered payloads alike. It applies only to
-// engines measured to tolerate concurrent backend renders (dirdiff 23% and
-// git 14% faster total load at this width); heavy engines never prefetch
-// (see `isHeavyEngine`).
-const AUTOMATIC_PREFETCH_WIDTH = 2;
-
-/**
- * Yields one async continuation through Solid's cooperative scheduler.
- *
- * Callers await the returned Promise to end the current rendering loop turn and
- * let the main thread process browser work before continuing. The scheduled
- * callback has no side effects and requires no cancellation lifecycle.
- */
-function schedulerYield(): Promise<void> {
-  return new Promise((resolve) => {
-    requestCallback(resolve);
-  });
-}
 
 /**
  * Defines every complete input needed to identify and activate one ChangeSet.
@@ -125,20 +102,6 @@ type ChangeSetProps = {
  */
 type ChangeSetState = {
   fileExpansion: Record<string, boolean | undefined>;
-};
-
-/**
- * Describes the active work presented by the single file lane.
- *
- * `kind` distinguishes ordinary manifest progress, an explicit LazyFile
- * selection, and the file currently satisfying a line target. Slow is a
- * one-shot threshold flag rather than elapsed-time state.
- */
-type FileLaneActivity = {
-  kind: "sequence" | "selected" | "line-target";
-  fileIndex: number;
-  path: string;
-  slow: boolean;
 };
 
 /**
@@ -1223,10 +1186,9 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
 /**
  * Renders the ChangeSet hotkey reference as the established modal overlay.
  *
- * Callers provide explicit visibility and an update callback. Available hunk and
- * Debug operations are enabled, unavailable operations are disabled, and removed
- * file-wide expansion operations are absent. Backdrop and Close actions report
- * `false` through that callback.
+ * Callers provide explicit visibility and an update callback. Every listed
+ * hotkey is currently available; removed file-wide expansion operations are
+ * absent. Backdrop and Close actions report `false` through that callback.
  */
 function HelpModal(props: {
   open: boolean;
@@ -1250,51 +1212,19 @@ function HelpModal(props: {
             </button>
           </div>
           <HotkeyHelpSection title="Navigation">
-            <HotkeyHelpRow
-              keys="n"
-              label="Go to the next hunk"
-              disabled={false}
-            />
-            <HotkeyHelpRow
-              keys="N"
-              label="Go to the previous hunk"
-              disabled={false}
-            />
-            <HotkeyHelpRow keys="p" label="Go to the top" disabled={false} />
+            <HotkeyHelpRow keys="n" label="Go to the next hunk" />
+            <HotkeyHelpRow keys="N" label="Go to the previous hunk" />
+            <HotkeyHelpRow keys="p" label="Go to the top" />
           </HotkeyHelpSection>
           <HotkeyHelpSection title="UI">
-            <HotkeyHelpRow
-              keys="t"
-              label="Toggle the file tree"
-              disabled={false}
-            />
-            <HotkeyHelpRow
-              keys="i"
-              label="Toggle inline diff view"
-              disabled={false}
-            />
-            <HotkeyHelpRow
-              keys="m"
-              label="Toggle review History"
-              disabled={false}
-            />
+            <HotkeyHelpRow keys="t" label="Toggle the file tree" />
+            <HotkeyHelpRow keys="i" label="Toggle inline diff view" />
+            <HotkeyHelpRow keys="m" label="Toggle review History" />
           </HotkeyHelpSection>
           <HotkeyHelpSection title="Misc">
-            <HotkeyHelpRow
-              keys="r"
-              label="Reload the current diff"
-              disabled={false}
-            />
-            <HotkeyHelpRow
-              keys="d"
-              label="Toggle developer metrics"
-              disabled={false}
-            />
-            <HotkeyHelpRow
-              keys="h"
-              label="Toggle this help panel"
-              disabled={false}
-            />
+            <HotkeyHelpRow keys="r" label="Reload the current diff" />
+            <HotkeyHelpRow keys="d" label="Toggle developer metrics" />
+            <HotkeyHelpRow keys="h" label="Toggle this help panel" />
           </HotkeyHelpSection>
         </section>
       </div>
@@ -1321,22 +1251,14 @@ function HotkeyHelpSection(props: {
 }
 
 /**
- * Presents one hotkey and label with explicit availability.
+ * Presents one hotkey and its label.
  *
- * Disabled rows remain visible, gray, and semantically disabled. The row is
- * descriptive rather than interactive and never invokes the represented action.
+ * The row is descriptive rather than interactive and never invokes the
+ * represented action.
  */
-function HotkeyHelpRow(props: {
-  keys: string;
-  label: string;
-  disabled: boolean;
-}): JSX.Element {
+function HotkeyHelpRow(props: { keys: string; label: string }): JSX.Element {
   return (
-    <div
-      class="help-hud-row"
-      classList={{ "is-disabled": props.disabled }}
-      aria-disabled={props.disabled}
-    >
+    <div class="help-hud-row">
       <kbd>{props.keys}</kbd>
       <span>{props.label}</span>
     </div>
@@ -1576,15 +1498,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   const queryClient = useQueryClient();
   const toast = useToasts();
   const pins = linePins();
-  const [processed, setProcessed] = createSignal(0);
-  const [laneActivity, setLaneActivity] = createSignal<FileLaneActivity | null>(
-    null,
-  );
-  const [laneError, setLaneError] = createSignal<Error | null>(null);
   let changeSetRoot!: HTMLDivElement;
-  let enqueueSelectedFile:
-    | ((fileIndex: number, timeout: FileDiffTimeout) => void)
-    | null = null;
   const orderedFiles = manifestFilesInOrder(props.manifest.tree);
   const fileIndexByKey = new Map<string, number>();
   for (const [fileIndex, file] of orderedFiles.entries()) {
@@ -1597,28 +1511,22 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
     fileIndexByKey.set(key, fileIndex);
   }
 
-  /**
-   * Derives the exact FileDiff `display_name` available from a thin manifest handle.
-   *
-   * Repository snapshots use the backend's path-pair label. Preset backends
-   * deliberately name their old/new fixture pair by its new-side path. The result
-   * is used only to assert file responses and resolve canonical line-pin identity.
-   */
-  function canonicalFileResponseName(entry: ManifestFile["entry"]): string {
-    if (props.params.tab !== "preset") {
-      return fileDisplayName(entry);
-    }
-    return expect(
-      entry.right_path,
-      "Preset manifest file requires its canonical new-side path.",
-    );
-  }
+  // The exact FileDiff `display_name` per manifest position: repository
+  // snapshots use the backend's path-pair label, while preset backends
+  // deliberately name their old/new fixture pair by its new-side path. The
+  // lane asserts file responses against these names, and line-pin identity
+  // resolves through them.
+  const canonicalNames = orderedFiles.map((file) =>
+    props.params.tab !== "preset"
+      ? fileDisplayName(file.entry)
+      : expect(
+          file.entry.right_path,
+          "Preset manifest file requires its canonical new-side path.",
+        ),
+  );
 
   const parsedLinePin = pins.parseUrl();
-  let initialLineTarget: {
-    target: LinePinTarget;
-    fileIndex: number;
-  } | null = null;
+  let lineTarget: FileLaneLineTarget | null = null;
   if (parsedLinePin.state === "invalid") {
     toast.showTransient(
       "Line pin unavailable",
@@ -1626,10 +1534,8 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
       2_000,
     );
   } else if (parsedLinePin.state === "valid") {
-    const matches = orderedFiles.flatMap((file, fileIndex) =>
-      canonicalFileResponseName(file.entry) === parsedLinePin.target.file
-        ? [{ fileIndex }]
-        : [],
+    const matches = canonicalNames.flatMap((name, fileIndex) =>
+      name === parsedLinePin.target.file ? [fileIndex] : [],
     );
     if (matches.length > 1) {
       throw new Error(
@@ -1648,66 +1554,35 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
         throw new Error("Missing line-pin file changed its current target.");
       }
     } else {
-      initialLineTarget = {
-        target: parsedLinePin.target,
-        fileIndex: match.fileIndex,
+      lineTarget = {
+        fileIndex: match,
+        restore: (signal) => pins.restore(parsedLinePin.target, match, signal),
       };
     }
   }
 
-  const automaticTotal = createMemo(
-    () => orderedFiles.filter((file) => file.entry.lazy === null).length,
-  );
-
-  // The manifest is immutable for this component, so this setup-time branch
-  // creates exactly one lazy-info observer when the entity exists and none when
-  // it does not. It is not a reactive zero-or-one observer collection.
-  const lazyInfo = manifestContainsLazyFiles(props.manifest.tree)
-    ? createQuery(() => api.changeSet.lazyInfo(props.manifest.snapshot_id))
-    : null;
-
-  // One replaceable view signal per manifest position. A Solid store write
-  // merges object fields, which would let a stale `error` field survive a
-  // later success and falsify the FileQueryView union, so each view is
-  // swapped wholesale through its own signal instead.
-  const fileViewSignals = orderedFiles.map(() =>
-    createSignal<FileQueryView>(
-      { phase: "idle" },
-      {
-        // Signals lack the store's write deduplication, and every redundant
-        // notification costs a full-manifest fileStates pass, so writes that
-        // do not change the observable view must not notify (the lane joins
-        // in-flight prefetches and replays recorded failures, both of which
-        // re-write the value already present).
-        equals: (a, b) =>
-          a.phase === b.phase &&
-          (a.phase !== "error" || (b.phase === "error" && a.error === b.error)),
-      },
-    ),
-  );
-
-  /** Reads one exact manifest index's view; unknown indexes throw. */
-  function fileView(fileIndex: number): FileQueryView {
-    return expect(
-      fileViewSignals[fileIndex],
-      `ChangeSet is missing the file view for index ${fileIndex}.`,
-    )[0]();
-  }
-
-  /** Replaces one exact manifest index's view wholesale; unknown indexes throw. */
-  function setFileView(fileIndex: number, view: FileQueryView): void {
-    expect(
-      fileViewSignals[fileIndex],
-      `ChangeSet is missing the file view for index ${fileIndex}.`,
-    )[1](view);
-  }
-
-  // Immutable settled payloads, indexed like the view signals. Every write
-  // happens before the matching view flips to "success"; the prefetch settle
-  // and the lane's join of the same in-flight fetch may both record the
-  // identical payload. The canonical query is garbage-collected on settle
-  // (gcTime 0, no observers), so this array is the sole surviving reference.
-  const fileDiffs: (FileDiff | undefined)[] = orderedFiles.map(() => undefined);
+  const lane = createFileLane({
+    engine: props.engine,
+    snapshotId: props.manifest.snapshot_id,
+    files: orderedFiles,
+    canonicalNames,
+    queryClient,
+    lineTarget,
+    onExplicitLoad: (fileIndex) => {
+      const file = expect(
+        orderedFiles[fileIndex],
+        "Explicit load reported an invalid manifest index.",
+      );
+      const key = manifestEntryKey(file.entry);
+      // The query result has replaced LazyFile with FullFile. Expand it
+      // now, but never override a collapse performed while it loaded.
+      if (props.state.fileExpansion[key] !== false) {
+        props.setState("fileExpansion", key, true);
+      }
+    },
+  });
+  props.onFileSequenceChange(lane.stop);
+  onCleanup(() => props.onFileSequenceChange(null));
 
   const preferenceQueries = createQueries<
     Array<ReturnType<typeof api.profile.preferences>>
@@ -1723,144 +1598,9 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
     return query.data.aggressive_folds;
   });
 
-  const lazyInfoByKey = createMemo(() => {
-    const result = new Map<string, LazyInfoFile>();
-    const query = lazyInfo;
-    if (query === null || query.data === undefined) {
-      return result;
-    }
-    const expected = new Map<string, ManifestFile>();
-    for (const file of orderedFiles) {
-      if (file.entry.lazy === null) {
-        continue;
-      }
-      const key = manifestEntryKey(file.entry);
-      if (expected.has(key)) {
-        throw new Error(
-          `Manifest returned duplicate lazy file ${fileDisplayName(file.entry)}.`,
-        );
-      }
-      expected.set(key, file);
-    }
-    for (const info of query.data.files) {
-      const key = manifestEntryKey(info);
-      if (!expected.has(key)) {
-        throw new Error(
-          `Lazy info returned unexpected file ${fileDisplayName(info)}.`,
-        );
-      }
-      if (result.has(key)) {
-        throw new Error(
-          `Lazy info returned duplicate file ${fileDisplayName(info)}.`,
-        );
-      }
-      if (info.lazy === null) {
-        throw new Error(
-          `Lazy info omitted the reason for ${fileDisplayName(info)}.`,
-        );
-      }
-      result.set(key, info);
-    }
-    for (const [key, file] of expected) {
-      if (!result.has(key)) {
-        throw new Error(
-          `Lazy info omitted manifest file ${fileDisplayName(file.entry)}.`,
-        );
-      }
-    }
-    return result;
-  });
-
-  const fileStateAccessors = orderedFiles.map((manifestFile, fileIndex) =>
-    createMemo<FileTreeState>(() => {
-      const view = fileView(fileIndex);
-      const path = fileDisplayName(manifestFile.entry);
-      if (view.phase === "fetching") {
-        return {
-          state: "husk" as const,
-          fileIndex,
-          name: manifestFile.name,
-          path,
-          activity: "fetching" as const,
-        };
-      }
-      if (view.phase === "success") {
-        const backendData = expect(
-          fileDiffs[fileIndex],
-          `File query view for ${path} settled without its payload.`,
-        );
-        const canonicalDisplayName = canonicalFileResponseName(
-          manifestFile.entry,
-        );
-        if (backendData.display_name !== canonicalDisplayName) {
-          throw new Error(
-            `File query returned ${backendData.display_name} for canonical file ${canonicalDisplayName}.`,
-          );
-        }
-        return {
-          state: "full" as const,
-          fileIndex,
-          backend_data: backendData,
-        };
-      }
-      if (view.phase === "error") {
-        if (!(view.error instanceof Error)) {
-          throw new Error(`File query ${path} failed without an Error value.`);
-        }
-        return {
-          state: "lazy" as const,
-          fileIndex,
-          file: {
-            kind: "error" as const,
-            name: manifestFile.name,
-            path,
-            error: view.error,
-          },
-        };
-      }
-      if (manifestFile.entry.lazy !== null) {
-        const lazyInfoQuery = lazyInfo;
-        if (lazyInfoQuery !== null && lazyInfoQuery.isError) {
-          if (!(lazyInfoQuery.error instanceof Error)) {
-            throw new Error(
-              `Lazy-info query for ${path} failed without an Error value.`,
-            );
-          }
-          return {
-            state: "lazy" as const,
-            fileIndex,
-            file: {
-              kind: "error" as const,
-              name: manifestFile.name,
-              path,
-              error: lazyInfoQuery.error,
-            },
-          };
-        }
-        const info = lazyInfoByKey().get(manifestEntryKey(manifestFile.entry));
-        if (info !== undefined) {
-          return {
-            state: "lazy" as const,
-            fileIndex,
-            file: { kind: "deferred" as const, info },
-          };
-        }
-      }
-      return {
-        state: "husk" as const,
-        fileIndex,
-        name: manifestFile.name,
-        path,
-        activity: "queued" as const,
-      };
-    }),
-  );
-  const fileStates = createMemo(() =>
-    fileStateAccessors.map((fileState) => fileState()),
-  );
   createEffect(() => {
     const navigable = new Set<number>();
-    for (const [fileIndex, state] of fileStates().entries()) {
+    for (const [fileIndex, state] of lane.fileStates().entries()) {
       if (state.state === "full") {
         navigable.add(fileIndex);
       }
@@ -1876,14 +1616,14 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
    * FileTree. Missing or duplicate identities violate the immutable snapshot
    * contract and throw instead of inventing a directory-expansion default.
    */
-  function stateForManifestFile(file: ManifestFile): FileTreeState {
+  function stateForManifestFile(file: ManifestFile): FileState {
     const fileIndex = fileIndexByKey.get(manifestEntryKey(file.entry));
     if (fileIndex === undefined) {
       throw new Error(
         `ChangeSet cannot index ${fileDisplayName(file.entry)} for directory reachability.`,
       );
     }
-    const state = fileStates()[fileIndex];
+    const state = lane.fileStates()[fileIndex];
     if (state === undefined) {
       throw new Error(
         `ChangeSet is missing state for ${fileDisplayName(file.entry)}.`,
@@ -1902,485 +1642,34 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
 
   const failedFiles = createMemo(
     () =>
-      fileStates().filter(
-        (state) => state.state === "lazy" && state.file.kind === "error",
-      ).length,
+      lane
+        .fileStates()
+        .filter(
+          (state) => state.state === "lazy" && state.file.kind === "error",
+        ).length,
   );
   const sequenceState = createMemo<FileSequenceState>(() => {
-    const active = laneActivity();
+    const active = lane.activity();
     if (active !== null) {
       return {
         state: "loading",
-        processed: processed(),
-        automaticTotal: automaticTotal(),
+        processed: lane.processed(),
+        automaticTotal: lane.automaticTotal,
         failed: failedFiles(),
         active,
       };
     }
     return {
       state: "ready",
-      processed: processed(),
-      automaticTotal: automaticTotal(),
+      processed: lane.processed(),
+      automaticTotal: lane.automaticTotal,
       failed: failedFiles(),
     };
   });
 
-  // Synthetic backpressure set to break the rendering loop and let the main thread breathe.
-  const [admittedFiles, setAdmittedFiles] = createStore<Record<number, true>>(
-    {},
-  );
-
-  // This imperative lane is born with one immutable snapshot and dies with it.
-  // No effect can retarget its closures to later params, manifests, or queries.
-  {
-    const engine = props.engine;
-    const snapshot = props.manifest;
-    const files = orderedFiles;
-    const selectedQueue: Array<{
-      fileIndex: number;
-      timeout: FileDiffTimeout;
-    }> = [];
-    const selectedSet = new Set<number>();
-    const changeSetAbortController = new AbortController();
-    let lineTarget: {
-      target: LinePinTarget;
-      fileIndex: number;
-      state: "pending" | "dormant";
-      needsLazyInfo: boolean;
-    } | null =
-      initialLineTarget === null
-        ? null
-        : {
-            ...initialLineTarget,
-            state: "pending",
-            needsLazyInfo: lazyInfo !== null,
-          };
-    let automaticCursor = 0;
-    let activeIndex: number | null = null;
-    let activeKey: QueryKey | null = null;
-    // Query keys of launched automatic prefetches, kept until the lane
-    // processes their index so stopping can cancel in-flight ones.
-    const prefetchedKeys = new Map<number, QueryKey>();
-    let running = false;
-    let stopped = false;
-    let stopPromise: Promise<void> | null = null;
-
-    setProcessed(0);
-    setLaneActivity(null);
-    setLaneError(null);
-
-    /**
-     * Routes an unexpected async lane rejection into a Solid error signal.
-     *
-     * Promise rejections may legally contain unknown JavaScript values. Real
-     * Errors retain their identity and stack; other values become an Error with
-     * the original rejection preserved as its cause.
-     */
-    function reportLaneFailure(error: unknown): void {
-      setLaneError(
-        error instanceof Error
-          ? error
-          : new Error("File lane rejected without an Error value.", {
-              cause: error,
-            }),
-      );
-    }
-
-    /**
-     * Advances one current line goal before queued explicit file selections.
-     *
-     * A line goal preserves manifest order through its target; afterwards queued
-     * user-selected files run before ordinary automatic work resumes. The closure
-     * belongs to this exact immutable snapshot. It catches only query-owned
-     * failure/cancellation so the canonical observer retains damage; its launch
-     * callback routes unexpected orchestration errors into Solid.
-     */
-    async function runLane(): Promise<void> {
-      if (running || stopped) {
-        return;
-      }
-      running = true;
-      try {
-        while (!stopped) {
-          let kind: FileLaneActivity["kind"] = "selected";
-          let timeout: FileDiffTimeout = "bounded";
-          let currentLineTarget: NonNullable<typeof lineTarget> | null = null;
-          let countsAsAutomatic = false;
-
-          if (
-            lineTarget !== null &&
-            lineTarget.state === "pending" &&
-            lineTarget.needsLazyInfo
-          ) {
-            const preparingTarget = lineTarget;
-            if (lazyInfo === null) {
-              throw new Error(
-                "Line target requires the canonical lazy-info observer.",
-              );
-            }
-            try {
-              // Solid exposes QueryObserverResult.promise in its client type, but
-              // that Promise only settles with experimental prefetch enabled.
-              // Refetching this already-fetching canonical observer with
-              // cancellation disabled returns TanStack's same in-flight Promise.
-              const lazyInfoResult = await lazyInfo.refetch({
-                cancelRefetch: false,
-              });
-              if (lazyInfoResult.isError) {
-                throw lazyInfoResult.error;
-              }
-              if (lineTarget === preparingTarget) {
-                preparingTarget.needsLazyInfo = false;
-              }
-            } catch (error: unknown) {
-              if (isCancelledError(error) || stopped) {
-                return;
-              }
-              if (lineTarget === preparingTarget) {
-                preparingTarget.state = "dormant";
-                preparingTarget.needsLazyInfo = false;
-              }
-            }
-            continue;
-          }
-
-          if (
-            lineTarget !== null &&
-            fileView(lineTarget.fileIndex).phase === "success" &&
-            admittedFiles[lineTarget.fileIndex] === true
-          ) {
-            const readyTarget = lineTarget;
-            let restoration: LinePinRestoration;
-            try {
-              restoration = await pins.restore(
-                readyTarget.target,
-                readyTarget.fileIndex,
-                changeSetAbortController.signal,
-              );
-            } catch (error: unknown) {
-              // Unexpected restoration failure is terminal local damage. Stop
-              // this snapshot before rethrowing so the pending target cannot
-              // relaunch while Solid routes the error to the boundary.
-              await stopLane();
-              throw error;
-            }
-            if (lineTarget === readyTarget) {
-              lineTarget = null;
-            }
-            if (restoration.state === "stopped" && stopped) {
-              return;
-            }
-            continue;
-          }
-
-          let fileIndex: number;
-          const pendingLineTarget =
-            lineTarget?.state === "pending" ? lineTarget : null;
-          if (
-            pendingLineTarget !== null &&
-            automaticCursor > pendingLineTarget.fileIndex
-          ) {
-            kind = "line-target";
-            currentLineTarget = pendingLineTarget;
-            fileIndex = pendingLineTarget.fileIndex;
-            timeout =
-              fileView(fileIndex).phase === "error" ? "unbounded" : "bounded";
-          } else if (pendingLineTarget !== null || selectedQueue.length === 0) {
-            kind = "sequence";
-            while (automaticCursor < files.length) {
-              const candidate = files[automaticCursor];
-              if (candidate === undefined) {
-                throw new Error(
-                  `File lane lost manifest index ${automaticCursor}.`,
-                );
-              }
-              if (
-                candidate.entry.lazy === null ||
-                pendingLineTarget?.fileIndex === automaticCursor
-              ) {
-                break;
-              }
-              automaticCursor += 1;
-            }
-            if (automaticCursor >= files.length) {
-              break;
-            }
-            if (
-              pendingLineTarget !== null &&
-              automaticCursor > pendingLineTarget.fileIndex
-            ) {
-              throw new Error(
-                "File lane advanced beyond a pending line target.",
-              );
-            }
-            fileIndex = automaticCursor;
-            automaticCursor += 1;
-            countsAsAutomatic =
-              expect(
-                files[fileIndex],
-                "Automatic file loading selected an invalid manifest index.",
-              ).entry.lazy === null;
-            if (pendingLineTarget?.fileIndex === fileIndex) {
-              kind = "line-target";
-              currentLineTarget = pendingLineTarget;
-              timeout =
-                fileView(fileIndex).phase === "error" ? "unbounded" : "bounded";
-            }
-          } else {
-            const selection = expect(
-              selectedQueue.shift(),
-              "Selected file queue lost its first entry.",
-            );
-            fileIndex = selection.fileIndex;
-            timeout = selection.timeout;
-            selectedSet.delete(fileIndex);
-          }
-
-          const file = files[fileIndex];
-          if (file === undefined) {
-            throw new Error(`File lane selected invalid index ${fileIndex}.`);
-          }
-          if (kind === "sequence") {
-            // Launch a bounded number of upcoming automatic fetches so the
-            // network overlaps this file's fetch and admission. Their errors
-            // and results land on the same canonical queries the lane reads
-            // when it reaches those indexes. Heavy engines never
-            // prefetch: see AUTOMATIC_PREFETCH_WIDTH.
-            const prefetchWidth = isHeavyEngine(engine)
-              ? 0
-              : AUTOMATIC_PREFETCH_WIDTH;
-            let inFlight = 0;
-            for (
-              let ahead = automaticCursor;
-              ahead < files.length && inFlight < prefetchWidth;
-              ahead += 1
-            ) {
-              const candidate = files[ahead];
-              if (candidate === undefined || candidate.entry.lazy !== null) {
-                continue;
-              }
-              const aheadView = fileView(ahead);
-              if (
-                aheadView.phase === "success" ||
-                aheadView.phase === "error"
-              ) {
-                continue;
-              }
-              if (aheadView.phase === "fetching") {
-                inFlight += 1;
-                continue;
-              }
-              const aheadOptions = api.changeSet.file(
-                engine,
-                snapshot.snapshot_id,
-                candidate.entry,
-                "bounded",
-              );
-              prefetchedKeys.set(ahead, aheadOptions.queryKey);
-              setFileView(ahead, { phase: "fetching" });
-              // The settled query is garbage-collected immediately (gcTime 0,
-              // no observers), so this handler is what records the payload;
-              // when the lane reaches the file first it joins this exact
-              // in-flight fetch and records the same settlement.
-              void queryClient.fetchQuery(aheadOptions).then(
-                (data) => {
-                  if (stopped) return;
-                  fileDiffs[ahead] = data;
-                  setFileView(ahead, { phase: "success" });
-                },
-                (error: unknown) => {
-                  // Cancellation needs no branch here: prefetches are only
-                  // cancelled by stopLane, which sets `stopped` first and
-                  // always precedes this snapshot's teardown or replacement,
-                  // so the view frozen at "fetching" is never presented.
-                  if (stopped) return;
-                  setFileView(ahead, { phase: "error", error });
-                },
-              );
-              inFlight += 1;
-            }
-          }
-          const options = api.changeSet.file(
-            engine,
-            snapshot.snapshot_id,
-            file.entry,
-            timeout,
-          );
-          const activity: FileLaneActivity = {
-            kind,
-            fileIndex,
-            path: fileDisplayName(file.entry),
-            slow: false,
-          };
-          activeIndex = fileIndex;
-          activeKey = options.queryKey;
-          setLaneActivity(activity);
-          const slowTimer = window.setTimeout(() => {
-            if (!stopped && activeIndex === fileIndex) {
-              setLaneActivity({ ...activity, slow: true });
-            }
-          }, SLOW_FILE_THRESHOLD_MS);
-
-          try {
-            const view = fileView(fileIndex);
-            if (kind === "sequence" && view.phase === "error") {
-              // A prefetched attempt already failed and this view presents
-              // that failure; the automatic pass makes exactly one attempt
-              // per file, so it does not fetch again.
-              throw view.error;
-            }
-            if (view.phase !== "success") {
-              // A settled query is garbage-collected immediately (gcTime 0,
-              // no observers), so a "success" view means the payload already
-              // lives in `fileDiffs` and fetching again would hit the
-              // network, not the cache.
-              setFileView(fileIndex, { phase: "fetching" });
-              const data = await queryClient.fetchQuery(options);
-              if (stopped) {
-                return;
-              }
-              fileDiffs[fileIndex] = data;
-              setFileView(fileIndex, { phase: "success" });
-            }
-            if (
-              (kind === "selected" || kind === "line-target") &&
-              props.state.fileExpansion[manifestEntryKey(file.entry)] !== false
-            ) {
-              // The query result has replaced LazyFile with FullFile. Expand it
-              // now, but never override a collapse performed while it loaded.
-              props.setState(
-                "fileExpansion",
-                manifestEntryKey(file.entry),
-                true,
-              );
-            }
-            await schedulerYield();
-            if (stopped) {
-              return;
-            }
-            setAdmittedFiles(fileIndex, true);
-            if (
-              currentLineTarget !== null &&
-              lineTarget === currentLineTarget
-            ) {
-              // Admission synchronously mounts FullFile. Wait through the next
-              // paint so Navigation receives complete measurable DiffGrid rows.
-              await new Promise<void>((resolve) => {
-                requestAnimationFrame(() => resolve());
-              });
-            }
-          } catch (error) {
-            if (stopped || isCancelledError(error)) {
-              return;
-            }
-            // Record the failed attempt on the file's view (replaying a
-            // recorded prefetch failure re-writes the same value, which the
-            // signal's equality drops). The lane intentionally proceeds so
-            // one file cannot damage later files.
-            setFileView(fileIndex, { phase: "error", error });
-            if (
-              currentLineTarget !== null &&
-              lineTarget === currentLineTarget
-            ) {
-              currentLineTarget.state = "dormant";
-            }
-          } finally {
-            window.clearTimeout(slowTimer);
-            activeIndex = null;
-            activeKey = null;
-            prefetchedKeys.delete(fileIndex);
-            setLaneActivity(null);
-            if (countsAsAutomatic && !stopped) {
-              setProcessed((current) => current + 1);
-            }
-          }
-        }
-      } finally {
-        running = false;
-        if (
-          !stopped &&
-          (selectedQueue.length > 0 || lineTarget?.state === "pending")
-        ) {
-          void runLane().catch(reportLaneFailure);
-        }
-      }
-    }
-
-    /**
-     * Stops this exact immutable snapshot and cancels its active canonical query.
-     *
-     * The operation is idempotent and returns the same Promise to concurrent
-     * callers. It prevents further scheduling synchronously, then waits for the
-     * active cancellation before an explicit manifest reload may proceed.
-     */
-    function stopLane(): Promise<void> {
-      if (stopPromise !== null) {
-        return stopPromise;
-      }
-      stopped = true;
-      enqueueSelectedFile = null;
-      changeSetAbortController.abort();
-      setLaneActivity(null);
-      const queryKey = activeKey;
-      const cancellations = [
-        ...(queryKey === null
-          ? []
-          : [queryClient.cancelQueries({ queryKey, exact: true })]),
-        ...Array.from(prefetchedKeys.values(), (prefetchedKey) =>
-          queryClient.cancelQueries({ queryKey: prefetchedKey, exact: true }),
-        ),
-      ];
-      stopPromise = Promise.all(cancellations).then(() => undefined);
-      return stopPromise;
-    }
-
-    props.onFileSequenceChange(stopLane);
-
-    enqueueSelectedFile = (fileIndex, timeout) => {
-      const file = files[fileIndex];
-      if (file === undefined) {
-        throw new Error(`Cannot load unknown file index ${fileIndex}.`);
-      }
-      if (
-        fileView(fileIndex).phase === "success" ||
-        activeIndex === fileIndex
-      ) {
-        return;
-      }
-      if (!selectedSet.has(fileIndex)) {
-        selectedSet.add(fileIndex);
-        selectedQueue.push({ fileIndex, timeout });
-      }
-      void runLane().catch(reportLaneFailure);
-    };
-
-    // URL parsing above is synchronous, so the target already constrains the
-    // canonical lane before its first query can begin.
-    void runLane().catch(reportLaneFailure);
-
-    onCleanup(() => {
-      props.onFileSequenceChange(null);
-      void stopLane().catch(reportLaneFailure);
-    });
-  }
-
-  /**
-   * Submits one LazyFile or failed FileCard to the current single file-fetch lane.
-   *
-   * A mounted snapshot lane and explicit timeout policy are required. The
-   * callback never calls refetch or transport directly and cannot bypass
-   * sequencing or alter canonical query identity.
-   */
-  function loadSelectedFile(fileIndex: number, timeout: FileDiffTimeout): void {
-    if (enqueueSelectedFile === null) {
-      throw new Error("Cannot load a file before its manifest lane exists.");
-    }
-    enqueueSelectedFile(fileIndex, timeout);
-  }
-
   return (
     <>
-      <Show when={laneError()} keyed>
+      <Show when={lane.error()} keyed>
         {(error) => {
           throw error;
         }}
@@ -2409,7 +1698,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
           <FileTree
             changeSetRoot={() => changeSetRoot}
             tree={props.manifest.tree}
-            states={fileStates}
+            states={lane.fileStates}
             open={props.fileTreeOpen}
             view={props.view}
             selectedFileIndex={() =>
@@ -2455,20 +1744,16 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             <div class="directory-groups">
               <For each={orderedFiles}>
                 {(file, fileIndex) => {
-                  const currentState = expect(
-                    fileStateAccessors[fileIndex()],
-                    `Missing file state for ${fileDisplayName(file.entry)}.`,
-                  );
                   return (
                     <FileCard
                       reviewFile={{
                         left_path: file.entry.left_path,
                         right_path: file.entry.right_path,
                       }}
-                      file_state={currentState()}
+                      file_state={lane.fileState(fileIndex())}
                       expanded={fileExpanded(
                         file,
-                        currentState(),
+                        lane.fileState(fileIndex()),
                         props.state.fileExpansion,
                       )}
                       explicitlyCollapsed={
@@ -2476,7 +1761,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
                           manifestEntryKey(file.entry)
                         ] === false
                       }
-                      admitted={admittedFiles[fileIndex()] === true}
+                      admitted={lane.admitted(fileIndex())}
                       engine={props.engine}
                       view={props.view}
                       aggressiveFolds={aggressiveFolds()}
@@ -2502,10 +1787,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
                         )
                       }
                       onLoad={() => {
-                        loadSelectedFile(fileIndex(), "bounded");
+                        lane.enqueue(fileIndex(), "bounded");
                       }}
                       onRetry={() => {
-                        loadSelectedFile(fileIndex(), "unbounded");
+                        lane.enqueue(fileIndex(), "unbounded");
                       }}
                     />
                   );
@@ -2526,48 +1811,6 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
 }
 
 /**
- * Presents one canonical file query's lifecycle without its payload.
- *
- * The QueryClient cache owns transport; the file lane is this view's only
- * writer and records exactly the transitions it causes: fetch or prefetch
- * start ("fetching") and settlement ("success"/"error"). Each view lives in
- * its own replaceable signal so a write swaps the whole value — a Solid
- * store write would merge fields and let a stale `error` survive a later
- * success. Payloads stay out of reactive state so propagation never walks
- * row data (TanStack's own `createQueries` store deep-unwraps every query's
- * rows on every update, which froze loading). `error` is the settled
- * failure exactly as the fetch rejected with it.
- */
-type FileQueryView =
-  | { phase: "idle" }
-  | { phase: "fetching" }
-  | { phase: "success" }
-  | { phase: "error"; error: unknown };
-
-/**
- * Defines the structural state shape FileTree consumes from ChangeSet.
- *
- * The tree reads presentation only. Query objects, backend fetch controls, and
- * mutable aggregates are excluded from this contract.
- */
-type FileTreeState =
-  | {
-      state: "husk";
-      fileIndex: number;
-      name: string;
-      path: string;
-      activity: "queued" | "fetching";
-    }
-  | { state: "full"; fileIndex: number; backend_data: FileDiff }
-  | {
-      state: "lazy";
-      fileIndex: number;
-      file:
-        | { kind: "deferred"; info: LazyInfoFile }
-        | { kind: "error"; name: string; path: string; error: Error };
-    };
-
-/**
  * Calculates directory expansion from current descendant file reachability.
  *
  * Explicit file expansion is authoritative. Unresolved HuskFiles remain
@@ -2577,7 +1820,7 @@ type FileTreeState =
  */
 function calculateDirectoryExpansion(
   nodes: readonly ManifestNode[],
-  stateForFile: (file: ManifestFile) => FileTreeState,
+  stateForFile: (file: ManifestFile) => FileState,
   fileExpansion: Readonly<Record<string, boolean | undefined>>,
 ): ReadonlyMap<string, boolean> {
   const result = new Map<string, boolean>();
@@ -2637,7 +1880,7 @@ type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
 type FileTreeProps = {
   changeSetRoot: Accessor<HTMLElement>;
   tree: readonly ManifestNode[];
-  states: Accessor<readonly FileTreeState[]>;
+  states: Accessor<readonly FileState[]>;
   open: boolean;
   view: DiffViewMode;
   selectedFileIndex: Accessor<number | null>;
@@ -2703,7 +1946,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
    * Missing indices or states violate the required parallel manifest/state
    * ordering and throw rather than producing an incomplete tree row.
    */
-  const stateForFile = (file: ManifestFile): FileTreeState => {
+  const stateForFile = (file: ManifestFile): FileState => {
     const index = indexForFile(file);
     const state = props.states()[index];
     if (state === undefined) {
@@ -3364,62 +2607,6 @@ function manifestFilesInOrder(nodes: readonly ManifestNode[]): ManifestFile[] {
 }
 
 /**
- * Reports whether a manifest tree contains at least one intentionally lazy file.
- *
- * The predicate preserves traversal semantics and starts no query itself.
- */
-function manifestContainsLazyFiles(nodes: ManifestNode[]): boolean {
-  for (const node of nodes) {
-    if (node.type === "file") {
-      if (node.entry.lazy !== null) {
-        return true;
-      }
-    } else if (manifestContainsLazyFiles(node.entries)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Returns the required visible name for one manifest or lazy-info handle.
- *
- * Renames retain both paths with the established arrow, while side-only entries
- * use their existing path. API validation guarantees that present paths are
- * non-empty; a handle with neither path violates the file identity contract.
- */
-function fileDisplayName(entry: {
-  left_path: string | null;
-  right_path: string | null;
-}): string {
-  const leftPath = entry.left_path;
-  const rightPath = entry.right_path;
-  if (leftPath !== null) {
-    if (rightPath !== null && rightPath !== leftPath) {
-      return `${leftPath} -> ${rightPath}`;
-    }
-    return leftPath;
-  }
-  if (rightPath !== null) {
-    return rightPath;
-  }
-  throw new Error("File entry requires a left or right path.");
-}
-
-/**
- * Produces one stable manifest-local key from the two canonical file paths.
- *
- * The key distinguishes renames and side-only entries without adding display
- * names or mutable query state. It is used only for expansion and calculations.
- */
-function manifestEntryKey(entry: {
-  left_path: string | null;
-  right_path: string | null;
-}): string {
-  return `${entry.left_path ?? ""}\u0000${entry.right_path ?? ""}`;
-}
-
-/**
  * Derives the exact ChangeSet title used by the established frontend.
  *
  * Complete selected DiffParams choose product wording while manifest labels
@@ -3463,7 +2650,7 @@ function changeSetTitle(params: DiffParams, manifest: Manifest): string {
  */
 function fileExpanded(
   file: ManifestFile,
-  state: FileTreeState,
+  state: FileState,
   expansion: Readonly<Record<string, boolean | undefined>>,
 ): boolean {
   const selected = expansion[manifestEntryKey(file.entry)];
@@ -3485,7 +2672,7 @@ function fileExpanded(
  * Full and deferred values expose only their actual backend fields. Husk and
  * error states remain unknown rather than manufacturing zeros.
  */
-function treeStatistics(state: FileTreeState): TreeLineStats {
+function treeStatistics(state: FileState): TreeLineStats {
   if (state.state === "full") {
     return {
       added: state.backend_data.summary.added_lines,
@@ -3511,7 +2698,7 @@ function treeStatistics(state: FileTreeState): TreeLineStats {
  * Each metric is null when any participating file lacks it; otherwise exact
  * values are summed. The aggregate is presentation-only and never cached.
  */
-function sumTreeStatistics(states: readonly FileTreeState[]): TreeLineStats {
+function sumTreeStatistics(states: readonly FileState[]): TreeLineStats {
   const stats = states.map(treeStatistics);
   /**
    * Sums one statistic only when every contributing file knows its value.

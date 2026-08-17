@@ -35,6 +35,12 @@ import {
 } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import { DiffGrid } from "./DiffGrid";
+import type {
+  FileState,
+  FullFileState,
+  HuskFileState,
+  LazyFileState,
+} from "./fileLane";
 import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import { NotebookFile } from "./NotebookFile";
 import type { PseudoHunkIdentity, RealHunkIdentity } from "./navigation";
@@ -173,63 +179,6 @@ function initialRenderMode(
 }
 
 /**
- * Describes the ordinary pre-result presentation of one manifest file.
- *
- * A Husk contains only stable manifest presentation and exact queue activity.
- * It must not pretend that per-file statistics or rendered rows are available.
- */
-type HuskFileState = {
-  state: "husk";
-  fileIndex: number;
-  name: string;
-  path: string;
-  activity: "queued" | "fetching";
-};
-
-/**
- * Describes a successfully loaded canonical file query result.
- *
- * The immutable FileDiff is complete and is the sole backend value accepted by
- * FileBody. Manifest or lazy metadata must not be merged into it.
- */
-type FullFileState = {
-  state: "full";
-  fileIndex: number;
-  backend_data: FileDiff;
-};
-
-/**
- * Describes either intentional delayed-file metadata or a real file failure.
- *
- * Deferred values come only from lazy-info. Error values retain the original
- * thrown Error and stable manifest path so complete local damage remains visible.
- */
-type LazyFile =
-  | { kind: "deferred"; info: LazyInfoFile }
-  | { kind: "error"; name: string; path: string; error: Error };
-
-/**
- * Describes a file whose content starts only through explicit user activation.
- *
- * Retry and delayed hydration use distinct ChangeSet-supplied commands because
- * their HTTP timeout policies differ. The state itself contains no query state,
- * timeout policy, or copied loading flag.
- */
-type LazyFileState = {
-  state: "lazy";
-  fileIndex: number;
-  file: LazyFile;
-};
-
-/**
- * Represents every complete presentation branch accepted by FileCard.
- *
- * The discriminant is derived by ChangeSet from canonical query state. Callers
- * must never manufacture a FullFile for loading or failure placeholders.
- */
-type FileCardState = HuskFileState | FullFileState | LazyFileState;
-
-/**
  * Defines every input required by one stable FileCard.
  *
  * Expansion remains ChangeSet-owned so it survives active-content replacement.
@@ -242,7 +191,7 @@ type FileCardState = HuskFileState | FullFileState | LazyFileState;
 type FileCardProps = {
   /** Supplies the exact pair used by rendered line Thread targets. */
   reviewFile: ReviewFilePair;
-  file_state: FileCardState;
+  file_state: FileState;
   expanded: boolean;
   explicitlyCollapsed: boolean;
   /**
@@ -264,38 +213,13 @@ type FileCardProps = {
  * Renders one stable manifest-position FileCard and contains its renderer.
  *
  * Callers keep this component mounted at one manifest position and replace only
- * its reactive state. FullFile renderer failures remain inside the stable
- * article; ordinary backend failures arrive as the explicit LazyFile state.
+ * its reactive state: the article persists for its keyed manifest entry, and
+ * state replacement swaps complete Husk, Full, or Lazy content without moving
+ * query state into the card or retaining partial content from the prior
+ * branch. FullFile renderer failures remain inside the stable article;
+ * ordinary backend failures arrive as the explicit LazyFile state.
  */
 export function FileCard(props: FileCardProps): JSX.Element {
-  return (
-    <FileCardContent
-      reviewFile={props.reviewFile}
-      file_state={props.file_state}
-      expanded={props.expanded}
-      explicitlyCollapsed={props.explicitlyCollapsed}
-      admitted={props.admitted}
-      engine={props.engine}
-      view={props.view}
-      aggressiveFolds={props.aggressiveFolds}
-      linePins={props.linePins}
-      globalSelectedHunk={props.globalSelectedHunk}
-      fileSelectedHunk={props.fileSelectedHunk}
-      onExpandedChange={props.onExpandedChange}
-      onLoad={props.onLoad}
-      onRetry={props.onRetry}
-    />
-  );
-}
-
-/**
- * Renders one reactive state branch into stable FileCard DOM.
- *
- * The article persists for this mounted keyed manifest entry. State replacement
- * swaps complete Husk, Full, or Lazy content without moving query state into
- * the card or retaining partial content from the prior branch.
- */
-function FileCardContent(props: FileCardProps): JSX.Element {
   let card!: HTMLElement;
   const review = useReview();
   /**

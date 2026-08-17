@@ -165,9 +165,14 @@ def _cell_identity(
     *,
     left_cell: dict[str, Any] | None,
     right_cell: dict[str, Any] | None,
-    left_index: int | None,
-    right_index: int | None,
 ) -> dict[str, Any]:
+    """Derive the paired cells' type, ids, and sources for one diffed cell.
+
+    The right side wins the surviving `cell_type` and `cell_id`; a one-sided
+    pair inherits everything from its present cell. Sources are the exact
+    joined cell texts and never placeholders.
+    """
+
     def _cell_type_name(
         left_cell: dict[str, Any] | None,
         right_cell: dict[str, Any] | None,
@@ -400,12 +405,7 @@ def _build_notebook_cell_diff(
             return "cell.txt"
         return None
 
-    identity = _cell_identity(
-        left_cell=left_cell,
-        right_cell=right_cell,
-        left_index=left_index,
-        right_index=right_index,
-    )
+    identity = _cell_identity(left_cell=left_cell, right_cell=right_cell)
     cell_type = str(identity["cell_type"])
     left_source = str(identity["left_source"])
     right_source = str(identity["right_source"])

@@ -21,6 +21,7 @@ frontend/src/
 │   ├── ChangeSet.tsx
 │   ├── DiffGrid.tsx
 │   ├── FileCard.tsx
+│   ├── fileLane.ts
 │   ├── NotebookFile.tsx
 │   ├── Profile.tsx
 │   ├── Review.tsx
@@ -483,12 +484,35 @@ snapshot.
 
 `ChangeSetSnapshot`:
 
-- observes lazy information and keeps the ordered file-query view store;
-- runs sequential file loading;
-- constructs the FileTree data;
+- resolves the URL line pin and creates the snapshot's one file lane;
+- constructs the FileTree data from the lane's canonical states;
 - renders one stable `FileCard` per manifest entry;
 - creates the snapshot’s `LinePins` interface;
-- supplies header status and statistics.
+- supplies header status and statistics from the lane's progress.
+
+### `hud/fileLane.ts`
+
+Exports:
+
+```ts
+createFileLane
+manifestEntryKey
+fileDisplayName
+FileLane
+FileState (with HuskFileState, FullFileState, LazyFile, LazyFileState)
+FileLaneActivity
+FileLaneLineTarget
+```
+
+`createFileLane` builds the canonical data lifecycle of one immutable
+snapshot, described by [`file-lane.md`](file-lane.md). The lane owns the
+lazy-info observer, the per-index file-query view signals and payload slots,
+render admission, progress, and idempotent cancellation. Its inputs are plain
+data (engine, `snapshot_id`, the validated manifest-order file list and its
+canonical response names) plus two host behaviors: an optional line-target
+restoration gate and the explicit-load notification the host uses for its
+expansion policy. The lane performs no presentation: no DOM, toasts, URL or
+line-pin identity, file expansion, or navigation.
 
 `ReviewSnapshotBoundary` wraps the engine-keyed File lane in `ReviewProvider`
 and passes the exact selected Profile through as browser review authorship.
@@ -762,7 +786,9 @@ type LinePins = {
 | `App.tsx` | `AppHeader.tsx` | workspace values and explicit selection callbacks |
 | `App.tsx` | `Tabs.tsx` | shared workspace values and workflow callbacks |
 | `Tabs.tsx` | `ChangeSet.tsx` | complete selected `DiffParams`, separate engine, and shared display state |
-| `ChangeSet.tsx` | `api.ts` | manifest, lazy-info, file, and preferences definitions |
+| `ChangeSet.tsx` | `api.ts` | manifest and preferences definitions |
+| `ChangeSet.tsx` | `fileLane.ts` | one file lane per snapshot and its canonical file states |
+| `fileLane.ts` | `api.ts` | lazy-info and file query definitions |
 | `ChangeSet.tsx` | `FileCard.tsx` | one manifest-position file state and explicit file actions |
 | `ChangeSet.tsx` | `navigation.tsx` | mounted ChangeSet root and navigation operations |
 | `ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |

@@ -200,22 +200,6 @@ class PresetBackend(WorkspaceBackendProtocol):
             raise DirdiffError(f"Unsupported preset lazy_reason: {reason!r}")
         return reason, content
 
-    def _path_for_side(self, path: str, side: SideName) -> Path:
-        """Resolve a preset-relative manifest path to the requested side file."""
-        normalized_path = self.normalize_repo_path(path)
-        full_path = self.presets_root / normalized_path
-        if full_path.is_file():
-            return full_path
-
-        preset_dir = self.presets_root / PurePosixPath(normalized_path).parent
-        old_path, new_path = self._preset_pair(preset_dir)
-        wanted_name = PurePosixPath(normalized_path).name
-        if wanted_name == old_path.name:
-            return old_path
-        if wanted_name == new_path.name:
-            return new_path
-        raise DirdiffError(f"Preset file is missing: {normalized_path}")
-
     @override
     def normalize_side(self, raw_side: str) -> SideName:
         """Normalize preset side names where the left side is the group name."""
@@ -316,7 +300,23 @@ class PresetBackend(WorkspaceBackendProtocol):
         `DirdiffError`; absence is represented by an absent manifest side.
         """
         normalized_path = self.normalize_repo_path(path)
-        file_path = self._path_for_side(normalized_path, side)
+        # Resolve the manifest path to its on-disk fixture: a direct file when
+        # the path exists as written, otherwise the old/new member of its
+        # fixture pair matching the file name. `side` does not participate:
+        # preset manifest paths already name their exact side-specific file.
+        file_path = self.presets_root / normalized_path
+        if not file_path.is_file():
+            preset_dir = (
+                self.presets_root / PurePosixPath(normalized_path).parent
+            )
+            old_path, new_path = self._preset_pair(preset_dir)
+            wanted_name = PurePosixPath(normalized_path).name
+            if wanted_name == old_path.name:
+                file_path = old_path
+            elif wanted_name == new_path.name:
+                file_path = new_path
+            else:
+                raise DirdiffError(f"Preset file is missing: {normalized_path}")
         if not file_path.exists():
             raise DirdiffError(f"Preset file is missing: {normalized_path}")
         try:
