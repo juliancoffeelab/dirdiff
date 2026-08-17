@@ -6,7 +6,7 @@
  * selected aggressive-fold policy. It validates range structure and must not own
  * expanded-fold UI state, mutate backend rows, touch the DOM, or navigate hunks.
  */
-import type { DiffRow, FoldHint } from "../api/api";
+import type { DiffRow, FoldHint } from "../../api/api";
 
 /**
  * Represents one validated backend fold range in the nested fold tree.

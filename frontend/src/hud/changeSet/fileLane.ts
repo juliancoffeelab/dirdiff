@@ -48,8 +48,8 @@ import {
   type LazyInfoFile,
   type ManifestFile,
   type ManifestNode,
-} from "../api/api";
-import { expect } from "../utils";
+} from "../../api/api";
+import { expect } from "../../utils";
 
 const SLOW_FILE_THRESHOLD_MS = 8_000;
 // Automatic loading overlaps this many upcoming file fetches with the active

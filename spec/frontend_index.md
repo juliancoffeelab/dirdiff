@@ -20,16 +20,18 @@ frontend/src/
 │   ├── AppHeader.tsx
 │   ├── changeSet/
 │   │   ├── ChangeSet.tsx
+│   │   ├── fileLane.ts
 │   │   ├── FileTree.tsx
 │   │   └── Shell.tsx
-│   ├── DiffGrid.tsx
+│   ├── diffGrid/
+│   │   ├── DiffGrid.tsx
+│   │   ├── folds.ts
+│   │   └── rowDom.ts
 │   ├── FileCard.tsx
-│   ├── fileLane.ts
 │   ├── NotebookFile.tsx
 │   ├── Profile.tsx
 │   ├── Review.tsx
 │   ├── Tabs.tsx
-│   ├── folds.ts
 │   ├── linePins.ts
 │   └── navigation.tsx
 ├── main.tsx
@@ -535,7 +537,7 @@ Private presentation components:
 - `TreeStatistics`;
 - `TreeVisibilityIndicator`.
 
-### `hud/fileLane.ts`
+### `hud/changeSet/fileLane.ts`
 
 Exports:
 
@@ -630,7 +632,10 @@ Private statistics components:
 
 A FullFile exposes its rich-materialization and line-preparation operations through its FileCard DOM interface for `navigation.tsx`.
 
-### `hud/DiffGrid.tsx`
+The DiffGrid lives in the `hud/diffGrid/` directory: `DiffGrid.tsx` is the
+reactive component and `rowDom.ts` is the pure imperative row-DOM kernel.
+
+### `hud/diffGrid/DiffGrid.tsx`
 
 Exports:
 
@@ -662,6 +667,25 @@ Inputs:
 and line-pin coordinates.
 
 It uses `folds.ts` to construct visible rows and uses `LinePins` to read or change line-pin URL state.
+
+### `hud/diffGrid/rowDom.ts`
+
+Exports:
+
+```ts
+renderSplitRowsDom
+renderInlineRowsDom
+renderCombinedInlineRowsDom
+Side
+```
+
+The kernel builds one complete detached row fragment per call from validated
+backend rows and fold state; every function is a pure DOM constructor with no
+Solid reactivity, component state, or queries. It owns row chunking: large
+renders stream rows through fixed-size content-visibility containers, and one
+idle-paced module-level warm-up pass renders each new chunk once so the
+browser records its real height. It must not listen to events, own review
+markers or line pins, decide view modes, or fetch anything.
 
 ### `hud/NotebookFile.tsx`
 
@@ -723,7 +747,7 @@ The complete review persistence, marker, History, Comment-input, navigation,
 error, and browser/agent HTTP behavior is specified once in
 [`reviews.md`](reviews.md).
 
-### `hud/folds.ts`
+### `hud/diffGrid/folds.ts`
 
 Exports:
 
@@ -835,20 +859,21 @@ type LinePins = {
 | `changeSet/ChangeSet.tsx` | `changeSet/Shell.tsx` | mounted frame, UI-operation callbacks, and the HunkDisplay accessor |
 | `changeSet/ChangeSet.tsx` | `changeSet/FileTree.tsx` | manifest tree, canonical states, and shared expansion policy |
 | `changeSet/ChangeSet.tsx` | `api.ts` | manifest and preferences definitions |
-| `changeSet/ChangeSet.tsx` | `fileLane.ts` | one file lane per snapshot and its canonical file states |
-| `fileLane.ts` | `api.ts` | lazy-info and file query definitions |
+| `changeSet/ChangeSet.tsx` | `changeSet/fileLane.ts` | one file lane per snapshot and its canonical file states |
+| `changeSet/fileLane.ts` | `api.ts` | lazy-info and file query definitions |
 | `changeSet/ChangeSet.tsx` | `FileCard.tsx` | one manifest-position file state and explicit file actions |
 | `changeSet/*` | `navigation.tsx` | mounted ChangeSet root and navigation operations |
 | `changeSet/ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |
 | `changeSet/ChangeSet.tsx` | `Review.tsx` | one exact Snapshot review boundary and explicit File jump |
 | `Review.tsx` | `api.ts` | bulk Snapshot review query and Profile-authored Thread and Comment mutations |
 | `FileCard.tsx` | `Review.tsx` | File marker state and File Comment-input activation |
-| `DiffGrid.tsx` | `Review.tsx` | line marker state and text Comment-input activation |
-| `FileCard.tsx` | `DiffGrid.tsx` | complete text-file rendering inputs |
+| `diffGrid/DiffGrid.tsx` | `Review.tsx` | line marker state and text Comment-input activation |
+| `FileCard.tsx` | `diffGrid/DiffGrid.tsx` | complete text-file rendering inputs |
 | `FileCard.tsx` | `NotebookFile.tsx` | complete notebook rendering inputs |
-| `NotebookFile.tsx` | `DiffGrid.tsx` | one notebook source region |
-| `DiffGrid.tsx` | `folds.ts` | rows, fold hints, and expansion |
-| `DiffGrid.tsx` | `linePins.ts` | URL parsing and direct pin toggling |
+| `NotebookFile.tsx` | `diffGrid/DiffGrid.tsx` | one notebook source region |
+| `diffGrid/DiffGrid.tsx` | `diffGrid/rowDom.ts` | validated rows, fold state, and the two render callbacks |
+| `diffGrid/*` | `diffGrid/folds.ts` | rows, fold hints, and expansion |
+| `diffGrid/DiffGrid.tsx` | `linePins.ts` | URL parsing and direct pin toggling |
 | `linePins.ts` | `navigation.tsx` | exact line navigation |
 | `AppHeader.tsx` | `Select.tsx` | engine, view, and repository controls |
 | `Tabs.tsx` | `AutocompleteInput.tsx` | refs and branch input |

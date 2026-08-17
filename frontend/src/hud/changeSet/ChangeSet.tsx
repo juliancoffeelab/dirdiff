@@ -62,7 +62,7 @@ import {
   type FileLaneActivity,
   type FileLaneLineTarget,
   type FileState,
-} from "../fileLane";
+} from "./fileLane";
 import { linePins } from "../linePins";
 import { useNavigation } from "../navigation";
 import type { StoredProfile } from "../Profile";

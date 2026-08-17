@@ -34,13 +34,13 @@ import {
   useToasts,
 } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
-import { DiffGrid } from "./DiffGrid";
+import { DiffGrid } from "./diffGrid/DiffGrid";
 import type {
   FileState,
   FullFileState,
   HuskFileState,
   LazyFileState,
-} from "./fileLane";
+} from "./changeSet/fileLane";
 import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
 import { NotebookFile } from "./NotebookFile";
 import type { PseudoHunkIdentity, RealHunkIdentity } from "./navigation";

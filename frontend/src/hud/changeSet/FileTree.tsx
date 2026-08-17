@@ -32,7 +32,7 @@ import {
   manifestEntryKey,
   manifestFilesInOrder,
   type FileState,
-} from "../fileLane";
+} from "./fileLane";
 import { useNavigation } from "../navigation";
 
 /**

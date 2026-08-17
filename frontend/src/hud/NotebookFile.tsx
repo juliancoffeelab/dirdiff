@@ -15,7 +15,7 @@ import type {
 } from "../api/api";
 import { assert } from "../utils";
 import type { DiffViewMode } from "./App";
-import { DiffGrid } from "./DiffGrid";
+import { DiffGrid } from "./diffGrid/DiffGrid";
 import type { LinePins } from "./linePins";
 
 /**

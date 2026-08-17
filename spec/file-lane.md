@@ -6,7 +6,7 @@ The file lane is the data lifecycle of one mounted `ChangeSetSnapshot`. It start
 with one manifest and its opaque `snapshot_id`, produces the canonical file
 states consumed by `FileCard`, and ends when that snapshot is disposed.
 
-The lane lives in `fileLane.ts` as `createFileLane`, born once per immutable
+The lane lives in `changeSet/fileLane.ts` as `createFileLane`, born once per immutable
 snapshot by `ChangeSetSnapshot` in `changeSet/ChangeSet.tsx` with plain data — engine,
 `snapshot_id`, the validated manifest-order file list, and its canonical
 response names — plus two host behaviors: an optional line-target restoration
