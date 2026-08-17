@@ -139,6 +139,18 @@ def run_gumtree_json(
     try:
         parsed = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
+        # GumTree exits 0 even when it cannot process the input (for example
+        # "No generator found for file" on a language without a parser) and
+        # prints the reason to stderr with an empty stdout. Surface that
+        # reason instead of a misleading JSON complaint; stack-trace frames
+        # are dropped, the exception summary lines are kept.
+        stderr_lines = [
+            line
+            for line in result.stderr.splitlines()
+            if line.strip() != "" and not line.lstrip().startswith("at ")
+        ]
+        if stderr_lines != []:
+            raise DirdiffError(" ".join(stderr_lines)) from exc
         raise GumTreeInvalidJsonError("GumTree returned invalid JSON.") from exc
 
     if _is_gumtree_json(parsed):

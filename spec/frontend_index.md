@@ -483,7 +483,7 @@ snapshot.
 
 `ChangeSetSnapshot`:
 
-- observes lazy information and ordered file queries;
+- observes lazy information and keeps the ordered file-query view store;
 - runs sequential file loading;
 - constructs the FileTree data;
 - renders one stable `FileCard` per manifest entry;

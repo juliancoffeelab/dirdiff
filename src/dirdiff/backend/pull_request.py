@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from dirdiff.backend.base import _git_executable
+from dirdiff.backend.base import git_executable
 from dirdiff.engines import DirdiffError
 
 __all__ = [
@@ -411,7 +411,7 @@ def _run_git_text(
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [_git_executable(), *args],
+        [git_executable(), *args],
         cwd=repo_path,
         check=check,
         capture_output=True,

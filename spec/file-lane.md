@@ -45,23 +45,30 @@ The snapshot has three related query layers:
 1. one manifest query, keyed by `DiffParams`;
 2. one lazy-info query, keyed by `snapshot_id`, only when the manifest contains
    lazy files;
-3. one ordered collection of file queries, keyed by engine, `snapshot_id`, and
-   the manifest entry's left/right path locator.
+3. one ordered collection of canonical file-query definitions, keyed by engine,
+   `snapshot_id`, and the manifest entry's left/right path locator, executed
+   only imperatively by the lane.
 
-The file-query collection has exactly the same order and length as the flattened
-manifest. Its observers are disabled for automatic fetching. The lane executes
-those same canonical query definitions through TanStack Query, so observation
-and imperative loading refer to one cache entry per file.
+File queries have no observers. TanStack's `createQueries` store deep-unwraps
+every query's data on every update, which walks all loaded rows per lane event
+and froze loading quadratically. Instead the snapshot keeps one `FileQueryView`
+store entry per manifest position (`idle`/`fetching`/`success`/`error`, without
+payloads) plus one plain payload slot always written before its view settles to
+`success`; a prefetch settlement and the lane's join of the same in-flight
+fetch may both record the identical payload. The lane is the sole writer and
+records exactly the transitions it causes. With no observers a settled canonical query is
+garbage-collected immediately (`gcTime` 0), so the payload slot is the sole
+surviving reference and a `success` view must never fetch again; while a fetch
+or prefetch is in flight, the canonical cache entry still deduplicates joiners.
 
-Backend results remain in TanStack Query. The snapshot derives backend states
-from the current observer results instead of copying backend data into a second
-store:
+The snapshot derives backend states from the view store instead of copying
+backend data into a second reactive store:
 
-| Query and manifest state | File state |
+| View and manifest state | File state |
 | --- | --- |
-| file request is active | `Husk`, fetching |
-| file query succeeded | `Full` |
-| file query failed ordinarily | error `Lazy` |
+| view is `fetching` | `Husk`, fetching |
+| view is `success` | `Full` |
+| view is `error` | error `Lazy` |
 | lazy-info failed ordinarily | error `Lazy` for every manifest-lazy file |
 | manifest marks the file lazy and lazy-info is available | deferred `Lazy` |
 | file has not started | `Husk`, queued |
@@ -88,15 +95,21 @@ The automatic lane loads non-lazy manifest files sequentially from the start of
 the manifest to the end. One file is processed at a time; while it is
 processed, the lane additionally launches a fixed bounded number of upcoming
 automatic canonical file queries (in manifest order) so backend latency
-overlaps processing. Prefetched results and failures land on the same
-canonical queries the lane later reads; a file whose prefetched attempt
-already failed is not fetched again by the automatic pass, and stopping the
-lane cancels in-flight prefetches with the active query.
+overlaps processing. A prefetch settlement records its payload or failure on
+the file's view (prefetches are only ever cancelled by the stop of the whole
+lane, which suppresses further view writes); a file
+whose recorded attempt already failed is not fetched again by the automatic
+pass, and stopping the lane cancels in-flight prefetches with the active
+query. Prefetching applies only to in-process engines: subprocess engines
+(difftastic, gumtree) multiply real backend CPU and memory per concurrent
+request and measured 2.4x slower total load, so they load strictly serially.
 
 For each automatic file, the lane:
 
-1. executes (or joins) its canonical file query;
-2. leaves an ordinary failure on that query and proceeds to the next file;
+1. executes (or joins) its canonical file query unless its view already
+   settled to `success`;
+2. leaves an ordinary failure on that file's view and proceeds to the next
+   file;
 3. yields to the browser after a successful fetch;
 4. admits that file for expensive rendering;
 5. proceeds to the next manifest position.
@@ -181,7 +194,7 @@ data remains in `ChangeSet`.
 
 ## Failures
 
-Ordinary file failures are local. The failed query becomes an error `LazyFile`,
+Ordinary file failures are local. The failed view becomes an error `LazyFile`,
 its error is visibly reported, and later files continue.
 
 Unexpected lane failures are not converted into a file state. The lane writes
@@ -205,15 +218,16 @@ explicit enqueueing, aborts active line-pin restoration, cancels the exact
 active TanStack query, and exposes one Promise to every caller waiting for
 shutdown.
 
-Disposal removes the snapshot’s query observers, file states, admission state,
-progress, and rendered files together. Nothing from the disposed snapshot may
+Disposal removes the snapshot’s view store, payload slots, file states,
+admission state, progress, and rendered files together. Nothing from the disposed snapshot may
 later write DOM, report progress, or scroll.
 
 ## Interfaces to file presentation
 
 For each manifest index, `ChangeSet` supplies `FileCard` with:
 
-- one reactive `Husk`, `Full`, or `Lazy` state derived from canonical queries;
+- one reactive `Husk`, `Full`, or `Lazy` state derived from the view store
+  and payload slots;
 - whether the fetched file has been admitted for rendering;
 - the shared file expansion value;
 - explicit load and Retry operations that enqueue the lane;

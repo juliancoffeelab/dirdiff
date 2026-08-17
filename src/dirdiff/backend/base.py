@@ -11,14 +11,11 @@ which diff engine will consume the loaded text.
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict
 
-from dirdiff.engines import DirdiffError
+from dirdiff.engines import DirdiffError, git_executable
 
 SideName = str
 BranchSource = Literal["local", "remote"]
@@ -48,6 +45,7 @@ __all__ = [
     "WorkspaceBackendProtocol",
     "decode_text_content",
     "display_name_for_repo_paths",
+    "git_executable",
     "load_diff_sides",
 ]
 
@@ -187,31 +185,6 @@ class LoadedDiffSides(TypedDict):
     right_label: str
     left_version: TextVersion
     right_version: TextVersion
-
-
-@cache
-def _git_executable() -> str:
-    """Resolve the concrete Git binary every backend subprocess spawns.
-
-    On macOS the bare name "git" resolves through PATH to Apple's xcrun shim,
-    which adds ~14ms of pure indirection to every spawn. Asking xcrun once for
-    the real binary removes that per-spawn tax; the resolution is cached for
-    the process lifetime. Everywhere else, and when xcrun is unavailable, the
-    bare name is the correct spawn target unchanged. Package-internal: the Git
-    and pull-request backends spawn through this, external callers do not.
-    """
-    if sys.platform != "darwin":
-        return "git"
-    located = subprocess.run(
-        ["xcrun", "--find", "git"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    resolved = located.stdout.strip()
-    if located.returncode == 0 and resolved != "" and Path(resolved).is_file():
-        return resolved
-    return "git"
 
 
 def decode_text_content(data: bytes, *, label: str) -> str:

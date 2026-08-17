@@ -503,15 +503,11 @@ function ImperativeDiffLines(props: {
    * change folds, line pins, or hunk selection.
    */
   function applyMarkerState(lineNumber: HTMLElement): void {
-    /** Creates one control for one state actually represented at this line. */
-    function createTrigger(
+    /** Stamps one trigger's marker kind: identity dataset plus state classes. */
+    function decorateTriggerKind(
+      trigger: HTMLButtonElement,
       markerKind: ReviewMarkerKind,
-      side: Side,
-      line: string,
-    ): HTMLButtonElement {
-      const trigger = document.createElement("button");
-      trigger.type = "button";
-      trigger.className = "line-comment-trigger";
+    ): void {
       trigger.dataset.reviewMarkerKind = markerKind;
       trigger.classList.toggle(
         "line-comment-trigger-commented",
@@ -535,6 +531,18 @@ function ImperativeDiffLines(props: {
         "line-comment-trigger-deleted",
         markerKind === "deleted",
       );
+    }
+
+    /** Creates one control for one state actually represented at this line. */
+    function createTrigger(
+      markerKind: ReviewMarkerKind,
+      side: Side,
+      line: string,
+    ): HTMLButtonElement {
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "line-comment-trigger";
+      decorateTriggerKind(trigger, markerKind);
       const icon = document.createElement("span");
       icon.className = "line-comment-trigger-icon";
       icon.ariaHidden = "true";
@@ -558,12 +566,19 @@ function ImperativeDiffLines(props: {
     const storedState = review.markerState(reviewBinding, side, Number(line));
     storedState.markers.forEach((marker, index) => {
       const current = host.children.item(index);
-      let trigger =
-        current instanceof HTMLButtonElement &&
-        reviewMarkerKind(current) === marker.kind
-          ? current
-          : createTrigger(marker.kind, side, line);
-      if (trigger !== current) {
+      let trigger: HTMLButtonElement;
+      if (current instanceof HTMLButtonElement) {
+        // A kind change re-decorates the existing button instead of replacing
+        // it: the button may anchor the active Comment input, and replacing it
+        // disconnects that anchor, which closes the input on the next
+        // anchored-UI sweep (e.g. any FileCard header unmount while the file
+        // lane is still loading).
+        trigger = current;
+        if (reviewMarkerKind(trigger) !== marker.kind) {
+          decorateTriggerKind(trigger, marker.kind);
+        }
+      } else {
+        trigger = createTrigger(marker.kind, side, line);
         if (current === null) {
           host.append(trigger);
         } else {

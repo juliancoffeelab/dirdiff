@@ -24,8 +24,8 @@ from dirdiff.backend.base import (
     SideName,
     StructuredRemoteBranchRef,
     WorkspaceBackendProtocol,
-    _git_executable,
     display_name_for_repo_paths,
+    git_executable,
 )
 from dirdiff.engines import DirdiffError
 
@@ -151,7 +151,7 @@ class GitBackend(WorkspaceBackendProtocol):
             return cls(Path(repo_root).expanduser().resolve(), cwd=working_dir)
 
         result = subprocess.run(
-            [_git_executable(), "rev-parse", "--show-toplevel"],
+            [git_executable(), "rev-parse", "--show-toplevel"],
             cwd=working_dir,
             check=False,
             capture_output=True,
@@ -174,7 +174,7 @@ class GitBackend(WorkspaceBackendProtocol):
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
-            [_git_executable(), *args],
+            [git_executable(), *args],
             cwd=self.repo_root,
             check=check,
             capture_output=True,
@@ -190,7 +190,7 @@ class GitBackend(WorkspaceBackendProtocol):
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
-            [_git_executable(), *args],
+            [git_executable(), *args],
             cwd=self.repo_root,
             check=check,
             capture_output=True,
@@ -209,7 +209,7 @@ class GitBackend(WorkspaceBackendProtocol):
             raise DirdiffError("Custom refs require a Git repo.")
 
         resolved = subprocess.run(
-            [_git_executable(), "rev-parse", "--verify", f"{side}^{{commit}}"],
+            [git_executable(), "rev-parse", "--verify", f"{side}^{{commit}}"],
             cwd=self.repo_root,
             check=False,
             capture_output=True,
@@ -251,7 +251,7 @@ class GitBackend(WorkspaceBackendProtocol):
             )
 
         modified = subprocess.run(
-            [_git_executable(), "diff", "--name-only"],
+            [git_executable(), "diff", "--name-only"],
             cwd=self.repo_root,
             check=False,
             capture_output=True,
@@ -266,7 +266,7 @@ class GitBackend(WorkspaceBackendProtocol):
             return candidates[0]
 
         tracked = subprocess.run(
-            [_git_executable(), "ls-files"],
+            [git_executable(), "ls-files"],
             cwd=self.repo_root,
             check=False,
             capture_output=True,
@@ -472,7 +472,7 @@ class GitBackend(WorkspaceBackendProtocol):
         labels = (base_branch, branch)
         resolved = subprocess.run(
             [
-                _git_executable(),
+                git_executable(),
                 "cat-file",
                 "--batch-check=%(objectname) %(objecttype)",
             ],
@@ -842,7 +842,7 @@ class GitBackend(WorkspaceBackendProtocol):
 
         if object_requests != []:
             process = subprocess.run(
-                [_git_executable(), "cat-file", "--batch", "-z"],
+                [git_executable(), "cat-file", "--batch", "-z"],
                 cwd=self.repo_root,
                 check=False,
                 input=b"\0".join(

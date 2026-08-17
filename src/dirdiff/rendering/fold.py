@@ -690,9 +690,9 @@ def _assign_candidate_parents(candidates: list[FoldCandidate]) -> None:
     )
     enclosing: list[FoldCandidate] = []
     for candidate in ordered:
-        while enclosing and not _contains(enclosing[-1], candidate):
+        while len(enclosing) > 0 and not _contains(enclosing[-1], candidate):
             enclosing.pop()
-        candidate.parent = enclosing[-1] if enclosing else None
+        candidate.parent = enclosing[-1] if len(enclosing) > 0 else None
         enclosing.append(candidate)
 
 

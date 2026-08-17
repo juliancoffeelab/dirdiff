@@ -25,6 +25,7 @@ from dirdiff.engines.base import (
     InlineToken,
     InlineTokenStatus,
     engine_row_has_change,
+    git_executable,
 )
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.git import GitDiffEngine
@@ -46,4 +47,5 @@ __all__ = [
     "InlineTokenStatus",
     "TextDiffEngine",
     "engine_row_has_change",
+    "git_executable",
 ]

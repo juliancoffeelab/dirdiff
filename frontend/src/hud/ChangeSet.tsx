@@ -42,6 +42,7 @@ import {
   type DiffParams,
   type FileDiff,
   type FileDiffTimeout,
+  isHeavyEngine,
   type LazyInfoFile,
   type Manifest,
   type ManifestDirectory,
@@ -73,7 +74,10 @@ const SLOW_FILE_THRESHOLD_MS = 8_000;
 // Automatic loading overlaps this many upcoming file fetches with the active
 // one, so backend latency stops serializing with render admission. Admission
 // itself stays strictly sequential in manifest order; the constant bounds
-// concurrent requests and undelivered payloads alike.
+// concurrent requests and undelivered payloads alike. It applies only to
+// engines measured to tolerate concurrent backend renders (dirdiff 23% and
+// git 14% faster total load at this width); heavy engines never prefetch
+// (see `isHeavyEngine`).
 const AUTOMATIC_PREFETCH_WIDTH = 2;
 
 /**
@@ -1632,17 +1636,36 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
     ? createQuery(() => api.changeSet.lazyInfo(props.manifest.snapshot_id))
     : null;
 
-  const fileQueries = createQueries(() => ({
-    queries: orderedFiles.map((file) => ({
-      ...api.changeSet.file(
-        props.engine,
-        props.manifest.snapshot_id,
-        file.entry,
-        "bounded",
-      ),
-      enabled: false,
-    })),
-  }));
+  // One replaceable view signal per manifest position. A Solid store write
+  // merges object fields, which would let a stale `error` field survive a
+  // later success and falsify the FileQueryView union, so each view is
+  // swapped wholesale through its own signal instead.
+  const fileViewSignals = orderedFiles.map(() =>
+    createSignal<FileQueryView>({ phase: "idle" }),
+  );
+
+  /** Reads one exact manifest index's view; unknown indexes throw. */
+  function fileView(fileIndex: number): FileQueryView {
+    return expect(
+      fileViewSignals[fileIndex],
+      `ChangeSet is missing the file view for index ${fileIndex}.`,
+    )[0]();
+  }
+
+  /** Replaces one exact manifest index's view wholesale; unknown indexes throw. */
+  function setFileView(fileIndex: number, view: FileQueryView): void {
+    expect(
+      fileViewSignals[fileIndex],
+      `ChangeSet is missing the file view for index ${fileIndex}.`,
+    )[1](view);
+  }
+
+  // Immutable settled payloads, indexed like the view signals. Every write
+  // happens before the matching view flips to "success"; the prefetch settle
+  // and the lane's join of the same in-flight fetch may both record the
+  // identical payload. The canonical query is garbage-collected on settle
+  // (gcTime 0, no observers), so this array is the sole surviving reference.
+  const fileDiffs: (FileDiff | undefined)[] = orderedFiles.map(() => undefined);
 
   const preferenceQueries = createQueries<
     Array<ReturnType<typeof api.profile.preferences>>
@@ -1708,10 +1731,9 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
 
   const fileStateAccessors = orderedFiles.map((manifestFile, fileIndex) =>
     createMemo<FileTreeState>(() => {
-      const query = fileQueries[fileIndex];
+      const view = fileView(fileIndex);
       const path = fileDisplayName(manifestFile.entry);
-      assert(query !== undefined, `Missing file query for ${path}.`);
-      if (query.fetchStatus === "fetching") {
+      if (view.phase === "fetching") {
         return {
           state: "husk" as const,
           fileIndex,
@@ -1720,23 +1742,27 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
           activity: "fetching" as const,
         };
       }
-      if (query.isSuccess) {
+      if (view.phase === "success") {
+        const backendData = expect(
+          fileDiffs[fileIndex],
+          `File query view for ${path} settled without its payload.`,
+        );
         const canonicalDisplayName = canonicalFileResponseName(
           manifestFile.entry,
         );
-        if (query.data.display_name !== canonicalDisplayName) {
+        if (backendData.display_name !== canonicalDisplayName) {
           throw new Error(
-            `File query returned ${query.data.display_name} for canonical file ${canonicalDisplayName}.`,
+            `File query returned ${backendData.display_name} for canonical file ${canonicalDisplayName}.`,
           );
         }
         return {
           state: "full" as const,
           fileIndex,
-          backend_data: query.data,
+          backend_data: backendData,
         };
       }
-      if (query.isError) {
-        if (!(query.error instanceof Error)) {
+      if (view.phase === "error") {
+        if (!(view.error instanceof Error)) {
           throw new Error(`File query ${path} failed without an Error value.`);
         }
         return {
@@ -1746,7 +1772,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             kind: "error" as const,
             name: manifestFile.name,
             path,
-            error: query.error,
+            error: view.error,
           },
         };
       }
@@ -1978,7 +2004,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
 
           if (
             lineTarget !== null &&
-            fileQueries[lineTarget.fileIndex]?.isSuccess === true &&
+            fileView(lineTarget.fileIndex).phase === "success" &&
             admittedFiles[lineTarget.fileIndex] === true
           ) {
             const readyTarget = lineTarget;
@@ -2016,9 +2042,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             currentLineTarget = pendingLineTarget;
             fileIndex = pendingLineTarget.fileIndex;
             timeout =
-              fileQueries[fileIndex]?.isError === true
-                ? "unbounded"
-                : "bounded";
+              fileView(fileIndex).phase === "error" ? "unbounded" : "bounded";
           } else if (pendingLineTarget !== null || selectedQueue.length === 0) {
             kind = "sequence";
             while (automaticCursor < files.length) {
@@ -2058,9 +2082,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
               kind = "line-target";
               currentLineTarget = pendingLineTarget;
               timeout =
-                fileQueries[fileIndex]?.isError === true
-                  ? "unbounded"
-                  : "bounded";
+                fileView(fileIndex).phase === "error" ? "unbounded" : "bounded";
             }
           } else {
             const selection = expect(
@@ -2080,25 +2102,29 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             // Launch a bounded number of upcoming automatic fetches so the
             // network overlaps this file's fetch and admission. Their errors
             // and results land on the same canonical queries the lane reads
-            // when it reaches those indexes.
+            // when it reaches those indexes. Heavy engines never
+            // prefetch: see AUTOMATIC_PREFETCH_WIDTH.
+            const prefetchWidth = isHeavyEngine(engine)
+              ? 0
+              : AUTOMATIC_PREFETCH_WIDTH;
             let inFlight = 0;
             for (
               let ahead = automaticCursor;
-              ahead < files.length && inFlight < AUTOMATIC_PREFETCH_WIDTH;
+              ahead < files.length && inFlight < prefetchWidth;
               ahead += 1
             ) {
               const candidate = files[ahead];
               if (candidate === undefined || candidate.entry.lazy !== null) {
                 continue;
               }
-              const aheadQuery = fileQueries[ahead];
+              const aheadView = fileView(ahead);
               if (
-                aheadQuery?.isSuccess === true ||
-                aheadQuery?.isError === true
+                aheadView.phase === "success" ||
+                aheadView.phase === "error"
               ) {
                 continue;
               }
-              if (aheadQuery?.fetchStatus === "fetching") {
+              if (aheadView.phase === "fetching") {
                 inFlight += 1;
                 continue;
               }
@@ -2109,7 +2135,26 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
                 "bounded",
               );
               prefetchedKeys.set(ahead, aheadOptions.queryKey);
-              void queryClient.prefetchQuery(aheadOptions);
+              setFileView(ahead, { phase: "fetching" });
+              // The settled query is garbage-collected immediately (gcTime 0,
+              // no observers), so this handler is what records the payload;
+              // when the lane reaches the file first it joins this exact
+              // in-flight fetch and records the same settlement.
+              void queryClient.fetchQuery(aheadOptions).then(
+                (data) => {
+                  if (stopped) return;
+                  fileDiffs[ahead] = data;
+                  setFileView(ahead, { phase: "success" });
+                },
+                (error: unknown) => {
+                  // Cancellation needs no branch here: prefetches are only
+                  // cancelled by stopLane, which sets `stopped` first and
+                  // always precedes this snapshot's teardown or replacement,
+                  // so the view frozen at "fetching" is never presented.
+                  if (stopped) return;
+                  setFileView(ahead, { phase: "error", error });
+                },
+              );
               inFlight += 1;
             }
           }
@@ -2135,21 +2180,25 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
           }, SLOW_FILE_THRESHOLD_MS);
 
           try {
-            if (
-              kind === "sequence" &&
-              fileQueries[fileIndex]?.isError === true
-            ) {
-              // A prefetched attempt already failed and the canonical query
-              // presents that failure; the automatic pass makes exactly one
-              // attempt per file, so it does not fetch again.
-              throw expect(
-                fileQueries[fileIndex]?.error,
-                "Failed file query lost its error.",
-              );
+            const view = fileView(fileIndex);
+            if (kind === "sequence" && view.phase === "error") {
+              // A prefetched attempt already failed and this view presents
+              // that failure; the automatic pass makes exactly one attempt
+              // per file, so it does not fetch again.
+              throw view.error;
             }
-            await queryClient.fetchQuery(options);
-            if (stopped) {
-              return;
+            if (view.phase !== "success") {
+              // A settled query is garbage-collected immediately (gcTime 0,
+              // no observers), so a "success" view means the payload already
+              // lives in `fileDiffs` and fetching again would hit the
+              // network, not the cache.
+              setFileView(fileIndex, { phase: "fetching" });
+              const data = await queryClient.fetchQuery(options);
+              if (stopped) {
+                return;
+              }
+              fileDiffs[fileIndex] = data;
+              setFileView(fileIndex, { phase: "success" });
             }
             if (
               (kind === "selected" || kind === "line-target") &&
@@ -2182,14 +2231,16 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             if (stopped || isCancelledError(error)) {
               return;
             }
+            // Record the failed attempt on the file's view (idempotent when
+            // replaying a recorded prefetch failure). The lane intentionally
+            // proceeds so one file cannot damage later files.
+            setFileView(fileIndex, { phase: "error", error });
             if (
               currentLineTarget !== null &&
               lineTarget === currentLineTarget
             ) {
               currentLineTarget.state = "dormant";
             }
-            // The canonical query owns and presents this failed attempt. The lane
-            // intentionally proceeds so one file cannot damage later files.
           } finally {
             window.clearTimeout(slowTimer);
             activeIndex = null;
@@ -2247,9 +2298,8 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
       if (file === undefined) {
         throw new Error(`Cannot load unknown file index ${fileIndex}.`);
       }
-      const query = fileQueries[fileIndex];
       if (
-        (query !== undefined && query.isSuccess) ||
+        fileView(fileIndex).phase === "success" ||
         activeIndex === fileIndex
       ) {
         return;
@@ -2431,6 +2481,23 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
     </>
   );
 }
+
+/**
+ * Presents one canonical file query's lifecycle without its payload.
+ *
+ * The QueryClient cache owns transport; the file lane is this view's only
+ * writer and records exactly the transitions it causes: fetch or prefetch
+ * start ("fetching"), settlement ("success"/"error"), and a cancelled
+ * prefetch returning to "idle". Payloads stay out of the store so reactive
+ * propagation never walks row data (TanStack's own `createQueries` store
+ * deep-unwraps every query's rows on every update, which froze loading).
+ * `error` is the settled failure exactly as the fetch rejected with it.
+ */
+type FileQueryView =
+  | { phase: "idle" }
+  | { phase: "fetching" }
+  | { phase: "success" }
+  | { phase: "error"; error: unknown };
 
 /**
  * Defines the structural state shape FileTree consumes from ChangeSet.

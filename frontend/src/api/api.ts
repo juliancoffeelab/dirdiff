@@ -21,6 +21,22 @@ const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic", "gumtree"]);
  */
 export type DiffEngine = z.infer<typeof DiffEngineSchema>;
 
+/**
+ * Reports whether the engine's renders are heavy enough to need protection.
+ *
+ * Heavy engines take long enough per attempt to need the slow initial
+ * transport timeout, and concurrent requests degrade the backend outright
+ * (difftastic measured 2.4x slower total load at three in flight), so the
+ * file lane never prefetches them. Only engines measured to tolerate
+ * concurrent renders are named light (dirdiff 23% and git 14% faster total
+ * load with prefetch — git spawns per file too, so heaviness is decided by
+ * measurement, not process boundary); an engine added later is heavy until
+ * measured otherwise.
+ */
+export function isHeavyEngine(engine: DiffEngine): boolean {
+  return !(engine === "dirdiff" || engine === "git");
+}
+
 const PresetTypeSchema = z.enum(["diff", "fold", "gumtree", "scroll"]);
 
 /**
@@ -1842,7 +1858,7 @@ function requestFileDiff(
   const timeoutMs =
     timeout === "unbounded"
       ? null
-      : engine === "difftastic" || engine === "gumtree"
+      : isHeavyEngine(engine)
         ? SLOW_DIFF_TIMEOUT_MS
         : REQUEST_TIMEOUT_MS;
   return requestJson(

@@ -1401,7 +1401,6 @@ class _SnapshotStore:
                         snapshot_hash,
                     )
                     if visible_id is None:
-                        staging_path.rename(final_path)
                         published_snapshot = SnapshotRecord(
                             id=snapshot_id.hex,
                             content_hash=snapshot_hash,
@@ -1413,17 +1412,31 @@ class _SnapshotStore:
                             ),
                             files=tuple(files),
                         )
-                        review_threads = _derive_room_threads(
-                            database=self._database,
-                            identity=self._identity,
-                            target_snapshot=published_snapshot,
-                        )
-                        self._database.publish(
-                            self._identity,
-                            published_snapshot,
-                            lazy_reasons=lazy_reasons,
-                            review_threads=review_threads,
-                        )
+                        # Thread derivation reads the target Snapshot's own
+                        # captured text (region relocation), so the bytes must
+                        # already sit at their final address before it runs.
+                        staging_path.rename(final_path)
+                        try:
+                            review_threads = _derive_room_threads(
+                                database=self._database,
+                                identity=self._identity,
+                                target_snapshot=published_snapshot,
+                            )
+                            self._database.publish(
+                                self._identity,
+                                published_snapshot,
+                                lazy_reasons=lazy_reasons,
+                                review_threads=review_threads,
+                            )
+                        except BaseException:
+                            # Derivation or publication failed after the
+                            # rename: restore the staging address so cleanup
+                            # removes the bytes and no orphaned, untracked
+                            # Snapshot directory survives at its published
+                            # address. Publication itself is one transaction,
+                            # so no database rows exist either way.
+                            final_path.rename(staging_path)
+                            raise
                         visible_id = snapshot_id.hex
                     else:
                         return verified_retained_snapshot(visible_id)

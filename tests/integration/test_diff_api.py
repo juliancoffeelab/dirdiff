@@ -1107,6 +1107,35 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
         ("inert-comment", "open", "reviewer"),
     ]
 
+    # Changing the worktree and joining again publishes a new Snapshot whose
+    # capture must relocate both range Threads into the fresh capture (the
+    # derivation reads the new Snapshot's own bytes at their final address).
+    (tmp_path / "alpha.txt").write_text(
+        "one\nchanged\nagain\n", encoding="utf-8"
+    )
+    rejoined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "c" * 32,
+            "name": "recapture reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    )
+    assert rejoined.status_code == 200
+    recaptured = rejoined.json()
+    assert recaptured["snapshot_id"] != joined["snapshot_id"]
+    threads = client.get(
+        "/api/agent/threads",
+        params={
+            "snapshot_id": recaptured["snapshot_id"],
+            "page": 1,
+            "limit": 20,
+        },
+    ).json()
+    assert sorted(item["thread_id"] for item in threads["items"]) == sorted(
+        thread_ids
+    )
+
 
 def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
     """A batch with one invalid action must leave zero review rows behind."""

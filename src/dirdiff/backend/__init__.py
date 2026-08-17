@@ -33,6 +33,7 @@ from dirdiff.backend.base import (
     WorkspaceBackendProtocol,
     decode_text_content,
     display_name_for_repo_paths,
+    git_executable,
     load_diff_sides,
 )
 from dirdiff.backend.git import (
@@ -79,6 +80,7 @@ __all__ = [
     "decode_text_content",
     "display_name_for_repo_paths",
     "file_kind_for_change_type",
+    "git_executable",
     "load_diff_sides",
     "preferred_review_selection",
     "prepare_pull_request",
