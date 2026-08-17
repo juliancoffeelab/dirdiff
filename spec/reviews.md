@@ -70,12 +70,16 @@ pair is absent, the placement has no File reference and reports
 `file_missing`. A present File with a missing reference is an invariant
 violation, including empty, binary, lazy, capture-error, and notebook Files.
 
-The migration that removed File-level creation pins each retained historical
-File-level Thread to line 1 on its captured right side when present, otherwise
-its left side. It preserves every Thread, placement, action, and Comment.
+The migration that removed File-level creation retains each historical
+File-level origin and placement as `file-start`, choosing the captured right
+side when present and otherwise the left side of that exact placement. It does
+not read captured bytes, fabricate a range, excerpt, or private coordinate, or
+change any Thread, action, or Comment identity. New Thread creation accepts
+only selected text ranges.
 
-Every Thread originates from a selected text range. Placements report one of
-four public states:
+Every newly created Thread originates from a selected text range. Retained
+historical File-level Threads are the sole `file-start` origin exception.
+Placements report one of four public states:
 
 ```text
 unchanged unique region -> exact relocated range, no outdated reason
@@ -101,18 +105,19 @@ the same rules as ordinary text.
 
 ## Original context
 
-Original code is not copied into review persistence. The origin placement
-references its immutable Snapshot File, and `Thread.discussion()` reconstructs
-one machine-readable selected-side excerpt: its side, first returned line,
-absolute selected range, and exact source lines. It contains the complete
-selected range plus at most three surrounding lines on each side. Every Thread
-has this bounded excerpt. Creation performs the same reconstruction before its
-origin and first action are committed, so an accepted target cannot leave a
-discussion that later review reads cannot render. Review text uses the same
-binary rejection and UTF-8-with-optional-BOM decoding as the File renderer.
-Notebook targets read the selected original cell source; valid notebooks do not
-also accept ordinary text targets. Excerpt construction does not call or expose
-a diff engine or perform a comparison.
+Original code is not copied into review persistence. A text origin references
+its immutable Snapshot File, and `Thread.discussion()` reconstructs one
+machine-readable selected-side excerpt: its side, first returned line, absolute
+selected range, and exact source lines. It contains the complete selected range
+plus at most three surrounding lines on each side. Creation performs the same
+reconstruction before its origin and first action are committed, so an accepted
+text target cannot leave a discussion that later review reads cannot render.
+Review text uses the same binary rejection and UTF-8-with-optional-BOM decoding
+as the File renderer. Notebook targets read the selected original cell source;
+valid notebooks do not also accept ordinary text targets. Excerpt construction
+does not call or expose a diff engine or perform a comparison. A retained
+historical `file-start` origin has no selected range and therefore returns no
+excerpt; reads never fabricate one from captured content.
 
 `region_changed` returns the current matched range and its public outdated
 reason. The current File is read explicitly when its content is needed.
@@ -451,8 +456,9 @@ reads include every lifecycle state, repeat placement and original-excerpt
 metadata on each page, default to 20 Comments, and permit at most 100. Pages
 are one-based; pages past the end are empty. Preview bodies contain at most
 256 Unicode characters, using the first 255 and `…` when truncated. Complete
-Thread data and original excerpts are never truncated; excerpts are inherently
-bounded by the selected range and six context lines.
+Thread data and present original excerpts are never truncated; text excerpts
+are inherently bounded by the selected range and six context lines. Only
+retained historical `file-start` origins omit the excerpt.
 
 Continue uses the old Snapshot to recover its Room and persisted Tab, captures
 that Tab again, derives missing placements only when the capture publishes a

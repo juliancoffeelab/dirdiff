@@ -374,13 +374,15 @@ changes selection, ordering, open state, or content in response to scrolling,
 and never calls scroll-follow. In Split view only, one coalesced geometry
 observer hit-tests the current sticky File header so the fixed History host
 remains directly beneath it; scrolling inside History is explicitly ignored.
-A located Thread exposes an explicit
-`View` action in its header and beside every individual Comment. ChangeSet maps
-the Thread's exact nullable File pair to one manifest index and sends ordinary
-`kind: "file"` navigation. The controls are disabled while the destination is a
-Husk, matching FileTree's caller contract without loading it. The action follows
-FileTree's layout preparation and final scroll behavior, and never selects a
-hunk or navigates to the Thread's line. Unlocated Threads have no `View` action.
+A located Thread exposes one explicit
+go-to action in its Thread header; individual Comments carry none. ChangeSet
+maps the Thread's exact nullable File pair to one manifest index and sends
+`kind: "line"` navigation to the Thread's exact selected-side line (notebook
+Threads address their cell region), then expands the Thread and opens the
+code-aligned Thread panel anchored at that line. The control is disabled while
+the destination is a Husk, matching FileTree's caller contract without loading
+it. The action follows line navigation's layout preparation and final scroll
+behavior, and never selects a hunk. Unlocated Threads have no go-to action.
 
 ## Navigation invariants
 
@@ -402,5 +404,6 @@ hunk or navigates to the Thread's line. Unlocated Threads have no `View` action.
   restoration cancellation; the lane owns loading; Navigation owns the final
   scroll.
 - Line pins never call `selectHunk()`.
-- History `View` is enabled only for a non-Husk destination, performs File
-  navigation only, and never calls `selectHunk()` or `scrollFollow()`.
+- The History Thread go-to is enabled only for a non-Husk destination,
+  performs exact-line navigation that opens the code-aligned Thread panel,
+  and never calls `selectHunk()` or `scrollFollow()`.

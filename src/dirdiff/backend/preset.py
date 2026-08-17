@@ -14,9 +14,8 @@ from typing import TypeIs, override
 
 from dirdiff.backend.base import (
     BranchSelection,
-    DefaultBaseSelection,
     LazyReason,
-    RefChoices,
+    RepoDiff,
     RepoDiffPath,
     SideName,
     WorkspaceBackendProtocol,
@@ -214,73 +213,24 @@ class PresetBackend(WorkspaceBackendProtocol):
         return f"{preset_group}/{preset_dir.name}/{old_path.name}"
 
     @override
-    def current_branch_name(self) -> str:
-        """Reject Git branch access for preset-backed fixtures."""
-        raise DirdiffError("Preset backend does not have a current Git branch.")
-
-    @override
-    def list_branch_names(self) -> list[str]:
-        """Reject local branch listing for preset-backed fixtures."""
-        raise DirdiffError("Preset backend does not have Git branches.")
-
-    @override
-    def list_remote_ref_names(self) -> list[str]:
-        """Reject remote ref listing for preset-backed fixtures."""
-        raise DirdiffError("Preset backend does not have Git remote refs.")
-
-    @override
-    def list_remote_names(self) -> list[str]:
-        """Reject remote listing for preset-backed fixtures."""
-        raise DirdiffError("Preset backend does not have Git remotes.")
-
-    @override
-    def list_ref_choices(self) -> RefChoices:
-        """Return an empty ref-choice shape for preset-backed fixtures."""
-        return {
-            "builtins": [],
-            "local_branches": [],
-            "remotes": [],
-            "remote_branches": [],
-        }
-
-    @override
-    def branch_upstream_name(self, branch_name: str) -> str:
-        """Reject upstream lookup for preset-backed fixtures."""
-        raise DirdiffError("Preset backend does not have Git branch upstreams.")
-
-    @override
-    def default_base_selection(self) -> DefaultBaseSelection:
-        """Reject branch-review defaults for preset-backed fixtures."""
-        raise DirdiffError(
-            "Preset backend does not have a default base branch."
-        )
-
-    @override
-    def preferred_review_selection(
-        self, *, base_selection: DefaultBaseSelection | None = None
-    ) -> BranchSelection:
-        """Reject branch-review review defaults for preset-backed fixtures."""
-        raise DirdiffError("Preset backend does not support branch review.")
-
-    @override
     def resolve_branch_diff_sides(
         self,
         *,
         base_selection: BranchSelection,
         review_selection: BranchSelection,
-    ) -> tuple[str, str, str]:
+    ) -> tuple[str, str, str, str]:
         """Reject branch-review resolution for preset-backed fixtures."""
         raise DirdiffError("Preset backend does not support branch review.")
 
     @override
-    def list_repo_diff_paths(
+    def repo_diff(
         self,
         *,
         left: SideName,
         right: SideName,
         show_untracked: bool = False,
-    ) -> list[RepoDiffPath]:
-        """Represent each old/new fixture pair as one modified repo path."""
+    ) -> RepoDiff:
+        """Return each fixture pair and explicitly absent aggregate totals."""
         normalized_left = self.normalize_side(left)
         if right != "new":
             raise DirdiffError(
@@ -302,28 +252,8 @@ class PresetBackend(WorkspaceBackendProtocol):
                     ),
                 )
             )
-        return entries
-
-    @override
-    def line_counts(
-        self,
-        *,
-        left: SideName,
-        right: SideName,
-        show_untracked: bool = False,
-    ) -> tuple[None, None]:
-        """Report that presets have no authoritative aggregate line counts.
-
-        Presets never support intruding Files, so `show_untracked` must remain
-        false for this backend.
-        """
         assert not show_untracked, "preset diffs do not support untracked Files"
-        self.normalize_side(left)
-        if right != "new":
-            raise DirdiffError(
-                "Preset diffs compare a preset's old.* and new.* files."
-            )
-        return None, None
+        return RepoDiff(tuple(entries), None, None)
 
     @override
     def normalize_repo_path(self, raw_path: str) -> str:
@@ -365,3 +295,16 @@ class PresetBackend(WorkspaceBackendProtocol):
             raise DirdiffError(
                 f"Could not read preset file {normalized_path}: {exc}"
             ) from exc
+
+    @override
+    def load_versions(
+        self, requests: tuple[tuple[str, SideName], ...]
+    ) -> tuple[bytes | DirdiffError, ...]:
+        """Load fixture sides in order while retaining individual failures."""
+        results: list[bytes | DirdiffError] = []
+        for path, side in requests:
+            try:
+                results.append(self.load_version(path, side))
+            except DirdiffError as exc:
+                results.append(exc)
+        return tuple(results)

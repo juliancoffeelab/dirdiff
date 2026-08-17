@@ -5,7 +5,7 @@ description: Use when asked to review a patch using API.
 
 # Review a patch
 
-Act as the independent patch reviewer. Use ordinary Codex tools to inspect and
+Act as the independent patch reviewer. Use ordinary harness tools to inspect and
 verify the captured change and direct HTTP calls to record review actions in
 dirdiff. Put substantive findings and decisions in dirdiff; return compact
 orchestration messages to the parent agent.
@@ -37,8 +37,8 @@ findings are understood and not duplicated.
 Enumerate and inspect every captured File pair under `snapshot_path`, then read
 enough adjacent live-repository implementation to support every conclusion.
 Choose appropriate tools and checks, prefer reading the code and when necessary
-interacting with the project. Dont run tests or lints, that's the responsibility
-of implementor.
+interacting with the project. Do not run tests or lints; those are the
+implementor's responsibility.
 
 Review for three non-negotiable principles:
 

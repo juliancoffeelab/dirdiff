@@ -9,8 +9,11 @@ mock backend loading or bypass request/response contracts.
 import subprocess
 from pathlib import Path
 
+from alembic.config import Config
 from fastapi.testclient import TestClient
+from sqlalchemy import MetaData, create_engine, select
 
+from alembic import command
 from dirdiff.db import (
     RepoMarkStore,
     RoomStore,
@@ -102,6 +105,222 @@ def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
         capture_output=True,
     )
     return tmp_path / "worktree"
+
+
+def test_historical_file_review_migration_never_reads_captured_text(
+    tmp_path: Path,
+) -> None:
+    """Retain empty, binary, and non-UTF8 File origins without fabrication."""
+    database_path = tmp_path / "legacy.sqlite"
+    config = Config(Path(__file__).parents[2] / "alembic.ini")
+    config.attributes["db_path"] = database_path
+    command.upgrade(config, "b74d52f083c1")
+
+    captures = []
+    for name, side, content in (
+        ("empty", "right", b""),
+        ("binary", "left", b"\x00\x01\xff"),
+        ("non-utf8", "right", b"\x80\xfe\xff"),
+    ):
+        capture = tmp_path / name
+        capture.mkdir()
+        (capture / side).write_bytes(content)
+        captures.append((capture, side))
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    legacy = MetaData()
+    legacy.reflect(bind=engine)
+    room = legacy.tables["room"]
+    snapshot = legacy.tables["snapshot"]
+    snapshot_meta = legacy.tables["snapshot_meta"]
+    snapshot_file = legacy.tables["snapshot_file"]
+    snapshot_file_left = legacy.tables["snapshot_file_left"]
+    snapshot_file_right = legacy.tables["snapshot_file_right"]
+    review_thread = legacy.tables["review_thread"]
+    review_action = legacy.tables["review_action"]
+    repo_mark = legacy.tables["repo_mark"]
+    user_profile = legacy.tables["user_profile"]
+    snapshot_id = "1" * 32
+    with engine.begin() as connection:
+        connection.execute(
+            repo_mark.insert().values(id=1, path=str(tmp_path), active=True)
+        )
+        connection.execute(
+            room.insert().values(
+                id=1,
+                mark_id=1,
+                tab="head",
+                backend_key=b"legacy",
+            )
+        )
+        connection.execute(
+            snapshot.insert().values(
+                id=snapshot_id,
+                room_id=1,
+                content_hash=b"s" * 32,
+            )
+        )
+        connection.execute(
+            snapshot_meta.insert().values(
+                snapshot_id=snapshot_id,
+                left_label="old",
+                right_label="new",
+                added_lines=0,
+                removed_lines=0,
+            )
+        )
+        connection.execute(user_profile.insert().values(id=1, username="old"))
+        for index, (capture, side) in enumerate(captures, start=1):
+            file_id = f"{index + 1:x}" * 32
+            thread_id = f"{index + 4:x}" * 32
+            comment_id = f"{index + 7:x}" * 32
+            operation_id = f"{index + 10:x}" * 32
+            connection.execute(
+                snapshot_file.insert().values(
+                    id=file_id,
+                    snapshot_id=snapshot_id,
+                    path=str(capture),
+                    tracked=True,
+                    change_type="modify",
+                    error=None,
+                )
+            )
+            side_table = (
+                snapshot_file_left if side == "left" else snapshot_file_right
+            )
+            connection.execute(
+                side_table.insert().values(
+                    file_id=file_id,
+                    repository_path=f"{capture.name}.dat",
+                    content_hash=b"f" * 32,
+                )
+            )
+            connection.execute(
+                review_thread.insert().values(
+                    thread_id=thread_id,
+                    snapshot_id=snapshot_id,
+                    snapshot_file_id=file_id,
+                    is_origin=True,
+                    target_kind="file",
+                    region_kind=None,
+                    region_key=None,
+                    side=None,
+                    start_line=None,
+                    end_line=None,
+                    outdated_reason=None,
+                    private_locator=None,
+                )
+            )
+            connection.execute(
+                review_action.insert().values(
+                    operation_id=operation_id,
+                    activity_id=index,
+                    thread_id=thread_id,
+                    snapshot_id=snapshot_id,
+                    sequence=0,
+                    kind="comment-created",
+                    profile_id=1,
+                    comment_id=comment_id,
+                    expected_revision=None,
+                    body=capture.name,
+                    created_at="2026-08-16T00:00:00+00:00",
+                )
+            )
+
+    engine.dispose()
+    command.upgrade(config, "c8154d91a7e2")
+    migrated_engine = create_engine(f"sqlite:///{database_path}")
+    migrated_schema = MetaData()
+    migrated_schema.reflect(bind=migrated_engine)
+    migrated_threads = migrated_schema.tables["review_thread"]
+    with migrated_engine.connect() as connection:
+        retained = [
+            tuple(row)
+            for row in connection.execute(
+                select(
+                    migrated_threads.c.target_kind,
+                    migrated_threads.c.side,
+                ).order_by(migrated_threads.c.thread_id)
+            )
+        ]
+    assert retained == [
+        ("file-start", "right"),
+        ("file-start", "left"),
+        ("file-start", "right"),
+    ]
+    migrated_engine.dispose()
+
+    command.downgrade(config, "b74d52f083c1")
+    downgraded_engine = create_engine(f"sqlite:///{database_path}")
+    downgraded = MetaData()
+    downgraded.reflect(bind=downgraded_engine)
+    old_threads = downgraded.tables["review_thread"]
+    with downgraded_engine.connect() as connection:
+        restored = [
+            tuple(row)
+            for row in connection.execute(
+                select(old_threads.c.target_kind, old_threads.c.side).order_by(
+                    old_threads.c.thread_id
+                )
+            )
+        ]
+    assert restored == [("file", None), ("file", None), ("file", None)]
+    downgraded_engine.dispose()
+
+    command.upgrade(config, "head")
+
+    current_engine = create_engine(f"sqlite:///{database_path}")
+    current = MetaData()
+    current.reflect(bind=current_engine)
+    placements = current.tables["review_thread_placement"]
+    with current_engine.connect() as connection:
+        migrated = [
+            tuple(row)
+            for row in connection.execute(
+                select(
+                    placements.c.target_kind,
+                    placements.c.side,
+                    placements.c.start_line,
+                    placements.c.end_line,
+                    placements.c.outdated_reason,
+                    placements.c.private_locator,
+                ).order_by(placements.c.thread_id)
+            )
+        ]
+
+    assert migrated == [
+        ("file-start", "right", None, None, None, None),
+        ("file-start", "left", None, None, None, None),
+        ("file-start", "right", None, None, None, None),
+    ]
+    client = TestClient(
+        create_app(
+            RepoMarkStore(current_engine),
+            UserProfileStore(current_engine),
+            room_lord=RoomLord(RoomStore(current_engine), tmp_path / "store"),
+        )
+    )
+    response = client.get(
+        "/api/review/threads",
+        params={"snapshot_id": snapshot_id, "page": 1, "limit": 20},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_threads"] == 3
+    assert [
+        thread["origin_target"]["kind"] for thread in payload["threads"]
+    ] == [
+        "file-start",
+        "file-start",
+        "file-start",
+    ]
+    assert [thread["original_excerpt"] for thread in payload["threads"]] == [
+        None,
+        None,
+        None,
+    ]
+    client.close()
+    current_engine.dispose()
 
 
 def test_repo_defaults_base_to_remote_and_review_to_local(
@@ -799,3 +1018,137 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
             },
         }
     ]
+
+
+def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
+    """One agent batch addressing several Threads folds and persists atomically."""
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "a" * 32,
+            "name": "batch reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+    sides = sorted(Path(joined["snapshot_path"]).glob("*/right"))
+    assert sides != []
+
+    created = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(sides[0]),
+                    "region": {"start_line": 1, "end_line": 1},
+                    "body": "first finding",
+                },
+                {
+                    "kind": "create-finding",
+                    "file": str(sides[0]),
+                    "region": {"start_line": 2, "end_line": 2},
+                    "body": "second finding",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 200
+    thread_ids = [result["thread_id"] for result in created.json()["results"]]
+    assert len(set(thread_ids)) == 2
+
+    # One follow-up batch addresses both existing Threads. The bulk history
+    # read must fold each Thread independently and in authored order: the
+    # reviewer-return is only legal because the same batch's author-response
+    # moved that Thread's attention to the reviewer first.
+    replied = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "author-response",
+                    "thread_id": thread_ids[0],
+                    "body": "first response",
+                },
+                {
+                    "kind": "author-response",
+                    "thread_id": thread_ids[1],
+                    "body": "second response",
+                },
+                {
+                    "kind": "reviewer-return",
+                    "thread_id": thread_ids[1],
+                    "body": "returned",
+                },
+                {
+                    "kind": "inert-comment",
+                    "thread_id": thread_ids[0],
+                    "body": "extra context",
+                },
+            ],
+        },
+    )
+    assert replied.status_code == 200
+    outcomes = [
+        (result["kind"], result["status"], result["attention"])
+        for result in replied.json()["results"]
+    ]
+    assert outcomes == [
+        ("author-response", "open", "reviewer"),
+        ("author-response", "open", "reviewer"),
+        ("reviewer-return", "open", "author"),
+        ("inert-comment", "open", "reviewer"),
+    ]
+
+
+def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
+    """A batch with one invalid action must leave zero review rows behind."""
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "b" * 32,
+            "name": "atomic reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+    sides = sorted(Path(joined["snapshot_path"]).glob("*/right"))
+    assert sides != []
+
+    rejected = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(sides[0]),
+                    "region": {"start_line": 1, "end_line": 1},
+                    "body": "valid finding",
+                },
+                {
+                    "kind": "author-response",
+                    "thread_id": "f" * 32,
+                    "body": "reply to a Thread that does not exist",
+                },
+            ],
+        },
+    )
+    assert rejected.status_code == 400
+
+    threads = client.get(
+        "/api/agent/threads",
+        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
+    ).json()
+    assert threads["items"] == []

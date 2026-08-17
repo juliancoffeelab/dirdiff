@@ -610,53 +610,72 @@ def _highlight_lines_with_spec(
     tree = parser.parse(source_bytes)
     cursor = QueryCursor(query)
     capture_map = cursor.captures(tree.root_node)
-    captures: list[tuple[str, int, int]] = []
-    for capture_name, nodes in capture_map.items():
-        for node in nodes:
-            if node.start_byte < node.end_byte:
-                captures.append((capture_name, node.start_byte, node.end_byte))
-
-    if captures == []:
-        return [[] for _ in text.splitlines()]
-
-    byte_boundaries = [0]
-    for character in text:
-        byte_boundaries.append(
-            byte_boundaries[-1] + len(character.encode("utf-8"))
-        )
 
     line_texts = text.splitlines()
-    line_starts = [0]
-    for index, character in enumerate(text):
-        if character == "\n":
-            line_starts.append(index + 1)
+    line_count = len(line_texts)
+
+    # Class expansion is memoized per capture name and byte columns come from
+    # each Node's row/column points, so the whole-text character/byte boundary
+    # arrays and the two bisects per capture are gone. Only lines containing
+    # multibyte characters build a byte-to-character map, once.
+    classes_by_capture: dict[str, tuple[SyntaxClass, ...]] = {}
+    line_byte_maps: dict[int, list[int]] = {}
+
+    def _character_column(line_index: int, byte_column: int) -> int:
+        """Convert one line-local byte column to its character column."""
+        line_text = line_texts[line_index]
+        if line_text.isascii():
+            return min(byte_column, len(line_text))
+        boundaries = line_byte_maps.get(line_index)
+        if boundaries is None:
+            boundaries = [0]
+            for character in line_text:
+                boundaries.append(
+                    boundaries[-1] + len(character.encode("utf-8"))
+                )
+            line_byte_maps[line_index] = boundaries
+        return bisect_right(boundaries, byte_column) - 1
 
     line_intervals: list[
         list[tuple[int, int, tuple[SyntaxClass, ...], int]]
     ] = [[] for _ in line_texts]
-    for order, (capture_name, start_byte, end_byte) in enumerate(captures):
-        start_char = bisect_right(byte_boundaries, start_byte) - 1
-        end_char = bisect_right(byte_boundaries, end_byte) - 1
-        if start_char >= end_char:
-            continue
-
-        classes = _classes_for_capture(capture_name)
-        first_line = bisect_right(line_starts, start_char) - 1
-        last_line = bisect_right(line_starts, max(start_char, end_char - 1)) - 1
-
-        for line_index in range(
-            first_line,
-            min(last_line + 1, len(line_texts)),
-        ):
-            line_start = line_starts[line_index]
-            line_end = line_start + len(line_texts[line_index])
-            local_start = max(start_char, line_start) - line_start
-            local_end = min(end_char, line_end) - line_start
-            if local_start >= local_end:
+    order = 0
+    captured_any = False
+    for capture_name, nodes in capture_map.items():
+        classes: tuple[SyntaxClass, ...] | None = None
+        for node in nodes:
+            if node.start_byte >= node.end_byte:
                 continue
-            line_intervals[line_index].append(
-                (local_start, local_end, classes, order)
-            )
+            captured_any = True
+            if classes is None:
+                classes = classes_by_capture.get(capture_name)
+                if classes is None:
+                    classes = _classes_for_capture(capture_name)
+                    classes_by_capture[capture_name] = classes
+            start_row, start_column = node.start_point
+            end_row, end_column = node.end_point
+            for line_index in range(
+                start_row, min(end_row, line_count - 1) + 1
+            ):
+                local_start = (
+                    _character_column(line_index, start_column)
+                    if line_index == start_row
+                    else 0
+                )
+                local_end = (
+                    _character_column(line_index, end_column)
+                    if line_index == end_row
+                    else len(line_texts[line_index])
+                )
+                if local_start >= local_end:
+                    continue
+                line_intervals[line_index].append(
+                    (local_start, local_end, classes, order)
+                )
+            order += 1
+
+    if not captured_any:
+        return [[] for _ in line_texts]
 
     return [
         [

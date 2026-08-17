@@ -388,6 +388,13 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
         check=True,
         capture_output=True,
     )
+    feature_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
     subprocess.run(
         ["git", "checkout", "master"],
@@ -408,22 +415,36 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
         check=True,
         capture_output=True,
     )
+    subprocess.run(
+        ["git", "tag", "feature"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    resolved_base_branch, merge_base, normalized_branch = (
+    resolved_base_branch, merge_base, normalized_branch, review_commit = (
         service.resolve_branch_diff_sides(
             base_selection={"source": "local", "branch": "master"},
             review_selection={"source": "local", "branch": "feature"},
         )
     )
+    subprocess.run(
+        ["git", "branch", "--force", "feature", "master"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     manifest = service.build_repo_manifest(
         left=merge_base,
-        right=normalized_branch,
+        right=review_commit,
     )
 
     assert resolved_base_branch == "master"
+    assert normalized_branch == "feature"
+    assert review_commit == feature_commit
     assert manifest["left_label"] == merge_base
-    assert manifest["right_label"] == "feature"
+    assert manifest["right_label"] == review_commit
     assert manifest["tree"] == [
         {
             "type": "file",
@@ -677,7 +698,7 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
         capture_output=True,
     )
     large_file.write_text(
-        "".join(f"line {index}\n" for index in range(1001)),
+        "".join(f"line {index}\n" for index in range(5001)),
         encoding="utf-8",
     )
 
@@ -698,7 +719,7 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
         }
     ]
     assert manifest["summary"]["changed_files"] == 1
-    assert manifest["summary"]["added_lines"] == 1001
+    assert manifest["summary"]["added_lines"] == 5001
     assert manifest["summary"]["removed_lines"] == 1
 
 

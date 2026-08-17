@@ -39,11 +39,11 @@ def _preset_dirs() -> list[Path]:
 def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
     backend = GitBackend.discover(cwd=REPO_ROOT)
     cases: list[tuple[str, str, str, str, str]] = []
-    for entry in backend.list_repo_diff_paths(
+    for entry in backend.repo_diff(
         left="HEAD",
         right="worktree",
         show_untracked=True,
-    ):
+    ).paths:
         try:
             sides = load_diff_sides(
                 backend=backend,

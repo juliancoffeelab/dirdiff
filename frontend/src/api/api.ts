@@ -911,6 +911,11 @@ export const ThreadCodeLocationSchema = z.discriminatedUnion("kind", [
 /** Identifies one current public code location for a Thread. */
 export type ThreadCodeLocation = z.infer<typeof ThreadCodeLocationSchema>;
 
+const ReviewOriginTargetSchema = z.union([
+  ReviewTargetSchema,
+  FileStartThreadCodeLocationSchema,
+]);
+
 const ReviewExcerptSchema = z
   .strictObject({
     side: z.enum(["left", "right"]),
@@ -944,34 +949,54 @@ const ReviewThreadSchema = z
     state: z.enum(["open", "resolved", "deleted"]),
     attention: z.enum(["author", "reviewer", "both", "none"]),
     discussion_revision: z.number().int().nonnegative(),
-    origin_target: ReviewTargetSchema,
+    origin_target: ReviewOriginTargetSchema,
     code_location: ThreadCodeLocationSchema.nullable(),
     outdated_reason: z
       .enum(["region_changed", "region_not_found", "file_missing"])
       .nullable(),
-    original_excerpt: ReviewExcerptSchema,
+    original_excerpt: ReviewExcerptSchema.nullable(),
     comments: z.array(ReviewCommentSchema).min(1),
   })
   .superRefine((thread, context) => {
     const location = thread.code_location;
     const reason = thread.outdated_reason;
-    const validCodeState =
-      (reason === null && location?.kind === "range") ||
-      (reason === "region_changed" && location?.kind === "range") ||
-      (reason === "region_not_found" && location?.kind === "file-start") ||
-      (reason === "file_missing" && location === null);
+    const origin = thread.origin_target;
+    const legacyFileStart = origin.kind === "file-start";
+    const validCodeState = legacyFileStart
+      ? (reason === null && location?.kind === "file-start") ||
+        (reason === "file_missing" && location === null)
+      : (reason === null && location?.kind === "range") ||
+        (reason === "region_changed" && location?.kind === "range") ||
+        (reason === "region_not_found" && location?.kind === "file-start") ||
+        (reason === "file_missing" && location === null);
     if (!validCodeState) {
       context.addIssue({
         code: "custom",
         message: "Thread code location and outdated state disagree.",
       });
     }
-    const origin = thread.origin_target;
+    if (legacyFileStart !== (thread.original_excerpt === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Only historical File-start origins omit an excerpt.",
+      });
+    }
     const locationMatchesOriginFile =
       location !== null &&
       origin.file.left_path === location.file.left_path &&
       origin.file.right_path === location.file.right_path;
-    if (reason !== "file_missing") {
+    if (legacyFileStart && reason !== "file_missing") {
+      if (
+        !locationMatchesOriginFile ||
+        location?.kind !== "file-start" ||
+        location.side !== origin.side
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Historical File-start identity changed.",
+        });
+      }
+    } else if (!legacyFileStart && reason !== "file_missing") {
       const sameRegionKind =
         location?.kind === "range" &&
         origin.region.kind === location.region.kind;
@@ -1135,7 +1160,6 @@ const HttpExceptionResponseSchema = z.strictObject({
 });
 
 const REQUEST_TIMEOUT_MS = 8_000;
-const REVIEW_REQUEST_TIMEOUT_MS = 1_000;
 const SLOW_DIFF_TIMEOUT_MS = 20_000;
 const PULL_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -1154,7 +1178,8 @@ export type FileDiffTimeout = "bounded" | "unbounded";
  *
  * `abortSignal` is genuinely nullable because TanStack queries provide
  * cancellation while mutation commands do not. `timeoutMs` is genuinely
- * nullable because an explicit file retry has no transport timeout. Every field
+ * nullable because explicit file retries and irreversible review writes have
+ * no transport timeout. Every field
  * remains explicit so transport behavior is never selected through omitted
  * arguments.
  */
@@ -1924,7 +1949,10 @@ async function requestCreateReviewThread(
         }),
       },
       abortSignal: null,
-      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+      // Irreversible review writes carry no transport timeout: the backend
+      // commits regardless of a dropped connection, so the browser must wait
+      // for the one authoritative response instead of inventing a failure.
+      timeoutMs: null,
     },
     ReviewThreadSchema,
   );
@@ -1957,7 +1985,10 @@ async function requestAddReviewComment(
         }),
       },
       abortSignal: null,
-      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+      // Irreversible review writes carry no transport timeout: the backend
+      // commits regardless of a dropped connection, so the browser must wait
+      // for the one authoritative response instead of inventing a failure.
+      timeoutMs: null,
     },
     ReviewThreadUpdateSchema,
   );
@@ -1989,7 +2020,10 @@ async function requestEditReviewComment(
         }),
       },
       abortSignal: null,
-      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+      // Irreversible review writes carry no transport timeout: the backend
+      // commits regardless of a dropped connection, so the browser must wait
+      // for the one authoritative response instead of inventing a failure.
+      timeoutMs: null,
     },
     ReviewThreadUpdateSchema,
   );
@@ -2021,7 +2055,10 @@ async function requestDeleteReviewComment(
         }),
       },
       abortSignal: null,
-      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+      // Irreversible review writes carry no transport timeout: the backend
+      // commits regardless of a dropped connection, so the browser must wait
+      // for the one authoritative response instead of inventing a failure.
+      timeoutMs: null,
     },
     ReviewThreadUpdateSchema,
   );
@@ -2053,7 +2090,10 @@ async function requestChangeReviewThreadState(
         }),
       },
       abortSignal: null,
-      timeoutMs: REVIEW_REQUEST_TIMEOUT_MS,
+      // Irreversible review writes carry no transport timeout: the backend
+      // commits regardless of a dropped connection, so the browser must wait
+      // for the one authoritative response instead of inventing a failure.
+      timeoutMs: null,
     },
     ReviewThreadUpdateSchema,
   );

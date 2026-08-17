@@ -18,10 +18,11 @@ placeholders must be replaced with API results or selected inbox values.
 ## Session variables
 
 ```sh
-export DD_URL='http://127.0.0.1:5173'
+: "${DD_URL:?Set DD_URL to the base URL printed by the running dirdiff backend}"
+export DD_URL
 export DD_REPO_PATH="$(git rev-parse --show-toplevel)"
 export DD_AGENT_UUID="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
-export DD_AGENT_NAME="Codex reviewer ${DD_AGENT_UUID%${DD_AGENT_UUID#????????}}"
+export DD_AGENT_NAME="AI reviewer ${DD_AGENT_UUID%${DD_AGENT_UUID#????????}}"
 ```
 
 `DD_URL` must be the address printed by the running dirdiff backend. The
@@ -49,6 +50,26 @@ request = urllib.request.Request(
 with urllib.request.urlopen(request) as response:
     print(json.dumps(json.load(response), indent=2))
 PY
+```
+
+The `tab` object selects the Tab kind. `{"kind": "head", ...}` above compares
+`HEAD` with the current worktree. The other kinds accepted by `join_review`:
+
+```python
+# Refs: two explicit sides of one marked repository.
+{"kind": "refs", "repo_path": REPO_PATH, "left": "main", "right": "HEAD"}
+
+# Branch review: one symbolic base and review branch pair.
+# remote is None for a local branch, or the remote name such as "origin".
+{
+    "kind": "branch-review",
+    "repo_path": REPO_PATH,
+    "base": {"remote": None, "name": "main"},
+    "review": {"remote": None, "name": "feature/topic"},
+}
+
+# Pull request: one supported Pull Request URL; takes no repo_path.
+{"kind": "pull-request", "url": "https://github.com/owner/repo/pull/123"}
 ```
 
 Export the returned values before later commands:

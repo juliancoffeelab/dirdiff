@@ -12,6 +12,7 @@ from pathlib import Path
 from helpers import TextDiffService
 
 from dirdiff.backend import GitBackend
+from dirdiff.engines import DirdiffError
 
 __all__: list[str] = []
 
@@ -56,7 +57,7 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     )
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    paths = service.list_repo_diff_paths(left="HEAD", right="worktree")
+    paths = service.backend.repo_diff(left="HEAD", right="worktree").paths
 
     assert len(paths) == 1
     assert paths[0].display_name == "alpha.txt -> renamed.txt"
@@ -159,7 +160,7 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
 
     service = TextDiffService(GitBackend.discover(cwd=tmp_path))
     ref_choices = service.list_ref_choices()
-    resolved_base_branch, merge_base, normalized_branch = (
+    resolved_base_branch, merge_base, normalized_branch, review_commit = (
         service.resolve_branch_diff_sides(
             base_selection={
                 "source": "remote",
@@ -207,6 +208,7 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
     assert resolved_base_branch == "upstream/main"
     assert merge_base == base_commit
     assert normalized_branch == "upstream/rich-text"
+    assert review_commit == branch_commit
 
     try:
         service.normalize_side("rich-text")
@@ -300,4 +302,99 @@ def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
         b"2\t1\t\0old/name.txt\0new/name.txt\0"
     )
 
-    assert counts == {"new/name.txt": (2, 1)}
+    assert counts == ({"new/name.txt": (2, 1)}, 2, 1)
+
+
+def test_batch_loads_literal_paths_without_argv_pathspecs(
+    tmp_path: Path,
+) -> None:
+    """Load exact tree/index names, arbitrary bytes, and per-File misses."""
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    magic_name = ":(glob)literal.txt"
+    newline_name = "line\nbreak.bin"
+    stage_name = "0:notes.txt"
+    (tmp_path / magic_name).write_bytes(b"committed magic\n")
+    (tmp_path / newline_name).write_bytes(b"\x00committed\nbytes\xff")
+    subprocess.run(
+        ["git", "add", "--all"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "literal paths"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / magic_name).write_bytes(b"staged magic\n")
+    (tmp_path / stage_name).write_bytes(b"literal stage-shaped name\n")
+    subprocess.run(
+        ["git", "add", "--all"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    commit_id = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(
+        [
+            "git",
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"160000,{commit_id},linked",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    repository = GitBackend.discover(cwd=tmp_path)
+    assert repository.load_version(stage_name, "index") == (
+        b"literal stage-shaped name\n"
+    )
+    loaded = repository.load_versions(
+        (
+            (magic_name, "HEAD"),
+            (newline_name, "HEAD"),
+            (magic_name, "index"),
+            (stage_name, "index"),
+            ("linked", "index"),
+            ("missing\npath", "HEAD"),
+        )
+    )
+
+    assert loaded[:4] == (
+        b"committed magic\n",
+        b"\x00committed\nbytes\xff",
+        b"staged magic\n",
+        b"literal stage-shaped name\n",
+    )
+    assert isinstance(loaded[4], DirdiffError)
+    assert str(loaded[4]) == (
+        "Git could not load :./linked: expected a File blob, got commit."
+    )
+    assert isinstance(loaded[5], DirdiffError)
+    assert str(loaded[5]) == (
+        "Git could not load HEAD:missing\npath: File is missing."
+    )

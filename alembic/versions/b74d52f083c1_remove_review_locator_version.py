@@ -36,13 +36,24 @@ def upgrade() -> None:
         batch_op.drop_column("private_locator_version")
         batch_op.create_check_constraint(
             "ck_review_thread_locator",
-            "CASE "
-            "WHEN is_origin = 1 AND target_kind = 'range' THEN "
-            "private_locator IS NOT NULL AND outdated_reason IS NULL "
-            "WHEN is_origin = 1 AND target_kind = 'file' THEN "
-            "private_locator IS NULL "
-            "WHEN is_origin = 0 THEN private_locator IS NULL "
-            "ELSE 0 END",
+            sa.case(
+                (
+                    (sa.column("is_origin") == 1)
+                    & (sa.column("target_kind") == "range"),
+                    sa.column("private_locator").is_not(None)
+                    & sa.column("outdated_reason").is_(None),
+                ),
+                (
+                    (sa.column("is_origin") == 1)
+                    & (sa.column("target_kind") == "file"),
+                    sa.column("private_locator").is_(None),
+                ),
+                (
+                    sa.column("is_origin") == 0,
+                    sa.column("private_locator").is_(None),
+                ),
+                else_=False,
+            ),
         )
 
 
@@ -57,21 +68,39 @@ def downgrade() -> None:
             sa.Column("private_locator_version", sa.Integer(), nullable=True)
         )
 
+    review_thread = sa.table(
+        "review_thread",
+        sa.column("private_locator_version"),
+        sa.column("private_locator"),
+    )
     op.execute(
-        "UPDATE review_thread SET private_locator_version = 1 "
-        "WHERE private_locator IS NOT NULL"
+        sa.update(review_thread)
+        .where(review_thread.c.private_locator.is_not(None))
+        .values(private_locator_version=1)
     )
 
     with op.batch_alter_table("review_thread", recreate="always") as batch_op:
         batch_op.create_check_constraint(
             "ck_review_thread_locator",
-            "CASE "
-            "WHEN is_origin = 1 AND target_kind = 'range' THEN "
-            "private_locator_version = 1 AND private_locator IS NOT NULL AND "
-            "outdated_reason IS NULL "
-            "WHEN is_origin = 1 AND target_kind = 'file' THEN "
-            "private_locator_version IS NULL AND private_locator IS NULL "
-            "WHEN is_origin = 0 THEN "
-            "private_locator_version IS NULL AND private_locator IS NULL "
-            "ELSE 0 END",
+            sa.case(
+                (
+                    (sa.column("is_origin") == 1)
+                    & (sa.column("target_kind") == "range"),
+                    (sa.column("private_locator_version") == 1)
+                    & sa.column("private_locator").is_not(None)
+                    & sa.column("outdated_reason").is_(None),
+                ),
+                (
+                    (sa.column("is_origin") == 1)
+                    & (sa.column("target_kind") == "file"),
+                    sa.column("private_locator_version").is_(None)
+                    & sa.column("private_locator").is_(None),
+                ),
+                (
+                    sa.column("is_origin") == 0,
+                    sa.column("private_locator_version").is_(None)
+                    & sa.column("private_locator").is_(None),
+                ),
+                else_=False,
+            ),
         )

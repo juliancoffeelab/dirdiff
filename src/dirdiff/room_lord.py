@@ -44,6 +44,7 @@ from dirdiff.db import (
     SnapshotFileSideRecord,
     SnapshotMetaRecord,
     SnapshotRecord,
+    UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
 from dirdiff.review import (
@@ -58,6 +59,7 @@ from dirdiff.review import (
     _apply_review_batch,
     _create_thread,
     _derive_room_threads,
+    _fold_actions,
     _get_thread,
     _thread_objects,
 )
@@ -493,7 +495,7 @@ class Room:
         comment_attention: Literal["inert", "alert"] = "inert",
     ) -> ThreadUpdateView:
         """Append one HTTP action and return its bounded authoritative update."""
-        _, _, update = _append_review_action(
+        actions, profiles = _append_review_action(
             database=self._database,
             snapshot_id=snapshot_id,
             thread_id=thread_id,
@@ -506,7 +508,26 @@ class Room:
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
-        return update
+        # This HTTP boundary is the one consumer of the update view, so the
+        # fold that builds it lives here rather than inside the write.
+        state, attention, comments = _fold_actions(actions, profiles)
+        comment = (
+            next(
+                folded
+                for folded in comments
+                if folded["comment_id"] == comment_id.hex
+            )
+            if comment_id is not None
+            else None
+        )
+        return ThreadUpdateView(
+            thread_id=thread_id.hex,
+            snapshot_id=snapshot_id.hex,
+            state=state,
+            attention=attention,
+            discussion_revision=len(actions) - 1,
+            comment=comment,
+        )
 
     def _thread_id_for_comment(
         self, snapshot_id: UUID, comment_id: UUID
@@ -536,15 +557,34 @@ class Room:
             thread_lock=self._thread_lock,
         )
 
-    def _review_actions_after(
+    def latest_activity_id(self, snapshot_id: UUID) -> int:
+        """Return the Room's current activity boundary without Thread hydration.
+
+        The Snapshot must belong to this Room; the boundary is 0 for a Room
+        with no review actions yet.
+        """
+        self.meta(snapshot_id)
+        return self._database.review_latest_activity_id(self._identity)
+
+    def continuation(
         self,
         snapshot_id: UUID,
         activity_id: int,
         limit: int,
-    ) -> tuple[tuple[ReviewActionRecord, ...], bool]:
-        """Return one bounded ordered page of later Thread changes."""
+    ) -> tuple[
+        tuple[ReviewActionRecord, ...],
+        bool,
+        int,
+        tuple[UserProfileRecord, ...],
+    ]:
+        """Return one bounded ordered page of later Thread changes.
+
+        The page, has-more marker, open-Thread count, and acting Profiles are
+        read consistently in one persistence read; the count holds at the
+        page's inclusive end boundary.
+        """
         self.meta(snapshot_id)
-        return self._database.review_actions_after(
+        return self._database.review_continuation(
             self._identity,
             activity_id,
             limit,
@@ -732,13 +772,12 @@ class RoomLord:
                 "the Branch Review Tab does not support intruding Files"
             )
             assert git_backend is not None
-            resolved_base, left_side, review = (
+            resolved_base, left_side, review, right_side = (
                 git_backend.resolve_branch_diff_sides(
                     base_selection=selected_base,
                     review_selection=selected_review,
                 )
             )
-            right_side = git_backend.commit_id(review)
             left_label = f"{resolved_base.strip()}...{review}"
             right_label = review
             correspondence = {"base": selected_base, "review": selected_review}
@@ -959,13 +998,12 @@ class RoomLord:
             assert pull_request_left is None and pull_request_right is None
             base_value = correspondence.get("base")
             review_value = correspondence.get("review")
-            resolved_base, left_side, review_side = (
+            resolved_base, left_side, review_side, right_side = (
                 backend.resolve_branch_diff_sides(
                     base_selection=persisted_branch(base_value),
                     review_selection=persisted_branch(review_value),
                 )
             )
-            right_side = backend.commit_id(review_side)
             left_label = f"{resolved_base.strip()}...{review_side}"
             right_label = review_side
             show_untracked = False
@@ -1083,32 +1121,27 @@ class _SnapshotStore:
         self._snapshots_path.mkdir(parents=True, exist_ok=True)
         self._lock_path.touch(exist_ok=True)
 
-        paths = backend.list_repo_diff_paths(
+        diff = backend.repo_diff(
             left=left_side,
             right=right_side,
             show_untracked=show_untracked,
         )
-        added_lines, removed_lines = backend.line_counts(
-            left=left_side,
-            right=right_side,
-            show_untracked=show_untracked,
-        )
+        paths = diff.paths
+        added_lines = diff.added_lines
+        removed_lines = diff.removed_lines
         assert (added_lines is None) == (removed_lines is None), (
             "backend aggregate line counts must have equal presence"
         )
-        captured: list[
+        normalized_paths: list[
             tuple[
                 Optional[str],
-                Optional[bytes],
                 Optional[str],
-                Optional[bytes],
                 bool,
                 ChangeType,
                 Optional[LazyReason],
-                Optional[str],
-                Optional[str],
             ]
         ] = []
+        load_requests: list[tuple[str, str]] = []
         captured_paths: set[tuple[Optional[str], Optional[str]]] = set()
         for path in paths:
             repository_paths = (path.left_path, path.right_path)
@@ -1128,33 +1161,70 @@ class _SnapshotStore:
                 if path.right_path is not None
                 else None
             )
+            normalized_paths.append(
+                (
+                    left_path,
+                    right_path,
+                    not path.untracked,
+                    path.change_type,
+                    path.lazy_reason_override,
+                )
+            )
+            if left_path is not None:
+                load_requests.append((left_path, left_side))
+            if right_path is not None:
+                load_requests.append((right_path, right_side))
+
+        loaded_versions = iter(backend.load_versions(tuple(load_requests)))
+        captured: list[
+            tuple[
+                Optional[str],
+                Optional[bytes],
+                Optional[str],
+                Optional[bytes],
+                bool,
+                ChangeType,
+                Optional[LazyReason],
+                Optional[str],
+                Optional[str],
+            ]
+        ] = []
+        for (
+            left_path,
+            right_path,
+            tracked,
+            change_type,
+            lazy_reason_override,
+        ) in normalized_paths:
             errors: list[str] = []
             left_content: Optional[bytes] = None
             if left_path is not None:
-                try:
-                    left_content = backend.load_version(left_path, left_side)
-                except DirdiffError as exc:
+                loaded_left = next(loaded_versions)
+                if isinstance(loaded_left, DirdiffError):
                     failure = (
                         f"Could not capture left side {left_side}:{left_path}: "
-                        f"{exc}"
+                        f"{loaded_left}"
                     )
                     errors.append(failure)
                     left_content = (
                         f"{_CAPTURE_ERROR_PREAMBLE}\n\n{failure}\n".encode()
                     )
+                else:
+                    left_content = loaded_left
             right_content: Optional[bytes] = None
             if right_path is not None:
-                try:
-                    right_content = backend.load_version(right_path, right_side)
-                except DirdiffError as exc:
+                loaded_right = next(loaded_versions)
+                if isinstance(loaded_right, DirdiffError):
                     failure = (
                         f"Could not capture right side {right_side}:{right_path}: "
-                        f"{exc}"
+                        f"{loaded_right}"
                     )
                     errors.append(failure)
                     right_content = (
                         f"{_CAPTURE_ERROR_PREAMBLE}\n\n{failure}\n".encode()
                     )
+                else:
+                    right_content = loaded_right
             assert (left_path is None) == (left_content is None), (
                 "left repository path and captured contents must have equal presence"
             )
@@ -1170,13 +1240,13 @@ class _SnapshotStore:
                 assert isinstance(backend, PresetBackend), (
                     "preset Rooms require PresetBackend"
                 )
-                assert path.right_path is not None, (
+                assert right_path is not None, (
                     "preset Files require a right repository path"
                 )
-                lazy_metadata = backend.lazy_reason_metadata(path.right_path)
+                lazy_metadata = backend.lazy_reason_metadata(right_path)
                 assert (
                     lazy_metadata[0] if lazy_metadata is not None else None
-                ) == path.lazy_reason_override, (
+                ) == lazy_reason_override, (
                     "preset lazy reason changed during Snapshot capture"
                 )
             else:
@@ -1187,13 +1257,19 @@ class _SnapshotStore:
                     left_content,
                     right_path,
                     right_content,
-                    not path.untracked,
-                    path.change_type,
-                    path.lazy_reason_override,
+                    tracked,
+                    change_type,
+                    lazy_reason_override,
                     lazy_metadata[1] if lazy_metadata is not None else None,
                     "\n".join(errors) if errors else None,
                 )
             )
+        try:
+            next(loaded_versions)
+        except StopIteration:
+            pass
+        else:
+            raise AssertionError("backend returned excess captured sides")
 
         # Canonicalization makes the digest describe a set of Files; it does not
         # define storage or manifest presentation order.
@@ -1231,6 +1307,37 @@ class _SnapshotStore:
                     digest.update(len(value).to_bytes(8, "big"))
                     digest.update(value)
         snapshot_hash = digest.digest()
+
+        def verified_retained_snapshot(snapshot_id: str) -> UUID:
+            """Return one retained Snapshot after verifying every stored side."""
+            visible_snapshot = self._database.snapshot(
+                self._identity,
+                snapshot_id,
+            )
+            assert visible_snapshot is not None, (
+                "equal Snapshot disappeared during publication"
+            )
+            for file in visible_snapshot.files:
+                directory = Path(file.path)
+                for name, side in (
+                    ("left", file.left),
+                    ("right", file.right),
+                ):
+                    if side is None:
+                        continue
+                    captured_path = directory / name
+                    content = captured_path.read_bytes()
+                    assert (
+                        hashlib.sha256(content).digest() == side.content_hash
+                    ), f"Snapshot File content hash mismatch: {captured_path}"
+            return UUID(hex=snapshot_id)
+
+        retained_id = self._database.snapshot_id_for_content(
+            self._identity,
+            snapshot_hash,
+        )
+        if retained_id is not None:
+            return verified_retained_snapshot(retained_id)
 
         snapshot_id = uuid4()
         staging_path = Path(
@@ -1319,30 +1426,7 @@ class _SnapshotStore:
                         )
                         visible_id = snapshot_id.hex
                     else:
-                        visible_snapshot = self._database.snapshot(
-                            self._identity,
-                            visible_id,
-                        )
-                        assert visible_snapshot is not None, (
-                            "equal Snapshot disappeared during publication"
-                        )
-                        for file in visible_snapshot.files:
-                            directory = Path(file.path)
-                            for name, side in (
-                                ("left", file.left),
-                                ("right", file.right),
-                            ):
-                                if side is None:
-                                    continue
-                                captured_path = directory / name
-                                content = captured_path.read_bytes()
-                                assert (
-                                    hashlib.sha256(content).digest()
-                                    == side.content_hash
-                                ), (
-                                    "Snapshot File content hash mismatch: "
-                                    f"{captured_path}"
-                                )
+                        return verified_retained_snapshot(visible_id)
                     return UUID(hex=visible_id)
                 finally:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

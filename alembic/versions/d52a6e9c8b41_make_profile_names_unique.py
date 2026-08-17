@@ -7,6 +7,8 @@ Create Date: 2026-08-13 00:00:00.000000
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
+
 from alembic import op
 
 __all__ = [
@@ -27,27 +29,58 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Merge same-name identities without losing attribution or preferences."""
     connection = op.get_bind()
+    user_profile = sa.table(
+        "user_profile", sa.column("id"), sa.column("username")
+    )
+    agent_profile = sa.table("agent_profile", sa.column("profile_id"))
+    review_action = sa.table("review_action", sa.column("profile_id"))
+    user_preferences = sa.table(
+        "user_preferences",
+        sa.column("user_profile_id"),
+        sa.column("aggressive_folds"),
+    )
     duplicate_names = (
-        connection.exec_driver_sql(
-            "SELECT username FROM user_profile "
-            "GROUP BY username HAVING COUNT(*) > 1 ORDER BY username"
+        connection.execute(
+            sa.select(user_profile.c.username)
+            .group_by(user_profile.c.username)
+            .having(sa.func.count() > 1)
+            .order_by(user_profile.c.username)
         )
         .scalars()
         .all()
     )
     for username in duplicate_names:
-        profiles = connection.exec_driver_sql(
-            "SELECT up.id, "
-            "EXISTS(SELECT 1 FROM agent_profile AS ap "
-            "WHERE ap.profile_id = up.id) AS agent_bound, "
-            "(SELECT COUNT(*) FROM review_action AS ra "
-            "WHERE ra.profile_id = up.id) AS action_count, "
-            "EXISTS(SELECT 1 FROM user_preferences AS pref "
-            "WHERE pref.user_profile_id = up.id) AS has_preferences "
-            "FROM user_profile AS up WHERE up.username = ? "
-            "ORDER BY agent_bound DESC, action_count DESC, "
-            "has_preferences DESC, up.id DESC",
-            (username,),
+        agent_bound_expression = sa.exists(
+            sa.select(sa.literal(1)).where(
+                agent_profile.c.profile_id == user_profile.c.id
+            )
+        ).label("agent_bound")
+        action_count_expression = (
+            sa.select(sa.func.count())
+            .select_from(review_action)
+            .where(review_action.c.profile_id == user_profile.c.id)
+            .scalar_subquery()
+            .label("action_count")
+        )
+        preferences_expression = sa.exists(
+            sa.select(sa.literal(1)).where(
+                user_preferences.c.user_profile_id == user_profile.c.id
+            )
+        ).label("has_preferences")
+        profiles = connection.execute(
+            sa.select(
+                user_profile.c.id,
+                agent_bound_expression,
+                action_count_expression,
+                preferences_expression,
+            )
+            .where(user_profile.c.username == username)
+            .order_by(
+                agent_bound_expression.desc(),
+                action_count_expression.desc(),
+                preferences_expression.desc(),
+                user_profile.c.id.desc(),
+            )
         ).all()
         agent_bound = [
             profile.id for profile in profiles if profile.agent_bound
@@ -59,12 +92,11 @@ def upgrade() -> None:
         canonical_id = profiles[0].id
         duplicate_ids = [profile.id for profile in profiles[1:]]
         ids = [canonical_id, *duplicate_ids]
-        placeholders = ", ".join("?" for _ in ids)
         preference_values = (
-            connection.exec_driver_sql(
-                "SELECT DISTINCT aggressive_folds FROM user_preferences "
-                f"WHERE user_profile_id IN ({placeholders})",
-                tuple(ids),
+            connection.execute(
+                sa.select(user_preferences.c.aggressive_folds)
+                .distinct()
+                .where(user_preferences.c.user_profile_id.in_(ids))
             )
             .scalars()
             .all()
@@ -74,27 +106,30 @@ def upgrade() -> None:
                 f"Duplicate Profile preferences disagree: {username}"
             )
         if preference_values:
-            connection.exec_driver_sql(
-                "DELETE FROM user_preferences "
-                f"WHERE user_profile_id IN ({placeholders})",
-                tuple(ids),
+            connection.execute(
+                sa.delete(user_preferences).where(
+                    user_preferences.c.user_profile_id.in_(ids)
+                )
             )
-            connection.exec_driver_sql(
-                "INSERT INTO user_preferences "
-                "(user_profile_id, aggressive_folds) VALUES (?, ?)",
-                (canonical_id, preference_values[0]),
+            connection.execute(
+                sa.insert(user_preferences).values(
+                    user_profile_id=canonical_id,
+                    aggressive_folds=preference_values[0],
+                )
             )
         for duplicate_id in duplicate_ids:
-            connection.exec_driver_sql(
-                "UPDATE review_action SET profile_id = ? WHERE profile_id = ?",
-                (canonical_id, duplicate_id),
+            connection.execute(
+                sa.update(review_action)
+                .where(review_action.c.profile_id == duplicate_id)
+                .values(profile_id=canonical_id)
             )
-            connection.exec_driver_sql(
-                "UPDATE agent_profile SET profile_id = ? WHERE profile_id = ?",
-                (canonical_id, duplicate_id),
+            connection.execute(
+                sa.update(agent_profile)
+                .where(agent_profile.c.profile_id == duplicate_id)
+                .values(profile_id=canonical_id)
             )
-            connection.exec_driver_sql(
-                "DELETE FROM user_profile WHERE id = ?", (duplicate_id,)
+            connection.execute(
+                sa.delete(user_profile).where(user_profile.c.id == duplicate_id)
             )
 
     with op.batch_alter_table("user_profile", recreate="always") as batch_op:

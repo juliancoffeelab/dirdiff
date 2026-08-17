@@ -73,7 +73,9 @@ from dirdiff.backend import (
     decode_text_content,
     display_name_for_repo_paths,
     file_kind_for_change_type,
+    preferred_review_selection,
     prepare_pull_request,
+    ref_choices,
 )
 from dirdiff.db import (
     PreferencesStore,
@@ -512,6 +514,12 @@ ThreadCodeLocationResponse = Annotated[
 ]
 """Return one valid current code-location variant."""
 
+ReviewOriginTargetResponse = Annotated[
+    TextReviewTarget | FileStartThreadCodeLocationResponse,
+    Field(discriminator="kind"),
+]
+"""Return a text origin or one retained historical File-start origin."""
+
 
 class ReviewExcerptResponse(ApiModel):
     """Return one bounded selected-side excerpt from the origin Snapshot."""
@@ -545,17 +553,46 @@ class ReviewThreadResponse(ApiModel):
     state: Literal["open", "resolved", "deleted"]
     attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int = Field(ge=0)
-    origin_target: ReviewTargetModel
+    origin_target: ReviewOriginTargetResponse
     code_location: ThreadCodeLocationResponse | None
     outdated_reason: (
         Literal["region_changed", "region_not_found", "file_missing"] | None
     )
-    original_excerpt: ReviewExcerptResponse
+    original_excerpt: ReviewExcerptResponse | None
     comments: list[ReviewCommentResponse] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_review_state(self) -> Self:
         """Require exact code, reason, and snippet combinations."""
+        if isinstance(self.origin_target, FileStartThreadCodeLocationResponse):
+            if self.original_excerpt is not None:
+                raise ValueError(
+                    "A historical File-start origin cannot have an excerpt."
+                )
+            if self.outdated_reason is None:
+                if not isinstance(
+                    self.code_location, FileStartThreadCodeLocationResponse
+                ):
+                    raise ValueError(
+                        "A historical File-start Thread requires File start."
+                    )
+                if (
+                    self.code_location.file != self.origin_target.file
+                    or self.code_location.side != self.origin_target.side
+                ):
+                    raise ValueError(
+                        "A historical File-start location changed identity."
+                    )
+            elif (
+                self.outdated_reason != "file_missing"
+                or self.code_location is not None
+            ):
+                raise ValueError(
+                    "A historical File-start Thread may only lose its File."
+                )
+            return self
+        if self.original_excerpt is None:
+            raise ValueError("A text Thread requires its original excerpt.")
         if self.outdated_reason is None:
             if not isinstance(
                 self.code_location,
@@ -742,7 +779,7 @@ class AgentThread(ApiModel):
     attention: Literal["author", "reviewer", "both", "none"]
     file: str | None
     region: AgentLineRange | None
-    original_excerpt: ReviewExcerptResponse
+    original_excerpt: ReviewExcerptResponse | None
     outdated_reason: (
         Literal["region_changed", "region_not_found", "file_missing"] | None
     )
@@ -769,7 +806,7 @@ class AgentThreadPage(ApiModel):
     attention: Literal["author", "reviewer", "both", "none"]
     file: str | None
     region: AgentLineRange | None
-    original_excerpt: ReviewExcerptResponse
+    original_excerpt: ReviewExcerptResponse | None
     outdated_reason: (
         Literal["region_changed", "region_not_found", "file_missing"] | None
     )
@@ -1900,6 +1937,36 @@ def create_app(
             )
         }
 
+    def agent_location(
+        captured_files: dict[
+            tuple[str | None, str | None], tuple[Path | None, Path | None]
+        ],
+        location: dict[str, object] | None,
+    ) -> tuple[str | None, AgentLineRange | None]:
+        """Translate one code location into its captured File path and range."""
+        if location is None:
+            return None, None
+        pair = location["file"]
+        assert isinstance(pair, dict)
+        left_value = pair.get("left_path")
+        right_value = pair.get("right_path")
+        assert left_value is None or isinstance(left_value, str)
+        assert right_value is None or isinstance(right_value, str)
+        left_file, right_file = captured_files[(left_value, right_value)]
+        side_value = location.get("side")
+        if side_value == "left":
+            selected_file = left_file
+        elif side_value == "right" or right_file is not None:
+            selected_file = right_file
+        else:
+            selected_file = left_file
+        assert selected_file is not None
+        region: AgentLineRange | None = None
+        range_value = location.get("range")
+        if isinstance(range_value, dict):
+            region = AgentLineRange.model_validate(range_value)
+        return str(selected_file), region
+
     def agent_thread(
         captured_files: dict[
             tuple[str | None, str | None], tuple[Path | None, Path | None]
@@ -1907,29 +1974,9 @@ def create_app(
         view: ThreadDiscussionView,
     ) -> AgentThread:
         """Translate one discussion using its existing captured File path."""
-        location = view["code_location"]
-        file_path: str | None = None
-        region: AgentLineRange | None = None
-        if location is not None:
-            pair = location["file"]
-            assert isinstance(pair, dict)
-            left_value = pair.get("left_path")
-            right_value = pair.get("right_path")
-            assert left_value is None or isinstance(left_value, str)
-            assert right_value is None or isinstance(right_value, str)
-            left_file, right_file = captured_files[(left_value, right_value)]
-            side_value = location.get("side")
-            if side_value == "left":
-                selected_file = left_file
-            elif side_value == "right" or right_file is not None:
-                selected_file = right_file
-            else:
-                selected_file = left_file
-            assert selected_file is not None
-            file_path = str(selected_file)
-            range_value = location.get("range")
-            if isinstance(range_value, dict):
-                region = AgentLineRange.model_validate(range_value)
+        file_path, region = agent_location(
+            captured_files, view["code_location"]
+        )
         comments = [
             AgentComment(
                 comment_id=comment["comment_id"],
@@ -1951,8 +1998,10 @@ def create_app(
             attention=view["attention"],
             file=file_path,
             region=region,
-            original_excerpt=ReviewExcerptResponse.model_validate(
-                view["original_excerpt"]
+            original_excerpt=(
+                ReviewExcerptResponse.model_validate(view["original_excerpt"])
+                if view["original_excerpt"] is not None
+                else None
             ),
             outdated_reason=view["outdated_reason"],
             comments=comments,
@@ -2418,13 +2467,7 @@ def create_app(
                 )
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
-            _threads, _unresolved_count, last_activity_id = room.threads(
-                snapshot_id,
-                page=1,
-                limit=1,
-                state="open",
-                through_activity_id=None,
-            )
+            last_activity_id = room.latest_activity_id(snapshot_id)
             return NewAgentReviewResponse(
                 profile_id=profile.id,
                 snapshot_id=snapshot_id.hex,
@@ -2458,27 +2501,31 @@ def create_app(
                 through_activity_id=None,
             )
             captured_files = agent_captured_files(room, snapshot_id)
-            open_threads = [
-                agent_thread(captured_files, thread.summary())
-                for thread in page_threads
-            ]
             summaries = []
-            for thread in open_threads:
-                assert thread.attention != "none"
-                first = thread.comments[0]
-                latest = thread.comments[-1]
+            for thread in page_threads:
+                view = thread.summary()
+                assert view["state"] == "open"
+                attention = view["attention"]
+                assert attention != "none"
+                file_path, region = agent_location(
+                    captured_files, view["code_location"]
+                )
+                first = view["first_comment"]
+                latest = view["latest_comment"]
                 summaries.append(
                     AgentThreadSummary(
-                        thread_id=thread.thread_id,
+                        thread_id=view["thread_id"],
                         status="open",
-                        attention=thread.attention,
-                        file=thread.file,
-                        region=thread.region,
-                        first_comment=agent_preview(first.body, first.deleted),
-                        latest_comment=agent_preview(
-                            latest.body, latest.deleted
+                        attention=attention,
+                        file=file_path,
+                        region=region,
+                        first_comment=agent_preview(
+                            first["body"], first["deleted"]
                         ),
-                        comment_count=len(thread.comments),
+                        latest_comment=agent_preview(
+                            latest["body"], latest["deleted"]
+                        ),
+                        comment_count=view["comment_count"],
                     )
                 )
             return agent_page(summaries, page, limit, total)
@@ -2578,20 +2625,19 @@ def create_app(
             snapshot_path = room_lord.snapshot_path(snapshot_id)
 
             file_delta = room.file_delta(previous_id, snapshot_id)
-            actions, has_more = room._review_actions_after(
+            actions, has_more, unresolved_count, profiles = room.continuation(
                 snapshot_id, request.last_activity_id, request.limit
             )
+            authors = {
+                profile.id: AgentAuthor(
+                    profile_id=profile.id, name=profile.username
+                )
+                for profile in profiles
+            }
             changes: list[AgentThreadChange] = []
             for action in actions:
                 assert action.activity_id is not None
-                profile = user_profile_store.get(action.profile_id)
-                if profile is None:
-                    raise AssertionError(
-                        "review action references missing Profile"
-                    )
-                author = AgentAuthor(
-                    profile_id=profile.id, name=profile.username
-                )
+                author = authors[action.profile_id]
                 created_at = datetime.fromisoformat(action.created_at)
                 change: AgentCommentThreadChange | AgentStateThreadChange
                 match action.kind:
@@ -2653,13 +2699,6 @@ def create_app(
                             kind="thread_deleted",
                         )
                 changes.append(change)
-            _threads, unresolved_count, _through_activity_id = room.threads(
-                snapshot_id,
-                page=1,
-                limit=1,
-                state="open",
-                through_activity_id=None,
-            )
             return ContinueAgentReviewResponse(
                 previous_snapshot_id=previous_id.hex,
                 snapshot_id=snapshot_id.hex,
@@ -2815,19 +2854,21 @@ def create_app(
                 detail=f"Invalid project_id: {project_id}",
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
+        # One metadata snapshot feeds both derivations so base and review
+        # defaults cannot come from different repository states.
+        metadata = backend.read_ref_metadata()
         saved_main_branch = db.get_main_branch(project_id)
         default_base_selection = (
             repo_main_branch_record_to_selection(saved_main_branch)
             if saved_main_branch is not None
-            else backend.default_base_selection()
-        )
-        preferred_review_selection = backend.preferred_review_selection(
-            base_selection=default_base_selection
+            else backend.default_base_selection(metadata)
         )
         return RepoDefaultsResponse.model_validate(
             {
                 "default_base_selection": default_base_selection,
-                "preferred_review_selection": preferred_review_selection,
+                "preferred_review_selection": preferred_review_selection(
+                    metadata, base_selection=default_base_selection
+                ),
             }
         )
 
@@ -2846,7 +2887,7 @@ def create_app(
             )
         backend = GitBackend.discover(repo_root=Path(mark.path))
         return RepoRefsResponse.model_validate(
-            {"ref_choices": backend.list_ref_choices()}
+            {"ref_choices": ref_choices(backend.read_ref_metadata())}
         )
 
     @app.post(

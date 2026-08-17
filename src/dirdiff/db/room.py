@@ -30,11 +30,13 @@ from sqlalchemy import (
     LargeBinary,
     String,
     UniqueConstraint,
+    and_,
     case,
     column,
     func,
     insert,
     literal,
+    or_,
     select,
     tuple_,
 )
@@ -50,8 +52,8 @@ from dirdiff.db.base import (
 
 __all__ = [
     "ReviewActionRecord",
-    "ReviewSnapshotRecord",
     "ReviewThreadRecord",
+    "ReviewThreadsRecord",
     "RoomIdentity",
     "RoomStore",
     "SnapshotFileLoadRecord",
@@ -72,16 +74,17 @@ class Room(TableBase):
     __tablename__ = "room"
     __table_args__ = (
         CheckConstraint(
-            "tab IN ('head', 'refs', 'branch-review', "
-            "'pull-request', 'preset')",
+            column("tab").in_(
+                ("head", "refs", "branch-review", "pull-request", "preset")
+            ),
             name="ck_room_tab",
         ),
         CheckConstraint(
-            "(mark_id IS NULL) = (tab = 'preset')",
+            column("mark_id").is_(None) == (column("tab") == "preset"),
             name="ck_room_mark_tab",
         ),
         CheckConstraint(
-            "length(backend_key) > 0",
+            func.length(column("backend_key")) > 0,
             name="ck_room_backend_key",
         ),
     )
@@ -128,11 +131,12 @@ class Snapshot(TableBase):
             name="uq_snapshot_content",
         ),
         CheckConstraint(
-            "length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*'",
+            (func.length(column("id")) == 32)
+            & column("id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_snapshot_id",
         ),
         CheckConstraint(
-            "length(content_hash) = 32",
+            func.length(column("content_hash")) == 32,
             name="ck_snapshot_content_hash",
         ),
     )
@@ -155,13 +159,21 @@ class SnapshotMeta(TableBase):
     __tablename__ = "snapshot_meta"
     __table_args__ = (
         CheckConstraint(
-            "length(left_label) > 0 AND length(right_label) > 0",
+            (func.length(column("left_label")) > 0)
+            & (func.length(column("right_label")) > 0),
             name="ck_snapshot_meta_labels",
         ),
         CheckConstraint(
-            "(added_lines IS NULL AND removed_lines IS NULL) OR "
-            "(added_lines IS NOT NULL AND removed_lines IS NOT NULL AND "
-            "added_lines >= 0 AND removed_lines >= 0)",
+            (
+                column("added_lines").is_(None)
+                & column("removed_lines").is_(None)
+            )
+            | (
+                column("added_lines").is_not(None)
+                & column("removed_lines").is_not(None)
+                & (column("added_lines") >= 0)
+                & (column("removed_lines") >= 0)
+            ),
             name="ck_snapshot_meta_line_counts",
         ),
     )
@@ -194,19 +206,22 @@ class SnapshotFile(TableBase):
             name="uq_snapshot_file_id_snapshot",
         ),
         CheckConstraint(
-            "length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*'",
+            (func.length(column("id")) == 32)
+            & column("id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_snapshot_file_id",
         ),
         CheckConstraint(
-            "substr(path, 1, 1) = '/'",
+            func.substr(column("path"), 1, 1) == "/",
             name="ck_snapshot_file_path",
         ),
         CheckConstraint(
-            "change_type IN ('modify', 'add', 'delete', 'rename', 'copy')",
+            column("change_type").in_(
+                ("modify", "add", "delete", "rename", "copy")
+            ),
             name="ck_snapshot_file_change_type",
         ),
         CheckConstraint(
-            "error IS NULL OR length(error) > 0",
+            column("error").is_(None) | (func.length(column("error")) > 0),
             name="ck_snapshot_file_error",
         ),
     )
@@ -235,16 +250,17 @@ class SnapshotFileLeft(TableBase):
     __tablename__ = "snapshot_file_left"
     __table_args__ = (
         CheckConstraint(
-            "length(repository_path) > 0 AND "
-            "substr(repository_path, 1, 1) != '/' AND "
-            "repository_path != '.' AND repository_path != '..' AND "
-            "repository_path NOT LIKE '../%' AND "
-            "repository_path NOT LIKE '%/../%' AND "
-            "repository_path NOT LIKE '%/..'",
+            (func.length(column("repository_path")) > 0)
+            & (func.substr(column("repository_path"), 1, 1) != "/")
+            & (column("repository_path") != ".")
+            & (column("repository_path") != "..")
+            & column("repository_path").not_like("../%")
+            & column("repository_path").not_like("%/../%")
+            & column("repository_path").not_like("%/.."),
             name="ck_snapshot_file_left_repository_path",
         ),
         CheckConstraint(
-            "length(content_hash) = 32",
+            func.length(column("content_hash")) == 32,
             name="ck_snapshot_file_left_content_hash",
         ),
     )
@@ -267,16 +283,17 @@ class SnapshotFileRight(TableBase):
     __tablename__ = "snapshot_file_right"
     __table_args__ = (
         CheckConstraint(
-            "length(repository_path) > 0 AND "
-            "substr(repository_path, 1, 1) != '/' AND "
-            "repository_path != '.' AND repository_path != '..' AND "
-            "repository_path NOT LIKE '../%' AND "
-            "repository_path NOT LIKE '%/../%' AND "
-            "repository_path NOT LIKE '%/..'",
+            (func.length(column("repository_path")) > 0)
+            & (func.substr(column("repository_path"), 1, 1) != "/")
+            & (column("repository_path") != ".")
+            & (column("repository_path") != "..")
+            & column("repository_path").not_like("../%")
+            & column("repository_path").not_like("%/../%")
+            & column("repository_path").not_like("%/.."),
             name="ck_snapshot_file_right_repository_path",
         ),
         CheckConstraint(
-            "length(content_hash) = 32",
+            func.length(column("content_hash")) == 32,
             name="ck_snapshot_file_right_content_hash",
         ),
     )
@@ -299,8 +316,9 @@ class SnapshotFileLazyReason(TableBase):
     __tablename__ = "snapshot_file_lazy_reason"
     __table_args__ = (
         CheckConstraint(
-            "reason IN ('too_big', 'generated', 'deleted', "
-            "'untracked', 'pure_renamed')",
+            column("reason").in_(
+                ("too_big", "generated", "deleted", "untracked", "pure_renamed")
+            ),
             name="ck_snapshot_file_lazy_reason",
         ),
     )
@@ -323,7 +341,7 @@ class SnapshotFileLazyReasonContent(TableBase):
     __tablename__ = "snapshot_file_lazy_reason_content"
     __table_args__ = (
         CheckConstraint(
-            "length(content) > 0",
+            func.length(column("content")) > 0,
             name="ck_snapshot_file_lazy_reason_content",
         ),
     )
@@ -341,7 +359,8 @@ class ReviewThread(TableBase):
     __tablename__ = "review_thread"
     __table_args__ = (
         CheckConstraint(
-            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            (func.length(column("thread_id")) == 32)
+            & column("thread_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_thread_id",
         ),
     )
@@ -366,7 +385,8 @@ class ReviewThreadPlacement(TableBase):
             name="fk_review_thread_placement_snapshot_file",
         ),
         CheckConstraint(
-            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            (func.length(column("thread_id")) == 32)
+            & column("thread_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_thread_placement_id",
         ),
         CheckConstraint(
@@ -391,31 +411,64 @@ class ReviewThreadPlacement(TableBase):
             name="ck_review_thread_outdated_reason",
         ),
         CheckConstraint(
-            "CASE "
-            "WHEN region_kind = 'ordinary' THEN region_key IS NULL "
-            "WHEN region_kind = 'notebook-cell-source' THEN "
-            "region_key IS NOT NULL AND length(region_key) > 0 "
-            "WHEN region_kind IS NULL THEN region_key IS NULL "
-            "ELSE 0 END",
+            case(
+                (
+                    column("region_kind") == "ordinary",
+                    column("region_key").is_(None),
+                ),
+                (
+                    column("region_kind") == "notebook-cell-source",
+                    column("region_key").is_not(None)
+                    & (func.length(column("region_key")) > 0),
+                ),
+                (
+                    column("region_kind").is_(None),
+                    column("region_key").is_(None),
+                ),
+                else_=False,
+            ),
             name="ck_review_thread_region",
         ),
         CheckConstraint(
-            "CASE "
-            "WHEN snapshot_file_id IS NULL THEN "
-            "target_kind IS NULL AND region_kind IS NULL AND "
-            "region_key IS NULL AND side IS NULL AND start_line IS NULL AND "
-            "end_line IS NULL AND outdated_reason IS NOT NULL AND "
-            "outdated_reason = 'file_missing' "
-            "WHEN target_kind = 'range' THEN "
-            "region_kind IS NOT NULL AND side IS NOT NULL AND "
-            "start_line IS NOT NULL AND start_line >= 1 AND "
-            "end_line IS NOT NULL AND end_line >= start_line AND "
-            "(outdated_reason IS NULL OR outdated_reason = 'region_changed') "
-            "WHEN target_kind = 'file-start' THEN "
-            "region_kind IS NULL AND region_key IS NULL AND side IS NOT NULL AND "
-            "start_line IS NULL AND end_line IS NULL AND "
-            "outdated_reason IS NOT NULL AND outdated_reason = 'region_not_found' "
-            "ELSE 0 END",
+            case(
+                (
+                    column("snapshot_file_id").is_(None),
+                    column("target_kind").is_(None)
+                    & column("region_kind").is_(None)
+                    & column("region_key").is_(None)
+                    & column("side").is_(None)
+                    & column("start_line").is_(None)
+                    & column("end_line").is_(None)
+                    & column("outdated_reason").is_not(None)
+                    & (column("outdated_reason") == "file_missing"),
+                ),
+                (
+                    column("target_kind") == "range",
+                    column("region_kind").is_not(None)
+                    & column("side").is_not(None)
+                    & column("start_line").is_not(None)
+                    & (column("start_line") >= 1)
+                    & column("end_line").is_not(None)
+                    & (column("end_line") >= column("start_line"))
+                    & (
+                        column("outdated_reason").is_(None)
+                        | (column("outdated_reason") == "region_changed")
+                    ),
+                ),
+                (
+                    column("target_kind") == "file-start",
+                    column("region_kind").is_(None)
+                    & column("region_key").is_(None)
+                    & column("side").is_not(None)
+                    & column("start_line").is_(None)
+                    & column("end_line").is_(None)
+                    & (
+                        column("outdated_reason").is_(None)
+                        | (column("outdated_reason") == "region_not_found")
+                    ),
+                ),
+                else_=False,
+            ),
             name="ck_review_thread_location",
         ),
         CheckConstraint(
@@ -474,55 +527,96 @@ class ReviewAction(TableBase):
             name="uq_review_action_sequence",
         ),
         CheckConstraint(
-            "length(operation_id) = 32 AND operation_id NOT GLOB '*[^0-9a-f]*'",
+            (func.length(column("operation_id")) == 32)
+            & column("operation_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_action_operation_id",
         ),
         CheckConstraint(
-            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            (func.length(column("thread_id")) == 32)
+            & column("thread_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_action_thread_id",
         ),
         CheckConstraint(
-            "snapshot_id IS NOT NULL AND length(snapshot_id) = 32 AND "
-            "snapshot_id NOT GLOB '*[^0-9a-f]*'",
+            column("snapshot_id").is_not(None)
+            & (func.length(column("snapshot_id")) == 32)
+            & column("snapshot_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_action_snapshot_id",
         ),
         CheckConstraint(
-            "profile_id > 0",
+            column("profile_id") > 0,
             name="ck_review_action_profile_id",
         ),
         CheckConstraint(
-            "comment_id IS NULL OR "
-            "(length(comment_id) = 32 AND comment_id NOT GLOB '*[^0-9a-f]*')",
+            column("comment_id").is_(None)
+            | (
+                (func.length(column("comment_id")) == 32)
+                & column("comment_id").op("NOT GLOB")("*[^0-9a-f]*")
+            ),
             name="ck_review_action_comment_id",
         ),
         CheckConstraint(
-            "sequence >= 0 AND "
-            "(expected_revision IS NULL OR expected_revision >= 0)",
+            (column("sequence") >= 0)
+            & (
+                column("expected_revision").is_(None)
+                | (column("expected_revision") >= 0)
+            ),
             name="ck_review_action_revisions",
         ),
         CheckConstraint(
-            "CASE "
-            "WHEN kind IN ('thread-created', 'comment-created') THEN "
-            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
-            "comment_id IS NOT NULL AND expected_revision IS NULL AND "
-            "body IS NOT NULL AND length(body) > 0 "
-            "WHEN kind = 'comment-edited' THEN "
-            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
-            "comment_id IS NOT NULL AND expected_revision IS NOT NULL AND "
-            "body IS NOT NULL AND length(body) > 0 "
-            "WHEN kind = 'comment-deleted' THEN "
-            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
-            "comment_id IS NOT NULL AND expected_revision IS NOT NULL AND "
-            "body IS NULL "
-            "WHEN kind IN ('thread-resolved', 'thread-reopened') THEN "
-            "thread_id IS NOT NULL AND sequence IS NOT NULL AND "
-            "expected_revision IS NULL AND "
-            "((comment_id IS NULL AND body IS NULL) OR "
-            "(comment_id IS NOT NULL AND body IS NOT NULL AND length(body) > 0)) "
-            "WHEN kind = 'thread-deleted' THEN thread_id IS NOT NULL AND "
-            "sequence IS NOT NULL AND comment_id IS NULL AND "
-            "expected_revision IS NULL AND body IS NULL "
-            "ELSE 0 END",
+            case(
+                (
+                    column("kind").in_(("thread-created", "comment-created")),
+                    column("thread_id").is_not(None)
+                    & column("sequence").is_not(None)
+                    & column("comment_id").is_not(None)
+                    & column("expected_revision").is_(None)
+                    & column("body").is_not(None)
+                    & (func.length(column("body")) > 0),
+                ),
+                (
+                    column("kind") == "comment-edited",
+                    column("thread_id").is_not(None)
+                    & column("sequence").is_not(None)
+                    & column("comment_id").is_not(None)
+                    & column("expected_revision").is_not(None)
+                    & column("body").is_not(None)
+                    & (func.length(column("body")) > 0),
+                ),
+                (
+                    column("kind") == "comment-deleted",
+                    column("thread_id").is_not(None)
+                    & column("sequence").is_not(None)
+                    & column("comment_id").is_not(None)
+                    & column("expected_revision").is_not(None)
+                    & column("body").is_(None),
+                ),
+                (
+                    column("kind").in_(("thread-resolved", "thread-reopened")),
+                    column("thread_id").is_not(None)
+                    & column("sequence").is_not(None)
+                    & column("expected_revision").is_(None)
+                    & (
+                        (
+                            column("comment_id").is_(None)
+                            & column("body").is_(None)
+                        )
+                        | (
+                            column("comment_id").is_not(None)
+                            & column("body").is_not(None)
+                            & (func.length(column("body")) > 0)
+                        )
+                    ),
+                ),
+                (
+                    column("kind") == "thread-deleted",
+                    column("thread_id").is_not(None)
+                    & column("sequence").is_not(None)
+                    & column("comment_id").is_(None)
+                    & column("expected_revision").is_(None)
+                    & column("body").is_(None),
+                ),
+                else_=False,
+            ),
             name="ck_review_action_variant",
         ),
         CheckConstraint(
@@ -536,7 +630,7 @@ class ReviewAction(TableBase):
             name="ck_review_action_attention_after",
         ),
         CheckConstraint(
-            "length(created_at) > 0",
+            func.length(column("created_at")) > 0,
             name="ck_review_action_created_at",
         ),
     )
@@ -755,7 +849,7 @@ class ReviewActionRecord:
 
 
 @dataclass(frozen=True)
-class ReviewSnapshotRecord:
+class ReviewThreadsRecord:
     """Bulk persistence result for all Threads visible in one Snapshot.
 
     `threads` contains exactly one selected placement per discussion. `origins`
@@ -839,7 +933,7 @@ class RoomStore:
         """Validate one selected database row as a Thread placement record."""
         target_kind_value = row.target_kind
         match target_kind_value:
-            case "file" | "range" | "file-start" | None:
+            case "range" | "file-start" | None:
                 target_kind = target_kind_value
             case _:
                 raise AssertionError(
@@ -919,6 +1013,39 @@ class RoomStore:
             status_after=row.status_after,
             attention_after=row.attention_after,
             activity_id=row.activity_id,
+        )
+
+    @staticmethod
+    def _file_record(row: Row[Any]) -> SnapshotFileRecord:
+        """Validate one joined File/side row into the shared record shape."""
+        assert (row.left_path is None) == (row.left_hash is None), (
+            "persisted left File path and hash must have equal presence"
+        )
+        assert (row.right_path is None) == (row.right_hash is None), (
+            "persisted right File path and hash must have equal presence"
+        )
+        left = (
+            SnapshotFileSideRecord(row.left_path, row.left_hash)
+            if row.left_path is not None and row.left_hash is not None
+            else None
+        )
+        right = (
+            SnapshotFileSideRecord(row.right_path, row.right_hash)
+            if row.right_path is not None and row.right_hash is not None
+            else None
+        )
+        assert left is not None or right is not None, (
+            f"persisted Snapshot File has no sides: {row.id!r}"
+        )
+        return SnapshotFileRecord(
+            id=row.id,
+            snapshot_id=row.snapshot_id,
+            path=row.path,
+            tracked=row.tracked,
+            change_type=row.change_type,
+            error=row.error,
+            left=left,
+            right=right,
         )
 
     def review_profile(self, profile_id: int) -> Optional[UserProfileRecord]:
@@ -1330,39 +1457,7 @@ class RoomStore:
                 .where(SnapshotFile.snapshot_id == snapshot_id)
             ).all()
 
-        files: list[SnapshotFileRecord] = []
-        for row in file_rows:
-            assert (row.left_path is None) == (row.left_hash is None), (
-                "persisted left File path and hash must have equal presence"
-            )
-            assert (row.right_path is None) == (row.right_hash is None), (
-                "persisted right File path and hash must have equal presence"
-            )
-            left = (
-                SnapshotFileSideRecord(row.left_path, row.left_hash)
-                if row.left_path is not None and row.left_hash is not None
-                else None
-            )
-            right = (
-                SnapshotFileSideRecord(row.right_path, row.right_hash)
-                if row.right_path is not None and row.right_hash is not None
-                else None
-            )
-            assert left is not None or right is not None, (
-                f"persisted Snapshot File has no sides: {row.id!r}"
-            )
-            files.append(
-                SnapshotFileRecord(
-                    id=row.id,
-                    snapshot_id=row.snapshot_id,
-                    path=row.path,
-                    tracked=row.tracked,
-                    change_type=row.change_type,
-                    error=row.error,
-                    left=left,
-                    right=right,
-                )
-            )
+        files = [self._file_record(row) for row in file_rows]
         return SnapshotRecord(
             id=snapshot_row.id,
             content_hash=snapshot_row.content_hash,
@@ -1491,37 +1586,137 @@ class RoomStore:
                 )
                 return exists, None
 
-        assert (row.left_path is None) == (row.left_hash is None), (
-            "persisted left File path and hash must have equal presence"
-        )
-        assert (row.right_path is None) == (row.right_hash is None), (
-            "persisted right File path and hash must have equal presence"
-        )
-        left = (
-            SnapshotFileSideRecord(row.left_path, row.left_hash)
-            if row.left_path is not None and row.left_hash is not None
-            else None
-        )
-        right = (
-            SnapshotFileSideRecord(row.right_path, row.right_hash)
-            if row.right_path is not None and row.right_hash is not None
-            else None
-        )
-        assert left is not None or right is not None, (
-            f"persisted Snapshot File has no sides: {row.id!r}"
-        )
         return True, SnapshotFileLoadRecord(
-            file=SnapshotFileRecord(
-                id=row.id,
-                snapshot_id=row.snapshot_id,
-                path=row.path,
-                tracked=row.tracked,
-                change_type=row.change_type,
-                error=row.error,
-                left=left,
-                right=right,
-            ),
+            file=self._file_record(row),
             lazy_reason=row.lazy_reason,
+        )
+
+    def review_thread_files(
+        self,
+        selected_snapshot_id: str,
+        origin_refs: tuple[tuple[str, str], ...],
+        located_file_ids: tuple[str, ...],
+        absent_origin_refs: tuple[tuple[str, str], ...],
+    ) -> tuple[
+        dict[tuple[str, str], SnapshotFileRecord],
+        dict[str, SnapshotFileRecord],
+        tuple[str, ...],
+    ]:
+        """Load exactly the Snapshot Files one Thread page references.
+
+        `origin_refs` are `(origin_snapshot_id, snapshot_file_id)` pairs for
+        the page's Thread origins; `located_file_ids` are the placement File
+        ids inside `selected_snapshot_id`. `absent_origin_refs` identify
+        origins of file-missing placements: for each, the selected Snapshot
+        is searched for a File with the identical left/right repository-path
+        pair, and any match is returned as a conflict id so the caller can
+        reject the placement invariant violation instead of substituting
+        data. Every requested origin must exist; missing rows fail the read.
+        Room visibility of the Snapshot is the caller's responsibility, as
+        with `review_threads`.
+        """
+
+        def file_query() -> Any:
+            return (
+                select(
+                    SnapshotFile.id,
+                    SnapshotFile.snapshot_id,
+                    SnapshotFile.path,
+                    SnapshotFile.tracked,
+                    SnapshotFile.change_type,
+                    SnapshotFile.error,
+                    SnapshotFileLeft.repository_path.label("left_path"),
+                    SnapshotFileLeft.content_hash.label("left_hash"),
+                    SnapshotFileRight.repository_path.label("right_path"),
+                    SnapshotFileRight.content_hash.label("right_hash"),
+                )
+                .outerjoin(
+                    SnapshotFileLeft,
+                    SnapshotFileLeft.file_id == SnapshotFile.id,
+                )
+                .outerjoin(
+                    SnapshotFileRight,
+                    SnapshotFileRight.file_id == SnapshotFile.id,
+                )
+            )
+
+        with Session(self.engine) as session:
+            origin_rows = (
+                session.execute(
+                    file_query().where(
+                        tuple_(SnapshotFile.snapshot_id, SnapshotFile.id).in_(
+                            set(origin_refs)
+                        )
+                    )
+                ).all()
+                if origin_refs != ()
+                else []
+            )
+            selected_rows = (
+                session.execute(
+                    file_query().where(
+                        SnapshotFile.snapshot_id == selected_snapshot_id,
+                        SnapshotFile.id.in_(set(located_file_ids)),
+                    )
+                ).all()
+                if located_file_ids != ()
+                else []
+            )
+            origin_files = {
+                (row.snapshot_id, row.id): self._file_record(row)
+                for row in origin_rows
+            }
+            assert origin_files.keys() == set(origin_refs), (
+                "review origin references a missing Snapshot File"
+            )
+            conflict_ids: tuple[str, ...] = ()
+            absent_pairs: set[tuple[Optional[str], Optional[str]]] = set()
+            for ref in absent_origin_refs:
+                origin_left = origin_files[ref].left
+                origin_right = origin_files[ref].right
+                absent_pairs.add(
+                    (
+                        origin_left.repository_path
+                        if origin_left is not None
+                        else None,
+                        origin_right.repository_path
+                        if origin_right is not None
+                        else None,
+                    )
+                )
+            if absent_pairs != set():
+                pair_clauses = [
+                    and_(
+                        SnapshotFileLeft.file_id.is_(None)
+                        if left_path is None
+                        else SnapshotFileLeft.repository_path == left_path,
+                        SnapshotFileRight.file_id.is_(None)
+                        if right_path is None
+                        else SnapshotFileRight.repository_path == right_path,
+                    )
+                    for left_path, right_path in absent_pairs
+                ]
+                conflict_ids = tuple(
+                    session.execute(
+                        select(SnapshotFile.id)
+                        .outerjoin(
+                            SnapshotFileLeft,
+                            SnapshotFileLeft.file_id == SnapshotFile.id,
+                        )
+                        .outerjoin(
+                            SnapshotFileRight,
+                            SnapshotFileRight.file_id == SnapshotFile.id,
+                        )
+                        .where(
+                            SnapshotFile.snapshot_id == selected_snapshot_id,
+                            or_(*pair_clauses),
+                        )
+                    ).scalars()
+                )
+        return (
+            origin_files,
+            {row.id: self._file_record(row) for row in selected_rows},
+            conflict_ids,
         )
 
     def review_threads(
@@ -1534,7 +1729,7 @@ class RoomStore:
         attention: Optional[Literal["author", "reviewer"]] = None,
         *,
         through_activity_id: Optional[int],
-    ) -> Optional[tuple[ReviewSnapshotRecord, int]]:
+    ) -> Optional[tuple[ReviewThreadsRecord, int]]:
         """Load one ordered, bounded set of Threads from a Snapshot.
 
         `identity` must identify the Room containing `snapshot_id`.
@@ -1653,7 +1848,7 @@ class RoomStore:
             thread_ids = [row.thread_id for row in selected_rows]
             if thread_ids == []:
                 return (
-                    ReviewSnapshotRecord((), (), (), (), total_threads),
+                    ReviewThreadsRecord((), (), (), (), total_threads),
                     through_activity_id,
                 )
             origin_rows = session.execute(
@@ -1700,7 +1895,7 @@ class RoomStore:
             "review action references a missing Profile"
         )
         return (
-            ReviewSnapshotRecord(
+            ReviewThreadsRecord(
                 threads=tuple(
                     self._thread_record(row) for row in selected_rows
                 ),
@@ -1717,7 +1912,7 @@ class RoomStore:
         identity: RoomIdentity,
         snapshot_id: str,
         thread_id: str,
-    ) -> Optional[ReviewSnapshotRecord]:
+    ) -> Optional[ReviewThreadsRecord]:
         """Load one discussion at one exact Snapshot without bulk hydration.
 
         `None` means the Snapshot is absent or belongs to another Room. An empty
@@ -1775,9 +1970,9 @@ class RoomStore:
                 assert selected_row is None, (
                     "Snapshot placement exists without a Room Thread origin"
                 )
-                return ReviewSnapshotRecord((), (), (), (), 0)
+                return ReviewThreadsRecord((), (), (), (), 0)
             if selected_row is None:
-                return ReviewSnapshotRecord((), (), (), (), 0)
+                return ReviewThreadsRecord((), (), (), (), 0)
             action_rows = session.execute(
                 select(*ReviewAction.__table__.c)
                 .where(ReviewAction.thread_id == thread_id)
@@ -1797,7 +1992,7 @@ class RoomStore:
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
-        return ReviewSnapshotRecord(
+        return ReviewThreadsRecord(
             threads=(self._thread_record(selected_row),),
             origins=(self._thread_record(origin_row),),
             actions=tuple(self._action_record(row) for row in action_rows),
@@ -1847,6 +2042,87 @@ class RoomStore:
         )
         return (
             tuple(self._action_record(row) for row in action_rows),
+            profiles,
+        )
+
+    def review_profiles(
+        self, profile_ids: tuple[int, ...]
+    ) -> tuple[UserProfileRecord, ...]:
+        """Load the existing Profiles among `profile_ids` in one set query.
+
+        Missing ids are simply absent from the result; the caller owns the
+        rejection contract for authors that do not exist.
+        """
+        if profile_ids == ():
+            return ()
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(UserProfile.id, UserProfile.username).where(
+                    UserProfile.id.in_(set(profile_ids))
+                )
+            ).all()
+        return tuple(profile_record(row.id, row.username) for row in rows)
+
+    def review_actions_many(
+        self,
+        snapshot_id: str,
+        thread_ids: tuple[str, ...],
+    ) -> tuple[
+        dict[str, tuple[ReviewActionRecord, ...]],
+        tuple[UserProfileRecord, ...],
+    ]:
+        """Load actions for every placed Thread among `thread_ids` at once.
+
+        The batch-validation counterpart of `review_actions`: one placement
+        check, one ordered action read, and one Profile read cover every
+        addressed Thread. A Thread without a placement in `snapshot_id` is
+        absent from the returned mapping; the caller owns that rejection.
+        Every present Thread has at least one action, and every acting
+        Profile is present in the returned Profiles.
+        """
+        if thread_ids == ():
+            return {}, ()
+        with Session(self.engine) as session:
+            placed = set(
+                session.execute(
+                    select(ReviewThreadPlacement.thread_id).where(
+                        ReviewThreadPlacement.snapshot_id == snapshot_id,
+                        ReviewThreadPlacement.thread_id.in_(set(thread_ids)),
+                    )
+                ).scalars()
+            )
+            if placed == set():
+                return {}, ()
+            action_rows = session.execute(
+                select(*ReviewAction.__table__.c)
+                .where(ReviewAction.thread_id.in_(placed))
+                .order_by(ReviewAction.thread_id, ReviewAction.sequence)
+            ).all()
+            profile_ids = {row.profile_id for row in action_rows}
+            profile_rows = session.execute(
+                select(UserProfile.id, UserProfile.username).where(
+                    UserProfile.id.in_(profile_ids)
+                )
+            ).all()
+        actions_by_thread: dict[str, list[ReviewActionRecord]] = {}
+        for row in action_rows:
+            actions_by_thread.setdefault(row.thread_id, []).append(
+                self._action_record(row)
+            )
+        assert actions_by_thread.keys() == placed, (
+            "review Thread has no creation action"
+        )
+        profiles = tuple(
+            profile_record(row.id, row.username) for row in profile_rows
+        )
+        assert {profile.id for profile in profiles} == profile_ids, (
+            "review action references a missing Profile"
+        )
+        return (
+            {
+                thread_id: tuple(actions)
+                for thread_id, actions in actions_by_thread.items()
+            },
             profiles,
         )
 
@@ -2015,24 +2291,117 @@ class RoomStore:
                     [self._review_thread_values(row) for row in thread_rows],
                 )
             next_activity_id = self._next_review_activity_id(session)
-            for offset, action in enumerate(actions):
+            for action in actions:
                 assert action.activity_id is None, (
                     "new review action must not supply activity order"
                 )
-                session.execute(
-                    insert(ReviewAction).values(
+            # One executemany insert preserves the authored order through the
+            # explicit consecutive activity ids.
+            session.execute(
+                insert(ReviewAction),
+                [
+                    {
                         **self._review_action_values(action),
-                        activity_id=next_activity_id + offset,
-                    )
-                )
+                        "activity_id": next_activity_id + offset,
+                    }
+                    for offset, action in enumerate(actions)
+                ],
+            )
 
-    def review_actions_after(
+    def review_latest_activity_id(self, identity: RoomIdentity) -> int:
+        """Return the Room's greatest review activity id, or 0 when empty.
+
+        This is the focused pivot read for callers that need only the
+        activity boundary, without hydrating any Thread.
+        """
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            latest = session.execute(
+                select(func.max(ReviewAction.activity_id))
+                .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .where(
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    mark_clause,
+                )
+            ).scalar_one()
+        return 0 if latest is None else latest
+
+    def _review_open_thread_count(
+        self,
+        session: Session,
+        identity: RoomIdentity,
+        through_activity_id: int,
+    ) -> int:
+        """Count open logical Threads in one Room at one inclusive pivot.
+
+        Threads whose first action lies after the pivot do not exist yet at
+        that pivot; their latest-action subquery finds nothing, so the join
+        excludes them.
+        """
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        room_threads = (
+            select(ReviewThread.thread_id)
+            .join(Snapshot, Snapshot.id == ReviewThread.origin_snapshot_id)
+            .join(Room, Room.id == Snapshot.room_id)
+            .where(
+                Room.tab == identity.tab,
+                Room.backend_key == identity.correspondence_key,
+                mark_clause,
+            )
+            .cte("open_count_room_threads")
+            .prefix_with("MATERIALIZED")
+        )
+        latest_for_thread = (
+            select(func.max(ReviewAction.activity_id))
+            .where(
+                ReviewAction.thread_id == room_threads.c.thread_id,
+                ReviewAction.activity_id <= through_activity_id,
+            )
+            .correlate(room_threads)
+            .scalar_subquery()
+        )
+        return session.execute(
+            select(func.count())
+            .select_from(room_threads)
+            .join(
+                ReviewAction,
+                ReviewAction.activity_id == latest_for_thread,
+            )
+            .where(ReviewAction.status_after == "open")
+        ).scalar_one()
+
+    def review_continuation(
         self,
         identity: RoomIdentity,
         activity_id: int,
         limit: int,
-    ) -> tuple[tuple[ReviewActionRecord, ...], bool]:
-        """Return one bounded ordered page of later actions in one Room."""
+    ) -> tuple[
+        tuple[ReviewActionRecord, ...],
+        bool,
+        int,
+        tuple[UserProfileRecord, ...],
+    ]:
+        """Return one bounded page of later actions with consistent context.
+
+        One database session reads the ordered action page after
+        `activity_id`, its has-more marker, the open logical Thread count,
+        and the acting Profiles, so a continuation response cannot mix
+        observations from different review universes. The count is evaluated
+        at the page's inclusive end boundary: the last returned action's
+        activity id, or `activity_id` when the page is empty. Every returned
+        action's Profile is present in the returned Profiles; a missing
+        Profile row fails the read.
+        """
         assert activity_id >= 0, "review activity boundary must be nonnegative"
         assert limit > 0, "review activity limit must be positive"
         mark_clause = (
@@ -2065,9 +2434,32 @@ class RoomStore:
                 .order_by(ReviewAction.activity_id)
                 .limit(limit + 1)
             ).all()
+            page = rows[:limit]
+            boundary = activity_id
+            if page != []:
+                last_activity = page[-1].activity_id
+                assert last_activity is not None
+                boundary = last_activity
+            open_count = self._review_open_thread_count(
+                session, identity, boundary
+            )
+            profile_ids = {row.profile_id for row in page}
+            profile_rows = session.execute(
+                select(UserProfile.id, UserProfile.username).where(
+                    UserProfile.id.in_(profile_ids)
+                )
+            ).all()
+        profiles = tuple(
+            profile_record(row.id, row.username) for row in profile_rows
+        )
+        assert {profile.id for profile in profiles} == profile_ids, (
+            "review action references a missing Profile"
+        )
         return (
-            tuple(self._action_record(row) for row in rows[:limit]),
+            tuple(self._action_record(row) for row in page),
             len(rows) > limit,
+            open_count,
+            profiles,
         )
 
     def review_attention_counts(

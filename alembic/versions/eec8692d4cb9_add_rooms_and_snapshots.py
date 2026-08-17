@@ -53,16 +53,17 @@ def upgrade() -> None:
         sa.Column("tab", sa.String, nullable=False),
         sa.Column("backend_key", sa.LargeBinary, nullable=False),
         sa.CheckConstraint(
-            "tab IN ('head', 'refs', 'branch-review', "
-            "'pull-request', 'preset')",
+            sa.column("tab").in_(
+                ("head", "refs", "branch-review", "pull-request", "preset")
+            ),
             name="ck_room_tab",
         ),
         sa.CheckConstraint(
-            "(mark_id IS NULL) = (tab = 'preset')",
+            sa.column("mark_id").is_(None) == (sa.column("tab") == "preset"),
             name="ck_room_mark_tab",
         ),
         sa.CheckConstraint(
-            "length(backend_key) > 0",
+            sa.func.length(sa.column("backend_key")) > 0,
             name="ck_room_backend_key",
         ),
     )
@@ -71,14 +72,14 @@ def upgrade() -> None:
         "room",
         ["mark_id", "tab", "backend_key"],
         unique=True,
-        sqlite_where=sa.text("mark_id IS NOT NULL"),
+        sqlite_where=sa.column("mark_id").is_not(None),
     )
     op.create_index(
         "uq_room_preset_tab_backend_key",
         "room",
         ["tab", "backend_key"],
         unique=True,
-        sqlite_where=sa.text("mark_id IS NULL"),
+        sqlite_where=sa.column("mark_id").is_(None),
     )
     op.create_table(
         "snapshot",
@@ -96,11 +97,12 @@ def upgrade() -> None:
             name="uq_snapshot_content",
         ),
         sa.CheckConstraint(
-            "length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*'",
+            (sa.func.length(sa.column("id")) == 32)
+            & sa.column("id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_snapshot_id",
         ),
         sa.CheckConstraint(
-            "length(content_hash) = 32",
+            sa.func.length(sa.column("content_hash")) == 32,
             name="ck_snapshot_content_hash",
         ),
     )
@@ -117,13 +119,21 @@ def upgrade() -> None:
         sa.Column("added_lines", sa.Integer, nullable=True),
         sa.Column("removed_lines", sa.Integer, nullable=True),
         sa.CheckConstraint(
-            "length(left_label) > 0 AND length(right_label) > 0",
+            (sa.func.length(sa.column("left_label")) > 0)
+            & (sa.func.length(sa.column("right_label")) > 0),
             name="ck_snapshot_meta_labels",
         ),
         sa.CheckConstraint(
-            "(added_lines IS NULL AND removed_lines IS NULL) OR "
-            "(added_lines IS NOT NULL AND removed_lines IS NOT NULL AND "
-            "added_lines >= 0 AND removed_lines >= 0)",
+            (
+                sa.column("added_lines").is_(None)
+                & sa.column("removed_lines").is_(None)
+            )
+            | (
+                sa.column("added_lines").is_not(None)
+                & sa.column("removed_lines").is_not(None)
+                & (sa.column("added_lines") >= 0)
+                & (sa.column("removed_lines") >= 0)
+            ),
             name="ck_snapshot_meta_line_counts",
         ),
     )
@@ -142,19 +152,23 @@ def upgrade() -> None:
         sa.Column("error", sa.String, nullable=True),
         sa.UniqueConstraint("path", name="uq_snapshot_file_path"),
         sa.CheckConstraint(
-            "length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*'",
+            (sa.func.length(sa.column("id")) == 32)
+            & sa.column("id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_snapshot_file_id",
         ),
         sa.CheckConstraint(
-            "substr(path, 1, 1) = '/'",
+            sa.func.substr(sa.column("path"), 1, 1) == "/",
             name="ck_snapshot_file_path",
         ),
         sa.CheckConstraint(
-            "change_type IN ('modify', 'add', 'delete', 'rename', 'copy')",
+            sa.column("change_type").in_(
+                ("modify", "add", "delete", "rename", "copy")
+            ),
             name="ck_snapshot_file_change_type",
         ),
         sa.CheckConstraint(
-            "error IS NULL OR length(error) > 0",
+            sa.column("error").is_(None)
+            | (sa.func.length(sa.column("error")) > 0),
             name="ck_snapshot_file_error",
         ),
     )
@@ -174,16 +188,17 @@ def upgrade() -> None:
         sa.Column("repository_path", sa.String, nullable=False),
         sa.Column("content_hash", sa.LargeBinary(length=32), nullable=False),
         sa.CheckConstraint(
-            "length(repository_path) > 0 AND "
-            "substr(repository_path, 1, 1) != '/' AND "
-            "repository_path != '.' AND repository_path != '..' AND "
-            "repository_path NOT LIKE '../%' AND "
-            "repository_path NOT LIKE '%/../%' AND "
-            "repository_path NOT LIKE '%/..'",
+            (sa.func.length(sa.column("repository_path")) > 0)
+            & (sa.func.substr(sa.column("repository_path"), 1, 1) != "/")
+            & (sa.column("repository_path") != ".")
+            & (sa.column("repository_path") != "..")
+            & sa.column("repository_path").not_like("../%")
+            & sa.column("repository_path").not_like("%/../%")
+            & sa.column("repository_path").not_like("%/.."),
             name="ck_snapshot_file_left_repository_path",
         ),
         sa.CheckConstraint(
-            "length(content_hash) = 32",
+            sa.func.length(sa.column("content_hash")) == 32,
             name="ck_snapshot_file_left_content_hash",
         ),
     )
@@ -197,8 +212,9 @@ def upgrade() -> None:
         ),
         sa.Column("reason", sa.String, nullable=False),
         sa.CheckConstraint(
-            "reason IN ('too_big', 'generated', 'deleted', "
-            "'untracked', 'pure_renamed')",
+            sa.column("reason").in_(
+                ("too_big", "generated", "deleted", "untracked", "pure_renamed")
+            ),
             name="ck_snapshot_file_lazy_reason",
         ),
     )
@@ -212,7 +228,7 @@ def upgrade() -> None:
         ),
         sa.Column("content", sa.String, nullable=False),
         sa.CheckConstraint(
-            "length(content) > 0",
+            sa.func.length(sa.column("content")) > 0,
             name="ck_snapshot_file_lazy_reason_content",
         ),
     )
@@ -227,16 +243,17 @@ def upgrade() -> None:
         sa.Column("repository_path", sa.String, nullable=False),
         sa.Column("content_hash", sa.LargeBinary(length=32), nullable=False),
         sa.CheckConstraint(
-            "length(repository_path) > 0 AND "
-            "substr(repository_path, 1, 1) != '/' AND "
-            "repository_path != '.' AND repository_path != '..' AND "
-            "repository_path NOT LIKE '../%' AND "
-            "repository_path NOT LIKE '%/../%' AND "
-            "repository_path NOT LIKE '%/..'",
+            (sa.func.length(sa.column("repository_path")) > 0)
+            & (sa.func.substr(sa.column("repository_path"), 1, 1) != "/")
+            & (sa.column("repository_path") != ".")
+            & (sa.column("repository_path") != "..")
+            & sa.column("repository_path").not_like("../%")
+            & sa.column("repository_path").not_like("%/../%")
+            & sa.column("repository_path").not_like("%/.."),
             name="ck_snapshot_file_right_repository_path",
         ),
         sa.CheckConstraint(
-            "length(content_hash) = 32",
+            sa.func.length(sa.column("content_hash")) == 32,
             name="ck_snapshot_file_right_content_hash",
         ),
     )

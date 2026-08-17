@@ -122,7 +122,7 @@ type ReviewDraftContextValue = {
   replace(draft: ReviewDraft): boolean;
   remove(draftId: ReviewId): boolean;
   clear(): boolean;
-  beginSubmission(draftId: ReviewId): ReviewDraft | null;
+  beginSubmission(draftId: ReviewId): ReviewDraft;
   endSubmission(draftId: ReviewId, succeeded: boolean): void;
 };
 
@@ -257,7 +257,7 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
   }
 
   /** Marks one persisted draft as the sole input to an in-flight write. */
-  function beginSubmission(draftId: ReviewId): ReviewDraft | null {
+  function beginSubmission(draftId: ReviewId): ReviewDraft {
     const matches = drafts().filter((draft) => draft.draft_id === draftId);
     assert(
       matches.length === 1,
@@ -268,7 +268,7 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
       "Review draft submission is already in flight.",
     );
     setSubmittingDraftIds((current) => new Set(current).add(draftId));
-    return matches[0] ?? null;
+    return matches[0];
   }
 
   /** Ends one draft write and removes its input only after success. */
@@ -988,15 +988,32 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   }
 
   /** Publish one newly created Thread into the canonical Snapshot query. */
-  function acceptCreatedThread(thread: ReviewThread): void {
+  async function acceptCreatedThread(thread: ReviewThread): Promise<void> {
     const key = api.review.snapshot(thread.snapshot_id).queryKey;
-    const current = queryClient.getQueryData<ReviewThread[]>(key);
-    if (current === undefined) return;
-    const matches = current.filter(
-      (candidate) => candidate.thread_id === thread.thread_id,
-    );
-    assert(matches.length === 0, "Created review Thread already exists.");
-    queryClient.setQueryData<ReviewThread[]>(key, [...current, thread]);
+    // A refetch begun before the backend committed could resolve after this
+    // publication and erase the new Thread with its stale result; cancel the
+    // in-flight read so the committed response publishes last.
+    await queryClient.cancelQueries({ queryKey: key });
+    queryClient.setQueryData<ReviewThread[]>(key, (current) => {
+      if (current === undefined) return current;
+      const matches = current.filter(
+        (candidate) => candidate.thread_id === thread.thread_id,
+      );
+      if (matches.length === 0) return [...current, thread];
+      // A concurrent Reload already fetched the committed Thread: ordinary
+      // concurrency, not an error. Keep the equal-or-newer loaded entry.
+      assert(
+        matches.length === 1,
+        "Created review Thread requires one loaded entry.",
+      );
+      const existing = expect(matches[0], "Created review Thread vanished.");
+      if (existing.discussion_revision >= thread.discussion_revision) {
+        return current;
+      }
+      return current.map((candidate) =>
+        candidate.thread_id === thread.thread_id ? thread : candidate,
+      );
+    });
   }
 
   /** Applies one contiguous action result to its authoritative loaded Thread. */
@@ -1078,7 +1095,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     const profile = profileForWrite();
     if (profile === null) return false;
     const command = draftContext.beginSubmission(draftId);
-    if (command === null) return false;
     if (command.kind === "new-thread") {
       assert(
         command.snapshot_id === props.snapshotId,
@@ -1134,7 +1150,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     try {
       if (command.kind === "new-thread") {
         assert("origin_target" in thread);
-        acceptCreatedThread(thread);
+        await acceptCreatedThread(thread);
       } else {
         assert(!("origin_target" in thread));
         await acceptThreadUpdate(thread);
@@ -2334,8 +2350,10 @@ function ThreadCard(props: {
           {firstComment().author.display_name}
         </strong>
         <span class="review-thread-location" title={excerptPath}>
-          {excerptFileName} · L
-          {props.thread.original_excerpt.selected_start_line}
+          {excerptFileName}
+          <Show when={props.thread.original_excerpt} keyed>
+            {(excerpt) => <> · L{excerpt.selected_start_line}</>}
+          </Show>
         </span>
         <Show when={props.thread.outdated_reason !== null}>
           <span
@@ -2442,30 +2460,31 @@ function ThreadCard(props: {
             The reviewed file is not present in this Snapshot.
           </p>
         </Show>
-        <pre
-          class="review-excerpt"
-          data-side={props.thread.original_excerpt.side}
-        >
-          <For each={props.thread.original_excerpt.lines}>
-            {(line, index) => {
-              const lineNumber =
-                props.thread.original_excerpt.start_line + index();
-              const selected =
-                props.thread.original_excerpt.selected_start_line <=
-                  lineNumber &&
-                lineNumber <= props.thread.original_excerpt.selected_end_line;
-              return (
-                <span
-                  class="review-excerpt-line"
-                  classList={{ "review-excerpt-selected": selected }}
-                >
-                  <span class="review-excerpt-line-number">{lineNumber}</span>
-                  <span class="review-excerpt-code">{line}</span>
-                </span>
-              );
-            }}
-          </For>
-        </pre>
+        <Show when={props.thread.original_excerpt} keyed>
+          {(excerpt) => (
+            <pre class="review-excerpt" data-side={excerpt.side}>
+              <For each={excerpt.lines}>
+                {(line, index) => {
+                  const lineNumber = excerpt.start_line + index();
+                  const selected =
+                    excerpt.selected_start_line <= lineNumber &&
+                    lineNumber <= excerpt.selected_end_line;
+                  return (
+                    <span
+                      class="review-excerpt-line"
+                      classList={{ "review-excerpt-selected": selected }}
+                    >
+                      <span class="review-excerpt-line-number">
+                        {lineNumber}
+                      </span>
+                      <span class="review-excerpt-code">{line}</span>
+                    </span>
+                  );
+                }}
+              </For>
+            </pre>
+          )}
+        </Show>
         <ol class="review-comments">
           <For each={props.thread.comments}>
             {(comment) => {

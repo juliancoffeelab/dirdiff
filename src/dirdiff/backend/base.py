@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional, Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 from dirdiff.engines import DirdiffError
 
@@ -34,8 +34,10 @@ __all__ = [
     "LoadedDiffSides",
     "LocalBranchSelection",
     "RefChoices",
+    "RefMetadata",
     "RemoteBranchRef",
     "RemoteBranchSelection",
+    "RepoDiff",
     "RepoDiffPath",
     "SideName",
     "StructuredRemoteBranchRef",
@@ -73,6 +75,20 @@ class RepoDiffPath:
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
     lazy_reason_override: LazyReason | None
     untracked: bool = False
+
+
+@dataclass(frozen=True)
+class RepoDiff:
+    """Describe one backend comparison before Snapshot content loading.
+
+    `paths` contains every affected File pair. Aggregate line counts are either
+    both present and nonnegative or both absent when the backend cannot state
+    them. The record contains no loaded bytes or rendered output.
+    """
+
+    paths: tuple[RepoDiffPath, ...]
+    added_lines: int | None
+    removed_lines: int | None
 
 
 class LocalBranchSelection(TypedDict):
@@ -128,6 +144,28 @@ class RefChoices(TypedDict):
     local_branches: list[str]
     remotes: list[str]
     remote_branches: list[RemoteBranchRef]
+
+
+class RefMetadata(TypedDict):
+    """One consistent snapshot of repository branch and remote metadata.
+
+    Read once per request by `GitBackend.read_ref_metadata` and consumed by
+    pure derivations, so branch-control responses are computed from a single
+    repository observation instead of mixing repeated Git reads. Lists are
+    sorted for stable API responses. `current_branch` is empty when HEAD is
+    detached. `upstreams` maps only local branches with a configured upstream
+    to that upstream's short name. `remote_head_branches` maps only remotes
+    whose local `refs/remotes/<remote>/HEAD` symref is present to the default
+    branch name it targets. The snapshot must not carry commit ids: capture
+    resolution stays a separate explicit step.
+    """
+
+    current_branch: str
+    local_branches: list[str]
+    remote_names: list[str]
+    remote_branches: list[StructuredRemoteBranchRef]
+    upstreams: dict[str, str]
+    remote_head_branches: dict[str, str]
 
 
 class LoadedDiffSides(TypedDict):
@@ -208,67 +246,23 @@ class WorkspaceBackendProtocol(Protocol):
         """Return the default path for single-file comparisons when available."""
         ...
 
-    def current_branch_name(self) -> str:
-        """Return the current branch name when the backend has branch metadata."""
-        ...
-
-    def list_branch_names(self) -> list[str]:
-        """Return local branch choices for branch-review controls."""
-        ...
-
-    def list_remote_ref_names(self) -> list[str]:
-        """Return remote ref names for freeform ref compares."""
-        ...
-
-    def list_remote_names(self) -> list[str]:
-        """Return configured remotes known to the backend."""
-        ...
-
-    def list_ref_choices(self) -> RefChoices:
-        """Return structured ref metadata consumed by repo-ref controls."""
-        ...
-
-    def branch_upstream_name(self, branch_name: str) -> str:
-        """Return the upstream ref configured for a local branch."""
-        ...
-
-    def default_base_selection(self) -> DefaultBaseSelection:
-        """Choose the initial branch-review base for this backend."""
-        ...
-
-    def preferred_review_selection(
-        self, *, base_selection: DefaultBaseSelection | None = None
-    ) -> BranchSelection:
-        """Choose the initial branch-review target for this backend."""
-        ...
-
     def resolve_branch_diff_sides(
         self,
         *,
         base_selection: BranchSelection,
         review_selection: BranchSelection,
-    ) -> tuple[str, str, str]:
-        """Resolve branch-review selections into label, merge base, and target."""
+    ) -> tuple[str, str, str, str]:
+        """Resolve branch labels into immutable merge-base and review commits."""
         ...
 
-    def list_repo_diff_paths(
+    def repo_diff(
         self,
         *,
         left: SideName,
         right: SideName,
         show_untracked: bool = False,
-    ) -> list[RepoDiffPath]:
-        """List changed paths between two normalized backend sides."""
-        ...
-
-    def line_counts(
-        self,
-        *,
-        left: SideName,
-        right: SideName,
-        show_untracked: bool = False,
-    ) -> tuple[Optional[int], Optional[int]]:
-        """Return added and removed line totals reported by this backend.
+    ) -> RepoDiff:
+        """Return affected paths and aggregate counts for normalized sides.
 
         Both values are absent when the backend reports no totals. Additional
         Files included by `show_untracked` need not participate in them.
@@ -286,6 +280,17 @@ class WorkspaceBackendProtocol(Protocol):
         must not decode or classify the contents; consumers apply any textual
         restrictions required by their operation. A listed file that cannot be
         loaded raises `DirdiffError` with the backend's actual failure reason.
+        """
+        ...
+
+    def load_versions(
+        self, requests: tuple[tuple[str, SideName], ...]
+    ) -> tuple[bytes | DirdiffError, ...]:
+        """Load several exact File sides while retaining per-side failures.
+
+        Results preserve request order. A listed side that cannot be loaded is
+        returned as its concrete `DirdiffError`; unexpected failures still
+        abort the complete operation.
         """
         ...
 

@@ -12,7 +12,7 @@ for this disposable reviewer session.
 
 DD_REPO_PATH="$(git rev-parse --show-toplevel)"
 DD_AGENT_UUID="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
-DD_AGENT_NAME="Codex reviewer ${DD_AGENT_UUID:0:8}"
+DD_AGENT_NAME="AI reviewer ${DD_AGENT_UUID:0:8}"
 DD_PAGE=1
 DD_LIMIT=20
 ```
@@ -25,7 +25,35 @@ project-specific value.
 
 This Tab compares `HEAD` with the current worktree, including untracked Files.
 Use a different `AgentReviewTab` object when the requested Tab is refs, branch
-review, or pull request.
+review, or pull request:
+
+```json
+{"kind": "refs", "repo_path": "...", "left": "main", "right": "HEAD"}
+{"kind": "branch-review", "repo_path": "...",
+ "base": {"remote": null, "name": "main"},
+ "review": {"remote": null, "name": "feature/topic"}}
+{"kind": "pull-request", "url": "https://github.com/owner/repo/pull/123"}
+```
+
+`remote` is `null` for a local branch, or the remote name such as `"origin"`.
+A pull-request Tab takes no `repo_path`. For example, a Branch Review Tab:
+
+```sh
+DD_TAB="$(
+  jq -n \
+    --arg repo_path "$DD_REPO_PATH" \
+    --arg base "main" \
+    --arg review "feature/topic" \
+    '{
+      kind: "branch-review",
+      repo_path: $repo_path,
+      base: {remote: null, name: $base},
+      review: {remote: null, name: $review}
+    }'
+)"
+```
+
+The default HEAD/worktree Tab:
 
 ```sh
 DD_TAB="$(

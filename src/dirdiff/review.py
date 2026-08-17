@@ -34,6 +34,7 @@ from dirdiff.backend import decode_text_content
 from dirdiff.db import (
     ReviewActionRecord,
     ReviewThreadRecord,
+    ReviewThreadsRecord,
     RoomIdentity,
     RoomStore,
     SnapshotFileRecord,
@@ -69,6 +70,7 @@ __all__ = [
     "TextTarget",
     "Thread",
     "ThreadDiscussionView",
+    "ThreadSummaryView",
     "ThreadUpdateView",
 ]
 
@@ -322,8 +324,29 @@ class ThreadDiscussionView(TypedDict):
     outdated_reason: Optional[
         Literal["region_changed", "region_not_found", "file_missing"]
     ]
-    original_excerpt: dict[str, object]
+    original_excerpt: Optional[dict[str, object]]
     comments: list[ReviewCommentView]
+
+
+class ThreadSummaryView(TypedDict):
+    """Return discovery facts for one placed Thread without its excerpt.
+
+    The lightweight agent-summary contract: the same action fold and
+    placement semantics as `ThreadDiscussionView`, but no original excerpt
+    is constructed (so no captured text is read from disk) and only the
+    first and latest Comments travel with their total count.
+    """
+
+    thread_id: str
+    state: Literal["open", "resolved", "deleted"]
+    attention: Literal["author", "reviewer", "both", "none"]
+    code_location: Optional[dict[str, object]]
+    outdated_reason: Optional[
+        Literal["region_changed", "region_not_found", "file_missing"]
+    ]
+    first_comment: ReviewCommentView
+    latest_comment: ReviewCommentView
+    comment_count: int
 
 
 class ThreadUpdateView(TypedDict):
@@ -372,10 +395,9 @@ class _SourceRegion:
 
 @dataclass
 class _ReviewReadCache:
-    """Share immutable text and parsed source regions in one review read."""
+    """Share immutable text in one review read."""
 
     text: dict[tuple[str, Literal["left", "right"]], str]
-    source_regions: dict[tuple[str, str], tuple[_SourceRegion, ...]]
 
 
 _ELIGIBLE_NODE_TYPES = frozenset(
@@ -890,6 +912,33 @@ def _derive_record(
     target_file = target_files_by_pair.get(_file_pair(origin_file))
     if target_file is None:
         return file_missing_record()
+    if origin.target_kind == "file-start":
+        assert origin.is_origin
+        assert origin.region_kind is None and origin.region_key is None
+        assert origin.side is not None
+        assert origin.start_line is None and origin.end_line is None
+        assert origin.outdated_reason is None
+        assert origin.private_locator is None
+        selected_side = (
+            target_file.left if origin.side == "left" else target_file.right
+        )
+        assert selected_side is not None, (
+            "historical File-start side disappeared from an exact File pair"
+        )
+        return ReviewThreadRecord(
+            origin.thread_id,
+            target_snapshot.id,
+            target_file.id,
+            False,
+            "file-start",
+            None,
+            None,
+            origin.side,
+            None,
+            None,
+            None,
+            None,
+        )
     assert origin.target_kind == "range"
     assert origin.side is not None
     origin_text = _read_text(origin_file, origin.side, cache)
@@ -1039,6 +1088,13 @@ def _origin_target_dict(
 ) -> dict[str, object]:
     """Reconstruct the immutable public creation target from retained facts."""
     pair = _pair_dict(_file_pair(file))
+    if origin.target_kind == "file-start":
+        assert origin.region_kind is None and origin.region_key is None
+        assert origin.side is not None
+        assert origin.start_line is None and origin.end_line is None
+        assert origin.outdated_reason is None
+        assert origin.private_locator is None
+        return {"kind": "file-start", "file": pair, "side": origin.side}
     assert origin.target_kind == "range"
     assert origin.region_kind is not None
     assert origin.side is not None
@@ -1270,9 +1326,13 @@ def _append_review_action(
 ) -> tuple[
     tuple[ReviewActionRecord, ...],
     dict[int, UserProfileRecord],
-    ThreadUpdateView,
 ]:
-    """Validate and append one action without loading captured Snapshot Files."""
+    """Validate and append one action without loading captured Snapshot Files.
+
+    Returns the appended authoritative action sequence and current Profiles;
+    the caller that reports an update view folds them itself, so this write
+    builds nothing its other caller discards.
+    """
     with _room_write_lock(thread_lock, lock_path):
         profile_id = author.profile_id
         profile = _validate_author(database, author)
@@ -1357,31 +1417,7 @@ def _append_review_action(
         )
         database.append_review_action(record)
         profiles[profile.id] = profile
-        updated_actions = (*actions, record)
-        updated_state, updated_attention, updated_comments = _fold_actions(
-            updated_actions, profiles
-        )
-        updated_comment = (
-            next(
-                comment
-                for comment in updated_comments
-                if comment["comment_id"] == comment_id.hex
-            )
-            if comment_id is not None
-            else None
-        )
-        return (
-            updated_actions,
-            profiles,
-            ThreadUpdateView(
-                thread_id=thread_id.hex,
-                snapshot_id=snapshot_id.hex,
-                state=updated_state,
-                attention=updated_attention,
-                discussion_revision=len(updated_actions) - 1,
-                comment=updated_comment,
-            ),
-        )
+        return (*actions, record), profiles
 
 
 class Thread:
@@ -1406,11 +1442,17 @@ class Thread:
         origin: ReviewThreadRecord,
         actions: tuple[ReviewActionRecord, ...],
         profiles: dict[int, UserProfileRecord],
-        origin_files_by_id: dict[str, SnapshotFileRecord],
-        selected_files_by_pair: dict[FilePair, SnapshotFileRecord],
+        origin_file: SnapshotFileRecord,
+        selected_file: Optional[SnapshotFileRecord],
         cache: _ReviewReadCache,
     ) -> None:
-        """Bind one Thread to indexed read facts and its construction outcome."""
+        """Bind one Thread to exactly the Files its placement references.
+
+        `origin_file` is the origin Snapshot File behind the discussion;
+        `selected_file` is the selected-Snapshot File the placement locates,
+        or `None` for a file-missing placement whose absence the hydration
+        boundary has already verified.
+        """
         self.snapshot_id = snapshot_id
         self.thread_id = thread_id
         self._database = database
@@ -1421,8 +1463,8 @@ class Thread:
         self._origin = origin
         self._action_records = actions
         self._profiles = profiles
-        self._origin_files_by_id = origin_files_by_id
-        self._selected_files_by_pair = selected_files_by_pair
+        self._origin_file = origin_file
+        self._selected_file = selected_file
         self._cache = cache
 
     def _records(self) -> tuple[ReviewThreadRecord, ReviewThreadRecord]:
@@ -1436,63 +1478,72 @@ class Thread:
         )
         return self._action_records
 
-    def _materialize(self) -> ThreadDiscussionView:
-        """Fold one discussion with its bounded original excerpt."""
+    def _locate(self) -> Optional[dict[str, object]]:
+        """Fold placement facts into the public code location, if located.
+
+        `None` means the placement is file-missing; the hydration boundary
+        has already verified no selected-Snapshot File carries the origin
+        pair, so absence here is an invariant, not a substitute.
+        """
         placement, origin = self._records()
         assert origin.snapshot_file_id is not None
-        origin_file = self._origin_files_by_id.get(origin.snapshot_file_id)
-        assert origin_file is not None, (
-            "review origin references a missing Snapshot File"
-        )
-
-        actions = self._actions()
-        state, attention, comments = _fold_actions(actions, self._profiles)
-        code_location: Optional[dict[str, object]]
-        target_file: Optional[SnapshotFileRecord] = None
-        expected_file = self._selected_files_by_pair.get(
-            _file_pair(origin_file)
-        )
+        origin_file = self._origin_file
         if placement.snapshot_file_id is None:
             assert placement.outdated_reason == "file_missing"
-            assert expected_file is None, (
+            assert self._selected_file is None, (
                 "file_missing placement has an exact Snapshot File"
             )
-            code_location = None
-        else:
-            assert expected_file is not None, (
-                "located placement has no exact Snapshot File"
-            )
-            assert expected_file.id == placement.snapshot_file_id, (
-                "placement references the wrong Snapshot File pair"
-            )
-            target_file = expected_file
-            pair = _pair_dict(_file_pair(target_file))
-            if placement.target_kind == "range":
-                assert placement.region_kind is not None
-                assert placement.side is not None
-                assert placement.start_line is not None
-                assert placement.end_line is not None
-                code_location = {
-                    "kind": "range",
-                    "file": pair,
-                    "region": _region_dict(
-                        placement.region_kind, placement.region_key
-                    ),
-                    "side": placement.side,
-                    "range": {
-                        "start_line": placement.start_line,
-                        "end_line": placement.end_line,
-                    },
-                }
-            else:
-                assert placement.target_kind == "file-start"
-                assert placement.side is not None
-                code_location = {
-                    "kind": "file-start",
-                    "file": pair,
-                    "side": placement.side,
-                }
-        assert origin.target_kind == "range"
+            return None
+        target_file = self._selected_file
+        assert target_file is not None, (
+            "located placement has no exact Snapshot File"
+        )
+        assert target_file.id == placement.snapshot_file_id, (
+            "placement references the wrong Snapshot File"
+        )
+        assert _file_pair(target_file) == _file_pair(origin_file), (
+            "placement references the wrong Snapshot File pair"
+        )
+        pair = _pair_dict(_file_pair(target_file))
+        if placement.target_kind == "range":
+            assert placement.region_kind is not None
+            assert placement.side is not None
+            assert placement.start_line is not None
+            assert placement.end_line is not None
+            return {
+                "kind": "range",
+                "file": pair,
+                "region": _region_dict(
+                    placement.region_kind, placement.region_key
+                ),
+                "side": placement.side,
+                "range": {
+                    "start_line": placement.start_line,
+                    "end_line": placement.end_line,
+                },
+            }
+        assert placement.target_kind == "file-start"
+        assert placement.side is not None
+        return {
+            "kind": "file-start",
+            "file": pair,
+            "side": placement.side,
+        }
+
+    def discussion(self) -> ThreadDiscussionView:
+        """Fold the complete discussion with its bounded original excerpt.
+
+        Index-style callers use the public location and explicitly render
+        that File when an outdated Thread reports `region_changed`.
+        """
+        placement, origin = self._records()
+        actions = self._actions()
+        state, attention, comments = _fold_actions(actions, self._profiles)
+        original_excerpt = (
+            _build_original_excerpt(origin, self._origin_file, self._cache)
+            if origin.target_kind == "range"
+            else None
+        )
         return ThreadDiscussionView(
             thread_id=self.thread_id.hex,
             snapshot_id=self.snapshot_id.hex,
@@ -1500,26 +1551,32 @@ class Thread:
             state=state,
             attention=attention,
             discussion_revision=len(actions) - 1,
-            origin_target=_origin_target_dict(origin, origin_file),
-            code_location=code_location,
+            origin_target=_origin_target_dict(origin, self._origin_file),
+            code_location=self._locate(),
             outdated_reason=placement.outdated_reason,
-            original_excerpt=_build_original_excerpt(
-                origin, origin_file, self._cache
-            ),
+            original_excerpt=original_excerpt,
             comments=comments,
         )
 
-    def discussion(self) -> ThreadDiscussionView:
-        """Return bounded discussion context without a changed-region render.
+    def summary(self) -> ThreadSummaryView:
+        """Fold discovery facts without reading any captured text.
 
-        Index-style callers use the public location and explicitly render that
-        File when an outdated Thread reports `region_changed`.
+        The same action fold and placement checks as `discussion`, minus the
+        original-excerpt construction and the complete Comment list.
         """
-        return self._materialize()
-
-    def summary(self) -> ThreadDiscussionView:
-        """Return the same bounded discussion view used by full reads."""
-        return self._materialize()
+        actions = self._actions()
+        state, attention, comments = _fold_actions(actions, self._profiles)
+        assert comments != [], "persisted Thread folded to zero Comments"
+        return ThreadSummaryView(
+            thread_id=self.thread_id.hex,
+            state=state,
+            attention=attention,
+            code_location=self._locate(),
+            outdated_reason=self._placement.outdated_reason,
+            first_comment=comments[0],
+            latest_comment=comments[-1],
+            comment_count=len(comments),
+        )
 
     def _append(
         self,
@@ -1538,7 +1595,7 @@ class Thread:
         body: Optional[str],
     ) -> Thread:
         """Validate, append, and return the bound Thread with write outcome."""
-        actions, profiles, _ = _append_review_action(
+        actions, profiles = _append_review_action(
             database=self._database,
             snapshot_id=self.snapshot_id,
             thread_id=self.thread_id,
@@ -1646,20 +1703,35 @@ def _thread_objects(
     if result is None:
         raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
     data, concrete_activity_id = result
-    required_snapshot_ids = {snapshot_id.hex} | {
-        origin.snapshot_id for origin in data.origins
-    }
-    snapshots: dict[str, SnapshotRecord] = {}
-    for required_snapshot_id in required_snapshot_ids:
-        snapshot = database.snapshot(identity, required_snapshot_id)
-        assert snapshot is not None, (
-            "review placement references a missing Room Snapshot"
-        )
-        snapshots[required_snapshot_id] = snapshot
-    file_indexes = {
-        required_snapshot_id: _file_indexes(snapshot)
-        for required_snapshot_id, snapshot in snapshots.items()
-    }
+    return (
+        _bind_threads(
+            database=database,
+            identity=identity,
+            snapshot_id=snapshot_id,
+            data=data,
+            lock_path=lock_path,
+            thread_lock=thread_lock,
+        ),
+        data.total_threads,
+        concrete_activity_id,
+    )
+
+
+def _bind_threads(
+    *,
+    database: RoomStore,
+    identity: RoomIdentity,
+    snapshot_id: UUID,
+    data: ReviewThreadsRecord,
+    lock_path: Path,
+    thread_lock: Lock,
+) -> tuple[Thread, ...]:
+    """Bind hydrated Thread rows to exactly the Files they reference.
+
+    One focused store read loads every referenced origin File, every located
+    selected-Snapshot File, and the file-missing absence proof, replacing the
+    former complete-Snapshot loads and thrown-away indexes.
+    """
     placements = {row.thread_id: row for row in data.threads}
     origins = {row.thread_id: row for row in data.origins}
     actions: dict[str, list[ReviewActionRecord]] = {
@@ -1675,9 +1747,57 @@ def _thread_objects(
     assert len(profiles) == len(data.profiles), (
         "review read contains duplicate Profiles"
     )
-    cache = _ReviewReadCache({}, {})
-    return (
-        tuple(
+    for origin in data.origins:
+        assert origin.snapshot_file_id is not None, (
+            "review origin has no Snapshot File"
+        )
+    origin_refs = tuple(
+        dict.fromkeys(
+            (origin.snapshot_id, origin.snapshot_file_id)
+            for origin in data.origins
+            if origin.snapshot_file_id is not None
+        )
+    )
+    located_file_ids = tuple(
+        dict.fromkeys(
+            placement.snapshot_file_id
+            for placement in data.threads
+            if placement.snapshot_file_id is not None
+        )
+    )
+    absent_origin_refs = tuple(
+        dict.fromkeys(
+            (
+                origins[placement.thread_id].snapshot_id,
+                origin_file_id,
+            )
+            for placement in data.threads
+            if placement.snapshot_file_id is None
+            and (
+                origin_file_id := origins[placement.thread_id].snapshot_file_id
+            )
+            is not None
+        )
+    )
+    origin_files, selected_files, conflicts = database.review_thread_files(
+        snapshot_id.hex,
+        origin_refs,
+        located_file_ids,
+        absent_origin_refs,
+    )
+    assert conflicts == (), "file_missing placement has an exact Snapshot File"
+    cache = _ReviewReadCache({})
+    threads: list[Thread] = []
+    for origin in data.origins:
+        placement = placements[origin.thread_id]
+        assert origin.snapshot_file_id is not None
+        selected_file: Optional[SnapshotFileRecord] = None
+        if placement.snapshot_file_id is not None:
+            selected_file = selected_files.get(placement.snapshot_file_id)
+            assert selected_file is not None, (
+                "located placement has no exact Snapshot File"
+            )
+        threads.append(
             Thread(
                 database=database,
                 identity=identity,
@@ -1685,19 +1805,18 @@ def _thread_objects(
                 thread_id=UUID(hex=origin.thread_id),
                 lock_path=lock_path,
                 thread_lock=thread_lock,
-                placement=placements[origin.thread_id],
+                placement=placement,
                 origin=origin,
                 actions=tuple(actions[origin.thread_id]),
                 profiles=profiles,
-                origin_files_by_id=file_indexes[origin.snapshot_id][0],
-                selected_files_by_pair=file_indexes[snapshot_id.hex][1],
+                origin_file=origin_files[
+                    (origin.snapshot_id, origin.snapshot_file_id)
+                ],
+                selected_file=selected_file,
                 cache=cache,
             )
-            for origin in data.origins
-        ),
-        data.total_threads,
-        concrete_activity_id,
-    )
+        )
+    return tuple(threads)
 
 
 def _get_thread(
@@ -1722,38 +1841,16 @@ def _get_thread(
             "thread_not_found", f"Unknown Thread: {thread_id.hex}"
         )
     assert len(data.threads) == len(data.origins) == 1
-    origin = data.origins[0]
-    required_snapshot_ids = {snapshot_id.hex, origin.snapshot_id}
-    snapshots: dict[str, SnapshotRecord] = {}
-    for required_snapshot_id in required_snapshot_ids:
-        snapshot = database.snapshot(identity, required_snapshot_id)
-        assert snapshot is not None, (
-            "review placement references a missing Room Snapshot"
-        )
-        snapshots[required_snapshot_id] = snapshot
-    file_indexes = {
-        required_snapshot_id: _file_indexes(snapshot)
-        for required_snapshot_id, snapshot in snapshots.items()
-    }
-    profiles = {profile.id: profile for profile in data.profiles}
-    assert len(profiles) == len(data.profiles), (
-        "review read contains duplicate Profiles"
-    )
-    return Thread(
+    threads = _bind_threads(
         database=database,
         identity=identity,
         snapshot_id=snapshot_id,
-        thread_id=thread_id,
+        data=data,
         lock_path=lock_path,
         thread_lock=thread_lock,
-        placement=data.threads[0],
-        origin=origin,
-        actions=data.actions,
-        profiles=profiles,
-        origin_files_by_id=file_indexes[origin.snapshot_id][0],
-        selected_files_by_pair=file_indexes[snapshot_id.hex][1],
-        cache=_ReviewReadCache({}, {}),
     )
+    assert len(threads) == 1
+    return threads[0]
 
 
 def _derive_room_threads(
@@ -1782,7 +1879,7 @@ def _derive_room_threads(
         snapshot_id: _file_indexes(snapshot)
         for snapshot_id, snapshot in snapshots.items()
     }
-    cache = _ReviewReadCache({}, {})
+    cache = _ReviewReadCache({})
     grouped_origins: list[
         tuple[tuple[str, str, str, str, str], ReviewThreadRecord]
     ] = []
@@ -2000,7 +2097,7 @@ def _create_thread(
         if selected_snapshot is None:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
         files_by_id, files_by_pair = _file_indexes(selected_snapshot)
-        cache = _ReviewReadCache({}, {})
+        cache = _ReviewReadCache({})
         created_at = _now()
         rows, first_action = _plan_thread_creation(
             command=command,
@@ -2014,6 +2111,8 @@ def _create_thread(
             first_action,
         )
         assert len(rows) == 1 and rows[0].is_origin
+        assert rows[0].snapshot_file_id is not None
+        created_file = files_by_id[rows[0].snapshot_file_id]
         return Thread(
             database=database,
             identity=identity,
@@ -2025,8 +2124,10 @@ def _create_thread(
             origin=rows[0],
             actions=(first_action,),
             profiles={profile.id: profile},
-            origin_files_by_id=files_by_id,
-            selected_files_by_pair=files_by_pair,
+            # A new Thread's origin Snapshot is the selected Snapshot, so one
+            # File serves both bindings.
+            origin_file=created_file,
+            selected_file=created_file,
             cache=cache,
         )
 
@@ -2054,16 +2155,50 @@ def _apply_review_batch(
         if selected_snapshot is None:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
         selected_files_by_pair = _file_indexes(selected_snapshot)[1]
-        cache = _ReviewReadCache({}, {})
+        cache = _ReviewReadCache({})
         placements: list[ReviewThreadRecord] = []
         records: list[ReviewActionRecord] = []
         results: list[ReviewBatchResult] = []
+
+        # Set-based reads replace per-action queries: every author in one
+        # Profile read, every addressed existing Thread history in one
+        # placement/action read. The ordered in-memory fold below still lets
+        # later actions observe earlier ones from the same batch, including a
+        # Thread the batch itself creates.
+        author_ids = [
+            action.author.profile_id
+            if isinstance(action, CreateThread)
+            else action.command.author.profile_id
+            for action in batch
+        ]
+        known_profiles = {
+            profile.id: profile
+            for profile in database.review_profiles(
+                tuple(dict.fromkeys(author_ids))
+            )
+        }
+        for author_id in author_ids:
+            if author_id not in known_profiles:
+                raise ReviewError(
+                    "profile_not_found", f"Unknown Profile: {author_id}"
+                )
+        addressed = tuple(
+            dict.fromkeys(
+                action.thread_id.hex
+                for action in batch
+                if not isinstance(action, CreateThread)
+            )
+        )
+        histories, history_profiles = database.review_actions_many(
+            snapshot_id.hex, addressed
+        )
+        fold_profiles = {
+            profile.id: profile for profile in history_profiles
+        } | known_profiles
         simulated: dict[str, list[ReviewActionRecord]] = {}
-        profiles: dict[str, dict[int, UserProfileRecord]] = {}
 
         for action in batch:
             if isinstance(action, CreateThread):
-                _validate_author(database, action.author)
                 rows, first_action = _plan_thread_creation(
                     command=action,
                     created_at=_now(),
@@ -2073,6 +2208,9 @@ def _apply_review_batch(
                 )
                 placements.extend(rows)
                 records.append(first_action)
+                # Seed the fold state so later batch actions can address the
+                # Thread this batch just created.
+                simulated[action.thread_id.hex] = [first_action]
                 results.append(
                     ReviewBatchResult(
                         "create-finding",
@@ -2086,35 +2224,20 @@ def _apply_review_batch(
 
             thread_key = action.thread_id.hex
             thread_actions = simulated.get(thread_key)
-            thread_profiles = profiles.get(thread_key)
-            if thread_actions is None or thread_profiles is None:
-                persisted = database.review_actions(
-                    snapshot_id.hex,
-                    thread_key,
-                )
-                if persisted is None:
+            if thread_actions is None:
+                persisted_actions = histories.get(thread_key)
+                if persisted_actions is None:
                     raise ReviewError(
                         "thread_not_found",
                         f"Unknown Thread: {thread_key}",
                     )
-                persisted_actions, persisted_profiles = persisted
                 thread_actions = list(persisted_actions)
-                thread_profiles = {
-                    profile.id: profile for profile in persisted_profiles
-                }
                 simulated[thread_key] = thread_actions
-                profiles[thread_key] = thread_profiles
 
             command = action.command
             profile_id = command.author.profile_id
-            profile = database.review_profile(profile_id)
-            if profile is None:
-                raise ReviewError(
-                    "profile_not_found", f"Unknown Profile: {profile_id}"
-                )
-            thread_profiles[profile.id] = profile
             state, attention, _comments = _fold_actions(
-                tuple(thread_actions), thread_profiles
+                tuple(thread_actions), fold_profiles
             )
             if state == "deleted":
                 raise ReviewError("state_conflict", "Thread is deleted.")

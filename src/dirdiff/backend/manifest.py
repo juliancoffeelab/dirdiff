@@ -271,12 +271,7 @@ def build_repo_manifest_for_backend(
     """Build a manifest from a backend for tests and uncached callers."""
     normalized_left = backend.normalize_side(left)
     normalized_right = backend.normalize_side(right)
-    paths = backend.list_repo_diff_paths(
-        left=normalized_left,
-        right=normalized_right,
-        show_untracked=show_untracked,
-    )
-    added_lines, removed_lines = backend.line_counts(
+    diff = backend.repo_diff(
         left=normalized_left,
         right=normalized_right,
         show_untracked=show_untracked,
@@ -284,9 +279,9 @@ def build_repo_manifest_for_backend(
     return build_repo_manifest_for_paths(
         left_label=normalized_left,
         right_label=normalized_right,
-        paths=paths,
-        added_lines=added_lines,
-        removed_lines=removed_lines,
+        paths=diff.paths,
+        added_lines=diff.added_lines,
+        removed_lines=diff.removed_lines,
     )
 
 

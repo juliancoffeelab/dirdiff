@@ -17,12 +17,14 @@ from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
 from dirdiff.backend import (
     BranchSelection,
+    GitBackend,
     RefChoices,
     WorkspaceBackendProtocol,
     build_repo_manifest_for_backend,
     display_name_for_repo_paths,
     file_kind_for_change_type,
     load_diff_sides,
+    ref_choices,
 )
 from dirdiff.engines import (
     DiffEngineProtocol,
@@ -352,17 +354,20 @@ class WorkspaceDiffServiceAdapter:
         )
 
     def list_repo_diff_paths(self, *, left: str, right: str) -> Any:
-        return self.backend.list_repo_diff_paths(left=left, right=right)
+        return self.backend.repo_diff(left=left, right=right).paths
 
     def list_ref_choices(self) -> RefChoices:
-        return self.backend.list_ref_choices()
+        # Branch-control derivations are Git-specific; only Git-backed tests
+        # exercise this adapter method.
+        assert isinstance(self.backend, GitBackend)
+        return ref_choices(self.backend.read_ref_metadata())
 
     def resolve_branch_diff_sides(
         self,
         *,
         base_selection: BranchSelection,
         review_selection: BranchSelection,
-    ) -> tuple[str, str, str]:
+    ) -> tuple[str, str, str, str]:
         return self.backend.resolve_branch_diff_sides(
             base_selection=base_selection,
             review_selection=review_selection,

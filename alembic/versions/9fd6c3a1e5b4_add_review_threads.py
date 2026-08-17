@@ -45,7 +45,8 @@ def upgrade() -> None:
         sa.Column("agent_uuid", sa.String(length=32), nullable=False),
         sa.UniqueConstraint("agent_uuid", name="uq_agent_profile_uuid"),
         sa.CheckConstraint(
-            "length(agent_uuid) = 32 AND agent_uuid NOT GLOB '*[^0-9a-f]*'",
+            (sa.func.length(sa.column("agent_uuid")) == 32)
+            & sa.column("agent_uuid").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_agent_profile_uuid",
         ),
     )
@@ -76,69 +77,125 @@ def upgrade() -> None:
             name="fk_review_thread_snapshot_file",
         ),
         sa.CheckConstraint(
-            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            (sa.func.length(sa.column("thread_id")) == 32)
+            & sa.column("thread_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_thread_id",
         ),
         sa.CheckConstraint(
-            "target_kind IS NULL OR "
-            "target_kind IN ('file', 'range', 'file-start')",
+            sa.column("target_kind").is_(None)
+            | sa.column("target_kind").in_(("file", "range", "file-start")),
             name="ck_review_thread_target_kind",
         ),
         sa.CheckConstraint(
-            "region_kind IS NULL OR "
-            "region_kind IN ('ordinary', 'notebook-cell-source')",
+            sa.column("region_kind").is_(None)
+            | sa.column("region_kind").in_(
+                ("ordinary", "notebook-cell-source")
+            ),
             name="ck_review_thread_region_kind",
         ),
         sa.CheckConstraint(
-            "side IS NULL OR side IN ('left', 'right')",
+            sa.column("side").is_(None)
+            | sa.column("side").in_(("left", "right")),
             name="ck_review_thread_side",
         ),
         sa.CheckConstraint(
-            "outdated_reason IS NULL OR outdated_reason IN "
-            "('region_changed', 'region_not_found', 'file_missing')",
+            sa.column("outdated_reason").is_(None)
+            | sa.column("outdated_reason").in_(
+                ("region_changed", "region_not_found", "file_missing")
+            ),
             name="ck_review_thread_outdated_reason",
         ),
         sa.CheckConstraint(
-            "CASE "
-            "WHEN region_kind = 'ordinary' THEN region_key IS NULL "
-            "WHEN region_kind = 'notebook-cell-source' THEN "
-            "region_key IS NOT NULL AND length(region_key) > 0 "
-            "WHEN region_kind IS NULL THEN region_key IS NULL "
-            "ELSE 0 END",
+            sa.case(
+                (
+                    sa.column("region_kind") == "ordinary",
+                    sa.column("region_key").is_(None),
+                ),
+                (
+                    sa.column("region_kind") == "notebook-cell-source",
+                    sa.column("region_key").is_not(None)
+                    & (sa.func.length(sa.column("region_key")) > 0),
+                ),
+                (
+                    sa.column("region_kind").is_(None),
+                    sa.column("region_key").is_(None),
+                ),
+                else_=False,
+            ),
             name="ck_review_thread_region",
         ),
         sa.CheckConstraint(
-            "CASE "
-            "WHEN snapshot_file_id IS NULL THEN "
-            "target_kind IS NULL AND region_kind IS NULL AND "
-            "region_key IS NULL AND side IS NULL AND start_line IS NULL AND "
-            "end_line IS NULL AND outdated_reason IS NOT NULL AND "
-            "outdated_reason = 'file_missing' "
-            "WHEN target_kind = 'file' THEN "
-            "region_kind IS NULL AND region_key IS NULL AND side IS NULL AND "
-            "start_line IS NULL AND end_line IS NULL AND outdated_reason IS NULL "
-            "WHEN target_kind = 'range' THEN "
-            "region_kind IS NOT NULL AND side IS NOT NULL AND start_line IS NOT NULL AND "
-            "start_line >= 1 AND end_line IS NOT NULL AND end_line >= start_line AND "
-            "(outdated_reason IS NULL OR outdated_reason = 'region_changed') "
-            "WHEN target_kind = 'file-start' THEN "
-            "region_kind IS NULL AND region_key IS NULL AND side IS NOT NULL AND "
-            "start_line IS NULL AND end_line IS NULL AND outdated_reason IS NOT NULL AND "
-            "outdated_reason = 'region_not_found' "
-            "ELSE 0 END",
+            sa.case(
+                (
+                    sa.column("snapshot_file_id").is_(None),
+                    sa.column("target_kind").is_(None)
+                    & sa.column("region_kind").is_(None)
+                    & sa.column("region_key").is_(None)
+                    & sa.column("side").is_(None)
+                    & sa.column("start_line").is_(None)
+                    & sa.column("end_line").is_(None)
+                    & sa.column("outdated_reason").is_not(None)
+                    & (sa.column("outdated_reason") == "file_missing"),
+                ),
+                (
+                    sa.column("target_kind") == "file",
+                    sa.column("region_kind").is_(None)
+                    & sa.column("region_key").is_(None)
+                    & sa.column("side").is_(None)
+                    & sa.column("start_line").is_(None)
+                    & sa.column("end_line").is_(None)
+                    & sa.column("outdated_reason").is_(None),
+                ),
+                (
+                    sa.column("target_kind") == "range",
+                    sa.column("region_kind").is_not(None)
+                    & sa.column("side").is_not(None)
+                    & sa.column("start_line").is_not(None)
+                    & (sa.column("start_line") >= 1)
+                    & sa.column("end_line").is_not(None)
+                    & (sa.column("end_line") >= sa.column("start_line"))
+                    & (
+                        sa.column("outdated_reason").is_(None)
+                        | (sa.column("outdated_reason") == "region_changed")
+                    ),
+                ),
+                (
+                    sa.column("target_kind") == "file-start",
+                    sa.column("region_kind").is_(None)
+                    & sa.column("region_key").is_(None)
+                    & sa.column("side").is_not(None)
+                    & sa.column("start_line").is_(None)
+                    & sa.column("end_line").is_(None)
+                    & sa.column("outdated_reason").is_not(None)
+                    & (sa.column("outdated_reason") == "region_not_found"),
+                ),
+                else_=False,
+            ),
             name="ck_review_thread_location",
         ),
         sa.CheckConstraint(
-            "CASE "
-            "WHEN is_origin = 1 AND target_kind = 'range' THEN "
-            "private_locator_version IS NOT NULL AND "
-            "private_locator_version = 1 AND private_locator IS NOT NULL AND "
-            "outdated_reason IS NULL "
-            "WHEN is_origin = 1 AND target_kind = 'file' THEN "
-            "private_locator_version IS NULL AND private_locator IS NULL "
-            "WHEN is_origin = 0 THEN "
-            "private_locator_version IS NULL AND private_locator IS NULL "
-            "ELSE 0 END",
+            sa.case(
+                (
+                    (sa.column("is_origin") == 1)
+                    & (sa.column("target_kind") == "range"),
+                    sa.column("private_locator_version").is_not(None)
+                    & (sa.column("private_locator_version") == 1)
+                    & sa.column("private_locator").is_not(None)
+                    & sa.column("outdated_reason").is_(None),
+                ),
+                (
+                    (sa.column("is_origin") == 1)
+                    & (sa.column("target_kind") == "file"),
+                    sa.column("private_locator_version").is_(None)
+                    & sa.column("private_locator").is_(None),
+                ),
+                (
+                    sa.column("is_origin") == 0,
+                    sa.column("private_locator_version").is_(None)
+                    & sa.column("private_locator").is_(None),
+                ),
+                else_=False,
+            ),
             name="ck_review_thread_locator",
         ),
     )
@@ -147,7 +204,7 @@ def upgrade() -> None:
         "review_thread",
         ["thread_id"],
         unique=True,
-        sqlite_where=sa.text("is_origin = 1"),
+        sqlite_where=sa.column("is_origin") == 1,
     )
     op.create_index(
         "ix_review_thread_snapshot",
@@ -183,45 +240,71 @@ def upgrade() -> None:
             "thread_id", "sequence", name="uq_review_action_sequence"
         ),
         sa.CheckConstraint(
-            "length(operation_id) = 32 AND operation_id NOT GLOB '*[^0-9a-f]*'",
+            (sa.func.length(sa.column("operation_id")) == 32)
+            & sa.column("operation_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_action_operation_id",
         ),
         sa.CheckConstraint(
-            "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
+            (sa.func.length(sa.column("thread_id")) == 32)
+            & sa.column("thread_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_action_thread_id",
         ),
         sa.CheckConstraint(
-            "profile_id > 0", name="ck_review_action_profile_id"
+            sa.column("profile_id") > 0,
+            name="ck_review_action_profile_id",
         ),
         sa.CheckConstraint(
-            "comment_id IS NULL OR (length(comment_id) = 32 AND "
-            "comment_id NOT GLOB '*[^0-9a-f]*')",
+            sa.column("comment_id").is_(None)
+            | (
+                (sa.func.length(sa.column("comment_id")) == 32)
+                & sa.column("comment_id").op("NOT GLOB")("*[^0-9a-f]*")
+            ),
             name="ck_review_action_comment_id",
         ),
         sa.CheckConstraint(
-            "sequence >= 0 AND "
-            "(expected_revision IS NULL OR expected_revision >= 0)",
+            (sa.column("sequence") >= 0)
+            & (
+                sa.column("expected_revision").is_(None)
+                | (sa.column("expected_revision") >= 0)
+            ),
             name="ck_review_action_revisions",
         ),
         sa.CheckConstraint(
-            "CASE "
-            "WHEN kind = 'comment-created' THEN "
-            "comment_id IS NOT NULL AND expected_revision IS NULL AND "
-            "body IS NOT NULL AND length(body) > 0 "
-            "WHEN kind = 'comment-edited' THEN "
-            "comment_id IS NOT NULL AND expected_revision IS NOT NULL AND "
-            "body IS NOT NULL AND length(body) > 0 "
-            "WHEN kind = 'comment-deleted' THEN "
-            "comment_id IS NOT NULL AND expected_revision IS NOT NULL AND "
-            "body IS NULL "
-            "WHEN kind IN ('thread-resolved', 'thread-reopened', "
-            "'thread-deleted') THEN comment_id IS NULL AND "
-            "expected_revision IS NOT NULL AND body IS NULL "
-            "ELSE 0 END",
+            sa.case(
+                (
+                    sa.column("kind") == "comment-created",
+                    sa.column("comment_id").is_not(None)
+                    & sa.column("expected_revision").is_(None)
+                    & sa.column("body").is_not(None)
+                    & (sa.func.length(sa.column("body")) > 0),
+                ),
+                (
+                    sa.column("kind") == "comment-edited",
+                    sa.column("comment_id").is_not(None)
+                    & sa.column("expected_revision").is_not(None)
+                    & sa.column("body").is_not(None)
+                    & (sa.func.length(sa.column("body")) > 0),
+                ),
+                (
+                    sa.column("kind") == "comment-deleted",
+                    sa.column("comment_id").is_not(None)
+                    & sa.column("expected_revision").is_not(None)
+                    & sa.column("body").is_(None),
+                ),
+                (
+                    sa.column("kind").in_(
+                        ("thread-resolved", "thread-reopened", "thread-deleted")
+                    ),
+                    sa.column("comment_id").is_(None)
+                    & sa.column("expected_revision").is_not(None)
+                    & sa.column("body").is_(None),
+                ),
+                else_=False,
+            ),
             name="ck_review_action_variant",
         ),
         sa.CheckConstraint(
-            "length(created_at) > 0",
+            sa.func.length(sa.column("created_at")) > 0,
             name="ck_review_action_created_at",
         ),
     )
@@ -230,7 +313,7 @@ def upgrade() -> None:
         "review_action",
         ["comment_id"],
         unique=True,
-        sqlite_where=sa.text("kind = 'comment-created'"),
+        sqlite_where=sa.column("kind") == "comment-created",
     )
 
 

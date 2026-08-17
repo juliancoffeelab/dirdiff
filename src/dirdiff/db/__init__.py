@@ -26,8 +26,8 @@ from dirdiff.db.repo_registry import (
 )
 from dirdiff.db.room import (
     ReviewActionRecord,
-    ReviewSnapshotRecord,
     ReviewThreadRecord,
+    ReviewThreadsRecord,
     RoomIdentity,
     RoomStore,
     SnapshotFileLoadRecord,
@@ -48,8 +48,8 @@ __all__ = [
     "RepoMarkRecord",
     "RepoMarkStore",
     "ReviewActionRecord",
-    "ReviewSnapshotRecord",
     "ReviewThreadRecord",
+    "ReviewThreadsRecord",
     "RoomIdentity",
     "RoomStore",
     "SnapshotFileLoadRecord",

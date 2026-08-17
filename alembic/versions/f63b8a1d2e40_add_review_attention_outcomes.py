@@ -51,42 +51,22 @@ def upgrade() -> None:
         sa.column("status_after"),
         sa.column("attention_after"),
     )
-    tables = set(sa.inspect(connection).get_table_names())
-    if "review_thread_placement" not in tables:
-        assert "review_thread" in tables
-        op.rename_table("review_thread", "review_thread_placement")
-        op.create_table(
-            "review_thread",
-            sa.Column("thread_id", sa.String(32), primary_key=True),
-            sa.Column(
-                "origin_snapshot_id",
-                sa.String(),
-                sa.ForeignKey("snapshot.id"),
-                nullable=False,
-            ),
-            sa.CheckConstraint(
-                "length(thread_id) = 32 AND thread_id NOT GLOB '*[^0-9a-f]*'",
-                name="ck_review_thread_id",
-            ),
-        )
-    else:
-        assert "review_thread" in tables
-        assert {
-            column["name"]
-            for column in sa.inspect(connection).get_columns("review_thread")
-        } == {"thread_id", "origin_snapshot_id"}
-        assert "is_origin" in {
-            column["name"]
-            for column in sa.inspect(connection).get_columns(
-                "review_thread_placement"
-            )
-        }
-        assert (
-            connection.execute(
-                sa.select(sa.func.count()).select_from(review_thread)
-            ).scalar_one()
-            == 0
-        )
+    op.rename_table("review_thread", "review_thread_placement")
+    op.create_table(
+        "review_thread",
+        sa.Column("thread_id", sa.String(32), primary_key=True),
+        sa.Column(
+            "origin_snapshot_id",
+            sa.String(),
+            sa.ForeignKey("snapshot.id"),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            (sa.func.length(sa.column("thread_id")) == 32)
+            & sa.column("thread_id").op("NOT GLOB")("*[^0-9a-f]*"),
+            name="ck_review_thread_id",
+        ),
+    )
     connection.execute(
         sa.insert(review_thread).from_select(
             ("thread_id", "origin_snapshot_id"),
@@ -182,14 +162,54 @@ def upgrade() -> None:
         )
         batch.create_check_constraint(
             "ck_review_action_variant",
-            "CASE "
-            "WHEN kind IN ('thread-created', 'comment-created') THEN "
-            "comment_id IS NOT NULL AND expected_revision IS NULL AND body IS NOT NULL AND length(body) > 0 "
-            "WHEN kind = 'comment-edited' THEN comment_id IS NOT NULL AND expected_revision IS NOT NULL AND body IS NOT NULL AND length(body) > 0 "
-            "WHEN kind = 'comment-deleted' THEN comment_id IS NOT NULL AND expected_revision IS NOT NULL AND body IS NULL "
-            "WHEN kind IN ('thread-resolved', 'thread-reopened') THEN expected_revision IS NULL AND ((comment_id IS NULL AND body IS NULL) OR (comment_id IS NOT NULL AND body IS NOT NULL AND length(body) > 0)) "
-            "WHEN kind = 'thread-deleted' THEN comment_id IS NULL AND expected_revision IS NULL AND body IS NULL "
-            "ELSE 0 END",
+            sa.case(
+                (
+                    sa.column("kind").in_(
+                        ("thread-created", "comment-created")
+                    ),
+                    sa.column("comment_id").is_not(None)
+                    & sa.column("expected_revision").is_(None)
+                    & sa.column("body").is_not(None)
+                    & (sa.func.length(sa.column("body")) > 0),
+                ),
+                (
+                    sa.column("kind") == "comment-edited",
+                    sa.column("comment_id").is_not(None)
+                    & sa.column("expected_revision").is_not(None)
+                    & sa.column("body").is_not(None)
+                    & (sa.func.length(sa.column("body")) > 0),
+                ),
+                (
+                    sa.column("kind") == "comment-deleted",
+                    sa.column("comment_id").is_not(None)
+                    & sa.column("expected_revision").is_not(None)
+                    & sa.column("body").is_(None),
+                ),
+                (
+                    sa.column("kind").in_(
+                        ("thread-resolved", "thread-reopened")
+                    ),
+                    sa.column("expected_revision").is_(None)
+                    & (
+                        (
+                            sa.column("comment_id").is_(None)
+                            & sa.column("body").is_(None)
+                        )
+                        | (
+                            sa.column("comment_id").is_not(None)
+                            & sa.column("body").is_not(None)
+                            & (sa.func.length(sa.column("body")) > 0)
+                        )
+                    ),
+                ),
+                (
+                    sa.column("kind") == "thread-deleted",
+                    sa.column("comment_id").is_(None)
+                    & sa.column("expected_revision").is_(None)
+                    & sa.column("body").is_(None),
+                ),
+                else_=False,
+            ),
         )
     op.drop_index(
         "uq_review_thread_origin", table_name="review_thread_placement"
@@ -229,15 +249,19 @@ def upgrade() -> None:
         "review_action",
         ["comment_id"],
         unique=True,
-        sqlite_where=sa.text(
-            "kind IN ('thread-created', 'comment-created', "
-            "'thread-resolved', 'thread-reopened')"
+        sqlite_where=sa.column("kind").in_(
+            (
+                "thread-created",
+                "comment-created",
+                "thread-resolved",
+                "thread-reopened",
+            )
         ),
     )
     op.create_index(
         "ix_review_action_thread_activity",
         "review_action",
-        ["thread_id", sa.text("activity_id DESC")],
+        ["thread_id", sa.column("activity_id").desc()],
     )
 
 

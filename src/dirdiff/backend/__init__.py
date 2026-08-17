@@ -23,6 +23,7 @@ from dirdiff.backend.base import (
     LoadedDiffSides,
     LocalBranchSelection,
     RefChoices,
+    RefMetadata,
     RemoteBranchRef,
     RemoteBranchSelection,
     RepoDiffPath,
@@ -34,7 +35,11 @@ from dirdiff.backend.base import (
     display_name_for_repo_paths,
     load_diff_sides,
 )
-from dirdiff.backend.git import GitBackend
+from dirdiff.backend.git import (
+    GitBackend,
+    preferred_review_selection,
+    ref_choices,
+)
 from dirdiff.backend.manifest import (
     build_lazy_info_for_paths,
     build_repo_manifest_for_backend,
@@ -60,6 +65,7 @@ __all__ = [
     "PreparedPullRequest",
     "PresetBackend",
     "RefChoices",
+    "RefMetadata",
     "RemoteBranchRef",
     "RemoteBranchSelection",
     "RepoDiffPath",
@@ -74,5 +80,7 @@ __all__ = [
     "display_name_for_repo_paths",
     "file_kind_for_change_type",
     "load_diff_sides",
+    "preferred_review_selection",
     "prepare_pull_request",
+    "ref_choices",
 ]

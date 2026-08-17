@@ -20,6 +20,8 @@ from sqlalchemy import (
     ForeignKey,
     String,
     UniqueConstraint,
+    column,
+    func,
     insert,
     select,
     update,
@@ -52,7 +54,8 @@ class AgentProfile(TableBase):
     __table_args__ = (
         UniqueConstraint("agent_uuid", name="uq_agent_profile_uuid"),
         CheckConstraint(
-            "length(agent_uuid) = 32 AND agent_uuid NOT GLOB '*[^0-9a-f]*'",
+            (func.length(column("agent_uuid")) == 32)
+            & column("agent_uuid").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_agent_profile_uuid",
         ),
     )

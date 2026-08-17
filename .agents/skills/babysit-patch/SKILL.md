@@ -5,7 +5,7 @@ description: Use when user asks to babysit a patch via API, or just posts "round
 
 # Babysit a patch
 
-Act as the patch author and review coordinator. Use ordinary Codex tools for
+Act as the patch author and review coordinator. Use ordinary harness tools for
 repository work and direct HTTP calls for dirdiff. Treat dirdiff as the shared
 record of review substance; keep parent and subagent messages to orchestration.
 
@@ -46,13 +46,15 @@ worktree.
 
 ## Start independent review
 
-After you're confident in your work, spawn a reviewer with `$review-patch`,
-unless they are existing reviewers.
+After you're confident in your work, spawn a reviewer subagent instructed to
+follow the `review-patch` skill. If a reviewer from an earlier round of the
+current task already exists, resume that reviewer instead of spawning a new
+one.
 Give it the exact user outcome and required verbatim quotes, repository
 instructions, relevant specifications, and if required, screenshots.
 Require it to follow the captured Snapshot structure reference and inspect
 every captured File pair.
-The reviewer is forbiddden from editing the patch.
+The reviewer is forbidden from editing the patch.
 
 The reviewer should put findings in dirdiff and return only a compact handoff,
 for example:
@@ -70,7 +72,7 @@ Do not require the reviewer to duplicate finding bodies in its response.
 3. Fix an accepted finding or explain concretely why it should not be accepted.
 4. Post one `author-response` for each addressed finding. Batch independent
    responses in one action transaction.
-6. Resume the same reviewer. Report only the new Snapshot and compact API
+5. Resume the same reviewer. Report only the new Snapshot and compact API
    progress, for example:
 
 ```text
@@ -78,7 +80,8 @@ Posted 3 author responses in snapshot 19 through activity 91. Recheck them.
 ```
 
 Continue with the same reviewer until all threads have no objections.
-Dont sunset subagents until the review round is fully done for all of them.
+Keep every reviewer subagent alive and resumable until the review round is
+fully done for all of them.
 
 An open Thread with `attention_after = both` appears in the author inbox and
 may be advanced with `author-response`. An `inert-comment` preserves lifecycle
