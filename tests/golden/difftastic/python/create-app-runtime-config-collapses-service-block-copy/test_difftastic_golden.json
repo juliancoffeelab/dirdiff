@@ -14,7 +14,7 @@
     "right_no": 2,
     "right_text": "",
     "right_tokens": [],
-    "status": "equal"
+    "status": "insert"
   },
   {
     "left_no": 2,
@@ -312,7 +312,7 @@
     "right_no": 9,
     "right_text": "",
     "right_tokens": [],
-    "status": "equal"
+    "status": "insert"
   },
   {
     "left_no": null,
@@ -618,7 +618,7 @@
     "right_no": 17,
     "right_text": "",
     "right_tokens": [],
-    "status": "equal"
+    "status": "insert"
   },
   {
     "left_no": null,
@@ -626,7 +626,7 @@
     "right_no": 18,
     "right_text": "",
     "right_tokens": [],
-    "status": "equal"
+    "status": "insert"
   },
   {
     "left_no": 7,

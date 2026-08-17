@@ -330,10 +330,12 @@ def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
         right_text="def alpha():\n    return 2\n\ndef beta():\n    return 3\n",
     )
 
+    # The blank third row exists only on the right; its presence is the
+    # change, so it renders as an insertion rather than unchanged context.
     assert [row["status"] for row in rows] == [
         "equal",
         "replace",
-        "equal",
+        "insert",
         "replace",
         "replace",
     ]
@@ -700,7 +702,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
 ):
     rows = _difftastic_rows_from_json(
         {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [1, 3]],
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
                 [
                     {
@@ -757,7 +759,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() 
 ):
     rows = _difftastic_rows_from_json(
         {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [1, 3]],
+            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
                 [
                     {
@@ -1323,6 +1325,8 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "right_no": 1,
             "left_text": "        )",
             "right_text": "        )",
+            "left_tokens": [],
+            "right_tokens": [],
         },
         {
             "status": "replace",
@@ -1405,6 +1409,8 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "right_no": 6,
             "left_text": '        payload["left_path"] = normalized_left',
             "right_text": '        payload["left_path"] = normalized_left',
+            "left_tokens": [],
+            "right_tokens": [],
         },
     ]
 
@@ -1807,6 +1813,8 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "right_no": 1,
             "left_text": "            right_path_hint=normalized_right,",
             "right_text": "            right_path_hint=normalized_right,",
+            "left_tokens": [],
+            "right_tokens": [],
         },
         {
             "status": "equal",
@@ -1814,6 +1822,8 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "right_no": 2,
             "left_text": "        )",
             "right_text": "        )",
+            "left_tokens": [],
+            "right_tokens": [],
         },
         {
             "status": "replace",
@@ -1896,6 +1906,8 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "right_no": 7,
             "left_text": '        payload["left_path"] = normalized_left',
             "right_text": '        payload["left_path"] = normalized_left',
+            "left_tokens": [],
+            "right_tokens": [],
         },
     ]
 

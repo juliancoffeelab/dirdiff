@@ -10,6 +10,26 @@ This module must not own raw difftastic execution or final API payload assembly:
 * the service/textdiff layer owns syntax highlighting, fold hints, and frontend
   payload assembly.
 
+Projection model
+----------------
+Difftastic (with dirdiff's whole-file context tuning) emits one complete
+alignment of both documents plus, per aligned line, the exact spans it
+considers novel. The projection is a direct transcription of those facts:
+
+* one output row per in-range aligned pair, in alignment order;
+* row text is the exact full source line on each present side (`""` marks an
+  absent side);
+* tokens on a present side partition its line at difftastic's span boundaries:
+  each novel span becomes one changed token and each gap becomes one unchanged
+  token; a line without novel spans has no tokens;
+* row status is a pure function of the row's tokens (see `_row_status`).
+
+There is deliberately no repair, reflow, fragment, or similarity machinery
+here. Difftastic's alignment covers each source line exactly once and in
+order; the projection asserts that contract instead of compensating for its
+absence, so an upstream misbehavior surfaces as a visible failure rather than
+a silent local workaround.
+
 Input contract
 --------------
 The main entrypoint is `build_difftastic_ast`:
@@ -21,16 +41,20 @@ The main entrypoint is `build_difftastic_ast`:
 
 Accepted difftastic facts
 -------------------------
-`DifftasticJson.aligned_lines` contains zero-based line index pairs. `None` means
-there is no line on that side.
+`DifftasticJson.aligned_lines` contains zero-based line index pairs. `None`
+means there is no line on that side. Pairs addressing the phantom line created
+by a trailing newline are dropped.
 
-`DifftasticJson.chunks` contains changed ranges keyed by difftastic side names:
-`lhs` for the left/old document and `rhs` for the right/new document. The range
-offsets are UTF-8 byte positions. The adapter converts them to Python string
-offsets before constructing its internal change index.
+`DifftasticJson.chunks` contains one entry per aligned pair, keyed by
+difftastic side names: `lhs` for the left/old document and `rhs` for the
+right/new document. Each present side lists that line's novel spans. The span
+offsets are UTF-8 byte positions; the projection converts them to Python
+string offsets once, at ingestion. With whole-file context every hunk repeats
+the complete pair list, so identical repeated facts are accepted and
+contradictory repeated facts are rejected.
 
-The `language` field is opaque except for known difftastic fallback labels that
-may be exposed through `DifftasticAst.engine_warning`.
+The `language` field is opaque except for known difftastic fallback labels
+that may be exposed through `DifftasticAst.engine_warning`.
 
 Output contract
 ---------------
@@ -39,37 +63,23 @@ Output contract
 * `rows`: a list of `DifftasticRow` values.
 * `engine_warning`: optional metadata for known difftastic fallback modes.
 
-Each `DifftasticRow` is a display row, not a difftastic JSON row. Its fields are:
+Each `DifftasticRow` is a display row. Its fields are:
 
 * `status`: one of `equal`, `replace`, `insert`, or `delete`.
 * `left_no` and `right_no`: one-based source line numbers, or `None` for
-  one-sided rendered rows.
-* `left_text` and `right_text`: the exact text shown on each side for this row.
-* `left_tokens` and `right_tokens`: optional inline token lists. If present, the
-  concatenated token text for a side must correspond to that side's displayed
-  row text.
-
-Each `DifftasticInlineToken` has:
-
-* `text`: the rendered token text.
-* `status`: `unchanged`, `replace`, `insert`, or `delete`.
-* `is_ws`: whether the token is whitespace.
-
-The row list is the exported AST for difftastic rendering. The service layer may
-validate it as the generic row shape at the boundary where shared textdiff
-payload code takes over, but inside this module the row contract is explicit.
+  one-sided rows.
+* `left_text` and `right_text`: the exact source line shown on each side, or
+  `""` for an absent side.
+* `left_tokens` and `right_tokens`: inline token lists, present exactly for
+  the sides that exist. The concatenated token text of a non-empty list is
+  that side's complete line text.
 
 Required invariants
 -------------------
-* row source text must come from the supplied source text;
-* split-fragment row text may project whitespace to match difftastic display
-  layout, but must not invent non-whitespace source content;
-* token text should not invent source content;
-* one-based row line numbers should always refer back to source lines;
-* unchanged word-like or punctuation context should not appear as pure
-  one-sided changes;
-* changed word-like tokens on one side should have a corresponding changed
-  token on the other side when difftastic supplies a counterpart;
+* row source text is the supplied source text, one full line per present side;
+* every source line appears exactly once per side, in source order;
+* changed tokens cover exactly the spans difftastic reported as novel;
+* row status is derived from token statuses and never contradicts them;
 * empty `aligned_lines` returns an empty row list so the service can choose a
   fallback renderer.
 
@@ -85,7 +95,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from difflib import SequenceMatcher, unified_diff
+from difflib import unified_diff
 from typing import Any, Literal, TypedDict, final, override
 
 from dirdiff.engines.base import (
@@ -97,15 +107,12 @@ from dirdiff.engines.base import (
 )
 from dirdiff.engines.difftastic.difft import (
     DifftasticJson,
-    DifftasticJsonChange,
-    DifftasticJsonChunkEntry,
     DifftasticJsonSide,
     run_difftastic_json,
 )
 
 type DifftasticRowStatus = Literal["equal", "replace", "insert", "delete"]
 type DifftasticTokenStatus = Literal["unchanged", "replace", "insert", "delete"]
-type _Side = Literal["left", "right"]
 
 __all__ = [
     "DifftasticAst",
@@ -115,65 +122,28 @@ __all__ = [
     "build_difftastic_ast",
 ]
 
-_ATOM_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S")
-_WORD_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
-_GAP_PAIR_MIN_RATIO = 0.15
-_CONTEXT_PUNCTUATION_LITERALS = (
-    "={{",
-    "={()",
-    "().",
-    "(),",
-    "()}>",
-    "()}",
-    "()",
-    "))",
-    "),",
-    ")}`",
-    ")}",
-    "${",
-    "}`",
-    ");",
-    "};",
-    "}>",
-    "}}",
-    "/>",
-    "...",
-    "</",
-    "{(",
-    "!==",
-    "===",
-    "=>",
-    '="',
-    '":',
-    '",',
-    '">',
-)
-_LOOSE_CONTEXT_PUNCTUATION_EXCLUDES = frozenset(
-    {"().", "()", "))", "}>", '",', "!=="}
-)
-_PAIRING_LOW_VALUE_ATOMS = {
-    "None",
-    "True",
-    "False",
-    "and",
-    "as",
-    "else",
-    "if",
-    "in",
-    "is",
-    "not",
-    "or",
-}
-
 
 class DifftasticInlineToken(TypedDict):
+    """One inline token of a rendered difftastic row.
+
+    `text` is an exact slice of the owning line, `status` is difftastic's
+    verdict for that slice, and `is_ws` marks a purely whitespace slice. A
+    token never represents text from another line or invented content.
+    """
+
     text: str
     status: DifftasticTokenStatus
     is_ws: bool
 
 
 class DifftasticRow(TypedDict, total=False):
-    """Rendered row shape exported from difftastic logic to the service."""
+    """Rendered row shape exported from difftastic logic to the service.
+
+    One row renders one aligned line pair. Absent sides carry `None` line
+    numbers, `""` text, and no token key; present sides carry the full source
+    line and a token list that is empty when difftastic reported no novel
+    span on the line.
+    """
 
     status: DifftasticRowStatus
     left_no: int | None
@@ -186,61 +156,29 @@ class DifftasticRow(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class DifftasticAst:
+    """Complete projection result for one difftastic run.
+
+    `rows` is the exported row AST; an empty list means difftastic produced
+    no structural rows and the service chooses a fallback renderer.
+    `engine_warning` reports a known difftastic fallback mode, or `None`.
+    """
+
     rows: list[DifftasticRow]
     engine_warning: EngineWarning | None
 
 
 @dataclass(frozen=True)
-class _ChangeInterval:
+class _Span:
+    """One novel span on one source line, in Python string offsets.
+
+    `start`/`end` address the owning line's characters and satisfy
+    `start < end`. `status` is the token status every character of the span
+    renders with. The span never crosses a line boundary.
+    """
+
     start: int
     end: int
     status: DifftasticTokenStatus
-
-
-@dataclass(frozen=True)
-class _ChangePair:
-    left_line: int | None
-    right_line: int | None
-    left_changes: tuple[DifftasticJsonChange, ...]
-    right_changes: tuple[DifftasticJsonChange, ...]
-    left_status: DifftasticTokenStatus | None
-    right_status: DifftasticTokenStatus | None
-
-
-@dataclass(frozen=True)
-class _ChangeIndex:
-    left_intervals: dict[int, list[_ChangeInterval]]
-    right_intervals: dict[int, list[_ChangeInterval]]
-    touched_left_lines: set[int]
-    touched_right_lines: set[int]
-    pairs: tuple[_ChangePair, ...]
-    left_has_unpaired_delete: set[int]
-    has_change_content: bool
-
-
-@dataclass(frozen=True)
-class _RowSpec:
-    left: int | None
-    right: int | None
-
-
-@dataclass
-class _PendingLeftLine:
-    index: int
-    cursor: int = 0
-
-
-@dataclass
-class _PendingRightLine:
-    index: int
-    cursor: int = 0
-
-
-@dataclass(frozen=True)
-class _FragmentMatch:
-    display_text: str
-    start: int
-    end: int
 
 
 def _difftastic_engine_warning(
@@ -249,6 +187,12 @@ def _difftastic_engine_warning(
     left_text: str | None = None,
     right_text: str | None = None,
 ) -> EngineWarning | None:
+    """Interpret known difftastic fallback labels as an engine warning.
+
+    The graph-limit label means difftastic abandoned structural diffing; a
+    reported `unchanged` status for texts that differ means it produced no
+    usable rows. Everything else is opaque metadata and returns `None`.
+    """
     language = diff_json.get("language")
     if isinstance(language, str) and "exceeded DFT_GRAPH_LIMIT" in language:
         return {
@@ -268,2586 +212,229 @@ def _difftastic_engine_warning(
     return None
 
 
-def _side_statuses_for_entry(
-    lhs_changes: tuple[DifftasticJsonChange, ...],
-    rhs_changes: tuple[DifftasticJsonChange, ...],
-) -> tuple[DifftasticTokenStatus | None, DifftasticTokenStatus | None]:
-    if lhs_changes != () and rhs_changes != ():
-        if len(lhs_changes) == len(rhs_changes):
-            return "replace", "replace"
-        return "delete", "insert"
-    if lhs_changes != ():
-        return "delete", None
-    if rhs_changes != ():
-        return None, "insert"
-    return None, None
+def _source_lines(text: str) -> list[str]:
+    """Split one document into the lines difftastic positions address.
+
+    Difftastic splits on `\\n` only; the empty element after a trailing
+    newline is its phantom final line and is not a source line, so it is
+    dropped here and phantom aligned pairs are dropped during projection.
+    """
+    lines = text.split("\n")
+    if lines != [] and lines[-1] == "":
+        lines.pop()
+    return lines
 
 
-def _change_tuple(
-    side: DifftasticJsonSide | None,
+def _line_spans(
+    side: DifftasticJsonSide,
     *,
     source_lines: list[str],
-) -> tuple[DifftasticJsonChange, ...]:
-    """Return one side's spans with offsets normalized for Python slicing.
+    status: DifftasticTokenStatus,
+) -> list[_Span]:
+    """Convert one JSON side's novel spans to string-offset `_Span` values.
 
-    Difftastic exposes UTF-8 byte positions, while every consumer after the
-    adapter works with Python `str` indices. Converting once here keeps that
-    external representation out of tokenization, pairing, and row rendering.
+    Difftastic emits UTF-8 byte columns; offsets must land on character
+    boundaries of the addressed source line, and a `content` field must equal
+    the addressed slice. Violations are contract errors and throw. Zero-width
+    spans carry no text and are dropped.
     """
-    if side is None:
-        return ()
-    changes = side.get("changes")
-    if not isinstance(changes, list):
-        return ()
+    changes = side["changes"]
     if changes == []:
-        return ()
-    line_number = _line_number(side)
-    assert line_number is not None
-    assert 0 <= line_number < len(source_lines)
+        return []
+    line_number = side["line_number"]
+    if not 0 <= line_number < len(source_lines):
+        raise ValueError(
+            f"Difftastic change addresses missing line {line_number}."
+        )
     line = source_lines[line_number]
-    byte_to_character_offset = {0: 0}
-    byte_offset = 0
-    for character_offset, character in enumerate(line, start=1):
-        byte_offset += len(character.encode("utf-8"))
-        byte_to_character_offset[byte_offset] = character_offset
-
-    normalized: list[DifftasticJsonChange] = []
+    line_bytes = line.encode("utf-8")
+    spans: list[_Span] = []
     for change in changes:
-        start = change["start"]
-        end = change["end"]
-        assert start in byte_to_character_offset
-        assert end in byte_to_character_offset
-        normalized_change: DifftasticJsonChange = {
-            "start": byte_to_character_offset[start],
-            "end": byte_to_character_offset[end],
-        }
+        start, end = change["start"], change["end"]
+        try:
+            character_start = len(line_bytes[:start].decode("utf-8"))
+            character_end = len(line_bytes[:end].decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"Difftastic span {start}..{end} splits a character on line "
+                f"{line_number}."
+            ) from exc
+        if start > len(line_bytes) or end > len(line_bytes):
+            raise ValueError(
+                f"Difftastic span {start}..{end} exceeds line {line_number}."
+            )
         content = change.get("content")
-        if content is not None:
-            normalized_change["content"] = content
-        normalized.append(normalized_change)
-    return tuple(normalized)
+        if (
+            content is not None
+            and content != line[character_start:character_end]
+        ):
+            raise ValueError(
+                f"Difftastic span content {content!r} does not match source "
+                f"line {line_number}."
+            )
+        if character_start == character_end:
+            continue
+        spans.append(_Span(character_start, character_end, status))
+    return spans
 
 
-def _line_number(side: DifftasticJsonSide | None) -> int | None:
-    if side is None:
-        return None
-    line_number = side.get("line_number")
-    if isinstance(line_number, int):
-        return line_number
-    return None
+@dataclass(frozen=True)
+class _SpanIndex:
+    """Novel spans for both documents, keyed by zero-based line number.
+
+    Each list is ordered by span start and non-overlapping; lines without
+    novel spans are absent. The index is derived once from `chunks` and read
+    by row projection.
+    """
+
+    left: dict[int, list[_Span]]
+    right: dict[int, list[_Span]]
 
 
-def _change_index(
+def _span_index(
     diff_json: DifftasticJson,
     *,
     left_lines: list[str],
     right_lines: list[str],
-) -> _ChangeIndex:
-    def _entry_side(
-        entry: DifftasticJsonChunkEntry,
-        side: Literal["lhs", "rhs"],
-    ) -> DifftasticJsonSide | None:
-        """Return one structurally valid side from a change entry."""
-        value = entry.get(side)
-        if isinstance(value, dict):
-            return value
-        return None
+) -> _SpanIndex:
+    """Index every chunk entry's novel spans by side and line.
 
-    left_intervals: dict[int, list[_ChangeInterval]] = {}
-    right_intervals: dict[int, list[_ChangeInterval]] = {}
-    touched_left_lines: set[int] = set()
-    touched_right_lines: set[int] = set()
-    pairs: list[_ChangePair] = []
-    left_has_unpaired_delete: set[int] = set()
-    has_change_content = False
+    Statuses are decided per entry: spans on both sides of one aligned pair
+    with equal counts render as paired `replace` tokens, unequal counts as
+    `delete`/`insert`, and one-sided spans as that side's plain status. With
+    whole-file context every hunk repeats the complete entry list, so an
+    already-indexed identical line is accepted and a contradictory repeat is
+    rejected.
+    """
+    index = _SpanIndex(left={}, right={})
+
+    def record(
+        target: dict[int, list[_Span]],
+        side: DifftasticJsonSide,
+        *,
+        source_lines: list[str],
+        status: DifftasticTokenStatus,
+    ) -> None:
+        """Store one line's converted spans, rejecting contradictions."""
+        spans = _line_spans(side, source_lines=source_lines, status=status)
+        line_number = side["line_number"]
+        previous = target.get(line_number)
+        if previous is None:
+            ordered = sorted(spans, key=lambda span: span.start)
+            for index in range(1, len(ordered)):
+                if ordered[index].start < ordered[index - 1].end:
+                    raise ValueError(
+                        f"Difftastic spans overlap on line {line_number}."
+                    )
+            target[line_number] = ordered
+            return
+        if sorted(spans, key=lambda span: span.start) != previous:
+            raise ValueError(
+                f"Difftastic repeated line {line_number} with different spans."
+            )
 
     for chunk in diff_json.get("chunks", []):
         for entry in chunk:
-            lhs = _entry_side(entry, "lhs")
-            rhs = _entry_side(entry, "rhs")
-            left_line = _line_number(lhs)
-            right_line = _line_number(rhs)
-            left_changes = _change_tuple(lhs, source_lines=left_lines)
-            right_changes = _change_tuple(rhs, source_lines=right_lines)
-            if _changes_have_content(left_changes):
-                has_change_content = True
-            if _changes_have_content(right_changes):
-                has_change_content = True
-            left_status, right_status = _side_statuses_for_entry(
-                left_changes,
-                right_changes,
-            )
-
-            if left_line is not None:
-                touched_left_lines.add(left_line)
-                if left_status is not None:
-                    _append_intervals(
-                        left_intervals,
-                        line_number=left_line,
-                        changes=left_changes,
-                        status=left_status,
-                    )
-                if left_changes != () and right_status is None:
-                    left_has_unpaired_delete.add(left_line)
-
-            if right_line is not None:
-                touched_right_lines.add(right_line)
-                if right_status is not None:
-                    _append_intervals(
-                        right_intervals,
-                        line_number=right_line,
-                        changes=right_changes,
-                        status=right_status,
-                    )
-
-            pairs.append(
-                _ChangePair(
-                    left_line=left_line,
-                    right_line=right_line,
-                    left_changes=left_changes,
-                    right_changes=right_changes,
-                    left_status=left_status,
-                    right_status=right_status,
+            lhs = entry.get("lhs")
+            rhs = entry.get("rhs")
+            lhs_count = 0 if lhs is None else len(lhs["changes"])
+            rhs_count = 0 if rhs is None else len(rhs["changes"])
+            # Difftastic pairs both sides' spans syntactically only when it
+            # reports the same number of spans; unequal counts render as an
+            # ordinary deletion beside an ordinary insertion.
+            paired = lhs_count > 0 and rhs_count > 0 and lhs_count == rhs_count
+            if lhs is not None:
+                record(
+                    index.left,
+                    lhs,
+                    source_lines=left_lines,
+                    status="replace" if paired else "delete",
                 )
-            )
-
-    return _ChangeIndex(
-        left_intervals=left_intervals,
-        right_intervals=right_intervals,
-        touched_left_lines=touched_left_lines,
-        touched_right_lines=touched_right_lines,
-        pairs=tuple(pairs),
-        left_has_unpaired_delete=left_has_unpaired_delete,
-        has_change_content=has_change_content,
-    )
-
-
-def _append_intervals(
-    intervals_by_line: dict[int, list[_ChangeInterval]],
-    *,
-    line_number: int,
-    changes: tuple[DifftasticJsonChange, ...],
-    status: DifftasticTokenStatus,
-) -> None:
-    intervals = intervals_by_line.setdefault(line_number, [])
-    for change in changes:
-        start = change.get("start")
-        end = change.get("end")
-        if not isinstance(start, int):
-            continue
-        if not isinstance(end, int):
-            continue
-        if start >= end:
-            continue
-        intervals.append(_ChangeInterval(start=start, end=end, status=status))
-
-
-def _normalized_row_specs(
-    diff_json: DifftasticJson,
-    *,
-    left_count: int,
-    right_count: int,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> list[_RowSpec]:
-    aligned_lines = diff_json.get("aligned_lines", [])
-    if aligned_lines == []:
-        return []
-
-    specs: list[_RowSpec] = []
-    for pair in aligned_lines:
-        left_index, right_index = _pair_indices(pair)
-        if left_index is not None and left_index >= left_count:
-            left_index = None
-        if right_index is not None and right_index >= right_count:
-            right_index = None
-        if left_index is None and right_index is None:
-            continue
-        specs.append(_RowSpec(left=left_index, right=right_index))
-    return specs
-
-
-def _split_dissimilar_pairs(
-    specs: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> list[_RowSpec]:
-    split: list[_RowSpec] = []
-    for index, spec in enumerate(specs):
-        if spec.left is None or spec.right is None:
-            split.append(spec)
-            continue
-        if _has_shifted_neighbor(
-            index,
-            specs,
-            left_lines=left_lines,
-            right_lines=right_lines,
-        ):
-            split.append(spec)
-            continue
-        if _has_current_replace_pair(
-            left_index=spec.left,
-            right_index=spec.right,
-            change_index=change_index,
-        ):
-            split.append(spec)
-            continue
-        if _has_current_one_sided_change_pair(
-            left_index=spec.left,
-            right_index=spec.right,
-            change_index=change_index,
-        ):
-            split.append(spec)
-            continue
-        if _has_current_change_pair(
-            left_index=spec.left,
-            right_index=spec.right,
-            change_index=change_index,
-        ) and not _has_better_following_left_match(
-            index,
-            specs,
-            left_lines=left_lines,
-            right_lines=right_lines,
-        ):
-            split.append(spec)
-            continue
-        if _should_split_reanchorable_change_pair(
-            index,
-            specs,
-            left_lines=left_lines,
-            right_lines=right_lines,
-            change_index=change_index,
-        ):
-            split.append(_RowSpec(left=spec.left, right=None))
-            split.append(_RowSpec(left=None, right=spec.right))
-            continue
-        if _has_current_pair_shared_context(
-            left_index=spec.left,
-            right_index=spec.right,
-            left_lines=left_lines,
-            right_lines=right_lines,
-            change_index=change_index,
-        ):
-            split.append(spec)
-            continue
-        split.append(spec)
-    return split
-
-
-def _should_split_reanchorable_change_pair(
-    index: int,
-    specs: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> bool:
-    spec = specs[index]
-    if spec.left is None:
-        return False
-    if spec.right is None:
-        return False
-    has_current_change_pair = _has_current_change_pair(
-        left_index=spec.left,
-        right_index=spec.right,
-        change_index=change_index,
-    )
-    has_better_following_left_match = _has_better_following_left_match(
-        index,
-        specs,
-        left_lines=left_lines,
-        right_lines=right_lines,
-    )
-    has_no_shared_atoms = (
-        _line_similarity(left_lines[spec.left], right_lines[spec.right]) == 0.0
-    )
-    has_current_pair_shared_context = _has_current_pair_shared_context(
-        left_index=spec.left,
-        right_index=spec.right,
-        left_lines=left_lines,
-        right_lines=right_lines,
-        change_index=change_index,
-    )
-    return (
-        has_current_change_pair
-        and has_better_following_left_match
-        and has_no_shared_atoms
-        and not has_current_pair_shared_context
-    )
-
-
-def _has_current_pair_shared_context(
-    *,
-    left_index: int,
-    right_index: int,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> bool:
-    left_line = left_lines[left_index]
-    right_line = right_lines[right_index]
-    for pair in change_index.pairs:
-        if pair.left_line != left_index:
-            continue
-        if pair.right_line != right_index:
-            continue
-        if pair.left_changes == ():
-            continue
-        if pair.right_changes == ():
-            continue
-        left_start = _first_change_start(pair.left_changes)
-        right_start = _first_change_start(pair.right_changes)
-        if left_start is None:
-            continue
-        if right_start is None:
-            continue
-        left_prefix = left_line[:left_start]
-        right_prefix = right_line[:right_start]
-        if left_prefix != right_prefix:
-            continue
-        if _WORD_PATTERN.search(left_prefix) is not None:
-            return True
-    return False
-
-
-def _first_change_start(
-    changes: tuple[DifftasticJsonChange, ...],
-) -> int | None:
-    starts: list[int] = []
-    for change in changes:
-        start = change.get("start")
-        if isinstance(start, int):
-            starts.append(start)
-    if starts == []:
-        return None
-    return min(starts)
-
-
-def _has_shifted_neighbor(
-    index: int,
-    specs: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-) -> bool:
-    spec = specs[index]
-    if spec.left is None or spec.right is None:
-        return False
-    if index > 0:
-        previous = specs[index - 1]
-        if (
-            previous.left is not None
-            and previous.right is not None
-            and right_lines[previous.right] == left_lines[spec.left]
-        ):
-            return True
-    if index + 1 < len(specs):
-        following = specs[index + 1]
-        if (
-            following.left is not None
-            and following.right is not None
-            and right_lines[spec.right] == left_lines[following.left]
-        ):
-            return True
-    return False
-
-
-def _pair_indices(pair: list[int | None]) -> tuple[int | None, int | None]:
-    left_index: int | None = None
-    right_index: int | None = None
-    if len(pair) >= 1:
-        left_value = pair[0]
-        if isinstance(left_value, int) and left_value >= 0:
-            left_index = left_value
-    if len(pair) >= 2:
-        right_value = pair[1]
-        if isinstance(right_value, int) and right_value >= 0:
-            right_index = right_value
-    return left_index, right_index
-
-
-def _missing_range(
-    cursor: int,
-    target: int | None,
-    count: int,
-) -> list[int]:
-    if target is None:
-        return []
-    if target <= cursor:
-        return []
-    stop = min(target, count)
-    return list(range(cursor, stop))
-
-
-def _align_gap_specs(
-    left_indices: list[int],
-    right_indices: list[int],
-) -> list[_RowSpec]:
-    return [
-        *[_RowSpec(left=index, right=None) for index in left_indices],
-        *[_RowSpec(left=None, right=index) for index in right_indices],
-    ]
-
-
-def _repair_one_sided_blocks(
-    specs: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> list[_RowSpec]:
-    # Keep this local to one-sided blocks: difftastic already chose the
-    # surrounding aligned rows, and these repairs only recover compact context
-    # lines omitted from the two-sided alignment.
-    repaired: list[_RowSpec] = []
-    block: list[_RowSpec] = []
-
-    for spec in specs:
-        if spec.left is not None and spec.right is not None:
-            repaired.extend(
-                _repair_one_sided_block(
-                    block,
-                    left_lines=left_lines,
-                    right_lines=right_lines,
-                    change_index=change_index,
+            if rhs is not None:
+                record(
+                    index.right,
+                    rhs,
+                    source_lines=right_lines,
+                    status="replace" if paired else "insert",
                 )
-            )
-            block = []
-            repaired.append(spec)
-            continue
-        block.append(spec)
-
-    repaired.extend(
-        _repair_one_sided_block(
-            block,
-            left_lines=left_lines,
-            right_lines=right_lines,
-            change_index=change_index,
-        )
-    )
-    return repaired
+    return index
 
 
-def _repair_one_sided_block(
-    block: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> list[_RowSpec]:
-    left_items = [
-        (position, spec.left)
-        for position, spec in enumerate(block)
-        if spec.left is not None and spec.right is None
-    ]
-    right_items = [
-        (position, spec.right)
-        for position, spec in enumerate(block)
-        if spec.left is None and spec.right is not None
-    ]
-    if left_items == []:
-        return block
-    if right_items == []:
-        return block
+def _line_tokens(line: str, spans: list[_Span]) -> list[DifftasticInlineToken]:
+    """Partition one source line into tokens at difftastic's span boundaries.
 
-    structural_pairs = _adjacent_structural_context_pairs(
-        block,
-        left_lines=left_lines,
-        right_lines=right_lines,
-    )
-    adjacent_pairs = _adjacent_following_left_pairs(
-        block,
-        left_lines=left_lines,
-        right_lines=right_lines,
-        existing_pairs=structural_pairs,
-        change_index=change_index,
-    )
-    pairs = [*structural_pairs, *adjacent_pairs]
-    if pairs == []:
-        return block
-
-    left_position = {index: position for position, index in left_items}
-    right_position = {index: position for position, index in right_items}
-    matched_left = {left for left, _right in pairs}
-    matched_right = {right for _left, right in pairs}
-    events: list[tuple[int, int, _RowSpec]] = []
-
-    for order, spec in enumerate(block):
-        if spec.left is not None:
-            if spec.left in matched_left:
-                continue
-            events.append((order, order, spec))
-            continue
-        if spec.right is not None and spec.right not in matched_right:
-            events.append((order, order, spec))
-
-    for pair_order, (left_index, right_index) in enumerate(pairs):
-        left_pos = left_position[left_index]
-        right_pos = right_position[right_index]
-        events.append(
-            (
-                min(left_pos, right_pos),
-                len(block) + pair_order,
-                _RowSpec(left=left_index, right=right_index),
-            )
-        )
-
-    events.sort(key=lambda event: (event[0], event[1]))
-    return [spec for _position, _order, spec in events]
-
-
-def _adjacent_structural_context_pairs(
-    block: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-) -> list[tuple[int, int]]:
-    def _immediate_right_after(
-        block: list[_RowSpec], position: int
-    ) -> int | None:
-        """Return the right line directly after one block position."""
-        next_position = position + 1
-        if next_position >= len(block):
-            return None
-        spec = block[next_position]
-        if spec.right is not None:
-            return spec.right
-        return None
-
-    def _immediate_left_after(
-        block: list[_RowSpec], position: int
-    ) -> int | None:
-        """Return the left line directly after one block position."""
-        next_position = position + 1
-        if next_position >= len(block):
-            return None
-        spec = block[next_position]
-        if spec.left is not None:
-            return spec.left
-        return None
-
-    def _is_structural_context_match(left_line: str, right_line: str) -> bool:
-        """Recognize equal non-word structural lines for adjacent pairing."""
-        left_text = left_line.strip()
-        right_text = right_line.strip()
-        if left_text == "":
-            return False
-        if left_text != right_text:
-            return False
-        return _WORD_PATTERN.search(left_text) is None
-
-    pairs: list[tuple[int, int]] = []
-    used_left: set[int] = set()
-    used_right: set[int] = set()
-
-    for position, spec in enumerate(block):
-        if spec.left is not None:
-            if spec.left in used_left:
-                continue
-            following = _immediate_right_after(block, position)
-            if following is None:
-                continue
-            if following in used_right:
-                continue
-            if _is_structural_context_match(
-                left_lines[spec.left], right_lines[following]
-            ):
-                pairs.append((spec.left, following))
-                used_left.add(spec.left)
-                used_right.add(following)
-            continue
-
-        if spec.right is None:
-            continue
-        if spec.right in used_right:
-            continue
-        following_left = _immediate_left_after(block, position)
-        if following_left is None:
-            continue
-        if following_left in used_left:
-            continue
-        if _is_structural_context_match(
-            left_lines[following_left], right_lines[spec.right]
-        ):
-            pairs.append((following_left, spec.right))
-            used_left.add(following_left)
-            used_right.add(spec.right)
-
-    return pairs
-
-
-def _adjacent_following_left_pairs(
-    block: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-    existing_pairs: list[tuple[int, int]],
-    change_index: _ChangeIndex,
-) -> list[tuple[int, int]]:
-    def _immediate_left_before(
-        block: list[_RowSpec], position: int
-    ) -> int | None:
-        """Return the left line directly before one block position."""
-        if position == 0:
-            return None
-        spec = block[position - 1]
-        if spec.left is not None:
-            return spec.left
-        return None
-
-    def _nearest_left_after(block: list[_RowSpec], position: int) -> int | None:
-        """Return the next left line before another right-side row."""
-        cursor = position + 1
-        while cursor < len(block):
-            spec = block[cursor]
-            if spec.left is not None:
-                return spec.left
-            if spec.right is not None:
-                return None
-            cursor += 1
-        return None
-
-    def _has_touched_candidate_line(
-        *,
-        left_index: int,
-        right_index: int,
-        change_index: _ChangeIndex,
-    ) -> bool:
-        """Report whether Difftastic touched either proposed candidate line."""
-        return (
-            left_index in change_index.touched_left_lines
-            or right_index in change_index.touched_right_lines
-        )
-
-    pairs: list[tuple[int, int]] = []
-    used_left = {left for left, _right in existing_pairs}
-    used_right = {right for _left, right in existing_pairs}
-
-    for position, spec in enumerate(block):
-        if spec.left is not None:
-            continue
-        if spec.right is None:
-            continue
-        if spec.right in used_right:
-            continue
-
-        previous_left = _immediate_left_before(block, position)
-        following_left = _nearest_left_after(block, position)
-
-        previous_score = 0.0
-        if previous_left is not None:
-            previous_score = _line_similarity(
-                left_lines[previous_left],
-                right_lines[spec.right],
-            )
-
-        if following_left is None:
-            if previous_left is None:
-                continue
-            if previous_left in used_left:
-                continue
-            if not _has_touched_candidate_line(
-                left_index=previous_left,
-                right_index=spec.right,
-                change_index=change_index,
-            ):
-                continue
-            if previous_score < _GAP_PAIR_MIN_RATIO:
-                continue
-            pairs.append((previous_left, spec.right))
-            used_left.add(previous_left)
-            used_right.add(spec.right)
-            continue
-
-        if following_left in used_left:
-            continue
-        if not _has_touched_candidate_line(
-            left_index=following_left,
-            right_index=spec.right,
-            change_index=change_index,
-        ):
-            continue
-
-        following_score = _line_similarity(
-            left_lines[following_left],
-            right_lines[spec.right],
-        )
-        if following_score < _GAP_PAIR_MIN_RATIO:
-            continue
-
-        if following_score <= previous_score:
-            continue
-
-        pairs.append((following_left, spec.right))
-        used_left.add(following_left)
-        used_right.add(spec.right)
-
-    return pairs
-
-
-def _line_similarity(left_line: str, right_line: str) -> float:
-    def _pairing_atoms(text: str) -> list[str]:
-        """Return meaningful word atoms used by the pairing ratio."""
-        return [
-            atom
-            for atom in _WORD_PATTERN.findall(text)
-            if atom not in _PAIRING_LOW_VALUE_ATOMS
-        ]
-
-    left_atoms = _pairing_atoms(left_line)
-    right_atoms = _pairing_atoms(right_line)
-    if left_atoms == []:
-        return 1.0 if left_line == right_line else 0.0
-    if right_atoms == []:
-        return 1.0 if left_line == right_line else 0.0
-    if set(left_atoms).isdisjoint(right_atoms):
-        return 0.0
-    return SequenceMatcher(a=left_atoms, b=right_atoms, autojunk=False).ratio()
-
-
-def _tokens_for_slice(
-    line: str,
-    *,
-    start: int,
-    end: int,
-    intervals: list[_ChangeInterval],
-) -> list[DifftasticInlineToken]:
-    if start >= end:
+    Each novel span becomes one changed token and each non-empty gap becomes
+    one unchanged token, so concatenated token text reproduces the line
+    exactly. A line without novel spans returns no tokens: absent decoration
+    is represented by the empty list, not by one synthetic unchanged token.
+    """
+    if spans == []:
         return []
+
+    def token(
+        text: str, status: DifftasticTokenStatus
+    ) -> DifftasticInlineToken:
+        """Build one token; `is_ws` is derived from the exact slice."""
+        return {"text": text, "status": status, "is_ws": text.isspace()}
 
     tokens: list[DifftasticInlineToken] = []
-    cursor = start
-    clipped = [
-        _ChangeInterval(
-            start=max(interval.start, start),
-            end=min(interval.end, end),
-            status=interval.status,
-        )
-        for interval in sorted(
-            intervals, key=lambda item: (item.start, item.end)
-        )
-        if interval.end > start and interval.start < end
-    ]
-    for interval in clipped:
-        if interval.start > cursor:
-            _append_token(
-                tokens,
-                text=line[cursor : interval.start],
-                status="unchanged",
-            )
-        _append_changed_token(
-            tokens,
-            text=line[interval.start : interval.end],
-            status=interval.status,
-        )
-        cursor = interval.end
-
-    if cursor < end:
-        _append_token(tokens, text=line[cursor:end], status="unchanged")
+    cursor = 0
+    for span in spans:
+        if span.start > cursor:
+            tokens.append(token(line[cursor : span.start], "unchanged"))
+        tokens.append(token(line[span.start : span.end], span.status))
+        cursor = span.end
+    if cursor < len(line):
+        tokens.append(token(line[cursor:], "unchanged"))
     return tokens
-
-
-def _has_interval_overlap(
-    intervals: list[_ChangeInterval],
-    *,
-    start: int,
-    end: int,
-) -> bool:
-    return any(
-        interval.end > start and interval.start < end for interval in intervals
-    )
-
-
-def _append_token(
-    tokens: list[DifftasticInlineToken],
-    *,
-    text: str,
-    status: DifftasticTokenStatus,
-) -> None:
-    if text == "":
-        return
-    tokens.append({"text": text, "status": status, "is_ws": text.isspace()})
-
-
-def _append_changed_token(
-    tokens: list[DifftasticInlineToken],
-    *,
-    text: str,
-    status: DifftasticTokenStatus,
-) -> None:
-    # Difftastic's changed spans are the inline-change boundary. Preserve that
-    # exact source slice instead of splitting punctuation clusters like `&&`.
-    _append_token(tokens, text=text, status=status)
 
 
 def _row_status(
     *,
-    left_text: str,
-    right_text: str,
     left_no: int | None,
     right_no: int | None,
-    left_tokens: list[DifftasticInlineToken] | None,
-    right_tokens: list[DifftasticInlineToken] | None,
-    allow_ws_only_equal: bool,
+    left_text: str,
+    right_text: str,
+    left_tokens: list[DifftasticInlineToken],
+    right_tokens: list[DifftasticInlineToken],
 ) -> DifftasticRowStatus:
-    assert left_no is not None or right_no is not None
+    """Derive one row's status from its tokens.
 
-    token_status = _token_row_status(left_tokens, right_tokens)
-    if token_status is not None:
-        return token_status
-
-    if left_no is not None and right_no is not None:
+    Rows with tokens classify purely by token statuses: no changed non-white
+    space means `equal`; only deletions or only insertions without unchanged
+    non-whitespace context keep their one-sided status; every other mix is
+    `replace`. A row without any tokens is unchanged context — except a
+    one-sided line with no non-whitespace content, which difftastic cannot
+    mark with spans at all and whose very presence is the change, so it
+    renders as its side's insertion or deletion.
+    """
+    tokens = left_tokens + right_tokens
+    if tokens == []:
+        if left_no is not None and right_no is None and left_text.strip() == "":
+            return "delete"
+        if (
+            right_no is not None
+            and left_no is None
+            and right_text.strip() == ""
+        ):
+            return "insert"
         return "equal"
-
-    if left_tokens == [] or right_tokens == []:
-        return "equal"
-
-    if right_no is not None:
-        return "insert"
-
-    return "delete"
-
-
-def _token_row_status(
-    left_tokens: list[DifftasticInlineToken] | None,
-    right_tokens: list[DifftasticInlineToken] | None,
-) -> DifftasticRowStatus | None:
-    token_lists = [
-        tokens for tokens in (left_tokens, right_tokens) if tokens is not None
-    ]
-    if token_lists == []:
-        return None
-
-    token_statuses = [
-        token["status"] for tokens in token_lists for token in tokens
-    ]
-    if token_statuses == []:
-        return "equal"
-
-    changed_statuses = {
-        status for status in token_statuses if status != "unchanged"
+    changed = {
+        token["status"] for token in tokens if token["status"] != "unchanged"
     }
-    changed_tokens_are_ws = all(
-        token["status"] == "unchanged" or token["is_ws"]
-        for tokens in token_lists
-        for token in tokens
-    )
+    if changed == set() or all(
+        token["is_ws"] for token in tokens if token["status"] != "unchanged"
+    ):
+        return "equal"
     has_unchanged_text = any(
         token["status"] == "unchanged" and not token["is_ws"]
-        for tokens in token_lists
         for token in tokens
     )
-    if changed_statuses == set() or changed_tokens_are_ws:
-        return "equal"
-    if changed_statuses == {"delete"} and not has_unchanged_text:
+    if changed == {"delete"} and not has_unchanged_text:
         return "delete"
-    if changed_statuses == {"insert"} and not has_unchanged_text:
+    if changed == {"insert"} and not has_unchanged_text:
         return "insert"
     return "replace"
-
-
-def _paired_row_status(
-    *,
-    left_text: str,
-    right_text: str,
-    allow_ws_only_equal: bool,
-) -> DifftasticRowStatus:
-    if left_text == right_text:
-        return "equal"
-    if allow_ws_only_equal and left_text.strip() == right_text.strip():
-        return "equal"
-    return "replace"
-
-
-def _right_line_template_for_left(
-    *,
-    left_index: int,
-    right_index: int,
-    left_lines: list[str],
-    right_line: str,
-    change_index: _ChangeIndex,
-) -> str:
-    replacement_by_start: dict[int, str] = {}
-    skip_intervals: list[_ChangeInterval] = []
-
-    for pair in change_index.pairs:
-        if pair.right_line != right_index:
-            continue
-        if (
-            pair.left_line == left_index
-            and pair.left_status == "replace"
-            and pair.right_status == "replace"
-            and len(pair.left_changes) == 1
-            and len(pair.right_changes) == 1
-        ):
-            rhs = pair.right_changes[0]
-            lhs = pair.left_changes[0]
-            replacement_by_start[int(rhs["start"])] = _change_content(
-                lhs,
-                line=left_lines[left_index],
-            )
-        for change in pair.right_changes:
-            start = change.get("start")
-            end = change.get("end")
-            if not isinstance(start, int):
-                continue
-            if not isinstance(end, int):
-                continue
-            if start >= end:
-                continue
-            skip_intervals.append(
-                _ChangeInterval(start=start, end=end, status="insert")
-            )
-
-    if skip_intervals == []:
-        return right_line
-
-    pieces: list[str] = []
-    cursor = 0
-    for interval in sorted(
-        skip_intervals, key=lambda item: (item.start, item.end)
-    ):
-        if interval.start > cursor:
-            pieces.append(right_line[cursor : interval.start])
-        replacement = replacement_by_start.get(interval.start)
-        if replacement is not None:
-            pieces.append(replacement)
-        cursor = interval.end
-    pieces.append(right_line[cursor:])
-    return "".join(pieces)
-
-
-def _match_left_fragment(
-    *,
-    pending: _PendingLeftLine,
-    right_index: int,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> _FragmentMatch | None:
-    left_line = left_lines[pending.index]
-    right_line = right_lines[right_index]
-    template = _right_line_template_for_left(
-        left_index=pending.index,
-        right_index=right_index,
-        left_lines=left_lines,
-        right_line=right_line,
-        change_index=change_index,
-    )
-    template_atoms = _atoms_with_offsets(template)
-    if template_atoms == []:
-        return None
-
-    left_atoms = _atoms_with_offsets(left_line[pending.cursor :])
-    if len(template_atoms) > len(left_atoms):
-        return None
-
-    for offset, (template_atom, _start, _end) in enumerate(template_atoms):
-        left_atom = left_atoms[offset][0]
-        if template_atom != left_atom:
-            return None
-
-    source_start = pending.cursor + left_atoms[0][1]
-    source_end = pending.cursor + left_atoms[len(template_atoms) - 1][2]
-    source_end = _extend_matching_trailing_whitespace(
-        source=left_line,
-        source_end=source_end,
-        template=template,
-    )
-    source_text = left_line[source_start:source_end]
-    leading = _leading_whitespace(right_line)
-    display_text = _projected_fragment_text(
-        source_text=source_text,
-        leading=leading,
-        source_prefix=left_line[pending.cursor : source_start],
-        allow_projection=pending.cursor > 0,
-    )
-    return _FragmentMatch(
-        display_text=display_text,
-        start=source_start,
-        end=source_end,
-    )
-
-
-def _match_left_fragment_by_subsequence(
-    *,
-    pending: _PendingLeftLine,
-    right_index: int,
-    left_lines: list[str],
-    right_lines: list[str],
-) -> _FragmentMatch | None:
-    left_line = left_lines[pending.index]
-    right_line = right_lines[right_index]
-    left_atoms = _atoms_with_offsets(left_line[pending.cursor :])
-    right_atoms = _atoms_with_offsets(right_line)
-    if left_atoms == []:
-        return None
-    if right_atoms == []:
-        return None
-    skipped_leading_opener = False
-    if left_atoms[0][0] != right_atoms[0][0]:
-        if (
-            right_atoms[0][0] in {"(", "[", "{"}
-            and len(right_atoms) > 1
-            and left_atoms[0][0] == right_atoms[1][0]
-        ):
-            right_atoms = right_atoms[1:]
-            skipped_leading_opener = True
-        else:
-            return None
-
-    consumed = _matching_prefix_atom_count(left_atoms, right_atoms)
-    if consumed == 0:
-        return None
-
-    source_start = pending.cursor + left_atoms[0][1]
-    source_end = pending.cursor + left_atoms[consumed - 1][2]
-    if skipped_leading_opener and left_line[source_end - 1 : source_end] == ")":
-        source_end -= 1
-    source_text = left_line[source_start:source_end]
-    leading = _leading_whitespace(right_line)
-    display_text = _projected_fragment_text(
-        source_text=source_text,
-        leading=leading,
-        source_prefix=left_line[pending.cursor : source_start],
-        allow_projection=pending.cursor > 0,
-    )
-    return _FragmentMatch(
-        display_text=display_text, start=source_start, end=source_end
-    )
-
-
-def _matching_prefix_atom_count(
-    source_atoms: list[tuple[str, int, int]],
-    target_atoms: list[tuple[str, int, int]],
-) -> int:
-    target_position = 0
-    consumed = 0
-    for source_atom, _source_start, _source_end in source_atoms:
-        found = False
-        while target_position < len(target_atoms):
-            target_atom = target_atoms[target_position][0]
-            target_position += 1
-            if source_atom == target_atom:
-                found = True
-                break
-        if not found:
-            break
-        consumed += 1
-    return consumed
-
-
-def _match_right_fragment(
-    *,
-    pending: _PendingRightLine,
-    left_index: int,
-    left_lines: list[str],
-    right_lines: list[str],
-) -> _FragmentMatch | None:
-    right_line = right_lines[pending.index]
-    left_line = left_lines[left_index]
-    right_atoms = _atoms_with_offsets(right_line[pending.cursor :])
-    left_atoms = _atoms_with_offsets(left_line)
-    if right_atoms == []:
-        return None
-    if left_atoms == []:
-        return None
-    if right_atoms[0][0] != left_atoms[0][0]:
-        return None
-
-    consumed = _matching_prefix_atom_count(right_atoms, left_atoms)
-    if consumed == 0:
-        return None
-
-    source_start = pending.cursor + right_atoms[0][1]
-    source_end = pending.cursor + right_atoms[consumed - 1][2]
-    source_text = right_line[source_start:source_end]
-    leading = _leading_whitespace(left_line)
-    display_text = _projected_fragment_text(
-        source_text=source_text,
-        leading=leading,
-        source_prefix=right_line[pending.cursor : source_start],
-        allow_projection=pending.cursor > 0,
-    )
-    return _FragmentMatch(
-        display_text=display_text, start=source_start, end=source_end
-    )
-
-
-def _change_content(change: DifftasticJsonChange, *, line: str) -> str:
-    content = change.get("content")
-    if isinstance(content, str):
-        return content
-    start = change.get("start")
-    end = change.get("end")
-    if not isinstance(start, int):
-        return ""
-    if not isinstance(end, int):
-        return ""
-    return line[start:end]
-
-
-def _extend_matching_trailing_whitespace(
-    *,
-    source: str,
-    source_end: int,
-    template: str,
-) -> int:
-    template_atoms = _atoms_with_offsets(template)
-    if template_atoms == []:
-        return source_end
-    trailing = template[template_atoms[-1][2] :]
-    if trailing == "":
-        return source_end
-    if not trailing.isspace():
-        return source_end
-    cursor = source_end
-    for character in trailing:
-        if cursor >= len(source):
-            return cursor
-        if source[cursor] != character:
-            return cursor
-        cursor += 1
-    return cursor
-
-
-def _projected_fragment_text(
-    *,
-    source_text: str,
-    leading: str,
-    source_prefix: str,
-    allow_projection: bool,
-) -> str:
-    # Difftastic renders fragments from one physical source line at the
-    # indentation of the structural counterpart. Only whitespace is projected;
-    # all source text stays in `source_text`.
-    if source_text.startswith((" ", "\t")):
-        return source_text
-    if len(source_prefix) >= 2 and source_prefix.isspace():
-        return f"{source_prefix}{source_text}"
-    if source_prefix == leading:
-        return f"{source_prefix}{source_text}"
-    if allow_projection:
-        return f"{leading}{source_text}"
-    return source_text
-
-
-def _leading_whitespace(text: str) -> str:
-    stripped = text.lstrip(" \t")
-    return text[: len(text) - len(stripped)]
-
-
-def _atoms_with_offsets(text: str) -> list[tuple[str, int, int]]:
-    return [
-        (match.group(0), match.start(), match.end())
-        for match in _ATOM_PATTERN.finditer(text)
-    ]
-
-
-def _pending_left_match(
-    *,
-    pending: _PendingLeftLine,
-    right_index: int,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> _FragmentMatch | None:
-    match: _FragmentMatch | None = None
-    if (
-        pending.index not in change_index.left_has_unpaired_delete
-        and pending.index not in change_index.left_intervals
-    ):
-        match = _match_left_fragment(
-            pending=pending,
-            right_index=right_index,
-            left_lines=left_lines,
-            right_lines=right_lines,
-            change_index=change_index,
-        )
-    if (
-        match is None
-        and pending.cursor > 0
-        and pending.index not in change_index.left_has_unpaired_delete
-    ):
-        match = _match_left_fragment_by_subsequence(
-            pending=pending,
-            right_index=right_index,
-            left_lines=left_lines,
-            right_lines=right_lines,
-        )
-    return match
-
-
-def _has_current_replace_pair(
-    *,
-    left_index: int,
-    right_index: int,
-    change_index: _ChangeIndex,
-) -> bool:
-    for pair in change_index.pairs:
-        if pair.left_line != left_index:
-            continue
-        if pair.right_line != right_index:
-            continue
-        if pair.left_status == "replace" and pair.right_status == "replace":
-            return True
-    return False
-
-
-def _has_current_change_pair(
-    *,
-    left_index: int,
-    right_index: int,
-    change_index: _ChangeIndex,
-) -> bool:
-    for pair in change_index.pairs:
-        if pair.left_line != left_index:
-            continue
-        if pair.right_line != right_index:
-            continue
-        if pair.left_changes != () or pair.right_changes != ():
-            return True
-    return False
-
-
-def _has_empty_side_change_pair(
-    *,
-    side: _Side,
-    left_index: int,
-    right_index: int,
-    change_index: _ChangeIndex,
-) -> bool:
-    for pair in change_index.pairs:
-        if pair.left_line != left_index:
-            continue
-        if pair.right_line != right_index:
-            continue
-        if side == "left":
-            return not pair.left_changes and bool(pair.right_changes)
-        return bool(pair.left_changes) and not pair.right_changes
-    return False
-
-
-def _has_better_following_left_match(
-    index: int,
-    specs: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-) -> bool:
-    spec = specs[index]
-    if spec.left is None or spec.right is None:
-        return False
-    current_score = _line_similarity(
-        left_lines[spec.left], right_lines[spec.right]
-    )
-    following_index = index + 1
-    if following_index >= len(specs):
-        return False
-    following = specs[following_index]
-    if following.left is None:
-        return False
-    following_score = _line_similarity(
-        left_lines[following.left],
-        right_lines[spec.right],
-    )
-    return following_score > current_score
-
-
-def _has_current_one_sided_change_pair(
-    *,
-    left_index: int,
-    right_index: int,
-    change_index: _ChangeIndex,
-) -> bool:
-    for pair in change_index.pairs:
-        if pair.left_line != left_index:
-            continue
-        if pair.right_line != right_index:
-            continue
-        if (pair.left_status is None) != (pair.right_status is None):
-            return True
-    return False
-
-
-def _has_current_replace_pair_content(
-    *,
-    left_index: int,
-    right_index: int,
-    change_index: _ChangeIndex,
-) -> bool:
-    for pair in change_index.pairs:
-        if pair.left_line != left_index:
-            continue
-        if pair.right_line != right_index:
-            continue
-        if pair.left_status != "replace":
-            continue
-        if pair.right_status != "replace":
-            continue
-        if _changes_have_content(pair.left_changes):
-            return True
-        if _changes_have_content(pair.right_changes):
-            return True
-    return False
-
-
-def _changes_have_content(
-    changes: tuple[DifftasticJsonChange, ...],
-) -> bool:
-    return any(isinstance(change.get("content"), str) for change in changes)
-
-
-def _build_row(
-    *,
-    left_no: int | None,
-    right_no: int | None,
-    left_text: str,
-    right_text: str,
-    left_tokens: list[DifftasticInlineToken] | None,
-    right_tokens: list[DifftasticInlineToken] | None,
-    allow_ws_only_equal: bool = True,
-) -> DifftasticRow:
-    left_tokens, right_tokens = _synthesized_context_tokens(
-        left_text=left_text,
-        right_text=right_text,
-        left_tokens=left_tokens,
-        right_tokens=right_tokens,
-    )
-    row: DifftasticRow = {
-        "status": _row_status(
-            left_text=left_text,
-            right_text=right_text,
-            left_no=left_no,
-            right_no=right_no,
-            left_tokens=left_tokens,
-            right_tokens=right_tokens,
-            allow_ws_only_equal=allow_ws_only_equal,
-        ),
-        "left_no": left_no,
-        "right_no": right_no,
-        "left_text": left_text,
-        "right_text": right_text,
-    }
-    if left_tokens is not None:
-        row["left_tokens"] = left_tokens
-    if right_tokens is not None:
-        row["right_tokens"] = right_tokens
-    return row
-
-
-def _synthesized_context_tokens(
-    *,
-    left_text: str,
-    right_text: str,
-    left_tokens: list[DifftasticInlineToken] | None,
-    right_tokens: list[DifftasticInlineToken] | None,
-) -> tuple[
-    list[DifftasticInlineToken] | None,
-    list[DifftasticInlineToken] | None,
-]:
-    if left_tokens is not None or right_tokens is not None:
-        return left_tokens, right_tokens
-    if left_text == "" or right_text == "":
-        return left_tokens, right_tokens
-
-    left_body = left_text.lstrip(" \t")
-    right_body = right_text.lstrip(" \t")
-    left_leading = left_text[: len(left_text) - len(left_body)]
-    right_leading = right_text[: len(right_text) - len(right_body)]
-    if left_body == right_body:
-        if left_leading == right_leading:
-            return left_tokens, right_tokens
-        return _context_tokens_with_indent_delta(left_text, right_text)
-    if (
-        left_body.startswith(right_body)
-        and right_body != ""
-        and left_leading != right_leading
-    ):
-        return _context_tokens_with_indent_delta(
-            left_text,
-            right_text,
-            left_body_override=left_body,
-            right_body_override=right_body,
-            compact_punctuation=False,
-        )
-    return left_tokens, right_tokens
-
-
-def _context_tokens_with_indent_delta(
-    left_text: str,
-    right_text: str,
-    *,
-    left_body_override: str | None = None,
-    right_body_override: str | None = None,
-    compact_punctuation: bool = True,
-) -> tuple[list[DifftasticInlineToken], list[DifftasticInlineToken]]:
-    left_leading = _leading_whitespace(left_text)
-    right_leading = _leading_whitespace(right_text)
-    left_body = (
-        left_text[len(left_leading) :]
-        if left_body_override is None
-        else left_body_override
-    )
-    right_body = (
-        right_text[len(right_leading) :]
-        if right_body_override is None
-        else right_body_override
-    )
-    left_tokens: list[DifftasticInlineToken] = []
-    right_tokens: list[DifftasticInlineToken] = []
-
-    if len(left_leading) <= len(right_leading):
-        _append_token(left_tokens, text=left_leading, status="unchanged")
-        _append_token(right_tokens, text=left_leading, status="unchanged")
-        _append_token(
-            right_tokens,
-            text=right_leading[len(left_leading) :],
-            status="insert",
-        )
-    else:
-        _append_token(right_tokens, text=right_leading, status="unchanged")
-        _append_token(left_tokens, text=right_leading, status="unchanged")
-        _append_token(
-            left_tokens,
-            text=left_leading[len(right_leading) :],
-            status="delete",
-        )
-
-    _append_unchanged_context_tokens(
-        left_tokens,
-        left_body,
-        compact_punctuation=compact_punctuation,
-    )
-    _append_unchanged_context_tokens(
-        right_tokens,
-        right_body,
-        compact_punctuation=compact_punctuation,
-    )
-    return left_tokens, right_tokens
-
-
-def _append_unchanged_context_tokens(
-    tokens: list[DifftasticInlineToken],
-    text: str,
-    *,
-    compact_punctuation: bool = True,
-) -> None:
-    cursor = 0
-    while cursor < len(text):
-        previous_text = tokens[-1]["text"] if tokens else ""
-        literals = list(_CONTEXT_PUNCTUATION_LITERALS)
-        if not compact_punctuation:
-            literals = [
-                literal
-                for literal in literals
-                if literal not in _LOOSE_CONTEXT_PUNCTUATION_EXCLUDES
-            ]
-        if (
-            compact_punctuation
-            or _WORD_PATTERN.fullmatch(previous_text) is None
-        ):
-            literals.append("={")
-        for literal in literals:
-            if text.startswith(literal, cursor):
-                _append_token(tokens, text=literal, status="unchanged")
-                cursor += len(literal)
-                break
-        else:
-            character = text[cursor]
-            if character.isspace():
-                end = cursor + 1
-                while end < len(text) and text[end].isspace():
-                    end += 1
-                _append_token(tokens, text=text[cursor:end], status="unchanged")
-                cursor = end
-                continue
-            match = _WORD_PATTERN.match(text, cursor)
-            if match is not None:
-                _append_token(tokens, text=match.group(0), status="unchanged")
-                cursor = match.end()
-                continue
-            _append_token(tokens, text=character, status="unchanged")
-            cursor += 1
-
-
-def _rows_from_specs(
-    specs: list[_RowSpec],
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> list[DifftasticRow]:
-    rows: list[DifftasticRow] = []
-    for spec in specs:
-        if spec.left is None:
-            assert spec.right is not None
-            rows.append(
-                _right_only_row(
-                    spec.right,
-                    right_lines=right_lines,
-                    change_index=change_index,
-                )
-            )
-            continue
-
-        if spec.right is None:
-            rows.append(
-                _full_left_row(
-                    spec.left,
-                    left_lines=left_lines,
-                    change_index=change_index,
-                )
-            )
-            continue
-
-        rows.append(
-            _full_pair_row(
-                spec.left,
-                spec.right,
-                left_lines=left_lines,
-                right_lines=right_lines,
-                change_index=change_index,
-            )
-        )
-    return rows
-
-
-def _repair_inserted_structural_closers(
-    rows: list[DifftasticRow],
-) -> list[DifftasticRow]:
-    repaired = list(rows)
-    for index, row in enumerate(repaired):
-        if row["status"] != "equal":
-            continue
-        if row.get("left_no") is not None:
-            continue
-        if row.get("right_no") is None:
-            continue
-        if row.get("right_tokens") != []:
-            continue
-        text = row["right_text"].strip()
-        if text not in {")", "}", "]", ">"}:
-            continue
-        if index == 0 or index + 1 >= len(repaired):
-            continue
-        if repaired[index - 1]["status"] != "insert":
-            continue
-        if text != ">" and repaired[index + 1]["status"] != "insert":
-            continue
-        right_tokens: list[DifftasticInlineToken] = []
-        _append_changed_token(
-            right_tokens,
-            text=row["right_text"],
-            status="insert",
-        )
-        repaired[index] = _build_row(
-            left_no=None,
-            right_no=row["right_no"],
-            left_text="",
-            right_text=row["right_text"],
-            left_tokens=None,
-            right_tokens=right_tokens,
-        )
-    return repaired
-
-
-def _repair_adjacent_left_context_from_right(
-    rows: list[DifftasticRow],
-) -> list[DifftasticRow]:
-    repaired = list(rows)
-    for index in range(1, len(repaired)):
-        row = repaired[index]
-        if row.get("left_no") is None:
-            continue
-        if row.get("right_no") is not None:
-            continue
-
-        previous = repaired[index - 1]
-        extra_context = _extra_right_unchanged_context(previous)
-        if extra_context == []:
-            continue
-
-        following_context = _following_left_context_suffix(
-            repaired,
-            start=index + 1,
-            context=extra_context,
-        )
-        current_context = extra_context[
-            : len(extra_context) - len(following_context)
-        ]
-
-        left_tokens = row.get("left_tokens")
-        if isinstance(left_tokens, list) and current_context != []:
-            rewritten = _left_tokens_with_borrowed_context(
-                left_tokens,
-                extra_context=current_context,
-            )
-            if rewritten != left_tokens:
-                repaired[index] = _build_row(
-                    left_no=row.get("left_no"),
-                    right_no=None,
-                    left_text=row["left_text"],
-                    right_text="",
-                    left_tokens=rewritten,
-                    right_tokens=None,
-                )
-                repaired[index]["status"] = "replace"
-
-        if following_context != []:
-            _repair_following_left_context_rows(
-                repaired,
-                start=index + 1,
-                context=following_context,
-            )
-    return repaired
-
-
-def _repair_adjacent_right_context_from_left(
-    rows: list[DifftasticRow],
-) -> list[DifftasticRow]:
-    repaired = list(rows)
-    for index, row in enumerate(repaired):
-        if row.get("left_no") is None:
-            continue
-        if row.get("right_no") is None:
-            continue
-
-        extra_context = _extra_left_unchanged_context(row)
-        if extra_context == []:
-            continue
-        if not all(char in {")", "}", "]", ">"} for char in extra_context):
-            continue
-
-        context_row = _following_right_context_row(
-            repaired,
-            start=index + 1,
-            context=extra_context,
-        )
-        if context_row is None:
-            continue
-
-        row_to_repair = repaired[context_row]
-        repaired_row = _build_row(
-            left_no=None,
-            right_no=row_to_repair.get("right_no"),
-            left_text="",
-            right_text=row_to_repair["right_text"],
-            left_tokens=None,
-            right_tokens=[],
-        )
-        repaired_row["status"] = "equal"
-        repaired[context_row] = repaired_row
-    return repaired
-
-
-def _following_left_context_suffix(
-    rows: list[DifftasticRow],
-    *,
-    start: int,
-    context: list[str],
-) -> list[str]:
-    for context_start in range(1, len(context)):
-        suffix = context[context_start:]
-        if _left_only_rows_match_context(rows, start=start, context=suffix):
-            return suffix
-    return []
-
-
-def _following_right_context_row(
-    rows: list[DifftasticRow],
-    *,
-    start: int,
-    context: list[str],
-) -> int | None:
-    for index in range(start, len(rows)):
-        row = rows[index]
-        if row.get("left_no") is not None and row.get("right_no") is not None:
-            return None
-        if not _is_right_only_row(row):
-            continue
-        if _non_ws_chars_for_row(row, side="right") == context:
-            return index
-    return None
-
-
-def _left_only_rows_match_context(
-    rows: list[DifftasticRow],
-    *,
-    start: int,
-    context: list[str],
-) -> bool:
-    cursor = 0
-    index = start
-    while cursor < len(context) and index < len(rows):
-        row = rows[index]
-        if not _is_left_only_row(row):
-            return False
-        row_chars = _non_ws_chars_for_row(row, side="left")
-        if row_chars == []:
-            index += 1
-            continue
-        next_cursor = cursor + len(row_chars)
-        if context[cursor:next_cursor] != row_chars:
-            return False
-        cursor = next_cursor
-        index += 1
-    return cursor == len(context)
-
-
-def _repair_following_left_context_rows(
-    rows: list[DifftasticRow],
-    *,
-    start: int,
-    context: list[str],
-) -> None:
-    cursor = 0
-    index = start
-    while cursor < len(context) and index < len(rows):
-        row = rows[index]
-        if not _is_left_only_row(row):
-            return
-        row_chars = _non_ws_chars_for_row(row, side="left")
-        if row_chars == []:
-            index += 1
-            continue
-        next_cursor = cursor + len(row_chars)
-        if context[cursor:next_cursor] != row_chars:
-            return
-        repaired = _build_row(
-            left_no=row.get("left_no"),
-            right_no=None,
-            left_text=row["left_text"],
-            right_text="",
-            left_tokens=[],
-            right_tokens=None,
-        )
-        repaired["status"] = "equal"
-        rows[index] = repaired
-        cursor = next_cursor
-        index += 1
-
-
-def _is_left_only_row(row: DifftasticRow) -> bool:
-    return row.get("left_no") is not None and row.get("right_no") is None
-
-
-def _is_right_only_row(row: DifftasticRow) -> bool:
-    return row.get("left_no") is None and row.get("right_no") is not None
-
-
-def _non_ws_chars_for_row(row: DifftasticRow, *, side: _Side) -> list[str]:
-    if side == "left":
-        tokens = row.get("left_tokens")
-        text = row["left_text"]
-    else:
-        tokens = row.get("right_tokens")
-        text = row["right_text"]
-    if isinstance(tokens, list) and tokens != []:
-        return [
-            char
-            for token in tokens
-            for char in token["text"]
-            if not char.isspace()
-        ]
-    return [char for char in text if not char.isspace()]
-
-
-def _extra_right_unchanged_context(row: DifftasticRow) -> list[str]:
-    if row.get("left_no") is None:
-        return []
-    if row.get("right_no") is None:
-        return []
-    left_context = _non_ws_chars_with_status(
-        row.get("left_tokens"), "unchanged"
-    )
-    right_context = _non_ws_chars_with_status(
-        row.get("right_tokens"), "unchanged"
-    )
-    if len(right_context) <= len(left_context):
-        return []
-    if right_context[: len(left_context)] != left_context:
-        return []
-    return right_context[len(left_context) :]
-
-
-def _extra_left_unchanged_context(row: DifftasticRow) -> list[str]:
-    if row.get("left_no") is None:
-        return []
-    if row.get("right_no") is None:
-        return []
-    left_context = _non_ws_chars_with_status(
-        row.get("left_tokens"), "unchanged"
-    )
-    right_context = _non_ws_chars_with_status(
-        row.get("right_tokens"), "unchanged"
-    )
-    if len(left_context) <= len(right_context):
-        return []
-    if left_context[: len(right_context)] != right_context:
-        return []
-    return left_context[len(right_context) :]
-
-
-def _non_ws_chars_with_status(
-    tokens: object,
-    status: DifftasticTokenStatus,
-) -> list[str]:
-    if not isinstance(tokens, list):
-        return []
-    chars: list[str] = []
-    for token in tokens:
-        if not isinstance(token, dict):
-            continue
-        if token.get("status") != status:
-            continue
-        text = token.get("text")
-        if not isinstance(text, str):
-            continue
-        chars.extend(char for char in text if not char.isspace())
-    return chars
-
-
-def _left_tokens_with_borrowed_context(
-    tokens: list[DifftasticInlineToken],
-    *,
-    extra_context: list[str],
-) -> list[DifftasticInlineToken]:
-    def _token_chars(
-        tokens: list[DifftasticInlineToken],
-    ) -> list[tuple[int, int, str, DifftasticTokenStatus]]:
-        """Index non-whitespace token characters for context repair."""
-        chars: list[tuple[int, int, str, DifftasticTokenStatus]] = []
-        for token_index, token in enumerate(tokens):
-            for char_index, char in enumerate(token["text"]):
-                if char.isspace():
-                    continue
-                chars.append((token_index, char_index, char, token["status"]))
-        return chars
-
-    repairs: dict[tuple[int, int], DifftasticTokenStatus] = {}
-    cursor = 0
-    chars = _token_chars(tokens)
-    for target in extra_context:
-        match = _find_token_char(chars, cursor=cursor, target=target)
-        if match is None:
-            return tokens
-        for skipped in range(cursor, match):
-            token_index, char_index, _char, status = chars[skipped]
-            if status == "unchanged":
-                repairs[(token_index, char_index)] = "delete"
-        token_index, char_index, _char, status = chars[match]
-        if status != "unchanged":
-            repairs[(token_index, char_index)] = "unchanged"
-        cursor = match + 1
-
-    for extra in range(cursor, len(chars)):
-        token_index, char_index, _char, status = chars[extra]
-        if status == "unchanged":
-            repairs[(token_index, char_index)] = "delete"
-    if repairs == {}:
-        return tokens
-    return _tokens_with_status_repairs(tokens, repairs)
-
-
-def _find_token_char(
-    chars: list[tuple[int, int, str, DifftasticTokenStatus]],
-    *,
-    cursor: int,
-    target: str,
-) -> int | None:
-    for index in range(cursor, len(chars)):
-        if chars[index][2] == target and chars[index][3] == "unchanged":
-            return index
-    for index in range(cursor, len(chars)):
-        if chars[index][2] == target:
-            return index
-    return None
-
-
-def _tokens_with_status_repairs(
-    tokens: list[DifftasticInlineToken],
-    repairs: dict[tuple[int, int], DifftasticTokenStatus],
-) -> list[DifftasticInlineToken]:
-    rewritten: list[DifftasticInlineToken] = []
-    for token_index, token in enumerate(tokens):
-        rewritten.extend(
-            _token_with_status_repairs(
-                token,
-                {
-                    char_index: status
-                    for (
-                        repair_token,
-                        char_index,
-                    ), status in repairs.items()
-                    if repair_token == token_index
-                },
-            )
-        )
-    return rewritten
-
-
-def _token_with_status_repairs(
-    token: DifftasticInlineToken,
-    repairs: dict[int, DifftasticTokenStatus],
-) -> list[DifftasticInlineToken]:
-    if repairs == {}:
-        return [token]
-
-    rewritten: list[DifftasticInlineToken] = []
-    segment_text = ""
-    segment_status: DifftasticTokenStatus | None = None
-    for char_index, char in enumerate(token["text"]):
-        status = repairs.get(char_index, token["status"])
-        if segment_status is None:
-            segment_status = status
-            segment_text = char
-            continue
-        if status == segment_status:
-            segment_text += char
-            continue
-        _append_token(rewritten, text=segment_text, status=segment_status)
-        segment_status = status
-        segment_text = char
-
-    if segment_status is not None:
-        _append_token(rewritten, text=segment_text, status=segment_status)
-    return rewritten
-
-
-def _next_spec_has_left(specs: list[_RowSpec], index: int) -> bool:
-    next_index = index + 1
-    return next_index < len(specs) and specs[next_index].left is not None
-
-
-def _side_tokens_for_line(
-    line_index: int,
-    *,
-    line: str,
-    intervals: dict[int, list[_ChangeInterval]],
-    touched_lines: set[int],
-) -> list[DifftasticInlineToken] | None:
-    line_intervals = intervals.get(line_index)
-    if line_intervals is not None:
-        return _tokens_for_slice(
-            line,
-            start=0,
-            end=len(line),
-            intervals=line_intervals,
-        )
-    if line_index in touched_lines:
-        return []
-    return None
-
-
-def _one_sided_intervals(
-    intervals: list[_ChangeInterval],
-    *,
-    status: DifftasticTokenStatus,
-) -> list[_ChangeInterval]:
-    return [
-        _ChangeInterval(
-            start=interval.start,
-            end=interval.end,
-            status=status if interval.status == "replace" else interval.status,
-        )
-        for interval in intervals
-    ]
-
-
-def _full_pair_row(
-    left_index: int,
-    right_index: int,
-    *,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> DifftasticRow:
-    left_line = left_lines[left_index]
-    right_line = right_lines[right_index]
-    left_tokens = _side_tokens_for_line(
-        left_index,
-        line=left_line,
-        intervals=change_index.left_intervals,
-        touched_lines=change_index.touched_left_lines,
-    )
-    right_tokens = _side_tokens_for_line(
-        right_index,
-        line=right_line,
-        intervals=change_index.right_intervals,
-        touched_lines=change_index.touched_right_lines,
-    )
-    return _build_row(
-        left_no=left_index + 1,
-        right_no=right_index + 1,
-        left_text=left_line,
-        right_text=right_line,
-        left_tokens=left_tokens,
-        right_tokens=right_tokens,
-    )
-
-
-def _fragment_pair_row(
-    left_index: int,
-    right_index: int,
-    *,
-    match: _FragmentMatch,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> DifftasticRow:
-    left_line = left_lines[left_index]
-    right_line = right_lines[right_index]
-    left_intervals = change_index.left_intervals.get(left_index, [])
-    right_tokens = _side_tokens_for_line(
-        right_index,
-        line=right_line,
-        intervals=change_index.right_intervals,
-        touched_lines=change_index.touched_right_lines,
-    )
-    left_has_overlap = _has_interval_overlap(
-        left_intervals,
-        start=match.start,
-        end=match.end,
-    )
-    sliced_left_tokens = _tokens_for_slice(
-        left_line,
-        start=match.start,
-        end=match.end,
-        intervals=left_intervals,
-    )
-    left_tokens: list[DifftasticInlineToken] | None
-    if not left_has_overlap:
-        if _has_empty_side_change_pair(
-            side="left",
-            left_index=left_index,
-            right_index=right_index,
-            change_index=change_index,
-        ):
-            left_tokens = []
-        else:
-            left_tokens = None
-    elif (
-        "".join(token["text"] for token in sliced_left_tokens)
-        == match.display_text
-    ):
-        left_tokens = sliced_left_tokens
-    elif left_index in change_index.touched_left_lines:
-        left_tokens = []
-    else:
-        left_tokens = None
-    return _build_row(
-        left_no=left_index + 1,
-        right_no=right_index + 1,
-        left_text=match.display_text,
-        right_text=right_line,
-        left_tokens=left_tokens,
-        right_tokens=right_tokens,
-        allow_ws_only_equal=False,
-    )
-
-
-def _full_left_row(
-    left_index: int,
-    *,
-    left_lines: list[str],
-    change_index: _ChangeIndex,
-) -> DifftasticRow:
-    left_line = left_lines[left_index]
-    left_intervals = change_index.left_intervals.get(left_index)
-    if left_line == "":
-        left_tokens: list[DifftasticInlineToken] | None = None
-    elif left_intervals is None:
-        if left_index in change_index.touched_left_lines:
-            left_tokens = []
-        else:
-            left_tokens = None
-    else:
-        left_tokens = _tokens_for_slice(
-            left_line,
-            start=0,
-            end=len(left_line),
-            intervals=_one_sided_intervals(left_intervals, status="delete"),
-        )
-    return _build_row(
-        left_no=left_index + 1,
-        right_no=None,
-        left_text=left_line,
-        right_text="",
-        left_tokens=left_tokens,
-        right_tokens=None,
-    )
-
-
-def _left_residual_row(
-    pending: _PendingLeftLine,
-    *,
-    left_lines: list[str],
-    change_index: _ChangeIndex,
-) -> DifftasticRow:
-    left_line = left_lines[pending.index]
-    left_text = left_line[pending.cursor :]
-    left_intervals = change_index.left_intervals.get(pending.index)
-    if left_intervals is None:
-        if pending.index in change_index.touched_left_lines:
-            left_tokens: list[DifftasticInlineToken] | None = []
-        else:
-            left_tokens = None
-    else:
-        left_tokens = _tokens_for_slice(
-            left_line,
-            start=pending.cursor,
-            end=len(left_line),
-            intervals=_one_sided_intervals(left_intervals, status="delete"),
-        )
-    return _build_row(
-        left_no=pending.index + 1,
-        right_no=None,
-        left_text=left_text,
-        right_text="",
-        left_tokens=left_tokens,
-        right_tokens=None,
-    )
-
-
-def _right_residual_row(
-    pending: _PendingRightLine,
-    *,
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> DifftasticRow:
-    right_line = right_lines[pending.index]
-    right_text = right_line[pending.cursor :]
-    right_intervals = change_index.right_intervals.get(pending.index)
-    right_tokens: list[DifftasticInlineToken] | None
-    if right_intervals is None:
-        if pending.cursor > 0:
-            right_tokens = None
-        elif pending.index in change_index.touched_right_lines:
-            right_tokens = []
-        else:
-            right_tokens = None
-    else:
-        right_tokens = _tokens_for_slice(
-            right_line,
-            start=pending.cursor,
-            end=len(right_line),
-            intervals=_one_sided_intervals(right_intervals, status="insert"),
-        )
-    return _build_row(
-        left_no=None,
-        right_no=pending.index + 1,
-        left_text="",
-        right_text=right_text,
-        left_tokens=None,
-        right_tokens=right_tokens,
-    )
-
-
-def _right_only_row(
-    right_index: int,
-    *,
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> DifftasticRow:
-    right_line = right_lines[right_index]
-    right_intervals = change_index.right_intervals.get(right_index)
-    if right_intervals is None:
-        if right_index in change_index.touched_right_lines:
-            right_tokens: list[DifftasticInlineToken] | None = []
-        else:
-            right_tokens = None
-    else:
-        right_tokens = _tokens_for_slice(
-            right_line,
-            start=0,
-            end=len(right_line),
-            intervals=_one_sided_intervals(right_intervals, status="insert"),
-        )
-    if right_tokens is None:
-        right_tokens = []
-    return _build_row(
-        left_no=None,
-        right_no=right_index + 1,
-        left_text="",
-        right_text=right_line,
-        left_tokens=None,
-        right_tokens=right_tokens,
-    )
-
-
-def _right_fragment_pair_row(
-    left_index: int,
-    right_index: int,
-    *,
-    match: _FragmentMatch,
-    left_lines: list[str],
-    right_lines: list[str],
-    change_index: _ChangeIndex,
-) -> DifftasticRow:
-    left_line = left_lines[left_index]
-    right_line = right_lines[right_index]
-    left_tokens = _side_tokens_for_line(
-        left_index,
-        line=left_line,
-        intervals=change_index.left_intervals,
-        touched_lines=change_index.touched_left_lines,
-    )
-    right_intervals = change_index.right_intervals.get(right_index, [])
-    right_has_overlap = _has_interval_overlap(
-        right_intervals,
-        start=match.start,
-        end=match.end,
-    )
-    sliced_right_tokens = _tokens_for_slice(
-        right_line,
-        start=match.start,
-        end=match.end,
-        intervals=right_intervals,
-    )
-    right_tokens: list[DifftasticInlineToken] | None
-    if not right_has_overlap:
-        if _has_empty_side_change_pair(
-            side="right",
-            left_index=left_index,
-            right_index=right_index,
-            change_index=change_index,
-        ):
-            right_tokens = []
-        else:
-            right_tokens = None
-    elif (
-        "".join(token["text"] for token in sliced_right_tokens)
-        == match.display_text
-    ):
-        right_tokens = sliced_right_tokens
-    elif right_index in change_index.touched_right_lines:
-        right_tokens = []
-    else:
-        right_tokens = None
-
-    return _build_row(
-        left_no=left_index + 1,
-        right_no=right_index + 1,
-        left_text=left_line,
-        right_text=match.display_text,
-        left_tokens=left_tokens,
-        right_tokens=right_tokens,
-        allow_ws_only_equal=False,
-    )
-
-
-def _repair_shifted_rows(rows: list[DifftasticRow]) -> list[DifftasticRow]:
-    # Difftastic can emit adjacent replace rows whose texts show a one-line
-    # shift. Preserve the CLI display shape by rendering that as
-    # delete/equal/insert, but only when the row texts prove the overlap.
-    repaired: list[DifftasticRow] = []
-    index = 0
-    while index < len(rows):
-        if index + 1 >= len(rows):
-            repaired.append(rows[index])
-            index += 1
-            continue
-
-        current = rows[index]
-        following = rows[index + 1]
-        if _can_repair_shifted_pair(current, following):
-            repaired.extend(_shifted_pair_rows(current, following))
-            index += 2
-            continue
-
-        repaired.append(current)
-        index += 1
-    return repaired
-
-
-def _repair_structural_context_rows(
-    rows: list[DifftasticRow],
-) -> list[DifftasticRow]:
-    repaired = list(rows)
-    for index, row in enumerate(repaired):
-        structural_text = _one_sided_right_structural_context(row)
-        if structural_text is None:
-            continue
-        candidate_index = _previous_left_suffix_candidate(
-            repaired,
-            before=index,
-            suffix=structural_text,
-        )
-        if candidate_index is None:
-            continue
-
-        split = _split_left_row_suffix(
-            repaired[candidate_index],
-            suffix=structural_text,
-        )
-        if split is None:
-            continue
-
-        prefix_row, suffix_text, suffix_tokens = split
-        repaired[candidate_index] = prefix_row
-        right_text = row["right_text"]
-        repaired[index] = _build_row(
-            left_no=prefix_row["left_no"],
-            right_no=row["right_no"],
-            left_text=suffix_text,
-            right_text=right_text,
-            left_tokens=suffix_tokens,
-            right_tokens=(
-                []
-                if right_text == ""
-                else [
-                    {
-                        "text": right_text,
-                        "status": "unchanged",
-                        "is_ws": right_text.isspace(),
-                    }
-                ]
-            ),
-        )
-    return repaired
-
-
-def _one_sided_right_structural_context(
-    row: DifftasticRow,
-) -> str | None:
-    is_one_sided_context = (
-        row["status"] == "equal"
-        and row.get("left_no") is None
-        and row.get("right_no") is not None
-        and row.get("right_tokens") == []
-    )
-    if not is_one_sided_context:
-        return None
-
-    text = row["right_text"].strip()
-    is_single_structural_atom = (
-        len(text) == 1
-        and _WORD_PATTERN.search(text) is None
-        and _ATOM_PATTERN.fullmatch(text) is not None
-    )
-    if is_single_structural_atom:
-        return text
-    return None
-
-
-def _previous_left_suffix_candidate(
-    rows: list[DifftasticRow],
-    *,
-    before: int,
-    suffix: str,
-) -> int | None:
-    run_start = before
-    while run_start > 0 and _is_right_only_row(rows[run_start - 1]):
-        run_start -= 1
-    if run_start in (0, before):
-        return None
-
-    candidate_index = run_start - 1
-    candidate = rows[candidate_index]
-    is_left_only_candidate = (
-        candidate.get("right_no") is None
-        and candidate.get("left_no") is not None
-    )
-    if (
-        is_left_only_candidate
-        and _right_only_run_has_unclosed_opener(
-            rows,
-            start=run_start,
-            end=before,
-            closer=suffix,
-        )
-        and _can_split_left_row_suffix(candidate, suffix=suffix)
-    ):
-        return candidate_index
-    return None
-
-
-def _right_only_run_has_unclosed_opener(
-    rows: list[DifftasticRow],
-    *,
-    start: int,
-    end: int,
-    closer: str,
-) -> bool:
-    opener = _opener_for_closer(closer)
-    if opener is None:
-        return False
-
-    balance = 0
-    for row in rows[start:end]:
-        text = row["right_text"]
-        balance += text.count(opener)
-        balance -= text.count(closer)
-    return balance > 0
-
-
-def _opener_for_closer(closer: str) -> str | None:
-    match closer:
-        case ")":
-            return "("
-        case "]":
-            return "["
-        case "}":
-            return "{"
-        case ">":
-            return "<"
-        case _:
-            return None
-
-
-def _can_split_left_row_suffix(
-    row: DifftasticRow,
-    *,
-    suffix: str,
-) -> bool:
-    text = row["left_text"]
-    end = len(text.rstrip(" \t"))
-    start = end - len(suffix)
-    if start <= 0:
-        return False
-    if text[start:end] != suffix:
-        return False
-    return bool(_ATOM_PATTERN.search(text[:start]))
-
-
-def _split_left_row_suffix(
-    row: DifftasticRow,
-    *,
-    suffix: str,
-) -> tuple[DifftasticRow, str, list[DifftasticInlineToken] | None] | None:
-    text = row["left_text"]
-    end = len(text.rstrip(" \t"))
-    start = end - len(suffix)
-    if start <= 0:
-        return None
-    if text[start:end] != suffix:
-        return None
-
-    prefix_tokens: list[DifftasticInlineToken] | None
-    suffix_tokens: list[DifftasticInlineToken] | None
-    tokens = row.get("left_tokens")
-    if tokens is None:
-        prefix_tokens = None
-        suffix_tokens = None
-    else:
-        prefix_tokens, suffix_tokens = _split_tokens_at(tokens, start)
-
-    prefix_row = _build_row(
-        left_no=row["left_no"],
-        right_no=None,
-        left_text=text[:start],
-        right_text="",
-        left_tokens=prefix_tokens,
-        right_tokens=None,
-    )
-    return prefix_row, text[start:], suffix_tokens
-
-
-def _split_tokens_at(
-    tokens: list[DifftasticInlineToken],
-    offset: int,
-) -> tuple[list[DifftasticInlineToken], list[DifftasticInlineToken]]:
-    before: list[DifftasticInlineToken] = []
-    after: list[DifftasticInlineToken] = []
-    cursor = 0
-    for token in tokens:
-        text = token["text"]
-        end = cursor + len(text)
-        if end <= offset:
-            before.append(token)
-        elif cursor >= offset:
-            after.append(token)
-        else:
-            split_at = offset - cursor
-            _append_copied_token(before, token, text[:split_at])
-            _append_copied_token(after, token, text[split_at:])
-        cursor = end
-    return before, after
-
-
-def _append_copied_token(
-    tokens: list[DifftasticInlineToken],
-    token: DifftasticInlineToken,
-    text: str,
-) -> None:
-    if text == "":
-        return
-    tokens.append(
-        {
-            "text": text,
-            "status": token["status"],
-            "is_ws": text.isspace(),
-        }
-    )
-
-
-def _can_repair_shifted_pair(
-    current: DifftasticRow,
-    following: DifftasticRow,
-) -> bool:
-    return (
-        current["status"] == "replace"
-        and following["status"] == "replace"
-        and current.get("left_no") is not None
-        and current.get("right_no") is not None
-        and following.get("left_no") is not None
-        and following.get("right_no") is not None
-        and current["right_text"] == following["left_text"]
-    )
-
-
-def _shifted_pair_rows(
-    current: DifftasticRow,
-    following: DifftasticRow,
-) -> list[DifftasticRow]:
-    delete_row: DifftasticRow = {
-        "status": "delete",
-        "left_no": current["left_no"],
-        "right_no": None,
-        "left_text": current["left_text"],
-        "right_text": "",
-    }
-
-    equal_row: DifftasticRow = {
-        "status": "equal",
-        "left_no": following["left_no"],
-        "right_no": current["right_no"],
-        "left_text": following["left_text"],
-        "right_text": current["right_text"],
-    }
-
-    insert_row: DifftasticRow = {
-        "status": "insert",
-        "left_no": None,
-        "right_no": following["right_no"],
-        "left_text": "",
-        "right_text": following["right_text"],
-    }
-    return [delete_row, equal_row, insert_row]
-
-
-def _tokens_with_replaced_status(
-    tokens: list[DifftasticInlineToken],
-    *,
-    status: DifftasticTokenStatus,
-) -> list[DifftasticInlineToken]:
-    rewritten: list[DifftasticInlineToken] = []
-    for token in tokens:
-        token_status = token["status"]
-        if token_status == "replace":
-            token_status = status
-        rewritten.append(
-            {
-                "text": token["text"],
-                "status": token_status,
-                "is_ws": token["is_ws"],
-            }
-        )
-    return rewritten
 
 
 def _difftastic_rows_from_json(
@@ -2856,31 +443,100 @@ def _difftastic_rows_from_json(
     left_text: str,
     right_text: str,
 ) -> list[DifftasticRow]:
-    def _source_lines(text: str) -> list[str]:
-        """Split source into the lines addressed by Difftastic positions."""
-        return text.splitlines()
+    """Project one difftastic JSON payload into dirdiff display rows.
 
+    One row is emitted per aligned pair whose line numbers exist in the
+    sources; pairs addressing the trailing-newline phantom line are dropped.
+    The alignment must cover each side's lines exactly once and in order —
+    a violation means difftastic broke its alignment contract and throws
+    instead of being repaired locally.
+    """
     left_lines = _source_lines(left_text)
     right_lines = _source_lines(right_text)
-    change_index = _change_index(
+    aligned = diff_json.get("aligned_lines", [])
+    if aligned == []:
+        return []
+    spans = _span_index(
         diff_json,
         left_lines=left_lines,
         right_lines=right_lines,
     )
-    specs = _normalized_row_specs(
-        diff_json,
-        left_count=len(left_lines),
-        right_count=len(right_lines),
-        left_lines=left_lines,
-        right_lines=right_lines,
-        change_index=change_index,
-    )
-    return _rows_from_specs(
-        specs,
-        left_lines=left_lines,
-        right_lines=right_lines,
-        change_index=change_index,
-    )
+
+    rows: list[DifftasticRow] = []
+    next_left = 0
+    next_right = 0
+    for pair in aligned:
+        left_index, right_index = pair
+        if left_index is not None and left_index >= len(left_lines):
+            left_index = None
+        if right_index is not None and right_index >= len(right_lines):
+            right_index = None
+        if pair[0] is not None and left_index is None:
+            # The phantom guard must only ever drop the phantom pair; pairing
+            # a phantom with a real line would silently lose that line.
+            if right_index is not None:
+                raise ValueError(
+                    "Difftastic aligned a real line with the phantom line."
+                )
+            continue
+        if pair[1] is not None and right_index is None:
+            if left_index is not None:
+                raise ValueError(
+                    "Difftastic aligned a real line with the phantom line."
+                )
+            continue
+        if left_index is not None:
+            if left_index != next_left:
+                raise ValueError(
+                    f"Difftastic alignment reached left line {left_index} "
+                    f"instead of {next_left}."
+                )
+            next_left += 1
+        if right_index is not None:
+            if right_index != next_right:
+                raise ValueError(
+                    f"Difftastic alignment reached right line {right_index} "
+                    f"instead of {next_right}."
+                )
+            next_right += 1
+
+        left_line = "" if left_index is None else left_lines[left_index]
+        right_line = "" if right_index is None else right_lines[right_index]
+        left_tokens = (
+            []
+            if left_index is None
+            else _line_tokens(left_line, spans.left.get(left_index, []))
+        )
+        right_tokens = (
+            []
+            if right_index is None
+            else _line_tokens(right_line, spans.right.get(right_index, []))
+        )
+        row: DifftasticRow = {
+            "status": _row_status(
+                left_no=None if left_index is None else left_index + 1,
+                right_no=None if right_index is None else right_index + 1,
+                left_text=left_line,
+                right_text=right_line,
+                left_tokens=left_tokens,
+                right_tokens=right_tokens,
+            ),
+            "left_no": None if left_index is None else left_index + 1,
+            "right_no": None if right_index is None else right_index + 1,
+            "left_text": left_line,
+            "right_text": right_line,
+        }
+        if left_index is not None:
+            row["left_tokens"] = left_tokens
+        if right_index is not None:
+            row["right_tokens"] = right_tokens
+        rows.append(row)
+
+    if next_left != len(left_lines) or next_right != len(right_lines):
+        raise ValueError(
+            "Difftastic alignment did not cover every source line."
+        )
+    return rows
 
 
 def build_difftastic_ast(
@@ -2890,6 +546,12 @@ def build_difftastic_ast(
     left_path_hint: str | None,
     right_path_hint: str | None,
 ) -> DifftasticAst:
+    """Run difftastic on two documents and project its rows and warning.
+
+    The texts are the content authority; path hints only steer difftastic's
+    parser selection. An empty row list means the caller must pick a fallback
+    renderer, with `engine_warning` explaining a known fallback mode.
+    """
     diff_json = run_difftastic_json(
         left_text=left_text,
         right_text=right_text,
@@ -2916,6 +578,11 @@ def _plain_line_rows_for_side(
     text: str,
     side: Literal["left", "right"],
 ) -> list[dict[str, Any]]:
+    """Render one existing side of an added or deleted file as plain rows.
+
+    Every line becomes one one-sided row with the side's whole-line status;
+    no tokens are attached because there is nothing to pair against.
+    """
     rows: list[dict[str, Any]] = []
     for index, line in enumerate(text.splitlines(), start=1):
         if side == "left":

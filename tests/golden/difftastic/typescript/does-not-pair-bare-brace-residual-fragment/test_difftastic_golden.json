@@ -116,6 +116,7 @@
   {
     "left_no": 2,
     "left_text": "",
+    "left_tokens": [],
     "right_no": null,
     "right_text": "",
     "status": "delete"
@@ -390,6 +391,7 @@
   {
     "left_no": 6,
     "left_text": "",
+    "left_tokens": [],
     "right_no": null,
     "right_text": "",
     "status": "delete"
