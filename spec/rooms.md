@@ -81,8 +81,10 @@ Room and Snapshot facts. The counts are both present or both `None`.
 `corresponding_room` selects a Room from:
 
 - nullable Mark id;
-- one of the five HUD Tabs;
-- an opaque correspondence key.
+- one discriminated capture selection — one variant per Tab law, each
+  carrying exactly its required inputs, so validity concerns values rather
+  than cross-Tab absence;
+- an opaque correspondence key derived from that selection.
 
 The key is constructed as follows:
 
@@ -125,20 +127,29 @@ operation.
 Snapshot equality includes:
 
 - left and right repository-path presence;
+- each present side's identity token: the backend's content-addressed object
+  id (a Git blob id) when the side has one, otherwise the captured bytes;
 - tracked provenance and backend change classification;
-- complete captured left and right contents;
-- persisted capture error, when present;
 - explicit lazy override;
 - complete `preset.toml` content when it supplies that override.
 
-Backend order, human labels, aggregate line counts, directory-tree output, and
-renderer output do not participate in equality. Canonical filepath sorting is
-used only while hashing this set; it is not persisted presentation order.
+Sides without an object id (worktree, untracked files, preset fixtures) are
+read before the retained check, and a failed read substitutes the established
+error content, keeping eager errors part of identity through the content
+token. Sides with an object id are read only when the Snapshot turns out to
+be new — the id is the identity, so a failed read of an id-addressed side
+aborts the capture instead of persisting an error placeholder under a token
+that names the real bytes (a retry captures cleanly; the object is
+immutable, so the failure is infrastructural). Backend order, human labels, aggregate line
+counts, directory-tree output, and renderer output do not participate in
+equality. Canonical filepath sorting is used only while hashing this set; it
+is not persisted presentation order.
 
-SHA-256 identifies equal captured state inside one Room and validates each
-captured side when `Room.get` returns its Path. Repeating manifest with equal
-captured state returns the existing `snapshot_id`. Incompatible capture changes
-advance the hash-domain version.
+SHA-256 over the token set identifies equal captured state inside one Room,
+and per-side SHA-256 content digests validate each captured side when
+`Room.get` returns its Path. Repeating manifest with equal captured state
+returns the existing `snapshot_id` without re-reading backend contents.
+Incompatible capture changes advance the hash-domain version.
 
 Index and worktree capture remains sequential. No atomic multi-file view or
 implicit retry is claimed while another process mutates the repository.

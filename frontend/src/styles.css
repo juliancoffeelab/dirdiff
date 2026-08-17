@@ -2021,11 +2021,13 @@ h1 {
   box-shadow: none;
 }
 
-/* Solid's Portal wrapper contributes no box; code UI remains the row's grid item. */
-.diff-side > :has(> .review-inline-threads),
-.diff-side > :has(> .review-comment-input-line),
-.diff-row > :has(> .review-inline-threads),
-.diff-row > :has(> .review-comment-input-line) {
+/* Solid's Portal wrapper contributes no box; code UI remains the row's grid
+   item. The wrapper is class-addressed (set by the Portal ref) because the
+   former `:has()` forms were evaluated against every child of every diff
+   row — tens of thousands of elements — with broader invalidation than an
+   ordinary class selector. */
+.diff-side > .review-portal-host,
+.diff-row > .review-portal-host {
   display: contents;
 }
 
@@ -3070,7 +3072,8 @@ h1 {
 
 /* Off-viewport row chunks skip style, layout, and paint entirely; `auto`
    intrinsic sizing keeps each chunk's real height once rendered, and 1100px
-   approximates 50 unrendered 22px rows. The width axis must stay `none`:
+   approximates 50 unrendered 22px row elements (the chunk appender counts
+   emitted elements, so the estimate holds for inline replace pairs too). The width axis must stay `none`:
    the shorthand would apply the length to both axes and widen the chunk
    past its container. `auto` must never become `hidden`: scroll-follow's
    binary search reads rects of rows inside skipped chunks and relies on

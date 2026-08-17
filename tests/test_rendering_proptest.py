@@ -217,3 +217,38 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
         rendered_pairs += 1
 
     assert rendered_pairs > 0
+
+
+def test_text_diff_summary_matches_render_diff_counts() -> None:
+    """The token-free summary path must count exactly as render_diff does."""
+    from dirdiff.engines import text_diff_summary
+
+    cases = [
+        # whitespace-only change: equal-status paired row that still counts
+        ("    indented\nsame\n", "  indented\nsame\n"),
+        # aligned replace plus surrounding inserts/deletes
+        (
+            "alpha one\nremoved line\nshared\n",
+            "alpha two\nshared\nadded line\n",
+        ),
+        # unalignable blocks fall apart into inserts and deletes
+        ("aaaa\nbbbb\n", "zzzz\nyyyy\nxxxx\n"),
+        # one side absent
+        ("", "only right\nlines here\n"),
+        ("only left\n", ""),
+        # identical inputs
+        ("same\ntext\n", "same\ntext\n"),
+        # giant single-line surfaces (the notebook secondary shape)
+        ("x" * 50_000 + "\n", "y" * 50_000 + "\n"),
+    ]
+    for left_text, right_text in cases:
+        rendered = TextDiffEngine().render_diff(
+            old=DiffSide(exists=True, text=left_text, path_hint=None),
+            new=DiffSide(exists=True, text=right_text, path_hint=None),
+        )
+        assert (
+            text_diff_summary(left_text, right_text) == rendered["summary"]
+        ), (
+            left_text[:40],
+            right_text[:40],
+        )

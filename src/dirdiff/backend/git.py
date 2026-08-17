@@ -678,7 +678,9 @@ class GitBackend(WorkspaceBackendProtocol):
         if left == right:
             return RepoDiff((), 0, 0)
 
-        diff_args = ["diff", "--raw", "--numstat", "-z", "-M"]
+        # --no-abbrev keeps the raw records' object ids full-length so they
+        # can serve as exact per-side content identity during capture.
+        diff_args = ["diff", "--raw", "--no-abbrev", "--numstat", "-z", "-M"]
         if "worktree" in {left, right}:
             other = right if left == "worktree" else left
             if other != "index":
@@ -699,9 +701,15 @@ class GitBackend(WorkspaceBackendProtocol):
         # Git emits every raw record before the numstat section. Rebuild the
         # existing name-status grammar so the established path parser remains
         # the single authority for rename/copy and one-sided File identity.
+        def object_id_or_none(raw: bytes) -> str | None:
+            """Read one raw-record object id; all-zero ids mean no identity."""
+            text = raw.decode("ascii")
+            return None if set(text) <= {"0"} else text
+
         tokens = combined_output.split(b"\0")
         raw_index = 0
         name_status_tokens: list[bytes] = []
+        record_object_ids: list[tuple[str | None, str | None]] = []
         while raw_index < len(tokens) and tokens[raw_index].startswith(b":"):
             raw_fields = tokens[raw_index][1:].split(b" ")
             raw_index += 1
@@ -712,6 +720,12 @@ class GitBackend(WorkspaceBackendProtocol):
             raw_paths = tokens[raw_index : raw_index + path_count]
             if len(raw_paths) != path_count or b"" in raw_paths:
                 raise DirdiffError("Git returned a truncated raw diff record.")
+            record_object_ids.append(
+                (
+                    object_id_or_none(raw_fields[2]),
+                    object_id_or_none(raw_fields[3]),
+                )
+            )
             name_status_tokens.append(status)
             name_status_tokens.extend(raw_paths)
             raw_index += path_count
@@ -719,6 +733,23 @@ class GitBackend(WorkspaceBackendProtocol):
         entries = self._parse_name_status_output(
             b"\0".join([*name_status_tokens, b""])
         )
+        # The parser emits exactly one entry per rebuilt record in order, so
+        # the collected side object ids pair positionally; the strict zip
+        # fails loudly if that one-to-one contract ever breaks.
+        entries = [
+            replace(
+                entry,
+                left_object_id=object_ids[0]
+                if entry.left_path is not None
+                else None,
+                right_object_id=object_ids[1]
+                if entry.right_path is not None
+                else None,
+            )
+            for entry, object_ids in zip(
+                entries, record_object_ids, strict=True
+            )
+        ]
         numstat_output = b"\0".join(tokens[raw_index:])
         line_counts_by_path, added_lines, removed_lines = (
             self._parse_numstat_output(numstat_output)

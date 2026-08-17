@@ -72,6 +72,15 @@ __all__ = [
     "ThreadDiscussionView",
     "ThreadSummaryView",
     "ThreadUpdateView",
+    # Room-facade internals: implemented here, consumed only by room_lord's
+    # Room methods; every other module goes through the Room facade.
+    "append_review_action",
+    "apply_review_batch",
+    "create_thread",
+    "derive_room_threads",
+    "fold_actions",
+    "get_thread",
+    "thread_objects",
 ]
 
 ReviewErrorCode = Literal[
@@ -1122,7 +1131,7 @@ class _CommentState:
     updated_at: str
 
 
-def _fold_actions(
+def fold_actions(
     actions: tuple[ReviewActionRecord, ...],
     profiles: dict[int, UserProfileRecord],
 ) -> tuple[
@@ -1300,7 +1309,7 @@ def _build_original_excerpt(
     }
 
 
-def _append_review_action(
+def append_review_action(
     *,
     database: RoomStore,
     snapshot_id: UUID,
@@ -1343,7 +1352,7 @@ def _append_review_action(
             persisted_profile.id: persisted_profile
             for persisted_profile in persisted_profiles
         }
-        state, attention, comments = _fold_actions(actions, profiles)
+        state, attention, comments = fold_actions(actions, profiles)
         if state == "deleted":
             raise ReviewError("state_conflict", "Thread is deleted.")
         comment_by_id = {comment["comment_id"]: comment for comment in comments}
@@ -1535,7 +1544,7 @@ class Thread:
         """
         placement, origin = self._records()
         actions = self._actions()
-        state, attention, comments = _fold_actions(actions, self._profiles)
+        state, attention, comments = fold_actions(actions, self._profiles)
         original_excerpt = (
             _build_original_excerpt(origin, self._origin_file, self._cache)
             if origin.target_kind == "range"
@@ -1562,7 +1571,7 @@ class Thread:
         original-excerpt construction and the complete Comment list.
         """
         actions = self._actions()
-        state, attention, comments = _fold_actions(actions, self._profiles)
+        state, attention, comments = fold_actions(actions, self._profiles)
         assert comments != [], "persisted Thread folded to zero Comments"
         return ThreadSummaryView(
             thread_id=self.thread_id.hex,
@@ -1592,7 +1601,7 @@ class Thread:
         body: Optional[str],
     ) -> Thread:
         """Validate, append, and return the bound Thread with write outcome."""
-        actions, profiles = _append_review_action(
+        actions, profiles = append_review_action(
             database=self._database,
             snapshot_id=self.snapshot_id,
             thread_id=self.thread_id,
@@ -1674,7 +1683,7 @@ class Thread:
         )
 
 
-def _thread_objects(
+def thread_objects(
     *,
     database: RoomStore,
     identity: RoomIdentity,
@@ -1816,7 +1825,7 @@ def _bind_threads(
     return tuple(threads)
 
 
-def _get_thread(
+def get_thread(
     *,
     database: RoomStore,
     identity: RoomIdentity,
@@ -1850,7 +1859,7 @@ def _get_thread(
     return threads[0]
 
 
-def _derive_room_threads(
+def derive_room_threads(
     *,
     database: RoomStore,
     identity: RoomIdentity,
@@ -2086,7 +2095,7 @@ def _plan_thread_creation(
     )
 
 
-def _create_thread(
+def create_thread(
     *,
     database: RoomStore,
     identity: RoomIdentity,
@@ -2147,7 +2156,7 @@ def _create_thread(
         )
 
 
-def _apply_review_batch(
+def apply_review_batch(
     *,
     database: RoomStore,
     identity: RoomIdentity,
@@ -2273,7 +2282,7 @@ def _apply_review_batch(
 
             command = action.command
             profile_id = command.author.profile_id
-            state, attention, _comments = _fold_actions(
+            state, attention, _comments = fold_actions(
                 tuple(thread_actions), fold_profiles
             )
             if state == "deleted":

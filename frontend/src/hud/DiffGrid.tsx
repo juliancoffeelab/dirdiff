@@ -831,12 +831,17 @@ function ImperativeDiffLines(props: {
 // Rendered rows of large files are streamed through fixed-size chunk
 // containers so the browser skips style and layout for off-viewport spans
 // (62% of measured scroll-phase CPU was layout of monolithic row subtrees;
-// application JS was ~2%). Only files past the threshold pay the chunked
+// application JS was ~2%). Only renders past the threshold pay the chunked
 // lazy-render cost: chunking every file traded large-file freezes for
 // visible render pop-in on files that previously scrolled at a solid 60fps
-// (reported as a regression), so smaller files keep the exact pre-chunk
-// monolithic DOM. 50 rows approximate one viewport, so each chunk entering
-// view renders within a frame budget.
+// (reported as a regression), so smaller renders keep the exact pre-chunk
+// monolithic DOM. The threshold counts renderer rows, where a collapsed
+// fold contributes one visible bar — expanding a fold larger than the
+// threshold re-enters the renderer with the folded range and deliberately
+// chunks it, so a small file's zero-chunk guarantee holds until such an
+// expansion. The chunk size counts emitted row ELEMENTS (an inline replace
+// row emits two), so 50 elements ≈ 1100px ≈ one viewport and each chunk
+// entering view renders within a frame budget.
 const ROW_CHUNK_SIZE = 50;
 const ROW_CHUNK_THRESHOLD = 600;
 
@@ -845,7 +850,7 @@ const ROW_CHUNK_THRESHOLD = 600;
  *
  * With `chunked` false every append lands directly on the fragment,
  * reproducing the monolithic pre-chunk DOM. Otherwise consecutive non-fold
- * rows land in chunks of at most `ROW_CHUNK_SIZE` append calls; a fold
+ * rows land in chunks of at most `ROW_CHUNK_SIZE` emitted elements; a fold
  * wrapper closes the current chunk and stays top-level because it replaces
  * its own subtree on expansion. The appender owns only the supplied
  * fragment for the duration of one build and guarantees document order is
@@ -872,8 +877,12 @@ function createRowChunkAppender(
         fragment.append(chunk);
         chunkCount = 0;
       }
+      // Count emitted elements, not append calls: an inline replace row
+      // arrives as a two-element fragment, and the chunk's intrinsic-height
+      // estimate assumes ROW_CHUNK_SIZE uniform row elements.
+      chunkCount +=
+        element instanceof DocumentFragment ? element.childElementCount : 1;
       chunk.append(element);
-      chunkCount += 1;
     },
     appendFold(element) {
       chunk = null;

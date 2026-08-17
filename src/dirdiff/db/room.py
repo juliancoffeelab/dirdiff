@@ -41,7 +41,7 @@ from sqlalchemy import (
     tuple_,
 )
 from sqlalchemy.engine import Row
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm import Mapped, Session, aliased, mapped_column
 
 from dirdiff.db.base import (
     TableBase,
@@ -238,6 +238,33 @@ class SnapshotFile(TableBase):
 
 
 Index("ix_snapshot_file_snapshot_id", SnapshotFile.snapshot_id)
+Index("ix_snapshot_room", Snapshot.room_id)
+
+
+def _captured_side_constraints(side: str) -> tuple[CheckConstraint, ...]:
+    """Build the identical validity constraints of one captured-side table.
+
+    Both side tables persist a repository-relative path (non-empty, relative,
+    free of `..` traversal) and a 32-byte content digest; only the constraint
+    names differ by side. One builder keeps the two tables' contracts from
+    drifting apart.
+    """
+    return (
+        CheckConstraint(
+            (func.length(column("repository_path")) > 0)
+            & (func.substr(column("repository_path"), 1, 1) != "/")
+            & (column("repository_path") != ".")
+            & (column("repository_path") != "..")
+            & column("repository_path").not_like("../%")
+            & column("repository_path").not_like("%/../%")
+            & column("repository_path").not_like("%/.."),
+            name=f"ck_snapshot_file_{side}_repository_path",
+        ),
+        CheckConstraint(
+            func.length(column("content_hash")) == 32,
+            name=f"ck_snapshot_file_{side}_content_hash",
+        ),
+    )
 
 
 class SnapshotFileLeft(TableBase):
@@ -248,22 +275,7 @@ class SnapshotFileLeft(TableBase):
     """
 
     __tablename__ = "snapshot_file_left"
-    __table_args__ = (
-        CheckConstraint(
-            (func.length(column("repository_path")) > 0)
-            & (func.substr(column("repository_path"), 1, 1) != "/")
-            & (column("repository_path") != ".")
-            & (column("repository_path") != "..")
-            & column("repository_path").not_like("../%")
-            & column("repository_path").not_like("%/../%")
-            & column("repository_path").not_like("%/.."),
-            name="ck_snapshot_file_left_repository_path",
-        ),
-        CheckConstraint(
-            func.length(column("content_hash")) == 32,
-            name="ck_snapshot_file_left_content_hash",
-        ),
-    )
+    __table_args__ = _captured_side_constraints("left")
 
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file.id"),
@@ -281,22 +293,7 @@ class SnapshotFileRight(TableBase):
     """
 
     __tablename__ = "snapshot_file_right"
-    __table_args__ = (
-        CheckConstraint(
-            (func.length(column("repository_path")) > 0)
-            & (func.substr(column("repository_path"), 1, 1) != "/")
-            & (column("repository_path") != ".")
-            & (column("repository_path") != "..")
-            & column("repository_path").not_like("../%")
-            & column("repository_path").not_like("%/../%")
-            & column("repository_path").not_like("%/.."),
-            name="ck_snapshot_file_right_repository_path",
-        ),
-        CheckConstraint(
-            func.length(column("content_hash")) == 32,
-            name="ck_snapshot_file_right_content_hash",
-        ),
-    )
+    __table_args__ = _captured_side_constraints("right")
 
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file.id"),
@@ -669,6 +666,11 @@ Index(
     "ix_review_action_thread_activity",
     ReviewAction.thread_id,
     ReviewAction.activity_id.desc(),
+)
+Index(
+    "ix_review_action_snapshot_activity",
+    ReviewAction.snapshot_id,
+    ReviewAction.activity_id,
 )
 
 
@@ -1947,63 +1949,86 @@ class RoomStore:
                 through_activity_id = (
                     0 if latest_activity_id is None else latest_activity_id
                 )
-            latest_status = (
-                select(ReviewAction.status_after)
-                .where(
-                    ReviewAction.thread_id == ReviewThreadPlacement.thread_id,
-                    ReviewAction.activity_id <= through_activity_id,
+            # One grouped pass over the pivot-bounded actions yields each
+            # Thread's latest activity and creation activity; joining the
+            # latest action row then supplies status and attention. The
+            # previous shape probed several correlated subqueries per
+            # candidate placement, so page cost grew with total review
+            # history rather than page size.
+            latest = (
+                select(
+                    ReviewAction.thread_id.label("thread_id"),
+                    func.max(ReviewAction.activity_id).label(
+                        "last_activity_id"
+                    ),
+                    func.min(
+                        case(
+                            (
+                                ReviewAction.sequence == 0,
+                                ReviewAction.activity_id,
+                            )
+                        )
+                    ).label("first_activity"),
                 )
-                .order_by(ReviewAction.activity_id.desc())
-                .limit(1)
-                .scalar_subquery()
+                .where(ReviewAction.activity_id <= through_activity_id)
+                .group_by(ReviewAction.thread_id)
+                .subquery()
             )
-            latest_attention = (
-                select(ReviewAction.attention_after)
-                .where(
-                    ReviewAction.thread_id == ReviewThreadPlacement.thread_id,
-                    ReviewAction.activity_id <= through_activity_id,
-                )
-                .order_by(ReviewAction.activity_id.desc())
-                .limit(1)
-                .scalar_subquery()
-            )
+            last_action = aliased(ReviewAction)
             state_rank = case(
-                (latest_status == "deleted", 2),
-                (latest_status == "resolved", 1),
+                (last_action.status_after == "deleted", 2),
+                (last_action.status_after == "resolved", 1),
                 else_=0,
-            )
-            first_activity = (
-                select(ReviewAction.activity_id)
-                .where(
-                    ReviewAction.thread_id == ReviewThreadPlacement.thread_id,
-                    ReviewAction.sequence == 0,
-                    ReviewAction.activity_id <= through_activity_id,
-                )
-                .scalar_subquery()
             )
             selected_where = [
                 ReviewThreadPlacement.snapshot_id == snapshot_id,
-                first_activity.is_not(None),
+                latest.c.first_activity.is_not(None),
             ]
             if state == "open":
-                selected_where.append(latest_status == "open")
+                selected_where.append(last_action.status_after == "open")
             else:
                 assert state == "all"
             if attention is not None:
-                selected_where.append(latest_attention.in_((attention, "both")))
+                selected_where.append(
+                    last_action.attention_after.in_((attention, "both"))
+                )
+
+            def filtered(*columns: Any) -> Any:
+                """Select from placements joined to their latest actions."""
+                return (
+                    select(*columns)
+                    .select_from(ReviewThreadPlacement)
+                    .join(
+                        latest,
+                        latest.c.thread_id == ReviewThreadPlacement.thread_id,
+                    )
+                    .join(
+                        last_action,
+                        (
+                            last_action.thread_id
+                            == ReviewThreadPlacement.thread_id
+                        )
+                        & (
+                            last_action.activity_id == latest.c.last_activity_id
+                        ),
+                    )
+                    .where(*selected_where)
+                )
+
             total_threads = session.execute(
-                select(func.count())
-                .select_from(ReviewThreadPlacement)
-                .where(*selected_where)
+                select(func.count()).select_from(
+                    filtered(ReviewThreadPlacement.thread_id).subquery()
+                )
             ).scalar_one()
             selected_query = (
-                select(
+                filtered(
                     *ReviewThreadPlacement.__table__.c,
                     literal(False).label("is_origin"),
                 )
-                .where(*selected_where)
                 .order_by(
-                    state_rank, first_activity, ReviewThreadPlacement.thread_id
+                    state_rank,
+                    latest.c.first_activity,
+                    ReviewThreadPlacement.thread_id,
                 )
                 .offset(offset)
             )

@@ -30,7 +30,7 @@ from dirdiff.engines.base import (
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.git import GitDiffEngine
 from dirdiff.engines.gumtree import GumTreeDiffEngine
-from dirdiff.engines.textdiff import TextDiffEngine
+from dirdiff.engines.textdiff import TextDiffEngine, text_diff_summary
 
 __all__ = [
     "DiffEngineProtocol",
@@ -48,4 +48,5 @@ __all__ = [
     "TextDiffEngine",
     "engine_row_has_change",
     "git_executable",
+    "text_diff_summary",
 ]

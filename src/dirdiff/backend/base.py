@@ -67,7 +67,11 @@ class RepoDiffPath:
     At least one side path must be present. Paths are repository-relative;
     `change_type` describes their backend relationship, `untracked` records
     provenance, and `lazy_reason_override` carries only an explicit backend
-    loading decision. The record contains no rendered rows or line counts.
+    loading decision. A side's object id is the backend's content address for
+    exactly that side's bytes (a Git blob id); `None` means the side has no
+    cheap content identity and must be read to be identified (worktree and
+    untracked sides, preset fixtures). The record contains no rendered rows
+    or line counts.
     """
 
     left_path: str | None
@@ -76,6 +80,8 @@ class RepoDiffPath:
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
     lazy_reason_override: LazyReason | None
     untracked: bool = False
+    left_object_id: str | None = None
+    right_object_id: str | None = None
 
 
 @dataclass(frozen=True)

@@ -98,11 +98,6 @@ def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
     return None
 
 
-def _should_lazy_load_repo_entry(entry: RepoDiffPath) -> bool:
-    """Use the lazy classifier as the single decision point for placeholders."""
-    return _lazy_reason_for_repo_entry(entry) is not None
-
-
 def _empty_repo_summary() -> dict[str, Any]:
     """Provide zero File totals before aggregate line metadata is attached."""
     return {
@@ -116,8 +111,12 @@ def _empty_repo_summary() -> dict[str, Any]:
     }
 
 
-def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
-    """Expose enough metadata for the frontend to render unloaded file rows."""
+def _to_lazy_info_file_entry(entry: RepoDiffPath, lazy: str) -> dict[str, Any]:
+    """Expose enough metadata for the frontend to render unloaded file rows.
+
+    The caller supplies the entry's already-derived lazy reason so the
+    listing derives it once per entry, for the predicate and the value.
+    """
     return {
         "left_path": entry.left_path,
         "right_path": entry.right_path,
@@ -126,7 +125,7 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
         "changed_lines": None,
         "added_lines": None,
         "removed_lines": None,
-        "lazy": _lazy_reason_for_repo_entry(entry),
+        "lazy": lazy,
     }
 
 
@@ -315,7 +314,8 @@ def build_lazy_info_for_paths(
     files: list[dict[str, Any]] = []
 
     for entry in paths:
-        if _should_lazy_load_repo_entry(entry):
-            files.append(_to_lazy_info_file_entry(entry))
+        lazy = _lazy_reason_for_repo_entry(entry)
+        if lazy is not None:
+            files.append(_to_lazy_info_file_entry(entry, lazy))
 
     return {"files": files}

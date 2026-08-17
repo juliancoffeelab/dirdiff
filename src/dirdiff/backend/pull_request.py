@@ -135,17 +135,19 @@ def _prepare_github_pull_request(
         if remote is None:
             continue
         review_branch = f"pull/{pull_request.number}"
-        _fetch_ref(
+        _fetch_refs(
             repo_path=repo_path,
             remote=remote,
-            source_ref=pull_request.base_branch,
-            target_ref=f"refs/remotes/{remote}/{pull_request.base_branch}",
-        )
-        _fetch_ref(
-            repo_path=repo_path,
-            remote=remote,
-            source_ref=f"pull/{pull_request.number}/head",
-            target_ref=f"refs/remotes/{remote}/{review_branch}",
+            refspecs=(
+                (
+                    pull_request.base_branch,
+                    f"refs/remotes/{remote}/{pull_request.base_branch}",
+                ),
+                (
+                    f"pull/{pull_request.number}/head",
+                    f"refs/remotes/{remote}/{review_branch}",
+                ),
+            ),
         )
         base_ref = f"refs/remotes/{remote}/{pull_request.base_branch}"
         review_ref = f"refs/remotes/{remote}/{review_branch}"
@@ -193,17 +195,19 @@ def _prepare_gitlab_merge_request(
         if remote is None:
             continue
         review_branch = f"merge-requests/{merge_request.iid}"
-        _fetch_ref(
+        _fetch_refs(
             repo_path=repo_path,
             remote=remote,
-            source_ref=merge_request.target_branch,
-            target_ref=f"refs/remotes/{remote}/{merge_request.target_branch}",
-        )
-        _fetch_ref(
-            repo_path=repo_path,
-            remote=remote,
-            source_ref=f"merge-requests/{merge_request.iid}/head",
-            target_ref=f"refs/remotes/{remote}/{review_branch}",
+            refspecs=(
+                (
+                    merge_request.target_branch,
+                    f"refs/remotes/{remote}/{merge_request.target_branch}",
+                ),
+                (
+                    f"merge-requests/{merge_request.iid}/head",
+                    f"refs/remotes/{remote}/{review_branch}",
+                ),
+            ),
         )
         base_ref = f"refs/remotes/{remote}/{merge_request.target_branch}"
         review_ref = f"refs/remotes/{remote}/{review_branch}"
@@ -385,16 +389,28 @@ def _remote_urls(repo_path: Path) -> dict[str, str]:
     return urls
 
 
-def _fetch_ref(
+def _fetch_refs(
     *,
     repo_path: Path,
     remote: str,
-    source_ref: str,
-    target_ref: str,
+    refspecs: tuple[tuple[str, str], ...],
 ) -> None:
+    """Fetch every (source, target) refspec in one Git invocation.
+
+    One fetch negotiates the connection and pack once for all requested
+    refs; preparation previously ran a separate unbounded network fetch per
+    ref.
+    """
+    assert refspecs != (), (
+        "an empty refspec set would degrade to an unbounded default fetch"
+    )
     result = _run_git_text(
         repo_path,
-        ["fetch", remote, f"+{source_ref}:{target_ref}"],
+        [
+            "fetch",
+            remote,
+            *(f"+{source}:{target}" for source, target in refspecs),
+        ],
         check=False,
     )
     if result.returncode != 0:

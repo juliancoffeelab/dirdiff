@@ -758,20 +758,42 @@ function DebugHud(props: DebugHudProps): JSX.Element {
   let displayUpdatedAt = sampleStartedAt;
   let currentFps = 0;
 
+  let nodesCountedAt = sampleStartedAt;
+  let countTimer: number | null = null;
+
   onMount(() => {
     /**
-     * Samples current visible document metrics for the open Debug HUD.
+     * Refreshes the displayed frame rate for the open Debug HUD.
      *
      * The active animation-frame loop calls this at its display cadence. It
-     * replaces only Debug HUD metrics and neither changes ChangeSet behavior nor
-     * retains DOM nodes between samples.
+     * replaces only the FPS metric; document counting is scheduled separately
+     * because its cost would perturb the frame rate it is displayed beside.
      */
-    function updateMetrics(): void {
-      setMetrics({
+    function updateFps(): void {
+      setMetrics((current) => ({
+        ...current,
         fps: currentFps ? String(Math.round(currentFps)) : "--",
-        nodes: document.querySelectorAll("*").length.toLocaleString(),
-        spans: document.querySelectorAll("span").length.toLocaleString(),
-      });
+      }));
+    }
+
+    /**
+     * Counts document nodes outside the animation-frame callback.
+     *
+     * The full-document walk costs frame budget on a loaded branch tab, so it
+     * runs at most every five seconds and in its own macrotask; during a
+     * sustained scroll the counts go momentarily stale instead of stealing
+     * time from the FPS sample.
+     */
+    function scheduleNodeCount(): void {
+      if (countTimer !== null) return;
+      countTimer = window.setTimeout(() => {
+        countTimer = null;
+        setMetrics((current) => ({
+          ...current,
+          nodes: document.querySelectorAll("*").length.toLocaleString(),
+          spans: document.querySelectorAll("span").length.toLocaleString(),
+        }));
+      }, 0);
     }
 
     /**
@@ -788,15 +810,23 @@ function DebugHud(props: DebugHudProps): JSX.Element {
         sampleFrames = 0;
       }
       if (now - displayUpdatedAt >= 900) {
-        updateMetrics();
+        updateFps();
         displayUpdatedAt = now;
+      }
+      if (now - nodesCountedAt >= 5000) {
+        nodesCountedAt = now;
+        scheduleNodeCount();
       }
       frame = requestAnimationFrame(tick);
     }
 
-    updateMetrics();
+    updateFps();
+    scheduleNodeCount();
     frame = requestAnimationFrame(tick);
-    onCleanup(() => cancelAnimationFrame(frame));
+    onCleanup(() => {
+      cancelAnimationFrame(frame);
+      if (countTimer !== null) window.clearTimeout(countTimer);
+    });
   });
 
   return (

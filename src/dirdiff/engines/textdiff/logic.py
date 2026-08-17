@@ -17,7 +17,6 @@ from dirdiff.engines.base import (
     DiffEngineResult,
     DiffSide,
     DiffSummary,
-    engine_row_has_change,
     strict_engine_rows,
 )
 
@@ -43,11 +42,16 @@ def _text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
     replace/insert/delete rows exactly as the native text renderer produced
     them.
     """
+    # A paired row carries changed inline tokens exactly when its raw texts
+    # differ (an lstrip-equal pair with leading-whitespace change stays
+    # status "equal" but still counts as modified), so the texts already in
+    # the row decide the count without touching token lists — which lets the
+    # summary-only path below skip building tokens entirely.
     modified_lines = sum(
         1
         for row in rows
         if row["status"] == "replace"
-        or (row["status"] == "equal" and engine_row_has_change(row))
+        or (row["status"] == "equal" and row["left_text"] != row["right_text"])
     )
     added_lines = sum(1 for row in rows if row["status"] == "insert")
     removed_lines = sum(1 for row in rows if row["status"] == "delete")
@@ -77,14 +81,35 @@ class TextDiffEngine(DiffEngineProtocol):
         called.  Display enrichment such as syntax highlighting and folding is
         applied later by server-side payload assembly.
         """
-        rows = _build_text_rows(old.text or "", new.text or "")
+        rows = _build_text_rows(
+            old.text or "", new.text or "", with_inline_tokens=True
+        )
         return {
             "summary": _text_summary(rows),
             "rows": strict_engine_rows(rows),
         }
 
 
-def _build_text_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
+def text_diff_summary(left_text: str, right_text: str) -> DiffSummary:
+    """Count TextDiff's summary without building or validating tokens.
+
+    The rows walk, line alignment, and status decisions are exactly
+    `render_diff`'s, so the counts are identical; only inline tokenization
+    is skipped. Consumers that keep nothing but the counts use this path —
+    building tokens for a discarded surface measured 2.4 seconds on one
+    2.7MB single-line notebook output whose response carried five integers.
+    """
+    return _text_summary(
+        _build_text_rows(left_text, right_text, with_inline_tokens=False)
+    )
+
+
+def _build_text_rows(
+    left_text: str,
+    right_text: str,
+    *,
+    with_inline_tokens: bool,
+) -> list[dict[str, Any]]:
     """Build neutral TextDiff rows before display enrichment."""
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
@@ -107,7 +132,13 @@ def _build_text_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
                 strict=True,
             ):
                 rows.append(
-                    _paired_line_row(left_line, right_line, left_no, right_no)
+                    _paired_line_row(
+                        left_line,
+                        right_line,
+                        left_no,
+                        right_no,
+                        with_inline_tokens=with_inline_tokens,
+                    )
                 )
                 left_no += 1
                 right_no += 1
@@ -184,6 +215,7 @@ def _build_text_rows(left_text: str, right_text: str) -> list[dict[str, Any]]:
                     right_block[right_index],
                     left_no,
                     right_no,
+                    with_inline_tokens=with_inline_tokens,
                 )
             )
             left_no += 1
@@ -227,6 +259,8 @@ def _paired_line_row(
     right_line: str,
     left_no: int,
     right_no: int,
+    *,
+    with_inline_tokens: bool,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "status": (
@@ -239,7 +273,7 @@ def _paired_line_row(
         "left_tokens": [],
         "right_tokens": [],
     }
-    if left_line != right_line:
+    if with_inline_tokens and left_line != right_line:
         left_tokens, right_tokens = _inline_diff(left_line, right_line)
         row["left_tokens"] = left_tokens
         row["right_tokens"] = right_tokens

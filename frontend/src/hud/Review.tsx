@@ -2267,7 +2267,13 @@ function CommentInput(props: {
 
   return (
     <Show when={props.active() !== null && draft() !== null}>
-      <Portal mount={mount()}>
+      <Portal
+        mount={mount()}
+        // The Portal wrapper contributes no box (`display: contents` via this
+        // class); styling it by class keeps the row free of `:has()` rules
+        // that would be evaluated against every child of every diff row.
+        ref={(host) => host.classList.add("review-portal-host")}
+      >
         <div
           class="review-comment-input review-comment-input-inline"
           classList={{
@@ -2442,7 +2448,11 @@ function InlineThreadPanel(props: {
           "Inline Threads require their exact rendered diff row.",
         );
         return (
-          <Portal mount={mount}>
+          <Portal
+            mount={mount}
+            // Same boxless-wrapper contract as the Comment input's Portal.
+            ref={(host) => host.classList.add("review-portal-host")}
+          >
             <div class="comment-floater review-inline-threads">
               <header class="comment-floater-header">
                 <div class="comment-floater-heading">

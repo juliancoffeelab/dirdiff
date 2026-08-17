@@ -124,7 +124,17 @@ from dirdiff.review import (
     TextTarget,
     ThreadDiscussionView,
 )
-from dirdiff.room_lord import FileMeta, Room, RoomLord
+from dirdiff.room_lord import (
+    BranchReviewCaptureSelection,
+    CaptureSelection,
+    FileMeta,
+    PresetCaptureSelection,
+    PresetCatalog,
+    PullRequestCaptureSelection,
+    RevisionsCaptureSelection,
+    Room,
+    RoomLord,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -231,7 +241,7 @@ TabParam = Literal[
 ]
 """One complete HUD Tab discriminator accepted by manifest."""
 EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
-PresetTypeParam = Literal["diff", "fold", "gumtree", "scroll"]
+PresetTypeParam = PresetCatalog
 BranchSourceParam = BranchSource
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 BranchSelections = tuple[BranchSelection | None, BranchSelection | None]
@@ -1634,7 +1644,7 @@ def create_app(
             }
         )
 
-    def capture_snapshot(
+    def manifest_capture_selection(
         *,
         project_id: str,
         tab: TabParam,
@@ -1646,24 +1656,106 @@ def create_app(
         right_commit: str | None,
         preset_subset: str | None,
         show_untracked: bool,
+    ) -> CaptureSelection:
+        """Translate one manifest query into its concrete Tab selection.
+
+        The query surface carries every cross-Tab parameter, so this is the
+        single boundary that rejects a missing Tab-required value and asserts
+        that inapplicable values were not supplied. Downstream code receives
+        one discriminated selection and never branches on nullability.
+        """
+        selected_base, selected_review = branch_selections
+        if tab == "preset":
+            assert selected_base is None and selected_review is None
+            assert left is None and right is None
+            assert pull_request_url is None
+            assert left_commit is None and right_commit is None
+            assert not show_untracked, (
+                "the Preset Tab does not support intruding Files"
+            )
+            catalog, subset = preset_project_parts(
+                project_id=project_id,
+                preset_subset=preset_subset,
+            )
+            return PresetCaptureSelection(catalog=catalog, subset=subset)
+        if tab == "pull-request":
+            assert selected_base is None and selected_review is None
+            assert left is None and right is None
+            assert preset_subset is None
+            assert not show_untracked, (
+                "the Pull Request Tab does not support intruding Files"
+            )
+            if pull_request_url is None:
+                raise DirdiffError(
+                    "pull_request_url is required for the Pull Request Tab."
+                )
+            if left_commit is None:
+                raise DirdiffError(
+                    "left_commit is required for the Pull Request Tab."
+                )
+            if right_commit is None:
+                raise DirdiffError(
+                    "right_commit is required for the Pull Request Tab."
+                )
+            return PullRequestCaptureSelection(
+                url=pull_request_url,
+                left_commit=left_commit,
+                right_commit=right_commit,
+            )
+        if tab == "branch-review":
+            assert left is None and right is None
+            assert pull_request_url is None
+            assert left_commit is None and right_commit is None
+            assert preset_subset is None
+            assert not show_untracked, (
+                "the Branch Review Tab does not support intruding Files"
+            )
+            if selected_base is None or selected_review is None:
+                raise DirdiffError("branch selections are required.")
+            return BranchReviewCaptureSelection(
+                base=selected_base,
+                review=selected_review,
+            )
+        assert tab == "head" or tab == "refs"
+        assert selected_base is None and selected_review is None
+        assert pull_request_url is None
+        assert left_commit is None and right_commit is None
+        assert preset_subset is None
+        if tab == "head":
+            if left is None or right is None:
+                raise DirdiffError(
+                    "Diff against HEAD requires HEAD and worktree sides."
+                )
+        else:
+            if left is None or left.strip() == "":
+                raise DirdiffError("left is required for the Refs Tab.")
+            if right is None or right.strip() == "":
+                raise DirdiffError("right is required for the Refs Tab.")
+        return RevisionsCaptureSelection(
+            tab=tab,
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+        )
+
+    def capture_snapshot(
+        *,
+        project_id: str,
+        selection: CaptureSelection,
     ) -> tuple[Room, UUID, str | None]:
         """Capture one exact Tab selection for browser and agent callers.
 
-        The caller supplies the complete logical selection. This operation
+        The caller supplies the concrete selection variant. This operation
         selects its active mark or preset backend, applies Room
         correspondence, and returns the immutable Snapshot address plus the
         validated preset subset used only for its display name.
         """
-        preset_catalog: str | None = None
         preset_name: str | None = None
         parsed_project_id: int | None = None
-        if tab == "preset":
-            preset_catalog, preset_name = preset_project_parts(
-                project_id=project_id,
-                preset_subset=preset_subset,
-            )
+        if isinstance(selection, PresetCaptureSelection):
+            preset_name = selection.subset
             backend: WorkspaceBackendProtocol = preset_backend_for_type(
-                preset_catalog
+                selection.catalog
             )
         else:
             parsed_project_id = marked_project_id(project_id)
@@ -1673,17 +1765,8 @@ def create_app(
             backend = GitBackend.discover(repo_root=Path(mark.path))
         room, snapshot_id = room_lord.corresponding_room(
             mark_id=parsed_project_id,
-            tab=tab,
             backend=backend,
-            branch_selections=branch_selections,
-            left=left,
-            right=right,
-            pull_request_url=pull_request_url,
-            left_commit=left_commit,
-            right_commit=right_commit,
-            preset_catalog=preset_catalog,
-            preset_subset=preset_name,
-            show_untracked=show_untracked,
+            selection=selection,
         )
         return room, snapshot_id, preset_name
 
@@ -2406,15 +2489,11 @@ def create_app(
                 )
                 room, snapshot_id, _ = capture_snapshot(
                     project_id=str(prepared.project_id),
-                    tab="pull-request",
-                    branch_selections=(None, None),
-                    left=None,
-                    right=None,
-                    pull_request_url=prepared.pull_request_url,
-                    left_commit=prepared.left_commit,
-                    right_commit=prepared.right_commit,
-                    preset_subset=None,
-                    show_untracked=False,
+                    selection=PullRequestCaptureSelection(
+                        url=prepared.pull_request_url,
+                        left_commit=prepared.left_commit,
+                        right_commit=prepared.right_commit,
+                    ),
                 )
             else:
                 matches = [
@@ -2434,41 +2513,30 @@ def create_app(
                         "branch": value.name,
                     }
 
-                capture_tab: Literal["head", "refs", "branch-review"]
-                capture_branches: BranchSelections
-                capture_left: str | None
-                capture_right: str | None
-                capture_untracked: bool
+                selection: CaptureSelection
                 if isinstance(tab, AgentHeadTab):
-                    capture_tab = "head"
-                    capture_branches = (None, None)
-                    capture_left = "HEAD"
-                    capture_right = "worktree"
-                    capture_untracked = True
+                    selection = RevisionsCaptureSelection(
+                        tab="head",
+                        left="HEAD",
+                        right="worktree",
+                        show_untracked=True,
+                    )
                 elif isinstance(tab, AgentRefsTab):
-                    capture_tab = "refs"
-                    capture_branches = (None, None)
-                    capture_left = tab.left
-                    capture_right = tab.right
-                    capture_untracked = False
+                    selection = RevisionsCaptureSelection(
+                        tab="refs",
+                        left=tab.left,
+                        right=tab.right,
+                        show_untracked=False,
+                    )
                 else:
                     assert isinstance(tab, AgentBranchReviewTab)
-                    capture_tab = "branch-review"
-                    capture_branches = (branch(tab.base), branch(tab.review))
-                    capture_left = None
-                    capture_right = None
-                    capture_untracked = False
+                    selection = BranchReviewCaptureSelection(
+                        base=branch(tab.base),
+                        review=branch(tab.review),
+                    )
                 room, snapshot_id, _ = capture_snapshot(
                     project_id=project_id,
-                    tab=capture_tab,
-                    branch_selections=capture_branches,
-                    left=capture_left,
-                    right=capture_right,
-                    pull_request_url=None,
-                    left_commit=None,
-                    right_commit=None,
-                    preset_subset=None,
-                    show_untracked=capture_untracked,
+                    selection=selection,
                 )
             try:
                 profile = user_profile_store.create_agent(
@@ -2830,7 +2898,7 @@ def create_app(
                             ChangeThreadState(operation_id, author),
                         )
                     )
-            results = room._apply_review_batch(snapshot_id, tuple(batch))
+            results = room.apply_review_batch(snapshot_id, tuple(batch))
             return AgentActionsResponse(
                 results=[
                     AgentActionResult(
@@ -3210,15 +3278,18 @@ def create_app(
         try:
             room, snapshot_id, preset_name = capture_snapshot(
                 project_id=project_id,
-                tab=tab,
-                branch_selections=branch_selections,
-                left=left,
-                right=right,
-                pull_request_url=pull_request_url,
-                left_commit=left_commit,
-                right_commit=right_commit,
-                preset_subset=preset_subset,
-                show_untracked=show_untracked,
+                selection=manifest_capture_selection(
+                    project_id=project_id,
+                    tab=tab,
+                    branch_selections=branch_selections,
+                    left=left,
+                    right=right,
+                    pull_request_url=pull_request_url,
+                    left_commit=left_commit,
+                    right_commit=right_commit,
+                    preset_subset=preset_subset,
+                    show_untracked=show_untracked,
+                ),
             )
             snapshot_meta = room.meta(snapshot_id)
             manifest_paths = tuple(
