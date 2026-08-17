@@ -8,6 +8,7 @@ text decoding, and API response shaping happen outside this module.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
@@ -806,14 +807,24 @@ class GitBackend(WorkspaceBackendProtocol):
     def load_version(self, path: str, side: SideName) -> bytes:
         """Return exact contents from the worktree, index, or a Git tree.
 
-        The path must identify a file reported by this backend. Missing or
-        unreadable content raises `DirdiffError` with the underlying reason.
+        The path must identify a file reported by this backend. A symlink
+        loads as Git records it — a blob holding the raw link target — on
+        every side. Missing or unreadable content raises `DirdiffError` with
+        the underlying reason.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
 
         if side == "worktree":
             file_path = self.repo_root / path
+            # Git stores a symlink as a blob holding its target string, and
+            # the tree/index sides already load exactly that through
+            # cat-file. Read the link itself before any following check:
+            # exists() and is_dir() follow the link, so a directory target
+            # would be rejected and a broken link would read as missing,
+            # while both are ordinary content to Git.
+            if file_path.is_symlink():
+                return os.readlink(os.fsencode(file_path))
             if not file_path.exists():
                 raise DirdiffError(f"Worktree file is missing: {path}")
             if file_path.is_dir():

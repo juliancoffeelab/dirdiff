@@ -404,3 +404,77 @@ def test_batch_loads_literal_paths_without_argv_pathspecs(
     assert str(loaded[5]) == (
         "Git could not load HEAD:missing\npath: File is missing."
     )
+
+
+def test_worktree_symlinks_load_as_git_records_them(tmp_path: Path) -> None:
+    """Symlinks load as blobs holding the raw link target on every side.
+
+    A worktree symlink pointing at a directory previously crashed loading
+    because the reader followed the link; Git itself records only the target
+    string. The old tree side, an untracked directory symlink, and a broken
+    symlink must all load the exact target and compare against the committed
+    target string.
+    """
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "real-dir").mkdir()
+    (tmp_path / "real-dir" / "inner.txt").write_text("hi\n", encoding="utf-8")
+    (tmp_path / "tracked-link").symlink_to("real-dir")
+    subprocess.run(
+        ["git", "add", "--all"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "tracked directory symlink"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    # Retarget the tracked link, add an untracked directory link and a
+    # broken link: every one is ordinary blob content to Git.
+    (tmp_path / "tracked-link").unlink()
+    (tmp_path / "tracked-link").symlink_to("real-dir/inner.txt")
+    (tmp_path / "untracked-link").symlink_to("real-dir")
+    (tmp_path / "broken-link").symlink_to("no-such-target")
+
+    backend = GitBackend.discover(cwd=tmp_path)
+    diff = backend.repo_diff(left="HEAD", right="worktree", show_untracked=True)
+    listed = {entry.right_path for entry in diff.paths}
+    assert {"tracked-link", "untracked-link", "broken-link"} <= listed
+
+    assert backend.load_version("tracked-link", "HEAD") == b"real-dir"
+    assert (
+        backend.load_version("tracked-link", "worktree")
+        == b"real-dir/inner.txt"
+    )
+    assert backend.load_version("untracked-link", "worktree") == b"real-dir"
+    assert backend.load_version("broken-link", "worktree") == b"no-such-target"
+    batch = backend.load_versions(
+        (
+            ("tracked-link", "HEAD"),
+            ("tracked-link", "worktree"),
+            ("untracked-link", "worktree"),
+            ("broken-link", "worktree"),
+        )
+    )
+    assert batch == (
+        b"real-dir",
+        b"real-dir/inner.txt",
+        b"real-dir",
+        b"no-such-target",
+    )
