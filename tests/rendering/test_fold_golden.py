@@ -14,8 +14,8 @@ from helpers import GoldenJsonSnapshotExtension, build_loaded_diff
 
 from dirdiff.engines import engine_row_has_change
 
-PRESETS_ROOT = Path(__file__).parent / "presets" / "folds"
-GOLDEN_ROOT = Path(__file__).parent / "golden" / "folds"
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "folds"
+GOLDEN_ROOT = Path(__file__).parents[1] / "golden" / "folds"
 BROKEN_PRESETS = {
     "borked",
 }

@@ -10,8 +10,8 @@ that belongs to the golden and logic test modules.
 import subprocess
 from pathlib import Path
 
-PRESETS_ROOT = Path(__file__).parent / "presets"
-REPO_ROOT = Path(__file__).parents[1]
+PRESETS_ROOT = Path(__file__).parents[1] / "presets"
+REPO_ROOT = Path(__file__).parents[2]
 EXPECTED_PRESET_MAKEFILE = """OLD := $(firstword $(wildcard old.*))
 NEW := $(firstword $(wildcard new.*))
 

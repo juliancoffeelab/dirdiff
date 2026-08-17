@@ -23,7 +23,7 @@ def test_cli_cram_transcripts() -> None:
             sys.executable,
             "-m",
             "cram",
-            str(Path(__file__).parent / "cli-cram" / "mark.t"),
+            str(Path(__file__).parents[1] / "cli-cram" / "mark.t"),
         ],
         check=True,
         env=env,

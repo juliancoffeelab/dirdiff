@@ -24,8 +24,8 @@ from dirdiff.engines import DiffSide, DirdiffError
 from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
 from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
-PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
-REPO_ROOT = Path(__file__).resolve().parents[1]
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "difftastic"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 Side = Literal["left", "right"]
 
 
@@ -61,6 +61,13 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
         right_text = right_version.text if right_version.exists else ""
         assert left_text is not None
         assert right_text is not None
+        # A pure rename compares a file against its own content. Difftastic
+        # rightly reports it unchanged and the engine returns zero rows, but
+        # the replay invariants assert that rows cover every source
+        # character, so an identical pair can only fail vacuously. Skip it:
+        # there is no diff to check.
+        if left_text == right_text:
+            continue
         left_name = entry.left_path or entry.display_name
         right_name = entry.right_path or entry.display_name
         cases.append(

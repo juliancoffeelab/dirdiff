@@ -46,28 +46,36 @@ cram:
 	uv --no-cache run cram tests/cli-cram/*.t
 
 pytest:
-	# default subset
-	uv --no-cache run pytest
+	# Fast default: everything except the deliberately expensive trees.
+	# --ignore keeps new test directories included by default.
+	uv --no-cache run pytest --ignore=tests/slow --ignore=tests/integration
+
+pytest-integration:
+	uv --no-cache run pytest tests/integration
+
+pytest-slow:
+	# tests/slow scales with the current worktree diff; run deliberately.
+	uv --no-cache run pytest tests/slow
 
 snapshot:
 	uv --no-cache run pytest \
-		tests/test_difftastic_golden.py \
-		tests/test_fold_golden.py \
-		tests/test_gumtree_golden.py \
+		tests/difftastic/test_difftastic_golden.py \
+		tests/rendering/test_fold_golden.py \
+		tests/gumtree/test_gumtree_golden.py \
 		--snapshot-warn-unused
 
 resnapshot:
 	rm -rf tests/golden/*
 	uv --no-cache run pytest \
-		tests/test_difftastic_golden.py \
-		tests/test_fold_golden.py \
-		tests/test_gumtree_golden.py \
+		tests/difftastic/test_difftastic_golden.py \
+		tests/rendering/test_fold_golden.py \
+		tests/gumtree/test_gumtree_golden.py \
 		--snapshot-update \
 		--snapshot-warn-unused
 
 fullcode: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt flake-cst flake-hlp
 
-fulltest: pytest cram
+fulltest: pytest pytest-integration pytest-slow cram
 
 fullcheck: fullcode fulltest
 

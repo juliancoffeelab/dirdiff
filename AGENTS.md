@@ -217,7 +217,11 @@ Names that commonly expose bad patterns require architectural scrutiny:
   user-visible behavior.
 - `uv --no-cache run pytest` runs the Python suite, including real-git
   integration tests under `tests/integration`.
-- When user asks, there's `make fullcheck` command. But it takes a long time.
+  Dont run it, use `make pytest`, which runs relatively fast tests.
+  There is `make pytest-slow` and `make pytest-integration` which can take
+  tens of minutes.
+- When user asks, there's `make fullcheck` command. But it takes a long time,
+  since it includes everything.
 
 ## Review and completion
 

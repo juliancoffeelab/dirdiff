@@ -24,7 +24,7 @@ from dirdiff.engines.gumtree.logic import (
 
 __all__: list[str] = []
 
-PRESETS_ROOT = Path(__file__).parent / "presets" / "gumtree"
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
 FIXTURE_ROOT = PRESETS_ROOT / "python" / "extract-python-helper-function"
 LEFT_PATH = "python/extract-python-helper-function/old.py"
 RIGHT_PATH = "python/extract-python-helper-function/new.py"

@@ -25,7 +25,7 @@ __all__: list[str] = []
 def test_preset_highlights_use_declared_syntax_classes() -> None:
     """Require every syntax class emitted for a preset to be declared."""
     declared_classes = set(get_args(SyntaxClass.__value__))
-    preset_root = Path(__file__).parent / "presets"
+    preset_root = Path(__file__).parents[1] / "presets"
     preset_files = sorted(
         [
             *preset_root.glob("**/old.*"),

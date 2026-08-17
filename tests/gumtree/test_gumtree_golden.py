@@ -1,10 +1,10 @@
-"""Golden row-output tests for difftastic preset fixtures.
+"""Golden row-output tests for GumTree preset fixtures.
 
-This module is the snapshot boundary for exact difftastic row projection.  Each
-non-borked preset directory supplies old/new source files, and the snapshot name
-is the preset path relative to `tests/presets/difftastic`.  It tests
-projection output only; subprocess invocation details belong to the engine, and
-broad token and row-shape invariants live in `test_difftastic_proptest`.
+This module is the snapshot boundary for exact GumTree row projection. Each
+non-borked preset directory supplies old/new source files, and the snapshot
+name is the preset path relative to `tests/presets/gumtree`. It tests projection
+output only; subprocess invocation details belong to the engine, and display
+enrichment has its own rendering tests.
 """
 
 from pathlib import Path
@@ -13,30 +13,28 @@ from typing import Any
 import pytest
 from helpers import GoldenJsonSnapshotExtension
 
-from dirdiff.engines.difftastic import DifftasticDiffEngine
-from dirdiff.engines.difftastic.logic import (
-    _difftastic_rows_from_json,
-)
+from dirdiff.engines.gumtree import GumTreeDiffEngine
+from dirdiff.engines.gumtree.logic import build_gumtree_rows_from_json
 
-PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
-GOLDEN_ROOT = Path(__file__).parent / "golden" / "difftastic"
+__all__: list[str] = []
+
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
+GOLDEN_ROOT = Path(__file__).parents[1] / "golden" / "gumtree"
 BROKEN_PRESET_GROUPS: set[str] = {
     "borked",
 }
 
-__all__: list[str] = []
 
-
-class DifftasticGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
+class GumTreeGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
     preset_root = PRESETS_ROOT
     golden_root = GOLDEN_ROOT
-    snapshot_function_name = "test_difftastic_preset_rows_match_golden"
+    snapshot_function_name = "test_gumtree_preset_rows_match_golden"
 
 
 @pytest.fixture
 def snapshot_json(snapshot: Any) -> Any:
     return snapshot.with_defaults(
-        extension_class=DifftasticGoldenSnapshotExtension
+        extension_class=GumTreeGoldenSnapshotExtension
     )
 
 
@@ -50,7 +48,7 @@ def snapshot_json(snapshot: Any) -> Any:
     ],
     ids=str,
 )
-def test_difftastic_preset_rows_match_golden(
+def test_gumtree_preset_rows_match_golden(
     preset_dir: Path,
     snapshot_json: Any,
 ) -> None:
@@ -60,18 +58,18 @@ def test_difftastic_preset_rows_match_golden(
     assert len(new_files) == 1, preset_dir
     old_path = old_files[0]
     new_path = new_files[0]
-    service = DifftasticDiffEngine()
+    service = GumTreeDiffEngine(cwd=Path.cwd())
     old_text = old_path.read_text()
     new_text = new_path.read_text()
 
-    diff_json = service._run_difftastic_json(
+    diff_json = service._run_gumtree_json(
         left_text=old_text,
         right_text=new_text,
         left_path_hint=old_path.name,
         right_path_hint=new_path.name,
     )
-    rows = _difftastic_rows_from_json(
-        diff_json,
+    rows = build_gumtree_rows_from_json(
+        diff_json=diff_json,
         left_text=old_text,
         right_text=new_text,
     )

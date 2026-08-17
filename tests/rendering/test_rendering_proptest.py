@@ -165,7 +165,7 @@ def test_decorated_parts_preserve_diff_and_syntax_per_character(
 
 def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
     """Weave native diff tokens and syntax for every real preset pair."""
-    preset_root = Path(__file__).parent / "presets"
+    preset_root = Path(__file__).parents[1] / "presets"
     old_paths = sorted(preset_root.glob("**/old.*"))
     assert old_paths != []
 

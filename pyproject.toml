@@ -62,8 +62,10 @@ packages = ["src/dirdiff"]
 testpaths = ["tests"]
 addopts = ["--snapshot-warn-unused"]
 
+# The code-free root tests/conftest.py exists only for sys.path; checking
+# it would collide with tests/integration/conftest.py as a module name.
 [tool.mypy]
-exclude = ["tests/presets/"]
+exclude = ["tests/presets/", "^tests/conftest\\.py$"]
 python_version = "3.14"
 warn_unused_configs = true
 check_untyped_defs = true

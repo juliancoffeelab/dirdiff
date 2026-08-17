@@ -21,7 +21,7 @@ from dirdiff.engines.difftastic.logic import (
 )
 from dirdiff.rendering import enrich_rows_for_display
 
-PRESETS_ROOT = Path(__file__).parent / "presets" / "difftastic"
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "difftastic"
 
 __all__: list[str] = []
 
