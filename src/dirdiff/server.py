@@ -96,6 +96,7 @@ from dirdiff.engines import (
     GumTreeDiffEngine,
     InlineTokenStatus,
     TextDiffEngine,
+    TokenDiffEngine,
 )
 from dirdiff.notebooks import (
     build_notebook_diff_payload,
@@ -242,7 +243,7 @@ TabParam = Literal[
     "preset",
 ]
 """One complete HUD Tab discriminator accepted by manifest."""
-EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree"]
+EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree", "tokendiff"]
 PresetTypeParam = PresetCatalog
 BranchSourceParam = BranchSource
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
@@ -1264,6 +1265,7 @@ class EngineWarningResponse(ApiModel):
         "difftastic_graph_limit",
         "difftastic_empty_rows",
         "gumtree_invalid_json",
+        "tokendiff_region_limit",
     ]
     message: str
 
@@ -1540,6 +1542,8 @@ def service_for_engine(
         return DifftasticDiffEngine()
     if engine == "gumtree":
         return GumTreeDiffEngine(cwd=cwd)
+    if engine == "tokendiff":
+        return TokenDiffEngine()
     raise DirdiffError(f"Unknown diff engine: {engine}")
 
 

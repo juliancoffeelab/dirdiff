@@ -251,6 +251,7 @@ class EngineWarning(TypedDict):
         "difftastic_graph_limit",
         "difftastic_empty_rows",
         "gumtree_invalid_json",
+        "tokendiff_region_limit",
     ]
     """
     Stable warning discriminator consumed by the API/frontend.

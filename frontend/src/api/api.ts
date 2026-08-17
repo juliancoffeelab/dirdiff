@@ -10,7 +10,13 @@
 import { mutationOptions, queryOptions } from "@tanstack/solid-query";
 import { z } from "zod";
 
-const DiffEngineSchema = z.enum(["dirdiff", "git", "difftastic", "gumtree"]);
+const DiffEngineSchema = z.enum([
+  "dirdiff",
+  "git",
+  "difftastic",
+  "gumtree",
+  "tokendiff",
+]);
 
 /**
  * Selects the backend diff implementation used for every requested file.
@@ -671,6 +677,7 @@ const EngineWarningSchema = z.strictObject({
     "difftastic_graph_limit",
     "difftastic_empty_rows",
     "gumtree_invalid_json",
+    "tokendiff_region_limit",
   ]),
   message: z.string(),
 });

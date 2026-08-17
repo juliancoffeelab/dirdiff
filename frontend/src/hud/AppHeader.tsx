@@ -30,6 +30,7 @@ const engineLabels: Record<DiffEngine, string> = {
   git: "Git",
   difftastic: "Difftastic",
   gumtree: "GumTree",
+  tokendiff: "Tokendiff",
 };
 
 const viewLabels: Record<DiffViewMode, string> = {
@@ -205,7 +206,8 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
                   value !== "dirdiff" &&
                   value !== "git" &&
                   value !== "difftastic" &&
-                  value !== "gumtree"
+                  value !== "gumtree" &&
+                  value !== "tokendiff"
                 ) {
                   throw new Error(`Unsupported diff engine: ${value}.`);
                 }

@@ -7,10 +7,10 @@ hints were prepared by the backend or notebook layer; engines render those sides
 into neutral row payloads and summary counts.
 
 The engines package owns the shared failure and row contracts in `base.py` and
-the concrete renderers for difftastic, Git no-index, GumTree, and native text
-diffs. It must not load repositories, resolve refs, build manifests, decide
-notebook routing, serialize HTTP responses, or attach display-only syntax/fold
-enrichment. Those steps belong to `dirdiff.backend`, `dirdiff.notebooks`,
+the concrete renderers for difftastic, Git no-index, GumTree, native text,
+and token-first text diffs. It must not load repositories, resolve refs,
+build manifests, decide notebook routing, serialize HTTP responses, or
+attach display-only syntax/fold enrichment. Those steps belong to `dirdiff.backend`, `dirdiff.notebooks`,
 `dirdiff.server`, and `dirdiff.rendering` respectively.
 """
 
@@ -31,6 +31,7 @@ from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.git import GitDiffEngine
 from dirdiff.engines.gumtree import GumTreeDiffEngine
 from dirdiff.engines.textdiff import TextDiffEngine, text_diff_summary
+from dirdiff.engines.tokendiff import TokenDiffEngine
 
 __all__ = [
     "DiffEngineProtocol",
@@ -46,6 +47,7 @@ __all__ = [
     "InlineToken",
     "InlineTokenStatus",
     "TextDiffEngine",
+    "TokenDiffEngine",
     "engine_row_has_change",
     "git_executable",
     "text_diff_summary",
