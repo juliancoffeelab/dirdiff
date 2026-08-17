@@ -24,6 +24,10 @@
  * overlap only within one fixed bound; one canonical query represents one
  * manifest entry; one file failure never stops later files; a stopped lane
  * performs no further view writes, admissions, or callbacks.
+ *
+ * The module also exports the canonical manifest identity and order helpers —
+ * `manifestEntryKey`, `fileDisplayName`, and `manifestFilesInOrder` — shared
+ * by every consumer that addresses files by manifest position.
  */
 import {
   createMemo,
@@ -43,6 +47,7 @@ import {
   isHeavyEngine,
   type LazyInfoFile,
   type ManifestFile,
+  type ManifestNode,
 } from "../api/api";
 import { expect } from "../utils";
 
@@ -896,4 +901,24 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     enqueue,
     stop: stopLane,
   };
+}
+
+/**
+ * Returns manifest leaves in exact depth-first backend order.
+ *
+ * The returned array is a derived calculation. It contains original ManifestFile
+ * objects and must not be sorted, mutated, or retained as another authority.
+ */
+export function manifestFilesInOrder(
+  nodes: readonly ManifestNode[],
+): ManifestFile[] {
+  const files: ManifestFile[] = [];
+  for (const node of nodes) {
+    if (node.type === "file") {
+      files.push(node);
+    } else {
+      files.push(...manifestFilesInOrder(node.entries));
+    }
+  }
+  return files;
 }

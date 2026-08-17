@@ -49,7 +49,7 @@ import {
 } from "../comp/Toasts";
 import type { DiffViewMode } from "./App";
 import type { AppHeaderOutlets, RepositoryState } from "./AppHeader";
-import { ChangeSet } from "./ChangeSet";
+import { ChangeSet } from "./changeSet/ChangeSet";
 import type { StoredProfile } from "./Profile";
 import { assert, expect } from "../utils";
 

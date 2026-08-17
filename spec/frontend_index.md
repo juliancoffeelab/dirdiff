@@ -18,7 +18,10 @@ frontend/src/
 ├── hud/
 │   ├── App.tsx
 │   ├── AppHeader.tsx
-│   ├── ChangeSet.tsx
+│   ├── changeSet/
+│   │   ├── ChangeSet.tsx
+│   │   ├── FileTree.tsx
+│   │   └── Shell.tsx
 │   ├── DiffGrid.tsx
 │   ├── FileCard.tsx
 │   ├── fileLane.ts
@@ -424,7 +427,11 @@ Shared inputs from `App` include:
 
 ## 9. ChangeSet
 
-### `hud/ChangeSet.tsx`
+The ChangeSet lives in the `hud/changeSet/` directory: `ChangeSet.tsx` is the
+lifetime and snapshot orchestration, `Shell.tsx` is the mounted frame, and
+`FileTree.tsx` is the sidebar.
+
+### `hud/changeSet/ChangeSet.tsx`
 
 Exports:
 
@@ -451,9 +458,43 @@ onDebugHudOpenChange
 Private lifetime components:
 
 - `ChangeSetContent` observes the manifest and controls snapshot replacement;
-- `ChangeSetShell` provides the mounted ChangeSet DOM and navigation interface;
 - `ReviewSnapshotBoundary` keeps Snapshot review state mounted across engine replacement;
 - `ChangeSetSnapshot` represents one manifest and its opaque `snapshot_id`.
+
+Private presentation components:
+
+- `AppHeaderFileStatus`;
+- `ManifestStatistics`.
+
+`params` is the complete selected Tab value used by manifest. `engine` is a
+separate file-rendering choice and does not participate in manifest or Room
+identity. `ChangeSet` stores per-file expansion across replacement of its mounted
+snapshot.
+
+`ChangeSetSnapshot`:
+
+- resolves the URL line pin and creates the snapshot's one file lane;
+- constructs the FileTree data from the lane's canonical states;
+- renders one stable `FileCard` per manifest entry;
+- creates the snapshot’s `LinePins` interface;
+- supplies header status and statistics from the lane's progress.
+
+### `hud/changeSet/Shell.tsx`
+
+Exports:
+
+```ts
+ChangeSetShell
+HunkDisplay
+```
+
+`ChangeSetShell` mounts one ChangeSet frame: the root element with its
+Navigation provider, the side-scoped text-selection behavior, the direct
+hotkey listener, the `HunkDisplayObserver` DOM mirror, and the fixed
+overlays. Callers supply every UI operation as an explicit callback and
+render the ChangeSet body through the children render prop, which receives
+the shell's `HunkDisplay` accessor. The shell observes no queries, stores no
+backend data, and never selects hunks, navigates, or owns file expansion.
 
 Private interaction components:
 
@@ -469,26 +510,30 @@ Private HUD components:
 - `HotkeyHelpSection`;
 - `HotkeyHelpRow`.
 
+### `hud/changeSet/FileTree.tsx`
+
+Exports:
+
+```ts
+FileTree
+calculateDirectoryExpansion
+fileExpanded
+```
+
+`FileTree` renders the sidebar over the lane's canonical file states through
+the documented narrow props contract: the immutable manifest tree, the states
+accessor, expansion values, and callbacks that may change only tree
+visibility or file expansion. `calculateDirectoryExpansion` derives directory
+reachability and `fileExpanded` resolves one file's expansion policy; both
+are shared with `ChangeSetSnapshot`, which owns the expansion state itself.
+The tree may scroll only its own groups container and never changes hunk
+selection, loads files, or moves the main page.
+
 Private presentation components:
 
-- `FileTree`;
-- `AppHeaderFileStatus`;
-- `ManifestStatistics`;
+- `FileTreeDirectory`, `FileTreeFile`, `FileTreeNode`, `FileTreeContent`;
 - `TreeStatistics`;
 - `TreeVisibilityIndicator`.
-
-`params` is the complete selected Tab value used by manifest. `engine` is a
-separate file-rendering choice and does not participate in manifest or Room
-identity. `ChangeSet` stores per-file expansion across replacement of its mounted
-snapshot.
-
-`ChangeSetSnapshot`:
-
-- resolves the URL line pin and creates the snapshot's one file lane;
-- constructs the FileTree data from the lane's canonical states;
-- renders one stable `FileCard` per manifest entry;
-- creates the snapshot’s `LinePins` interface;
-- supplies header status and statistics from the lane's progress.
 
 ### `hud/fileLane.ts`
 
@@ -498,6 +543,7 @@ Exports:
 createFileLane
 manifestEntryKey
 fileDisplayName
+manifestFilesInOrder
 FileLane
 FileState (with HuskFileState, FullFileState, LazyFile, LazyFileState)
 FileLaneActivity
@@ -785,14 +831,16 @@ type LinePins = {
 | `main.tsx` | `Review.tsx` | application-lifetime persisted draft boundary |
 | `App.tsx` | `AppHeader.tsx` | workspace values and explicit selection callbacks |
 | `App.tsx` | `Tabs.tsx` | shared workspace values and workflow callbacks |
-| `Tabs.tsx` | `ChangeSet.tsx` | complete selected `DiffParams`, separate engine, and shared display state |
-| `ChangeSet.tsx` | `api.ts` | manifest and preferences definitions |
-| `ChangeSet.tsx` | `fileLane.ts` | one file lane per snapshot and its canonical file states |
+| `Tabs.tsx` | `changeSet/ChangeSet.tsx` | complete selected `DiffParams`, separate engine, and shared display state |
+| `changeSet/ChangeSet.tsx` | `changeSet/Shell.tsx` | mounted frame, UI-operation callbacks, and the HunkDisplay accessor |
+| `changeSet/ChangeSet.tsx` | `changeSet/FileTree.tsx` | manifest tree, canonical states, and shared expansion policy |
+| `changeSet/ChangeSet.tsx` | `api.ts` | manifest and preferences definitions |
+| `changeSet/ChangeSet.tsx` | `fileLane.ts` | one file lane per snapshot and its canonical file states |
 | `fileLane.ts` | `api.ts` | lazy-info and file query definitions |
-| `ChangeSet.tsx` | `FileCard.tsx` | one manifest-position file state and explicit file actions |
-| `ChangeSet.tsx` | `navigation.tsx` | mounted ChangeSet root and navigation operations |
-| `ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |
-| `ChangeSet.tsx` | `Review.tsx` | one exact Snapshot review boundary and explicit File jump |
+| `changeSet/ChangeSet.tsx` | `FileCard.tsx` | one manifest-position file state and explicit file actions |
+| `changeSet/*` | `navigation.tsx` | mounted ChangeSet root and navigation operations |
+| `changeSet/ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |
+| `changeSet/ChangeSet.tsx` | `Review.tsx` | one exact Snapshot review boundary and explicit File jump |
 | `Review.tsx` | `api.ts` | bulk Snapshot review query and Profile-authored Thread and Comment mutations |
 | `FileCard.tsx` | `Review.tsx` | File marker state and File Comment-input activation |
 | `DiffGrid.tsx` | `Review.tsx` | line marker state and text Comment-input activation |
