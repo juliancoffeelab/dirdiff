@@ -51,17 +51,18 @@ The snapshot has three related query layers:
 
 File queries have no observers. TanStack's `createQueries` store deep-unwraps
 every query's data on every update, which walks all loaded rows per lane event
-and froze loading quadratically. Instead the snapshot keeps one `FileQueryView`
-store entry per manifest position (`idle`/`fetching`/`success`/`error`, without
-payloads) plus one plain payload slot always written before its view settles to
-`success`; a prefetch settlement and the lane's join of the same in-flight
-fetch may both record the identical payload. The lane is the sole writer and
-records exactly the transitions it causes. With no observers a settled canonical query is
+and froze loading quadratically. Instead the snapshot keeps one replaceable
+`FileQueryView` signal per manifest position (`idle`/`fetching`/`success`/
+`error`, without payloads; a signal swap replaces the whole value, unlike a
+Solid store write, which merges fields) plus one plain payload slot always
+written before its view settles to `success`; a prefetch settlement and the
+lane's join of the same in-flight fetch may both record the identical payload.
+The lane is the sole writer and records exactly the transitions it causes. With no observers a settled canonical query is
 garbage-collected immediately (`gcTime` 0), so the payload slot is the sole
 surviving reference and a `success` view must never fetch again; while a fetch
 or prefetch is in flight, the canonical cache entry still deduplicates joiners.
 
-The snapshot derives backend states from the view store instead of copying
+The snapshot derives backend states from the view signals instead of copying
 backend data into a second reactive store:
 
 | View and manifest state | File state |
@@ -100,9 +101,11 @@ the file's view (prefetches are only ever cancelled by the stop of the whole
 lane, which suppresses further view writes); a file
 whose recorded attempt already failed is not fetched again by the automatic
 pass, and stopping the lane cancels in-flight prefetches with the active
-query. Prefetching applies only to in-process engines: subprocess engines
-(difftastic, gumtree) multiply real backend CPU and memory per concurrent
-request and measured 2.4x slower total load, so they load strictly serially.
+query. Prefetching applies only to engines measured to tolerate concurrent
+backend renders (dirdiff 23% and git 14% faster total load with it); heavy
+engines degrade outright — difftastic measured 2.4x slower total load at
+three in flight — so `isHeavyEngine` keeps them strictly serial per lane,
+and an engine added later stays heavy until measured otherwise.
 
 For each automatic file, the lane:
 
@@ -218,7 +221,7 @@ explicit enqueueing, aborts active line-pin restoration, cancels the exact
 active TanStack query, and exposes one Promise to every caller waiting for
 shutdown.
 
-Disposal removes the snapshot’s view store, payload slots, file states,
+Disposal removes the snapshot’s view signals, payload slots, file states,
 admission state, progress, and rendered files together. Nothing from the disposed snapshot may
 later write DOM, report progress, or scroll.
 
@@ -226,7 +229,7 @@ later write DOM, report progress, or scroll.
 
 For each manifest index, `ChangeSet` supplies `FileCard` with:
 
-- one reactive `Husk`, `Full`, or `Lazy` state derived from the view store
+- one reactive `Husk`, `Full`, or `Lazy` state derived from the view signals
   and payload slots;
 - whether the fetched file has been admitted for rendering;
 - the shared file expansion value;

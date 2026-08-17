@@ -65,6 +65,10 @@ import { assert, expect } from "../utils";
 import type { DiffViewMode } from "./App";
 import type { StoredProfile } from "./Profile";
 
+// The one identity-stable empty Thread list: `?? []` would mint a fresh
+// array per read and defeat markerRevision's element-identity equality.
+const NO_THREADS: readonly ReviewThread[] = [];
+
 const REVIEW_DRAFT_STORAGE_KEY = "dirdiff:v1:review-drafts";
 // One localStorage entry per draft, keyed by its identity, so persisting a
 // keystroke serializes only the changed draft instead of every unfinished
@@ -600,7 +604,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   let splitHistoryFrame: number | null = null;
   let splitHistoryGeometryFailed = false;
   const currentProfileId = (): number | null => props.profile?.id ?? null;
-  const reviewThreads = (): readonly ReviewThread[] => review.data ?? [];
+  const reviewThreads = (): readonly ReviewThread[] =>
+    review.data ?? NO_THREADS;
   const totalThreads = (): number => review.data?.length ?? 0;
   const reviewAvailable = createMemo(
     () => review.data !== undefined && !review.isRefetching && !review.isError,
@@ -732,11 +737,29 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         ),
     },
   );
-  const markerRevision = createMemo<ReviewMarkerRevision>(() => [
-    reviewThreads(),
-    draftMarkers(),
-    reviewAvailable(),
-  ]);
+  // Each revision element is itself identity-stable (canonical query data,
+  // the equality-guarded draft markers, a boolean), so element identity is
+  // content identity: when nothing changed, the memo returns the previous
+  // wrapper array and the default reference equality suppresses the
+  // notification a fresh array would have caused.
+  let lastMarkerRevision: ReviewMarkerRevision | null = null;
+  const markerRevision = createMemo<ReviewMarkerRevision>(() => {
+    const next: ReviewMarkerRevision = [
+      reviewThreads(),
+      draftMarkers(),
+      reviewAvailable(),
+    ];
+    if (
+      lastMarkerRevision !== null &&
+      lastMarkerRevision[0] === next[0] &&
+      lastMarkerRevision[1] === next[1] &&
+      lastMarkerRevision[2] === next[2]
+    ) {
+      return lastMarkerRevision;
+    }
+    lastMarkerRevision = next;
+    return next;
+  });
   let cachedMarkerRevision: ReviewMarkerRevision | null = null;
   let cachedMarkerIndex: ReviewMarkerIndex | null = null;
   // The bounded delta of the latest index rebuild: keys whose marker state

@@ -3068,6 +3068,20 @@ h1 {
   border-left: 1px solid #ded8cc;
 }
 
+/* Off-viewport row chunks skip style, layout, and paint entirely; `auto`
+   intrinsic sizing keeps each chunk's real height once rendered, and 1100px
+   approximates 50 unrendered 22px rows. The width axis must stay `none`:
+   the shorthand would apply the length to both axes and widen the chunk
+   past its container. `auto` must never become `hidden`: scroll-follow's
+   binary search reads rects of rows inside skipped chunks and relies on
+   the browser forcing real geometry for `auto` (see scrollFollow in
+   navigation.tsx). See createRowChunkAppender for the build side. */
+.diff-row-chunk {
+  content-visibility: auto;
+  contain-intrinsic-width: none;
+  contain-intrinsic-height: auto 1100px;
+}
+
 .diff-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

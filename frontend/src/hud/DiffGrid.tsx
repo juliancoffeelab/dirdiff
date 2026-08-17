@@ -828,6 +828,61 @@ function ImperativeDiffLines(props: {
   );
 }
 
+// Rendered rows of large files are streamed through fixed-size chunk
+// containers so the browser skips style and layout for off-viewport spans
+// (62% of measured scroll-phase CPU was layout of monolithic row subtrees;
+// application JS was ~2%). Only files past the threshold pay the chunked
+// lazy-render cost: chunking every file traded large-file freezes for
+// visible render pop-in on files that previously scrolled at a solid 60fps
+// (reported as a regression), so smaller files keep the exact pre-chunk
+// monolithic DOM. 50 rows approximate one viewport, so each chunk entering
+// view renders within a frame budget.
+const ROW_CHUNK_SIZE = 50;
+const ROW_CHUNK_THRESHOLD = 600;
+
+/**
+ * Groups appended row elements into `.diff-row-chunk` containers.
+ *
+ * With `chunked` false every append lands directly on the fragment,
+ * reproducing the monolithic pre-chunk DOM. Otherwise consecutive non-fold
+ * rows land in chunks of at most `ROW_CHUNK_SIZE` append calls; a fold
+ * wrapper closes the current chunk and stays top-level because it replaces
+ * its own subtree on expansion. The appender owns only the supplied
+ * fragment for the duration of one build and guarantees document order is
+ * exactly the append order.
+ */
+function createRowChunkAppender(
+  fragment: DocumentFragment,
+  chunked: boolean,
+): {
+  appendRow(element: DocumentFragment | HTMLElement): void;
+  appendFold(element: HTMLElement): void;
+} {
+  let chunk: HTMLElement | null = null;
+  let chunkCount = 0;
+  return {
+    appendRow(element) {
+      if (!chunked) {
+        fragment.append(element);
+        return;
+      }
+      if (chunk === null || chunkCount >= ROW_CHUNK_SIZE) {
+        chunk = document.createElement("div");
+        chunk.className = "diff-row-chunk";
+        fragment.append(chunk);
+        chunkCount = 0;
+      }
+      chunk.append(element);
+      chunkCount += 1;
+    },
+    appendFold(element) {
+      chunk = null;
+      chunkCount = 0;
+      fragment.append(element);
+    },
+  };
+}
+
 /**
  * Renders an ordered `RenderRow` range into split-view DOM.
  *
@@ -845,11 +900,15 @@ function renderSplitRowsDom(
   onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
+  const appender = createRowChunkAppender(
+    fragment,
+    rows.length > ROW_CHUNK_THRESHOLD,
+  );
   let cursor = startRow;
   rows.forEach((row) => {
     const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
-      fragment.append(
+      appender.appendFold(
         renderSplitFoldDom(
           row,
           rowIndex,
@@ -863,7 +922,7 @@ function renderSplitRowsDom(
       );
       cursor += row.count;
     } else {
-      fragment.append(renderSplitDiffRowDom(row, rowIndex, fileIndex));
+      appender.appendRow(renderSplitDiffRowDom(row, rowIndex, fileIndex));
       cursor += 1;
     }
   });
@@ -885,6 +944,10 @@ function renderInlineRowsDom(
   onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
+  const appender = createRowChunkAppender(
+    fragment,
+    rows.length > ROW_CHUNK_THRESHOLD,
+  );
   const lineNumberState: InlineLineNumberState = {
     leftNo: null,
     rightNo: null,
@@ -893,7 +956,7 @@ function renderInlineRowsDom(
   rows.forEach((row) => {
     const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
-      fragment.append(
+      appender.appendFold(
         renderInlineFoldDom(
           row,
           rowIndex,
@@ -908,7 +971,7 @@ function renderInlineRowsDom(
       lineNumberState.rightNo = null;
       cursor += row.count;
     } else {
-      fragment.append(
+      appender.appendRow(
         renderInlineDiffRowsDom(row, rowIndex, fileIndex, lineNumberState),
       );
       cursor += 1;
@@ -933,6 +996,10 @@ function renderCombinedInlineRowsDom(
   onRowsChanged: () => void,
 ): DocumentFragment {
   const fragment = document.createDocumentFragment();
+  const appender = createRowChunkAppender(
+    fragment,
+    rows.length > ROW_CHUNK_THRESHOLD,
+  );
   const lineNumberState: InlineLineNumberState = {
     leftNo: null,
     rightNo: null,
@@ -941,7 +1008,7 @@ function renderCombinedInlineRowsDom(
   rows.forEach((row) => {
     const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
-      fragment.append(
+      appender.appendFold(
         renderInlineFoldDom(
           row,
           rowIndex,
@@ -956,7 +1023,7 @@ function renderCombinedInlineRowsDom(
       lineNumberState.rightNo = null;
       cursor += row.count;
     } else {
-      fragment.append(
+      appender.appendRow(
         renderCombinedInlineDiffRowsDom(
           row,
           rowIndex,

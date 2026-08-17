@@ -858,13 +858,15 @@ def _decode_locator(record: ReviewThreadRecord, *, text: str) -> _Locator:
 def _derive_record(
     *,
     origin: ReviewThreadRecord,
-    origin_snapshot: SnapshotRecord,
-    target_snapshot: SnapshotRecord,
-    origin_files_by_id: dict[str, SnapshotFileRecord],
+    origin_file: SnapshotFileRecord,
+    target_snapshot_id: str,
     target_files_by_pair: dict[FilePair, SnapshotFileRecord],
     cache: _ReviewReadCache,
 ) -> ReviewThreadRecord:
-    """Derive one immutable Thread placement directly from its unique origin."""
+    """Derive one immutable Thread placement directly from its unique origin.
+
+    The caller has already resolved the origin's Snapshot File.
+    """
 
     def file_start_record(
         snapshot_id: str,
@@ -891,7 +893,7 @@ def _derive_record(
         """Return an unlocated placement when the exact File pair is absent."""
         return ReviewThreadRecord(
             origin.thread_id,
-            target_snapshot.id,
+            target_snapshot_id,
             None,
             False,
             None,
@@ -904,11 +906,6 @@ def _derive_record(
             None,
         )
 
-    assert origin.snapshot_file_id is not None
-    origin_file = origin_files_by_id.get(origin.snapshot_file_id)
-    assert origin_file is not None, (
-        "origin Thread references a missing Snapshot File"
-    )
     target_file = target_files_by_pair.get(_file_pair(origin_file))
     if target_file is None:
         return file_missing_record()
@@ -927,7 +924,7 @@ def _derive_record(
         )
         return ReviewThreadRecord(
             origin.thread_id,
-            target_snapshot.id,
+            target_snapshot_id,
             target_file.id,
             False,
             "file-start",
@@ -959,7 +956,7 @@ def _derive_record(
             and _rendered_notebook_cells(target_file, cache) is not None
         ):
             return file_start_record(
-                target_snapshot.id, target_file.id, locator.side
+                target_snapshot_id, target_file.id, locator.side
             )
         text = _read_text(target_file, locator.side, cache)
         path = _path_hint(target_file, locator.side)
@@ -968,7 +965,7 @@ def _derive_record(
             cell, _cell_unchanged = _target_cell(selected_cells, locator)
             if cell is None:
                 return file_start_record(
-                    target_snapshot.id, target_file.id, locator.side
+                    target_snapshot_id, target_file.id, locator.side
                 )
             opposite_side: Literal["left", "right"] = (
                 "right" if locator.side == "left" else "left"
@@ -1002,7 +999,7 @@ def _derive_record(
             ]
             if len(pairs) != 1:
                 return file_start_record(
-                    target_snapshot.id, target_file.id, locator.side
+                    target_snapshot_id, target_file.id, locator.side
                 )
             target_region_key = pairs[0].cell_key
             text = _cell_source(cell)
@@ -1014,7 +1011,7 @@ def _derive_record(
         ]
     except ReviewError:
         return file_start_record(
-            target_snapshot.id, target_file.id, locator.side
+            target_snapshot_id, target_file.id, locator.side
         )
     matching = [
         region
@@ -1034,7 +1031,7 @@ def _derive_record(
         end_offset = origin.end_line - origin_region_start
         return ReviewThreadRecord(
             origin.thread_id,
-            target_snapshot.id,
+            target_snapshot_id,
             target_file.id,
             False,
             "range",
@@ -1050,7 +1047,7 @@ def _derive_record(
         candidate = candidates[0]
         return ReviewThreadRecord(
             origin.thread_id,
-            target_snapshot.id,
+            target_snapshot_id,
             target_file.id,
             False,
             "range",
@@ -1062,7 +1059,7 @@ def _derive_record(
             "region_changed",
             None,
         )
-    return file_start_record(target_snapshot.id, target_file.id, locator.side)
+    return file_start_record(target_snapshot_id, target_file.id, locator.side)
 
 
 def _pair_dict(pair: FilePair) -> dict[str, Optional[str]]:
@@ -1867,31 +1864,35 @@ def _derive_room_threads(
             target_snapshot.id,
         )
     }
-    snapshots = {target_snapshot.id: target_snapshot}
-    for origin in origins.values():
-        if origin.snapshot_id not in snapshots:
-            snapshot = database.snapshot(identity, origin.snapshot_id)
-            assert snapshot is not None, (
-                "review origin references a missing Room Snapshot"
-            )
-            snapshots[origin.snapshot_id] = snapshot
-    file_indexes = {
-        snapshot_id: _file_indexes(snapshot)
-        for snapshot_id, snapshot in snapshots.items()
-    }
+    # One set-based read loads exactly the origin Files these placements
+    # reference; the origin Snapshots themselves are never hydrated. The
+    # target Snapshot arrives fully loaded from the capture that triggered
+    # this derivation.
+    origin_refs = tuple(
+        dict.fromkeys(
+            (origin.snapshot_id, origin.snapshot_file_id)
+            for origin in origins.values()
+            if origin.snapshot_file_id is not None
+        )
+    )
+    origin_files, _selected_files, _conflicts = database.review_thread_files(
+        target_snapshot.id, origin_refs, (), ()
+    )
+    target_files_by_pair = _file_indexes(target_snapshot)[1]
     cache = _ReviewReadCache({})
     grouped_origins: list[
-        tuple[tuple[str, str, str, str, str], ReviewThreadRecord]
+        tuple[
+            tuple[str, str, str, str, str],
+            ReviewThreadRecord,
+            SnapshotFileRecord,
+        ]
     ] = []
     for origin in origins.values():
         assert origin.snapshot_file_id is not None
         assert origin.side is not None
-        origin_file = file_indexes[origin.snapshot_id][0].get(
-            origin.snapshot_file_id
-        )
-        assert origin_file is not None, (
-            "origin Thread references a missing Snapshot File"
-        )
+        origin_file = origin_files[
+            (origin.snapshot_id, origin.snapshot_file_id)
+        ]
         pair = _file_pair(origin_file)
         grouped_origins.append(
             (
@@ -1903,21 +1904,21 @@ def _derive_room_threads(
                     origin.thread_id,
                 ),
                 origin,
+                origin_file,
             )
         )
     # Adjacent target sources stay resident in the three-entry region cache.
     grouped_origins.sort(key=lambda item: item[0])
     placements: list[ReviewThreadRecord] = []
-    for _group, origin in grouped_origins:
+    for _group, origin, origin_file in grouped_origins:
         placements.append(
             origin
             if origin.snapshot_id == target_snapshot.id
             else _derive_record(
                 origin=origin,
-                origin_snapshot=snapshots[origin.snapshot_id],
-                target_snapshot=target_snapshot,
-                origin_files_by_id=file_indexes[origin.snapshot_id][0],
-                target_files_by_pair=file_indexes[target_snapshot.id][1],
+                origin_file=origin_file,
+                target_snapshot_id=target_snapshot.id,
+                target_files_by_pair=target_files_by_pair,
                 cache=cache,
             )
         )
@@ -1926,7 +1927,7 @@ def _derive_room_threads(
 
 def _origin_record(
     command: CreateThread,
-    snapshot: SnapshotRecord,
+    snapshot_id: str,
     file: SnapshotFileRecord,
     cache: _ReviewReadCache,
 ) -> ReviewThreadRecord:
@@ -2020,7 +2021,7 @@ def _origin_record(
     )
     return ReviewThreadRecord(
         command.thread_id.hex,
-        snapshot.id,
+        snapshot_id,
         file.id,
         True,
         "range",
@@ -2042,31 +2043,36 @@ def _plan_thread_creation(
     *,
     command: CreateThread,
     created_at: str,
-    selected_snapshot: SnapshotRecord,
-    selected_files_by_pair: dict[FilePair, SnapshotFileRecord],
+    snapshot_id: str,
+    target_file: Optional[SnapshotFileRecord],
     cache: _ReviewReadCache,
 ) -> tuple[tuple[ReviewThreadRecord, ...], ReviewActionRecord]:
     """Validate and build immutable rows for one new discussion.
 
-    The caller holds the Room write lock. This operation performs no insert so
-    one or several planned creations can join a larger database transaction.
+    The caller holds the Room write lock and supplies the focused lookup
+    result for the command's target pair; `None` means the pair named no
+    captured File and is rejected here, so the absence check lives in one
+    place. This operation performs no insert so one or several planned
+    creations can join a larger database transaction.
     """
-    _nonblank(command.body)
-    profile_id = command.author.profile_id
-    target_file = selected_files_by_pair.get(command.target.file)
+    # The absence rejection precedes body validation: callers historically
+    # resolved the target before planning, so a doubly-invalid creation
+    # reports the absent File, not the blank body.
     if target_file is None:
         raise ReviewError(
             "invalid_target",
             "Review target File is absent from the Snapshot.",
         )
-    origin = _origin_record(command, selected_snapshot, target_file, cache)
+    _nonblank(command.body)
+    profile_id = command.author.profile_id
+    origin = _origin_record(command, snapshot_id, target_file, cache)
     _build_original_excerpt(origin, target_file, cache)
     return (
         (origin,),
         ReviewActionRecord(
             operation_id=command.operation_id.hex,
             thread_id=command.thread_id.hex,
-            snapshot_id=selected_snapshot.id,
+            snapshot_id=snapshot_id,
             sequence=0,
             kind="thread-created",
             profile_id=profile_id,
@@ -2093,26 +2099,35 @@ def _create_thread(
 
     with _room_write_lock(thread_lock, lock_path):
         profile = _validate_author(database, command.author)
-        selected_snapshot = database.snapshot(identity, snapshot_id.hex)
-        if selected_snapshot is None:
+        # One focused File read replaces hydrating the whole Snapshot: the
+        # creation needs exactly its target File and Snapshot visibility.
+        snapshot_exists, loaded_target = database.snapshot_file(
+            identity,
+            snapshot_id=snapshot_id.hex,
+            left_path=command.target.file.left_path,
+            right_path=command.target.file.right_path,
+        )
+        if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        files_by_id, files_by_pair = _file_indexes(selected_snapshot)
         cache = _ReviewReadCache({})
         created_at = _now()
         rows, first_action = _plan_thread_creation(
             command=command,
             created_at=created_at,
-            selected_snapshot=selected_snapshot,
-            selected_files_by_pair=files_by_pair,
+            snapshot_id=snapshot_id.hex,
+            target_file=loaded_target.file
+            if loaded_target is not None
+            else None,
             cache=cache,
         )
         database.create_review_thread(
             rows,
             first_action,
         )
+        assert loaded_target is not None
         assert len(rows) == 1 and rows[0].is_origin
-        assert rows[0].snapshot_file_id is not None
-        created_file = files_by_id[rows[0].snapshot_file_id]
+        assert rows[0].snapshot_file_id == loaded_target.file.id
+        created_file = loaded_target.file
         return Thread(
             database=database,
             identity=identity,
@@ -2151,10 +2166,32 @@ def _apply_review_batch(
     if batch == ():
         raise ReviewError("invalid_target", "Review batch cannot be empty.")
     with _room_write_lock(thread_lock, lock_path):
-        selected_snapshot = database.snapshot(identity, snapshot_id.hex)
-        if selected_snapshot is None:
+        # One set-based File read replaces hydrating the whole Snapshot:
+        # only the batch's distinct creation targets are loaded, in a single
+        # query and transaction that also answers Snapshot visibility.
+        # Absent pairs stay unmapped so planning rejects exactly the invalid
+        # creation.
+        creation_pairs = tuple(
+            dict.fromkeys(
+                action.target.file
+                for action in batch
+                if isinstance(action, CreateThread)
+            )
+        )
+        snapshot_exists, found_by_pair = database.snapshot_files_by_pairs(
+            identity,
+            snapshot_id=snapshot_id.hex,
+            pairs=tuple(
+                (pair.left_path, pair.right_path) for pair in creation_pairs
+            ),
+        )
+        if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        selected_files_by_pair = _file_indexes(selected_snapshot)[1]
+        selected_files_by_pair: dict[FilePair, SnapshotFileRecord] = {
+            pair: found_by_pair[(pair.left_path, pair.right_path)]
+            for pair in creation_pairs
+            if (pair.left_path, pair.right_path) in found_by_pair
+        }
         cache = _ReviewReadCache({})
         placements: list[ReviewThreadRecord] = []
         records: list[ReviewActionRecord] = []
@@ -2202,8 +2239,8 @@ def _apply_review_batch(
                 rows, first_action = _plan_thread_creation(
                     command=action,
                     created_at=_now(),
-                    selected_snapshot=selected_snapshot,
-                    selected_files_by_pair=selected_files_by_pair,
+                    snapshot_id=snapshot_id.hex,
+                    target_file=selected_files_by_pair.get(action.target.file),
                     cache=cache,
                 )
                 placements.extend(rows)

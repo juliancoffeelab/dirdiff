@@ -19,7 +19,8 @@ DD_LIMIT=20
 
 `DD_PAGE` starts at the first page. `DD_LIMIT` is the requested full-Thread
 page size; `20` is that endpoint's specified maximum, not a server address or
-project-specific value.
+project-specific value. Requesting a larger `limit` returns
+`HTTP 422 Unprocessable Content`; do not raise it to cut down round trips.
 
 ## Join the HEAD/worktree review
 
@@ -240,6 +241,24 @@ DD_SNAPSHOT_PATH="$(jq -r '.snapshot_path' <<<"$DD_CONTINUE_RESPONSE")"
 DD_LAST_ACTIVITY_ID="$(jq -r '.last_activity_id' <<<"$DD_CONTINUE_RESPONSE")"
 ```
 
+The returned `snapshot_id` commonly differs from any Snapshot id named in
+your brief or an earlier handoff message — the branch moves between rounds,
+and this is expected drift, not an error.
+
+`DD_CONTINUE_RESPONSE` also carries `file_delta` (`added`/`changed`/`removed`
+captured paths that differ from the previous Snapshot) and `thread_delta`
+(authored Thread activity since the prior `last_activity_id`, bounded by
+`limit` and flagged incomplete by `has_more_thread_changes`). Read them
+before re-enumerating the whole Snapshot or re-diffing a full Thread page:
+
+```sh
+jq '{file_delta, unresolved_thread_count, has_more_thread_changes}' \
+  <<<"$DD_CONTINUE_RESPONSE"
+```
+
+If `has_more_thread_changes` is `true`, call `continue_review` again with the
+latest `last_activity_id` before assuming you have seen everything.
+
 ## Read the reviewer inbox
 
 ```sh
@@ -260,6 +279,14 @@ DD_REVIEWER_THREADS="$(curl \
 This returns open Threads whose `attention_after` is `reviewer` or `both`.
 
 ## Return a finding
+
+`reviewer-return` and `reviewer-resolve` both require the target Thread to be
+`open` with `attention` in `{reviewer, both}`. Posting either one twice in a
+row on the same Thread, without an intervening `author-response`, fails with
+`state_conflict` ("... is not valid for this Thread outcome") because the
+first post already moved `attention` to `author` (or closed the Thread).
+Select `DD_REVIEW_THREAD_ID` from a fresh reviewer-inbox read, not a
+remembered id.
 
 ```sh
 # List the returned Thread ids and select the one being returned.

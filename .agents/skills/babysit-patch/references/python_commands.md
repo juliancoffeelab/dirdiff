@@ -5,6 +5,16 @@ serialize multiline strings as real JSON newlines without shell escaping.
 Commands read explicit `DD_*` environment variables; values shown as
 placeholders must be replaced with API results or selected inbox values.
 
+Every example below opens with `python3 - <<'PY'` — the delimiter is quoted.
+Keep it quoted. An unquoted `<<PY` lets the shell expand backticks and `$` in
+the heredoc body before Python runs, which silently corrupts any Comment
+text that quotes code (a real incident dropped inline-code spans from three
+posted findings, with no HTTP error to signal it).
+
+Wrap `urlopen` in `try`/`except urllib.error.HTTPError` and print
+`e.code`/`e.read().decode()` when debugging a failure; an unwrapped call
+raises a multi-frame traceback that hides the response body.
+
 ## Contents
 
 - [Session variables](#session-variables)
@@ -153,7 +163,16 @@ PY
 ```
 
 Replace the Snapshot path, Snapshot id, and last activity id with the returned
-values.
+values. The returned `snapshot_id` commonly differs from any Snapshot id you
+last quoted to a reviewer — the branch moves between rounds, and this is
+expected drift, not an error; always brief the reviewer with the fresh value.
+
+The response also carries `file_delta` (`added`/`changed`/`removed` captured
+paths versus the previous Snapshot) and `thread_delta` (authored Thread
+activity since `last_activity_id`, bounded by `limit` and flagged incomplete
+by `has_more_thread_changes`). Use `file_delta` to point a resumed reviewer
+at exactly what changed instead of leaving it to re-enumerate the whole
+Snapshot.
 
 ## Inspect Snapshot evidence
 
@@ -197,6 +216,14 @@ captured before/after bytes; the parent directory name is not a repository
 path.
 
 ## Post an author response
+
+`author-response` requires the target Thread to be `open` with `attention`
+in `{author, both}`. A Thread you already answered has `attention =
+reviewer` until the reviewer acts again; posting a second `author-response`
+to it fails with `state_conflict` ("... is not valid for this Thread
+outcome"). Select `DD_AUTHOR_THREAD_ID` from a fresh
+`/api/agent/threads?for=author` read, not a remembered inbox, if there is any
+chance the Thread already moved.
 
 The triple-quoted Python string contains real newlines:
 

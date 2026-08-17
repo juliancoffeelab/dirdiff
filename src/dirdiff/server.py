@@ -1923,19 +1923,28 @@ def create_app(
             body=f"{body[:255]}…", deleted=deleted, truncated=True
         )
 
-    def agent_captured_files(
-        room: Room, snapshot_id: UUID
+    def captured_files_for_locations(
+        room: Room,
+        snapshot_id: UUID,
+        locations: list[dict[str, object] | None],
     ) -> dict[tuple[str | None, str | None], tuple[Path | None, Path | None]]:
-        """Index actual retained File paths without reading their contents."""
-        return {
-            (
-                left.as_posix() if left is not None else None,
-                right.as_posix() if right is not None else None,
-            ): (left_file, right_file)
-            for left, right, left_file, right_file in room._captured_paths(
-                snapshot_id
-            )
-        }
+        """Load actual retained paths for exactly the referenced locations.
+
+        Only the Files the supplied code locations name are read; Threads
+        without a code location contribute nothing. Contents are never read.
+        """
+        pairs: list[tuple[str | None, str | None]] = []
+        for location in locations:
+            if location is None:
+                continue
+            pair = location["file"]
+            assert isinstance(pair, dict)
+            left_value = pair.get("left_path")
+            right_value = pair.get("right_path")
+            assert left_value is None or isinstance(left_value, str)
+            assert right_value is None or isinstance(right_value, str)
+            pairs.append((left_value, right_value))
+        return room.captured_files_for_pairs(snapshot_id, tuple(pairs))
 
     def agent_location(
         captured_files: dict[
@@ -2500,10 +2509,12 @@ def create_app(
                 state="open",
                 through_activity_id=None,
             )
-            captured_files = agent_captured_files(room, snapshot_id)
+            views = [thread.summary() for thread in page_threads]
+            captured_files = captured_files_for_locations(
+                room, snapshot_id, [view["code_location"] for view in views]
+            )
             summaries = []
-            for thread in page_threads:
-                view = thread.summary()
+            for view in views:
                 assert view["state"] == "open"
                 attention = view["attention"]
                 assert attention != "none"
@@ -2554,11 +2565,11 @@ def create_app(
                 attention=for_role,
                 through_activity_id=through_activity_id,
             )
-            captured_files = agent_captured_files(room, snapshot_id)
-            threads = [
-                agent_thread(captured_files, thread.discussion())
-                for thread in page_threads
-            ]
+            views = [thread.discussion() for thread in page_threads]
+            captured_files = captured_files_for_locations(
+                room, snapshot_id, [view["code_location"] for view in views]
+            )
+            threads = [agent_thread(captured_files, view) for view in views]
             return agent_page(threads, page, limit, total, concrete_activity_id)
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Threads request failed")
@@ -2574,9 +2585,12 @@ def create_app(
         """Return one exact Thread with an independently paged discussion."""
         try:
             room = snapshot_room(snapshot_id)
+            view = room.get_thread(snapshot_id, thread_id).discussion()
             thread = agent_thread(
-                agent_captured_files(room, snapshot_id),
-                room.get_thread(snapshot_id, thread_id).discussion(),
+                captured_files_for_locations(
+                    room, snapshot_id, [view["code_location"]]
+                ),
+                view,
             )
             total = len(thread.comments)
             start = (page - 1) * limit
@@ -2731,22 +2745,19 @@ def create_app(
             room = snapshot_room(snapshot_id)
             if user_profile_store.get(request.profile_id) is None:
                 raise DirdiffError("Unknown Profile.")
-            captured_paths: dict[
-                Path, tuple[Path | None, Path | None, Literal["left", "right"]]
-            ] = {}
-            if any(
-                isinstance(action, AgentCreateAction)
-                for action in request.actions
-            ):
-                for left, right, left_file, right_file in room._captured_paths(
-                    snapshot_id
-                ):
-                    if left_file is not None:
-                        assert left_file not in captured_paths
-                        captured_paths[left_file] = (left, right, "left")
-                    if right_file is not None:
-                        assert right_file not in captured_paths
-                        captured_paths[right_file] = (left, right, "right")
+            # One set-based id-addressed read identifies every distinct
+            # creation path in the batch; nothing scans or stat-checks the
+            # Snapshot. Validation stays in the per-action loop below so a
+            # batch with several invalid actions reports the first one in
+            # batch order; unvalidated paths resolve to None harmlessly.
+            located = room.locate_captured_files(
+                snapshot_id,
+                tuple(
+                    Path(action.file)
+                    for action in request.actions
+                    if isinstance(action, AgentCreateAction)
+                ),
+            )
             batch: list[
                 CreateThread | ReplyToThread | ResolveThread | DeleteThread
             ] = []
@@ -2757,7 +2768,7 @@ def create_app(
                     path = Path(action.file)
                     if not path.is_absolute():
                         raise DirdiffError("Invalid captured File path.")
-                    match = captured_paths.get(path)
+                    match = located[path]
                     if match is None:
                         raise DirdiffError("File is absent from the Snapshot.")
                     left, right, side = match

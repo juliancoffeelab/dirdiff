@@ -412,7 +412,12 @@ export function NavigationProvider(
     // increasing: binary-search the last target at or above the reading line
     // instead of measuring every hunk row in the card on each followed
     // scroll. Uniform row heights make the visibility screen below identical
-    // to the former every-target scan.
+    // to the former every-target scan. Probed targets may sit inside a
+    // `.diff-row-chunk` whose `content-visibility: auto` currently skips it;
+    // rect queries then force that chunk's layout and return real geometry
+    // (measured ~0.1ms per probe), which this search depends on. A zero rect
+    // would break monotonicity silently, so the chunk style must stay
+    // `auto`, never `hidden` — see the .diff-row-chunk rule in styles.css.
     let low = 0;
     let high = targets.length - 1;
     let precedingIndex = -1;

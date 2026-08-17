@@ -37,8 +37,13 @@ findings are understood and not duplicated.
 Enumerate and inspect every captured File pair under `snapshot_path`, then read
 enough adjacent live-repository implementation to support every conclusion.
 Choose appropriate tools and checks, prefer reading the code and when necessary
-interacting with the project. Do not run tests or lints; those are the
-implementor's responsibility.
+interacting with the project. Do not run mechanical checks or tests — this
+includes `make tscheck`, `make eslint`, `make mypy`, `make ruff`,
+`make pyflake`, and `pytest` — even to double-check a finding "for
+completeness". Those are the implementor's responsibility; running them here
+duplicates that work without adding review signal. If a mechanical check is
+relevant to a finding, name the check in the finding body and let the
+implementor run it.
 
 Review for three non-negotiable principles:
 
@@ -77,20 +82,37 @@ Do not repeat the finding bodies in the parent response.
 When resumed, continue as the same reviewer:
 
 1. Capture or accept the revised Snapshot through
-   `/api/agent/continue_review`.
-2. Read `/api/agent/threads?for=reviewer` at one inclusive
+   `/api/agent/continue_review`. Its `snapshot_id` commonly differs from any
+   Snapshot id named in your task brief or an earlier handoff — the branch
+   moves between rounds, and this drift is expected, not an error. Always use
+   the `snapshot_id`/`snapshot_path` this call just returned.
+2. Use the response's `file_delta` (`added`/`changed`/`removed` captured
+   paths) to find the File pairs that actually changed instead of
+   re-enumerating or content-grepping the whole Snapshot. Use its
+   `thread_delta` to see which Threads got new activity since your last
+   `last_activity_id` instead of re-diffing a full Thread read; if
+   `has_more_thread_changes` is true, call `continue_review` again with the
+   latest `last_activity_id` before assuming you have seen everything.
+3. Read `/api/agent/threads?for=reviewer` at one inclusive
    `through_activity_id`; reuse the boundary for every page in that read.
-3. Read each author response and verify the actual revised Snapshot. The prose
+4. Read each author response and verify the actual revised Snapshot. The prose
    response alone is not evidence that the finding is fixed.
-4. Recheck simplicity, performance, correctness, and plausible regressions.
-5. Use `reviewer-return` with a concrete message if any material objection
+5. Recheck simplicity, performance, correctness, and plausible regressions.
+6. Use `reviewer-return` with a concrete message if any material objection
    remains.
-6. Use `reviewer-resolve` only when the human authorized resolution and the
+7. Use `reviewer-resolve` only when the human authorized resolution and the
    finding is genuinely addressed. Its message is required and should concisely
    record the verification supporting resolution.
 
 An open Thread with `attention_after = both` appears in the reviewer inbox and
-may be returned or resolved when its guards permit.
+may be returned or resolved when its guards permit: both actions require the
+Thread to still be `open` with `attention` in `{reviewer, both}`. Once a
+`reviewer-return`/`reviewer-resolve` has already been posted, `attention`
+moves to `author` (or the Thread becomes `resolved`); a second
+`reviewer-return`/`reviewer-resolve` on the same Thread without an
+intervening `author-response` fails with `state_conflict`
+("... is not valid for this Thread outcome"). Re-read the reviewer inbox
+before acting rather than working from a remembered Thread list.
 
 After acting, return only compact progress, for example:
 
@@ -128,10 +150,19 @@ hide a finding, or clean up history.
 
 ## Send multiline Comments safely
 
-Use the Python reference by default. If using the shell fallback, never pass a
-single-quoted string containing `\n` to `jq --arg`; it sends literal
-backslashes and `n` characters. Follow the quoted-heredoc pattern in the shell
-reference.
+Use the Python reference by default, and always quote the heredoc delimiter:
+`python3 - <<'PY'`, never `python3 - <<PY`. An unquoted delimiter makes the
+shell expand backticks and `$` inside the heredoc body before Python ever
+sees it, so a Comment body that quotes code (`` `stopped` ``) gets silently
+executed and stripped — the HTTP call still succeeds with the mangled text,
+so nothing flags the corruption. This already happened in a review round:
+three findings posted with their inline-code spans dropped, requiring
+detection and reposting. Check the quoting before running any `python3`
+heredoc you write.
+
+If using the shell fallback, never pass a single-quoted string containing
+`\n` to `jq --arg`; it sends literal backslashes and `n` characters. Follow
+the quoted-heredoc pattern (`cat <<'BODY'`) in the shell reference.
 
 If malformed content is actually observed, stop compounding it and report the
 affected action. Do not add routine read-after-write checks. Use

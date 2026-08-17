@@ -405,35 +405,121 @@ class Room:
             ),
         }
 
-    def _captured_paths(
-        self, snapshot_id: UUID
-    ) -> tuple[
-        tuple[Optional[Path], Optional[Path], Optional[Path], Optional[Path]],
-        ...,
+    def captured_files_for_pairs(
+        self,
+        snapshot_id: UUID,
+        pairs: tuple[tuple[Optional[str], Optional[str]], ...],
+    ) -> dict[
+        tuple[Optional[str], Optional[str]],
+        tuple[Optional[Path], Optional[Path]],
     ]:
-        """Return retained relative pairs and actual side paths without reads."""
-        snapshot = self._database.snapshot(self._identity, snapshot_id.hex)
-        if snapshot is None:
+        """Return actual retained side paths for exactly the requested pairs.
+
+        Each pair is a repository-path pair coming from this Room's own
+        Thread placements, so an absent pair is an invariant violation, not
+        caller input; an unknown Snapshot raises. One read and transaction
+        serves every pair; contents are never read, and only the returned
+        Files are stat-checked.
+        """
+        snapshot_exists, found = self._database.snapshot_files_by_pairs(
+            self._identity,
+            snapshot_id=snapshot_id.hex,
+            pairs=pairs,
+        )
+        if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        result = []
-        for file in snapshot.files:
-            directory = Path(file.path)
+        result: dict[
+            tuple[Optional[str], Optional[str]],
+            tuple[Optional[Path], Optional[Path]],
+        ] = {}
+        for pair in dict.fromkeys(pairs):
+            record = found.get(pair)
+            assert record is not None, (
+                "Thread location references a File absent from its Snapshot"
+            )
+            directory = Path(record.path)
+            left_file = directory / "left" if record.left is not None else None
+            right_file = (
+                directory / "right" if record.right is not None else None
+            )
+            assert left_file is None or left_file.is_file()
+            assert right_file is None or right_file.is_file()
+            result[pair] = (left_file, right_file)
+        return result
+
+    def locate_captured_files(
+        self, snapshot_id: UUID, captured: tuple[Path, ...]
+    ) -> dict[
+        Path,
+        Optional[
+            tuple[Optional[Path], Optional[Path], Literal["left", "right"]]
+        ],
+    ]:
+        """Identify captured side paths as their repository pairs and sides.
+
+        Every supplied path receives an entry; `None` means it does not name
+        a captured side of this exact Snapshot. The captured layout is
+        `<file-directory>/<side>` with the File id as the directory name; the
+        persisted record's own directory must equal the supplied parent, so a
+        lookalike path outside the Snapshot store never matches. One read
+        serves every path; no side content is touched.
+        """
+
+        def parsed_file_id(path: Path) -> Optional[str]:
+            """Extract the candidate File id when the path shape allows one."""
+            if path.name != "left" and path.name != "right":
+                return None
+            file_id = path.parent.name
+            if len(file_id) != 32 or any(
+                character not in "0123456789abcdef" for character in file_id
+            ):
+                return None
+            return file_id
+
+        distinct = tuple(dict.fromkeys(captured))
+        candidate_ids = tuple(
+            dict.fromkeys(
+                file_id
+                for file_id in (parsed_file_id(path) for path in distinct)
+                if file_id is not None
+            )
+        )
+        records = self._database.snapshot_files_by_ids(
+            self._identity,
+            snapshot_id=snapshot_id.hex,
+            file_ids=candidate_ids,
+        )
+        result: dict[
+            Path,
+            Optional[
+                tuple[Optional[Path], Optional[Path], Literal["left", "right"]]
+            ],
+        ] = {}
+        for path in distinct:
+            result[path] = None
+            file_id = parsed_file_id(path)
+            if file_id is None:
+                continue
+            record = records.get(file_id)
+            if record is None or Path(record.path) != path.parent:
+                continue
+            side: Literal["left", "right"] = (
+                "left" if path.name == "left" else "right"
+            )
+            if (record.left if side == "left" else record.right) is None:
+                continue
             left = (
-                Path(file.left.repository_path)
-                if file.left is not None
+                Path(record.left.repository_path)
+                if record.left is not None
                 else None
             )
             right = (
-                Path(file.right.repository_path)
-                if file.right is not None
+                Path(record.right.repository_path)
+                if record.right is not None
                 else None
             )
-            left_file = directory / "left" if file.left is not None else None
-            right_file = directory / "right" if file.right is not None else None
-            assert left_file is None or left_file.is_file()
-            assert right_file is None or right_file.is_file()
-            result.append((left, right, left_file, right_file))
-        return tuple(result)
+            result[path] = (left, right, side)
+        return result
 
     def threads(
         self,

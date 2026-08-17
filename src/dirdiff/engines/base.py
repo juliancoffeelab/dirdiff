@@ -333,11 +333,16 @@ def engine_row_has_change(row: Mapping[str, object]) -> bool:
         return True
 
     for field in ("left_tokens", "right_tokens"):
+        # Token shapes are validated once at the strict_engine_rows boundary;
+        # this classifier runs thousands of times per rendered file (7,872
+        # calls measured on one large file) and only reads the guaranteed
+        # status field, so it must not re-walk full token validation.
         tokens = row.get(field, [])
-        if not _is_inline_token_list(tokens):
+        if not isinstance(tokens, list):
             raise TypeError(f"Engine row {field} must be inline tokens.")
-        if any(token["status"] != "unchanged" for token in tokens):
-            return True
+        for token in tokens:
+            if token["status"] != "unchanged":
+                return True
     return False
 
 

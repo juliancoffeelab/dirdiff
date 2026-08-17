@@ -71,7 +71,13 @@ Do not require the reviewer to duplicate finding bodies in its response.
 2. Investigate each finding against the live implementation and its contracts.
 3. Fix an accepted finding or explain concretely why it should not be accepted.
 4. Post one `author-response` for each addressed finding. Batch independent
-   responses in one action transaction.
+   responses in one action transaction. `author-response` requires the target
+   Thread to still be `open` with `attention` in `{author, both}`; a Thread
+   you already answered has `attention = reviewer` until the reviewer acts
+   again, and posting a second `author-response` to it fails with
+   `state_conflict` ("... is not valid for this Thread outcome"). Read
+   `/api/agent/threads?for=author` again rather than reusing a remembered
+   inbox if there is any chance a Thread already moved.
 5. Resume the same reviewer. Report only the new Snapshot and compact API
    progress, for example:
 
@@ -107,10 +113,19 @@ and review disposition without repeating every dirdiff Comment.
 
 ## Send multiline Comments safely
 
-Use the Python reference by default. If using the shell fallback, never pass a
-single-quoted string containing `\n` to `jq --arg`; it sends literal
-backslashes and `n` characters. Follow the quoted-heredoc pattern in the shell
-reference.
+Use the Python reference by default, and always quote the heredoc delimiter:
+`python3 - <<'PY'`, never `python3 - <<PY`. An unquoted delimiter makes the
+shell expand backticks and `$` inside the heredoc body before Python ever
+sees it, so a Comment body that quotes code (`` `stopped` ``) gets silently
+executed and stripped — the HTTP call still succeeds with the mangled text,
+so nothing flags the corruption. This already happened in a review round:
+three findings posted with their inline-code spans dropped, requiring
+detection and reposting. Check the quoting before running any `python3`
+heredoc you write.
+
+If using the shell fallback, never pass a single-quoted string containing
+`\n` to `jq --arg`; it sends literal backslashes and `n` characters. Follow
+the quoted-heredoc pattern (`cat <<'BODY'`) in the shell reference.
 
 If malformed content is actually observed, stop compounding it and report the
 affected action. Do not add routine read-after-write checks. Do not delete or

@@ -1641,7 +1641,19 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   // later success and falsify the FileQueryView union, so each view is
   // swapped wholesale through its own signal instead.
   const fileViewSignals = orderedFiles.map(() =>
-    createSignal<FileQueryView>({ phase: "idle" }),
+    createSignal<FileQueryView>(
+      { phase: "idle" },
+      {
+        // Signals lack the store's write deduplication, and every redundant
+        // notification costs a full-manifest fileStates pass, so writes that
+        // do not change the observable view must not notify (the lane joins
+        // in-flight prefetches and replays recorded failures, both of which
+        // re-write the value already present).
+        equals: (a, b) =>
+          a.phase === b.phase &&
+          (a.phase !== "error" || (b.phase === "error" && a.error === b.error)),
+      },
+    ),
   );
 
   /** Reads one exact manifest index's view; unknown indexes throw. */
@@ -2231,9 +2243,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             if (stopped || isCancelledError(error)) {
               return;
             }
-            // Record the failed attempt on the file's view (idempotent when
-            // replaying a recorded prefetch failure). The lane intentionally
-            // proceeds so one file cannot damage later files.
+            // Record the failed attempt on the file's view (replaying a
+            // recorded prefetch failure re-writes the same value, which the
+            // signal's equality drops). The lane intentionally proceeds so
+            // one file cannot damage later files.
             setFileView(fileIndex, { phase: "error", error });
             if (
               currentLineTarget !== null &&
@@ -2487,11 +2500,13 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
  *
  * The QueryClient cache owns transport; the file lane is this view's only
  * writer and records exactly the transitions it causes: fetch or prefetch
- * start ("fetching"), settlement ("success"/"error"), and a cancelled
- * prefetch returning to "idle". Payloads stay out of the store so reactive
- * propagation never walks row data (TanStack's own `createQueries` store
- * deep-unwraps every query's rows on every update, which froze loading).
- * `error` is the settled failure exactly as the fetch rejected with it.
+ * start ("fetching") and settlement ("success"/"error"). Each view lives in
+ * its own replaceable signal so a write swaps the whole value — a Solid
+ * store write would merge fields and let a stale `error` survive a later
+ * success. Payloads stay out of reactive state so propagation never walks
+ * row data (TanStack's own `createQueries` store deep-unwraps every query's
+ * rows on every update, which froze loading). `error` is the settled
+ * failure exactly as the fetch rejected with it.
  */
 type FileQueryView =
   | { phase: "idle" }

@@ -131,49 +131,37 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
 
 
 def _insert_tree_entry(
-    entries: list[dict[str, Any]],
+    root_entries: list[dict[str, Any]],
+    directories: dict[str, dict[str, Any]],
     *,
     parts: list[str],
-    full_path: str,
     file_entry: dict[str, Any],
 ) -> None:
-    """Mutate one tree level while preserving directory identity by path."""
-    if parts == []:
-        raise ValueError(f"Cannot insert empty manifest tree path: {full_path}")
-    if len(parts) == 1:
-        entries.append({"type": "file", "name": parts[0], "entry": file_entry})
-        return
+    """Mutate the tree while preserving directory identity by path.
 
-    directory_name = parts[0]
-    directory_path = full_path.rsplit("/".join(parts[1:]), 1)[0].removesuffix(
-        "/"
-    )
-    directory_node: dict[str, Any] | None = None
-    for entry in entries:
-        if (
-            entry["type"] == "directory"
-            and entry["name"] == directory_name
-            and entry["path"] == directory_path
-        ):
-            directory_node = entry
-            break
-    if directory_node is None:
-        directory_node = {
-            "type": "directory",
-            "name": directory_name,
-            "path": directory_path,
-            "entries": [],
-        }
-        entries.append(directory_node)
-    child_entries = directory_node["entries"]
-    if not isinstance(child_entries, list):
-        raise ValueError(f"Directory node is missing entries: {directory_path}")
-    _insert_tree_entry(
-        child_entries,
-        parts=parts[1:],
-        full_path=full_path,
-        file_entry=file_entry,
-    )
+    `directories` indexes every created directory node by its full path, so
+    inserting a path costs one dictionary lookup per ancestor instead of a
+    linear scan of its sibling level, which measured quadratic at wide
+    directories. The caller owns the index for exactly one tree build.
+    """
+    if parts == []:
+        raise ValueError("Cannot insert an empty manifest tree path.")
+    entries = root_entries
+    prefix = ""
+    for name in parts[:-1]:
+        prefix = name if prefix == "" else f"{prefix}/{name}"
+        directory_node = directories.get(prefix)
+        if directory_node is None:
+            directory_node = {
+                "type": "directory",
+                "name": name,
+                "path": prefix,
+                "entries": [],
+            }
+            directories[prefix] = directory_node
+            entries.append(directory_node)
+        entries = directory_node["entries"]
+    entries.append({"type": "file", "name": parts[-1], "entry": file_entry})
 
 
 def _root_files_last(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -233,6 +221,7 @@ def _build_repo_manifest_tree(
 ) -> list[dict[str, Any]]:
     """Turn flat backend paths into the nested tree consumed by the sidebar."""
     tree_entries: list[dict[str, Any]] = []
+    directories: dict[str, dict[str, Any]] = {}
     for entry in entries:
         path = (
             entry.right_path
@@ -248,14 +237,13 @@ def _build_repo_manifest_tree(
             "file_kind": file_kind_for_repo_entry(entry),
             "lazy": None,
         }
-        if _should_lazy_load_repo_entry(entry):
-            lazy = _lazy_reason_for_repo_entry(entry)
-            if lazy is not None:
-                file_entry["lazy"] = lazy
+        lazy = _lazy_reason_for_repo_entry(entry)
+        if lazy is not None:
+            file_entry["lazy"] = lazy
         _insert_tree_entry(
             tree_entries,
+            directories,
             parts=parts,
-            full_path=path,
             file_entry=file_entry,
         )
     return _compact_single_directory_chains(_root_files_last(tree_entries))

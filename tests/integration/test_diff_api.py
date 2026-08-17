@@ -1181,3 +1181,71 @@ def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
         params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
     ).json()
     assert threads["items"] == []
+
+
+def test_agent_batch_reports_first_invalid_action_in_batch_order(
+    tmp_path: Path,
+) -> None:
+    """Mixed-problem batches report the earliest action's exact failure."""
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "c" * 32,
+            "name": "ordering reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+    sides = sorted(Path(joined["snapshot_path"]).glob("*/right"))
+    assert sides != []
+
+    # An absent (but well-formed) captured path precedes a malformed relative
+    # path: the earlier action's failure must win regardless of validation
+    # phases inside the route.
+    absent = str(Path(sides[0]).parent.parent / ("d" * 32) / "right")
+    rejected = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": absent,
+                    "region": {"start_line": 1, "end_line": 1},
+                    "body": "targets a missing capture",
+                },
+                {
+                    "kind": "create-finding",
+                    "file": "relative/left",
+                    "region": {"start_line": 1, "end_line": 1},
+                    "body": "malformed path",
+                },
+            ],
+        },
+    )
+    assert rejected.status_code == 400
+    assert "File is absent from the Snapshot." in rejected.text
+
+    # A creation that is doubly invalid (absent target pair and blank body)
+    # reports the absent target, matching the pre-focused-read precedence.
+    doubly_invalid = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": absent,
+                    "region": {"start_line": 1, "end_line": 1},
+                    "body": " ",
+                },
+            ],
+        },
+    )
+    assert doubly_invalid.status_code == 400
+    assert "File is absent from the Snapshot." in doubly_invalid.text

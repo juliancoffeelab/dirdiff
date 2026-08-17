@@ -5,6 +5,18 @@ serialize multiline strings as real JSON newlines without shell escaping.
 Commands read explicit `DD_*` environment variables; values shown as
 placeholders must be replaced with API results or selected inbox values.
 
+Every example below opens with `python3 - <<'PY'` — the delimiter is quoted.
+Keep it quoted. An unquoted `<<PY` lets the shell expand backticks and `$` in
+the heredoc body before Python runs, which silently corrupts any Comment
+text that quotes code (a real incident dropped inline-code spans from three
+posted findings, with no HTTP error to signal it).
+
+Wrap `urlopen` in `try`/`except urllib.error.HTTPError` and print
+`e.code`/`e.read().decode()` when debugging a failure. An unwrapped call
+raises a multi-frame traceback that hides the response body — for example,
+`limit` above the documented maximum (see below) returns `422` with a
+diagnostic in the body that the bare traceback never shows.
+
 ## Contents
 
 - [Session variables](#session-variables)
@@ -116,6 +128,8 @@ exact inspected path as `DD_FILE` before creating a finding.
 ## Read active or reviewer Threads
 
 Omit `for` for initial context. Set it to `reviewer` for the reviewer inbox.
+`limit` above 20 returns `HTTP 422 Unprocessable Content` for this endpoint;
+20 is the maximum, not a suggested default to raise for fewer round trips.
 
 ```sh
 export DD_FOR='' # Replace with reviewer for the reviewer inbox.
@@ -214,12 +228,35 @@ PY
 ```
 
 Replace the Snapshot path, Snapshot id, and last activity id with the returned
-values.
+values. The returned `snapshot_id` commonly differs from any Snapshot id
+named in your brief or an earlier handoff message — the branch moves between
+rounds, and this is expected drift, not an error.
+
+The response also carries fields worth reading before re-enumerating
+anything:
+
+- `file_delta.added` / `.changed` / `.removed`: exact captured paths under
+  the new `snapshot_path` that differ from the previous Snapshot. Use this to
+  locate the File pair behind an author's claim directly, instead of
+  grepping the whole tree for distinctive content.
+- `thread_delta`: authored Thread activity (new Comments, resolutions,
+  reopenings, deletions) since `last_activity_id`, bounded by `limit`
+  (default 20, capped by the endpoint at 100). If `has_more_thread_changes`
+  is true, call `continue_review` again with the same `snapshot_id` and the
+  latest `last_activity_id` before concluding no further changes exist.
+- `unresolved_thread_count`: a cheap sanity total to cross-check against your
+  own tracking.
 
 ## Return or resolve a finding
 
 Set `kind` to `reviewer-return` when an objection remains. Use
 `reviewer-resolve` only with human authorization and concrete verification.
+Both require the target Thread to be `open` with `attention` in
+`{reviewer, both}`; posting either one twice in a row on the same Thread
+without an intervening `author-response` fails with `state_conflict` because
+the first post already moved `attention` to `author` (or closed the
+Thread). Select `DD_REVIEW_THREAD_ID` from a fresh reviewer-inbox read, not a
+remembered id, if there is any chance the Thread already moved.
 
 ```sh
 export DD_REVIEW_ACTION='reviewer-return'

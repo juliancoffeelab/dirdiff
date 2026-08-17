@@ -1591,6 +1591,171 @@ class RoomStore:
             lazy_reason=row.lazy_reason,
         )
 
+    def snapshot_files_by_ids(
+        self,
+        identity: RoomIdentity,
+        *,
+        snapshot_id: str,
+        file_ids: tuple[str, ...],
+    ) -> dict[str, SnapshotFileRecord]:
+        """Return the id-addressed Files of a Snapshot visible in one Room.
+
+        One read serves every requested id; ids naming no File of that
+        visible Snapshot are simply absent from the result, and the caller
+        decides which failure an absence is.
+        """
+        if file_ids == ():
+            return {}
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(
+                    SnapshotFile.id,
+                    SnapshotFile.snapshot_id,
+                    SnapshotFile.path,
+                    SnapshotFile.tracked,
+                    SnapshotFile.change_type,
+                    SnapshotFile.error,
+                    SnapshotFileLeft.repository_path.label("left_path"),
+                    SnapshotFileLeft.content_hash.label("left_hash"),
+                    SnapshotFileRight.repository_path.label("right_path"),
+                    SnapshotFileRight.content_hash.label("right_hash"),
+                )
+                .join(Snapshot, Snapshot.id == SnapshotFile.snapshot_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .outerjoin(
+                    SnapshotFileLeft,
+                    SnapshotFileLeft.file_id == SnapshotFile.id,
+                )
+                .outerjoin(
+                    SnapshotFileRight,
+                    SnapshotFileRight.file_id == SnapshotFile.id,
+                )
+                .where(
+                    Snapshot.id == snapshot_id,
+                    SnapshotFile.id.in_(set(file_ids)),
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    mark_clause,
+                )
+            ).all()
+        return {row.id: self._file_record(row) for row in rows}
+
+    def snapshot_files_by_pairs(
+        self,
+        identity: RoomIdentity,
+        *,
+        snapshot_id: str,
+        pairs: tuple[tuple[Optional[str], Optional[str]], ...],
+    ) -> tuple[
+        bool, dict[tuple[Optional[str], Optional[str]], SnapshotFileRecord]
+    ]:
+        """Return Snapshot existence and its pair-addressed Files in one read.
+
+        Each pair is an exact nullable left/right repository-path pair; pairs
+        naming no File of the visible Snapshot are absent from the result.
+        `(False, {})` means the Snapshot is not visible in this Room. Nullable
+        sides make a tuple IN unusable, so the pairs become one OR of exact
+        per-pair conditions inside a single query and transaction.
+        """
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        pair_clauses = [
+            and_(
+                (
+                    SnapshotFileLeft.file_id.is_(None)
+                    if left_path is None
+                    else SnapshotFileLeft.repository_path == left_path
+                ),
+                (
+                    SnapshotFileRight.file_id.is_(None)
+                    if right_path is None
+                    else SnapshotFileRight.repository_path == right_path
+                ),
+            )
+            for left_path, right_path in dict.fromkeys(pairs)
+        ]
+        with Session(self.engine) as session:
+            rows = (
+                session.execute(
+                    select(
+                        SnapshotFile.id,
+                        SnapshotFile.snapshot_id,
+                        SnapshotFile.path,
+                        SnapshotFile.tracked,
+                        SnapshotFile.change_type,
+                        SnapshotFile.error,
+                        SnapshotFileLeft.repository_path.label("left_path"),
+                        SnapshotFileLeft.content_hash.label("left_hash"),
+                        SnapshotFileRight.repository_path.label("right_path"),
+                        SnapshotFileRight.content_hash.label("right_hash"),
+                    )
+                    .join(Snapshot, Snapshot.id == SnapshotFile.snapshot_id)
+                    .join(Room, Room.id == Snapshot.room_id)
+                    .outerjoin(
+                        SnapshotFileLeft,
+                        SnapshotFileLeft.file_id == SnapshotFile.id,
+                    )
+                    .outerjoin(
+                        SnapshotFileRight,
+                        SnapshotFileRight.file_id == SnapshotFile.id,
+                    )
+                    .where(
+                        Snapshot.id == snapshot_id,
+                        Room.tab == identity.tab,
+                        Room.backend_key == identity.correspondence_key,
+                        mark_clause,
+                        or_(*pair_clauses),
+                    )
+                ).all()
+                if pair_clauses != []
+                else []
+            )
+            found = {}
+            for row in rows:
+                record = self._file_record(row)
+                left = (
+                    record.left.repository_path
+                    if record.left is not None
+                    else None
+                )
+                right = (
+                    record.right.repository_path
+                    if record.right is not None
+                    else None
+                )
+                found[(left, right)] = record
+            # The one-row query this replaced ended in one_or_none(), which
+            # raised on duplicate pairs; the schema does not make the pair
+            # unique, so a collision must still fail instead of silently
+            # binding to an arbitrary duplicate.
+            assert len(found) == len(rows), (
+                "Snapshot contains duplicate File pairs"
+            )
+            if rows == []:
+                exists = (
+                    session.execute(
+                        select(Snapshot.id)
+                        .join(Room, Room.id == Snapshot.room_id)
+                        .where(
+                            Snapshot.id == snapshot_id,
+                            Room.tab == identity.tab,
+                            Room.backend_key == identity.correspondence_key,
+                            mark_clause,
+                        )
+                    ).one_or_none()
+                    is not None
+                )
+                return exists, {}
+        return True, found
+
     def review_thread_files(
         self,
         selected_snapshot_id: str,

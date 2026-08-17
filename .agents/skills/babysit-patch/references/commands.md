@@ -19,7 +19,8 @@ DD_LIMIT=20
 
 `DD_PAGE` starts at the first page. `DD_LIMIT` is the requested full-Thread
 page size; `20` is that endpoint's specified maximum, not a server address or
-project-specific value.
+project-specific value. Requesting a larger `limit` returns
+`HTTP 422 Unprocessable Content`; do not raise it to cut down round trips.
 
 ## Join the HEAD/worktree review
 
@@ -153,6 +154,23 @@ DD_SNAPSHOT_PATH="$(jq -r '.snapshot_path' <<<"$DD_CONTINUE_RESPONSE")"
 DD_LAST_ACTIVITY_ID="$(jq -r '.last_activity_id' <<<"$DD_CONTINUE_RESPONSE")"
 ```
 
+The returned `snapshot_id` commonly differs from any Snapshot id you last
+quoted to a reviewer — the branch moves between rounds, and this is expected
+drift, not an error; always brief the reviewer with the fresh value.
+
+`DD_CONTINUE_RESPONSE` also carries `file_delta` (`added`/`changed`/`removed`
+captured paths versus the previous Snapshot) and `thread_delta` (authored
+Thread activity since the prior `last_activity_id`, bounded by `limit` and
+flagged incomplete by `has_more_thread_changes`):
+
+```sh
+jq '{file_delta, unresolved_thread_count, has_more_thread_changes}' \
+  <<<"$DD_CONTINUE_RESPONSE"
+```
+
+Point a resumed reviewer at `file_delta` directly instead of leaving it to
+re-enumerate the whole Snapshot.
+
 ## Read the author inbox
 
 ```sh
@@ -204,6 +222,13 @@ data. The sibling `left` and `right` files are the captured before/after pair;
 the opaque directory name is not a repository path.
 
 ## Post an author response
+
+`author-response` requires the target Thread to be `open` with `attention`
+in `{author, both}`. A Thread you already answered has `attention =
+reviewer` until the reviewer acts again; posting a second `author-response`
+to it fails with `state_conflict` ("... is not valid for this Thread
+outcome"). Select `DD_AUTHOR_THREAD_ID` from a fresh `DD_AUTHOR_THREADS` read,
+not a remembered inbox, if there is any chance the Thread already moved.
 
 Use a quoted heredoc for actual multiline text:
 
