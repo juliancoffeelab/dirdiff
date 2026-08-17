@@ -21,7 +21,7 @@ same result.
 
 ## Room and Thread boundary
 
-Room adds exactly three review operations:
+Room adds exactly four review operations:
 
 ```python
 threads(
@@ -35,22 +35,26 @@ threads(
 )
     -> tuple[tuple[Thread, ...], int, int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
+thread_for_comment(snapshot_id: UUID, comment_id: UUID) -> Thread
 create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
 ```
 
 The returned Thread performs `discussion`, compact `summary`, Comment
-add/edit/delete, and Thread resolve/reopen/delete. `discussion` retains
-placement, bounded original selected context, authored Comments, and lifecycle
-state. Current File content stays behind the explicit File read instead of a
-changed-region response. No operation changes the bound keys. Room does not interpret
-private source coordinates.
+add/edit/delete, and Thread resolve/reopen/delete; each existing-Thread write
+returns its bounded update view. `discussion` retains placement, bounded
+original selected context, authored Comments, and lifecycle state. Current
+File content stays behind the explicit File read instead of a changed-region
+response. No operation changes the bound keys. Room does not interpret
+private source coordinates. `thread_for_comment` serves Comment-addressed
+writes that know only the Comment key.
 
 `threads` bulk-loads placements, origins, actions, and Profiles. Thread objects in
 that result load only the selected Snapshot and distinct origin Snapshots they
-reference, and share request-scoped captured-text data. `get_thread` and each
-discussion write load only the selected placement, unique origin, that Thread's
-actions and authors, and the two exact Snapshot records they reference. A write
-validates and appends directly from the addressed actions under the Room
+reference, and share request-scoped captured-text data. `get_thread` returns a
+lightweight handle carrying the selected placement, unique origin, and that
+Thread's actions and authors; the referenced Snapshot File records load only
+when a read interprets placement, so write-only callers never pay for them. A
+write validates and appends directly from the addressed actions under the Room
 publication lock. Starting a Thread returns its bounded first discussion;
 existing-Thread actions return only current state and the one changed Comment.
 

@@ -52,8 +52,16 @@ threads(
     through_activity_id: int | None,
 ) -> tuple[tuple[Thread, ...], int, int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
+thread_for_comment(snapshot_id: UUID, comment_id: UUID) -> Thread
 create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
 ```
+
+A Room also continues its own persisted Tab. `capture_context()` exposes the
+persisted facts the HTTP boundary needs to construct the concrete backend and
+any prepared Pull Request commits; `recapture(backend, ...)` captures those
+inputs into a new Snapshot of the same Room; `path_for_snapshot(snapshot_id)`
+returns the already published durable directory of one of this Room's
+Snapshots. RoomLord itself only hands out Rooms.
 
 `manifested` yields repository-relative left/right Paths, including Files whose
 contents could not be captured. `get` accepts one such pair and returns absolute

@@ -101,12 +101,14 @@ Exposes `RoomLord` and `Room`. `RoomLord.corresponding_room` applies a Tab's law
 for the shared manifest/agent-review capture and returns the Room and current
 Snapshot key separately;
 `RoomLord.find_room` recovers a Room from an existing Snapshot key for follow-up
-operations. Room methods require that key explicitly while providing metadata,
-manifested filepath iteration, direct captured-file lookup, and the three
-Thread operations `threads`, `get_thread`, and `create_thread`. The agent
-boundary also uses explicit activity reads, an atomic review batch,
-persisted-Tab recapture, and read-only access to the already published Snapshot
-directory. Capture and
+operations. RoomLord does nothing beyond handing out Rooms. Room methods
+require that key explicitly while providing metadata, manifested filepath
+iteration, direct captured-file lookup, and Thread access through `threads`,
+`get_thread`, `thread_for_comment`, and `create_thread`; Comment and lifecycle
+writes belong to the returned bound Threads. The agent boundary also uses the
+Room's explicit activity reads, atomic review batch, persisted-Tab
+`capture_context` and `recapture`, and read-only `path_for_snapshot` access to the
+already published Snapshot directory. Capture and
 publication stores remain private. The module calls `dirdiff.db` and does not
 issue SQL.
 
@@ -117,10 +119,12 @@ The Room and Snapshot lifecycle is described in
 
 Implements persistent review discussions. Its public `Thread` is bound to one
 exact `(snapshot_id, thread_id)` pair and performs Comment and lifecycle
-operations through that placement. It selects the latest persisted lifecycle
-and attention outcome, folds Comment content, and reconstructs original code
-context as a bounded selected-side excerpt from immutable captured Files,
-independently of every rendering engine.
+operations through that placement, returning each write's bounded update view.
+The Thread is a lightweight handle: it loads its referenced Snapshot Files only
+when a read interprets placement, so writes never pay for File hydration. It
+selects the latest persisted lifecycle and attention outcome, folds Comment
+content, and reconstructs original code context as a bounded selected-side
+excerpt from immutable captured Files, independently of every rendering engine.
 
 The module privately derives missing placements only for a genuinely new
 Snapshot; selecting an equal retained Snapshot performs no derivation. Private
@@ -137,7 +141,7 @@ It validates HTTP inputs and outputs, constructs the concrete workspace backend,
 calls `RoomLord` for manifests and follow-up Snapshot lookup, selects engines,
 routes notebooks, and assembles response payloads. Snapshot-keyed browser review
 routes read one bounded Thread page and apply Profile-authored Thread and
-Comment actions directly to stored action sequences. Existing-Thread writes
+Comment actions through the Room's bound Threads. Existing-Thread writes
 return only current state and the changed Comment.
 Agent review routes register an ordinary Profile with its agent UUID, capture a
 logical Tab into the same Snapshot identity, expose captured changed Files on

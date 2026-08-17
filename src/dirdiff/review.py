@@ -71,14 +71,11 @@ __all__ = [
     "Thread",
     "ThreadDiscussionView",
     "ThreadSummaryView",
-    "ThreadUpdateView",
     # Room-facade internals: implemented here, consumed only by room_lord's
     # Room methods; every other module goes through the Room facade.
-    "append_review_action",
     "apply_review_batch",
     "create_thread",
     "derive_room_threads",
-    "fold_actions",
     "get_thread",
     "thread_objects",
 ]
@@ -293,10 +290,21 @@ class DeleteComment:
 
 @dataclass(frozen=True)
 class ChangeThreadState:
-    """Apply one Thread lifecycle transition."""
+    """Apply one Thread lifecycle transition, optionally with an explanation.
+
+    `comment_id` and `body` together carry one new Comment recorded with the
+    transition; both are `None` for a bare transition. Terminal deletion never
+    carries a Comment.
+    """
 
     operation_id: UUID
     author: ProfileAuthor
+    comment_id: Optional[UUID]
+    body: Optional[str]
+
+    def __post_init__(self) -> None:
+        """Require the explanation Comment id and body to arrive together."""
+        assert (self.comment_id is None) == (self.body is None)
 
 
 class ReviewProfileView(TypedDict):
@@ -1426,13 +1434,30 @@ def append_review_action(
         return (*actions, record), profiles
 
 
+@dataclass
+class _ThreadFiles:
+    """Hold the Snapshot File records one bound Thread locates code against.
+
+    `origin_file` is the origin Snapshot File behind the discussion;
+    `selected_file` is the selected-Snapshot File the placement locates, or
+    `None` for a file-missing placement whose absence the loading read has
+    verified. The cache bounds repeated captured-text reads for excerpts.
+    """
+
+    origin_file: SnapshotFileRecord
+    selected_file: Optional[SnapshotFileRecord]
+    cache: _ReviewReadCache
+
+
 class Thread:
     """Operate on one live discussion through one exact Snapshot.
 
-    The bound keys are immutable. Reads return placement for that Snapshot and
-    the latest shared discussion state. Every write reloads authoritative
-    actions under the Room publication lock, validates the requested action,
-    appends it, and returns a fresh complete view.
+    The bound keys are immutable. The object is a lightweight handle: reads
+    that interpret placement load their Snapshot Files on first use, while
+    writes never load Files at all. Every write reloads authoritative actions
+    under the Room publication lock, validates the requested action, appends
+    it, and returns the bounded authoritative update view the HTTP boundary
+    reports.
     """
 
     def __init__(
@@ -1448,16 +1473,13 @@ class Thread:
         origin: ReviewThreadRecord,
         actions: tuple[ReviewActionRecord, ...],
         profiles: dict[int, UserProfileRecord],
-        origin_file: SnapshotFileRecord,
-        selected_file: Optional[SnapshotFileRecord],
-        cache: _ReviewReadCache,
+        files: Optional[_ThreadFiles],
     ) -> None:
-        """Bind one Thread to exactly the Files its placement references.
+        """Bind one Thread to its placement and optionally preloaded Files.
 
-        `origin_file` is the origin Snapshot File behind the discussion;
-        `selected_file` is the selected-Snapshot File the placement locates,
-        or `None` for a file-missing placement whose absence the hydration
-        boundary has already verified.
+        `files` carries the referenced Snapshot Files when the caller already
+        loaded them in bulk; `None` defers that single focused read to the
+        first placement-interpreting read on this handle.
         """
         self.snapshot_id = snapshot_id
         self.thread_id = thread_id
@@ -1469,9 +1491,9 @@ class Thread:
         self._origin = origin
         self._action_records = actions
         self._profiles = profiles
-        self._origin_file = origin_file
-        self._selected_file = selected_file
-        self._cache = cache
+        # Mutated once by `_located_files` when constructed deferred; every
+        # later locating read reuses the same loaded records and cache.
+        self._files = files
 
     def _records(self) -> tuple[ReviewThreadRecord, ReviewThreadRecord]:
         """Return this bound placement and the discussion's unique origin."""
@@ -1484,23 +1506,67 @@ class Thread:
         )
         return self._action_records
 
+    def _located_files(self) -> _ThreadFiles:
+        """Load and retain the placement's Snapshot Files on first use.
+
+        Handles constructed without preloaded Files pay this one focused read
+        the first time a read interprets placement; the same read doubles as
+        the file-missing absence proof. Writes never call this.
+        """
+        if self._files is None:
+            placement, origin = self._records()
+            assert origin.snapshot_file_id is not None, (
+                "review origin has no Snapshot File"
+            )
+            origin_ref = (origin.snapshot_id, origin.snapshot_file_id)
+            selected_ids: tuple[str, ...] = ()
+            absent_refs: tuple[tuple[str, str], ...] = ()
+            if placement.snapshot_file_id is not None:
+                selected_ids = (placement.snapshot_file_id,)
+            else:
+                absent_refs = (origin_ref,)
+            origin_files, selected_files, conflicts = (
+                self._database.review_thread_files(
+                    self.snapshot_id.hex,
+                    (origin_ref,),
+                    selected_ids,
+                    absent_refs,
+                )
+            )
+            assert conflicts == (), (
+                "file_missing placement has an exact Snapshot File"
+            )
+            selected_file: Optional[SnapshotFileRecord] = None
+            if placement.snapshot_file_id is not None:
+                selected_file = selected_files.get(placement.snapshot_file_id)
+                assert selected_file is not None, (
+                    "located placement has no exact Snapshot File"
+                )
+            self._files = _ThreadFiles(
+                origin_file=origin_files[origin_ref],
+                selected_file=selected_file,
+                cache=_ReviewReadCache({}),
+            )
+        return self._files
+
     def _locate(self) -> Optional[dict[str, object]]:
         """Fold placement facts into the public code location, if located.
 
-        `None` means the placement is file-missing; the hydration boundary
+        `None` means the placement is file-missing; the File-loading read
         has already verified no selected-Snapshot File carries the origin
         pair, so absence here is an invariant, not a substitute.
         """
         placement, origin = self._records()
         assert origin.snapshot_file_id is not None
-        origin_file = self._origin_file
+        files = self._located_files()
+        origin_file = files.origin_file
         if placement.snapshot_file_id is None:
             assert placement.outdated_reason == "file_missing"
-            assert self._selected_file is None, (
+            assert files.selected_file is None, (
                 "file_missing placement has an exact Snapshot File"
             )
             return None
-        target_file = self._selected_file
+        target_file = files.selected_file
         assert target_file is not None, (
             "located placement has no exact Snapshot File"
         )
@@ -1545,8 +1611,9 @@ class Thread:
         placement, origin = self._records()
         actions = self._actions()
         state, attention, comments = fold_actions(actions, self._profiles)
+        files = self._located_files()
         original_excerpt = (
-            _build_original_excerpt(origin, self._origin_file, self._cache)
+            _build_original_excerpt(origin, files.origin_file, files.cache)
             if origin.target_kind == "range"
             else None
         )
@@ -1557,7 +1624,7 @@ class Thread:
             state=state,
             attention=attention,
             discussion_revision=len(actions) - 1,
-            origin_target=_origin_target_dict(origin, self._origin_file),
+            origin_target=_origin_target_dict(origin, files.origin_file),
             code_location=self._locate(),
             outdated_reason=placement.outdated_reason,
             original_excerpt=original_excerpt,
@@ -1599,8 +1666,9 @@ class Thread:
         ],
         comment_id: Optional[UUID],
         body: Optional[str],
-    ) -> Thread:
-        """Validate, append, and return the bound Thread with write outcome."""
+        comment_attention: Literal["inert", "alert"],
+    ) -> ThreadUpdateView:
+        """Validate, append, and return the write's bounded update view."""
         actions, profiles = append_review_action(
             database=self._database,
             snapshot_id=self.snapshot_id,
@@ -1610,7 +1678,7 @@ class Thread:
             kind=kind,
             comment_id=comment_id,
             body=body,
-            comment_attention="inert",
+            comment_attention=comment_attention,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
@@ -1618,31 +1686,65 @@ class Thread:
         # current Profile names change after an accepted write.
         self._action_records = actions
         self._profiles = profiles
-        return self
+        # The HTTP boundary is the one consumer of the update view, so every
+        # write folds the bounded view it reports instead of rehydrating
+        # placement.
+        state, attention, comments = fold_actions(actions, profiles)
+        comment = (
+            next(
+                folded
+                for folded in comments
+                if folded["comment_id"] == comment_id.hex
+            )
+            if comment_id is not None
+            else None
+        )
+        return ThreadUpdateView(
+            thread_id=self.thread_id.hex,
+            snapshot_id=self.snapshot_id.hex,
+            state=state,
+            attention=attention,
+            discussion_revision=len(actions) - 1,
+            comment=comment,
+        )
 
-    def add_comment(self, command: AddComment) -> Thread:
-        """Append one Comment and return the authoritative bound Thread."""
+    def add_comment(
+        self,
+        command: AddComment,
+        *,
+        attention: Literal["inert", "alert"],
+    ) -> ThreadUpdateView:
+        """Append one Comment and return the authoritative update view.
+
+        `attention` is the posting instrument: `alert` raises both-role
+        attention with the new Comment, `inert` leaves folded attention
+        unchanged.
+        """
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
             kind="comment-created",
             comment_id=command.comment_id,
             body=command.body,
+            comment_attention=attention,
         )
 
-    def edit_comment(self, comment_id: UUID, command: EditComment) -> Thread:
-        """Edit one authored Comment and return the authoritative Thread."""
+    def edit_comment(
+        self, comment_id: UUID, command: EditComment
+    ) -> ThreadUpdateView:
+        """Edit one authored Comment and return the update view."""
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
             kind="comment-edited",
             comment_id=comment_id,
             body=command.body,
+            comment_attention="inert",
         )
 
     def delete_comment(
         self, comment_id: UUID, command: DeleteComment
-    ) -> Thread:
+    ) -> ThreadUpdateView:
         """Tombstone one Comment and retain the acting Profile attribution."""
         return self._append(
             operation_id=command.operation_id,
@@ -1650,36 +1752,43 @@ class Thread:
             kind="comment-deleted",
             comment_id=comment_id,
             body=None,
+            comment_attention="inert",
         )
 
-    def resolve(self, command: ChangeThreadState) -> Thread:
-        """Resolve an open discussion and return the authoritative Thread."""
+    def resolve(self, command: ChangeThreadState) -> ThreadUpdateView:
+        """Resolve an open discussion and return the update view."""
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
             kind="thread-resolved",
-            comment_id=None,
-            body=None,
+            comment_id=command.comment_id,
+            body=command.body,
+            comment_attention="inert",
         )
 
-    def reopen(self, command: ChangeThreadState) -> Thread:
-        """Reopen a resolved discussion and return the authoritative Thread."""
+    def reopen(self, command: ChangeThreadState) -> ThreadUpdateView:
+        """Reopen a resolved discussion and return the update view."""
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
             kind="thread-reopened",
-            comment_id=None,
-            body=None,
+            comment_id=command.comment_id,
+            body=command.body,
+            comment_attention="inert",
         )
 
-    def delete(self, command: ChangeThreadState) -> Thread:
-        """Record terminal deletion and return the authoritative Thread."""
+    def delete(self, command: ChangeThreadState) -> ThreadUpdateView:
+        """Record terminal deletion and return the update view."""
+        assert command.comment_id is None, (
+            "Thread deletion never carries a Comment."
+        )
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
             kind="thread-deleted",
             comment_id=None,
             body=None,
+            comment_attention="inert",
         )
 
 
@@ -1815,11 +1924,13 @@ def _bind_threads(
                 origin=origin,
                 actions=tuple(actions[origin.thread_id]),
                 profiles=profiles,
-                origin_file=origin_files[
-                    (origin.snapshot_id, origin.snapshot_file_id)
-                ],
-                selected_file=selected_file,
-                cache=cache,
+                files=_ThreadFiles(
+                    origin_file=origin_files[
+                        (origin.snapshot_id, origin.snapshot_file_id)
+                    ],
+                    selected_file=selected_file,
+                    cache=cache,
+                ),
             )
         )
     return tuple(threads)
@@ -1834,7 +1945,12 @@ def get_thread(
     lock_path: Path,
     thread_lock: Lock,
 ) -> Thread:
-    """Return one exact bound Thread or report that it does not exist."""
+    """Return one exact bound Thread or report that it does not exist.
+
+    The returned handle carries placement and the action fold; it loads its
+    Snapshot Files only when a read interprets placement, so write-only
+    callers never pay for File hydration.
+    """
     data = database.review_thread(
         identity,
         snapshot_id.hex,
@@ -1847,16 +1963,23 @@ def get_thread(
             "thread_not_found", f"Unknown Thread: {thread_id.hex}"
         )
     assert len(data.threads) == len(data.origins) == 1
-    threads = _bind_threads(
+    profiles = {profile.id: profile for profile in data.profiles}
+    assert len(profiles) == len(data.profiles), (
+        "review read contains duplicate Profiles"
+    )
+    return Thread(
         database=database,
         identity=identity,
         snapshot_id=snapshot_id,
-        data=data,
+        thread_id=thread_id,
         lock_path=lock_path,
         thread_lock=thread_lock,
+        placement=data.threads[0],
+        origin=data.origins[0],
+        actions=data.actions,
+        profiles=profiles,
+        files=None,
     )
-    assert len(threads) == 1
-    return threads[0]
 
 
 def derive_room_threads(
@@ -2150,9 +2273,11 @@ def create_thread(
             profiles={profile.id: profile},
             # A new Thread's origin Snapshot is the selected Snapshot, so one
             # File serves both bindings.
-            origin_file=created_file,
-            selected_file=created_file,
-            cache=cache,
+            files=_ThreadFiles(
+                origin_file=created_file,
+                selected_file=created_file,
+                cache=cache,
+            ),
         )
 
 

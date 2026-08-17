@@ -3,12 +3,13 @@
 `RoomLord.corresponding_room` applies the active Tab's law for an explicit
 capture and returns a `Room` plus the current Snapshot key.
 `RoomLord.find_room` recovers the containing Room from an existing key for
-follow-up operations. A Room contains Snapshots and Threads. It exposes
-Snapshot metadata, repository-relative filepath pairs, direct lookup of the
-absolute captured files, and `threads`, `get_thread`, and `create_thread` under
-a caller-supplied Snapshot key; it never retains a selected key itself. A bound
-Thread performs Comment and lifecycle operations and privately interprets its
-placement.
+follow-up operations; RoomLord does nothing else. A Room contains Snapshots
+and Threads. It exposes Snapshot metadata, repository-relative filepath pairs,
+direct lookup of the absolute captured files, Thread access, and continuation
+of its own persisted Tab (`capture_context`, `recapture`, `path_for_snapshot`)
+under a caller-supplied Snapshot key; it never retains a selected key itself.
+A bound Thread performs Comment and lifecycle operations and privately
+interprets its placement.
 
 The private store captures affected files, hashes their contents, publishes
 immutable directories, and delegates relational work to `RoomStore`. Neither
@@ -50,17 +51,13 @@ from dirdiff.db import (
 from dirdiff.engines import DirdiffError
 from dirdiff.review import (
     CreateThread,
-    ProfileAuthor,
     ReviewBatchAction,
     ReviewBatchResult,
     ReviewError,
     Thread,
-    ThreadUpdateView,
-    append_review_action,
     apply_review_batch,
     create_thread,
     derive_room_threads,
-    fold_actions,
     get_thread,
     thread_objects,
 )
@@ -217,13 +214,16 @@ class SnapshotFileDelta(TypedDict):
 
 
 class Room:
-    """Provide Snapshots and Threads for one correspondence-selected Room.
+    """Own one correspondence-selected Room's Snapshots and hand out Threads.
 
-    `meta`, `manifested`, `get`, `threads`, `get_thread`, and `create_thread`
-    require the exact Snapshot key on every call. Returned bound Threads perform
-    Comment and lifecycle operations and privately interpret their placements;
-    Room does neither. The class never stores a selected Snapshot id or exposes
-    its private publication store.
+    Snapshot reads (`meta`, `manifested`, `get`, `file_delta`, the captured-file
+    lookups) and Thread access (`threads`, `get_thread`, `thread_for_comment`,
+    `create_thread`, `apply_review_batch`, the activity reads) require the exact
+    Snapshot key on every call. Comment and lifecycle writes are the returned
+    bound Threads' responsibility; Room only locates and constructs them.
+    `capture_context`, `recapture`, and `path_for_snapshot` continue this Room's
+    persisted Tab with new captures. The class never stores a selected Snapshot
+    id or exposes its private publication store.
     """
 
     def __init__(
@@ -231,6 +231,8 @@ class Room:
         *,
         database: RoomStore,
         identity: RoomIdentity,
+        staging_path: Path,
+        snapshots_path: Path,
         lock_path: Path,
         thread_lock: Lock,
     ) -> None:
@@ -238,10 +240,13 @@ class Room:
 
         Only `RoomLord` constructs this object. The supplied identity limits
         every relational read to this Room but does not select a Snapshot;
-        callers must pass the exact key to every public read.
+        callers must pass the exact key to every public read. The store paths
+        locate this Room's durable Snapshot directories and staging area.
         """
         self._database = database
         self._identity = identity
+        self._staging_path = staging_path
+        self._snapshots_path = snapshots_path
         self._lock_path = lock_path
         self._thread_lock = thread_lock
 
@@ -628,63 +633,13 @@ class Room:
             thread_lock=self._thread_lock,
         )
 
-    def _write_thread_action(
-        self,
-        snapshot_id: UUID,
-        thread_id: UUID,
-        operation_id: UUID,
-        author: ProfileAuthor,
-        kind: Literal[
-            "comment-created",
-            "comment-edited",
-            "comment-deleted",
-            "thread-resolved",
-            "thread-reopened",
-            "thread-deleted",
-        ],
-        comment_id: Optional[UUID],
-        body: Optional[str],
-        comment_attention: Literal["inert", "alert"] = "inert",
-    ) -> ThreadUpdateView:
-        """Append one HTTP action and return its bounded authoritative update."""
-        actions, profiles = append_review_action(
-            database=self._database,
-            snapshot_id=snapshot_id,
-            thread_id=thread_id,
-            operation_id=operation_id,
-            author=author,
-            kind=kind,
-            comment_id=comment_id,
-            body=body,
-            comment_attention=comment_attention,
-            lock_path=self._lock_path,
-            thread_lock=self._thread_lock,
-        )
-        # This HTTP boundary is the one consumer of the update view, so the
-        # fold that builds it lives here rather than inside the write.
-        state, attention, comments = fold_actions(actions, profiles)
-        comment = (
-            next(
-                folded
-                for folded in comments
-                if folded["comment_id"] == comment_id.hex
-            )
-            if comment_id is not None
-            else None
-        )
-        return ThreadUpdateView(
-            thread_id=thread_id.hex,
-            snapshot_id=snapshot_id.hex,
-            state=state,
-            attention=attention,
-            discussion_revision=len(actions) - 1,
-            comment=comment,
-        )
+    def thread_for_comment(self, snapshot_id: UUID, comment_id: UUID) -> Thread:
+        """Return the bound Thread whose discussion contains one exact Comment.
 
-    def _thread_id_for_comment(
-        self, snapshot_id: UUID, comment_id: UUID
-    ) -> UUID:
-        """Return the placed Thread containing one exact Comment."""
+        Comment-addressed HTTP writes know only the Comment key; this lookup
+        locates its placed Thread in the exact Snapshot and returns it bound,
+        or rejects an unknown Comment.
+        """
         thread_id = self._database.review_thread_for_comment(
             snapshot_id.hex, comment_id.hex
         )
@@ -692,7 +647,7 @@ class Room:
             raise ReviewError(
                 "comment_not_found", f"Unknown Comment: {comment_id.hex}"
             )
-        return UUID(hex=thread_id)
+        return self.get_thread(snapshot_id, UUID(hex=thread_id))
 
     def create_thread(
         self,
@@ -766,6 +721,173 @@ class Room:
             thread_lock=self._thread_lock,
         )
 
+    def capture_context(self) -> RoomCaptureContext:
+        """Return the repository context required to continue this Room.
+
+        The HTTP boundary needs the Mark and any Pull Request URL to construct
+        the concrete backend and prepared commits before `recapture` runs.
+        Preset Rooms have no repository to continue and are rejected.
+        """
+        identity = self._identity
+        if identity.mark_id is None or identity.tab == "preset":
+            raise DirdiffError("Agent review does not support preset Rooms.")
+        try:
+            correspondence = json.loads(identity.correspondence_key)
+        except (TypeError, ValueError) as exc:
+            raise AssertionError(
+                "invalid persisted Room correspondence"
+            ) from exc
+        match identity.tab:
+            case "head" | "refs" | "branch-review":
+                assert isinstance(correspondence, dict)
+                tab: Literal[
+                    "head", "refs", "branch-review", "pull-request"
+                ] = identity.tab
+                pull_request_url = None
+            case "pull-request":
+                tab = "pull-request"
+                assert isinstance(correspondence, str) and correspondence != ""
+                pull_request_url = correspondence
+            case _:
+                raise AssertionError(
+                    f"invalid persisted Room Tab: {identity.tab!r}"
+                )
+        return {
+            "tab": tab,
+            "mark_id": identity.mark_id,
+            "pull_request_url": pull_request_url,
+        }
+
+    def recapture(
+        self,
+        backend: WorkspaceBackendProtocol,
+        *,
+        pull_request_left: Optional[str] = None,
+        pull_request_right: Optional[str] = None,
+    ) -> UUID:
+        """Capture this Room's persisted Tab context into a new Snapshot.
+
+        The concrete backend comes from the HTTP boundary's active Mark. A Pull
+        Request continuation must supply the newly prepared complete commits;
+        other Tabs reject them. The new Snapshot remains in this exact Room.
+        """
+        identity = self._identity
+        if identity.mark_id is None or identity.tab == "preset":
+            raise DirdiffError("Agent review does not support preset Rooms.")
+        try:
+            correspondence = json.loads(identity.correspondence_key)
+        except (TypeError, ValueError) as exc:
+            raise AssertionError(
+                "invalid persisted Room correspondence"
+            ) from exc
+        assert isinstance(backend, GitBackend)
+        left_side: str
+        right_side: str
+
+        if identity.tab == "pull-request":
+            assert isinstance(correspondence, str) and correspondence != ""
+        else:
+            assert isinstance(correspondence, dict)
+
+        def persisted_branch(value: object) -> BranchSelection:
+            """Validate one structured branch stored in correspondence JSON."""
+            assert isinstance(value, dict)
+            source = value.get("source")
+            branch = value.get("branch")
+            assert isinstance(branch, str) and branch != ""
+            if source == "local":
+                return {"source": "local", "branch": branch}
+            assert source == "remote"
+            remote = value.get("remote")
+            assert isinstance(remote, str) and remote != ""
+            return {
+                "source": "remote",
+                "remote": remote,
+                "branch": branch,
+            }
+
+        if identity.tab == "head":
+            assert pull_request_left is None and pull_request_right is None
+            stored_commit = correspondence.get("commit")
+            assert isinstance(stored_commit, str) and stored_commit != ""
+            left_side = stored_commit
+            right_side = "worktree"
+            left_label = "HEAD"
+            right_label = "worktree"
+            show_untracked = True
+        elif identity.tab == "refs":
+            assert pull_request_left is None and pull_request_right is None
+            stored_left = correspondence.get("left")
+            stored_right = correspondence.get("right")
+            assert isinstance(stored_left, str) and stored_left != ""
+            assert isinstance(stored_right, str) and stored_right != ""
+            left_side = stored_left
+            right_side = stored_right
+            left_label = left_side
+            right_label = right_side
+            show_untracked = False
+        elif identity.tab == "branch-review":
+            assert pull_request_left is None and pull_request_right is None
+            base_value = correspondence.get("base")
+            review_value = correspondence.get("review")
+            resolved_base, left_side, review_side, right_side = (
+                backend.resolve_branch_diff_sides(
+                    base_selection=persisted_branch(base_value),
+                    review_selection=persisted_branch(review_value),
+                )
+            )
+            left_label = f"{resolved_base.strip()}...{review_side}"
+            right_label = review_side
+            show_untracked = False
+        else:
+            assert identity.tab == "pull-request"
+            if pull_request_left is None or pull_request_right is None:
+                raise DirdiffError(
+                    "Pull Request continuation requires prepared commits."
+                )
+            left_side = backend.commit_id(pull_request_left)
+            right_side = backend.commit_id(pull_request_right)
+            if (
+                left_side != pull_request_left
+                or right_side != pull_request_right
+            ):
+                raise DirdiffError(
+                    "Pull Request continuation requires complete commit ids."
+                )
+            left_label = left_side
+            right_label = right_side
+            show_untracked = False
+
+        store = _SnapshotStore(
+            database=self._database,
+            staging_path=self._staging_path,
+            snapshots_path=self._snapshots_path,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
+            identity=identity,
+        )
+        return store.capture(
+            backend=backend,
+            left_side=left_side,
+            right_side=right_side,
+            left_label=left_label,
+            right_label=right_label,
+            show_untracked=show_untracked,
+        )
+
+    def path_for_snapshot(self, snapshot_id: UUID) -> Path:
+        """Return the existing durable directory of one captured Snapshot.
+
+        The key must identify a persisted Snapshot of this Room. This read
+        exposes the directory already published by ordinary Snapshot capture
+        and creates no file, directory, link, row, or alternative
+        representation.
+        """
+        self.meta(snapshot_id)
+        path = self._snapshots_path / snapshot_id.hex
+        assert path.is_dir(), f"Snapshot directory is missing: {path}"
+        return path
+
 
 class RoomLord:
     """Apply the active Tab's law of correspondence and return a Room.
@@ -773,7 +895,8 @@ class RoomLord:
     `corresponding_room` applies the law for one explicit capture and returns
     both the Room and the captured Snapshot key. `find_room` uses an existing
     Snapshot key to recover its Room for follow-up operations. Neither method
-    exposes the private Snapshot store.
+    exposes the private Snapshot store; every other Room operation belongs to
+    the returned Room.
     """
 
     def __init__(self, database: RoomStore, store_path: Path) -> None:
@@ -965,6 +1088,8 @@ class RoomLord:
         return Room(
             database=self._database,
             identity=identity,
+            staging_path=self._staging_path,
+            snapshots_path=self._snapshots_path,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         ), snapshot_id
@@ -992,192 +1117,19 @@ class RoomLord:
         return Room(
             database=self._database,
             identity=identity,
-            lock_path=self._lock_path,
-            thread_lock=self._thread_lock,
-        )
-
-    def capture_context(self, snapshot_id: UUID) -> RoomCaptureContext:
-        """Return the repository context required to continue one Snapshot."""
-        identity = self._database.room_identity(snapshot_id.hex)
-        if identity is None:
-            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        if identity.mark_id is None or identity.tab == "preset":
-            raise DirdiffError("Agent review does not support preset Rooms.")
-        try:
-            correspondence = json.loads(identity.correspondence_key)
-        except (TypeError, ValueError) as exc:
-            raise AssertionError(
-                "invalid persisted Room correspondence"
-            ) from exc
-        match identity.tab:
-            case "head" | "refs" | "branch-review":
-                assert isinstance(correspondence, dict)
-                tab: Literal[
-                    "head", "refs", "branch-review", "pull-request"
-                ] = identity.tab
-                pull_request_url = None
-            case "pull-request":
-                tab = "pull-request"
-                assert isinstance(correspondence, str) and correspondence != ""
-                pull_request_url = correspondence
-            case _:
-                raise AssertionError(
-                    f"invalid persisted Room Tab: {identity.tab!r}"
-                )
-        return {
-            "tab": tab,
-            "mark_id": identity.mark_id,
-            "pull_request_url": pull_request_url,
-        }
-
-    def recapture(
-        self,
-        snapshot_id: UUID,
-        backend: WorkspaceBackendProtocol,
-        *,
-        pull_request_left: Optional[str] = None,
-        pull_request_right: Optional[str] = None,
-    ) -> tuple[Room, UUID]:
-        """Capture the persisted Tab context of one existing Snapshot.
-
-        The concrete backend comes from the HTTP boundary's active Mark. A Pull
-        Request continuation must supply the newly prepared complete commits;
-        other Tabs reject them. The new Snapshot remains in the exact Room.
-        """
-        identity = self._database.room_identity(snapshot_id.hex)
-        if identity is None:
-            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        if identity.mark_id is None or identity.tab == "preset":
-            raise DirdiffError("Agent review does not support preset Rooms.")
-        try:
-            correspondence = json.loads(identity.correspondence_key)
-        except (TypeError, ValueError) as exc:
-            raise AssertionError(
-                "invalid persisted Room correspondence"
-            ) from exc
-        assert isinstance(backend, GitBackend)
-        left_side: str
-        right_side: str
-
-        if identity.tab == "pull-request":
-            assert isinstance(correspondence, str) and correspondence != ""
-        else:
-            assert isinstance(correspondence, dict)
-
-        def persisted_branch(value: object) -> BranchSelection:
-            """Validate one structured branch stored in correspondence JSON."""
-            assert isinstance(value, dict)
-            source = value.get("source")
-            branch = value.get("branch")
-            assert isinstance(branch, str) and branch != ""
-            if source == "local":
-                return {"source": "local", "branch": branch}
-            assert source == "remote"
-            remote = value.get("remote")
-            assert isinstance(remote, str) and remote != ""
-            return {
-                "source": "remote",
-                "remote": remote,
-                "branch": branch,
-            }
-
-        if identity.tab == "head":
-            assert pull_request_left is None and pull_request_right is None
-            stored_commit = correspondence.get("commit")
-            assert isinstance(stored_commit, str) and stored_commit != ""
-            left_side = stored_commit
-            right_side = "worktree"
-            left_label = "HEAD"
-            right_label = "worktree"
-            show_untracked = True
-        elif identity.tab == "refs":
-            assert pull_request_left is None and pull_request_right is None
-            stored_left = correspondence.get("left")
-            stored_right = correspondence.get("right")
-            assert isinstance(stored_left, str) and stored_left != ""
-            assert isinstance(stored_right, str) and stored_right != ""
-            left_side = stored_left
-            right_side = stored_right
-            left_label = left_side
-            right_label = right_side
-            show_untracked = False
-        elif identity.tab == "branch-review":
-            assert pull_request_left is None and pull_request_right is None
-            base_value = correspondence.get("base")
-            review_value = correspondence.get("review")
-            resolved_base, left_side, review_side, right_side = (
-                backend.resolve_branch_diff_sides(
-                    base_selection=persisted_branch(base_value),
-                    review_selection=persisted_branch(review_value),
-                )
-            )
-            left_label = f"{resolved_base.strip()}...{review_side}"
-            right_label = review_side
-            show_untracked = False
-        else:
-            assert identity.tab == "pull-request"
-            if pull_request_left is None or pull_request_right is None:
-                raise DirdiffError(
-                    "Pull Request continuation requires prepared commits."
-                )
-            left_side = backend.commit_id(pull_request_left)
-            right_side = backend.commit_id(pull_request_right)
-            if (
-                left_side != pull_request_left
-                or right_side != pull_request_right
-            ):
-                raise DirdiffError(
-                    "Pull Request continuation requires complete commit ids."
-                )
-            left_label = left_side
-            right_label = right_side
-            show_untracked = False
-
-        store = _SnapshotStore(
-            database=self._database,
             staging_path=self._staging_path,
             snapshots_path=self._snapshots_path,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
-            identity=identity,
         )
-        captured_id = store.capture(
-            backend=backend,
-            left_side=left_side,
-            right_side=right_side,
-            left_label=left_label,
-            right_label=right_label,
-            show_untracked=show_untracked,
-        )
-        return (
-            Room(
-                database=self._database,
-                identity=identity,
-                lock_path=self._lock_path,
-                thread_lock=self._thread_lock,
-            ),
-            captured_id,
-        )
-
-    def snapshot_path(self, snapshot_id: UUID) -> Path:
-        """Return the existing durable directory of one captured Snapshot.
-
-        The key must identify a persisted Snapshot. This read exposes the
-        directory already published by ordinary Snapshot capture and creates no
-        file, directory, link, row, or alternative representation.
-        """
-        self.find_room(snapshot_id)
-        path = self._snapshots_path / snapshot_id.hex
-        assert path.is_dir(), f"Snapshot directory is missing: {path}"
-        return path
 
 
 class _SnapshotStore:
     """Implement immutable Snapshot capture for one private Room.
 
-    `RoomLord` constructs and calls the store while applying correspondence.
-    It manages publication directories, locking, relational records, and digest
-    validation; returned `Room` objects and API code never receive it.
+    `RoomLord.corresponding_room` and `Room.recapture` construct and call the
+    store for exactly one capture. It manages publication directories, locking,
+    relational records, and digest validation; API code never receives it.
     """
 
     def __init__(

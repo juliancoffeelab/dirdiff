@@ -111,7 +111,9 @@ from dirdiff.review import (
     AddComment,
     ChangeThreadState,
     CreateThread,
+    DeleteComment,
     DeleteThread,
+    EditComment,
     FilePair,
     LineRange,
     NotebookCellSourceRegion,
@@ -2310,15 +2312,16 @@ def create_app(
                     ),
                 )
                 return ReviewThreadResponse.model_validate(thread.discussion())
-            update = room._write_thread_action(
-                snapshot_id,
-                UUID(hex=request.thread_id),
-                uuid4(),
-                ProfileAuthor(request.profile_id),
-                "comment-created",
-                uuid4(),
-                request.body,
-                request.attention,
+            update = room.get_thread(
+                snapshot_id, UUID(hex=request.thread_id)
+            ).add_comment(
+                AddComment(
+                    uuid4(),
+                    uuid4(),
+                    ProfileAuthor(request.profile_id),
+                    request.body,
+                ),
+                attention=request.attention,
             )
             return ReviewThreadUpdateResponse.model_validate(update)
         except ReviewError as exc:
@@ -2341,18 +2344,15 @@ def create_app(
         try:
             snapshot_id = UUID(hex=request.snapshot_id)
             room = room_lord.find_room(snapshot_id)
-            thread_id = room._thread_id_for_comment(
-                snapshot_id, UUID(hex=request.comment_id)
-            )
+            comment_id = UUID(hex=request.comment_id)
             return ReviewThreadUpdateResponse.model_validate(
-                room._write_thread_action(
-                    snapshot_id,
-                    thread_id,
-                    uuid4(),
-                    ProfileAuthor(request.profile_id),
-                    "comment-edited",
-                    UUID(hex=request.comment_id),
-                    request.body,
+                room.thread_for_comment(snapshot_id, comment_id).edit_comment(
+                    comment_id,
+                    EditComment(
+                        uuid4(),
+                        ProfileAuthor(request.profile_id),
+                        request.body,
+                    ),
                 )
             )
         except ReviewError as exc:
@@ -2375,18 +2375,11 @@ def create_app(
         try:
             snapshot_id = UUID(hex=request.snapshot_id)
             room = room_lord.find_room(snapshot_id)
-            thread_id = room._thread_id_for_comment(
-                snapshot_id, UUID(hex=request.comment_id)
-            )
+            comment_id = UUID(hex=request.comment_id)
             return ReviewThreadUpdateResponse.model_validate(
-                room._write_thread_action(
-                    snapshot_id,
-                    thread_id,
-                    uuid4(),
-                    ProfileAuthor(request.profile_id),
-                    "comment-deleted",
-                    UUID(hex=request.comment_id),
-                    None,
+                room.thread_for_comment(snapshot_id, comment_id).delete_comment(
+                    comment_id,
+                    DeleteComment(uuid4(), ProfileAuthor(request.profile_id)),
                 )
             )
         except ReviewError as exc:
@@ -2406,29 +2399,26 @@ def create_app(
             snapshot_id = UUID(hex=request.snapshot_id)
             thread_id = UUID(hex=request.thread_id)
             room = room_lord.find_room(snapshot_id)
-            kind: Literal[
-                "thread-resolved", "thread-reopened", "thread-deleted"
-            ]
-            if action == "resolve":
-                kind = "thread-resolved"
-            elif action == "reopen":
-                kind = "thread-reopened"
-            else:
-                kind = "thread-deleted"
+            thread = room.get_thread(snapshot_id, thread_id)
+            # Only resolve and reopen requests can carry an explanation
+            # Comment; deletion has no body field and never creates one.
             body = (
                 request.body
                 if isinstance(request, ChangeReviewThreadStateRequest)
                 else None
             )
-            updated = room._write_thread_action(
-                snapshot_id,
-                thread_id,
+            command = ChangeThreadState(
                 uuid4(),
                 ProfileAuthor(request.profile_id),
-                kind,
                 uuid4() if body is not None else None,
                 body,
             )
+            if action == "resolve":
+                updated = thread.resolve(command)
+            elif action == "reopen":
+                updated = thread.reopen(command)
+            else:
+                updated = thread.delete(command)
             return ReviewThreadUpdateResponse.model_validate(updated)
         except ReviewError as exc:
             raise review_http_exception(exc) from exc
@@ -2560,7 +2550,7 @@ def create_app(
                 profile_id=profile.id,
                 snapshot_id=snapshot_id.hex,
                 last_activity_id=last_activity_id,
-                snapshot_path=str(room_lord.snapshot_path(snapshot_id)),
+                snapshot_path=str(room.path_for_snapshot(snapshot_id)),
                 attention_counts=room.review_attention_counts(
                     snapshot_id, last_activity_id
                 ),
@@ -2695,7 +2685,8 @@ def create_app(
         """Recapture one Tab and return its bounded File and Thread changes."""
         try:
             previous_id = UUID(hex=request.snapshot_id)
-            context = room_lord.capture_context(previous_id)
+            room = room_lord.find_room(previous_id)
+            context = room.capture_context()
             mark = db.get(context["mark_id"])
             if mark is None:
                 raise DirdiffError("Snapshot Mark no longer exists.")
@@ -2707,15 +2698,14 @@ def create_app(
                 )
                 if prepared.project_id != mark.id:
                     raise DirdiffError("Pull Request Mark changed.")
-                room, snapshot_id = room_lord.recapture(
-                    previous_id,
+                snapshot_id = room.recapture(
                     backend,
                     pull_request_left=prepared.left_commit,
                     pull_request_right=prepared.right_commit,
                 )
             else:
-                room, snapshot_id = room_lord.recapture(previous_id, backend)
-            snapshot_path = room_lord.snapshot_path(snapshot_id)
+                snapshot_id = room.recapture(backend)
+            snapshot_path = room.path_for_snapshot(snapshot_id)
 
             file_delta = room.file_delta(previous_id, snapshot_id)
             actions, has_more, unresolved_count, profiles = room.continuation(
@@ -2906,7 +2896,7 @@ def create_app(
                     batch.append(
                         DeleteThread(
                             UUID(hex=action.thread_id),
-                            ChangeThreadState(operation_id, author),
+                            ChangeThreadState(operation_id, author, None, None),
                         )
                     )
             results = room.apply_review_batch(snapshot_id, tuple(batch))
