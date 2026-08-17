@@ -15,6 +15,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
+from operator import itemgetter
 from typing import Any, Literal, TypedDict, TypeIs, get_args
 
 from tree_sitter import Language, Parser, Query, QueryCursor
@@ -195,11 +196,16 @@ def weave_decorated_parts(
         assert inline_token["is_ws"] == token_text.isspace(), (
             "Inline diff token whitespace metadata must match its text."
         )
+        # Offset startswith checks each token in place, so the full
+        # reconstruction invariant holds without rebuilding the row string.
+        assert text.startswith(token_text, token_cursor), (
+            "Inline diff tokens must reconstruct their complete row text."
+        )
         token_end = token_cursor + len(token_text)
         token_intervals.append((token_cursor, token_end, inline_token))
         token_cursor = token_end
     if tokens != []:
-        assert "".join(token["text"] for token in tokens) == text, (
+        assert token_cursor == len(text), (
             "Inline diff tokens must reconstruct their complete row text."
         )
 
@@ -222,15 +228,37 @@ def weave_decorated_parts(
         )
         return []
 
-    boundaries = {0, len(text)}
+    # Both interval sequences are already ordered and non-overlapping (the
+    # token cursor and the span assertions above prove it), so one linear
+    # merge yields the sorted boundary list without set hashing or sorting.
+    token_boundaries = [0]
     for start, end, _token in token_intervals:
-        boundaries.add(start)
-        boundaries.add(end)
+        token_boundaries.append(start)
+        token_boundaries.append(end)
+    syntax_boundaries: list[int] = []
     for span in syntax:
-        boundaries.add(span["start"])
-        boundaries.add(span["end"])
+        syntax_boundaries.append(span["start"])
+        syntax_boundaries.append(span["end"])
+    syntax_boundaries.append(len(text))
+    sorted_boundaries: list[int] = []
+    token_position = 0
+    syntax_position = 0
+    while token_position < len(token_boundaries) or syntax_position < len(
+        syntax_boundaries
+    ):
+        if syntax_position >= len(syntax_boundaries) or (
+            token_position < len(token_boundaries)
+            and token_boundaries[token_position]
+            <= syntax_boundaries[syntax_position]
+        ):
+            value = token_boundaries[token_position]
+            token_position += 1
+        else:
+            value = syntax_boundaries[syntax_position]
+            syntax_position += 1
+        if sorted_boundaries == [] or sorted_boundaries[-1] != value:
+            sorted_boundaries.append(value)
 
-    sorted_boundaries = sorted(boundaries)
     parts: list[DecoratedPart] = []
     token_index = 0
     syntax_index = 0
@@ -255,42 +283,55 @@ def weave_decorated_parts(
             syntax_index < len(syntax) and syntax[syntax_index]["end"] <= start
         ):
             syntax_index += 1
-        syntax_classes = (
-            list(syntax[syntax_index]["classes"])
+        active_span = (
+            syntax[syntax_index]
             if syntax_index < len(syntax)
             and syntax[syntax_index]["start"] <= start
             and end <= syntax[syntax_index]["end"]
-            else []
+            else None
         )
 
-        part: DecoratedPart = {
-            "text": text[start:end],
-            "syntax_classes": syntax_classes,
-            "diff_status": (
-                "unchanged" if active_token is None else active_token["status"]
-            ),
-            "is_whitespace": (
-                text[start:end].isspace()
-                if active_token is None
-                else active_token["is_ws"]
-            ),
-            "is_leading_whitespace": (
-                active_token is not None
-                and token_index == 0
-                and active_token["is_ws"]
-            ),
-        }
+        # Decide the merge before building anything: a mergeable segment
+        # only extends the previous part's text, so its dict, class copy,
+        # and slices are never constructed.
+        part_text = text[start:end]
+        diff_status = (
+            "unchanged" if active_token is None else active_token["status"]
+        )
+        is_whitespace = (
+            part_text.isspace()
+            if active_token is None
+            else active_token["is_ws"]
+        )
+        is_leading_whitespace = (
+            active_token is not None
+            and token_index == 0
+            and active_token["is_ws"]
+        )
+        previous = parts[-1] if parts != [] else None
         if (
-            parts != []
-            and parts[-1]["syntax_classes"] == part["syntax_classes"]
-            and parts[-1]["diff_status"] == part["diff_status"]
-            and parts[-1]["is_whitespace"] == part["is_whitespace"]
-            and parts[-1]["is_leading_whitespace"]
-            == part["is_leading_whitespace"]
+            previous is not None
+            and previous["diff_status"] == diff_status
+            and previous["is_whitespace"] == is_whitespace
+            and previous["is_leading_whitespace"] == is_leading_whitespace
+            and previous["syntax_classes"]
+            == ([] if active_span is None else active_span["classes"])
         ):
-            parts[-1]["text"] += part["text"]
+            previous["text"] += part_text
         else:
-            parts.append(part)
+            parts.append(
+                {
+                    "text": part_text,
+                    "syntax_classes": (
+                        []
+                        if active_span is None
+                        else list(active_span["classes"])
+                    ),
+                    "diff_status": diff_status,
+                    "is_whitespace": is_whitespace,
+                    "is_leading_whitespace": is_leading_whitespace,
+                }
+            )
     return parts
 
 
@@ -379,6 +420,15 @@ class _SyntaxLanguageSpec:
     """
     Optional package to read `query_path` from instead of `module_name`.
     """
+
+
+_SpanPriority = tuple[int, int, int]
+"""Precomputed collapse ordering for one syntax interval.
+
+The triple (span length, negated class count, negated capture order) selects
+the shortest, most specific, latest capture; it is fixed when the interval is
+created so overlap resolution compares plain tuples at C speed.
+"""
 
 
 @dataclass(frozen=True)
@@ -617,14 +667,16 @@ def _highlight_lines_with_spec(
     # Class expansion is memoized per capture name and byte columns come from
     # each Node's row/column points, so the whole-text character/byte boundary
     # arrays and the two bisects per capture are gone. Only lines containing
-    # multibyte characters build a byte-to-character map, once.
+    # multibyte characters build a byte-to-character map, once; one whole-text
+    # ASCII check short-circuits the per-line decision for the common case.
     classes_by_capture: dict[str, tuple[SyntaxClass, ...]] = {}
     line_byte_maps: dict[int, list[int]] = {}
+    text_is_ascii = text.isascii()
 
     def _character_column(line_index: int, byte_column: int) -> int:
         """Convert one line-local byte column to its character column."""
         line_text = line_texts[line_index]
-        if line_text.isascii():
+        if text_is_ascii or line_text.isascii():
             return min(byte_column, len(line_text))
         boundaries = line_byte_maps.get(line_index)
         if boundaries is None:
@@ -637,7 +689,7 @@ def _highlight_lines_with_spec(
         return bisect_right(boundaries, byte_column) - 1
 
     line_intervals: list[
-        list[tuple[int, int, tuple[SyntaxClass, ...], int]]
+        list[tuple[int, int, tuple[SyntaxClass, ...], _SpanPriority]]
     ] = [[] for _ in line_texts]
     order = 0
     captured_any = False
@@ -669,8 +721,16 @@ def _highlight_lines_with_spec(
                 )
                 if local_start >= local_end:
                     continue
+                # The collapse priority (shortest span, most classes, latest
+                # capture) is a pure function of the interval: fixing it here
+                # lets every later comparison run through one C-level key.
                 line_intervals[line_index].append(
-                    (local_start, local_end, classes, order)
+                    (
+                        local_start,
+                        local_end,
+                        classes,
+                        (local_end - local_start, -len(classes), -order),
+                    )
                 )
             order += 1
 
@@ -692,53 +752,38 @@ def _highlight_lines_with_spec(
 
 def _collapse_line_intervals(
     line_text: str,
-    intervals: list[tuple[int, int, tuple[SyntaxClass, ...], int]],
+    intervals: list[tuple[int, int, tuple[SyntaxClass, ...], _SpanPriority]],
 ) -> list[_SyntaxSpan]:
     if intervals == []:
         return []
 
     events: list[tuple[int, int, int]] = []
-    for index, (start, end, _classes, _order) in enumerate(intervals):
+    for index, (start, end, _classes, _priority) in enumerate(intervals):
         events.append((start, 1, index))
         events.append((end, 0, index))
-    events.sort(key=lambda item: (item[0], item[1]))
+    # The trailing sentinel emits the final active segment inside the loop,
+    # so the closing selection logic exists exactly once.
+    events.append((len(line_text), 2, -1))
+    events.sort(key=itemgetter(0, 1))
 
     active: dict[
         int,
-        tuple[int, int, tuple[SyntaxClass, ...], int],
+        tuple[int, int, tuple[SyntaxClass, ...], _SpanPriority],
     ] = {}
     position = 0
     spans: list[_SyntaxSpan] = []
+    priority_of = itemgetter(3)
 
     for event_position, event_kind, interval_index in events:
         if event_position > position and active != {}:
-            chosen = min(
-                active.values(),
-                key=lambda item: (
-                    item[1] - item[0],
-                    -len(item[2]),
-                    -item[3],
-                ),
-            )
+            chosen = min(active.values(), key=priority_of)
             _append_syntax_span(spans, position, event_position, chosen[2])
 
-        interval = intervals[interval_index]
         if event_kind == 0:
             active.pop(interval_index, None)
-        else:
-            active[interval_index] = interval
+        elif event_kind == 1:
+            active[interval_index] = intervals[interval_index]
         position = event_position
-
-    if position < len(line_text) and active != {}:
-        chosen = min(
-            active.values(),
-            key=lambda item: (
-                item[1] - item[0],
-                -len(item[2]),
-                -item[3],
-            ),
-        )
-        _append_syntax_span(spans, position, len(line_text), chosen[2])
 
     return spans
 

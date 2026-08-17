@@ -9,6 +9,7 @@ not private command strings.
 import subprocess
 from pathlib import Path
 
+import pytest
 from helpers import TextDiffService
 
 from dirdiff.backend import GitBackend
@@ -373,6 +374,11 @@ def test_batch_loads_literal_paths_without_argv_pathspecs(
     assert repository.load_version(stage_name, "index") == (
         b"literal stage-shaped name\n"
     )
+    # The single-File loader must reject non-blob objects exactly like the
+    # batch: a gitlink resolves to a commit whose `git show` output would
+    # otherwise masquerade as File content.
+    with pytest.raises(DirdiffError):
+        repository.load_version("linked", "index")
     loaded = repository.load_versions(
         (
             (magic_name, "HEAD"),

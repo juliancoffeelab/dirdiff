@@ -113,10 +113,14 @@ scrolling before document movement cancels eligibility; FileTree scrolling
 during an already active document scroll does not. Programmatic navigation
 stops the guard.
 
-For each eligible document scroll, `scrollFollow()` hit-tests the reading line
-at the vertical center of the viewport within the file-list area. It considers
-only visible, rich, participating real hunk targets in the hit `FileCard`.
-Virtual anchors, pseudo-hunks, and skipped targets are excluded.
+Eligible document scroll events coalesce into at most one `scrollFollow()`
+calculation per animation frame, always using the latest viewport; a guard
+stop occurring before the frame cancels the pending calculation. The
+calculation hit-tests the reading line at the vertical center of the viewport
+within the file-list area. It considers only visible, rich, participating real
+hunk targets in the hit `FileCard`, located by binary search over their
+document-ordered rows rather than measuring every target. Virtual anchors,
+pseudo-hunks, and skipped targets are excluded.
 
 The target is the last real hunk at or above the reading line, or the first one
 below it when none precedes the line. `scrollFollow()` calls `selectHunk()` and

@@ -1435,6 +1435,16 @@ h1 {
   background: transparent;
 }
 
+.review-thread[data-review-history-thread-id] {
+  /* Off-screen History Threads stay fully mounted (transport data, order,
+     expansion, focus, find-in-page all intact) but skip style, layout, and
+     paint until they approach the viewport, are focused, or are targeted.
+     `auto` intrinsic sizing keeps each rendered Thread's real height for
+     scroll stability; 120px approximates an unrendered collapsed row. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
 .review-thread[data-review-history-thread-id].review-thread-expanded {
   margin: 2px 0 10px;
   border-left: 3px solid #d8d3ca;

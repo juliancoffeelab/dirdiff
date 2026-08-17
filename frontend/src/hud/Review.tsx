@@ -66,6 +66,11 @@ import type { DiffViewMode } from "./App";
 import type { StoredProfile } from "./Profile";
 
 const REVIEW_DRAFT_STORAGE_KEY = "dirdiff:v1:review-drafts";
+// One localStorage entry per draft, keyed by its identity, so persisting a
+// keystroke serializes only the changed draft instead of every unfinished
+// text. The single-document key above remains readable as legacy input and is
+// migrated to per-draft entries on load.
+const REVIEW_DRAFT_STORAGE_PREFIX = "dirdiff:v2:review-draft:";
 
 const NewThreadDraftSchema = z.strictObject({
   kind: z.literal("new-thread"),
@@ -136,12 +141,14 @@ export function newReviewId(): ReviewId {
 /**
  * Owns unfinished review drafts for application lifetime.
  *
- * Stored input is validated once when it enters the application. Every later
- * operation writes the complete typed document before publishing its Solid
- * state. A storage failure preserves the previous authoritative value and
- * permanently disables later draft writes until the application is reloaded.
- * A submitted draft is disabled until its single HTTP action settles. Success
- * removes it; failure leaves the ordinary editable draft in localStorage.
+ * Stored input is validated once when it enters the application. Each draft
+ * persists as its own localStorage entry, so every later operation writes or
+ * removes exactly the one changed draft before publishing its Solid state;
+ * typing cost does not grow with other unfinished text. A storage failure
+ * preserves the previous authoritative value and permanently disables later
+ * draft writes until the application is reloaded. A submitted draft is
+ * disabled until its single HTTP action settles. Success removes it; failure
+ * leaves the ordinary editable draft in localStorage.
  */
 export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
   const toast = useToasts();
@@ -151,24 +158,56 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
     ReadonlySet<ReviewId>
   >(new Set());
 
+  /** Names the localStorage entry persisting one exact draft. */
+  function draftStorageKey(draftId: ReviewId): string {
+    return `${REVIEW_DRAFT_STORAGE_PREFIX}${draftId}`;
+  }
+
   onMount(() => {
     try {
+      const loaded: ReviewDraft[] = [];
+      // Import the legacy single-document representation once, splitting it
+      // into per-draft entries; later sessions read only those.
       const raw = localStorage.getItem(REVIEW_DRAFT_STORAGE_KEY);
       if (raw !== null) {
-        const stored = StoredReviewDraftsSchema.parse(JSON.parse(raw)).drafts;
-        const draftsWithContent = stored.filter(
-          (draft) => draft.body.trim().length > 0,
+        for (const draft of StoredReviewDraftsSchema.parse(JSON.parse(raw))
+          .drafts) {
+          if (draft.body.trim().length > 0) {
+            localStorage.setItem(
+              draftStorageKey(draft.draft_id),
+              JSON.stringify(draft),
+            );
+          }
+        }
+        localStorage.removeItem(REVIEW_DRAFT_STORAGE_KEY);
+      }
+      const storedKeys: string[] = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key !== null && key.startsWith(REVIEW_DRAFT_STORAGE_PREFIX)) {
+          storedKeys.push(key);
+        }
+      }
+      for (const key of storedKeys) {
+        const value = localStorage.getItem(key);
+        assert(value !== null, "Enumerated draft entry disappeared.");
+        const draft = ReviewDraftSchema.parse(JSON.parse(value));
+        assert(
+          key === draftStorageKey(draft.draft_id),
+          "Stored review draft entry key must match its identity.",
         );
         // Empty input is not revisable material and must never enter the
         // application as a persisted draft.
-        if (draftsWithContent.length !== stored.length) {
-          localStorage.setItem(
-            REVIEW_DRAFT_STORAGE_KEY,
-            JSON.stringify({ drafts: draftsWithContent }),
-          );
+        if (draft.body.trim().length > 0) {
+          loaded.push(draft);
+        } else {
+          localStorage.removeItem(key);
         }
-        setDrafts(draftsWithContent);
       }
+      // Entry enumeration order is arbitrary; sort for a deterministic
+      // published order (draft consumers key by identity, not position).
+      loaded.sort((a, b) => (a.draft_id < b.draft_id ? -1 : 1));
+      setDrafts(loaded);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -178,36 +217,54 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
     }
   });
 
-  /** Persists one typed replacement before publishing it to consumers. */
-  function store(next: readonly ReviewDraft[]): boolean {
+  /** Reports the storage failure that disables draft writes, if any. */
+  function reportUnavailable(): boolean {
     const existingFailure = error();
     if (existingFailure !== null) {
       toast.showError("Review drafts unavailable", existingFailure);
+      return true;
+    }
+    return false;
+  }
+
+  /** Converts one storage failure into the permanent disabled state. */
+  function storeFailed(caught: unknown): false {
+    const failure =
+      caught instanceof Error
+        ? caught
+        : new Error("Review draft write failed without an Error value.");
+    setError(failure);
+    toast.showError("Review drafts unavailable", failure);
+    return false;
+  }
+
+  /** Persists one changed draft entry before publishing the next state. */
+  function persistDraft(
+    draft: ReviewDraft,
+    next: readonly ReviewDraft[],
+  ): boolean {
+    if (reportUnavailable()) {
       return false;
     }
     try {
-      const document = { drafts: next };
-      localStorage.setItem(REVIEW_DRAFT_STORAGE_KEY, JSON.stringify(document));
+      localStorage.setItem(
+        draftStorageKey(draft.draft_id),
+        JSON.stringify(draft),
+      );
       setDrafts(next);
       return true;
     } catch (caught) {
-      const failure =
-        caught instanceof Error
-          ? caught
-          : new Error("Review draft write failed without an Error value.");
-      setError(failure);
-      toast.showError("Review drafts unavailable", failure);
-      return false;
+      return storeFailed(caught);
     }
   }
 
-  /** Adds one new draft identity to the persisted document. */
+  /** Adds one new draft identity to persistent storage. */
   function add(draft: ReviewDraft): boolean {
     assert(
       drafts().every((candidate) => candidate.draft_id !== draft.draft_id),
       "Review draft creation reused an identity.",
     );
-    return store([...drafts(), draft]);
+    return persistDraft(draft, [...drafts(), draft]);
   }
 
   /** Replaces the one persisted draft with the same identity. */
@@ -219,7 +276,8 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
       matches.length === 1,
       "Review draft replacement requires one exact match.",
     );
-    return store(
+    return persistDraft(
+      replacement,
       drafts().map((draft, index) =>
         index === matches[0] ? replacement : draft,
       ),
@@ -233,13 +291,32 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
       matches.length === 1,
       "Review draft removal requires one exact match.",
     );
-    return store(drafts().filter((draft) => draft.draft_id !== draftId));
+    if (reportUnavailable()) {
+      return false;
+    }
+    try {
+      localStorage.removeItem(draftStorageKey(draftId));
+      setDrafts(drafts().filter((draft) => draft.draft_id !== draftId));
+      return true;
+    } catch (caught) {
+      return storeFailed(caught);
+    }
   }
 
-  /** Clears the complete persisted draft document after a storage failure. */
+  /** Clears every persisted draft entry after a storage failure. */
   function clear(): boolean {
     try {
       localStorage.removeItem(REVIEW_DRAFT_STORAGE_KEY);
+      const storedKeys: string[] = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key !== null && key.startsWith(REVIEW_DRAFT_STORAGE_PREFIX)) {
+          storedKeys.push(key);
+        }
+      }
+      for (const key of storedKeys) {
+        localStorage.removeItem(key);
+      }
     } catch (caught) {
       const failure =
         caught instanceof Error
@@ -288,7 +365,7 @@ export function ReviewDraftRoot(props: { children: JSX.Element }): JSX.Element {
         matches.length === 1,
         "Confirmed review submission lost its persisted draft.",
       );
-      store(drafts().filter((draft) => draft.draft_id !== draftId));
+      remove(draftId);
     }
   }
 
@@ -397,6 +474,15 @@ export type ReviewBinding = {
   snapshotId: ReviewId;
   threads: Accessor<readonly ReviewThread[]>;
   markerRevision: Accessor<ReviewMarkerRevision>;
+  /**
+   * Returns the line keys whose marker state changed in the latest revision.
+   *
+   * `null` means no bounded change set exists (first index build or a
+   * persisted-availability flip) and every rendered host must refresh. The
+   * set is valid only for the current `markerRevision` value; grids whose
+   * rows changed independently refresh fully regardless.
+   */
+  changedMarkerKeys(): ReadonlySet<string> | null;
   markerState(
     binding: ReviewTextGridBinding,
     side: "left" | "right",
@@ -502,6 +588,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   >(new Map());
   const fileHeaders = new Set<HTMLElement>();
   let firstFileHeader: HTMLElement | null = null;
+  // Split-view steady-state detector: a viewport-band IntersectionObserver at
+  // the sticky offset records which File headers are currently stuck. While
+  // one is, the History placement is constant, so document scroll events skip
+  // the hit-tested geometry calculation entirely; band membership changes
+  // (File boundaries, collapse, layout shifts) re-run the one existing
+  // calculation. The observer never publishes geometry itself.
+  let stickyBandObserver: IntersectionObserver | null = null;
+  const stickyBandHeaders = new Set<HTMLElement>();
   let fileHeaderObserver: ResizeObserver | null = null;
   let splitHistoryFrame: number | null = null;
   let splitHistoryGeometryFailed = false;
@@ -645,6 +739,32 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   ]);
   let cachedMarkerRevision: ReviewMarkerRevision | null = null;
   let cachedMarkerIndex: ReviewMarkerIndex | null = null;
+  // The bounded delta of the latest index rebuild: keys whose marker state
+  // differs from the previous index, or null when no previous comparable
+  // index exists. Grids use it to touch only changed hosts.
+  let lastChangedKeys: ReadonlySet<string> | null = null;
+
+  /** Reports whether two derived marker states render identically. */
+  function markerStatesEqual(
+    previous: ReviewMarkerState,
+    next: ReviewMarkerState,
+  ): boolean {
+    return (
+      previous.disabled === next.disabled &&
+      previous.markers.length === next.markers.length &&
+      previous.markers.every((marker, index) => {
+        const other = next.markers[index];
+        return (
+          other !== undefined &&
+          marker.kind === other.kind &&
+          ("count" in marker ? marker.count : null) ===
+            ("count" in other ? other.count : null) &&
+          ("warning" in marker ? marker.warning : null) ===
+            ("warning" in other ? other.warning : null)
+        );
+      })
+    );
+  }
 
   /** Returns the selected Profile or verbally directs the user to its control. */
   function profileForWrite(): StoredProfile | null {
@@ -752,6 +872,29 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       lineDraftIds,
       lineStates,
     };
+    const previous = cachedMarkerIndex;
+    if (
+      previous === null ||
+      previous.persistedAvailable !== index.persistedAvailable
+    ) {
+      // No comparable predecessor: hosts outside lineStates also render
+      // differently (availability default), so no bounded delta exists.
+      lastChangedKeys = null;
+    } else {
+      const changed = new Set<string>();
+      for (const [key, state] of lineStates) {
+        const before = previous.lineStates.get(key);
+        if (before === undefined || !markerStatesEqual(before, state)) {
+          changed.add(key);
+        }
+      }
+      for (const key of previous.lineStates.keys()) {
+        if (!lineStates.has(key)) {
+          changed.add(key);
+        }
+      }
+      lastChangedKeys = changed;
+    }
     cachedMarkerRevision = revision;
     cachedMarkerIndex = index;
     return index;
@@ -830,12 +973,19 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     if (props.view !== "split") {
       return;
     }
-    if (
-      event?.type === "scroll" &&
-      event.target instanceof Element &&
-      event.target.closest(".review-history-host") !== null
-    ) {
-      return;
+    if (event?.type === "scroll") {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".review-history-host") !== null
+      ) {
+        return;
+      }
+      // A stuck header pins the placement to a constant, so mid-file scroll
+      // frames need no geometry work; boundary transitions change the band
+      // membership and re-run the calculation from the observer instead.
+      if (stickyBandHeaders.size > 0) {
+        return;
+      }
     }
     if (splitHistoryFrame !== null) {
       return;
@@ -844,6 +994,41 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       splitHistoryFrame = null;
       updateSplitHistoryGeometry();
     });
+  }
+
+  /** Rebuilds the sticky-band observer for the current viewport and offset. */
+  function rebuildStickyBandObserver(): void {
+    stickyBandObserver?.disconnect();
+    stickyBandObserver = null;
+    stickyBandHeaders.clear();
+    if (props.view !== "split" || splitHistoryGeometryFailed) {
+      return;
+    }
+    const sample = firstFileHeader;
+    if (sample === null || !sample.isConnected) {
+      return;
+    }
+    const stickyTop = Number.parseFloat(getComputedStyle(sample).top);
+    if (!Number.isFinite(stickyTop) || stickyTop < 0) {
+      return;
+    }
+    const bottomInset = Math.max(0, window.innerHeight - stickyTop - 2);
+    stickyBandObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && entry.target.isConnected) {
+            stickyBandHeaders.add(entry.target as HTMLElement);
+          } else {
+            stickyBandHeaders.delete(entry.target as HTMLElement);
+          }
+        }
+        scheduleSplitHistoryGeometry();
+      },
+      {
+        rootMargin: `${-Math.round(stickyTop)}px 0px ${-Math.round(bottomInset)}px 0px`,
+      },
+    );
+    fileHeaders.forEach((header) => stickyBandObserver?.observe(header));
   }
 
   createEffect(() => {
@@ -857,8 +1042,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       scheduleSplitHistoryGeometry(),
     );
     fileHeaders.forEach((header) => fileHeaderObserver?.observe(header));
+    /** Rebuilds the viewport-sized band before recalculating placement. */
+    function handleResize(): void {
+      rebuildStickyBandObserver();
+      scheduleSplitHistoryGeometry();
+    }
     window.addEventListener("scroll", scheduleSplitHistoryGeometry, true);
-    window.addEventListener("resize", scheduleSplitHistoryGeometry);
+    window.addEventListener("resize", handleResize);
+    rebuildStickyBandObserver();
     scheduleSplitHistoryGeometry();
     onCleanup(() => {
       if (splitHistoryFrame !== null) {
@@ -867,8 +1058,11 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       }
       fileHeaderObserver?.disconnect();
       fileHeaderObserver = null;
+      stickyBandObserver?.disconnect();
+      stickyBandObserver = null;
+      stickyBandHeaders.clear();
       window.removeEventListener("scroll", scheduleSplitHistoryGeometry, true);
-      window.removeEventListener("resize", scheduleSplitHistoryGeometry);
+      window.removeEventListener("resize", handleResize);
     });
   });
 
@@ -1019,6 +1213,10 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   /** Applies one contiguous action result to its authoritative loaded Thread. */
   async function acceptThreadUpdate(update: ReviewThreadUpdate): Promise<void> {
     const key = api.review.snapshot(update.snapshot_id).queryKey;
+    // Same publication ordering as acceptCreatedThread: a refetch begun
+    // before the backend committed this action must not resolve afterward
+    // and silently revert the applied update.
+    await queryClient.cancelQueries({ queryKey: key });
     const current = queryClient.getQueryData<ReviewThread[]>(key);
     if (current === undefined) return;
     const matches = current.filter(
@@ -1206,6 +1404,10 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     snapshotId: props.snapshotId,
     threads: reviewThreads,
     markerRevision,
+    changedMarkerKeys() {
+      markerIndex();
+      return lastChangedKeys;
+    },
     markerState(grid, side, line) {
       const index = markerIndex();
       const key = lineMarkerKey(grid, side, line);
@@ -1374,12 +1576,21 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           firstFileHeader = header;
         }
         fileHeaderObserver?.observe(header);
+        if (stickyBandObserver === null) {
+          // The band needs a mounted header to read the sticky offset from;
+          // the first registration in Split view creates it.
+          rebuildStickyBandObserver();
+        } else {
+          stickyBandObserver.observe(header);
+        }
       } else {
         assert(
           fileHeaders.delete(header),
           "Review File header was unmounted without a matching mount.",
         );
         fileHeaderObserver?.unobserve(header);
+        stickyBandObserver?.unobserve(header);
+        stickyBandHeaders.delete(header);
         if (firstFileHeader === header) {
           firstFileHeader = null;
           for (const candidate of fileHeaders) {

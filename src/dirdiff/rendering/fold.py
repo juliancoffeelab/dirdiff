@@ -504,14 +504,22 @@ def _collect_markdown_section_hints(
     if headings == []:
         return []
 
+    # One pass over the source fixes every line's end offset, so per-heading
+    # context extension is an index lookup instead of a byte re-walk.
+    line_end_bytes: list[int] = []
+    position = 0
+    for line in source_bytes.splitlines(keepends=True):
+        position += len(line)
+        line_end_bytes.append(position)
+
     candidates: list[FoldCandidate] = []
     rule = spec.rules[0]
-    for index, (heading, _level, label_text) in enumerate(headings):
+    for index, (heading, level, label_text) in enumerate(headings):
         context_start_line, _ = _node_line_span(heading, source_bytes)
         _, heading_end_line = _node_line_span(heading, source_bytes)
         context_end_line = max(right_line_to_row)
         for next_heading, next_level, _next_label in headings[index + 1 :]:
-            if next_level <= _markdown_heading_level(heading):
+            if next_level <= level:
                 context_end_line = next_heading.start_point.row
                 break
 
@@ -539,8 +547,10 @@ def _collect_markdown_section_hints(
                 hidden_start_row=hidden_row_span[0],
                 hidden_end_row=hidden_row_span[1],
                 context_start_byte=heading.start_byte,
-                context_end_byte=_line_end_byte_for_line(
-                    source_bytes, context_end_line
+                context_end_byte=(
+                    line_end_bytes[context_end_line - 1]
+                    if 1 <= context_end_line <= len(line_end_bytes)
+                    else len(source_bytes)
                 ),
             )
         )
@@ -666,18 +676,24 @@ def _assign_candidate_parents(candidates: list[FoldCandidate]) -> None:
     Parent links let later policy recurse through the syntax hierarchy without
     repeatedly searching by byte span.  Containment is strict, so a candidate
     cannot become its own parent or parent a duplicate with the same span.
+    One sweep over the candidates ordered by span (outermost first at equal
+    starts) keeps the currently enclosing candidates on a stack, so the work
+    is sort-bound instead of quadratic in candidate count.
     """
 
-    for candidate in candidates:
-        parent: FoldCandidate | None = None
-        for other in candidates:
-            if candidate is other:
-                continue
-            if not _contains(other, candidate):
-                continue
-            if parent is None or _contains(parent, other):
-                parent = other
-        candidate.parent = parent
+    ordered = sorted(
+        candidates,
+        key=lambda candidate: (
+            candidate.context_start_byte,
+            -candidate.context_end_byte,
+        ),
+    )
+    enclosing: list[FoldCandidate] = []
+    for candidate in ordered:
+        while enclosing and not _contains(enclosing[-1], candidate):
+            enclosing.pop()
+        candidate.parent = enclosing[-1] if enclosing else None
+        enclosing.append(candidate)
 
 
 def _collect_hints(
@@ -1206,35 +1222,6 @@ def _markdown_heading_level(node: Node) -> int:
                 return 2
         return 2
     return 6
-
-
-def _line_end_byte_for_line(source_bytes: bytes, line_number: int) -> int:
-    """Return the byte offset just after a one-based source line.
-
-    Markdown section candidates use this to extend a heading's context to the
-    line before the next sibling heading.  Missing or out-of-range lines clamp
-    to the end of the source bytes.
-    """
-
-    current_line = 1
-    index = 0
-    start = 0
-    while index < len(source_bytes):
-        if current_line == line_number:
-            start = index
-            break
-        if source_bytes[index : index + 1] == b"\n":
-            current_line += 1
-        index += 1
-    else:
-        return len(source_bytes)
-
-    end = start
-    while end < len(source_bytes) and source_bytes[end : end + 1] != b"\n":
-        end += 1
-    if end < len(source_bytes):
-        end += 1
-    return end
 
 
 def _spec_for_path(path: str) -> FoldLanguageSpec | None:

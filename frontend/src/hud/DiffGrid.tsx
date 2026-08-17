@@ -262,11 +262,23 @@ function ImperativeDiffLines(props: {
 
   /** Refreshes only review decorations and disables them if this owner fails. */
   function ReviewMarkerRefresh(): JSX.Element {
+    let appliedRowRevision = -1;
     createEffect(() => {
+      review.markerRevision();
+      const rows = rowRevision();
       try {
-        review.markerRevision();
-        rowRevision();
-        refreshReviewMarkers();
+        if (rows !== appliedRowRevision) {
+          // New or replaced rows carry no decoration yet: refresh them all.
+          appliedRowRevision = rows;
+          refreshReviewMarkers();
+          return;
+        }
+        const changed = review.changedMarkerKeys();
+        if (changed === null) {
+          refreshReviewMarkers();
+        } else if (changed.size > 0) {
+          refreshChangedReviewMarkers(changed);
+        }
       } catch (error) {
         reviewMarkersFailed = true;
         disableReviewMarkers();
@@ -485,13 +497,12 @@ function ImperativeDiffLines(props: {
   }
 
   /**
-   * Refreshes Comment-trigger labels and state on the currently rendered lines.
+   * Applies the derived marker state to one rendered line-number host.
    *
-   * ReviewMarkerRefresh calls this after marker data changes or DiffGrid replaces
-   * its rows. It mutates only existing trigger elements; it does not render rows
-   * or change folds, line pins, or hunk selection.
+   * It mutates only that host's trigger elements; it does not render rows or
+   * change folds, line pins, or hunk selection.
    */
-  function refreshReviewMarkers(): void {
+  function applyMarkerState(lineNumber: HTMLElement): void {
     /** Creates one control for one state actually represented at this line. */
     function createTrigger(
       markerKind: ReviewMarkerKind,
@@ -534,70 +545,136 @@ function ImperativeDiffLines(props: {
       return trigger;
     }
 
+    const host = lineNumber.querySelector(":scope > .line-comment-triggers");
+    const side = lineNumber.dataset.linePinSide;
+    const line = lineNumber.dataset.linePinLine;
+    assert(
+      host instanceof HTMLSpanElement &&
+        (side === "left" || side === "right") &&
+        line !== undefined &&
+        /^[1-9]\d*$/u.test(line),
+      "Rendered Comment marker must expose its exact line identity.",
+    );
+    const storedState = review.markerState(reviewBinding, side, Number(line));
+    storedState.markers.forEach((marker, index) => {
+      const current = host.children.item(index);
+      let trigger =
+        current instanceof HTMLButtonElement &&
+        reviewMarkerKind(current) === marker.kind
+          ? current
+          : createTrigger(marker.kind, side, line);
+      if (trigger !== current) {
+        if (current === null) {
+          host.append(trigger);
+        } else {
+          current.replaceWith(trigger);
+        }
+      }
+      const label = trigger.lastElementChild;
+      assert(
+        label instanceof HTMLSpanElement,
+        "Rendered Comment trigger requires its visible label.",
+      );
+      let actionLabel: string;
+      if (marker.kind === "draft") {
+        actionLabel = "Draft";
+      } else if (marker.kind === "new") {
+        actionLabel = "Add comment";
+      } else {
+        actionLabel = `${marker.count} ${marker.kind === "resolved" ? "Resolved" : marker.kind === "deleted" ? "Deleted" : "Open"} Thread${marker.count === 1 ? "" : "s"}`;
+      }
+      const labelText =
+        marker.kind === "open" ||
+        marker.kind === "resolved" ||
+        marker.kind === "deleted"
+          ? String(marker.count)
+          : actionLabel;
+      if (label.textContent !== labelText) label.textContent = labelText;
+      if (trigger.title !== actionLabel) trigger.title = actionLabel;
+      const ariaLabel = `${actionLabel} on ${side === "left" ? "old" : "new"} line ${line}`;
+      if (trigger.ariaLabel !== ariaLabel) trigger.ariaLabel = ariaLabel;
+      const warning = "warning" in marker && marker.warning;
+      if (
+        trigger.classList.contains("line-comment-trigger-warning") !== warning
+      ) {
+        trigger.classList.toggle("line-comment-trigger-warning", warning);
+      }
+      if (trigger.disabled !== storedState.disabled) {
+        trigger.disabled = storedState.disabled;
+      }
+    });
+    while (host.children.length > storedState.markers.length) {
+      host.lastElementChild?.remove();
+    }
+  }
+
+  /**
+   * Refreshes Comment-trigger labels and state on every rendered line.
+   *
+   * ReviewMarkerRefresh calls this when rows were replaced or no bounded
+   * change set exists for the current marker revision.
+   */
+  function refreshReviewMarkers(): void {
     for (const lineNumber of root.querySelectorAll<HTMLElement>(
       ".line-no[data-line-pin-line]",
     )) {
-      const host = lineNumber.querySelector(":scope > .line-comment-triggers");
-      const side = lineNumber.dataset.linePinSide;
-      const line = lineNumber.dataset.linePinLine;
+      applyMarkerState(lineNumber);
+    }
+  }
+
+  /**
+   * Refreshes only the rendered hosts named by changed marker line keys.
+   *
+   * Keys encode grid identity, so entries for other grids are skipped, as are
+   * lines this grid does not currently render (folded or absent). The caller
+   * guarantees rows are unchanged since the last complete refresh, so every
+   * untouched host already displays current state.
+   */
+  function refreshChangedReviewMarkers(keys: ReadonlySet<string>): void {
+    for (const key of keys) {
+      const parsed: unknown = JSON.parse(key);
       assert(
-        host instanceof HTMLSpanElement &&
-          (side === "left" || side === "right") &&
-          line !== undefined &&
-          /^[1-9]\d*$/u.test(line),
-        "Rendered Comment marker must expose its exact line identity.",
+        Array.isArray(parsed) && parsed.length === 6,
+        "Changed marker key has an invalid shape.",
       );
-      const storedState = review.markerState(reviewBinding, side, Number(line));
-      storedState.markers.forEach((marker, index) => {
-        const current = host.children.item(index);
-        let trigger =
-          current instanceof HTMLButtonElement &&
-          reviewMarkerKind(current) === marker.kind
-            ? current
-            : createTrigger(marker.kind, side, line);
-        if (trigger !== current) {
-          if (current === null) {
-            host.append(trigger);
-          } else {
-            current.replaceWith(trigger);
-          }
-        }
-        const label = trigger.lastElementChild;
-        assert(
-          label instanceof HTMLSpanElement,
-          "Rendered Comment trigger requires its visible label.",
-        );
-        let actionLabel: string;
-        if (marker.kind === "draft") {
-          actionLabel = "Draft";
-        } else if (marker.kind === "new") {
-          actionLabel = "Add comment";
-        } else {
-          actionLabel = `${marker.count} ${marker.kind === "resolved" ? "Resolved" : marker.kind === "deleted" ? "Deleted" : "Open"} Thread${marker.count === 1 ? "" : "s"}`;
-        }
-        const labelText =
-          marker.kind === "open" ||
-          marker.kind === "resolved" ||
-          marker.kind === "deleted"
-            ? String(marker.count)
-            : actionLabel;
-        if (label.textContent !== labelText) label.textContent = labelText;
-        if (trigger.title !== actionLabel) trigger.title = actionLabel;
-        const ariaLabel = `${actionLabel} on ${side === "left" ? "old" : "new"} line ${line}`;
-        if (trigger.ariaLabel !== ariaLabel) trigger.ariaLabel = ariaLabel;
-        const warning = "warning" in marker && marker.warning;
-        if (
-          trigger.classList.contains("line-comment-trigger-warning") !== warning
-        ) {
-          trigger.classList.toggle("line-comment-trigger-warning", warning);
-        }
-        if (trigger.disabled !== storedState.disabled) {
-          trigger.disabled = storedState.disabled;
-        }
-      });
-      while (host.children.length > storedState.markers.length) {
-        host.lastElementChild?.remove();
+      const [leftPath, rightPath, regionKind, cellKey, side, line] = parsed as [
+        unknown,
+        unknown,
+        unknown,
+        unknown,
+        unknown,
+        unknown,
+      ];
+      if (
+        leftPath !== reviewBinding.file.left_path ||
+        rightPath !== reviewBinding.file.right_path ||
+        regionKind !== reviewBinding.region.kind ||
+        cellKey !==
+          (reviewBinding.region.kind === "notebook-cell-source"
+            ? reviewBinding.region.cell_key
+            : null)
+      ) {
+        continue;
       }
+      assert(
+        (side === "left" || side === "right") &&
+          typeof line === "number" &&
+          Number.isInteger(line) &&
+          line > 0,
+        "Changed marker key has invalid line identity.",
+      );
+      const matchingLines = root.querySelectorAll<HTMLElement>(
+        `.line-no[data-line-pin-side="${side}"][data-line-pin-line="${line}"]`,
+      );
+      assert(
+        matchingLines.length <= 1,
+        "DiffGrid contains duplicate line-pin coordinates.",
+      );
+      const lineNumber = matchingLines[0];
+      if (lineNumber === undefined) {
+        continue;
+      }
+      applyMarkerState(lineNumber);
     }
   }
 

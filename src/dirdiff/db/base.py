@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Optional
 
 from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, String, UniqueConstraint, create_engine, event
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -86,15 +88,24 @@ def enable_sqlite_foreign_keys(
     dbapi_connection: DBAPIConnection,
     connection_record: ConnectionPoolEntry,
 ) -> None:
-    """Enable SQLite foreign-key constraints on every opened connection.
+    """Configure every opened SQLite connection for dirdiff's access pattern.
 
     SQLAlchemy calls this for persistent and in-memory dirdiff engines before
-    the connection is used. SQLite otherwise parses foreign keys while leaving
-    them unenforced, which would allow orphan persistence rows.
+    the connection is used. Foreign keys are otherwise parsed but unenforced,
+    which would allow orphan persistence rows. WAL journaling lets Snapshot
+    publication write without excluding concurrent browser and agent reads
+    (an in-memory database ignores the request and stays in memory mode), and
+    NORMAL synchronous is the documented safe pairing with WAL. The enlarged
+    page cache and mmap window fit the whole database of a busy Room so
+    repeated review scans read hot pages without I/O.
     """
     del connection_record
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-16000")
+    cursor.execute("PRAGMA mmap_size=134217728")
     cursor.close()
 
 
@@ -110,7 +121,15 @@ def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
         project_root = Path(__file__).parents[3]
         config = Config(project_root / "alembic.ini")
         config.attributes["db_path"] = db_path
-        command.upgrade(config, "head")
+        # A database already at head skips the full Alembic environment run,
+        # which otherwise costs startup latency on every launch. A fresh or
+        # behind database still upgrades exactly as before.
+        with engine.connect() as connection:
+            current = MigrationContext.configure(
+                connection
+            ).get_current_revision()
+        if current != ScriptDirectory.from_config(config).get_current_head():
+            command.upgrade(config, "head")
     else:
         TableBase.metadata.create_all(engine)
 

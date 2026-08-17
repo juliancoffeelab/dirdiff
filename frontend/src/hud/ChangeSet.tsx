@@ -70,6 +70,11 @@ import type { StoredProfile } from "./Profile";
 import { ReviewProvider, type ReviewCodeAnchor } from "./Review";
 
 const SLOW_FILE_THRESHOLD_MS = 8_000;
+// Automatic loading overlaps this many upcoming file fetches with the active
+// one, so backend latency stops serializing with render admission. Admission
+// itself stays strictly sequential in manifest order; the constant bounds
+// concurrent requests and undelivered payloads alike.
+const AUTOMATIC_PREFETCH_WIDTH = 2;
 
 /**
  * Yields one async continuation through Solid's cooperative scheduler.
@@ -875,6 +880,22 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
     }
 
     /**
+     * Per-card facts recorded by the last complete calculation.
+     *
+     * `offset` is the card's stable-position prefix and `participating` its
+     * displayed total; both are invariant under selection-only mutations, so
+     * the selective path below can reuse them. Any structural mutation runs
+     * the full walk again, which replaces this map wholesale.
+     */
+    type CardStats = {
+      fileIndex: number;
+      participating: number;
+      offset: number;
+    };
+    let cardStats: Map<HTMLElement, CardStats> | null = null;
+    let lastDisplay: HunkDisplay | null = null;
+
+    /**
      * Calculates the complete exact display mirror from current FileCard DOM.
      *
      * The calculation walks concrete targets in DOM order and reads semantic
@@ -894,6 +915,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         if (selectedCards.length !== 0) {
           throw new Error("Empty ChangeSet contains a selected FileCard.");
         }
+        cardStats = new Map();
         return {
           selectedFileIndex: null,
           globalSelectedHunk: {
@@ -915,6 +937,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       let selectedFileIndex: number | null = null;
       let hasMore = false;
       const fileSelectedHunks = new Map<number, HunkPosition>();
+      const stats = new Map<HTMLElement, CardStats>();
 
       cards.forEach((card) => {
         const fileIndexText = card.dataset.fileIndex;
@@ -975,6 +998,11 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
           current: localCurrent,
           total: localTotal,
         });
+        stats.set(card, {
+          fileIndex,
+          participating: localTotal,
+          offset: stablePositionOffset,
+        });
         stablePositionOffset += targets.length;
         participatingTotal += localTotal;
       });
@@ -982,6 +1010,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       if (selectedFileIndex === null || selectedCurrent === null) {
         throw new Error("Selected hunk has no calculable DOM position.");
       }
+      cardStats = stats;
       return {
         selectedFileIndex,
         globalSelectedHunk: {
@@ -992,28 +1021,113 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       };
     }
 
+    /**
+     * Recomputes the display for a selection-only mutation batch.
+     *
+     * Scroll-follow changes selection on every eligible scroll, so this path
+     * must not walk every mounted target. It reuses the per-card facts of the
+     * last complete calculation and walks only the newly selected FileCard.
+     * `null` reports a failed precondition (no prior complete calculation, or
+     * an unknown selected card); the caller then runs the full walk, which
+     * owns structural validation.
+     */
+    function calculateSelectionDisplay(): HunkDisplay | null {
+      if (cardStats === null || lastDisplay === null) {
+        return null;
+      }
+      const selectedCards = root.querySelectorAll<HTMLElement>(
+        "[data-file-card][data-selected-hunk-index]",
+      );
+      if (selectedCards.length !== 1) {
+        throw new Error(
+          "A non-empty ChangeSet requires exactly one selected FileCard.",
+        );
+      }
+      const card = selectedCards[0];
+      if (card === undefined) {
+        return null;
+      }
+      const stats = cardStats.get(card);
+      if (stats === undefined) {
+        return null;
+      }
+      const selectedIndexText = card.dataset.selectedHunkIndex;
+      if (selectedIndexText === undefined) {
+        throw new Error("Selected FileCard has no hunk index.");
+      }
+      const targets = Array.from(
+        card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
+      );
+      const matchingTargets = targets.filter(
+        (target) =>
+          target.dataset.fileIndex === String(stats.fileIndex) &&
+          target.dataset.hunkIndex === selectedIndexText,
+      );
+      if (matchingTargets.length !== 1) {
+        throw new Error(
+          `Selected hunk (${stats.fileIndex}, ${selectedIndexText}) requires exactly one DOM target.`,
+        );
+      }
+      const selectedTarget = matchingTargets[0];
+      if (selectedTarget === undefined) {
+        return null;
+      }
+      const localCurrent = targets.indexOf(selectedTarget) + 1;
+      const fileSelectedHunks = new Map(lastDisplay.fileSelectedHunks);
+      const previousIndex = lastDisplay.selectedFileIndex;
+      if (previousIndex !== null && previousIndex !== stats.fileIndex) {
+        const previous = fileSelectedHunks.get(previousIndex);
+        if (previous !== undefined) {
+          fileSelectedHunks.set(previousIndex, {
+            current: null,
+            total: previous.total,
+          });
+        }
+      }
+      fileSelectedHunks.set(stats.fileIndex, {
+        current: localCurrent,
+        total: stats.participating,
+      });
+      return {
+        selectedFileIndex: stats.fileIndex,
+        globalSelectedHunk: {
+          position: {
+            current: stats.offset + localCurrent,
+            total: lastDisplay.globalSelectedHunk.position.total,
+          },
+          hasMore: lastDisplay.globalSelectedHunk.hasMore,
+        },
+        fileSelectedHunks,
+      };
+    }
+
     let alive = true;
     let observer: MutationObserver | null = null;
-    let calculationQueued = false;
+    let queuedKind: "selective" | "full" | null = null;
     onCleanup(() => {
       alive = false;
       observer?.disconnect();
     });
 
     /**
-     * Coalesces one complete display calculation after renderer mount work.
+     * Coalesces one display calculation after renderer mount work.
      *
      * DiffGrid places its imperative row targets during mount after FileCard has
      * updated `data-hunk-set`. The extra microtask observes the completed renderer
      * operation instead of interpreting that internal transition as invalid DOM.
+     * A queued full calculation subsumes a selective one, never the reverse.
      */
-    function queueDisplayCalculation(): void {
-      if (calculationQueued) {
+    function queueDisplayCalculation(kind: "selective" | "full"): void {
+      if (queuedKind !== null) {
+        if (kind === "full") {
+          queuedKind = "full";
+        }
         return;
       }
-      calculationQueued = true;
+      queuedKind = kind;
       queueMicrotask(() => {
-        calculationQueued = false;
+        const runKind = queuedKind;
+        queuedKind = null;
         if (!alive) {
           return;
         }
@@ -1024,7 +1138,12 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
           return;
         }
         try {
-          props.onDisplayChange(calculateDisplay());
+          const display =
+            runKind === "selective"
+              ? (calculateSelectionDisplay() ?? calculateDisplay())
+              : calculateDisplay();
+          lastDisplay = display;
+          props.onDisplayChange(display);
         } catch (error) {
           observer?.disconnect();
           toast.showError(
@@ -1043,8 +1162,14 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       if (!alive || !root.isConnected) {
         return;
       }
-      observer = new MutationObserver(() => {
-        queueDisplayCalculation();
+      observer = new MutationObserver((records) => {
+        queueDisplayCalculation(
+          records.every(
+            (record) => record.attributeName === "data-selected-hunk-index",
+          )
+            ? "selective"
+            : "full",
+        );
       });
       observer.observe(root, {
         subtree: true,
@@ -1055,7 +1180,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
           "data-file-render-error",
         ],
       });
-      queueDisplayCalculation();
+      queueDisplayCalculation("full");
     });
   });
   return null;
@@ -1765,6 +1890,9 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
     let automaticCursor = 0;
     let activeIndex: number | null = null;
     let activeKey: QueryKey | null = null;
+    // Query keys of launched automatic prefetches, kept until the lane
+    // processes their index so stopping can cancel in-flight ones.
+    const prefetchedKeys = new Map<number, QueryKey>();
     let running = false;
     let stopped = false;
     let stopPromise: Promise<void> | null = null;
@@ -1948,6 +2076,43 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
           if (file === undefined) {
             throw new Error(`File lane selected invalid index ${fileIndex}.`);
           }
+          if (kind === "sequence") {
+            // Launch a bounded number of upcoming automatic fetches so the
+            // network overlaps this file's fetch and admission. Their errors
+            // and results land on the same canonical queries the lane reads
+            // when it reaches those indexes.
+            let inFlight = 0;
+            for (
+              let ahead = automaticCursor;
+              ahead < files.length && inFlight < AUTOMATIC_PREFETCH_WIDTH;
+              ahead += 1
+            ) {
+              const candidate = files[ahead];
+              if (candidate === undefined || candidate.entry.lazy !== null) {
+                continue;
+              }
+              const aheadQuery = fileQueries[ahead];
+              if (
+                aheadQuery?.isSuccess === true ||
+                aheadQuery?.isError === true
+              ) {
+                continue;
+              }
+              if (aheadQuery?.fetchStatus === "fetching") {
+                inFlight += 1;
+                continue;
+              }
+              const aheadOptions = api.changeSet.file(
+                engine,
+                snapshot.snapshot_id,
+                candidate.entry,
+                "bounded",
+              );
+              prefetchedKeys.set(ahead, aheadOptions.queryKey);
+              void queryClient.prefetchQuery(aheadOptions);
+              inFlight += 1;
+            }
+          }
           const options = api.changeSet.file(
             engine,
             snapshot.snapshot_id,
@@ -1970,6 +2135,18 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
           }, SLOW_FILE_THRESHOLD_MS);
 
           try {
+            if (
+              kind === "sequence" &&
+              fileQueries[fileIndex]?.isError === true
+            ) {
+              // A prefetched attempt already failed and the canonical query
+              // presents that failure; the automatic pass makes exactly one
+              // attempt per file, so it does not fetch again.
+              throw expect(
+                fileQueries[fileIndex]?.error,
+                "Failed file query lost its error.",
+              );
+            }
             await queryClient.fetchQuery(options);
             if (stopped) {
               return;
@@ -2017,6 +2194,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             window.clearTimeout(slowTimer);
             activeIndex = null;
             activeKey = null;
+            prefetchedKeys.delete(fileIndex);
             setLaneActivity(null);
             if (countsAsAutomatic && !stopped) {
               setProcessed((current) => current + 1);
@@ -2050,11 +2228,15 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
       changeSetAbortController.abort();
       setLaneActivity(null);
       const queryKey = activeKey;
-      const queryCancellation =
-        queryKey === null
-          ? Promise.resolve()
-          : queryClient.cancelQueries({ queryKey, exact: true });
-      stopPromise = queryCancellation;
+      const cancellations = [
+        ...(queryKey === null
+          ? []
+          : [queryClient.cancelQueries({ queryKey, exact: true })]),
+        ...Array.from(prefetchedKeys.values(), (prefetchedKey) =>
+          queryClient.cancelQueries({ queryKey: prefetchedKey, exact: true }),
+        ),
+      ];
+      stopPromise = Promise.all(cancellations).then(() => undefined);
       return stopPromise;
     }
 

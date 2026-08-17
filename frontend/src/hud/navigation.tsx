@@ -402,26 +402,55 @@ export function NavigationProvider(
       return;
     }
 
-    let precedingTarget: HTMLElement | null = null;
-    let precedingTop = Number.NEGATIVE_INFINITY;
-    let followingTarget: HTMLElement | null = null;
-    let followingTop = Number.POSITIVE_INFINITY;
-    for (const target of readingCard.querySelectorAll<HTMLElement>(
+    const targets = readingCard.querySelectorAll<HTMLElement>(
       '[data-hunk-target][data-hunk-kind="real"]:not(.skip):not(.virtual-hunk-anchor)',
-    )) {
-      const rect = target.getBoundingClientRect();
-      if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
-        continue;
-      }
-      if (rect.top <= readingLineY && rect.top > precedingTop) {
-        precedingTarget = target;
-        precedingTop = rect.top;
-      } else if (rect.top > readingLineY && rect.top < followingTop) {
-        followingTarget = target;
-        followingTop = rect.top;
+    );
+    if (targets.length === 0) {
+      return;
+    }
+    // Targets are row elements in document order, so their tops are strictly
+    // increasing: binary-search the last target at or above the reading line
+    // instead of measuring every hunk row in the card on each followed
+    // scroll. Uniform row heights make the visibility screen below identical
+    // to the former every-target scan.
+    let low = 0;
+    let high = targets.length - 1;
+    let precedingIndex = -1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const candidate = expect(
+        targets[middle],
+        "Hunk target disappeared during scroll following.",
+      );
+      if (candidate.getBoundingClientRect().top <= readingLineY) {
+        precedingIndex = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
       }
     }
-    const target = precedingTarget ?? followingTarget;
+
+    let target: HTMLElement | null = null;
+    if (precedingIndex >= 0) {
+      const preceding = expect(
+        targets[precedingIndex],
+        "Hunk target disappeared during scroll following.",
+      );
+      const rect = preceding.getBoundingClientRect();
+      if (rect.bottom > 0 && rect.top < window.innerHeight) {
+        target = preceding;
+      }
+    }
+    if (target === null && precedingIndex + 1 < targets.length) {
+      const following = expect(
+        targets[precedingIndex + 1],
+        "Hunk target disappeared during scroll following.",
+      );
+      const rect = following.getBoundingClientRect();
+      if (rect.bottom > 0 && rect.top < window.innerHeight) {
+        target = following;
+      }
+    }
     if (target === null || target.hasAttribute("data-selected")) {
       return;
     }
@@ -1126,6 +1155,12 @@ export function NavigationProvider(
       toast.showError("Scroll following failed", error);
     }
 
+    // At most one selection calculation per animation frame. The callback
+    // re-checks the guard, so any stop between scheduling and the frame
+    // (scrollend, programmatic navigation, modal blocking, guard errors)
+    // cancels the pending calculation instead of reselecting afterward.
+    let pendingScrollFollow: number | null = null;
+
     document.addEventListener(
       "scroll",
       (event) => {
@@ -1142,11 +1177,20 @@ export function NavigationProvider(
 
         scrollGuard.scrolled("document");
 
-        try {
-          scrollFollow(root);
-        } catch (error: unknown) {
-          reportScrollFollowError(error);
+        if (pendingScrollFollow !== null) {
+          return;
         }
+        pendingScrollFollow = requestAnimationFrame(() => {
+          pendingScrollFollow = null;
+          if (!scrollGuard.ok() || !root.isConnected) {
+            return;
+          }
+          try {
+            scrollFollow(root);
+          } catch (error: unknown) {
+            reportScrollFollowError(error);
+          }
+        });
       },
       { ...passiveListener, capture: true },
     );

@@ -85,17 +85,24 @@ their permanent zero or coordinate-preserving skip targets.
 ## Strict manifest-order loading
 
 The automatic lane loads non-lazy manifest files sequentially from the start of
-the manifest to the end. At most one file query is active in the lane.
+the manifest to the end. One file is processed at a time; while it is
+processed, the lane additionally launches a fixed bounded number of upcoming
+automatic canonical file queries (in manifest order) so backend latency
+overlaps processing. Prefetched results and failures land on the same
+canonical queries the lane later reads; a file whose prefetched attempt
+already failed is not fetched again by the automatic pass, and stopping the
+lane cancels in-flight prefetches with the active query.
 
 For each automatic file, the lane:
 
-1. executes its canonical file query;
+1. executes (or joins) its canonical file query;
 2. leaves an ordinary failure on that query and proceeds to the next file;
 3. yields to the browser after a successful fetch;
 4. admits that file for expensive rendering;
 5. proceeds to the next manifest position.
 
-Fetch order and render admission therefore have the same manifest order. A
+Render admission is therefore strictly sequential in manifest order, while
+fetches may overlap within the fixed bound. A
 successful query can already produce a `FullFile` header and statistics while
 its body remains unmounted. For an expanded nonzero-hunk file, the temporary
 navigation target is still a Husk; zero-hunk and collapsed files already expose
@@ -221,7 +228,8 @@ For each manifest index, `ChangeSet` supplies `FileCard` with:
 - One mounted snapshot has one immutable `DiffParams`, engine, manifest, and
   `snapshot_id`; engine remains outside manifest and Room identity.
 - File indexes are manifest indexes and remain stable for the snapshot.
-- Automatic file fetches and admissions are sequential in manifest order.
+- Automatic admissions are sequential in manifest order; automatic fetches are
+  launched in manifest order and overlap only within one fixed bound.
 - One canonical file query represents one manifest entry in one snapshot.
 - Lazy planks, Retry, and line pins all use the same lane.
 - Admission is separate from fetch success and yields before mounting the

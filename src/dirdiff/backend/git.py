@@ -24,6 +24,7 @@ from dirdiff.backend.base import (
     SideName,
     StructuredRemoteBranchRef,
     WorkspaceBackendProtocol,
+    _git_executable,
     display_name_for_repo_paths,
 )
 from dirdiff.engines import DirdiffError
@@ -150,7 +151,7 @@ class GitBackend(WorkspaceBackendProtocol):
             return cls(Path(repo_root).expanduser().resolve(), cwd=working_dir)
 
         result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
+            [_git_executable(), "rev-parse", "--show-toplevel"],
             cwd=working_dir,
             check=False,
             capture_output=True,
@@ -173,7 +174,7 @@ class GitBackend(WorkspaceBackendProtocol):
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
-            ["git", *args],
+            [_git_executable(), *args],
             cwd=self.repo_root,
             check=check,
             capture_output=True,
@@ -189,7 +190,7 @@ class GitBackend(WorkspaceBackendProtocol):
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
-            ["git", *args],
+            [_git_executable(), *args],
             cwd=self.repo_root,
             check=check,
             capture_output=True,
@@ -208,7 +209,7 @@ class GitBackend(WorkspaceBackendProtocol):
             raise DirdiffError("Custom refs require a Git repo.")
 
         resolved = subprocess.run(
-            ["git", "rev-parse", "--verify", f"{side}^{{commit}}"],
+            [_git_executable(), "rev-parse", "--verify", f"{side}^{{commit}}"],
             cwd=self.repo_root,
             check=False,
             capture_output=True,
@@ -250,7 +251,7 @@ class GitBackend(WorkspaceBackendProtocol):
             )
 
         modified = subprocess.run(
-            ["git", "diff", "--name-only"],
+            [_git_executable(), "diff", "--name-only"],
             cwd=self.repo_root,
             check=False,
             capture_output=True,
@@ -265,7 +266,7 @@ class GitBackend(WorkspaceBackendProtocol):
             return candidates[0]
 
         tracked = subprocess.run(
-            ["git", "ls-files"],
+            [_git_executable(), "ls-files"],
             cwd=self.repo_root,
             check=False,
             capture_output=True,
@@ -470,7 +471,11 @@ class GitBackend(WorkspaceBackendProtocol):
         expressions = (f"{base_ref}^{{commit}}", f"{branch_ref}^{{commit}}")
         labels = (base_branch, branch)
         resolved = subprocess.run(
-            ["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+            [
+                _git_executable(),
+                "cat-file",
+                "--batch-check=%(objectname) %(objecttype)",
+            ],
             cwd=self.repo_root,
             check=False,
             input="\n".join(expressions) + "\n",
@@ -789,14 +794,12 @@ class GitBackend(WorkspaceBackendProtocol):
                     f"Could not read worktree file {path}: {exc}"
                 ) from exc
 
-        git_target = (
-            f"HEAD:{path}"
-            if side == "HEAD"
-            else f":./{path}"
-            if side == "index"
-            else f"{side}:{path}"
-        )
-        result = self._run_git(["show", git_target], check=False)
+        git_target = f":./{path}" if side == "index" else f"{side}:{path}"
+        # cat-file blob returns exact object bytes and rejects non-blob
+        # targets (a gitlink resolves to a commit, which `git show` would
+        # render as a formatted log instead of File content), matching the
+        # batch loader's blob-only contract.
+        result = self._run_git(["cat-file", "blob", git_target], check=False)
         if result.returncode != 0:
             details = result.stderr.decode().strip()
             message = (
@@ -839,7 +842,7 @@ class GitBackend(WorkspaceBackendProtocol):
 
         if object_requests != []:
             process = subprocess.run(
-                ["git", "cat-file", "--batch", "-z"],
+                [_git_executable(), "cat-file", "--batch", "-z"],
                 cwd=self.repo_root,
                 check=False,
                 input=b"\0".join(
