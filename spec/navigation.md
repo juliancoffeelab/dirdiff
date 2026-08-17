@@ -44,9 +44,13 @@ destinations, and scroll-follow do not traverse them as participants.
 
 ## Initial selection
 
-When a non-empty `ChangeSet` mounts, Navigation writes selection directly to
-the first `FileCard` target at hunk index zero. This is DOM initialization, not
-a call to the navigation selection operation.
+When a non-empty snapshot mounts, `ChangeSetSnapshot` calls the exported
+`writeInitialHunkSelection`, which validates the fresh unselected DOM and
+selects the first `FileCard` target at hunk index zero. Because the
+NavigationProvider survives snapshot replacement — an engine switch replaces
+the snapshot beneath it — initialization belongs to the snapshot lifetime,
+and every replacement snapshot starts selected. The write itself goes through
+`selectHunk()` as its one sanctioned initialization caller.
 
 An empty manifest has no selected hunk. A terminal renderer error prevents
 initialization because it exposes no valid hunk target. Every ordinary
@@ -60,14 +64,16 @@ It verifies a coordinate-bearing target, removes the previous selected
 decoration, writes the selected hunk index to the destination `FileCard`, and
 decorates that exact target.
 
-It has exactly three direct callers:
+It has exactly four direct callers:
 
 1. `nextHunk()`;
 2. `prevHunk()`;
-3. `scrollFollow()`.
+3. `scrollFollow()`;
+4. `writeInitialHunkSelection()`, the one initialization exception for a
+   freshly mounted snapshot.
 
-No initialization, renderer, FileTree operation, line pin, helper, wrapper, or
-shared calculation calls it.
+No renderer, FileTree operation, line pin, helper, wrapper, or shared
+calculation calls it.
 
 ## Next and Previous
 
@@ -393,10 +399,10 @@ behavior, and never selects a hunk. Unlocated Threads have no go-to action.
 - File and hunk indexes in the mounted DOM are the authoritative selected-hunk
   coordinates.
 - Every real or pseudo hunk carries both indexes.
-- `selectHunk()` has exactly three direct callers: `nextHunk()`, `prevHunk()`,
-  and `scrollFollow()`.
-- Initial selection writes the DOM directly; FileTree and line pins never
-  select.
+- `selectHunk()` has exactly four direct callers: `nextHunk()`, `prevHunk()`,
+  `scrollFollow()`, and the initialization-only `writeInitialHunkSelection()`.
+- Initial selection belongs to the mounted snapshot; FileTree and line pins
+  never select.
 - Skipped targets preserve coordinates but are excluded from traversal.
 - FileTree navigation scrolls only and never loads, selects, or changes
   expansion.

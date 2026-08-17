@@ -65,9 +65,10 @@ type ChangeSetShellProps = {
 /**
  * Binds one visible ChangeSet body, hotkey listener, and HUD to one DOM root.
  *
- * A ready snapshot receives a fresh Provider and therefore one initial hunk
- * selection. Loading and error bodies retain shell operations but contain no
- * targets. The wrapper has no layout box and stores no backend state.
+ * The shell survives snapshot replacement inside its body; every mounted
+ * snapshot writes its own initial hunk selection. Loading and error bodies
+ * retain shell operations but contain no targets. The wrapper has no layout
+ * box and stores no backend state.
  */
 export function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
   let root!: HTMLElement;
@@ -817,8 +818,9 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       });
     }
 
-    // Navigation selects the first target synchronously during mount. Deferring
-    // observer attachment one microtask makes the first mirror include it.
+    // The mounted snapshot writes its initial selection synchronously during
+    // its own mount. Deferring observer attachment one microtask makes the
+    // first mirror include it.
     queueMicrotask(() => {
       if (!alive || !root.isConnected) {
         return;

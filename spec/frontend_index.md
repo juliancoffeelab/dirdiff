@@ -476,6 +476,7 @@ snapshot.
 `ChangeSetSnapshot`:
 
 - resolves the URL line pin and creates the snapshot's one file lane;
+- writes the snapshot's initial hunk selection after its FileCards mount;
 - constructs the FileTree data from the lane's canonical states;
 - renders one stable `FileCard` per manifest entry;
 - creates the snapshot’s `LinePins` interface;
@@ -770,6 +771,7 @@ Exports:
 ```ts
 NavigationProvider
 useNavigation
+writeInitialHunkSelection
 
 Navigation
 NavigationCommand

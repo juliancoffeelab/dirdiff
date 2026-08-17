@@ -5,8 +5,10 @@
  * union, one ChangeSet-scoped Provider, and its checked context accessor.
  * Renderers write identity fields directly into their own DOM; this module
  * reads those attributes only while handling an explicit operation or recognized
- * user scrolling. Exactly `nextHunk`, `prevHunk`, and `scrollFollow` may call the
- * private `selectHunk` operation. The module must not retain selected identity,
+ * user scrolling. Exactly four callers may call the private `selectHunk`
+ * operation: `nextHunk`, `prevHunk`, `scrollFollow`, and — as the one
+ * initialization exception — the exported `writeInitialHunkSelection` that a
+ * freshly mounted snapshot invokes. The module must not retain selected identity,
  * build a hunk registry, calculate counters, change FileTree expansion, parse
  * or retain line-pin identity, or fetch files.
  */
@@ -151,12 +153,143 @@ export function useNavigation(): Navigation {
 }
 
 /**
+ * Selects one concrete hunk target by mutating only authoritative DOM.
+ *
+ * Exactly four callers exist, each calling directly: `nextHunk`, `prevHunk`,
+ * and `scrollFollow` change an existing selection, and
+ * `writeInitialHunkSelection` is the explicit initialization exception for a
+ * freshly mounted snapshot. Existing FileCard identity and visible decoration
+ * are removed before the target fields are copied onto its stable FileCard.
+ */
+function selectHunk(root: HTMLElement, target: HTMLElement): void {
+  if (!target.matches("[data-hunk-target]")) {
+    throw new Error("Selected element is not a hunk target.");
+  }
+  if (!root.contains(target)) {
+    throw new Error("Selected hunk target belongs to another ChangeSet.");
+  }
+  const fileCard = target.closest<HTMLElement>("[data-file-card]");
+  if (fileCard === null || !root.contains(fileCard)) {
+    throw new Error("Selected hunk target has no owning FileCard.");
+  }
+  const kind = target.dataset.hunkKind;
+  const fileIndex = target.dataset.fileIndex;
+  if (
+    kind !== "real" &&
+    kind !== "husk" &&
+    kind !== "lazy" &&
+    kind !== "zero" &&
+    kind !== "skip"
+  ) {
+    throw new Error("Hunk target has an invalid kind.");
+  }
+  if (fileIndex === undefined || fileCard.dataset.fileIndex !== fileIndex) {
+    throw new Error("Hunk target and FileCard indices do not match.");
+  }
+  if (!/^(?:0|[1-9]\d*)$/.test(fileIndex)) {
+    throw new Error("Hunk target has an invalid file index.");
+  }
+  const hunkIndex = target.dataset.hunkIndex;
+  if (hunkIndex === undefined) {
+    throw new Error("Hunk target is missing its hunk index.");
+  }
+  if (!/^(?:0|[1-9]\d*)$/.test(hunkIndex)) {
+    throw new Error("Hunk target has an invalid hunk index.");
+  }
+  if (
+    (kind === "husk" || kind === "lazy" || kind === "zero") &&
+    hunkIndex !== "0"
+  ) {
+    throw new Error(`${kind} pseudo-hunk requires hunk index zero.`);
+  }
+
+  for (const previousTarget of root.querySelectorAll<HTMLElement>(
+    "[data-hunk-target][data-selected]",
+  )) {
+    previousTarget.removeAttribute("data-selected");
+    previousTarget.removeAttribute("aria-current");
+    previousTarget.classList.remove("active-hunk");
+  }
+  for (const previousCard of root.querySelectorAll<HTMLElement>(
+    "[data-file-card][data-selected-hunk-index]",
+  )) {
+    delete previousCard.dataset.selectedHunkIndex;
+    previousCard.classList.remove("active-hunk");
+  }
+
+  fileCard.dataset.selectedHunkIndex = hunkIndex;
+  fileCard.classList.add("active-hunk");
+  target.setAttribute("data-selected", "");
+  target.setAttribute("aria-current", "true");
+  target.classList.add("active-hunk");
+}
+
+/**
+ * Writes the initial hunk selection directly into one mounted snapshot root.
+ *
+ * ChangeSetSnapshot calls this once after its FileCards mount, so every
+ * snapshot replacement — including an engine switch under a surviving
+ * NavigationProvider — starts with the first FileCard's required first hunk
+ * selected. An empty snapshot and terminal renderer damage stay unselected.
+ * Initial selection is part of mounting the authoritative DOM; it is the one
+ * sanctioned initialization caller of `selectHunk`, and the fresh snapshot is
+ * asserted unselected before that single write.
+ */
+export function writeInitialHunkSelection(root: HTMLElement): void {
+  if (root.querySelector("[data-file-render-error]") !== null) {
+    // A critical renderer failure is terminal local damage. Initialization
+    // must not synthesize a target, repair selection, or escalate the error.
+    return;
+  }
+  const cards = root.querySelectorAll<HTMLElement>("[data-file-card]");
+  if (cards.length === 0) {
+    return;
+  }
+  for (const card of cards) {
+    if (card.querySelector("[data-hunk-target]") === null) {
+      throw new Error("Every FileCard requires a hunk target.");
+    }
+  }
+  const firstCard = cards[0];
+  if (firstCard === undefined) {
+    throw new Error("Non-empty FileCard collection has no first card.");
+  }
+  const firstFileIndex = firstCard.dataset.fileIndex;
+  if (firstFileIndex === undefined) {
+    throw new Error("First FileCard has no manifest file index.");
+  }
+  const firstTargets = Array.from(
+    firstCard.querySelectorAll<HTMLElement>(
+      '[data-hunk-target][data-hunk-index="0"]',
+    ),
+  ).filter((target) => target.dataset.fileIndex === firstFileIndex);
+  if (firstTargets.length !== 1) {
+    throw new Error(
+      `First hunk (${firstFileIndex}, 0) requires exactly one DOM target.`,
+    );
+  }
+  const firstTarget = firstTargets[0];
+  if (firstTarget === undefined) {
+    throw new Error("First hunk target disappeared during initialization.");
+  }
+  if (
+    root.querySelector(
+      "[data-hunk-target][data-selected], [data-file-card][data-selected-hunk-index]",
+    ) !== null
+  ) {
+    throw new Error("Initial hunk selection requires unselected DOM.");
+  }
+  selectHunk(root, firstTarget);
+}
+
+/**
  * Provides one disposable explicit-navigation instance for one ChangeSet root.
  *
- * Selection is initialized once from the first FileCard's required first hunk
- * target. Later operations read current DOM identity and retain no selected-hunk
- * state. Recognized browser scrolling selects rich real hunks at the reading
- * line, while cleanup prevents pending browser work from changing the page.
+ * The mounted snapshot owns initial selection through
+ * `writeInitialHunkSelection`; this provider's operations read current DOM
+ * identity and retain no selected-hunk state. Recognized browser scrolling
+ * selects rich real hunks at the reading line, while cleanup prevents pending
+ * browser work from changing the page.
  */
 export function NavigationProvider(
   props: NavigationProviderProps,
@@ -294,76 +427,6 @@ export function NavigationProvider(
       },
     };
   })();
-
-  /**
-   * Selects one concrete hunk target by mutating only authoritative DOM.
-   *
-   * Exactly `nextHunk`, `prevHunk`, and `scrollFollow` may call this operation,
-   * and each calls it directly. Existing FileCard identity and visible decoration
-   * are removed before the target fields are copied onto its stable FileCard.
-   */
-  function selectHunk(root: HTMLElement, target: HTMLElement): void {
-    if (!target.matches("[data-hunk-target]")) {
-      throw new Error("Selected element is not a hunk target.");
-    }
-    if (!root.contains(target)) {
-      throw new Error("Selected hunk target belongs to another ChangeSet.");
-    }
-    const fileCard = target.closest<HTMLElement>("[data-file-card]");
-    if (fileCard === null || !root.contains(fileCard)) {
-      throw new Error("Selected hunk target has no owning FileCard.");
-    }
-    const kind = target.dataset.hunkKind;
-    const fileIndex = target.dataset.fileIndex;
-    if (
-      kind !== "real" &&
-      kind !== "husk" &&
-      kind !== "lazy" &&
-      kind !== "zero" &&
-      kind !== "skip"
-    ) {
-      throw new Error("Hunk target has an invalid kind.");
-    }
-    if (fileIndex === undefined || fileCard.dataset.fileIndex !== fileIndex) {
-      throw new Error("Hunk target and FileCard indices do not match.");
-    }
-    if (!/^(?:0|[1-9]\d*)$/.test(fileIndex)) {
-      throw new Error("Hunk target has an invalid file index.");
-    }
-    const hunkIndex = target.dataset.hunkIndex;
-    if (hunkIndex === undefined) {
-      throw new Error("Hunk target is missing its hunk index.");
-    }
-    if (!/^(?:0|[1-9]\d*)$/.test(hunkIndex)) {
-      throw new Error("Hunk target has an invalid hunk index.");
-    }
-    if (
-      (kind === "husk" || kind === "lazy" || kind === "zero") &&
-      hunkIndex !== "0"
-    ) {
-      throw new Error(`${kind} pseudo-hunk requires hunk index zero.`);
-    }
-
-    for (const previousTarget of root.querySelectorAll<HTMLElement>(
-      "[data-hunk-target][data-selected]",
-    )) {
-      previousTarget.removeAttribute("data-selected");
-      previousTarget.removeAttribute("aria-current");
-      previousTarget.classList.remove("active-hunk");
-    }
-    for (const previousCard of root.querySelectorAll<HTMLElement>(
-      "[data-file-card][data-selected-hunk-index]",
-    )) {
-      delete previousCard.dataset.selectedHunkIndex;
-      previousCard.classList.remove("active-hunk");
-    }
-
-    fileCard.dataset.selectedHunkIndex = hunkIndex;
-    fileCard.classList.add("active-hunk");
-    target.setAttribute("data-selected", "");
-    target.setAttribute("aria-current", "true");
-    target.classList.add("active-hunk");
-  }
 
   /**
    * Follows recognized user scrolling by selecting the hunk at the reading line.
@@ -1110,55 +1173,16 @@ export function NavigationProvider(
   onMount(() => {
     const root = props.root();
     if (root.querySelector("[data-file-render-error]") !== null) {
-      // A critical renderer failure is terminal local damage. Initialization
+      // A critical renderer failure is terminal local damage. This provider
       // must not synthesize a target, repair selection, or escalate the error.
       return;
     }
-    const cards = root.querySelectorAll<HTMLElement>("[data-file-card]");
-    if (cards.length === 0) {
+    // The mounted snapshot has already written its own initial selection
+    // (`writeInitialHunkSelection`); a shell without navigable DOM — the
+    // loading and error fallbacks — installs no scroll listeners.
+    if (root.querySelectorAll("[data-file-card]").length === 0) {
       return;
     }
-    for (const card of cards) {
-      if (card.querySelector("[data-hunk-target]") === null) {
-        throw new Error("Every FileCard requires a hunk target.");
-      }
-    }
-    const firstCard = cards[0];
-    if (firstCard === undefined) {
-      throw new Error("Non-empty FileCard collection has no first card.");
-    }
-    const firstFileIndex = firstCard.dataset.fileIndex;
-    if (firstFileIndex === undefined) {
-      throw new Error("First FileCard has no manifest file index.");
-    }
-    const firstTargets = Array.from(
-      firstCard.querySelectorAll<HTMLElement>(
-        '[data-hunk-target][data-hunk-index="0"]',
-      ),
-    ).filter((target) => target.dataset.fileIndex === firstFileIndex);
-    if (firstTargets.length !== 1) {
-      throw new Error(
-        `First hunk (${firstFileIndex}, 0) requires exactly one DOM target.`,
-      );
-    }
-    const firstTarget = firstTargets[0];
-    if (firstTarget === undefined) {
-      throw new Error("First hunk target disappeared during initialization.");
-    }
-    if (
-      root.querySelector(
-        "[data-hunk-target][data-selected], [data-file-card][data-selected-hunk-index]",
-      ) !== null
-    ) {
-      throw new Error("Initial hunk selection requires unselected DOM.");
-    }
-    // Initial selection is part of mounting the authoritative DOM. It is not a
-    // navigation action and must not create a fourth `selectHunk` caller.
-    firstCard.dataset.selectedHunkIndex = "0";
-    firstCard.classList.add("active-hunk");
-    firstTarget.setAttribute("data-selected", "");
-    firstTarget.setAttribute("aria-current", "true");
-    firstTarget.classList.add("active-hunk");
 
     const scrollingElement = expect(
       document.scrollingElement,

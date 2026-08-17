@@ -24,6 +24,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  onMount,
   type Accessor,
   type JSX,
 } from "solid-js";
@@ -64,7 +65,7 @@ import {
   type FileState,
 } from "./fileLane";
 import { linePins } from "../linePins";
-import { useNavigation } from "../navigation";
+import { useNavigation, writeInitialHunkSelection } from "../navigation";
 import type { StoredProfile } from "../Profile";
 import { ReviewProvider, type ReviewCodeAnchor } from "../Review";
 import {
@@ -668,6 +669,12 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   });
   props.onFileSequenceChange(lane.stop);
   onCleanup(() => props.onFileSequenceChange(null));
+
+  // The snapshot owns its initial hunk selection: FileCards have mounted by
+  // the time this runs, and the surrounding NavigationProvider survives
+  // engine-keyed snapshot replacement, so the provider cannot initialize a
+  // replacement snapshot's fresh DOM.
+  onMount(() => writeInitialHunkSelection(changeSetRoot));
 
   const preferenceQueries = createQueries<
     Array<ReturnType<typeof api.profile.preferences>>
