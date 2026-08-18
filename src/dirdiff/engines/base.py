@@ -27,6 +27,7 @@ __all__ = [
     "DiffSide",
     "DiffSummary",
     "DirdiffError",
+    "EngineKind",
     "EngineWarning",
     "InlineToken",
     "InlineTokenStatus",
@@ -283,6 +284,16 @@ class DiffEngineResult(TypedDict):
     """
     Optional honest warning when the engine returned a degraded fallback.
     """
+
+
+EngineKind = Literal["dirdiff", "git", "difftastic", "gumtree", "tokendiff"]
+"""Which diff engine a caller selects.
+
+This is the complete set of engines dirdiff can render with, and the engines
+package owns it because the package owns the implementations behind it. The
+HTTP layer validates an incoming query value against this type, so code that
+has one has already been given a kind that maps to a real engine.
+"""
 
 
 class DiffEngineProtocol(Protocol):

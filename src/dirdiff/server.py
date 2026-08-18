@@ -89,14 +89,11 @@ from dirdiff.engines import (
     DiffEngineProtocol,
     DiffSide,
     DiffSummary,
-    DifftasticDiffEngine,
     DirdiffError,
+    EngineKind,
     EngineWarning,
-    GitDiffEngine,
-    GumTreeDiffEngine,
     InlineTokenStatus,
-    TextDiffEngine,
-    TokenDiffEngine,
+    engine,
 )
 from dirdiff.notebooks import (
     build_notebook_diff_payload,
@@ -161,7 +158,6 @@ __all__ = [
     "create_app",
     "repo_main_branch_record_to_selection",
     "selected_branch_selections",
-    "service_for_engine",
     "uvicorn_entrypoint",
 ]
 
@@ -243,7 +239,6 @@ TabParam = Literal[
     "preset",
 ]
 """One complete HUD Tab discriminator accepted by manifest."""
-EngineParam = Literal["dirdiff", "git", "difftastic", "gumtree", "tokendiff"]
 PresetTypeParam = PresetCatalog
 BranchSourceParam = BranchSource
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
@@ -1523,30 +1518,6 @@ def _branch_selection_from_query(
     }
 
 
-def service_for_engine(
-    engine: EngineParam,
-    *,
-    cwd: Path,
-) -> DiffEngineProtocol:
-    """Return the renderer selected by the request.
-
-    The returned service does not own workspace state.  `cwd` is passed only
-    to GumTree so it can discover the executable relative to the active
-    workspace.
-    """
-    if engine == "dirdiff":
-        return TextDiffEngine()
-    if engine == "git":
-        return GitDiffEngine()
-    if engine == "difftastic":
-        return DifftasticDiffEngine()
-    if engine == "gumtree":
-        return GumTreeDiffEngine(cwd=cwd)
-    if engine == "tokendiff":
-        return TokenDiffEngine()
-    raise DirdiffError(f"Unknown diff engine: {engine}")
-
-
 def create_app(
     db: RepoMarkStore,
     user_profile_store: UserProfileStore | None = None,
@@ -1932,7 +1903,7 @@ def create_app(
         *,
         room: Room,
         snapshot_id: UUID,
-        engine: EngineParam,
+        engine_name: EngineKind,
         pair: FilePair,
         left_file: Optional[Path],
         right_file: Optional[Path],
@@ -1970,10 +1941,15 @@ def create_app(
                 else None,
             ),
         }
-        renderer = service_for_engine(engine, cwd=Path.cwd())
+        renderer = engine(engine_name)
         file_kind: Literal["git", "untracked"] = (
             "git" if file_meta["tracked"] else "untracked"
         )
+        # TODO: the frontend should probably use the display name from the
+        # manifest, not from file-diff. The manifest already emits one per File
+        # and this derives a second one. The file kind above has the same
+        # problem: file_kind_for_change_type exists to mirror the manifest's
+        # encoding.
         display_name = (
             pair.right_path
             if snapshot_meta["tab"] == "preset" and pair.right_path is not None
@@ -3449,7 +3425,7 @@ def create_app(
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
-        engine: EngineParam = Query(description="Diff engine."),
+        engine: EngineKind = Query(description="Diff engine."),
         left_path: str | None = Query(
             default=None, description="Repo-relative path on the left side."
         ),
@@ -3486,7 +3462,7 @@ def create_app(
             payload = render_loaded_snapshot_file(
                 room=room,
                 snapshot_id=snapshot_key,
-                engine=engine,
+                engine_name=engine,
                 pair=pair,
                 left_file=left_file,
                 right_file=right_file,

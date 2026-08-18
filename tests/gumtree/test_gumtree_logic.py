@@ -49,7 +49,7 @@ class ActualTokenStatus:
 
 
 def _extract_helper_engine() -> GumTreeDiffEngine:
-    return GumTreeDiffEngine(cwd=Path.cwd())
+    return GumTreeDiffEngine()
 
 
 def _extract_helper_payload() -> dict[str, Any]:

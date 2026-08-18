@@ -58,7 +58,7 @@ def test_gumtree_preset_rows_match_golden(
     assert len(new_files) == 1, preset_dir
     old_path = old_files[0]
     new_path = new_files[0]
-    service = GumTreeDiffEngine(cwd=Path.cwd())
+    service = GumTreeDiffEngine()
     old_text = old_path.read_text()
     new_text = new_path.read_text()
 

@@ -64,6 +64,12 @@ diffed, and oversized regions degrade to one-sided rows with an explicit
 `tokendiff_region_limit` warning. Its row guarantees are asserted by the
 corpus property tests in `tests/tokendiff/`.
 
+The package also owns engine selection. `EngineKind` is the complete set of
+engine names, and `engine()` maps one to its renderer; both are exported from
+the package root. `engine()` is defined in `__init__.py` rather than `base.py`
+because selection must reach the concrete engine classes, whose modules import
+their contracts from `base.py`.
+
 Its public interface is exported from `dirdiff.engines`.
 
 ## `dirdiff.rendering`
@@ -147,8 +153,9 @@ boundaries. Public matching outcomes are limited to `region_changed`,
 Defines FastAPI routes and request-level rendering orchestration.
 
 It validates HTTP inputs and outputs, constructs the concrete workspace backend,
-calls `RoomLord` for manifests and follow-up Snapshot lookup, selects engines,
-routes notebooks, and assembles response payloads. Snapshot-keyed browser review
+calls `RoomLord` for manifests and follow-up Snapshot lookup, asks
+`dirdiff.engines` for the renderer a request names, routes notebooks, and
+assembles response payloads. Snapshot-keyed browser review
 routes read one bounded Thread page and apply Profile-authored Thread and
 Comment actions through the Room's bound Threads. Existing-Thread writes
 return only current state and the changed Comment.

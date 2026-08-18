@@ -153,12 +153,10 @@ class GumTreeDiffEngine(DiffEngineProtocol):
     to let GumTree select a parser for temporary files; they are not read as
     source content.  Missing-file diffs are rendered as whole-side insertions or
     deletions because GumTree requires both source documents.
+
+    The engine holds no state.  It locates the GumTree executable itself when a
+    render needs one, so callers neither supply nor own that discovery.
     """
-
-    def __init__(self, *, cwd: Path) -> None:
-        """Create a GumTree engine rooted at `cwd` for executable discovery."""
-
-        self._cwd = cwd
 
     @override
     def render_diff(
@@ -215,7 +213,7 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         """
 
         return run_gumtree_json(
-            gumtree_bin=gumtree_executable_for_cwd(self._cwd),
+            gumtree_bin=gumtree_executable_for_cwd(Path.cwd()),
             left_text=left_text,
             right_text=right_text,
             left_path_hint=left_path_hint,

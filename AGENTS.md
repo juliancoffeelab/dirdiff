@@ -108,7 +108,8 @@ implementation and its living architecture under `spec/`.
 
 ### Python packages
 
-- Package `__init__.py` files are public facades containing re-exports only.
+- Package `__init__.py` files are public facades containing re-exports only,
+  unless the user explicitly authorizes an exception.
 - Code outside a package imports its public items from the package root, not its
   submodules. Never from its submodules.
 - Package-internal shared contracts, types, helpers, and invariants belong in
