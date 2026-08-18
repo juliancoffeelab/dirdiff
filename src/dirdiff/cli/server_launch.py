@@ -129,7 +129,7 @@ def build_url(port: int, config: RuntimeConfig) -> str:
 
     query = {
         "tab": config.tab,
-        "engine": "dirdiff",
+        "engine": "tokendiff",
         "view": "inline",
     }
     if config.tab == "refs":

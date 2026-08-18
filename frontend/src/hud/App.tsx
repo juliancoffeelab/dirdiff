@@ -115,20 +115,21 @@ function initialRepo(search: URLSearchParams): RepoSelection {
 /**
  * Parses the workspace engine from canonical browser state.
  *
- * A genuinely empty URL selects Dirdiff. Populated URLs must name a supported
+ * A genuinely empty URL selects Tokendiff. Populated URLs must name a supported
  * engine rather than silently requesting a different backend engine.
  */
 function initialEngine(search: URLSearchParams): DiffEngine {
   const engine = search.get("engine");
   if (engine === null) {
     assert(search.size === 0, "A nonempty workspace URL requires engine.");
-    return "dirdiff";
+    return "tokendiff";
   }
   assert(
     engine === "dirdiff" ||
       engine === "git" ||
       engine === "difftastic" ||
-      engine === "gumtree",
+      engine === "gumtree" ||
+      engine === "tokendiff",
     `Unsupported URL diff engine: ${engine}.`,
   );
   return engine;
