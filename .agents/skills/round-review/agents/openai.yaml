@@ -1,0 +1,4 @@
+interface:
+  display_name: "Round Review"
+  short_description: "Answer the user's review of a patch through dirdiff"
+  default_prompt: "Use $round-review to answer my review of this patch through dirdiff."
