@@ -1,0 +1,4 @@
+interface:
+  display_name: "Browser Verify"
+  short_description: "Verify HUD behavior in a real browser from the e2e scratchpad"
+  default_prompt: "Use $browser-verify to check this in the real browser."
