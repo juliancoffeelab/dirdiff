@@ -21,3 +21,4 @@ report/
 
 # editor
 .nvim
+.env

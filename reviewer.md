@@ -23,6 +23,18 @@ Independently determine whether the change fulfills the user’s intent without
 breaking existing contracts. Report only concrete objections supported by
 evidence.
 
+## The reviewer is read-only
+
+A reviewer never edits the repository under review: no code, no tests, no
+documentation, not even while a review round is unresolved. The reviewer's
+entire output is written objections and questions reported to the user. Fixes
+belong to the implementor; the reviewer's role afterward is to verify each
+accepted fix and either object again or report zero remaining objections.
+Read-only commands (reading files, `git diff`) are how
+the reviewer gathers evidence, and are always allowed. Do not run
+typechecks, linters, or tests, except for the authorized exceptions listed
+later in this file (such as `make humancheck`).
+
 ## Three things we cant compromise on
 
 First, and the *most* important is simplicity. Implementation must be as simple as possible and as minimal as possible. YAGNI and KISS are the main principle.
