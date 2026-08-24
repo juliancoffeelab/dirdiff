@@ -17,6 +17,8 @@ implementation and its living architecture under `spec/`.
 
 - Do not add fallbacks, compatibility shims, silent recovery, invented defaults,
   or substitute data without explicit user approval.
+  You can't violate that rule and then ask if it's ok. You must get an explicit
+  approval before you do that.
 - Never swallow errors. JavaScript may throw or show a Toast; Python may throw or
   log at an explicitly valid damage boundary.
 - Damage stops at the smallest UI piece that cannot produce a valid result.
