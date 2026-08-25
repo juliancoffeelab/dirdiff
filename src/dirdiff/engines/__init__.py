@@ -9,9 +9,9 @@ into neutral row payloads and summary counts.
 The engines package owns the shared failure and row contracts in `base.py`, the
 concrete renderers for difftastic, Git no-index, GumTree, native text, and
 token-first text diffs, and the mapping from an engine name to its renderer.
-It must not load repositories, resolve refs, build manifests, decide notebook
-routing, serialize HTTP responses, or attach display-only syntax/fold
-enrichment.  Those steps belong to `dirdiff.backend`, `dirdiff.notebooks`,
+It must not load repositories, resolve refs, build manifests, classify file
+formats, serialize HTTP responses, or attach display-only syntax/fold
+enrichment.  Those steps belong to `dirdiff.backend`, `dirdiff.formats`,
 `dirdiff.server`, and `dirdiff.rendering` respectively.
 
 `engine()` is the authorized exception to this package's re-exports-only facade

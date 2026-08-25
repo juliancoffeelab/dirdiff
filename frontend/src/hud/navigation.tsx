@@ -21,7 +21,7 @@ import {
   type JSX,
 } from "solid-js";
 import { useToasts } from "../comp/Toasts";
-import { expect } from "../utils";
+import { assert, expect } from "../utils";
 import type { LinePinTarget, PreparedLine } from "./linePins";
 
 const PARTICIPATING_HUNK_SELECTOR = "[data-hunk-target]:not(.skip)";
@@ -29,28 +29,54 @@ const PARTICIPATING_HUNK_SELECTOR = "[data-hunk-target]:not(.skip)";
 /**
  * Identifies one backend-produced hunk boundary inside a manifest file.
  *
- * Renderers construct this value locally and write its fields directly into
- * DOM attributes. The value itself is never stored after rendering.
+ * The coordinate is compound: `bay` is the composed bay key and
+ * `hunkIndex` is the bay-local index composition published, written
+ * verbatim — no renderer renumbers hunks into a file-wide sequence. Renderers
+ * construct this value locally and write its fields directly into DOM
+ * attributes. The value itself is never stored after rendering.
  */
 export type RealHunkIdentity = {
   fileIndex: number;
   kind: "real";
+  bay: string;
   hunkIndex: number;
 };
 
 /**
- * Identifies one file-state pseudo-hunk or coordinate-preserving skipped hunk.
+ * Identifies one file-state pseudo-hunk: a Husk, Lazy, or zero-hunk target.
  *
- * Husk, Lazy, and zero targets represent complete file states and require
- * `hunkIndex === 0`. Skip targets preserve the nonnegative index of the real
- * hunk replaced when its file collapses. Renderers write every field directly
- * into DOM attributes; `kind` never replaces either coordinate.
+ * These targets represent one complete file state rather than a hunk, so they
+ * carry no bay and require hunk index zero. Renderers write every field
+ * directly into DOM attributes; `kind` never replaces a coordinate.
  */
-export type PseudoHunkIdentity = {
+export type FileStateHunkIdentity = {
   fileIndex: number;
-  kind: "husk" | "lazy" | "zero" | "skip";
+  kind: "husk" | "lazy" | "zero";
+  hunkIndex: 0;
+};
+
+/**
+ * Identifies one coordinate-preserving skipped hunk of a collapsed file.
+ *
+ * A skip target replaces one real hunk while its file is collapsed, so it
+ * preserves that hunk's exact bay key and bay-local index. Navigation
+ * traverses past it while the coordinates keep selected identity stable.
+ */
+export type SkippedHunkIdentity = {
+  fileIndex: number;
+  kind: "skip";
+  bay: string;
   hunkIndex: number;
 };
+
+/**
+ * Describes every non-real hunk identity a renderer may write into the DOM.
+ *
+ * File-state pseudo-hunks stand in for a whole file; skipped hunks preserve
+ * one collapsed real coordinate. Both participate in the same DOM contract as
+ * real hunks.
+ */
+export type PseudoHunkIdentity = FileStateHunkIdentity | SkippedHunkIdentity;
 
 /**
  * Describes every concrete hunk identity a renderer may write into the DOM.
@@ -65,9 +91,9 @@ export type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
  *
  * Relative operations use current selected DOM identity. File navigation scrolls
  * to one manifest file's first current DOM target without selecting. Line
- * navigation requires one manifest index, a null ordinary-file region or
- * non-empty notebook region, an exact side and backend line, and the caller's
- * AbortSignal lifetime; it never selects a hunk. Top scrolls the page.
+ * navigation requires one manifest index, one complete `LinePinTarget` — the
+ * File pair, the composed bay key, a side, and a backend line — and the
+ * caller's AbortSignal lifetime; it never selects a hunk. Top scrolls the page.
  */
 export type NavigationCommand =
   | { kind: "next-hunk" }
@@ -100,10 +126,13 @@ export type NavigationResult =
  * Calls resolve after any required rich materialization, selection when the
  * operation requires it, and scroll. Recognized user scrolling may select only
  * rich participating real hunks. A disposed instance performs no later DOM write
- * or scroll.
+ * or scroll. `root` returns the mounted ChangeSet root this instance serves,
+ * so consumers that must locate navigated DOM afterwards query inside the
+ * same root the navigation itself used, in every view.
  */
 export type Navigation = {
   navigate(command: NavigationCommand): Promise<NavigationResult>;
+  root: Accessor<HTMLElement>;
 };
 
 /**
@@ -119,21 +148,32 @@ export type NavigationProviderProps = {
 };
 
 /**
- * Describes the navigation geometry and rich-materialization operations attached
- * by FullFile.
+ * Describes the line-preparation operation attached by FullFile.
  *
- * Every mounted FullFile exposes both methods. `waitToEnrich()` is the general
- * materialization operation. Navigation calls `intersectsRichEntryZone()` only
- * for a virtualizable text FullFile currently exposing `.virtual-file-body`.
- * Neither method selects, expands, calculates counters, or scrolls.
+ * Every mounted FullFile exposes it as one DOM interface on its FileCard. The
+ * operation prepares one exact backend line inside that card and never changes
+ * selected identity, counters, or scroll position.
  */
-type EnrichableFileCard = HTMLElement & {
-  intersectsRichEntryZone: (viewportTop: number) => boolean;
-  waitToEnrich_impl: () => Promise<void>;
+type PreparableFileCard = HTMLElement & {
   prepareLine_impl: (
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ) => Promise<PreparedLine>;
+};
+
+/**
+ * Describes the navigation geometry and rich-materialization operations
+ * attached by a mounted text bay to its wrapper element.
+ *
+ * Every element carrying `data-bay-render` exposes both methods for exactly
+ * its mounted lifetime. `waitToEnrich_impl()` materializes the bay's rich
+ * grid; navigation calls `intersectsRichEntryZone()` only for a currently
+ * virtual wrapper. Neither method selects, expands, calculates counters, or
+ * scrolls.
+ */
+type EnrichableBay = HTMLElement & {
+  intersectsRichEntryZone: (viewportTop: number) => boolean;
+  waitToEnrich_impl: () => Promise<void>;
 };
 
 const NavigationContext = createContext<Navigation>();
@@ -196,11 +236,18 @@ function selectHunk(root: HTMLElement, target: HTMLElement): void {
   if (!/^(?:0|[1-9]\d*)$/.test(hunkIndex)) {
     throw new Error("Hunk target has an invalid hunk index.");
   }
-  if (
-    (kind === "husk" || kind === "lazy" || kind === "zero") &&
-    hunkIndex !== "0"
-  ) {
-    throw new Error(`${kind} pseudo-hunk requires hunk index zero.`);
+  const bay = target.dataset.hunkBay;
+  if (kind === "real" || kind === "skip") {
+    if (bay === undefined || bay.length === 0) {
+      throw new Error(`${kind} hunk target requires a bay key.`);
+    }
+  } else {
+    if (bay !== undefined) {
+      throw new Error(`${kind} pseudo-hunk must not carry a bay key.`);
+    }
+    if (hunkIndex !== "0") {
+      throw new Error(`${kind} pseudo-hunk requires hunk index zero.`);
+    }
   }
 
   for (const previousTarget of root.querySelectorAll<HTMLElement>(
@@ -214,14 +261,94 @@ function selectHunk(root: HTMLElement, target: HTMLElement): void {
     "[data-file-card][data-selected-hunk-index]",
   )) {
     delete previousCard.dataset.selectedHunkIndex;
+    delete previousCard.dataset.selectedHunkBay;
+    delete previousCard.dataset.selectedHunkKind;
     previousCard.classList.remove("active-hunk");
   }
 
+  fileCard.dataset.selectedHunkKind = kind;
   fileCard.dataset.selectedHunkIndex = hunkIndex;
+  if (bay === undefined) {
+    delete fileCard.dataset.selectedHunkBay;
+  } else {
+    fileCard.dataset.selectedHunkBay = bay;
+  }
   fileCard.classList.add("active-hunk");
   target.setAttribute("data-selected", "");
   target.setAttribute("aria-current", "true");
   target.classList.add("active-hunk");
+}
+
+/**
+ * Resolves one FileCard's stored selected identity to its current hunk target.
+ *
+ * selectHunk() writes the data-selected-hunk-* attributes, so this module
+ * also owns reading them back; navigation and the hunk display observer both
+ * resolve through this one operation. The declared kind picks the resolution
+ * strategy: a file-state selection (husk, lazy, zero) names the File's own
+ * stop — the first of `targets` in DOM order, which is how a Husk-time
+ * selection survives admission into composed DOM — while a hunk selection
+ * (real, skip) matches strictly on bay key and bay-local hunk index,
+ * with the kind excluded from that match because collapse and expansion
+ * interconvert real and skip targets at the same coordinates.
+ *
+ * `targets` must be the card's hunk targets in DOM order. Every identity
+ * defect — a missing or invalid attribute, a contradictory kind/bay/index
+ * combination, zero or duplicate matches, a file-index mismatch — throws.
+ */
+export function storedHunkTarget(
+  card: HTMLElement,
+  targets: readonly HTMLElement[],
+): HTMLElement {
+  const kind = card.dataset.selectedHunkKind;
+  const bay = card.dataset.selectedHunkBay;
+  const hunkIndex = card.dataset.selectedHunkIndex;
+  const fileIndex = card.dataset.fileIndex;
+  assert(
+    kind !== undefined && hunkIndex !== undefined && fileIndex !== undefined,
+    "Selected FileCard has incomplete hunk identity.",
+  );
+  assert(
+    /^(?:0|[1-9]\d*)$/.test(fileIndex) && /^(?:0|[1-9]\d*)$/.test(hunkIndex),
+    "Selected FileCard has an invalid hunk coordinate.",
+  );
+  if (kind === "husk" || kind === "lazy" || kind === "zero") {
+    assert(
+      bay === undefined && hunkIndex === "0",
+      `Selected ${kind} pseudo-hunk must be the bayless file-state zero stop.`,
+    );
+    const target = expect(
+      targets[0],
+      `Selected hunk (${fileIndex}, ${kind}, 0) has no first DOM target.`,
+    );
+    assert(
+      target.dataset.fileIndex === fileIndex,
+      `Selected hunk (${fileIndex}, ${kind}, 0) resolves to another file's target.`,
+    );
+    return target;
+  }
+  assert(
+    kind === "real" || kind === "skip",
+    `Selected FileCard declares invalid hunk kind "${kind}".`,
+  );
+  assert(
+    bay !== undefined,
+    `Selected ${kind} hunk (${fileIndex}, ${hunkIndex}) is missing its bay key.`,
+  );
+  const matchingTargets = targets.filter(
+    (candidate) =>
+      candidate.dataset.fileIndex === fileIndex &&
+      candidate.dataset.hunkBay === bay &&
+      candidate.dataset.hunkIndex === hunkIndex,
+  );
+  assert(
+    matchingTargets.length === 1,
+    `Selected hunk (${fileIndex}, ${bay}, ${hunkIndex}) requires exactly one DOM target.`,
+  );
+  return expect(
+    matchingTargets[0],
+    "Selected hunk target disappeared during resolution.",
+  );
 }
 
 /**
@@ -258,19 +385,16 @@ export function writeInitialHunkSelection(root: HTMLElement): void {
   if (firstFileIndex === undefined) {
     throw new Error("First FileCard has no manifest file index.");
   }
-  const firstTargets = Array.from(
-    firstCard.querySelectorAll<HTMLElement>(
-      '[data-hunk-target][data-hunk-index="0"]',
-    ),
-  ).filter((target) => target.dataset.fileIndex === firstFileIndex);
-  if (firstTargets.length !== 1) {
-    throw new Error(
-      `First hunk (${firstFileIndex}, 0) requires exactly one DOM target.`,
-    );
-  }
-  const firstTarget = firstTargets[0];
-  if (firstTarget === undefined) {
+  // Bays each number their hunks from zero, so an index alone names no
+  // single target; the snapshot's first hunk is the first target in DOM
+  // order, which renderers keep equal to document order.
+  const firstTarget =
+    firstCard.querySelector<HTMLElement>("[data-hunk-target]");
+  if (firstTarget === null) {
     throw new Error("First hunk target disappeared during initialization.");
+  }
+  if (firstTarget.dataset.fileIndex !== firstFileIndex) {
+    throw new Error("First hunk target has the wrong manifest index.");
   }
   if (
     root.querySelector(
@@ -526,11 +650,10 @@ export function NavigationProvider(
   }
 
   /**
-   * Resolves the exact selected hunk target from its FileCard coordinates.
+   * Resolves the exact selected hunk target from its FileCard identity.
    *
-   * Every hunk representation carries both file and hunk indices. Missing or
-   * duplicate coordinates are application errors; this operation never
-   * substitutes a FileCard header or another target.
+   * Missing, contradictory, or duplicate coordinates are application errors;
+   * this operation never substitutes a FileCard header or another target.
    */
   function selectedLocation(root: HTMLElement): {
     card: HTMLElement;
@@ -539,78 +662,42 @@ export function NavigationProvider(
     const cards = root.querySelectorAll<HTMLElement>(
       "[data-file-card][data-selected-hunk-index]",
     );
-    if (cards.length !== 1) {
-      throw new Error(
-        "A non-empty ChangeSet requires exactly one selected hunk.",
-      );
-    }
-    const card = cards[0];
-    if (card === undefined) {
-      throw new Error("Selected FileCard disappeared during navigation.");
-    }
-    const selectedHunkIndex = card.dataset.selectedHunkIndex;
-    const fileIndex = card.dataset.fileIndex;
-    if (selectedHunkIndex === undefined || fileIndex === undefined) {
-      throw new Error("Selected FileCard has incomplete hunk identity.");
-    }
-    if (
-      !/^(?:0|[1-9]\d*)$/.test(fileIndex) ||
-      !/^(?:0|[1-9]\d*)$/.test(selectedHunkIndex)
-    ) {
-      throw new Error("Selected FileCard has an invalid hunk coordinate.");
-    }
-
-    const matchingTargets = Array.from(
-      card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
-    ).filter(
-      (candidate) =>
-        candidate.dataset.fileIndex === fileIndex &&
-        candidate.dataset.hunkIndex === selectedHunkIndex,
+    assert(
+      cards.length === 1,
+      "A non-empty ChangeSet requires exactly one selected hunk.",
     );
-    if (matchingTargets.length !== 1) {
-      throw new Error(
-        `Selected hunk (${fileIndex}, ${selectedHunkIndex}) requires exactly one DOM target.`,
-      );
-    }
-    const target = matchingTargets[0];
-    if (target === undefined) {
-      throw new Error("Selected hunk target disappeared during navigation.");
-    }
-    return { card, target };
+    const card = expect(
+      cards[0],
+      "Selected FileCard disappeared during navigation.",
+    );
+    const targets = Array.from(
+      card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
+    );
+    return { card, target: storedHunkTarget(card, targets) };
   }
 
   /**
-   * Waits for one selected or destination FileCard to expose required rich DOM.
+   * Waits for one bay wrapper to expose required rich DOM with real geometry.
    *
-   * FullFile supplies the direct operation for rich, virtual, file-collapsed, zero,
-   * and notebook presentations. Husk and Lazy cards intentionally have no such
-   * method and are immediate no-ops. A FullFile without the operation violates
-   * its DOM interface and throws instead of silently skipping enrichment.
+   * The wrapper is the element carrying `data-bay-render`; its mounted bay
+   * attaches the operation for exactly the wrapper's lifetime. A wrapper
+   * without the operation violates its DOM interface and throws instead of
+   * silently skipping enrichment.
    */
-  async function waitToEnrich(card: HTMLElement): Promise<void> {
-    switch (card.dataset.fileState) {
-      case "husk":
-      case "lazy":
-        return;
-      case "full":
-        break;
-      default:
-        throw new Error("FileCard has an invalid file state.");
+  async function waitToEnrich(bay: HTMLElement): Promise<void> {
+    const enrichableBay = bay as Partial<EnrichableBay>;
+    if (typeof enrichableBay.waitToEnrich_impl !== "function") {
+      throw new Error("Bay omitted waitToEnrich_impl.");
     }
-
-    const enrichableCard = card as Partial<EnrichableFileCard>;
-    if (typeof enrichableCard.waitToEnrich_impl !== "function") {
-      throw new Error("FullFile omitted waitToEnrich_impl.");
-    }
-    await enrichableCard.waitToEnrich_impl();
+    await enrichableBay.waitToEnrich_impl();
   }
 
   /**
    * Resolves one participating destination after optional rich materialization.
    *
    * Virtual targets are identified by their primitive attributes, the owning
-   * FullFile is enriched directly, and the replacement target is resolved again
-   * before returning it. This operation never selects or scrolls.
+   * bay alone is enriched directly, and the replacement target is resolved
+   * again before returning it. This operation never selects or scrolls.
    */
   async function enrichTarget(
     root: HTMLElement,
@@ -625,6 +712,7 @@ export function NavigationProvider(
     }
     const fileIndex = initialTarget.dataset.fileIndex;
     const hunkIndex = initialTarget.dataset.hunkIndex;
+    const hunkBay = initialTarget.dataset.hunkBay;
     if (
       fileIndex === undefined ||
       hunkIndex === undefined ||
@@ -635,12 +723,20 @@ export function NavigationProvider(
       throw new Error("Navigation destination has invalid hunk coordinates.");
     }
     let target = initialTarget;
+    // Only a target inside a bay wrapper can be virtual: pseudo-hunks, bay
+    // chrome anchors, and collapsed-file skips live outside every wrapper
+    // and already expose their complete representation.
+    const bay = initialTarget.closest<HTMLElement>("[data-bay-render]");
     if (
-      card.dataset.fileRender === "virtual" &&
+      bay !== null &&
+      bay.dataset.bayRender === "virtual" &&
       initialTarget.dataset.hunkKind === "real"
     ) {
       const kind = initialTarget.dataset.hunkKind;
-      await waitToEnrich(card);
+      if (hunkBay === undefined) {
+        throw new Error("Real navigation destination is missing its bay.");
+      }
+      await waitToEnrich(bay);
       if (!alive) {
         return null;
       }
@@ -650,6 +746,7 @@ export function NavigationProvider(
         (candidate) =>
           candidate.dataset.hunkKind === kind &&
           candidate.dataset.fileIndex === fileIndex &&
+          candidate.dataset.hunkBay === hunkBay &&
           candidate.dataset.hunkIndex === hunkIndex,
       );
       if (replacements.length !== 1) {
@@ -709,17 +806,17 @@ export function NavigationProvider(
    * Scrolls to one manifest file's exact first current DOM target.
    *
    * The immutable file index must resolve to one stable FileCard. Every
-   * representation exposes hunk zero. A transient Husk target violates the
+   * representation exposes a first target. A transient Husk target violates the
    * caller contract because Husk navigation controls are disabled while it and
-   * adjacent Husks have unstable layout. An expanded virtual FullFile is enriched
-   * and resolved again before Navigation calculates its hypothetical centered
-   * viewport. Virtual FileCards intersecting their own exact rich-entry zones at
-   * that position are enriched one at a time. The destination and hypothetical
-   * viewport are recalculated after every layout change, and the final
-   * centering re-runs until nearby chunk rendering stops moving the
-   * destination. A local set bounds the operation to one
-   * enrichment per FileCard. The operation never selects its destination,
-   * expands, collapses, fetches, calculates counters, or updates the FileTree.
+   * adjacent Husks have unstable layout. A virtual destination bay is enriched
+   * and its target resolved again before Navigation calculates its hypothetical
+   * centered viewport. Virtual bays intersecting their own exact rich-entry
+   * zones at that position are enriched one at a time. The destination and
+   * hypothetical viewport are recalculated after every layout change, and the
+   * final centering re-runs until nearby chunk rendering stops moving the
+   * destination. A local set bounds the operation to one enrichment per bay.
+   * The operation never selects its destination, expands, collapses, fetches,
+   * calculates counters, or updates the FileTree.
    */
   async function navigateToFile(fileIndex: number): Promise<void> {
     if (!Number.isInteger(fileIndex) || fileIndex < 0) {
@@ -740,21 +837,17 @@ export function NavigationProvider(
     }
 
     /**
-     * Resolves hunk zero from the FileCard's current DOM representation.
+     * Resolves the first target from the FileCard's current DOM representation.
      *
-     * Every real or pseudo hunk carries an index. Missing or duplicate hunk-zero
-     * targets are renderer-contract failures rather than alternate destinations.
+     * Bays each number their hunks from zero, so index zero alone names no
+     * single target; the file's first hunk is its first target in DOM order,
+     * which renderers keep equal to document order. A missing target is a
+     * renderer-contract failure rather than an alternate destination.
      */
     function firstTarget(): HTMLElement {
-      const targets = card.querySelectorAll<HTMLElement>(
-        '[data-hunk-target][data-hunk-index="0"]',
-      );
-      if (targets.length !== 1) {
-        throw new Error("FileCard requires exactly one hunk-zero target.");
-      }
-      const target = targets.item(0);
+      const target = card.querySelector<HTMLElement>("[data-hunk-target]");
       if (target === null) {
-        throw new Error("FileCard hunk-zero target disappeared.");
+        throw new Error("FileCard first hunk target disappeared.");
       }
       if (target.dataset.fileIndex !== String(fileIndex)) {
         throw new Error("FileCard target has the wrong manifest index.");
@@ -772,7 +865,7 @@ export function NavigationProvider(
       return target;
     }
 
-    const enrichedFileCards = new Set<HTMLElement>();
+    const enrichedBays = new Set<HTMLElement>();
 
     /**
      * Calculates the document viewport produced by centered target scrolling.
@@ -817,21 +910,27 @@ export function NavigationProvider(
     if (target.dataset.hunkKind === "husk") {
       throw new Error("File navigation cannot target a HuskFile.");
     }
+    // Only a target inside a bay wrapper can be virtual; chrome anchors and
+    // collapsed-file skips live outside every wrapper with exact geometry.
+    const destinationBay = target.closest<HTMLElement>("[data-bay-render]");
     if (
-      card.dataset.fileRender === "virtual" &&
+      destinationBay !== null &&
+      destinationBay.dataset.bayRender === "virtual" &&
       target.dataset.hunkKind === "real"
     ) {
-      enrichedFileCards.add(card);
-      await waitToEnrich(card);
+      enrichedBays.add(destinationBay);
+      await waitToEnrich(destinationBay);
       if (!alive) {
         return;
       }
       target = firstTarget();
+      // The first target of any bay is that bay's hunk zero, so the
+      // enriched bay must still lead with a real index-zero target.
       if (
         target.dataset.hunkKind !== "real" ||
         target.dataset.hunkIndex !== "0"
       ) {
-        throw new Error("Enriched FullFile omitted real hunk zero.");
+        throw new Error("Enriched bay omitted its first real hunk.");
       }
     }
     if (!alive) {
@@ -848,32 +947,27 @@ export function NavigationProvider(
       // enrichment completes with real geometry and every mode transition
       // measures real heights, so each pass recalculates against settled
       // layout and the loop's one-enrichment-per-card set still terminates it.
-      let intersectingVirtualCard: HTMLElement | undefined;
+      let intersectingVirtualBay: HTMLElement | undefined;
       for (const candidate of Array.from(
-        root.querySelectorAll<HTMLElement>(
-          '[data-file-card][data-file-render="virtual"]',
-        ),
+        root.querySelectorAll<HTMLElement>('[data-bay-render="virtual"]'),
       )) {
-        if (
-          enrichedFileCards.has(candidate) ||
-          candidate.querySelector(".virtual-file-body") === null
-        ) {
+        if (enrichedBays.has(candidate)) {
           continue;
         }
-        const enrichableCard = candidate as Partial<EnrichableFileCard>;
-        if (typeof enrichableCard.intersectsRichEntryZone !== "function") {
-          throw new Error("Virtual FullFile omitted rich-entry geometry.");
+        const enrichableBay = candidate as Partial<EnrichableBay>;
+        if (typeof enrichableBay.intersectsRichEntryZone !== "function") {
+          throw new Error("Virtual bay omitted rich-entry geometry.");
         }
-        if (enrichableCard.intersectsRichEntryZone(viewportTop)) {
-          intersectingVirtualCard = candidate;
+        if (enrichableBay.intersectsRichEntryZone(viewportTop)) {
+          intersectingVirtualBay = candidate;
           break;
         }
       }
-      if (intersectingVirtualCard === undefined) {
+      if (intersectingVirtualBay === undefined) {
         break;
       }
-      enrichedFileCards.add(intersectingVirtualCard);
-      await waitToEnrich(intersectingVirtualCard);
+      enrichedBays.add(intersectingVirtualBay);
+      await waitToEnrich(intersectingVirtualBay);
       if (!alive) {
         return;
       }
@@ -893,10 +987,10 @@ export function NavigationProvider(
    * Scrolls to one exact rendered backend line without changing hunk selection.
    *
    * The file sequence has already expanded, loaded, and admitted the target
-   * FullFile. Navigation enriches virtual layout, repeatedly resolves the target
-   * from required coordinates, prepares intersecting virtual FileCards for the
-   * hypothetical centered viewport, and centers the destination, re-running
-   * the centering until nearby chunk rendering stops moving it.
+   * FullFile. Navigation repeatedly resolves the prepared row from required
+   * coordinates, enriches virtual bays intersecting the hypothetical centered
+   * viewport one at a time, and centers the destination, re-running the
+   * centering until nearby chunk rendering stops moving it.
    */
   async function navigateToLine(
     fileIndex: number,
@@ -905,12 +999,6 @@ export function NavigationProvider(
   ): Promise<NavigationResult> {
     if (!Number.isInteger(fileIndex) || fileIndex < 0) {
       throw new Error("Line navigation requires a valid manifest index.");
-    }
-    if (target.file.length === 0) {
-      throw new Error("Line navigation requires a canonical file path.");
-    }
-    if (target.region !== null && target.region.length === 0) {
-      throw new Error("Line navigation requires a non-empty notebook region.");
     }
     if (!/^[1-9]\d*$/u.test(target.line)) {
       throw new Error(
@@ -932,11 +1020,11 @@ export function NavigationProvider(
     const card = expect(
       cards.item(0),
       "Line navigation FileCard disappeared.",
-    ) as Partial<EnrichableFileCard>;
+    ) as Partial<PreparableFileCard>;
     if (typeof card.prepareLine_impl !== "function") {
       throw new Error("Line navigation requires FullFile preparation.");
     }
-    const enrichedFileCards = new Set<HTMLElement>();
+    const enrichedBays = new Set<HTMLElement>();
 
     /**
      * Calculates the document viewport produced by centering the current row.
@@ -983,28 +1071,23 @@ export function NavigationProvider(
           : { state: "stopped" };
       }
       const viewportTop = centeredViewportTop(prepared.row);
-      let intersectingVirtualCard: HTMLElement | undefined;
+      let intersectingVirtualBay: HTMLElement | undefined;
       for (const candidate of Array.from(
-        root.querySelectorAll<HTMLElement>(
-          '[data-file-card][data-file-render="virtual"]',
-        ),
+        root.querySelectorAll<HTMLElement>('[data-bay-render="virtual"]'),
       )) {
-        if (
-          enrichedFileCards.has(candidate) ||
-          candidate.querySelector(".virtual-file-body") === null
-        ) {
+        if (enrichedBays.has(candidate)) {
           continue;
         }
-        const enrichableCard = candidate as Partial<EnrichableFileCard>;
-        if (typeof enrichableCard.intersectsRichEntryZone !== "function") {
-          throw new Error("Virtual FullFile omitted rich-entry geometry.");
+        const enrichableBay = candidate as Partial<EnrichableBay>;
+        if (typeof enrichableBay.intersectsRichEntryZone !== "function") {
+          throw new Error("Virtual bay omitted rich-entry geometry.");
         }
-        if (enrichableCard.intersectsRichEntryZone(viewportTop)) {
-          intersectingVirtualCard = candidate;
+        if (enrichableBay.intersectsRichEntryZone(viewportTop)) {
+          intersectingVirtualBay = candidate;
           break;
         }
       }
-      if (intersectingVirtualCard === undefined) {
+      if (intersectingVirtualBay === undefined) {
         if (abortSignal.aborted || !alive) {
           return { state: "stopped" };
         }
@@ -1012,8 +1095,8 @@ export function NavigationProvider(
         await settleCenteredScroll(prepared.row);
         return { state: "complete" };
       }
-      enrichedFileCards.add(intersectingVirtualCard);
-      await waitToEnrich(intersectingVirtualCard);
+      enrichedBays.add(intersectingVirtualBay);
+      await waitToEnrich(intersectingVirtualBay);
     }
     return { state: "stopped" };
   }
@@ -1036,7 +1119,14 @@ export function NavigationProvider(
     const location = selectedLocation(root);
     const rect = location.target.getBoundingClientRect();
     if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
-      await waitToEnrich(location.card);
+      // Only a target inside a bay wrapper can have estimated geometry; a
+      // pseudo-hunk, chrome anchor, or collapsed-file skip lives outside
+      // every wrapper and centers exactly as it stands.
+      const selectedBay =
+        location.target.closest<HTMLElement>("[data-bay-render]");
+      if (selectedBay !== null) {
+        await waitToEnrich(selectedBay);
+      }
       if (alive) {
         const enrichedLocation = selectedLocation(root);
         enrichedLocation.target.scrollIntoView({
@@ -1129,6 +1219,7 @@ export function NavigationProvider(
   }
 
   const navigation: Navigation = {
+    root: props.root,
     /**
      * Executes one explicit operation against the current ChangeSet DOM.
      *

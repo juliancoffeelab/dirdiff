@@ -13,81 +13,53 @@ import {
   ErrorBoundary,
   For,
   Show,
-  createSignal,
+  createEffect,
+  createMemo,
   onCleanup,
   onMount,
   type Accessor,
   type JSX,
 } from "solid-js";
 import { LoaderCircle } from "lucide-solid";
-import type {
-  DiffEngine,
-  FileDiff,
-  LazyInfoFile,
-  ReviewFilePair,
-  TextFileDiff,
-} from "../api/api";
+import {
+  type FileDiff,
+  type LazyInfoFile,
+  type ReviewFilePair,
+} from "../../api/api";
 import {
   ErrorPanel,
   RetryButton,
   presentError,
   useToasts,
-} from "../comp/Toasts";
-import type { DiffViewMode } from "./App";
-import { DiffGrid } from "./diffGrid/DiffGrid";
-import { finishForcedChunkLayout, forceChunkLayout } from "./diffGrid/rowDom";
+} from "../../comp/Toasts";
+import type { DiffViewMode } from "../App";
 import type {
   FileState,
   FullFileState,
   HuskFileState,
   LazyFileState,
-} from "./changeSet/fileLane";
-import type { LinePins, LinePinTarget, PreparedLine } from "./linePins";
-import { NotebookFile } from "./NotebookFile";
-import type { PseudoHunkIdentity, RealHunkIdentity } from "./navigation";
-import { useReview } from "./review/Review";
+} from "../changeSet/fileLane";
+import type { LinePins, LinePinTarget, PreparedLine } from "../linePins";
+import { createStore } from "solid-js/store";
+import {
+  FrameView,
+  composedHunkCount,
+  composedHunks,
+  type BayExpansion,
+  type BayRenderMode,
+  type BayRenderModes,
+} from "./FrameView";
+import type { PseudoHunkIdentity, SkippedHunkIdentity } from "../navigation";
+import { useReview } from "../review/Review";
 
 /**
- * Classifies one hydrated text file by the cost of fully rendering its rows.
+ * Describes the line-preparation operation attached by FullFile.
  *
- * `small` means 0–250 rows, `medium` means 251–1000 rows, and `large` means
- * 1001 or more rows. The value controls viewport lead distance and must not
- * encode hunk, selection, or global state.
- */
-type FileCost = "small" | "medium" | "large";
-
-/**
- * Defines the two viewport distances governing one text-file cost band.
- *
- * `enterViewports` is the distance at which the whole file becomes rich;
- * `exitViewports` is the larger distance beyond which it becomes virtual.
- */
-type RichZone = {
-  enterViewports: number;
-  exitViewports: number;
-};
-
-/**
- * Represents the complete local body representation for one FullFile.
- *
- * Rich means the natural interactive renderer; virtual means complete plain
- * split text. The mode must never represent loading, file expansion, or navigation.
- */
-type FileRenderMode = "rich" | "virtual";
-
-/**
- * Describes the navigation geometry and rich-materialization operations attached
- * by FullFile.
- *
- * Every FullFile exposes both methods as one DOM interface. `waitToEnrich()` is
- * the general materialization operation. `intersectsRichEntryZone()` is valid
- * only for a virtualizable text FullFile currently exposing `.virtual-file-body`
- * and applies that file's exact row-cost policy. Neither operation changes
+ * Every mounted FullFile exposes it as one DOM interface. The operation
+ * prepares one exact backend line inside this card and never changes
  * selected identity, counters, or scroll position.
  */
-type EnrichableFileCard = HTMLElement & {
-  intersectsRichEntryZone: (viewportTop: number) => boolean;
-  waitToEnrich_impl: () => Promise<void>;
+type PreparableFileCard = HTMLElement & {
   prepareLine_impl: (
     target: LinePinTarget,
     abortSignal: AbortSignal,
@@ -125,61 +97,6 @@ type HunkCounterProps = {
 };
 
 /**
- * Returns the specified rich-entry and virtual-exit distances for one row count.
- *
- * Callers provide the exact backend row count. Invalid counts violate the
- * hydrated text-file contract and throw instead of selecting a cost band.
- */
-function richZone(rowCount: number): RichZone {
-  if (!Number.isInteger(rowCount) || rowCount < 0) {
-    throw new Error("Virtualization requires a non-negative row count.");
-  }
-  const cost: FileCost =
-    rowCount <= 250 ? "small" : rowCount <= 1_000 ? "medium" : "large";
-  switch (cost) {
-    case "small":
-      return { enterViewports: 2, exitViewports: 3 };
-    case "medium":
-      return { enterViewports: 4, exitViewports: 6 };
-    case "large":
-      return { enterViewports: 8, exitViewports: 12 };
-  }
-}
-
-/**
- * Chooses the first representation from current FileCard geometry.
- *
- * A card intersecting its cost-dependent entry zone begins rich. The stable
- * Husk must provide readable geometry before FullFile chooses a representation.
- */
-function initialRenderMode(
-  card: HTMLElement,
-  rowCount: number,
-): FileRenderMode {
-  const viewportHeight = window.innerHeight;
-  const rect = card.getBoundingClientRect();
-  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
-    throw new Error(
-      "Initial virtualization requires a finite positive viewport height.",
-    );
-  }
-  if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) {
-    throw new Error(
-      "Initial virtualization requires a finite FileCard rectangle.",
-    );
-  }
-  if (rect.width === 0 && rect.height === 0) {
-    throw new Error(
-      "Initial virtualization requires measurable FileCard geometry.",
-    );
-  }
-  const margin = richZone(rowCount).enterViewports * viewportHeight;
-  return rect.bottom >= -margin && rect.top <= viewportHeight + margin
-    ? "rich"
-    : "virtual";
-}
-
-/**
  * Defines every input required by one stable FileCard.
  *
  * Expansion remains ChangeSet-owned so it survives active-content replacement.
@@ -201,7 +118,6 @@ type FileCardProps = {
    * TODO: Consider cooperative yields inside FileBody for expensive in-file rendering.
    */
   admitted: boolean;
-  engine: DiffEngine;
   view: DiffViewMode;
   aggressiveFolds: boolean;
   linePins: LinePins;
@@ -223,6 +139,15 @@ type FileCardProps = {
 export function FileCard(props: FileCardProps): JSX.Element {
   let card!: HTMLElement;
   const review = useReview();
+  // Derived from the composed diff rather than sent with it, and memoized so
+  // the card and its header share one count instead of walking per read. The
+  // renderers below run their own walks: they need the per-bay stop map, which
+  // this count discards.
+  const hunkCount = createMemo(() =>
+    props.file_state.state === "full"
+      ? composedHunkCount(props.file_state.backend_data)
+      : 0,
+  );
   /**
    * Describes this FileCard's complete semantic hunk target set.
    *
@@ -237,7 +162,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
     if (props.file_state.state === "lazy") {
       return props.expanded ? "lazy" : "lazy:skip";
     }
-    const count = props.file_state.backend_data.hunk_count;
+    const count = hunkCount();
     if (count === 0) {
       return props.expanded ? "zero" : "zero:skip";
     }
@@ -259,9 +184,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
       data-file-state={props.file_state.state}
       data-hunk-set={hunkSet()}
       data-hunk-count={
-        props.file_state.state === "full"
-          ? props.file_state.backend_data.hunk_count
-          : undefined
+        props.file_state.state === "full" ? hunkCount() : undefined
       }
     >
       <Show
@@ -295,10 +218,10 @@ export function FileCard(props: FileCardProps): JSX.Element {
             }}
             expanded={props.expanded}
             admitted={props.admitted}
-            engine={props.engine}
             view={props.view}
             aggressiveFolds={props.aggressiveFolds}
             linePins={props.linePins}
+            hunkCount={hunkCount}
             globalSelectedHunk={props.globalSelectedHunk}
             fileSelectedHunk={props.fileSelectedHunk}
             card={() => card}
@@ -517,7 +440,7 @@ function HunkCounterBadges(props: HunkCounterProps): JSX.Element {
  *
  * View and aggressive-fold changes are read reactively by the renderer. They do
  * not replace query data or move global progress and navigation behavior
- * into FileBody.
+ * into the body.
  */
 function FullFile(
   props: {
@@ -525,28 +448,88 @@ function FullFile(
     file_state: FullFileState;
     expanded: boolean;
     admitted: boolean;
-    engine: DiffEngine;
     view: DiffViewMode;
     aggressiveFolds: boolean;
     linePins: LinePins;
+    // FileCard's memoized whole-File hunk count, passed down so the header
+    // reads the one computed value instead of re-walking the composed diff.
+    hunkCount: Accessor<number>;
     card: Accessor<HTMLElement>;
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
 ): JSX.Element {
   const backend_data = props.file_state.backend_data;
-  const [renderMode, setRenderMode] = createSignal<FileRenderMode | null>(null);
+  // Bay expansion must outlive the body: collapsing the File unmounts every
+  // bay, and remounting shows the bays as the reviewer left them. A key
+  // absent from the store is at its backend default.
+  const [expandedBays, setExpandedBays] = createStore<Record<string, boolean>>(
+    {},
+  );
+  const bayExpansion: BayExpansion = {
+    isExpanded: (bay) => expandedBays[bay.bay_key] ?? bay.default_expanded,
+    setExpanded: (bayKey, expanded) => setExpandedBays(bayKey, expanded),
+  };
+  // The mode registry, by contrast, holds only mounted bays: each bay wrapper
+  // registers itself for exactly its mounted lifetime and every bay mounts
+  // virtual again, so nothing here persists across a body unmount. The card
+  // holds the store because the whole-File aggregate below is derived from it.
+  const [bayModes, setBayModes] = createStore<
+    Record<string, BayRenderMode | undefined>
+  >({});
+  const bayRenderModes: BayRenderModes = {
+    mode: (bayKey) => {
+      const mode = bayModes[bayKey];
+      if (mode === undefined) {
+        throw new Error(`Bay ${bayKey} read its render mode unregistered.`);
+      }
+      return mode;
+    },
+    setMode: (bayKey, mode) => setBayModes(bayKey, mode),
+    clearMode: (bayKey) => setBayModes(bayKey, undefined),
+  };
+
+  /**
+   * Derives this File's whole-card render answer from its mounted bays.
+   *
+   * The FileTree indicator and the header marker present one answer per File,
+   * so the card aggregates: virtual only while at least one bay is mounted
+   * and every mounted bay is virtual, rich while any mounted bay is rich, and
+   * null while no bay body is mounted — a collapsed, unadmitted, or bodyless
+   * File has no representation to report.
+   */
+  const fileRenderMode = createMemo((): BayRenderMode | null => {
+    const modes = Object.values(bayModes).filter(
+      (mode): mode is BayRenderMode => mode !== undefined,
+    );
+    if (modes.length === 0) {
+      return null;
+    }
+    return modes.every((mode) => mode === "virtual") ? "virtual" : "rich";
+  });
+  // The FileTree observes the card attribute rather than this component, so
+  // the aggregate is written where navigation and the tree already read it.
+  createEffect(() => {
+    const mode = fileRenderMode();
+    if (mode === null) {
+      delete props.card().dataset.fileRender;
+    } else {
+      props.card().dataset.fileRender = mode;
+    }
+  });
+  onCleanup(() => {
+    delete props.card().dataset.fileRender;
+  });
 
   return (
     <>
       <FullFileHeader
         file_state={props.file_state}
         expanded={props.expanded}
-        virtualized={props.expanded && renderMode() === "virtual"}
+        virtualized={props.expanded && fileRenderMode() === "virtual"}
         awaitingAdmission={
-          props.expanded &&
-          !props.admitted &&
-          props.file_state.backend_data.hunk_count > 0
+          props.expanded && !props.admitted && props.hunkCount() > 0
         }
+        hunkCount={props.hunkCount}
         globalSelectedHunk={props.globalSelectedHunk}
         fileSelectedHunk={props.fileSelectedHunk}
         onExpandedChange={props.onExpandedChange}
@@ -554,8 +537,8 @@ function FullFile(
       <FileRendererBoundary card={props.card} path={backend_data.display_name}>
         <FullFileRenderer
           {...props}
-          renderMode={renderMode}
-          onRenderModeChange={setRenderMode}
+          bayExpansion={bayExpansion}
+          bayRenderModes={bayRenderModes}
         />
       </FileRendererBoundary>
     </>
@@ -565,9 +548,10 @@ function FullFile(
 /**
  * Renders and operates the fallible body beneath one stable Full File header.
  *
- * FileRendererBoundary contains this complete subtree. The component may expose
- * body preparation operations on its FileCard, but it neither renders nor
- * replaces the independent header review action.
+ * FileRendererBoundary contains this complete subtree. The component attaches
+ * the line-preparation operation to its FileCard for the mounted lifetime,
+ * but it neither renders nor replaces the independent header review action.
+ * Rich/virtual representation belongs to the individual bays inside the body.
  */
 function FullFileRenderer(
   props: {
@@ -575,161 +559,67 @@ function FullFileRenderer(
     file_state: FullFileState;
     expanded: boolean;
     admitted: boolean;
-    engine: DiffEngine;
     view: DiffViewMode;
     aggressiveFolds: boolean;
     linePins: LinePins;
     card: Accessor<HTMLElement>;
     onExpandedChange: (expanded: boolean) => void;
-    renderMode: Accessor<FileRenderMode | null>;
-    onRenderModeChange(mode: FileRenderMode): void;
+    bayExpansion: BayExpansion;
+    bayRenderModes: BayRenderModes;
   } & HunkCounterProps,
 ): JSX.Element {
   const backend_data = props.file_state.backend_data;
-  const textFile = "render_kind" in backend_data ? null : backend_data;
-  const hunkIndices =
-    "render_kind" in backend_data
-      ? backend_data.cells.flatMap((cell) =>
-          cell.source_rows.flatMap((row) =>
-            row.hunk_index === null ? [] : [row.hunk_index],
-          ),
-        )
-      : backend_data.rows.flatMap((row) =>
-          row.hunk_index === null ? [] : [row.hunk_index],
+  // Hunk coordinates are bay-local and arrive on the wire, so the check is
+  // the wire contract itself: a bay whose rows carry the stops must number
+  // them zero through n-1 in row order. A mismatch means the backend numbered
+  // hunks by a different rule than the renderers anchor them by.
+  const { total: hunkTotal, bays: bayHunks } = composedHunks(backend_data);
+  const hunkStops = backend_data.frames.flatMap((frame) =>
+    frame.bays.flatMap((bay) => {
+      const hunks = bayHunks.get(bay.bay_key);
+      if (hunks === undefined) {
+        throw new Error(
+          `${backend_data.display_name} bay ${bay.bay_key} is absent from its File's hunk stops.`,
         );
-  if (hunkIndices.length !== props.file_state.backend_data.hunk_count) {
-    throw new Error(
-      `${props.file_state.backend_data.display_name} returned ${hunkIndices.length} hunk targets for hunk_count ${props.file_state.backend_data.hunk_count}.`,
-    );
-  }
-  const uniqueHunkIndices = new Set(hunkIndices);
-  for (
-    let hunkIndex = 0;
-    hunkIndex < props.file_state.backend_data.hunk_count;
-    hunkIndex += 1
-  ) {
-    if (!uniqueHunkIndices.has(hunkIndex)) {
-      throw new Error(
-        `${props.file_state.backend_data.display_name} omitted hunk index ${hunkIndex}.`,
-      );
-    }
-  }
-  props.onRenderModeChange(
-    textFile === null
-      ? "rich"
-      : initialRenderMode(props.card(), textFile.rows.length),
-  );
-  /** Reads the representation initialized inside this renderer boundary. */
-  const renderMode: Accessor<FileRenderMode> = () => {
-    const current = props.renderMode();
-    if (current === null) {
-      throw new Error("FullFile renderer mode was not initialized.");
-    }
-    return current;
-  };
-  const [reservedRichHeight, setReservedRichHeight] = createSignal<
-    number | null
-  >(null);
-
-  /**
-   * Changes only this FullFile's representation and records usable rich height.
-   *
-   * Observer callbacks call this operation directly. An expanded admitted file
-   * must expose a measurable rich body before becoming virtual. The operation
-   * performs no navigation, selected-hunk, ChangeSet, or scrolling behavior.
-   */
-  function changeRenderMode(mode: FileRenderMode): void {
-    if (renderMode() === mode) {
-      return;
-    }
-    if (mode === "virtual") {
-      const richBody = props
-        .card()
-        .querySelector<HTMLElement>(".rich-file-body");
-      if (richBody === null) {
-        if (props.expanded && props.admitted) {
-          throw new Error(
-            "Expanded admitted FullFile cannot become virtual without a rich body.",
-          );
-        }
-      } else {
-        // An off-screen body with unwarmed chunks measures the intrinsic
-        // estimate, not its real height; pinning that onto the virtual body
-        // moves the page under the reader. Force real layout first — the
-        // rich body unmounts with this transition, so the visible chunks
-        // need no restoration.
-        forceChunkLayout(richBody);
-        const measuredHeight = richBody.getBoundingClientRect().height;
-        if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
-          throw new Error(
-            "Rich FullFile body must have a finite positive height before virtualization.",
-          );
-        }
-        setReservedRichHeight(measuredHeight);
       }
-    }
-    props.onRenderModeChange(mode);
-    props.card().dataset.fileRender = mode;
-  }
-
-  /**
-   * Materializes this FullFile's rich body for one explicit navigation action.
-   *
-   * Collapsed, zero-hunk, non-text, and body-awaiting FullFiles already expose
-   * their complete current representation and are immediate no-ops. An admitted
-   * expanded text file changes only local representation and resolves after
-   * Solid has mounted rich DOM. It never expands, selects, calculates counters,
-   * scrolls, or fetches.
-   */
-  async function waitToEnrich_impl(): Promise<void> {
-    // Not expanded and not admitted files dont need enrichment
-    if (!props.expanded || !props.admitted) {
-      return;
-    }
-    const card = props.card();
-    changeRenderMode("rich");
-    await Promise.resolve();
-    if (!card.isConnected) {
-      return;
-    }
-    if (props.expanded && props.admitted) {
-      const richBody = card.querySelector<HTMLElement>(".rich-file-body");
-      if (richBody === null) {
-        throw new Error("FullFile did not mount its rich body.");
-      }
-      // Enrichment is complete only when its geometry is real: fresh chunks
-      // still carry the intrinsic estimate, and the callers (navigation's
-      // pre-enrichment and centering) read heights immediately. Lay the
-      // chunks out now and give the browser one rendered frame to record
-      // their remembered sizes before returning them to skippable
-      // containment.
-      const freshChunks = forceChunkLayout(richBody);
-      if (freshChunks.length > 0) {
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => resolve());
+      if (hunks.carrier === "rows") {
+        hunks.stops.forEach((stop, position) => {
+          if (stop !== position) {
+            throw new Error(
+              `${backend_data.display_name} bay ${bay.bay_key} numbers hunk ${stop} at position ${position}.`,
+            );
+          }
         });
-        if (!card.isConnected) {
-          return;
-        }
-        finishForcedChunkLayout(freshChunks);
       }
-    }
+      return hunks.stops.map((hunkIndex) => ({
+        bay: bay.bay_key,
+        hunkIndex,
+      }));
+    }),
+  );
+  if (hunkStops.length !== hunkTotal) {
+    throw new Error(
+      `${backend_data.display_name} wrote ${hunkStops.length} hunk targets for ${hunkTotal} counted hunks.`,
+    );
   }
 
   /**
    * Prepares one exact semantic line inside this admitted FullFile.
    *
    * Navigation supplies the complete URL target and its operation AbortSignal.
-   * The operation expands this FileCard, materializes rich DOM, resolves the
-   * exact ordinary or notebook DiffGrid from canonical renderer order, and
-   * delegates local unfolding. It does not fetch, scroll, paint, parse the URL,
-   * or select a hunk.
+   * The operation expands this FileCard, expands and enriches the one bay the
+   * pin names, resolves that bay's TextDiffGrid, and delegates local
+   * unfolding. It does not fetch, scroll, paint, parse the URL, or select a
+   * hunk.
    */
   async function prepareLine_impl(
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<PreparedLine> {
-    if (target.file !== backend_data.display_name) {
+    if (
+      target.file.left_path !== props.reviewFile.left_path ||
+      target.file.right_path !== props.reviewFile.right_path
+    ) {
       throw new Error("Line preparation targeted the wrong FileCard.");
     }
     if (abortSignal.aborted || !props.card().isConnected) {
@@ -740,47 +630,60 @@ function FullFileRenderer(
     }
     if (!props.expanded) {
       props.onExpandedChange(true);
+      // Expansion is a signal write, so the File body does not exist until
+      // Solid flushes. The yield lets that happen before the bay is searched.
       await Promise.resolve();
     }
     if (abortSignal.aborted || !props.card().isConnected) {
       return { state: "stopped" };
     }
-    await waitToEnrich_impl();
+    // A pin names the bay it was taken in, always by the key composition
+    // gave it. The bay may be collapsed, so its card-owned expansion is
+    // written before its wrapper is searched; a key this composed diff does
+    // not contain expands nothing and is answered by the missing wrapper
+    // below.
+    const bayKey = target.bay.bay_key;
+    props.bayExpansion.setExpanded(bayKey, true);
+    // The expansion is a store write, so a collapsed bay's wrapper is mounted
+    // by the resulting flush. The yield lets that flush run before the
+    // wrapper below is queried.
+    await Promise.resolve();
     if (abortSignal.aborted || !props.card().isConnected) {
       return { state: "stopped" };
     }
-    const grids = Array.from(
-      props.card().querySelectorAll<HTMLElement>(".diff-lines"),
-    );
-    let grid: HTMLElement | undefined;
-    if ("render_kind" in backend_data) {
-      const cellIndex = backend_data.cells.findIndex(
-        (cell) => cell.cell_key === target.region,
+    // The grid exists only while its bay is rich, so the pin is answered
+    // through the mode-independent bay wrapper: enrich that one bay, then
+    // search inside it.
+    const wrapper = props
+      .card()
+      .querySelector<HTMLElement>(
+        `[data-bay-render][data-bay-key="${CSS.escape(bayKey)}"]`,
       );
-      if (cellIndex === -1) {
-        return { state: "missing" };
-      }
-      if (grids.length !== backend_data.cells.length) {
-        throw new Error(
-          "Notebook FullFile must render exactly one DiffGrid per cell.",
-        );
-      }
-      grid = grids[cellIndex];
-    } else {
-      if (target.region !== null) {
-        return { state: "missing" };
-      }
-      if (grids.length !== 1) {
-        throw new Error("Text FullFile must render exactly one DiffGrid.");
-      }
-      grid = grids[0];
+    if (wrapper === null) {
+      return { state: "missing" };
     }
+    const waitToEnrich: unknown = Reflect.get(wrapper, "waitToEnrich_impl");
+    if (typeof waitToEnrich !== "function") {
+      throw new Error("Bay omitted its enrichment operation.");
+    }
+    await Reflect.apply(waitToEnrich, wrapper, []);
+    if (abortSignal.aborted || !props.card().isConnected) {
+      return { state: "stopped" };
+    }
+    const gridRoot = wrapper.querySelector<HTMLElement>(
+      `.diff-grid[data-review-bay="${CSS.escape(bayKey)}"]`,
+    );
+    if (gridRoot === null) {
+      throw new Error("Enriched bay did not mount its TextDiffGrid.");
+    }
+    const grid: HTMLElement | undefined =
+      gridRoot.querySelector<HTMLElement>(".diff-lines") ?? undefined;
     if (grid === undefined) {
-      throw new Error("Prepared DiffGrid disappeared.");
+      throw new Error("Prepared TextDiffGrid disappeared.");
     }
     const prepareLine: unknown = Reflect.get(grid, "prepareLine_impl");
     if (typeof prepareLine !== "function") {
-      throw new Error("DiffGrid omitted its line-preparation operation.");
+      throw new Error("TextDiffGrid omitted its line-preparation operation.");
     }
     const result: unknown = await Reflect.apply(prepareLine, grid, [
       target,
@@ -794,163 +697,41 @@ function FullFileRenderer(
         result.state !== "missing" &&
         result.state !== "stopped")
     ) {
-      throw new Error("DiffGrid returned an invalid preparation result.");
+      throw new Error("TextDiffGrid returned an invalid preparation result.");
     }
     if (
       result.state === "ready" &&
       (!("row" in result) || !(result.row instanceof HTMLElement))
     ) {
-      throw new Error("Ready DiffGrid preparation omitted its rendered row.");
+      throw new Error(
+        "Ready TextDiffGrid preparation omitted its rendered row.",
+      );
     }
     return result as PreparedLine;
   }
 
-  /**
-   * Tests this FileCard against its rich-entry zone at a proposed scroll position.
-   *
-   * Navigation supplies a finite non-negative document viewport top. The result
-   * applies the same row-cost threshold as the local IntersectionObserver without
-   * scrolling or changing representation. It must not be used for the larger
-   * rich-exit zone.
-   */
-  function intersectsRichEntryZone(viewportTop: number): boolean {
-    if (textFile === null) {
-      throw new Error("Only text FullFiles have a rich-entry zone.");
-    }
-    if (!Number.isFinite(viewportTop) || viewportTop < 0) {
-      throw new Error(
-        "Rich-entry geometry requires a finite non-negative viewport top.",
-      );
-    }
-    const viewportHeight = window.innerHeight;
-    if (viewportHeight <= 0) {
-      throw new Error(
-        "Rich-entry geometry requires a positive viewport height.",
-      );
-    }
-    const rect = props.card().getBoundingClientRect();
-    if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) {
-      throw new Error(
-        "Rich-entry geometry requires a finite FileCard rectangle.",
-      );
-    }
-    const cardTop = window.scrollY + rect.top;
-    const cardBottom = window.scrollY + rect.bottom;
-    const margin =
-      richZone(textFile.rows.length).enterViewports * viewportHeight;
-    return (
-      cardBottom >= viewportTop - margin &&
-      cardTop <= viewportTop + viewportHeight + margin
-    );
-  }
-
   onMount(() => {
-    const card = props.card() as EnrichableFileCard;
-    const observedFile = textFile;
-    card.dataset.fileRender = renderMode();
-    card.intersectsRichEntryZone = intersectsRichEntryZone;
-    card.waitToEnrich_impl = waitToEnrich_impl;
+    const card = props.card() as PreparableFileCard;
     card.prepareLine_impl = prepareLine_impl;
-    if (observedFile === null) {
-      onCleanup(() => {
-        delete card.dataset.fileRender;
-        Reflect.deleteProperty(card, "intersectsRichEntryZone");
-        Reflect.deleteProperty(card, "waitToEnrich_impl");
-        Reflect.deleteProperty(card, "prepareLine_impl");
-      });
-      return;
-    }
-    const rowCount = observedFile.rows.length;
-    let enterObserver: IntersectionObserver | null = null;
-    let exitObserver: IntersectionObserver | null = null;
-
-    /**
-     * Rebuilds both cost-zone observers from the current viewport height.
-     *
-     * The mount lifecycle calls this initially and after each window resize.
-     * Existing observers are disconnected before their replacements attach.
-     */
-    function observeCurrentZones(): void {
-      if (enterObserver !== null) {
-        enterObserver.disconnect();
-      }
-      if (exitObserver !== null) {
-        exitObserver.disconnect();
-      }
-      const zone = richZone(rowCount);
-      enterObserver = new IntersectionObserver(
-        (entries) => {
-          // Entries queue oldest-first; a fast programmatic jump can batch
-          // an out-then-in transition, and acting on the stale first entry
-          // left visible files stuck virtual. Only the newest entry is the
-          // card's current state.
-          const entry = entries[entries.length - 1];
-          if (entry === undefined) {
-            throw new Error("Rich-zone observer omitted its FileCard entry.");
-          }
-          if (entry.isIntersecting) {
-            changeRenderMode("rich");
-          }
-        },
-        {
-          rootMargin: `${zone.enterViewports * window.innerHeight}px 0px`,
-        },
-      );
-      exitObserver = new IntersectionObserver(
-        (entries) => {
-          // Same newest-entry rule as the enter observer above.
-          const entry = entries[entries.length - 1];
-          if (entry === undefined) {
-            throw new Error(
-              "Virtual-zone observer omitted its FileCard entry.",
-            );
-          }
-          if (!entry.isIntersecting) {
-            changeRenderMode("virtual");
-          }
-        },
-        {
-          rootMargin: `${zone.exitViewports * window.innerHeight}px 0px`,
-        },
-      );
-      enterObserver.observe(card);
-      exitObserver.observe(card);
-    }
-
-    observeCurrentZones();
-    window.addEventListener("resize", observeCurrentZones);
     onCleanup(() => {
-      if (enterObserver !== null) {
-        enterObserver.disconnect();
-      }
-      if (exitObserver !== null) {
-        exitObserver.disconnect();
-      }
-      window.removeEventListener("resize", observeCurrentZones);
-      delete card.dataset.fileRender;
-      Reflect.deleteProperty(card, "intersectsRichEntryZone");
-      Reflect.deleteProperty(card, "waitToEnrich_impl");
       Reflect.deleteProperty(card, "prepareLine_impl");
     });
   });
 
   return (
     <>
-      <Show
-        when={!props.expanded && props.file_state.backend_data.hunk_count > 0}
-      >
+      <Show when={!props.expanded && hunkStops.length > 0}>
+        {/* A collapsed File writes the coordinates its bays own, not a range
+            rebuilt from how many there are. The list is the same one the checks
+            above ran against. */}
         <div class="hunk-skip-anchors" aria-hidden="true">
-          <For
-            each={Array.from(
-              { length: props.file_state.backend_data.hunk_count },
-              (_, hunkIndex) => hunkIndex,
-            )}
-          >
-            {(hunkIndex) => {
-              const identity: PseudoHunkIdentity = {
+          <For each={hunkStops}>
+            {(stop) => {
+              const identity: SkippedHunkIdentity = {
                 fileIndex: props.file_state.fileIndex,
                 kind: "skip",
-                hunkIndex,
+                bay: stop.bay,
+                hunkIndex: stop.hunkIndex,
               };
               return (
                 <span
@@ -958,6 +739,7 @@ function FullFileRenderer(
                   data-hunk-target
                   data-hunk-kind={identity.kind}
                   data-file-index={identity.fileIndex}
+                  data-hunk-bay={identity.bay}
                   data-hunk-index={identity.hunkIndex}
                 />
               );
@@ -966,116 +748,26 @@ function FullFileRenderer(
         </div>
       </Show>
       <Show when={props.expanded && props.admitted}>
-        <Show
-          when={textFile}
-          keyed
-          fallback={
-            <div class="file-card-body rich-file-body" data-file-body>
-              <FileBody
-                reviewFile={props.reviewFile}
-                fileIndex={props.file_state.fileIndex}
-                backend_data={props.file_state.backend_data}
-                engine={props.engine}
-                view={props.view}
-                aggressiveFolds={props.aggressiveFolds}
-                linePins={props.linePins}
-              />
-            </div>
-          }
-        >
-          {(backend_data) => (
-            <Show
-              when={renderMode() === "rich"}
-              fallback={
-                <VirtualFile
-                  fileIndex={props.file_state.fileIndex}
-                  backend_data={backend_data}
-                  reservedRichHeight={reservedRichHeight()}
-                />
-              }
-            >
-              <div class="file-card-body rich-file-body" data-file-body>
-                <FileBody
-                  reviewFile={props.reviewFile}
-                  fileIndex={props.file_state.fileIndex}
-                  backend_data={backend_data}
-                  engine={props.engine}
-                  view={props.view}
-                  aggressiveFolds={props.aggressiveFolds}
-                  linePins={props.linePins}
-                />
-              </div>
-            </Show>
-          )}
-        </Show>
+        <div class="file-card-body" data-file-body>
+          {/* The frame renderer walks the backend's frames and bays and draws
+              each bay by its kind; a plain text file is one heading-less frame
+              holding one text bay. Rows retain the exact backend labels and
+              hints. This boundary does not subscribe to progress, headers,
+              other files, or navigation state. */}
+          <FrameView
+            reviewFile={props.reviewFile}
+            fileIndex={props.file_state.fileIndex}
+            backend_data={props.file_state.backend_data}
+            view={props.view}
+            aggressiveFolds={props.aggressiveFolds}
+            linePins={props.linePins}
+            card={props.card}
+            bayExpansion={props.bayExpansion}
+            bayRenderModes={props.bayRenderModes}
+          />
+        </div>
       </Show>
     </>
-  );
-}
-
-/**
- * Renders complete undecorated old/new text for one distant hydrated text file.
- *
- * The representation is always split and contains two aligned searchable text
- * nodes beneath the stable FullFileHeader. It writes one transparent real-hunk
- * target for every backend boundary, but handles no selection, navigation, syntax
- * spans, inline tokens, rich rows, or row virtualization.
- */
-function VirtualFile(props: {
-  fileIndex: number;
-  backend_data: TextFileDiff;
-  reservedRichHeight: number | null;
-}): JSX.Element {
-  /**
-   * Renders one complete backend side as aligned searchable plain text.
-   *
-   * Callers choose the required old or new field. Missing text is an intentional
-   * blank row, so both returned sides preserve identical backend row positions.
-   */
-  function sideText(side: "left_text" | "right_text"): string {
-    return props.backend_data.rows.map((row) => row[side] ?? "").join("\n");
-  }
-
-  return (
-    <div
-      class="file-card-body virtual-file-body"
-      data-file-body
-      style={{
-        height:
-          props.reservedRichHeight === null
-            ? undefined
-            : `${props.reservedRichHeight}px`,
-      }}
-    >
-      <div class="plain-split-diff" aria-label="Virtualized plain split diff">
-        <For each={props.backend_data.rows}>
-          {(row, rowIndex) => {
-            const hunkIndex = row.hunk_index;
-            if (hunkIndex === null) {
-              return null;
-            }
-            const identity: RealHunkIdentity = {
-              fileIndex: props.fileIndex,
-              kind: "real",
-              hunkIndex,
-            };
-            return (
-              <span
-                class="virtual-hunk-anchor hunk-anchor"
-                style={{ top: `${10 + rowIndex() * 17.4}px` }}
-                data-hunk-target
-                data-hunk-kind={identity.kind}
-                data-file-index={identity.fileIndex}
-                data-hunk-index={identity.hunkIndex}
-                aria-hidden="true"
-              />
-            );
-          }}
-        </For>
-        <pre>{sideText("left_text")}</pre>
-        <pre>{sideText("right_text")}</pre>
-      </div>
-    </div>
   );
 }
 
@@ -1092,6 +784,9 @@ function FullFileHeader(
     expanded: boolean;
     virtualized: boolean;
     awaitingAdmission: boolean;
+    // FileCard's memoized whole-File hunk count, so the header reads the one
+    // computed value instead of walking the composed diff a second time.
+    hunkCount: Accessor<number>;
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -1102,7 +797,7 @@ function FullFileHeader(
     review.setFileHeaderMounted(header, false);
     review.closeAnchoredUi(header);
   });
-  const zeroHunkFile = props.file_state.backend_data.hunk_count === 0;
+  const zeroHunkFile = (): boolean => props.hunkCount() === 0;
 
   /**
    * Constructs the indexed pseudo-hunk currently placed by this header.
@@ -1112,7 +807,7 @@ function FullFileHeader(
    * leaves all real identities to its body renderer.
    */
   function targetIdentity(): PseudoHunkIdentity | null {
-    if (zeroHunkFile) {
+    if (zeroHunkFile()) {
       return {
         fileIndex: props.file_state.fileIndex,
         kind: "zero",
@@ -1132,7 +827,7 @@ function FullFileHeader(
     <header
       ref={header}
       class="file-card-header full-file-header"
-      classList={{ skip: zeroHunkFile && !props.expanded }}
+      classList={{ skip: zeroHunkFile() && !props.expanded }}
       data-hunk-target={targetIdentity() === null ? undefined : ""}
       data-hunk-kind={targetIdentity()?.kind}
       data-file-index={targetIdentity()?.fileIndex}
@@ -1162,20 +857,6 @@ function FullFileHeader(
               ? props.file_state.backend_data.file_kind.status
               : "untracked"}
           </span>
-          <Show
-            when={
-              "engine_warning" in props.file_state.backend_data
-                ? props.file_state.backend_data.engine_warning
-                : null
-            }
-            keyed
-          >
-            {(warning) => (
-              <span class="file-card-engine-warning" title={warning.message}>
-                {warning.message}
-              </span>
-            )}
-          </Show>
           <HunkCounterBadges
             globalSelectedHunk={props.globalSelectedHunk}
             fileSelectedHunk={props.fileSelectedHunk}
@@ -1411,52 +1092,6 @@ function DeferredFilePlank(props: {
 }
 
 /**
- * Dispatches one complete FileDiff to its established rich renderer.
- *
- * The notebook discriminator is the only variant test. Text rows retain the
- * exact backend labels, hints, and Difftastic row-combination policy; this boundary does
- * not subscribe to progress, headers, other files, or navigation state.
- */
-function FileBody(props: {
-  reviewFile: ReviewFilePair;
-  fileIndex: number;
-  backend_data: FileDiff;
-  engine: DiffEngine;
-  view: DiffViewMode;
-  aggressiveFolds: boolean;
-  linePins: LinePins;
-}): JSX.Element {
-  if ("render_kind" in props.backend_data) {
-    return (
-      <NotebookFile
-        reviewFile={props.reviewFile}
-        fileIndex={props.fileIndex}
-        backend_data={props.backend_data}
-        view={props.view}
-        aggressiveFolds={props.aggressiveFolds}
-        linePins={props.linePins}
-      />
-    );
-  }
-  return (
-    <DiffGrid
-      reviewFile={props.reviewFile}
-      fileIndex={props.fileIndex}
-      displayName={props.backend_data.display_name}
-      region={null}
-      leftLabel={props.backend_data.left_label}
-      rightLabel={props.backend_data.right_label}
-      rows={props.backend_data.rows}
-      foldHints={props.backend_data.fold_hints}
-      viewMode={props.view}
-      aggressiveFolds={props.aggressiveFolds}
-      combineInsertOnlyReplaceRows={props.engine === "difftastic"}
-      linePins={props.linePins}
-    />
-  );
-}
-
-/**
  * Renders exact per-file line statistics supplied by a FullFile response.
  *
  * The summary is complete. These values remain file-local and never contribute
@@ -1497,8 +1132,8 @@ function LazyStatistics(props: { info: LazyInfoFile }): JSX.Element {
 /**
  * Renders the established card expansion indicator for one file header.
  *
- * The indicator reflects ChangeSet-owned expansion and FileCard-local mode.
- * Virtual text uses the established V marker without exporting render mode;
+ * The indicator reflects ChangeSet-owned expansion and the card's aggregated
+ * bay render answer. A fully virtual File uses the established V marker;
  * ordinary rich and lazy content retain the existing expansion presentation.
  */
 function VisibilityIndicator(props: {

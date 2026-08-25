@@ -165,12 +165,16 @@ curl \
 ## Create a finding
 
 Set `DD_FILE` to the exact absolute captured File path under
-`DD_SNAPSHOT_PATH`. Set the line values to the one-based inclusive range the
-finding addresses; they come from inspecting that captured File and are not
-fixed API constants.
+`DD_SNAPSHOT_PATH`. Set `DD_BAY_KEY` to the bay of that File the finding
+addresses, and the line values to the one-based inclusive range *within that
+bay*. All three come from inspecting the captured File and are not fixed API
+constants. `Bay keys` in `snapshot_structure.md` says how to read a key and
+its lines out of the captured bytes; an ordinary text File is `flatfile` with
+its own line numbers.
 
 ```sh
 DD_FILE='paste-the-exact-captured-file-path'
+DD_BAY_KEY='paste-the-bay-key-of-that-file'
 DD_START_LINE='paste-the-first-selected-line-number'
 DD_END_LINE='paste-the-last-selected-line-number'
 
@@ -186,6 +190,7 @@ DD_ACTION_RESPONSE="$(
     --arg snapshot_id "$DD_SNAPSHOT_ID" \
     --argjson profile_id "$DD_PROFILE_ID" \
     --arg file "$DD_FILE" \
+    --arg bay_key "$DD_BAY_KEY" \
     --argjson start_line "$DD_START_LINE" \
     --argjson end_line "$DD_END_LINE" \
     --arg body "$DD_BODY" \
@@ -195,7 +200,8 @@ DD_ACTION_RESPONSE="$(
       actions: [{
         kind: "create-finding",
         file: $file,
-        region: {
+        bay: {
+          bay_key: $bay_key,
           start_line: $start_line,
           end_line: $end_line
         },
@@ -242,8 +248,8 @@ DD_LAST_ACTIVITY_ID="$(jq -r '.last_activity_id' <<<"$DD_CONTINUE_RESPONSE")"
 ```
 
 The returned `snapshot_id` commonly differs from any Snapshot id named in
-your brief or an earlier handoff message — the branch moves between rounds,
-and this is expected drift, not an error.
+an earlier handoff message — the branch moves between rounds, and this is
+expected drift, not an error.
 
 `DD_CONTINUE_RESPONSE` also carries `file_delta` (`added`/`changed`/`removed`
 captured paths that differ from the previous Snapshot) and `thread_delta`

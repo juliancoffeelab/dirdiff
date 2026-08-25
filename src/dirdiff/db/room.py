@@ -388,13 +388,8 @@ class ReviewThreadPlacement(TableBase):
         ),
         CheckConstraint(
             column("target_kind").is_(None)
-            | column("target_kind").in_(("range", "file-start")),
+            | column("target_kind").in_(("range", "bay-start", "file-start")),
             name="ck_review_thread_target_kind",
-        ),
-        CheckConstraint(
-            column("region_kind").is_(None)
-            | column("region_kind").in_(("ordinary", "notebook-cell-source")),
-            name="ck_review_thread_region_kind",
         ),
         CheckConstraint(
             column("side").is_(None) | column("side").in_(("left", "right")),
@@ -403,36 +398,21 @@ class ReviewThreadPlacement(TableBase):
         CheckConstraint(
             column("outdated_reason").is_(None)
             | column("outdated_reason").in_(
-                ("region_changed", "region_not_found", "file_missing")
+                (
+                    "region_changed",
+                    "region_not_found",
+                    "bay_not_found",
+                    "file_missing",
+                )
             ),
             name="ck_review_thread_outdated_reason",
         ),
         CheckConstraint(
             case(
                 (
-                    column("region_kind") == "ordinary",
-                    column("region_key").is_(None),
-                ),
-                (
-                    column("region_kind") == "notebook-cell-source",
-                    column("region_key").is_not(None)
-                    & (func.length(column("region_key")) > 0),
-                ),
-                (
-                    column("region_kind").is_(None),
-                    column("region_key").is_(None),
-                ),
-                else_=False,
-            ),
-            name="ck_review_thread_region",
-        ),
-        CheckConstraint(
-            case(
-                (
                     column("snapshot_file_id").is_(None),
                     column("target_kind").is_(None)
-                    & column("region_kind").is_(None)
-                    & column("region_key").is_(None)
+                    & column("bay_key").is_(None)
                     & column("side").is_(None)
                     & column("start_line").is_(None)
                     & column("end_line").is_(None)
@@ -441,7 +421,8 @@ class ReviewThreadPlacement(TableBase):
                 ),
                 (
                     column("target_kind") == "range",
-                    column("region_kind").is_not(None)
+                    column("bay_key").is_not(None)
+                    & (func.length(column("bay_key")) > 0)
                     & column("side").is_not(None)
                     & column("start_line").is_not(None)
                     & (column("start_line") >= 1)
@@ -453,15 +434,26 @@ class ReviewThreadPlacement(TableBase):
                     ),
                 ),
                 (
+                    column("target_kind") == "bay-start",
+                    column("bay_key").is_not(None)
+                    & (func.length(column("bay_key")) > 0)
+                    & column("side").is_not(None)
+                    & column("start_line").is_(None)
+                    & column("end_line").is_(None)
+                    & column("outdated_reason").is_not(None)
+                    & column("outdated_reason").in_(
+                        ("region_not_found", "bay_not_found")
+                    ),
+                ),
+                (
                     column("target_kind") == "file-start",
-                    column("region_kind").is_(None)
-                    & column("region_key").is_(None)
+                    column("bay_key").is_(None)
                     & column("side").is_not(None)
                     & column("start_line").is_(None)
                     & column("end_line").is_(None)
                     & (
                         column("outdated_reason").is_(None)
-                        | (column("outdated_reason") == "region_not_found")
+                        | (column("outdated_reason") == "bay_not_found")
                     ),
                 ),
                 else_=False,
@@ -479,7 +471,11 @@ class ReviewThreadPlacement(TableBase):
     )
 
     thread_id: Mapped[str] = mapped_column(
-        ForeignKey("review_thread.thread_id"), primary_key=True
+        ForeignKey(
+            "review_thread.thread_id",
+            name="fk_review_thread_placement_thread",
+        ),
+        primary_key=True,
     )
     snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"), primary_key=True
@@ -488,8 +484,7 @@ class ReviewThreadPlacement(TableBase):
         String(32), nullable=True
     )
     target_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    region_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    region_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    bay_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     side: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     start_line: Mapped[Optional[int]] = mapped_column(nullable=True)
     end_line: Mapped[Optional[int]] = mapped_column(nullable=True)
@@ -806,14 +801,18 @@ class ReviewThreadRecord:
     snapshot_id: str
     snapshot_file_id: Optional[str]
     is_origin: bool
-    target_kind: Optional[Literal["range", "file-start"]]
-    region_kind: Optional[Literal["ordinary", "notebook-cell-source"]]
-    region_key: Optional[str]
+    target_kind: Optional[Literal["range", "bay-start", "file-start"]]
+    bay_key: Optional[str]
     side: Optional[Literal["left", "right"]]
     start_line: Optional[int]
     end_line: Optional[int]
     outdated_reason: Optional[
-        Literal["region_changed", "region_not_found", "file_missing"]
+        Literal[
+            "region_changed",
+            "region_not_found",
+            "bay_not_found",
+            "file_missing",
+        ]
     ]
     private_locator: Optional[bytes]
 
@@ -892,8 +891,7 @@ class RoomStore:
             "snapshot_id": record.snapshot_id,
             "snapshot_file_id": record.snapshot_file_id,
             "target_kind": record.target_kind,
-            "region_kind": record.region_kind,
-            "region_key": record.region_key,
+            "bay_key": record.bay_key,
             "side": record.side,
             "start_line": record.start_line,
             "end_line": record.end_line,
@@ -935,19 +933,11 @@ class RoomStore:
         """Validate one selected database row as a Thread placement record."""
         target_kind_value = row.target_kind
         match target_kind_value:
-            case "range" | "file-start" | None:
+            case "range" | "bay-start" | "file-start" | None:
                 target_kind = target_kind_value
             case _:
                 raise AssertionError(
                     f"invalid persisted review target kind: {target_kind_value!r}"
-                )
-        region_kind_value = row.region_kind
-        match region_kind_value:
-            case "ordinary" | "notebook-cell-source" | None:
-                region_kind = region_kind_value
-            case _:
-                raise AssertionError(
-                    f"invalid persisted review region kind: {region_kind_value!r}"
                 )
         side_value = row.side
         match side_value:
@@ -959,7 +949,13 @@ class RoomStore:
                 )
         reason_value = row.outdated_reason
         match reason_value:
-            case "region_changed" | "region_not_found" | "file_missing" | None:
+            case (
+                "region_changed"
+                | "region_not_found"
+                | "bay_not_found"
+                | "file_missing"
+                | None
+            ):
                 outdated_reason = reason_value
             case _:
                 raise AssertionError(
@@ -971,8 +967,7 @@ class RoomStore:
             snapshot_file_id=row.snapshot_file_id,
             is_origin=row.is_origin,
             target_kind=target_kind,
-            region_kind=region_kind,
-            region_key=row.region_key,
+            bay_key=row.bay_key,
             side=side,
             start_line=row.start_line,
             end_line=row.end_line,

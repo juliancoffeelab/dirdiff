@@ -41,7 +41,11 @@ dev = [
     "flake8>=7.3.0",
     "httpx2>=2.3.0",
     "hypothesis>=6.161.2",
+    "ipykernel>=6.29.0",
+    "jupyterlab>=4.6.3",
+    "matplotlib>=3.10.0",
     "mypy>=2.1.0",
+    "nbclient>=0.10.0",
     "pyrefly>=1.0.0",
     "pytest>=8.0",
     "ruff>=0.15.17",
@@ -71,6 +75,9 @@ warn_unused_configs = true
 check_untyped_defs = true
 strict = true
 enable_error_code = ["explicit-override"]
+
+[tool.basedpyright]
+exclude = ["tests/presets/**"]
 
 [tool.ruff]
 line-length = 80

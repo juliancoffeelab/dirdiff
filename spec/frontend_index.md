@@ -23,12 +23,14 @@ frontend/src/
 │   │   ├── fileLane.ts
 │   │   ├── FileTree.tsx
 │   │   └── Shell.tsx
-│   ├── diffGrid/
-│   │   ├── DiffGrid.tsx
-│   │   ├── folds.ts
-│   │   └── rowDom.ts
-│   ├── FileCard.tsx
-│   ├── NotebookFile.tsx
+│   ├── fileCard/
+│   │   ├── FileCard.tsx
+│   │   ├── FrameView.tsx
+│   │   └── grids/
+│   │       └── text/
+│   │           ├── TextDiffGrid.tsx
+│   │           ├── folds.ts
+│   │           └── rowDom.ts
 │   ├── Profile.tsx
 │   ├── review/
 │   │   ├── discussion.ts
@@ -579,7 +581,7 @@ in their complete canonical Thread and Comment.
 
 ## 10. Files
 
-### `hud/FileCard.tsx`
+### `hud/fileCard/FileCard.tsx`
 
 Exports:
 
@@ -587,6 +589,13 @@ Exports:
 FileCard
 HunkPosition
 ```
+
+`FileCard.tsx` is the facade of the `hud/fileCard/` directory: code outside the
+directory imports only this module. `FrameView.tsx` and the bay widgets under
+`grids/` are facade-private, enforced by the `local/file-card-facade` ESLint
+rule. The facade constrains who reaches in, not what the inside reaches out to,
+so the grids' imports of `review/Review` marker bindings and `linePins` types
+remain ordinary.
 
 `FileCard` receives one of three file states:
 
@@ -600,7 +609,7 @@ It also receives:
 - manifest file index;
 - expansion state;
 - render admission;
-- engine and view;
+- view mode;
 - fold policy;
 - line-pin interface;
 - hunk-display data;
@@ -611,7 +620,6 @@ Private state components:
 - `FileCardContent`;
 - `HuskFile`;
 - `FullFile`;
-- `VirtualFile`;
 - `LazyFileView`.
 
 Private header components:
@@ -634,19 +642,27 @@ Private statistics components:
 - `LazyStatistics`;
 - `VisibilityIndicator`.
 
-`FileBody` routes text files to `DiffGrid` and notebook files to `NotebookFile`.
+`FileBody` mounts the generic frame renderer `FrameView`, which walks the
+composed diff's frames and dispatches each bay to its widget by `kind`. A
+flatfile is one heading-less frame holding one `flatfile` text bay, so
+the text widget delegates straight to `TextDiffGrid` and the rendered DOM is
+unchanged. There is no `render_kind` branch.
 
-A FullFile exposes its rich-materialization and line-preparation operations through its FileCard DOM interface for `navigation.tsx`.
+A FullFile exposes its line-preparation operation through its FileCard DOM
+interface for `navigation.tsx`, and aggregates its mounted bays' render modes
+into the card's `data-file-render`. Rich/virtual representation and the
+enrichment operations belong to the individual bays inside `FrameView`.
 
-The DiffGrid lives in the `hud/diffGrid/` directory: `DiffGrid.tsx` is the
-reactive component and `rowDom.ts` is the pure imperative row-DOM kernel.
+The TextDiffGrid lives in `hud/fileCard/grids/text/`, the home of the row-shaped
+bay widgets: `TextDiffGrid.tsx` is the reactive component and `rowDom.ts` is
+the pure imperative row-DOM kernel.
 
-### `hud/diffGrid/DiffGrid.tsx`
+### `hud/fileCard/grids/text/TextDiffGrid.tsx`
 
 Exports:
 
 ```ts
-DiffGrid
+TextDiffGrid
 ```
 
 Private components:
@@ -660,7 +676,8 @@ Inputs:
 - exact nullable left/right review File pair;
 - manifest file index;
 - file display name;
-- nullable notebook region;
+- the composed bay key this grid renders;
+- the bay label naming the grid's content column;
 - old and new labels;
 - validated diff rows;
 - fold hints;
@@ -669,19 +686,18 @@ Inputs:
 - `LinePins`;
 - nullable ordinary-line-one side reporting, present for ordinary File grids.
 
-`DiffGrid` renders decorated text parts, line numbers, fold rows, hunk targets,
+`TextDiffGrid` renders decorated text parts, line numbers, fold rows, hunk targets,
 and line-pin coordinates.
 
 It uses `folds.ts` to construct visible rows and uses `LinePins` to read or change line-pin URL state.
 
-### `hud/diffGrid/rowDom.ts`
+### `hud/fileCard/grids/text/rowDom.ts`
 
 Exports:
 
 ```ts
 renderSplitRowsDom
 renderInlineRowsDom
-renderCombinedInlineRowsDom
 forceChunkLayout
 finishForcedChunkLayout
 Side
@@ -699,28 +715,87 @@ immediately instead of measuring the intrinsic estimate. It must not listen
 to events, own review markers or line pins, decide view modes, or fetch
 anything.
 
-### `hud/NotebookFile.tsx`
+### `hud/fileCard/FrameView.tsx`
 
 Exports:
 
 ```ts
-NotebookFile
+FrameView
+composedHunks
+composedHunkCount
 ```
 
-Private component:
+Exported types: `BayHunks`, one bay's hunk stops and which carrier —
+rows or the bay itself — supplies them; `BayRenderMode`, one bay's current
+representation; `BayRenderModes`, the card-owned registry of mounted bays'
+modes that `FullFile` aggregates into `data-file-render`.
 
-- `NotebookCellView`.
+Private components:
+
+- `BayView`;
+- `BayBody`;
+- `BayStats`;
+- `BayWarning`;
+- `TextBayView`;
+- `VirtualBay`.
+
+Private helpers: `changeTone` and `frameTone` map a bay's backend-authored
+`change` onto a palette class. Neither decides what happened; the composer
+already did.
+
+Exported type: `BayExpansion`, the card-owned expansion state bays read
+and write. The card outlives the body's collapse and rich/virtual unmounts, so
+bays keep the reviewer's expansion across remounts, and line-pin navigation
+opens a collapsed bay by writing the state instead of reaching a mounted
+bay through the DOM.
 
 Inputs:
 
 - exact nullable left/right review File pair;
 - manifest file index;
-- validated notebook diff;
+- validated composed diff;
 - view mode;
 - fold policy;
-- `LinePins`.
+- `LinePins`;
+- the card element accessor;
+- `BayExpansion`;
+- `BayRenderModes`.
 
-`NotebookFile` renders the notebook summary and changed cells in backend order. Each source region delegates its text rows to `DiffGrid` with a stable notebook region key.
+`FrameView` walks the composed diff's frames in backend order, renders a frame's
+optional backend-authored heading, and dispatches each bay to the widget for
+its `kind`. The only kind today is `text`, whose widget delegates to
+`TextDiffGrid`. Every grid takes a `bayKey` string; a flatfile's is the literal
+`flatfile`, so line pins and review targets keep their existing flatfile
+identity through the same coordinate every other bay uses. `FrameView` nests
+`bareTextBay`, which recognises the one-frame one-bay flatfile shape that
+must render as a bare grid with no bay chrome.
+
+`composedHunks` collects each bay's hunk stops. A hunk is a stop for Next
+and Previous, so what counts as one is a navigation decision and it is made
+here, not on the wire. It walks frames and bays in document order: a text
+bay's stops are the wire's own bay-local `hunk_index` values verbatim,
+and a bay whose `change` is not `unchanged`, contributing no such row,
+takes one stop of its own at index zero. There is no file-wide numbering: a
+hunk coordinate is the owning bay's key plus the bay-local index, and
+`TextDiffGrid` takes the bay key so `rowDom` writes both halves untranslated.
+`composedHunkCount` is the File total, replacing the `hunk_count` the payload
+used to carry.
+
+`TextBayView` owns one text bay's rich/virtual representation: it registers
+the bay's mode in the card's `BayRenderModes`, chooses its initial mode from
+the card's geometry against its entry zone, flips on its own
+IntersectionObservers afterwards, pins the measured rich height across a
+rich-to-virtual replacement, and attaches the bay's enrichment operations to
+its `data-bay-render` wrapper. `VirtualBay` renders what a distant bay shows
+instead of rows: the bay's two plain texts and transparent anchors for its
+row-carried hunk stops. It never sees a decorated `DiffRow` part; a bay-root
+stop stays with the bay chrome, which is mounted in both representations.
+
+`BayWarning` renders a bay's `engine_warning` beside the rows it describes,
+in both layouts: inside the header block for a bay with chrome, and directly
+above the grid for a bare flatfile. A warning belongs to the bay whose rows
+the engine gave up on, not to the File, because one composed File holds many
+bays and only some of them carry one.
 
 The review subsystem lives in the `hud/review/` directory: `Review.tsx` is
 the Snapshot review boundary, `drafts.tsx` is the application-lifetime draft
@@ -751,8 +826,8 @@ of the canonical Snapshot query; every page uses the append-only activity
 boundary returned by its first page.
 
 `ReviewBinding` is the narrow renderer interface. FileCard reports mounted File
-headers used by History placement and File-start targets. DiffGrid reads compact
-line-marker descriptors and activates exact File, public-region, side, and line
+headers used by History placement and File-start targets. TextDiffGrid reads compact
+line-marker descriptors and activates exact File, public-bay, side, and line
 actions. Neither renderer performs review HTTP operations or stores Thread data.
 
 `ReviewMarkerState` contains only the controls actually represented on a line.
@@ -837,7 +912,7 @@ The complete review persistence, marker, History, Comment-input, navigation,
 error, and browser/agent HTTP behavior is specified once in
 [`reviews.md`](reviews.md).
 
-### `hud/diffGrid/folds.ts`
+### `hud/fileCard/grids/text/folds.ts`
 
 Exports:
 
@@ -849,7 +924,7 @@ addFoldRows()
 isFoldRow()
 ```
 
-`DiffGrid` supplies backend rows, fold hints, and fold expansion state. The module returns the visible sequence of ordinary rows and fold rows.
+`TextDiffGrid` supplies backend rows, fold hints, and fold expansion state. The module returns the visible sequence of ordinary rows and fold rows.
 
 ## 11. Navigation
 
@@ -861,6 +936,7 @@ Exports:
 NavigationProvider
 useNavigation
 writeInitialHunkSelection
+storedHunkTarget
 
 Navigation
 NavigationCommand
@@ -885,15 +961,21 @@ HunkIdentity
 
 ```ts
 navigate(command): Promise<NavigationResult>;
+root: Accessor<HTMLElement>;
 ```
 
-The module reads hunk identities and FileCard operations from the mounted ChangeSet DOM.
+`root` returns the mounted ChangeSet root the instance serves, so consumers
+that must locate navigated DOM afterwards query inside the same root the
+navigation itself used, in every view.
+
+The module reads hunk identities and FileCard operations from the mounted ChangeSet DOM. `storedHunkTarget` resolves one FileCard's stored selected identity to its current hunk target by the declared kind; navigation and the hunk display observer in `changeSet/Shell.tsx` both resolve through it.
 
 Its direct consumers are:
 
 - ChangeSet hotkeys and HintHud;
 - FileTree navigation;
-- line-pin restoration.
+- line-pin restoration;
+- review Thread navigation in `changeSet/ChangeSet.tsx`.
 
 ### `hud/linePins.ts`
 
@@ -913,7 +995,7 @@ A `LinePinTarget` contains:
 
 ```ts
 file
-region
+bay
 side
 line
 ```
@@ -932,7 +1014,7 @@ type LinePins = {
 };
 ```
 
-`DiffGrid` uses `parseUrl()` and `toggleUrlState()`.
+`TextDiffGrid` uses `parseUrl()` and `toggleUrlState()`.
 
 `ChangeSetSnapshot` uses `restore()` after parsing the initial URL target.
 
@@ -952,7 +1034,7 @@ type LinePins = {
 | `changeSet/ChangeSet.tsx` | `api.ts` | manifest and preferences definitions |
 | `changeSet/ChangeSet.tsx` | `changeSet/fileLane.ts` | one file lane per snapshot and its canonical file states |
 | `changeSet/fileLane.ts` | `api.ts` | lazy-info and file query definitions |
-| `changeSet/ChangeSet.tsx` | `FileCard.tsx` | one manifest-position file state and explicit file actions |
+| `changeSet/ChangeSet.tsx` | `fileCard/FileCard.tsx` | one manifest-position file state and explicit file actions |
 | `changeSet/*` | `navigation.tsx` | mounted ChangeSet root and navigation operations |
 | `changeSet/ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |
 | `changeSet/ChangeSet.tsx` | `review/Review.tsx` | one exact Snapshot review boundary and explicit File jump |
@@ -960,14 +1042,13 @@ type LinePins = {
 | `review/Review.tsx` | `review/discussion.ts` | one Snapshot-scoped discussion instance and its submission reaction |
 | `review/History.tsx` | `review/discussion.ts` | History's own Snapshot-scoped discussion instance |
 | `review/discussion.ts` | `api.ts` | canonical Snapshot review query and Profile-authored Thread and Comment mutations |
-| `FileCard.tsx` | `review/Review.tsx` | File marker state and File Comment-input activation |
-| `diffGrid/DiffGrid.tsx` | `review/Review.tsx` | line marker state and text Comment-input activation |
-| `FileCard.tsx` | `diffGrid/DiffGrid.tsx` | complete text-file rendering inputs |
-| `FileCard.tsx` | `NotebookFile.tsx` | complete notebook rendering inputs |
-| `NotebookFile.tsx` | `diffGrid/DiffGrid.tsx` | one notebook source region |
-| `diffGrid/DiffGrid.tsx` | `diffGrid/rowDom.ts` | validated rows, fold state, and the two render callbacks |
-| `diffGrid/*` | `diffGrid/folds.ts` | rows, fold hints, and expansion |
-| `diffGrid/DiffGrid.tsx` | `linePins.ts` | URL parsing and direct pin toggling |
+| `fileCard/FileCard.tsx` | `review/Review.tsx` | File marker state and File Comment-input activation |
+| `fileCard/grids/text/TextDiffGrid.tsx` | `review/Review.tsx` | line marker state and text Comment-input activation |
+| `fileCard/FileCard.tsx` | `fileCard/FrameView.tsx` | complete composed-diff rendering inputs |
+| `fileCard/FrameView.tsx` | `fileCard/grids/text/TextDiffGrid.tsx` | one text bay's rows, hints, and bay key |
+| `fileCard/grids/text/TextDiffGrid.tsx` | `fileCard/grids/text/rowDom.ts` | validated rows, fold state, and the two render callbacks |
+| `fileCard/grids/text/*` | `fileCard/grids/text/folds.ts` | rows, fold hints, and expansion |
+| `fileCard/grids/text/TextDiffGrid.tsx` | `linePins.ts` | URL parsing and direct pin toggling |
 | `linePins.ts` | `navigation.tsx` | exact line navigation |
 | `AppHeader.tsx` | `Select.tsx` | engine, view, and repository controls |
 | `Tabs.tsx` | `AutocompleteInput.tsx` | refs and branch input |

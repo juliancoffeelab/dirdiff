@@ -21,8 +21,10 @@ from pydantic import ValidationError
 
 from dirdiff.cli.server_launch import choose_port_pair, require_bindable_port
 from dirdiff.db import RepoMarkStore, RoomStore, open_ephemeral_engine
+from dirdiff.engines import engine
+from dirdiff.formats import ComposeContext, Composer
 from dirdiff.room_lord import RoomLord
-from dirdiff.server import TextFileDiffResponse, create_app
+from dirdiff.server import ComposedDiffResponse, create_app
 
 __all__: list[str] = []
 
@@ -176,26 +178,52 @@ def test_repo_mark_delete_reports_missing_id(tmp_path: Path) -> None:
 
 
 def test_file_diff_response_schema_rejects_unknown_fields() -> None:
-    TEXT_SUMMARY = {
-        "changed_lines": 1,
-        "modified_lines": 1,
-        "added_lines": 0,
-        "removed_lines": 0,
-        "left_exists": True,
-        "right_exists": True,
-    }
-
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        TextFileDiffResponse.model_validate(
+        ComposedDiffResponse.model_validate(
             {
                 "display_name": "alpha.txt",
                 "left_label": "HEAD",
                 "right_label": "worktree",
-                "summary": TEXT_SUMMARY,
-                "rows": [],
+                "summary": {
+                    "changed_lines": 1,
+                    "modified_lines": 1,
+                    "added_lines": 0,
+                    "removed_lines": 0,
+                    "left_exists": True,
+                    "right_exists": True,
+                },
                 "file_kind": {"type": "git", "status": "modified"},
                 "left_path": "alpha.txt",
                 "right_path": "alpha.txt",
+                "frames": [],
                 "random_backend_surprise": True,
             }
         )
+
+
+def test_composed_diff_response_accepts_real_composition() -> None:
+    """A real `compose()` payload validates against the wire response model.
+
+    This closes the loop the endpoint relies on: what composition produces and
+    what the HTTP boundary attaches must together satisfy `ComposedDiffResponse`,
+    or `/api/file-diff` would 500 on validation for an ordinary text File.
+    """
+    context = ComposeContext.build(
+        left_path="a.py",
+        right_path="a.py",
+        left_label="HEAD",
+        right_label="worktree",
+        renderer=engine("dirdiff"),
+    )
+    composed = Composer().compose(b"x = 1\n", b"x = 2\n", context)
+    payload = dict(composed)
+    payload["display_name"] = "a.py"
+    payload["file_kind"] = {"type": "git", "status": "modified"}
+
+    response = ComposedDiffResponse.model_validate(payload)
+    assert len(response.frames) == 1
+    bay = response.frames[0].bays[0]
+    assert bay.kind == "text"
+    assert bay.bay_key == "flatfile"
+    carried = [row.hunk_index for row in bay.rows if row.hunk_index is not None]
+    assert carried == [0], "one edit is one bay-local hunk boundary"

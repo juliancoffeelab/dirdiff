@@ -2,7 +2,7 @@
  * Implements browser-authored review Threads for one exact Snapshot.
  *
  * The module exports the application-lifetime draft boundary, the
- * Snapshot-bound Review boundary, and narrow FileCard/DiffGrid bindings. The
+ * Snapshot-bound Review boundary, and narrow FileCard/TextDiffGrid bindings. The
  * draft boundary is the sole localStorage representation so a completed write
  * can safely outlive one Snapshot view. ReviewProvider observes the canonical
  * bulk query, performs explicit Comment and Thread actions, and renders the
@@ -33,12 +33,13 @@ import {
   type ReviewFilePair,
   type ReviewId,
   type ReviewTarget,
-  type ReviewTextRegion,
+  type ReviewTextBay,
   type ReviewThread,
   type ThreadCodeLocation,
 } from "../../api/api";
 import { UnexpectedErrorBoundary, useToasts } from "../../comp/Toasts";
 import { assert, expect } from "../../utils";
+import { z } from "zod";
 import type { DiffViewMode } from "../App";
 import type { StoredProfile } from "../Profile";
 import {
@@ -59,7 +60,7 @@ const NO_THREADS: readonly ReviewThread[] = [];
 export type ReviewTextGridBinding = {
   snapshot_id: ReviewId;
   file: ReviewFilePair;
-  region: ReviewTextRegion;
+  bay: ReviewTextBay;
 };
 
 /** Indexes derived marker inputs without becoming another review authority. */
@@ -194,6 +195,26 @@ type ReviewProviderProps = {
   viewThread(location: ThreadCodeLocation): Promise<ReviewCodeAnchor | null>;
 };
 
+export const LineMarkerKeySchema = z.tuple([
+  z.string().nullable(),
+  z.string().nullable(),
+  z.string().min(1),
+  z.enum(["left", "right"]),
+  z.number().int().positive(),
+]);
+
+/**
+ * Identifies one rendered line: File pair, composed bay key, side, and line.
+ *
+ * The marker index is keyed by the JSON encoding of this tuple, and TextDiffGrid
+ * reads that encoding back to decide which of its rendered hosts a changed key
+ * names. Encoder and reader live in different modules, so the shape is declared
+ * here once and both sides are bound to it — a positional tuple validated by
+ * hand drifts silently the moment either end changes, which is exactly how a
+ * stale arity check once latched review markers off for a whole session.
+ */
+export type LineMarkerKey = z.infer<typeof LineMarkerKeySchema>;
+
 /**
  * Owns one exact Snapshot's review observation and Comment inputs and renders History.
  *
@@ -210,14 +231,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     side: "left" | "right",
     line: number,
   ): string {
-    return JSON.stringify([
+    const key: LineMarkerKey = [
       grid.file.left_path,
       grid.file.right_path,
-      grid.region.kind,
-      grid.region.kind === "notebook-cell-source" ? grid.region.cell_key : null,
+      grid.bay.bay_key,
       side,
       line,
-    ]);
+    ];
+    return JSON.stringify(key);
   }
 
   const draftContext = useReviewDrafts();
@@ -297,7 +318,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
               {
                 snapshot_id: draft.snapshot_id,
                 file: draft.target.file,
-                region: draft.target.region,
+                bay: draft.target.bay,
               },
               draft.target.side,
               draft.target.range.start_line,
@@ -391,6 +412,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       }
     }
 
+    // A file-start location contributes no marker: it names no bay, and only
+    // History presents such Threads.
     for (const thread of revision[0]) {
       const location = thread.code_location;
       if (location?.kind === "range") {
@@ -400,21 +423,21 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
             {
               snapshot_id: props.snapshotId,
               file: location.file,
-              region: location.region,
+              bay: location.bay,
             },
             location.side,
             location.range.start_line,
           ),
           thread,
         );
-      } else if (location?.kind === "file-start") {
+      } else if (location?.kind === "bay-start") {
         append(
           lineThreads,
           lineMarkerKey(
             {
               snapshot_id: props.snapshotId,
               file: location.file,
-              region: { kind: "ordinary" },
+              bay: location.bay,
             },
             location.side,
             1,
@@ -926,10 +949,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           draft.target.kind === "text" &&
           draft.target.file.left_path === grid.file.left_path &&
           draft.target.file.right_path === grid.file.right_path &&
-          draft.target.region.kind === grid.region.kind &&
-          (draft.target.region.kind === "ordinary" ||
-            (grid.region.kind === "notebook-cell-source" &&
-              draft.target.region.cell_key === grid.region.cell_key)) &&
+          draft.target.bay.bay_key === grid.bay.bay_key &&
           draft.target.side === side
         ) {
           const replacement: ReviewDraft = {
@@ -1029,7 +1049,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         {
           kind: "text",
           file: grid.file,
-          region: grid.region,
+          bay: grid.bay,
           side,
           range: { start_line: line, end_line: line },
         },

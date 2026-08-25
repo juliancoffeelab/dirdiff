@@ -789,7 +789,7 @@ export function createFileLane(args: FileLaneArgs): FileLane {
           setAdmittedFiles(fileIndex, true);
           if (currentLineTarget !== null && lineTarget === currentLineTarget) {
             // Admission synchronously mounts FullFile. Wait through the next
-            // paint so Navigation receives complete measurable DiffGrid rows.
+            // paint so Navigation receives complete measurable TextDiffGrid rows.
             await new Promise<void>((resolve) => {
               requestAnimationFrame(() => resolve());
             });

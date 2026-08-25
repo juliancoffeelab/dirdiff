@@ -2,11 +2,11 @@
  * Transforms validated backend fold hints into nested render rows.
  *
  * The module exports the pure fold-row contracts and construction operations used
- * by DiffGrid. Callers provide immutable rows, backend hint ranges, and the
+ * by TextDiffGrid. Callers provide immutable rows, backend hint ranges, and the
  * selected aggressive-fold policy. It validates range structure and must not own
  * expanded-fold UI state, mutate backend rows, touch the DOM, or navigate hunks.
  */
-import type { DiffRow, FoldHint } from "../../api/api";
+import type { DiffRow, FoldHint } from "../../../../api/api";
 
 /**
  * Represents one validated backend fold range in the nested fold tree.
@@ -24,7 +24,7 @@ type NormalizedFoldHint = {
 };
 
 /**
- * Replaces one contiguous group of backend rows in DiffGrid's render input.
+ * Replaces one contiguous group of backend rows in TextDiffGrid's render input.
  *
  * `foldedRows` retains the complete nested content, `startRow` preserves its
  * original row identity, and `count` is the number of source rows represented.

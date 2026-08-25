@@ -17,6 +17,9 @@ Prefer the standard-library Python heredocs in
 multiline Comment bodies without shell-escaping ambiguity. If Python is not
 available, read [references/commands.md](references/commands.md) and use its
 `jq` and `curl` commands instead.
+All commands there is an inspiration, most variables there are fake, and you
+must make your own, starting with the reasonable name, depending on the role
+you were given.
 
 ## Establish review input
 
@@ -83,9 +86,9 @@ When resumed, continue as the same reviewer:
 
 1. Capture or accept the revised Snapshot through
    `/api/agent/continue_review`. Its `snapshot_id` commonly differs from any
-   Snapshot id named in your task brief or an earlier handoff — the branch
-   moves between rounds, and this drift is expected, not an error. Always use
-   the `snapshot_id`/`snapshot_path` this call just returned.
+   Snapshot id named in an earlier handoff — the branch moves between rounds,
+   and this drift is expected, not an error. Always use the
+   `snapshot_id`/`snapshot_path` this call just returned.
 2. Use the response's `file_delta` (`added`/`changed`/`removed` captured
    paths) to find the File pairs that actually changed instead of
    re-enumerating or content-grepping the whole Snapshot. Use its

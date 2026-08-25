@@ -51,8 +51,9 @@ and a collapsed nonzero file keeps its coordinate-preserving skip targets,
 whether or not the body has been admitted.
 
 Before `ChangeSet` supplies the state to `FileCard`, it checks the response path
-against the manifest. File rendering checks that real hunk indexes are
-consecutive backend coordinates beginning at zero.
+against the manifest. File rendering checks that each bay's row-carried
+hunk indexes are consecutive backend coordinates beginning at zero within that
+bay; hunk coordinates are bay-local and never renumbered file-wide.
 
 The `FullFileHeader` is sticky and file-local. It contains:
 
@@ -78,22 +79,25 @@ invisible `kind: "skip"` target with the same file and hunk indexes.
 
 ## FileBody dispatch
 
-`FileBody` chooses the renderer from the backend `render_kind`:
+`FileBody` mounts the generic frame renderer `FrameView`. Every backend result
+is one composed diff — File-level metadata plus an ordered list of frames, each
+holding an ordered list of bays — so there is no `render_kind` to switch on.
+`FrameView` walks the frames in backend order and dispatches each bay to the
+widget for its `kind`; the only kind today is `text`, whose widget delegates to
+`TextDiffGrid`. A flatfile is one heading-less frame holding one `flatfile`
+text bay, so its rendered DOM is one `TextDiffGrid`, unchanged.
 
-- ordinary text is rendered by `DiffGrid`;
-- notebooks are rendered by `NotebookFile`.
+This is a rendering boundary, not a loading boundary. `FrameView` receives one
+already validated composed diff, the diff engine, the current split/inline view,
+the fold preference, file identity, and the shared line-pin interface.
 
-This is a rendering boundary, not a loading boundary. Both branches receive one
-already validated backend result, the current split/inline view, the fold
-preference, file identity, and the shared line-pin interface.
+## Text rendering and TextDiffGrid
 
-## Text rendering and DiffGrid
-
-`DiffGrid` owns the visible row DOM for one text region. It uses one persistent
-root and replaces its row children atomically when identity-bearing renderer
-inputs change. Review marker changes update classes on the mounted Comment
-triggers and never enter that complete-render effect, replace rows, detach a
-composer anchor, or erase selected-hunk DOM.
+`TextDiffGrid` owns the visible row DOM for one text bay. It uses one persistent
+root and replaces its row children atomically when a rendering input other
+than review markers changes. Review marker changes update classes on the
+mounted Comment triggers and never enter that complete-render effect, replace
+rows, detach a composer anchor, or erase selected-hunk DOM.
 
 Every explicit row replacement, including fold changes, first closes only the
 review composer or inline Thread panel whose trigger is inside that grid. This
@@ -121,15 +125,15 @@ The grid renders:
 - one Comment trigger on every real line number, with persisted, draft, and
   outdated marker state from the Snapshot review boundary.
 
-Backend row order is authoritative. Difftastic insert-only replacement rows may
-be combined for presentation, but hunk identity remains attached to the backend
-boundary that produced it.
+Backend row order is authoritative. Inline view combines insert-only
+replacement rows into one presented row regardless of engine, but hunk
+identity remains attached to the backend boundary that produced it.
 
 The rendering layer combines each engine token partition with the syntax spans
 for the same row side. The resulting ordered parts preserve every source
 character and carry `syntax_classes`, `diff_status`, whitespace status, and
 leading-whitespace status. Invalid engine tokens or syntax spans fail at this
-backend boundary. `DiffGrid` renders these parts directly; it does not intersect
+backend boundary. `TextDiffGrid` renders these parts directly; it does not intersect
 parallel token and syntax ranges or slice source text by backend offsets.
 
 Each real hunk target contains all of:
@@ -140,44 +144,48 @@ Each real hunk target contains all of:
 - `data-hunk-target`.
 
 Line-number elements contain only their rendered side and backend line number.
-The surrounding `DiffGrid` supplies file and notebook-region identity.
+The surrounding `TextDiffGrid` supplies file and notebook-bay identity.
 
 Clicking the Comment trigger opens the one code-aligned composer without
 changing URL, File loading, scrolling, or hunk selection. Shift-click extends
-the active draft only when File, rendered region, and side are unchanged.
+the active draft only when File, rendered bay, and side are unchanged.
 Ordinary line-number clicks retain line-pin behavior.
 
 `ChangeSetShell` owns one document-level pointer listener for side selection. A
 pointer-down inside a grid clears the previous grid marker and marks the current
-grid as old- or new-side selection. DiffGrid’s semantic DOM and shared CSS use
+grid as old- or new-side selection. TextDiffGrid’s semantic DOM and shared CSS use
 that marker to limit native text selection to the chosen side.
 
 ## Folded lines
 
 `folds.ts` converts backend fold hints into validated nested ranges. A fold
 range containing a hunk boundary is a backend contract violation and throws.
-The backend assigns hunk indexes and accepts foldable ranges from the same
-canonical engine-row change classification. Fold discovery does not compare row
+The backend marks hunk boundaries and accepts foldable ranges from the same
+canonical engine-row change classification; `FrameView` numbers those boundaries
+into the File's sequence. Fold discovery does not compare row
 text independently or discard rows such as trailing blanks before deciding that
 a range is unchanged.
 
-`DiffGrid` stores expanded line folds locally. Clicking a fold edge explicitly
+`TextDiffGrid` stores expanded line folds locally. Clicking a fold edge explicitly
 replaces that edge with its rows; folding replaces the rows with the fold edge
 again. Fold edges are not pinnable line numbers.
 
 Fold expansion changes only this grid’s row DOM. It does not select a hunk,
 navigate, fetch, or change file collapse.
 
-Changing identity-bearing rendering inputs rebuilds the grid and resets its
-local expanded folds. Preserving expanded folds across split/inline replacement
-remains a follow-up rather than a hidden reconstruction path.
+Changing a rendering input other than review markers rebuilds the grid and
+resets its local expanded folds. Preserving expanded folds across split/inline
+replacement remains a follow-up rather than a hidden reconstruction path.
 
-## Rich and virtual FullFiles
+## Rich and virtual bays
 
-Only hydrated text files alternate between rich and virtual representation.
-Notebook files remain rich.
+Every expanded text bay alternates between rich and virtual representation.
+Virtualization is per-bay: ordinary text is the degenerate one-bay case, and a
+notebook's cells transition independently, so one enormous cell no longer
+decides the whole file. The bay wrapper `div` carries `data-bay-render`
+(`"rich"` or `"virtual"`) and `data-bay-key`.
 
-The row count selects one cost band:
+The bay's own row count selects its cost band:
 
 | Cost | Rows | Rich-entry distance | Virtual-exit distance |
 | --- | ---: | ---: | ---: |
@@ -185,38 +193,73 @@ The row count selects one cost band:
 | medium | 251–1000 | 4 viewports | 6 viewports |
 | large | 1001+ | 8 viewports | 12 viewports |
 
-The different entry and exit distances provide hysteresis. A text file becomes
-fully rich before it reaches the viewport and returns to virtual only after it
-moves farther away.
+The different entry and exit distances provide hysteresis. A bay becomes fully
+rich before it reaches the viewport and returns to virtual only after it moves
+farther away.
 
-The initial representation is chosen from the mounted `FileCard` geometry. A
-distant file may begin virtual before any rich height exists. When an expanded
-rich body later becomes virtual, it is measured first and the virtual body uses
-that exact height, contains overflow internally, and prevents the surrounding
-page from jumping. A file that begins virtual uses its natural virtual height
-until it has had a measurable rich body.
+A mounting bay chooses its first representation from current geometry:
+`initialRenderMode` reads the stable card's rectangle — the bay's own wrapper
+does not exist yet — and the bay begins rich exactly when that rectangle
+intersects the bay's cost-band entry zone. Render admission mounts card
+bodies top-down, so the cards above already occupy their real height when
+each body makes this choice. A bay inside the viewport therefore paints rich
+on its very first frame instead of flashing its plain text until an entry
+observer fires. After that one choice the bay's IntersectionObservers are
+the only transition mechanism.
 
-`VirtualFile` contains complete undecorated old and new text in split form so
-native browser search can find both sides. It omits decorated parts, fold
-interaction, and rich rows. Transparent real hunk anchors preserve every
-backend hunk coordinate.
+Both zones are expressed in viewport multiples, so a window resize invalidates
+the margins the observers were built with. Each mounted bay listens for
+`resize` and rebuilds both of its observers from the new viewport height,
+disconnecting the old pair first. The listener is per bay rather than per card
+because the entry and exit distances are the bay's own cost band; one card can
+hold bays in different bands.
+
+When a rich bay
+later becomes virtual, it is measured first and the virtual body uses that
+exact height, contains overflow internally, and prevents the surrounding page
+from jumping. A bay that has never been rich uses its natural virtual height.
+
+`VirtualBay` contains the bay's complete undecorated old and new text in split
+form so native browser search can find both sides. It omits decorated parts,
+fold interaction, and rich rows. Transparent real hunk anchors preserve the
+bay's row-carried hunk coordinates; a bay whose anchor lives in its chrome
+keeps that anchor in both representations because the chrome stays mounted.
+
+`FullFile` aggregates its mounted bays' modes into the card's
+`data-file-render`: absent while no bay is mounted, `virtual` when every
+mounted bay is virtual, otherwise `rich`. The header indicator and FileTree
+read only this aggregate, so the file-level DOM contract is unchanged.
 
 Rich/virtual replacement changes representation only. It does not change file
-state, expansion, selected identity, counters, or URL state.
+state, expansion, bay expansion, selected identity, counters, or URL state.
 
-## Notebook rendering
+## Bays and notebook rendering
 
-`NotebookFile` renders the notebook summary and every backend cell in backend
-order. Every cell has a unique, stable, non-empty backend `cell_key`, including
-a cell whose source itself is unchanged.
+A bay is one renderable unit with its own identity: its `bay_key` is the
+sub-file coordinate line pins and review text targets name. Ordinary text is one
+bay keyed `flatfile`, and `TextDiffGrid` takes that key like any other, so line
+pins and review targets keep their existing ordinary-text identity through the
+one coordinate every bay uses. Bay identity extends a line coordinate inside the
+file; it is not a second file identity, and it never changes file indexes.
 
-Each cell gets its own `DiffGrid`; its line-pin region is that cell key.
-Ordinary text uses a null region. Notebook metadata and outputs retain their
-current presentation, while richer raw and interactive output modes remain
-outside the current renderer.
+A notebook composes into one frame per cell — every cell, not only the changed
+ones, so an unchanged cell stays where the reviewer expects it and the notebook
+reads as the document it is — plus a `notebook:metadata` frame. A cell's frame
+holds a source bay and a bay for changed cell metadata and for each changed
+output; an unchanged cell's source bay composes `unchanged` and arrives
+collapsed. A cell's bay
+key is its `nbformat` cell id, so the key survives an edit to the cell it names.
+A `.ipynb` that does not load as notebook JSON composes as one `flatfile` text
+bay instead, which is an ordinary text diff of its bytes.
 
-Notebook structure does not change file indexes. Region identity extends a line
-coordinate inside the file; it is not a second file identity.
+Each bay renders with its backend label and its own expansion state. The
+state itself is owned by the card — the same ownership the File's `expanded`
+has — keyed by bay key and read as the backend's `default_expanded` until
+the reviewer changes it, so bay expansion survives file collapse and
+rich/virtual replacement and is dropped with the card. A bay collapsed by
+default still writes its first backend hunk coordinate so Next hunk can reach
+it; unlike a collapsed File's skipped hunks, that first anchor stays landable,
+because a change the reviewer cannot land on is a hidden change.
 
 ## LazyFile
 
@@ -268,7 +311,7 @@ The important replacements are:
 - Husk → Full awaiting admission → admitted Full body;
 - Husk → error Lazy;
 - deferred Lazy → fetching Husk → Full or error Lazy;
-- rich Full ↔ virtual Full;
+- rich bay ↔ virtual bay inside a Full body;
 - expanded Full/Lazy/Husk ↔ its collapsed presentation.
 
 The article and manifest file index remain stable across each replacement.
@@ -278,30 +321,37 @@ coordinates.
 
 ## Disposal
 
-Disposing a `FileCard` disconnects its intersection observers and window resize
-listener, removes DOM methods attached by `FullFile` or `DiffGrid`, and drops
-local fold and render-representation state.
+Disposing a `FileCard` disposes its mounted bays, and each text bay
+disconnects its own intersection observers and window resize listener, removes
+the operations attached to its wrapper, and clears its registered render mode.
+The card removes the operations `FullFile` or `TextDiffGrid` attached, drops
+its `data-file-render` aggregate, and drops local fold and bay-expansion
+state.
 
 The card does not outlive its `ChangeSetSnapshot`. Query cancellation and
 query-observer disposal remain the lane’s responsibility.
 
 ## Operations exposed to navigation
 
-Every mounted `FullFile` attaches these operations to its stable article,
+Every mounted `FullFile` attaches this operation to its stable article,
 including the interval before body admission:
 
-- `waitToEnrich_impl()` makes an admitted expanded text file rich and resolves
-  after the rich body exists. It does nothing for collapsed or unadmitted
-  content.
-- `intersectsRichEntryZone(viewportTop)` answers whether the file’s cost-specific
-  entry zone intersects a hypothetical destination viewport. It does not change
-  representation.
-- `prepareLine_impl(target, abortSignal)` expands the file, makes it rich,
-  locates the exact ordinary or notebook `DiffGrid`, unfolds the requested line,
-  and returns that row or a precise missing/stopped result. Calling it before
-  admission is a contract error.
+- `prepareLine_impl(target, abortSignal)` expands the file, expands the
+  target's bay through the card-owned bay-expansion state, enriches that bay,
+  locates the exact bay `TextDiffGrid`, unfolds the requested line, and returns
+  that row or a precise missing/stopped result. Calling it before admission is a
+  contract error.
 
-Each `DiffGrid` exposes its own `prepareLine_impl(target, abortSignal)`, which
+Every mounted text bay attaches these operations to its `data-bay-render`
+wrapper for exactly its mounted lifetime:
+
+- `waitToEnrich_impl()` makes the bay rich and resolves after the rich grid
+  exists. It resolves immediately for a bay that is already rich.
+- `intersectsRichEntryZone(viewportTop)` answers whether the bay's
+  cost-specific entry zone intersects a hypothetical destination viewport. It
+  does not change representation.
+
+Each `TextDiffGrid` exposes its own `prepareLine_impl(target, abortSignal)`, which
 expands containing line folds and returns the exact row. It does not scroll,
 paint a pin, select a hunk, or fetch.
 
@@ -315,10 +365,11 @@ presentation does not call `selectHunk()`.
   hunk index.
 - Folded lines cannot contain hunk boundaries.
 - Collapsing a file preserves real hunk coordinates as skipped targets.
-- Only text `FullFile` bodies are virtualized; virtualization is whole-file.
-- Virtual text retains both sides for native browser search. After a
-  rich-to-virtual transition, it also retains the measured rich page height.
+- Every expanded text bay is virtualizable; virtualization is per-bay, and a
+  mounting bay chooses its first representation from current card geometry.
+- A virtual bay retains both sides for native browser search. After a
+  rich-to-virtual transition, it also retains the measured rich height.
 - Rich/virtual replacement does not change selection or application state.
-- DiffGrid owns row DOM and line-pin paint; it does not own file loading or
+- TextDiffGrid owns row DOM and line-pin paint; it does not own file loading or
   hunk selection.
 - Unexpected renderer failure is not converted into a backend file error.

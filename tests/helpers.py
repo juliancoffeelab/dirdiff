@@ -1,6 +1,6 @@
 """Shared test adapters around the production diff pipeline.
 
-Tests may use this module to assemble backend, engine, notebook, and rendering
+Tests may use this module to assemble backend, engine, and rendering
 objects without reintroducing retired production service classes.  Helpers here
 must stay thin adapters over public dirdiff contracts, so behavior assertions
 remain in the calling tests and not hidden behind convenience fixtures.
@@ -31,9 +31,6 @@ from dirdiff.engines import (
     DiffSide,
     GitDiffEngine,
     TextDiffEngine,
-)
-from dirdiff.notebooks import (
-    build_notebook_diff_payload,
 )
 from dirdiff.rendering import (
     default_expanded_for_payload,
@@ -142,29 +139,17 @@ def build_loaded_diff(
     left_path_hint: str | None = None,
     right_path_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Build the text/notebook payload shape expected by legacy logic tests.
+    """Build the ordinary text payload shape expected by legacy logic tests.
 
     The production helper with this name was removed when rendering was split
-    into backend loading, engine rendering, notebook handling, and display
-    enrichment.  Tests still need a compact way to exercise that combined
-    behavior without reintroducing the old production service surface, so this
-    helper wires the new public pieces together locally.
+    into backend loading, engine rendering, and display enrichment. Tests still
+    need a compact way to exercise that combined behavior without reintroducing
+    the old production service surface, so this helper wires the new public
+    pieces together locally. Composed formats are exercised through
+    `dirdiff.formats` directly, not here.
     """
 
     renderer = TextDiffEngine()
-    notebook_payload = build_notebook_diff_payload(
-        renderer=renderer,
-        display_name=display_name,
-        left_label=left_label,
-        right_label=right_label,
-        left_exists=left_exists,
-        right_exists=right_exists,
-        left_text=left_text,
-        right_text=right_text,
-    )
-    if notebook_payload is not None:
-        return notebook_payload
-
     rendered = renderer.render_diff(
         old=DiffSide(
             exists=left_exists,
@@ -235,28 +220,6 @@ def build_workspace_file_payload(
         )
     else:
         resolved_display_name = display_name
-    notebook_payload = build_notebook_diff_payload(
-        renderer=renderer,
-        display_name=resolved_display_name,
-        left_label=context["left_label"],
-        right_label=context["right_label"],
-        left_exists=left_version.exists,
-        right_exists=right_version.exists,
-        left_text=left_version.text,
-        right_text=right_version.text,
-    )
-    if notebook_payload is not None:
-        notebook_payload["left_path"] = context["left_path"]
-        notebook_payload["right_path"] = context["right_path"]
-        if file_kind == "untracked":
-            notebook_payload["file_kind"] = {"type": "untracked"}
-        else:
-            notebook_payload["file_kind"] = file_kind_for_change_type(
-                change_type,
-                file_kind="git",
-            )
-        return notebook_payload
-
     rendered = renderer.render_diff(
         old=DiffSide(
             exists=left_version.exists,

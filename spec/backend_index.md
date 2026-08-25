@@ -12,12 +12,12 @@ CLI
      ├─ backend
      ├─ db
      ├─ engines
-     ├─ notebooks
+     ├─ formats
      └─ rendering
 
-notebooks ──► backend contracts
-          ├─► engines
-          └─► rendering
+formats ──► backend contracts
+        ├─► engines
+        └─► rendering
 
 rendering ──► engines
 backend ──► engine contracts
@@ -83,13 +83,39 @@ changing the engine's alignment or summary.
 
 Its public interface is exported from `dirdiff.rendering`.
 
-## `dirdiff.notebooks`
+## `dirdiff.formats`
 
-Builds notebook-shaped file payloads.
+Composes two captured byte sides into one composed diff: File-level metadata
+plus an ordered list of frames, each holding an ordered list of bays. It is
+the single shape behind `/api/file-diff`; there is no `render_kind`.
 
-It parses notebook structure, uses the selected engine for cell source diffs,
-uses the native text engine for metadata and output text, and sends resulting
-rows through rendering enrichment.
+`Composer` has two entry points. `bays()` yields every bay a File composes
+into, in document order, with nothing an engine produces; it is the engine-free
+lookup review validation and the (future) blob endpoint call. `compose()`
+consumes that stream, renders each text bay through the shared text-bay
+renderer, aggregates the summary, and returns the envelope minus the two fields
+the HTTP boundary attaches (`display_name`, `file_kind`). It assigns no hunk
+numbering: rows keep the bay-local boundaries enrichment gave them, and the
+frontend turns those into the File's navigable sequence. `base.py` holds those
+contracts (contexts, the text-bay renderer, the serialized shapes);
+`composer.py`
+holds the class and the ordered classification; per-format sibling builders live
+beside them.
+
+Classification is an ordered check: a `.ipynb` whose bytes load as notebook JSON
+composes through `notebook.py` into one frame per cell — every cell, so the
+notebook reads as the document it is — plus a `notebook:metadata` frame;
+everything else,
+including a `.ipynb` that does not load, composes as one heading-less frame
+holding one `flatfile` text bay. Image and binary bay kinds and the blob
+endpoint are later stages.
+
+`dirdiff.formats.notebook` owns everything notebook-shaped: parsing, cell
+pairing, public cell keys, and each bay's content. A cell's public key is its
+`nbformat` id, which makes the key durable identity — that is what lets review
+store a bay key and nothing else.
+
+
 
 ## `dirdiff.db`
 
@@ -154,8 +180,9 @@ Defines FastAPI routes and request-level rendering orchestration.
 
 It validates HTTP inputs and outputs, constructs the concrete workspace backend,
 calls `RoomLord` for manifests and follow-up Snapshot lookup, asks
-`dirdiff.engines` for the renderer a request names, routes notebooks, and
-assembles response payloads. Snapshot-keyed browser review
+`dirdiff.engines` for the renderer a request names, and builds one composed diff
+per File through `dirdiff.formats`, attaching the manifest's display name and
+file kind to the returned envelope. Snapshot-keyed browser review
 routes read one bounded Thread page and apply Profile-authored Thread and
 Comment actions through the Room's bound Threads. Existing-Thread writes
 return only current state and the changed Comment.

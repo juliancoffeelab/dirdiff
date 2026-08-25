@@ -3,7 +3,7 @@
 `Thread` is the public discussion object. It is always bound to one
 `(snapshot_id, thread_id)` pair and performs Comment and lifecycle operations
 through that exact placement. Public commands and views describe Files,
-rendered regions, attribution, and live discussion state only.
+rendered bays, attribution, and live discussion state only.
 
 This module privately derives missing immutable placements for a new Snapshot,
 interprets structural source coordinates, reconstructs snippets from captured
@@ -20,17 +20,16 @@ import importlib
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from threading import Lock
-from typing import Any, Literal, Optional, TypedDict
+from typing import Literal, Optional, TypedDict
 from uuid import UUID
 
 from tree_sitter import Language, Node, Parser
 
-from dirdiff.backend import decode_text_content
 from dirdiff.db import (
     ReviewActionRecord,
     ReviewThreadRecord,
@@ -42,11 +41,7 @@ from dirdiff.db import (
     UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
-from dirdiff.notebooks import (
-    normalize_notebook_document,
-    notebook_cell_pairs,
-    rendered_notebook_cell_pairs,
-)
+from dirdiff.formats import BayContext, Composer
 
 __all__ = [
     "AddComment",
@@ -57,8 +52,6 @@ __all__ = [
     "EditComment",
     "FilePair",
     "LineRange",
-    "NotebookCellSourceRegion",
-    "OrdinaryRegion",
     "ProfileAuthor",
     "ReplyToThread",
     "ResolveThread",
@@ -141,41 +134,25 @@ class LineRange:
 
 
 @dataclass(frozen=True)
-class OrdinaryRegion:
-    """Identify the ordinary rendered text of one captured File."""
-
-    kind: Literal["ordinary"] = "ordinary"
-
-
-@dataclass(frozen=True)
-class NotebookCellSourceRegion:
-    """Identify rendered source inside one public notebook cell."""
-
-    cell_key: str
-    kind: Literal["notebook-cell-source"] = "notebook-cell-source"
-
-    def __post_init__(self) -> None:
-        """Require the nonempty cell key emitted by notebook rendering."""
-        if self.cell_key == "":
-            raise ValueError("Notebook cell key cannot be empty.")
-
-
-ReviewTextRegion = OrdinaryRegion | NotebookCellSourceRegion
-"""Identify one public rendered text region accepted at Thread creation."""
-
-
-@dataclass(frozen=True)
 class TextTarget:
-    """Address one selected-side line range in a rendered text region."""
+    """Address one selected-side line range in one composed bay.
+
+    `bay_key` is the universal sub-file coordinate: the same key the composed
+    diff gives that bay, `"flatfile"` for a File with no internal structure
+    and the composer's own key for anything else. Review stores it and never
+    interprets it, so no format needs a target shape of its own.
+    """
 
     file: FilePair
-    region: ReviewTextRegion
+    bay_key: str
     side: Literal["left", "right"]
     range: LineRange
     kind: Literal["text"] = "text"
 
     def __post_init__(self) -> None:
-        """Require the selected side to exist in the exact File pair."""
+        """Require a named bay and a selected side present in the File pair."""
+        if self.bay_key == "":
+            raise ValueError("Review bay key cannot be empty.")
         if self.side == "left" and self.file.left_path is None:
             raise ValueError("The selected left side is absent.")
         if self.side == "right" and self.file.right_path is None:
@@ -339,7 +316,12 @@ class ThreadDiscussionView(TypedDict):
     origin_target: dict[str, object]
     code_location: Optional[dict[str, object]]
     outdated_reason: Optional[
-        Literal["region_changed", "region_not_found", "file_missing"]
+        Literal[
+            "region_changed",
+            "region_not_found",
+            "bay_not_found",
+            "file_missing",
+        ]
     ]
     original_excerpt: Optional[dict[str, object]]
     comments: list[ReviewCommentView]
@@ -359,7 +341,12 @@ class ThreadSummaryView(TypedDict):
     attention: Literal["author", "reviewer", "both", "none"]
     code_location: Optional[dict[str, object]]
     outdated_reason: Optional[
-        Literal["region_changed", "region_not_found", "file_missing"]
+        Literal[
+            "region_changed",
+            "region_not_found",
+            "bay_not_found",
+            "file_missing",
+        ]
     ]
     first_comment: ReviewCommentView
     latest_comment: ReviewCommentView
@@ -387,15 +374,122 @@ class _Segment:
 
 @dataclass(frozen=True)
 class _Locator:
-    """Retain only the private facts required to find an origin region."""
+    """Retain only the private facts required to find an origin region.
 
-    side: Literal["left", "right"]
+    These are private source coordinates: they never cross the HTTP boundary and
+    the store never interprets them. `_RangePlacement` owns one, and the side the
+    coordinates address is the placement's own `side` rather than a field here,
+    because a locator that disagreed with its placement would be unusable.
+
+    The persisted JSON does still carry `side`, and `_locator_of()` requires it to
+    agree. This type is the decoded domain value, not the storage format.
+    """
+
     region_hash: bytes
+    """SHA-256 of the origin region's bytes when the Thread was created."""
+
     region_start_byte: int
+    """Start of the origin region within the origin side's decoded bytes."""
+
     region_end_byte: int
+    """End of that region, exclusive; always greater than the start."""
+
     segments: tuple[_Segment, ...]
-    notebook_cell_id: Optional[str]
-    notebook_source_hash: Optional[bytes]
+    """The structural containers enclosing the region, outermost first."""
+
+
+@dataclass(frozen=True)
+class _RangePlacement:
+    """A Thread placed on a selected line range inside one composed bay.
+
+    This is the shape every newly created Thread takes. `bay_key` names the
+    bay composition produces; `start_line` and `end_line` are one-based,
+    inclusive, and bay-local.
+
+    The private locator is deliberately not a field. Only derivation reads one,
+    and decoding it costs several times what the rest of this conversion does, so
+    a placement carries no coordinates and `derive_room_threads()` decodes the
+    single origin locator it is about to use.
+    """
+
+    thread_id: str
+    snapshot_id: str
+    snapshot_file_id: str
+    bay_key: str
+    side: Literal["left", "right"]
+    start_line: int
+    end_line: int
+    outdated_reason: Optional[Literal["region_changed"]]
+
+
+@dataclass(frozen=True)
+class _BayStartPlacement:
+    """A Thread placed at the start of one composed bay, its region lost.
+
+    `region_not_found` means the bay the origin named still composes in this
+    Snapshot's File but the origin region inside it matched no candidate or
+    matched ambiguously, so `bay_key` is the origin's own bay.
+    `bay_not_found` means the origin's bay is gone entirely, and `bay_key` is
+    the File's first composed bay carrying `side` — chosen at derivation
+    time, when the composed bays are already in hand, and stored so reads
+    never recompute it. Derivation is the only producer; origins never take
+    this shape.
+    """
+
+    thread_id: str
+    snapshot_id: str
+    snapshot_file_id: str
+    bay_key: str
+    side: Literal["left", "right"]
+    outdated_reason: Literal["region_not_found", "bay_not_found"]
+
+
+@dataclass(frozen=True)
+class _FileStartPlacement:
+    """A Thread placed at File start, with no bay coordinate to land on.
+
+    It has no bay and no line range, so it is never navigable; History is
+    its home. A reason of None marks a retained historical File-level
+    origin — the only origins of this shape — and every placement derived
+    from such an origin. `bay_not_found` marks a placement derived from a
+    range origin whose File failed to compose or composes no bay carrying
+    the side.
+    """
+
+    thread_id: str
+    snapshot_id: str
+    snapshot_file_id: str
+    side: Literal["left", "right"]
+    outdated_reason: Optional[Literal["bay_not_found"]]
+
+
+@dataclass(frozen=True)
+class _FileMissingPlacement:
+    """A Thread with no code location, because its exact File pair is absent.
+
+    It references no Snapshot File, and its public outdated reason is always
+    `file_missing`, so neither is carried as a field.
+    """
+
+    thread_id: str
+    snapshot_id: str
+
+
+_Placement = (
+    _RangePlacement
+    | _BayStartPlacement
+    | _FileStartPlacement
+    | _FileMissingPlacement
+)
+"""One Thread's immutable location in one Snapshot, in the shape review needs.
+
+`RoomStore` returns the flat `ReviewThreadRecord`, whose eight optional fields can
+describe any of these four shapes and cannot say which. `_placement_of()` proves
+the shape once, at the read boundary, so no later consumer re-proves it;
+`_record_of()` converts back for persistence. `is_origin` is deliberately absent:
+it is not a stored column but a per-query label, and a discussion's origin is
+already the record the store returns in its `origins` tuple.
+"""
 
 
 @dataclass(frozen=True)
@@ -410,11 +504,40 @@ class _SourceRegion:
     segments: tuple[_Segment, ...]
 
 
+@dataclass(frozen=True)
+class _ComposedBay:
+    """One composed bay's identity and both of its decoded sides.
+
+    This is what review needs from composition and all it needs: the public
+    bay key a target may name, the text each side holds, and the path hint
+    that selects a parser for structural matching. It carries nothing an engine
+    produced, because `Composer.bays()` has no renderer in reach.
+    """
+
+    bay_key: str
+    left_text: Optional[str]
+    right_text: Optional[str]
+    left_hint: Optional[str]
+    right_hint: Optional[str]
+
+    def text_for(self, side: Literal["left", "right"]) -> Optional[str]:
+        """Return the decoded text this bay holds on one side."""
+        return self.left_text if side == "left" else self.right_text
+
+    def hint_for(self, side: Literal["left", "right"]) -> Optional[str]:
+        """Return the parser path hint for one side of this bay."""
+        return self.left_hint if side == "left" else self.right_hint
+
+
 @dataclass
 class _ReviewReadCache:
-    """Share immutable text in one review read."""
+    """Share composed bay identity across one review read.
 
-    text: dict[tuple[str, Literal["left", "right"]], str]
+    Composing a File's bays decodes both of its sides, so one read covering
+    several Threads against the same File pays that cost once.
+    """
+
+    bays: dict[str, dict[str, _ComposedBay]] = field(default_factory=dict)
 
 
 _ELIGIBLE_NODE_TYPES = frozenset(
@@ -523,37 +646,6 @@ def _file_indexes(
     return by_id, by_pair
 
 
-def _read_text(
-    file: SnapshotFileRecord,
-    side: Literal["left", "right"],
-    cache: _ReviewReadCache,
-) -> str:
-    """Read and strictly decode one present immutable captured side."""
-    key = file.id, side
-    cached = cache.text.get(key)
-    if cached is not None:
-        return cached
-    side_record = file.left if side == "left" else file.right
-    if side_record is None:
-        raise ReviewError("invalid_target", f"Selected {side} side is absent.")
-    if file.error is not None:
-        raise ReviewError("invalid_target", file.error)
-    path = Path(file.path) / side
-    content = path.read_bytes()
-    assert hashlib.sha256(content).digest() == side_record.content_hash, (
-        f"Snapshot File content hash mismatch: {path}"
-    )
-    try:
-        text = decode_text_content(content, label=str(path))
-    except DirdiffError as exc:
-        raise ReviewError(
-            "invalid_target",
-            str(exc),
-        ) from exc
-    cache.text[key] = text
-    return text
-
-
 def _path_hint(file: SnapshotFileRecord, side: Literal["left", "right"]) -> str:
     """Return the selected side path used only to select a parser."""
     record = file.left if side == "left" else file.right
@@ -643,144 +735,96 @@ def _regions_for_source(path: str, text: str) -> tuple[_SourceRegion, ...]:
     return tuple(regions)
 
 
-def _cell_source(cell: dict[str, Any]) -> str:
-    """Return notebook cell source using the renderer's normalization."""
-    source = cell.get("source", "")
-    if isinstance(source, list):
-        return "".join(str(part) for part in source)
-    return str(source)
-
-
-def _cell_id(cell: dict[str, Any]) -> Optional[str]:
-    """Return a nonempty notebook cell id when one exists."""
-    value = str(cell.get("id", "")).strip()
-    return value if value != "" else None
-
-
-def _notebook_cells(text: str) -> list[dict[str, Any]]:
-    """Parse notebook cells or reject a non-renderable notebook target."""
-    document = normalize_notebook_document(text)
-    if document is None:
-        raise ReviewError(
-            "invalid_target",
-            "Notebook source target requires a valid notebook.",
-        )
-    return list(document["cells"])
-
-
-def _rendered_notebook_cells(
+def _composed_bays(
     file: SnapshotFileRecord,
     cache: _ReviewReadCache,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
-    """Return cell lists only when this File uses the notebook render branch."""
+) -> dict[str, _ComposedBay]:
+    """Return every bay this File composes into, indexed by public key.
+
+    This is the review bridge. The bay keys a target may name are exactly the
+    keys composition produces, never an independent approximation of what the
+    renderer shows, so validation and rendering cannot disagree about which
+    bays exist. `Composer.bays()` takes a `BayContext`, which carries no
+    renderer, so reconstructing an origin still involves no diff engine.
+    """
+    cached = cache.bays.get(file.id)
+    if cached is not None:
+        return cached
     pair = _file_pair(file)
-    if not any(
-        path is not None and path.endswith(".ipynb")
-        for path in (pair.left_path, pair.right_path)
-    ):
-        return None
-    documents: list[list[dict[str, Any]]] = []
-    sides: tuple[Literal["left", "right"], ...] = ("left", "right")
-    for side in sides:
-        present = file.left if side == "left" else file.right
-        if present is None:
-            documents.append([])
-            continue
-        document = normalize_notebook_document(_read_text(file, side, cache))
-        if document is None:
+
+    def side_bytes(side: Literal["left", "right"]) -> Optional[bytes]:
+        """Read one present captured side as the exact bytes it retained."""
+        record = file.left if side == "left" else file.right
+        if record is None:
             return None
-        documents.append(list(document["cells"]))
-    return documents[0], documents[1]
+        if file.error is not None:
+            raise ReviewError("invalid_target", file.error)
+        content = (Path(file.path) / side).read_bytes()
+        assert hashlib.sha256(content).digest() == record.content_hash, (
+            f"Snapshot File content hash mismatch: {file.path}/{side}"
+        )
+        return content
+
+    try:
+        composed = Composer().bays(
+            side_bytes("left"),
+            side_bytes("right"),
+            BayContext(
+                left_path=pair.left_path,
+                right_path=pair.right_path,
+                left_label="left",
+                right_label="right",
+            ),
+        )
+        bays = {
+            bay.bay_key: _ComposedBay(
+                bay_key=bay.bay_key,
+                left_text=bay.left.text,
+                right_text=bay.right.text,
+                left_hint=bay.left.path_hint,
+                right_hint=bay.right.path_hint,
+            )
+            for bay in composed
+        }
+    except DirdiffError as exc:
+        raise ReviewError("invalid_target", str(exc)) from exc
+    cache.bays[file.id] = bays
+    return bays
 
 
-def _origin_cell(
+def _selected_bay(
     file: SnapshotFileRecord,
     *,
     side: Literal["left", "right"],
-    cell_key: str,
+    bay_key: str,
     cache: _ReviewReadCache,
-) -> tuple[dict[str, Any], Optional[str], bytes]:
-    """Find the public origin cell and derive its private durable identity."""
-    rendered_cells = _rendered_notebook_cells(file, cache)
-    if rendered_cells is None:
+) -> _ComposedBay:
+    """Return one named bay, requiring it to exist and hold the side."""
+    bay = _composed_bays(file, cache).get(bay_key)
+    if bay is None:
+        raise ReviewError("invalid_target", "Unknown rendered bay.")
+    if bay.text_for(side) is None:
         raise ReviewError(
-            "invalid_target",
-            "Notebook source target requires a rendered notebook File.",
+            "invalid_target", "Bay is absent on the selected side."
         )
-    left_cells, right_cells = rendered_cells
-    matches = [
-        pair
-        for pair in rendered_notebook_cell_pairs(left_cells, right_cells)
-        if pair.cell_key == cell_key
-    ]
-    if len(matches) != 1:
-        raise ReviewError("invalid_target", "Unknown notebook cell key.")
-    pair = matches[0]
-    cell = pair.left_cell if side == "left" else pair.right_cell
-    if cell is None:
-        raise ReviewError(
-            "invalid_target", "Notebook cell is absent on the selected side."
-        )
-    cells = left_cells if side == "left" else right_cells
-    source_hash = hashlib.sha256(_cell_source(cell).encode()).digest()
-    identifier = _cell_id(cell)
-    if (
-        identifier is not None
-        and sum(1 for candidate in cells if _cell_id(candidate) == identifier)
-        != 1
-    ):
-        identifier = None
-    return cell, identifier, source_hash
+    return bay
 
 
-def _target_cell(
-    cells: list[dict[str, Any]],
-    locator: _Locator,
-) -> tuple[Optional[dict[str, Any]], bool]:
-    """Find one target cell and report whether its complete source is unchanged."""
-    assert locator.notebook_source_hash is not None
-    if locator.notebook_cell_id is not None:
-        candidates = [
-            cell for cell in cells if _cell_id(cell) == locator.notebook_cell_id
-        ]
-        matching = [
-            cell
-            for cell in candidates
-            if hashlib.sha256(_cell_source(cell).encode()).digest()
-            == locator.notebook_source_hash
-        ]
-        if len(matching) == 1:
-            return matching[0], True
-        return (candidates[0], False) if len(candidates) == 1 else (None, False)
-    matching = [
-        cell
-        for cell in cells
-        if hashlib.sha256(_cell_source(cell).encode()).digest()
-        == locator.notebook_source_hash
-    ]
-    return (matching[0], True) if len(matching) == 1 else (None, False)
+def _locator_of(payload: bytes, *, side: Literal["left", "right"]) -> _Locator:
+    """Decode one persisted locator, proving the payload is well formed.
 
+    `side` is the owning placement's side. The persisted JSON repeats it and must
+    agree, because a locator addressing the other side of its File would search
+    the wrong source. The field set is exact: an unknown or missing key means the
+    payload was written by a revision this code does not understand, and reading
+    it as if it were current would silently mislocate the Thread.
 
-def _cell_path(cell: dict[str, Any]) -> str:
-    """Return the parser hint used for one notebook cell source."""
-    match str(cell.get("cell_type", "unknown")):
-        case "code":
-            return "cell.py"
-        case "markdown":
-            return "cell.md"
-        case _:
-            return "cell.txt"
-
-
-def _decode_locator(record: ReviewThreadRecord, *, text: str) -> _Locator:
-    """Decode one locator and prove it identifies its immutable origin source."""
-    assert record.is_origin and record.target_kind == "range"
-    assert record.region_kind is not None
-    assert record.side is not None
-    assert record.start_line is not None and record.end_line is not None
-    assert record.private_locator is not None
+    This proves the payload alone. Whether the coordinates still describe the
+    origin's captured bytes is `_verify_locator()`'s question, because only that
+    caller has the text.
+    """
     try:
-        value = json.loads(record.private_locator)
+        value = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AssertionError("private locator is not valid JSON") from exc
     assert isinstance(value, dict), "private locator must be an object"
@@ -790,23 +834,15 @@ def _decode_locator(record: ReviewThreadRecord, *, text: str) -> _Locator:
         "region_start_byte",
         "region_end_byte",
         "segments",
-        "notebook_cell_id",
-        "notebook_source_hash",
     }, "invalid private locator fields"
-    side_value = value["side"]
-    assert side_value in {"left", "right"}, "invalid private locator side"
-    side: Literal["left", "right"] = side_value
-    assert side == record.side, "private locator side disagrees with origin"
+    assert value["side"] == side, "private locator side disagrees with origin"
     hash_value = value["region_hash"]
     assert isinstance(hash_value, str) and len(hash_value) == 64
     assert all(character in "0123456789abcdef" for character in hash_value)
     start_value = value["region_start_byte"]
     end_value = value["region_end_byte"]
     assert type(start_value) is int and type(end_value) is int
-    source = text.encode()
-    assert 0 <= start_value < end_value <= len(source), (
-        "private locator byte span exceeds its immutable origin source"
-    )
+    assert 0 <= start_value < end_value
     segment_values = value["segments"]
     assert isinstance(segment_values, list), "private segments must be a list"
     segments: list[_Segment] = []
@@ -823,40 +859,53 @@ def _decode_locator(record: ReviewThreadRecord, *, text: str) -> _Locator:
             isinstance(segment["name"], str) and segment["name"].strip() != ""
         )
         segments.append(_Segment(segment["node_type"], segment["name"]))
-    notebook_hash_value = value["notebook_source_hash"]
-    assert notebook_hash_value is None or (
-        isinstance(notebook_hash_value, str)
-        and len(notebook_hash_value) == 64
-        and all(
-            character in "0123456789abcdef" for character in notebook_hash_value
-        )
-    )
-    notebook_cell_id = value["notebook_cell_id"]
-    assert notebook_cell_id is None or (
-        isinstance(notebook_cell_id, str) and notebook_cell_id.strip() != ""
-    )
-    if record.region_kind == "ordinary":
-        assert record.region_key is None
-        assert notebook_cell_id is None and notebook_hash_value is None
-    else:
-        assert record.region_key is not None and record.region_key != ""
-        assert notebook_hash_value is not None
     locator = _Locator(
-        side=side,
         region_hash=bytes.fromhex(hash_value),
         region_start_byte=start_value,
         region_end_byte=end_value,
         segments=tuple(segments),
-        notebook_cell_id=notebook_cell_id,
-        notebook_source_hash=(
-            bytes.fromhex(notebook_hash_value)
-            if notebook_hash_value is not None
-            else None
-        ),
     )
     assert len(locator.region_hash) == 32
-    assert locator.notebook_source_hash is None or (
-        len(locator.notebook_source_hash) == 32
+    return locator
+
+
+def _locator_bytes(
+    locator: _Locator, *, side: Literal["left", "right"]
+) -> bytes:
+    """Encode one locator in the exact field set `_locator_of()` requires.
+
+    `side` comes from the owning placement, which is where the decoded type keeps
+    it. The two functions are a pair: a field added here without being accepted
+    there fails every later read of that Thread.
+    """
+    return json.dumps(
+        {
+            "side": side,
+            "region_hash": locator.region_hash.hex(),
+            "region_start_byte": locator.region_start_byte,
+            "region_end_byte": locator.region_end_byte,
+            "segments": [
+                {"node_type": segment.node_type, "name": segment.name}
+                for segment in locator.segments
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+
+def _verify_locator(
+    placement: _RangePlacement, locator: _Locator, *, text: str
+) -> None:
+    """Prove one origin's locator still identifies its immutable source.
+
+    `text` is the origin side's decoded captured text. The Snapshot File a
+    locator addresses is immutable, so a disagreement here is corruption rather
+    than drift, and the caller has no valid result to fall back to.
+    """
+    source = text.encode()
+    assert locator.region_end_byte <= len(source), (
+        "private locator byte span exceeds its immutable origin source"
     )
     origin_slice = source[locator.region_start_byte : locator.region_end_byte]
     assert hashlib.sha256(origin_slice).digest() == locator.region_hash, (
@@ -867,169 +916,264 @@ def _decode_locator(record: ReviewThreadRecord, *, text: str) -> _Locator:
     origin_region_end = origin_region_prefix.count(b"\n") + (
         0 if origin_region_prefix.endswith(b"\n") else 1
     )
-    assert origin_region_start <= record.start_line <= record.end_line
-    assert record.end_line <= origin_region_end
-    return locator
+    assert origin_region_start <= placement.start_line <= placement.end_line
+    assert placement.end_line <= origin_region_end
+
+
+def _placement_of(record: ReviewThreadRecord) -> _Placement:
+    """Prove one stored placement's shape, once, at the read boundary.
+
+    `RoomStore` returns every placement as the same flat row because the schema
+    is one table. The four shapes it can hold are distinguished by
+    `target_kind`, and the check constraint on that table already guarantees the
+    field combinations asserted here; a violation is a corrupt database rather
+    than an input this code can place.
+    """
+    match record.target_kind:
+        case "range":
+            assert record.snapshot_file_id is not None
+            assert record.bay_key is not None and record.bay_key != ""
+            assert record.side is not None
+            assert record.start_line is not None
+            assert record.end_line is not None
+            assert 1 <= record.start_line <= record.end_line
+            reason = record.outdated_reason
+            assert reason is None or reason == "region_changed"
+            return _RangePlacement(
+                thread_id=record.thread_id,
+                snapshot_id=record.snapshot_id,
+                snapshot_file_id=record.snapshot_file_id,
+                bay_key=record.bay_key,
+                side=record.side,
+                start_line=record.start_line,
+                end_line=record.end_line,
+                outdated_reason=reason,
+            )
+        case "bay-start":
+            assert record.snapshot_file_id is not None
+            assert record.bay_key is not None and record.bay_key != ""
+            assert record.side is not None
+            assert record.start_line is None and record.end_line is None
+            assert record.private_locator is None
+            bay_reason = record.outdated_reason
+            assert (
+                bay_reason == "region_not_found"
+                or bay_reason == "bay_not_found"
+            )
+            return _BayStartPlacement(
+                thread_id=record.thread_id,
+                snapshot_id=record.snapshot_id,
+                snapshot_file_id=record.snapshot_file_id,
+                bay_key=record.bay_key,
+                side=record.side,
+                outdated_reason=bay_reason,
+            )
+        case "file-start":
+            assert record.snapshot_file_id is not None
+            assert record.bay_key is None
+            assert record.side is not None
+            assert record.start_line is None and record.end_line is None
+            assert record.private_locator is None
+            start_reason = record.outdated_reason
+            assert start_reason is None or start_reason == "bay_not_found"
+            return _FileStartPlacement(
+                thread_id=record.thread_id,
+                snapshot_id=record.snapshot_id,
+                snapshot_file_id=record.snapshot_file_id,
+                side=record.side,
+                outdated_reason=start_reason,
+            )
+        case None:
+            assert record.snapshot_file_id is None
+            assert record.bay_key is None and record.side is None
+            assert record.start_line is None and record.end_line is None
+            assert record.private_locator is None
+            assert record.outdated_reason == "file_missing"
+            return _FileMissingPlacement(
+                thread_id=record.thread_id,
+                snapshot_id=record.snapshot_id,
+            )
+
+
+def _record_of(
+    placement: _Placement,
+    *,
+    is_origin: bool,
+    locator: Optional[_Locator],
+) -> ReviewThreadRecord:
+    """Convert one placement back into the flat row the store persists.
+
+    `is_origin` and `locator` are the caller's facts, not the placement's.
+    `is_origin` is a per-query label rather than a stored column, and the store
+    uses it only to reject an existing origin republished into a new Snapshot.
+    `locator` belongs only to a range origin; every other row stores none.
+    """
+    assert locator is None or isinstance(placement, _RangePlacement), (
+        "only a range placement stores private coordinates"
+    )
+    match placement:
+        case _RangePlacement():
+            return ReviewThreadRecord(
+                thread_id=placement.thread_id,
+                snapshot_id=placement.snapshot_id,
+                snapshot_file_id=placement.snapshot_file_id,
+                is_origin=is_origin,
+                target_kind="range",
+                bay_key=placement.bay_key,
+                side=placement.side,
+                start_line=placement.start_line,
+                end_line=placement.end_line,
+                outdated_reason=placement.outdated_reason,
+                private_locator=(
+                    None
+                    if locator is None
+                    else _locator_bytes(locator, side=placement.side)
+                ),
+            )
+        case _BayStartPlacement():
+            return ReviewThreadRecord(
+                thread_id=placement.thread_id,
+                snapshot_id=placement.snapshot_id,
+                snapshot_file_id=placement.snapshot_file_id,
+                is_origin=is_origin,
+                target_kind="bay-start",
+                bay_key=placement.bay_key,
+                side=placement.side,
+                start_line=None,
+                end_line=None,
+                outdated_reason=placement.outdated_reason,
+                private_locator=None,
+            )
+        case _FileStartPlacement():
+            return ReviewThreadRecord(
+                thread_id=placement.thread_id,
+                snapshot_id=placement.snapshot_id,
+                snapshot_file_id=placement.snapshot_file_id,
+                is_origin=is_origin,
+                target_kind="file-start",
+                bay_key=None,
+                side=placement.side,
+                start_line=None,
+                end_line=None,
+                outdated_reason=placement.outdated_reason,
+                private_locator=None,
+            )
+        case _FileMissingPlacement():
+            return ReviewThreadRecord(
+                thread_id=placement.thread_id,
+                snapshot_id=placement.snapshot_id,
+                snapshot_file_id=None,
+                is_origin=is_origin,
+                target_kind=None,
+                bay_key=None,
+                side=None,
+                start_line=None,
+                end_line=None,
+                outdated_reason="file_missing",
+                private_locator=None,
+            )
 
 
 def _derive_record(
     *,
-    origin: ReviewThreadRecord,
+    origin: _RangePlacement | _FileStartPlacement,
+    locator: Optional[_Locator],
     origin_file: SnapshotFileRecord,
     target_snapshot_id: str,
     target_files_by_pair: dict[FilePair, SnapshotFileRecord],
     cache: _ReviewReadCache,
-) -> ReviewThreadRecord:
+) -> _Placement:
     """Derive one immutable Thread placement directly from its unique origin.
 
-    The caller has already resolved the origin's Snapshot File.
+    The caller has already resolved the origin's Snapshot File and decoded the
+    origin's private coordinates. `locator` is required for a range origin and is
+    `None` for a File-start one, which retains none. An origin is never
+    `_FileMissingPlacement`, because a discussion is created against a File that
+    exists.
     """
 
-    def file_start_record(
-        snapshot_id: str,
-        file_id: str,
-        side: Literal["left", "right"],
-    ) -> ReviewThreadRecord:
-        """Return one File-start placement after region identification fails."""
-        return ReviewThreadRecord(
-            origin.thread_id,
-            snapshot_id,
-            file_id,
-            False,
-            "file-start",
-            None,
-            None,
-            side,
-            None,
-            None,
-            "region_not_found",
-            None,
-        )
-
-    def file_missing_record() -> ReviewThreadRecord:
-        """Return an unlocated placement when the exact File pair is absent."""
-        return ReviewThreadRecord(
-            origin.thread_id,
-            target_snapshot_id,
-            None,
-            False,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            "file_missing",
-            None,
+    def file_start(side: Literal["left", "right"]) -> _FileStartPlacement:
+        """Return one File-start placement when no composed bay can land."""
+        assert target_file is not None
+        return _FileStartPlacement(
+            thread_id=origin.thread_id,
+            snapshot_id=target_snapshot_id,
+            snapshot_file_id=target_file.id,
+            side=side,
+            outdated_reason="bay_not_found",
         )
 
     target_file = target_files_by_pair.get(_file_pair(origin_file))
     if target_file is None:
-        return file_missing_record()
-    if origin.target_kind == "file-start":
-        assert origin.is_origin
-        assert origin.region_kind is None and origin.region_key is None
-        assert origin.side is not None
-        assert origin.start_line is None and origin.end_line is None
+        return _FileMissingPlacement(
+            thread_id=origin.thread_id, snapshot_id=target_snapshot_id
+        )
+    if isinstance(origin, _FileStartPlacement):
+        assert locator is None, "a File-start origin retains no coordinates"
         assert origin.outdated_reason is None
-        assert origin.private_locator is None
         selected_side = (
             target_file.left if origin.side == "left" else target_file.right
         )
         assert selected_side is not None, (
             "historical File-start side disappeared from an exact File pair"
         )
-        return ReviewThreadRecord(
-            origin.thread_id,
-            target_snapshot_id,
-            target_file.id,
-            False,
-            "file-start",
-            None,
-            None,
-            origin.side,
-            None,
-            None,
-            None,
-            None,
-        )
-    assert origin.target_kind == "range"
-    assert origin.side is not None
-    origin_text = _read_text(origin_file, origin.side, cache)
-    if origin.region_kind == "notebook-cell-source":
-        assert origin.region_key is not None
-        origin_cell, _, _ = _origin_cell(
-            origin_file,
+        return _FileStartPlacement(
+            thread_id=origin.thread_id,
+            snapshot_id=target_snapshot_id,
+            snapshot_file_id=target_file.id,
             side=origin.side,
-            cell_key=origin.region_key,
-            cache=cache,
+            outdated_reason=None,
         )
-        origin_text = _cell_source(origin_cell)
-    locator = _decode_locator(origin, text=origin_text)
-    target_region_key = origin.region_key
+    target_bay_key = origin.bay_key
+    # The origin's own bytes produced this key when the Thread was created, so
+    # composing them again yields it. A lookup that fails here means the Room
+    # disagrees with itself, and raising is the honest report of that.
+    origin_side = origin.side
+    origin_bay_text = _selected_bay(
+        origin_file,
+        side=origin_side,
+        bay_key=target_bay_key,
+        cache=cache,
+    ).text_for(origin_side)
+    assert origin_bay_text is not None
+    origin_text = origin_bay_text
+    assert locator is not None, "a range origin retains its coordinates"
+    _verify_locator(origin, locator, text=origin_text)
+    # The bay key is durable identity, so the same key names the same
+    # bay in the target Snapshot. A File that fails to compose at all has
+    # no bay coordinate to offer, so the placement falls to File start.
     try:
-        if (
-            origin.region_kind == "ordinary"
-            and _rendered_notebook_cells(target_file, cache) is not None
-        ):
-            return file_start_record(
-                target_snapshot_id, target_file.id, locator.side
-            )
-        text = _read_text(target_file, locator.side, cache)
-        path = _path_hint(target_file, locator.side)
-        if origin.region_kind == "notebook-cell-source":
-            selected_cells = _notebook_cells(text)
-            cell, _cell_unchanged = _target_cell(selected_cells, locator)
-            if cell is None:
-                return file_start_record(
-                    target_snapshot_id, target_file.id, locator.side
-                )
-            opposite_side: Literal["left", "right"] = (
-                "right" if locator.side == "left" else "left"
-            )
-            opposite_record = (
-                target_file.right
-                if opposite_side == "right"
-                else target_file.left
-            )
-            opposite_cells = (
-                _notebook_cells(_read_text(target_file, opposite_side, cache))
-                if opposite_record is not None
-                else []
-            )
-            left_cells = (
-                selected_cells if locator.side == "left" else opposite_cells
-            )
-            right_cells = (
-                opposite_cells if locator.side == "left" else selected_cells
-            )
-            pairs = [
-                pair
-                for pair in rendered_notebook_cell_pairs(
-                    left_cells, right_cells
-                )
-                if (
-                    pair.left_cell is cell
-                    if locator.side == "left"
-                    else pair.right_cell is cell
-                )
-            ]
-            if len(pairs) != 1:
-                return file_start_record(
-                    target_snapshot_id, target_file.id, locator.side
-                )
-            target_region_key = pairs[0].cell_key
-            text = _cell_source(cell)
-            path = _cell_path(cell)
-        candidates = [
-            region
-            for region in _regions_for_source(path, text)
-            if region.segments == locator.segments
-        ]
+        target_bays = _composed_bays(target_file, cache)
     except ReviewError:
-        return file_start_record(
-            target_snapshot_id, target_file.id, locator.side
-        )
+        return file_start(origin_side)
+    target_bay = target_bays.get(target_bay_key)
+    target_text = (
+        target_bay.text_for(origin_side) if target_bay is not None else None
+    )
+    if target_bay is None or target_text is None:
+        # The origin's bay (or its side) is gone, but the composed bays are
+        # already in hand, so the landing — the first bay carrying the
+        # side — is chosen and stored here rather than recomputed by reads.
+        for bay in target_bays.values():
+            if bay.text_for(origin_side) is not None:
+                return _BayStartPlacement(
+                    thread_id=origin.thread_id,
+                    snapshot_id=target_snapshot_id,
+                    snapshot_file_id=target_file.id,
+                    bay_key=bay.bay_key,
+                    side=origin_side,
+                    outdated_reason="bay_not_found",
+                )
+        return file_start(origin_side)
+    text = target_text
+    path = target_bay.hint_for(origin_side) or _path_hint(
+        target_file, origin_side
+    )
+    candidates = [
+        region
+        for region in _regions_for_source(path, text)
+        if region.segments == locator.segments
+    ]
     matching = [
         region
         for region in candidates
@@ -1043,80 +1187,59 @@ def _derive_record(
         origin_region_start = (
             origin_text.encode()[: locator.region_start_byte].count(b"\n") + 1
         )
-        assert origin.start_line is not None and origin.end_line is not None
         start_offset = origin.start_line - origin_region_start
         end_offset = origin.end_line - origin_region_start
-        return ReviewThreadRecord(
-            origin.thread_id,
-            target_snapshot_id,
-            target_file.id,
-            False,
-            "range",
-            origin.region_kind,
-            target_region_key,
-            locator.side,
-            candidate.start_line + start_offset,
-            candidate.start_line + end_offset,
-            None,
-            None,
+        return _RangePlacement(
+            thread_id=origin.thread_id,
+            snapshot_id=target_snapshot_id,
+            snapshot_file_id=target_file.id,
+            bay_key=target_bay_key,
+            side=origin_side,
+            start_line=candidate.start_line + start_offset,
+            end_line=candidate.start_line + end_offset,
+            outdated_reason=None,
         )
     if len(candidates) == 1 and len(matching) == 0:
         candidate = candidates[0]
-        return ReviewThreadRecord(
-            origin.thread_id,
-            target_snapshot_id,
-            target_file.id,
-            False,
-            "range",
-            origin.region_kind,
-            target_region_key,
-            locator.side,
-            candidate.start_line,
-            candidate.start_line,
-            "region_changed",
-            None,
+        return _RangePlacement(
+            thread_id=origin.thread_id,
+            snapshot_id=target_snapshot_id,
+            snapshot_file_id=target_file.id,
+            bay_key=target_bay_key,
+            side=origin_side,
+            start_line=candidate.start_line,
+            end_line=candidate.start_line,
+            outdated_reason="region_changed",
         )
-    return file_start_record(target_snapshot_id, target_file.id, locator.side)
-
-
-def _pair_dict(pair: FilePair) -> dict[str, Optional[str]]:
-    """Serialize one exact File pair without adding presentation fields."""
-    return {"left_path": pair.left_path, "right_path": pair.right_path}
-
-
-def _region_dict(
-    kind: Literal["ordinary", "notebook-cell-source"],
-    key: Optional[str],
-) -> dict[str, str]:
-    """Serialize one public rendered-region identity."""
-    if kind == "ordinary":
-        assert key is None
-        return {"kind": "ordinary"}
-    assert key is not None
-    return {"kind": "notebook-cell-source", "cell_key": key}
+    # The bay survives while the region inside it matched nothing or matched
+    # ambiguously, so only the bay coordinate is retained.
+    return _BayStartPlacement(
+        thread_id=origin.thread_id,
+        snapshot_id=target_snapshot_id,
+        snapshot_file_id=target_file.id,
+        bay_key=target_bay_key,
+        side=origin_side,
+        outdated_reason="region_not_found",
+    )
 
 
 def _origin_target_dict(
-    origin: ReviewThreadRecord,
+    origin: _RangePlacement | _FileStartPlacement,
     file: SnapshotFileRecord,
 ) -> dict[str, object]:
     """Reconstruct the immutable public creation target from retained facts."""
-    pair = _pair_dict(_file_pair(file))
-    if origin.target_kind == "file-start":
-        assert origin.region_kind is None and origin.region_key is None
-        assert origin.side is not None
-        assert origin.start_line is None and origin.end_line is None
+    origin_pair = _file_pair(file)
+    pair = {
+        "left_path": origin_pair.left_path,
+        "right_path": origin_pair.right_path,
+    }
+    if isinstance(origin, _FileStartPlacement):
         assert origin.outdated_reason is None
-        assert origin.private_locator is None
         return {"kind": "file-start", "file": pair, "side": origin.side}
-    assert origin.target_kind == "range"
-    assert origin.region_kind is not None
-    assert origin.side is not None
-    assert origin.start_line is not None and origin.end_line is not None
     return {
         "kind": "text",
         "file": pair,
-        "region": _region_dict(origin.region_kind, origin.region_key),
+        "bay": {"bay_key": origin.bay_key},
         "side": origin.side,
         "range": {
             "start_line": origin.start_line,
@@ -1236,7 +1359,7 @@ def fold_actions(
 
 
 def _build_original_excerpt(
-    origin: ReviewThreadRecord,
+    origin: _RangePlacement,
     origin_file: SnapshotFileRecord,
     cache: _ReviewReadCache,
 ) -> dict[str, object]:
@@ -1249,58 +1372,25 @@ def _build_original_excerpt(
     side source without involving a diff renderer or line alignment.
     """
 
-    def cell_pair_sources() -> tuple[str, str]:
-        """Return sources paired by the origin's public cell key."""
-        assert origin.region_key is not None and origin.side is not None
-        left_cells = (
-            _notebook_cells(_read_text(origin_file, "left", cache))
-            if origin_file.left is not None
-            else []
-        )
-        right_cells = (
-            _notebook_cells(_read_text(origin_file, "right", cache))
-            if origin_file.right is not None
-            else []
-        )
-        matches = [
-            pair
-            for pair in notebook_cell_pairs(left_cells, right_cells)
-            if pair.cell_key == origin.region_key
-        ]
-        assert len(matches) == 1, "origin notebook cell pair disappeared"
-        pair = matches[0]
-        selected = pair.left_cell if origin.side == "left" else pair.right_cell
-        assert selected is not None, "origin selected notebook side disappeared"
-        return (
-            _cell_source(pair.left_cell) if pair.left_cell is not None else "",
-            _cell_source(pair.right_cell)
-            if pair.right_cell is not None
-            else "",
-        )
-
-    assert origin.target_kind == "range"
-    assert origin.region_kind is not None and origin.side is not None
-    assert origin.start_line is not None and origin.end_line is not None
     selected_start = origin.start_line
     selected_end = origin.end_line
-    if origin.region_kind == "ordinary":
-        left_text = (
-            _read_text(origin_file, "left", cache)
-            if origin_file.left is not None
-            else ""
-        )
-        right_text = (
-            _read_text(origin_file, "right", cache)
-            if origin_file.right is not None
-            else ""
-        )
-    else:
-        left_text, right_text = cell_pair_sources()
-    selected_lines = (
-        left_text.splitlines()
-        if origin.side == "left"
-        else right_text.splitlines()
+    # An excerpt is the origin bay's own text, never an alignment of two
+    # sides, so no diff engine takes part in building one. `bays()` is the
+    # engine-free entry point, reading decoded text without a renderer.
+    origin_bay = _selected_bay(
+        origin_file,
+        side=origin.side,
+        bay_key=origin.bay_key,
+        cache=cache,
     )
+    # `_selected_bay` above required this bay to carry the selected side, so
+    # the text is present. The unselected side is not read: an excerpt is one
+    # side's own text.
+    selected_text = origin_bay.text_for(origin.side)
+    assert selected_text is not None, (
+        "_selected_bay accepted a bay absent on the selected side."
+    )
+    selected_lines = selected_text.splitlines()
     if selected_end > len(selected_lines):
         raise ReviewError(
             "invalid_target",
@@ -1487,15 +1577,24 @@ class Thread:
         self._identity = identity
         self._lock_path = lock_path
         self._thread_lock = thread_lock
-        self._placement = placement
-        self._origin = origin
+        # The store returns the flat row shape; every read on this handle wants
+        # the proven one, so both are converted once here rather than at each
+        # interpreting read.
+        self._placement = _placement_of(placement)
+        origin_placement = _placement_of(origin)
+        assert isinstance(
+            origin_placement, (_RangePlacement, _FileStartPlacement)
+        ), "a discussion origin is a stored range or File-start row"
+        self._origin: _RangePlacement | _FileStartPlacement = origin_placement
         self._action_records = actions
         self._profiles = profiles
         # Mutated once by `_located_files` when constructed deferred; every
         # later locating read reuses the same loaded records and cache.
         self._files = files
 
-    def _records(self) -> tuple[ReviewThreadRecord, ReviewThreadRecord]:
+    def _records(
+        self,
+    ) -> tuple[_Placement, _RangePlacement | _FileStartPlacement]:
         """Return this bound placement and the discussion's unique origin."""
         return self._placement, self._origin
 
@@ -1515,16 +1614,13 @@ class Thread:
         """
         if self._files is None:
             placement, origin = self._records()
-            assert origin.snapshot_file_id is not None, (
-                "review origin has no Snapshot File"
-            )
             origin_ref = (origin.snapshot_id, origin.snapshot_file_id)
             selected_ids: tuple[str, ...] = ()
             absent_refs: tuple[tuple[str, str], ...] = ()
-            if placement.snapshot_file_id is not None:
-                selected_ids = (placement.snapshot_file_id,)
-            else:
+            if isinstance(placement, _FileMissingPlacement):
                 absent_refs = (origin_ref,)
+            else:
+                selected_ids = (placement.snapshot_file_id,)
             origin_files, selected_files, conflicts = (
                 self._database.review_thread_files(
                     self.snapshot_id.hex,
@@ -1537,7 +1633,7 @@ class Thread:
                 "file_missing placement has an exact Snapshot File"
             )
             selected_file: Optional[SnapshotFileRecord] = None
-            if placement.snapshot_file_id is not None:
+            if not isinstance(placement, _FileMissingPlacement):
                 selected_file = selected_files.get(placement.snapshot_file_id)
                 assert selected_file is not None, (
                     "located placement has no exact Snapshot File"
@@ -1545,7 +1641,7 @@ class Thread:
             self._files = _ThreadFiles(
                 origin_file=origin_files[origin_ref],
                 selected_file=selected_file,
-                cache=_ReviewReadCache({}),
+                cache=_ReviewReadCache(),
             )
         return self._files
 
@@ -1556,12 +1652,10 @@ class Thread:
         has already verified no selected-Snapshot File carries the origin
         pair, so absence here is an invariant, not a substitute.
         """
-        placement, origin = self._records()
-        assert origin.snapshot_file_id is not None
+        placement, _origin = self._records()
         files = self._located_files()
         origin_file = files.origin_file
-        if placement.snapshot_file_id is None:
-            assert placement.outdated_reason == "file_missing"
+        if isinstance(placement, _FileMissingPlacement):
             assert files.selected_file is None, (
                 "file_missing placement has an exact Snapshot File"
             )
@@ -1576,26 +1670,29 @@ class Thread:
         assert _file_pair(target_file) == _file_pair(origin_file), (
             "placement references the wrong Snapshot File pair"
         )
-        pair = _pair_dict(_file_pair(target_file))
-        if placement.target_kind == "range":
-            assert placement.region_kind is not None
-            assert placement.side is not None
-            assert placement.start_line is not None
-            assert placement.end_line is not None
+        target_pair = _file_pair(target_file)
+        pair = {
+            "left_path": target_pair.left_path,
+            "right_path": target_pair.right_path,
+        }
+        if isinstance(placement, _RangePlacement):
             return {
                 "kind": "range",
                 "file": pair,
-                "region": _region_dict(
-                    placement.region_kind, placement.region_key
-                ),
+                "bay": {"bay_key": placement.bay_key},
                 "side": placement.side,
                 "range": {
                     "start_line": placement.start_line,
                     "end_line": placement.end_line,
                 },
             }
-        assert placement.target_kind == "file-start"
-        assert placement.side is not None
+        if isinstance(placement, _BayStartPlacement):
+            return {
+                "kind": "bay-start",
+                "file": pair,
+                "bay": {"bay_key": placement.bay_key},
+                "side": placement.side,
+            }
         return {
             "kind": "file-start",
             "file": pair,
@@ -1614,7 +1711,7 @@ class Thread:
         files = self._located_files()
         original_excerpt = (
             _build_original_excerpt(origin, files.origin_file, files.cache)
-            if origin.target_kind == "range"
+            if isinstance(origin, _RangePlacement)
             else None
         )
         return ThreadDiscussionView(
@@ -1626,7 +1723,11 @@ class Thread:
             discussion_revision=len(actions) - 1,
             origin_target=_origin_target_dict(origin, files.origin_file),
             code_location=self._locate(),
-            outdated_reason=placement.outdated_reason,
+            outdated_reason=(
+                "file_missing"
+                if isinstance(placement, _FileMissingPlacement)
+                else placement.outdated_reason
+            ),
             original_excerpt=original_excerpt,
             comments=comments,
         )
@@ -1645,7 +1746,11 @@ class Thread:
             state=state,
             attention=attention,
             code_location=self._locate(),
-            outdated_reason=self._placement.outdated_reason,
+            outdated_reason=(
+                "file_missing"
+                if isinstance(self._placement, _FileMissingPlacement)
+                else self._placement.outdated_reason
+            ),
             first_comment=comments[0],
             latest_comment=comments[-1],
             comment_count=len(comments),
@@ -1901,7 +2006,7 @@ def _bind_threads(
         absent_origin_refs,
     )
     assert conflicts == (), "file_missing placement has an exact Snapshot File"
-    cache = _ReviewReadCache({})
+    cache = _ReviewReadCache()
     threads: list[Thread] = []
     for origin in data.origins:
         placement = placements[origin.thread_id]
@@ -2011,17 +2116,27 @@ def derive_room_threads(
         target_snapshot.id, origin_refs, (), ()
     )
     target_files_by_pair = _file_indexes(target_snapshot)[1]
-    cache = _ReviewReadCache({})
+    cache = _ReviewReadCache()
     grouped_origins: list[
         tuple[
             tuple[str, str, str, str, str],
-            ReviewThreadRecord,
+            _RangePlacement | _FileStartPlacement,
+            Optional[_Locator],
             SnapshotFileRecord,
         ]
     ] = []
-    for origin in origins.values():
-        assert origin.snapshot_file_id is not None
-        assert origin.side is not None
+    for record in origins.values():
+        origin = _placement_of(record)
+        assert isinstance(origin, (_RangePlacement, _FileStartPlacement)), (
+            "a discussion origin is a stored range or File-start row"
+        )
+        # Derivation is the only reader of private coordinates, so this is the
+        # one place that decodes them; reads never pay for it.
+        locator = (
+            None
+            if record.private_locator is None
+            else _locator_of(record.private_locator, side=origin.side)
+        )
         origin_file = origin_files[
             (origin.snapshot_id, origin.snapshot_file_id)
         ]
@@ -2032,26 +2147,40 @@ def derive_room_threads(
                     pair.left_path or "",
                     pair.right_path or "",
                     origin.side,
-                    origin.region_key or "",
+                    origin.bay_key
+                    if isinstance(origin, _RangePlacement)
+                    else "",
                     origin.thread_id,
                 ),
                 origin,
+                locator,
                 origin_file,
             )
         )
     # Adjacent target sources stay resident in the three-entry region cache.
     grouped_origins.sort(key=lambda item: item[0])
     placements: list[ReviewThreadRecord] = []
-    for _group, origin, origin_file in grouped_origins:
-        placements.append(
+    for _group, origin, locator, origin_file in grouped_origins:
+        # An origin already addressing the target Snapshot is its own placement
+        # there and needs no derivation.
+        is_origin = origin.snapshot_id == target_snapshot.id
+        placed = (
             origin
-            if origin.snapshot_id == target_snapshot.id
+            if is_origin
             else _derive_record(
                 origin=origin,
+                locator=locator,
                 origin_file=origin_file,
                 target_snapshot_id=target_snapshot.id,
                 target_files_by_pair=target_files_by_pair,
                 cache=cache,
+            )
+        )
+        placements.append(
+            _record_of(
+                placed,
+                is_origin=is_origin,
+                locator=locator if is_origin else None,
             )
         )
     return tuple(placements)
@@ -2062,8 +2191,12 @@ def _origin_record(
     snapshot_id: str,
     file: SnapshotFileRecord,
     cache: _ReviewReadCache,
-) -> ReviewThreadRecord:
-    """Build one unique origin from an already-selected Snapshot File."""
+) -> tuple[_RangePlacement, _Locator]:
+    """Build one unique origin and the private coordinates that retain it.
+
+    The coordinates are returned beside the placement rather than inside it,
+    because only persistence and later derivation read them.
+    """
 
     def origin_region(
         path: str, text: str, selected: LineRange
@@ -2094,80 +2227,41 @@ def _origin_record(
             ),
         )
 
-    def encode_locator(locator: _Locator) -> bytes:
-        """Serialize one private locator deterministically."""
-        return json.dumps(
-            {
-                "side": locator.side,
-                "region_hash": locator.region_hash.hex(),
-                "region_start_byte": locator.region_start_byte,
-                "region_end_byte": locator.region_end_byte,
-                "segments": [
-                    {"node_type": segment.node_type, "name": segment.name}
-                    for segment in locator.segments
-                ],
-                "notebook_cell_id": locator.notebook_cell_id,
-                "notebook_source_hash": (
-                    locator.notebook_source_hash.hex()
-                    if locator.notebook_source_hash is not None
-                    else None
-                ),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-
-    if (
-        isinstance(command.target.region, OrdinaryRegion)
-        and _rendered_notebook_cells(file, cache) is not None
-    ):
-        raise ReviewError(
-            "invalid_target",
-            "Ordinary text target requires an ordinary rendered File.",
-        )
-
-    text = _read_text(file, command.target.side, cache)
-    notebook_cell_id: Optional[str] = None
-    notebook_source_hash: Optional[bytes] = None
-    path = _path_hint(file, command.target.side)
-    if isinstance(command.target.region, NotebookCellSourceRegion):
-        cell, notebook_cell_id, notebook_source_hash = _origin_cell(
-            file,
-            side=command.target.side,
-            cell_key=command.target.region.cell_key,
-            cache=cache,
-        )
-        text = _cell_source(cell)
-        path = _cell_path(cell)
+    # The bay must be one composition actually produced for this File. A
+    # File that composes no such bay cannot carry the target, which is what
+    # rejects an ordinary target against a notebook and any stale key alike.
+    selected = _selected_bay(
+        file,
+        side=command.target.side,
+        bay_key=command.target.bay_key,
+        cache=cache,
+    )
+    text = selected.text_for(command.target.side)
+    assert text is not None, "selected bay text was already required"
+    path = selected.hint_for(command.target.side) or _path_hint(
+        file, command.target.side
+    )
     region = origin_region(path, text, command.target.range)
     locator = _Locator(
-        side=command.target.side,
         region_hash=hashlib.sha256(
             region.source[region.start_byte : region.end_byte]
         ).digest(),
         region_start_byte=region.start_byte,
         region_end_byte=region.end_byte,
         segments=region.segments,
-        notebook_cell_id=notebook_cell_id,
-        notebook_source_hash=notebook_source_hash,
     )
-    return ReviewThreadRecord(
-        command.thread_id.hex,
-        snapshot_id,
-        file.id,
-        True,
-        "range",
-        command.target.region.kind,
-        (
-            command.target.region.cell_key
-            if isinstance(command.target.region, NotebookCellSourceRegion)
-            else None
+    return (
+        _RangePlacement(
+            thread_id=command.thread_id.hex,
+            snapshot_id=snapshot_id,
+            snapshot_file_id=file.id,
+            bay_key=command.target.bay_key,
+            side=command.target.side,
+            start_line=command.target.range.start_line,
+            end_line=command.target.range.end_line,
+            outdated_reason=None,
         ),
-        command.target.side,
-        command.target.range.start_line,
-        command.target.range.end_line,
-        None,
-        encode_locator(locator),
+        locator,
     )
 
 
@@ -2197,10 +2291,10 @@ def _plan_thread_creation(
         )
     _nonblank(command.body)
     profile_id = command.author.profile_id
-    origin = _origin_record(command, snapshot_id, target_file, cache)
+    origin, locator = _origin_record(command, snapshot_id, target_file, cache)
     _build_original_excerpt(origin, target_file, cache)
     return (
-        (origin,),
+        (_record_of(origin, is_origin=True, locator=locator),),
         ReviewActionRecord(
             operation_id=command.operation_id.hex,
             thread_id=command.thread_id.hex,
@@ -2241,7 +2335,7 @@ def create_thread(
         )
         if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        cache = _ReviewReadCache({})
+        cache = _ReviewReadCache()
         created_at = _now()
         rows, first_action = _plan_thread_creation(
             command=command,
@@ -2326,7 +2420,7 @@ def apply_review_batch(
             for pair in creation_pairs
             if (pair.left_path, pair.right_path) in found_by_pair
         }
-        cache = _ReviewReadCache({})
+        cache = _ReviewReadCache()
         placements: list[ReviewThreadRecord] = []
         records: list[ReviewActionRecord] = []
         results: list[ReviewBatchResult] = []

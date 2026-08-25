@@ -401,7 +401,9 @@ export function ThreadCard(props: {
             title={
               props.thread.code_location === null
                 ? "The reviewed file is not present in this Snapshot."
-                : "The reviewed code changed after this Thread was created."
+                : props.thread.outdated_reason === "bay_not_found"
+                  ? "The reviewed part of the file is gone from this Snapshot."
+                  : "The reviewed code changed after this Thread was created."
             }
           >
             <TriangleAlert aria-hidden="true" />

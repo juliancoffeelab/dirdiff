@@ -20,8 +20,12 @@ import {
   type JSX,
 } from "solid-js";
 import { useToasts } from "../../comp/Toasts";
-import type { HunkPosition } from "../FileCard";
-import { NavigationProvider, useNavigation } from "../navigation";
+import type { HunkPosition } from "../fileCard/FileCard";
+import {
+  NavigationProvider,
+  storedHunkTarget,
+  useNavigation,
+} from "../navigation";
 
 /**
  * Mirrors navigation information from the mounted ChangeSet DOM.
@@ -80,7 +84,7 @@ export function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
      *
      * The mounted ChangeSet root is the complete interaction scope. Every
      * pointer press clears its previous grid marker; a press on a left or right
-     * DiffGrid side then marks only that grid. CSS suppresses selection on the
+     * TextDiffGrid side then marks only that grid. CSS suppresses selection on the
      * opposite side without introducing Solid state or changing hunk selection.
      */
     function selectDiffSide(event: PointerEvent): void {
@@ -634,24 +638,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         let localCurrent: number | null = null;
         if (card === selectedCards[0]) {
           selectedFileIndex = fileIndex;
-          const selectedIndexText = card.dataset.selectedHunkIndex;
-          if (selectedIndexText === undefined) {
-            throw new Error("Selected FileCard has no hunk index.");
-          }
-          const matchingTargets = targets.filter(
-            (target) =>
-              target.dataset.fileIndex === String(fileIndex) &&
-              target.dataset.hunkIndex === selectedIndexText,
-          );
-          if (matchingTargets.length !== 1) {
-            throw new Error(
-              `Selected hunk (${fileIndex}, ${selectedIndexText}) requires exactly one DOM target.`,
-            );
-          }
-          const selectedTarget = matchingTargets[0];
-          if (selectedTarget === undefined) {
-            throw new Error("Selected hunk target disappeared.");
-          }
+          const selectedTarget = storedHunkTarget(card, targets);
           localCurrent = targets.indexOf(selectedTarget) + 1;
           selectedCurrent = stablePositionOffset + localCurrent;
         }
@@ -713,27 +700,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       if (stats === undefined) {
         return null;
       }
-      const selectedIndexText = card.dataset.selectedHunkIndex;
-      if (selectedIndexText === undefined) {
-        throw new Error("Selected FileCard has no hunk index.");
-      }
       const targets = Array.from(
         card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
       );
-      const matchingTargets = targets.filter(
-        (target) =>
-          target.dataset.fileIndex === String(stats.fileIndex) &&
-          target.dataset.hunkIndex === selectedIndexText,
-      );
-      if (matchingTargets.length !== 1) {
-        throw new Error(
-          `Selected hunk (${stats.fileIndex}, ${selectedIndexText}) requires exactly one DOM target.`,
-        );
-      }
-      const selectedTarget = matchingTargets[0];
-      if (selectedTarget === undefined) {
-        return null;
-      }
+      const selectedTarget = storedHunkTarget(card, targets);
       const localCurrent = targets.indexOf(selectedTarget) + 1;
       const fileSelectedHunks = new Map(lastDisplay.fileSelectedHunks);
       const previousIndex = lastDisplay.selectedFileIndex;
@@ -774,7 +744,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
     /**
      * Coalesces one display calculation after renderer mount work.
      *
-     * DiffGrid places its imperative row targets during mount after FileCard has
+     * TextDiffGrid places its imperative row targets during mount after FileCard has
      * updated `data-hunk-set`. The extra microtask observes the completed renderer
      * operation instead of interpreting that internal transition as invalid DOM.
      * A queued full calculation subsumes a selective one, never the reverse.
@@ -834,6 +804,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
             : "full",
         );
       });
+      // data-selected-hunk-kind and data-selected-hunk-bay are deliberately
+      // not watched: selectHunk() writes the index attribute on every
+      // selection, so the index mutation already wakes the observer, and the
+      // callback reads the whole identity from the live dataset.
       observer.observe(root, {
         subtree: true,
         attributes: true,

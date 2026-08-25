@@ -9,24 +9,42 @@ occurs. It does not retain a parallel hunk registry or selected-hunk store.
 Every hunk identity contains:
 
 - the manifest `fileIndex`;
-- the file-local `hunkIndex`;
+- for real and skipped hunks, the `bay_key` of the owning bay;
+- the bay-local `hunkIndex`, exactly as the backend numbered it;
 - a render kind.
 
+Hunk indexes are bay-local: every bay numbers its hunks from zero, so
+the index alone names no target and the bay key is the other half of the
+coordinate. No layer renumbers hunks file-wide.
+
 Real hunks use `kind: "real"`. File-state pseudo-hunks use `"husk"`, `"lazy"`,
-or `"zero"` with `hunkIndex: 0`. Collapsed real hunks use `"skip"` while
-preserving their original hunk index.
+or `"zero"` with `hunkIndex: 0` and no bay. Collapsed real hunks use
+`"skip"` while preserving their original bay and hunk index.
 
 Every target writes:
 
 ```text
 data-hunk-target
 data-file-index
+data-hunk-bay   (real and skip targets only)
 data-hunk-index
 data-hunk-kind
 ```
 
 The selected identity is stored on its `FileCard` as
-`data-selected-hunk-index`. Initial selection and the three selection operations
+`data-selected-hunk-kind` and `data-selected-hunk-index`, joined by
+`data-selected-hunk-bay` when the selected target carries a bay. The
+declared kind picks the resolution strategy. A file-state selection (`husk`,
+`lazy`, `zero`) names the File's own stop and survives representation
+replacement: a Husk selection stays written after admission swaps the husk
+target for real composed DOM, and in every representation that stop resolves
+to the card's first target in DOM order. A hunk selection (`real`, `skip`)
+resolves strictly on bay key and bay-local hunk index; the kind stays
+out of that match because collapse and expansion interconvert real and skip
+targets at the same coordinates. Any other combination of kind, bay, and
+index is a contract violation and throws. The exported `storedHunkTarget`
+implements this resolution once, for navigation and the hunk display alike.
+Initial selection and the three selection operations
 also decorate the matching current target with `data-selected`, `aria-current`,
 and the selected visual class.
 
@@ -46,7 +64,8 @@ destinations, and scroll-follow do not traverse them as participants.
 
 When a non-empty snapshot mounts, `ChangeSetSnapshot` calls the exported
 `writeInitialHunkSelection`, which validates the fresh unselected DOM and
-selects the first `FileCard` target at hunk index zero. Because the
+selects the first `FileCard`'s first target in DOM order — which, in every
+representation, is that file's first coordinate. Because the
 NavigationProvider survives snapshot replacement — an engine switch replaces
 the snapshot beneath it — initialization belongs to the snapshot lifetime,
 and every replacement snapshot starts selected. The write itself goes through
@@ -55,14 +74,14 @@ and every replacement snapshot starts selected. The write itself goes through
 An empty manifest has no selected hunk. A terminal renderer error prevents
 initialization because it exposes no valid hunk target. Every ordinary
 `FileCard`, including Husk, Lazy, zero-hunk Full, and collapsed files, has the
-required coordinate-bearing target.
+required target, which carries a coordinate.
 
 ## Selected-hunk operation
 
 `selectHunk()` is the single operation that changes an existing hunk selection.
-It verifies a coordinate-bearing target, removes the previous selected
-decoration, writes the selected hunk index to the destination `FileCard`, and
-decorates that exact target.
+It verifies the target's coordinate, removes the previous selected
+decoration, writes the selected bay and hunk index to the destination
+`FileCard`, and decorates that exact target.
 
 It has exactly four direct callers:
 
@@ -82,8 +101,9 @@ They never substitute the FileCard header, the first target, or another nearby
 element when the selected coordinates cannot be resolved.
 
 If the selected target is outside the main viewport, the operation first
-returns to that same target and stops. A virtual selected FullFile is enriched,
-the exact target is resolved again after layout changes, and then centered.
+returns to that same target and stops. A target inside a virtual bay has that
+bay enriched, the exact target is resolved again after layout changes, and
+then centered.
 Enrichment completes only with real geometry: fresh chunks are laid out and
 warmed before the operation reads heights, and a rich-to-virtual transition
 measures real chunk layout before pinning its reserved height, so completed
@@ -98,8 +118,9 @@ If the selected target is already on screen:
 
 When the current selected target is skipped, its stable position in the complete
 target order determines which participant comes next or previous. A real
-destination inside a virtual FullFile is enriched and re-resolved by its same
-file and hunk indexes before selection and scrolling.
+destination inside a virtual bay has exactly that owning bay enriched and is
+re-resolved by its same file index, bay key, and hunk index before selection
+and scrolling; other bays keep their representation.
 
 The operation then calls `selectHunk()` exactly once and centers the selected
 target. If no participating targets exist, it leaves the current skipped
@@ -160,9 +181,9 @@ Positions are numeric data. Consumers format them independently.
 navigation and selection never do.
 
 Totals count participating targets. A selected skipped target retains its
-stable position among all coordinate-bearing targets, so its current position
-may be greater than the participating total. `hasMore` records that Husk, Lazy,
-or collapsed content can change the visible participant set.
+stable position among all targets that carry a coordinate, so its current
+position may be greater than the participating total. `hasMore` records that
+Husk, Lazy, or collapsed content can change the visible participant set.
 
 ## FileTree model
 
@@ -216,19 +237,20 @@ short interval the name is enabled. File navigation rejects the temporary Husk
 target of an expanded nonzero-hunk FullFile; a zero-hunk or collapsed FullFile
 already has its stable zero or skip target and remains navigable.
 
-File navigation scrolls to hunk index zero in the destination’s current
+File navigation scrolls to the destination’s first target in its current
 representation. It does not select, fetch, or change expansion.
 
 Before the one final centered scroll, Navigation computes the destination’s
-hypothetical viewport. Any expanded virtual FullFile whose rich-entry zone
+hypothetical viewport. Any mounted virtual bay whose rich-entry zone
 intersects that viewport is enriched at most once during the operation.
 Navigation recalculates geometry after each resulting layout change, resolves
 the exact destination coordinates again, then performs one scroll and a
 temporary destination flash.
 
 A Lazy destination scrolls to its plank or collapsed skip target. A zero-hunk,
-real, or collapsed FullFile uses its exact hunk-zero target. Navigation never
-expands a collapsed file.
+real, or collapsed FullFile uses its exact first target; for an expanded rich
+FullFile that is its first bay's hunk zero. Navigation never expands a
+collapsed file.
 
 ## Hotkeys and HUD
 
@@ -255,20 +277,20 @@ presets does not reset them. `HintHud` contains Next, Previous, and Help.
 
 ## Line pins
 
-Line pins connect URL identity, the file lane, file preparation, DiffGrid
+Line pins connect URL identity, the file lane, file preparation, TextDiffGrid
 decoration, and one final Navigation scroll. They never select a hunk.
 
 ### URL identity
 
 Each `ChangeSetSnapshot` creates one `LinePins` instance and passes it to every
-`DiffGrid`.
+`TextDiffGrid`.
 
 The URL hash contains at most one `pin` JSON value:
 
 ```ts
 {
   file: string;
-  region: string | null;
+  bay: string;
   side: "left" | "right";
   line: string;
 }
@@ -276,9 +298,11 @@ The URL hash contains at most one `pin` JSON value:
 
 `file` is the canonical `FileDiff.display_name`. Repository snapshots derive it
 from the manifest path pair; preset snapshots use the fixture’s new-side path,
-which is also the backend file response name. Ordinary text uses `region: null`;
-notebook source uses its non-empty backend cell key. `line` is a positive
-decimal backend line number.
+which is also the backend file response name. `bay` is the non-empty composed
+bay key — the same universal sub-file coordinate review targets use — so a
+flatfile carries `FLATFILE_BAY_KEY` rather than an absent field, and notebook
+source carries its backend cell key. `line` is a positive decimal backend line
+number.
 
 The URL is the sole retained pin identity. `LinePins` does not observe browser
 history and no Solid signal or DOM attribute duplicates that identity.
@@ -289,12 +313,12 @@ when the exact target is already present, or replaces it otherwise. It preserves
 the path, query, and unrelated hash fields through `history.replaceState`;
 changing the URL does not itself start restoration.
 
-### Direct DiffGrid activation
+### Direct TextDiffGrid activation
 
-`DiffGrid` has one delegated click listener on its persistent root. An ordinary
+`TextDiffGrid` has one delegated click listener on its persistent root. An ordinary
 line-number click combines:
 
-- the grid’s file path and null or notebook region;
+- the grid’s file path and its composed bay key;
 - the clicked side;
 - the clicked backend line.
 
@@ -308,7 +332,7 @@ rendered.
 
 ### Decoration during rendering
 
-DiffGrid owns all `.pinned-line` paint. Initial rendering, explicit fold
+TextDiffGrid owns all `.pinned-line` paint. Initial rendering, explicit fold
 replacement, rich rendering after virtualization, inline/split replacement,
 and notebook source rendering each read `LinePins.parseUrl()` and paint the
 matching ordinary row when it is present in that grid.
@@ -344,8 +368,8 @@ to navigate to the line’s manifest index and coordinates.
 Navigation calls the target `FullFile`’s `prepareLine_impl()`:
 
 1. expand the target file when collapsed;
-2. make a virtual text file rich;
-3. locate the exact ordinary or notebook `DiffGrid`;
+2. expand the target's bay and enrich it;
+3. locate the exact ordinary or notebook `TextDiffGrid` inside that bay;
 4. ask that grid to expand every line fold containing the target;
 5. return the exact complete row.
 
@@ -356,7 +380,7 @@ select a hunk, or scroll.
 
 For a ready row, Navigation computes its hypothetical centered viewport and
 uses the same rich-entry-zone process as FileTree navigation. Intersecting
-expanded virtual FullFiles are enriched one at a time, the target is prepared
+mounted virtual bays are enriched one at a time, the target is prepared
 again after each layout change, and its geometry is recalculated.
 
 Immediately before one final centered scroll, Navigation checks cancellation
@@ -392,7 +416,7 @@ A located Thread exposes one explicit
 go-to action in its Thread header; individual Comments carry none. ChangeSet
 maps the Thread's exact nullable File pair to one manifest index and sends
 `kind: "line"` navigation to the Thread's exact selected-side line (notebook
-Threads address their cell region), then expands the Thread and opens the
+Threads address their cell bay), then expands the Thread and opens the
 code-aligned Thread panel anchored at that line. The control is disabled while
 the destination is a Husk, matching FileTree's caller contract without loading
 it. The action follows line navigation's layout preparation and final scroll
@@ -400,9 +424,10 @@ behavior, and never selects a hunk. Unlocated Threads have no go-to action.
 
 ## Navigation invariants
 
-- File and hunk indexes in the mounted DOM are the authoritative selected-hunk
-  coordinates.
-- Every real or pseudo hunk carries both indexes.
+- File index, bay key, and bay-local hunk index in the mounted DOM are
+  the authoritative selected-hunk coordinates.
+- Every real or skipped hunk carries all three coordinates; file-state
+  pseudo-hunks carry the file index and index zero without a bay.
 - `selectHunk()` has exactly four direct callers: `nextHunk()`, `prevHunk()`,
   `scrollFollow()`, and the initialization-only `writeInitialHunkSelection()`.
 - Initial selection belongs to the mounted snapshot; FileTree and line pins
@@ -414,10 +439,10 @@ behavior, and never selects a hunk. Unlocated Threads have no go-to action.
 - Programmatic file and line navigation center their destination after layout
   preparation and re-center until nearby chunk rendering stops moving it. An
   idle warm-up pass renders every chunk once so skipped-chunk geometry becomes
-  exact (DiffGrid's `warmPendingChunk`); after it completes the re-centering
+  exact (TextDiffGrid's `warmPendingChunk`); after it completes the re-centering
   loop converges immediately.
 - The URL is the sole line-pin identity.
-- DiffGrid owns pin decoration; LinePins owns parsing, URL toggling, and active
+- TextDiffGrid owns pin decoration; LinePins owns parsing, URL toggling, and active
   restoration cancellation; the lane owns loading; Navigation owns the final
   scroll.
 - Line pins never call `selectHunk()`.

@@ -6,10 +6,11 @@ outside the package imports only `GumTreeDiffEngine` and the `GumTreeJson`
 contract from this package root.  GumTree subprocess integration and raw JSON
 types live in `gumtree.py`; move projection and row assembly live in `logic.py`.
 
-The package intentionally knows nothing about repository selection, notebook
-routing, API request modes, or frontend display enrichment.  If a request points
-at a notebook, server orchestration must route to notebook payload builders
-before any GumTree renderer is selected.
+The package intentionally knows nothing about repository selection, file
+formats, API request modes, or frontend display enrichment.  It renders the two
+text sides it is handed; which sides those are, and whether they came from a
+whole file or one notebook cell, was settled by `dirdiff.formats` before any
+renderer was selected.
 """
 
 from dirdiff.engines.gumtree.gumtree import GumTreeJson

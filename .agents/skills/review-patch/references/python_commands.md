@@ -166,10 +166,15 @@ Repeat the boundary for every later page in the same read.
 
 ## Create a finding
 
-Set `DD_FILE` to an exact absolute File under the captured Snapshot path.
+Set `DD_FILE` to an exact absolute File under the captured Snapshot path, and
+`DD_BAY_KEY` to the bay of that File the finding addresses. The line
+values are the one-based inclusive range *within that bay*. `Bay keys` in
+`snapshot_structure.md` says how to read a key and its lines out of the captured
+bytes; an ordinary text File is `flatfile` with its own line numbers.
 
 ```sh
 export DD_FILE='exact-captured-file-path'
+export DD_BAY_KEY='bay-key-of-that-file'
 export DD_START_LINE='first-selected-line'
 export DD_END_LINE='last-selected-line'
 
@@ -186,7 +191,8 @@ payload = {
     "actions": [{
         "kind": "create-finding",
         "file": os.environ["DD_FILE"],
-        "region": {
+        "bay": {
+            "bay_key": os.environ["DD_BAY_KEY"],
             "start_line": int(os.environ["DD_START_LINE"]),
             "end_line": int(os.environ["DD_END_LINE"]),
         },
@@ -229,8 +235,8 @@ PY
 
 Replace the Snapshot path, Snapshot id, and last activity id with the returned
 values. The returned `snapshot_id` commonly differs from any Snapshot id
-named in your brief or an earlier handoff message — the branch moves between
-rounds, and this is expected drift, not an error.
+named in an earlier handoff message — the branch moves between rounds, and
+this is expected drift, not an error.
 
 The response also carries fields worth reading before re-enumerating
 anything:

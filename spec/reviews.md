@@ -61,12 +61,14 @@ existing-Thread actions return only current state and the one changed Comment.
 ## Targets and placement
 
 A File target stores the exact nullable left/right File pair used by manifest.
-A text target additionally stores one public rendered region, selected side,
-and positive one-based inclusive line range. Regions are either ordinary File
-text or one notebook cell source identified by its public cell key at creation.
+A text target additionally stores one public composed bay key, selected side,
+and positive one-based inclusive line range. The bay key is the universal
+sub-file coordinate composition gives every bay: `flatfile` for a File with
+text File, and the composer's own key for every other bay. Review stores that
+key and never interprets it, so no format has a target shape of its own.
 An explicit lazy loading policy does not prohibit a text target once the caller
 has rendered and selected valid captured contents; origin validation uses the
-retained side digest, region, and range exactly like any other File.
+retained side digest, bay, and range exactly like any other File.
 
 Every placement for an existing File references its `snapshot_file` row through
 the composite `(snapshot_file_id, snapshot_id)` foreign key. If that exact File
@@ -83,14 +85,26 @@ only selected text ranges.
 
 Every newly created Thread originates from a selected text range. Retained
 historical File-level Threads are the sole `file-start` origin exception.
-Placements report one of four public states:
+A text-origin placement reports one of five public states:
 
 ```text
 unchanged unique region -> exact relocated range, no outdated reason
 unique changed region   -> first line of that region, region_changed
-region not identified   -> File start/header, region_not_found
-exact File absent        -> no code location, file_missing
+region not identified   -> start of the origin's own bay, region_not_found
+bay no longer composed  -> start of the File's first bay carrying the
+                           origin side, bay_not_found; a File where no
+                           composed bay carries that side, or that does
+                           not compose at all, is file-start, bay_not_found
+exact File absent       -> no code location, file_missing
 ```
+
+Derivation chooses and stores every landing, including the first-bay
+`bay_not_found` landing, while it already holds the target File's composed
+bays. Reads publish the stored fields verbatim: listing Threads never reads
+captured bytes and performs no composition. A historical File-level origin
+has no write-time boundary that composes its File, so its placements are
+`file-start` with no outdated reason everywhere — it never gains a bay
+landing.
 
 Private source coordinates exist only in the unique text origin row. They are
 decoded by Thread implementation to find structural candidates directly from
@@ -99,13 +113,17 @@ duplicate structural candidates. One changed candidate is identifiable; zero,
 multiple, or multiple hash-matching candidates are not. No private coordinate
 term or value crosses the HTTP boundary.
 
-Notebook cell identity is likewise private after creation. A real cell id may
-identify a changed cell; when that id is duplicated, exactly one matching
-source hash among its candidates identifies the unchanged cell. Without a
-usable real id, exactly one source hash among all cells identifies the unchanged
-cell. Reordering does not matter; zero or multiple hash matches are not
-identified. Nested source structure is then matched within the selected cell by
+Bay identity is public and durable rather than private. `Composer.bays()`
+recomputes the bay keys a File composes into, and the stored key selects one
+of them directly; a notebook cell key is the notebook's own cell id, so an edited
+or moved cell keeps it. A File that no longer composes the stored key places
+nothing. Nested source structure is then matched within the selected bay by
 the same rules as ordinary text.
+
+Validation calls `bays()` rather than re-deriving what the renderer shows, so
+the bay keys a target may name are exactly the keys composition produces. That
+call carries a `BayContext`, which has no renderer field, so bay identity
+is recomputed without a diff engine in reach.
 
 ## Original context
 
@@ -117,9 +135,10 @@ plus at most three surrounding lines on each side. Creation performs the same
 reconstruction before its origin and first action are committed, so an accepted
 text target cannot leave a discussion that later review reads cannot render.
 Review text uses the same binary rejection and UTF-8-with-optional-BOM decoding
-as the File renderer. Notebook targets read the selected original cell source;
-valid notebooks do not also accept ordinary text targets. Excerpt construction
-does not call or expose a diff engine or perform a comparison. A retained
+as the File renderer. The excerpt is the named bay's own text, which
+composition already decoded, so a notebook cell reads its cell source and a File
+that composes no `flatfile` bay accepts no flatfile target. Excerpt
+construction does not call or expose a diff engine or perform a comparison. A retained
 historical `file-start` origin has no selected range and therefore returns no
 excerpt; reads never fabricate one from captured content.
 
@@ -200,7 +219,7 @@ continuation reads. There is no separate event, submission, delta, checkpoint,
 or agent-authorship action variant.
 
 All nullable variant constraints use explicit discriminated `CASE` predicates.
-An unknown or incomplete region, location, locator, or action shape
+An unknown or incomplete bay, location, locator, or action shape
 therefore evaluates false rather than SQLite's permissive NULL CHECK result.
 
 There is at most one origin per `thread_id`; Thread creation establishes that
@@ -280,10 +299,10 @@ set, including while retained data is being refetched after invalidation.
 History presents the query state and Retry action; no review write can start
 until the authoritative Thread set is current.
 
-File headers and rendered line numbers expose Comment triggers derived from the
+Rendered line numbers expose Comment triggers derived from the
 Snapshot query and local drafts. Text selection is one-side, one-based, and
 inclusive; Shift-click extends the active range in the same File, rendered
-region, and side. Notebook source uses its public cell key. A new-Thread draft
+bay, and side. Every bay is named by its composed key. A new-Thread draft
 retains its local draft ID, Snapshot, Profile, public target, and body. A reply
 draft retains only its draft ID, Thread ID, Profile, and body; an edit draft adds
 its Comment ID. Reply and edit drafts do not retain a Snapshot, code location,
@@ -302,11 +321,12 @@ action. Success removes it; failure leaves the ordinary editable local draft.
 Thread state and Comment deletion controls send one direct action and retain no
 replay state.
 
-A `file-start` placement binds to ordinary line one when that side is available
-in the current mounted full text renderer; otherwise it binds to the File
-header. DiffGrid reports the actual mounted line-one triggers after every
-complete render and fold replacement instead of inferring them from backend
-rows. It never appears in both places. Before a renderer replaces or disposes row DOM,
+A `range` placement marks its stored bay-local line, and a `bay-start`
+placement marks line one of its stored bay — both are ordinary line markers
+on coordinates the backend stored, with no read-time reconstruction and no
+frontend-minted bay key. A `file-start` placement names no bay: it produces
+no marker, its View action is disabled, and History is its only
+presentation. Before a renderer replaces or disposes row DOM,
 it explicitly closes only the Comment input or inline Thread panel anchored inside
 that DOM; unfinished input remains saved, and Comment inputs anchored in other Files
 remain open. An expanded fold-edge Comment trigger remains visible and its
@@ -314,7 +334,7 @@ activation skips the row's fold action.
 
 Marker facts are one memoized derivation indexed by exact rendered
 line coordinates from the canonical Snapshot query and new-Thread draft target.
-Draft body changes do not publish a marker revision or wake mounted DiffGrids.
+Draft body changes do not publish a marker revision or wake mounted TextDiffGrids.
 Trigger reads perform keyed lookups; the
 index is never a writable review store. A rendered line contains only controls
 for its actually represented states; absent lifecycle states have no hidden DOM
@@ -448,6 +468,16 @@ with content-appropriate tools, and pass the exact absolute side path to
 `create-finding`. Missing `left` or `right` files represent absent sides; the
 Snapshot tree is immutable and never a worktree.
 
+The captured bytes also carry the placement coordinate, so no composed content
+crosses the agent boundary. An ordinary text File composes the single
+`flatfile` bay spanning the whole File, so its bay lines are the lines of
+the side on disk. A notebook cell bay is keyed by the `id` that cell carries
+in the `.ipynb`, and its lines are the lines of that cell's joined `source`.
+Bays whose text a renderer produces rather than the File — cell outputs, cell
+metadata, and notebook metadata — hold no coordinate an agent can derive from
+the bytes. Review accepts those keys like any other; the agent boundary simply
+gives an agent no way to count lines inside them.
+
 This filesystem contract has separate role-specific operational instructions
 in `.agents/skills/review-patch/references/snapshot_structure.md` and the
 implementor appendix in
@@ -463,8 +493,12 @@ counts. It defaults to 20 items and permits at most 100. Bulk Threads returns
 complete open Threads, defaults to 5, and permits at most 20. Focused Thread
 reads include every lifecycle state, repeat placement and original-excerpt
 metadata on each page, default to 20 Comments, and permit at most 100. Pages
-are one-based; pages past the end are empty. Preview bodies contain at most
-256 Unicode characters, using the first 255 and `…` when truncated. Complete
+are one-based; pages past the end are empty. A reported range placement names
+its public bay key beside its line range, and those lines are local to that
+bay rather than to the captured File; a bay-start placement names its bay key
+alone, and a file-start placement reports no bay at all. Agents write only
+full ranges — the bay-key-only shape is read-only. Preview bodies contain at most 256
+Unicode characters, using the first 255 and `…` when truncated. Complete
 Thread data and present original excerpts are never truncated; text excerpts
 are inherently bounded by the selected range and six context lines. Only
 retained historical `file-start` origins omit the excerpt.
@@ -480,9 +514,11 @@ The default activity limit is 20 and the maximum is 100.
 
 Actions accepts one to 100 ordered `create-finding`, `author-response`,
 `reviewer-return`, `reviewer-resolve`, `inert-comment`, or `reviewer-delete`
-items. The Profile is the ordinary Profile returned by join review. Creation accepts the actual
-absolute path of an existing captured File in the named Snapshot and an
-inclusive one-based ordinary text range.
+items. The Profile is the ordinary Profile returned by join review. Creation
+accepts the actual absolute path of an existing captured File in the named
+Snapshot, the public bay key that File composes, and an inclusive one-based
+range local to that bay. Bay keys the File does not compose are rejected;
+the boundary assumes no key of its own.
 The complete array is validated and appended under the Room write lock in one
 database transaction; any invalid item discards the complete batch. Generated
 Thread, Comment, and operation ids are fresh. Re-sending an HTTP entity simply

@@ -9,7 +9,6 @@ default expansion.
 from __future__ import annotations
 
 import importlib
-import json
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
@@ -32,7 +31,6 @@ __all__ = [
     "DiffRow",
     "SyntaxClass",
     "SyntaxSpan",
-    "canonical_json",
     "default_expanded_for_payload",
     "enrich_rows_for_display",
     "highlight_lines_for_path",
@@ -380,10 +378,12 @@ class DiffRow(TypedDict):
 
     hunk_index: int | None
     """
-    Zero-based file-local identity on the first row of a changed hunk.
+    Zero-based bay-local identity on the first row of a changed hunk.
 
     Every other row carries `None`. Display enrichment assigns this field
-    before the row enters an API payload.
+    before the row enters an API payload, numbering each bay's own rows from
+    zero; the frontend walks bays in document order to build the File's
+    navigable sequence.
     """
 
 
@@ -803,16 +803,6 @@ def _append_syntax_span(
     spans.append(_SyntaxSpan(start, end, classes))
 
 
-def canonical_json(value: Any) -> str:
-    """Serialize structured sections in the stable form dirdiff compares.
-
-    Notebook metadata and output sections are rendered as text diffs.  Sorting
-    keys and using deterministic indentation keeps those section diffs stable
-    across Python dictionary ordering and makes golden snapshots readable.
-    """
-    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
-
-
 def default_expanded_for_payload(payload: dict[str, Any]) -> bool:
     """Return whether a file payload should start expanded in the UI.
 
@@ -899,11 +889,13 @@ def enrich_rows_for_display(
 
 
 def _assign_hunk_indices(rows: list[dict[str, Any]]) -> int:
-    """Mark each changed-run start with its zero-based file-local hunk index.
+    """Mark each changed-run start with its zero-based bay-local hunk index.
 
-    `/api/file-diff` owns hunk identity independently of the frontend's
-    fold/virtualization representation. Equal rows carry `None`; only the first
-    row of each contiguous changed run carries an index.
+    The caller hands one bay's rows, so the numbering restarts at zero for every
+    bay and this function never sees a File as a whole. The backend owns hunk
+    identity within a bay independently of the frontend's fold/virtualization
+    representation. Equal rows carry `None`; only the first row of each
+    contiguous changed run carries an index.
     """
     hunk_count = 0
     previous_changed = False

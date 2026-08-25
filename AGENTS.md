@@ -1,7 +1,11 @@
 # AGENTS
 
-This is a browser-based UI project with a Python backend. Work from the current
-implementation and its living architecture under `spec/`.
+This is a browser-based review tool. Its goal is to enable humans to review the
+code with ease, and having a pleasant experience while doing so. No matter
+the size of the patch, or the shape of the files.
+
+When it comes to developing itself, every piece hot-reloads, be it the backend
+or the frontend. Outdated state is highly unlikely, and is a likely a bug.
 
 ## Non-negotiable rules
 
@@ -12,6 +16,8 @@ implementation and its living architecture under `spec/`.
 - Permission applies once, to the exact action and scope the user approved. It
   does not silently extend to adjacent fixes, cleanup, tests, documentation, or
   later turns.
+- Questions are read-only. "Why X", "what about Y", "you think it should work
+  like that" and others *forbid* editing code.
 
 ### Do not hide broken contracts
 
@@ -45,6 +51,7 @@ implementation and its living architecture under `spec/`.
   local comment. If all uses belong to one function, nest it in that function.
   If a separate helper still appears beneficial, explain that to the user before
   adding it, and add it only if user agrees.
+- Strongly prefer composition over inheritance.
 
 ### Preserve explicit invariants
 
@@ -119,8 +126,8 @@ implementation and its living architecture under `spec/`.
   package facade.
 - A Python module must define `__all__`. Items can be listed there when they are
   actually used outside that module.
-- Do not use ORM operations. Database design must satisfy Second Normal Form or
-  better.
+- Do not use ORM, but dont throw raw SQL around, use Python DSL operations.
+- Database design must satisfy Second Normal Form or better.
 
 ## Documentation and code structure
 
@@ -152,7 +159,10 @@ Use established domain language consistently:
 - **collapsed** describes collapsed files or directories;
 - **HUD** describes the application UI in its entirety;
 - **Tab** describes the top-level review mode;
-- **diff** describes a file-local difference.
+- **diff** describes a file-local difference;
+- **bay** describes the composed two-sided unit a frame contains. It has a
+  kind, and its `bay_key` is the universal sub-file coordinate review threads,
+  line pins, and hunk identities address.
 
 Use the following words only for their defined meaning, avoid for anything else:
 
@@ -169,6 +179,9 @@ Use the following words only for their defined meaning, avoid for anything else:
   revised, accepted, or rejected. Input is input, it's not a draft.
 - **comparison** means a logical comparison. The UI entity is a Tab; a
   file-local entity is a diff.
+- **region** means a span of source content: a reattachment origin, a fold
+  hint, or an engine's internal span. It never means the composed unit, which
+  is a bay.
 - **projection** is ambiguous and often signals an unclear design. Highlight it
   to the user when it is genuinely the best available term.
 

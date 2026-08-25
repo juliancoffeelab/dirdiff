@@ -1,6 +1,6 @@
 ---
 name: babysit-patch
-description: Use when user asks to babysit a patch via API, or just posts "round" with no additional context.
+description: Use when user asks to babysit a patch.
 ---
 
 # Babysit a patch
@@ -21,10 +21,13 @@ available, read [references/commands.md](references/commands.md) and use its
 
 1. Read the repository instructions, relevant specifications, implementation,
    adjacent callers, and existing tests before editing.
-2. Reuse the Profile id, Snapshot id/path, and activity boundary retained from
-   the current task's earlier round. Start with `continue_review` to recapture
-   that session. Call `/api/agent/join_review` only when no retained session
-   exists, then retain its returned values for every later round.
+2. For your own work, reuse the Profile id, Snapshot id/path, and activity
+   boundary retained from the current task's earlier round. Start with
+   `continue_review` to recapture that session.
+   Call `/api/agent/join_review` only when no retained session exists, then
+   retain its returned values for every later round.
+   This obviously doesn't apply to reviewers who work using their own
+   procedures.
 3. Read the unfiltered active Thread context before implementing so existing
    findings are not rediscovered.
 4. Work only in the live worktree. Treat every captured Snapshot path as
@@ -39,10 +42,11 @@ current project, ask for that missing input. Do not invent one.
 ## Captured Snapshot appendix
 
 Read [references/snapshot_structure.md](references/snapshot_structure.md) when
-inspecting captured evidence or briefing a reviewer. Snapshot child names are
-opaque File ids; each child contains an exact `left` and/or `right` side. Keep
-the Snapshot read-only and make every implementation change in the live
-worktree.
+inspecting captured evidence. Snapshot child names are opaque File ids; each
+child contains an exact `left` and/or `right` side. Keep the Snapshot read-only
+and make every implementation change in the live worktree.
+Strictly speaking, you probably dont need this information, but it may be useful
+since threads are ultimately attached to snapshots.
 
 ## Start independent review
 
@@ -50,12 +54,13 @@ After you're confident in your work, spawn a reviewer subagent instructed to
 follow the `review-patch` skill. If a reviewer from an earlier round of the
 current task already exists, resume that reviewer instead of spawning a new
 one.
-Give it the exact user outcome and required verbatim quotes, repository
-instructions, relevant specifications, and if required, screenshots.
-Require it to follow the captured Snapshot structure reference and inspect
-every captured File pair.
-The reviewer is forbidden from editing the patch.
+Give it what is required by the `reviewer.md` protocol, and the required info:
+- Backend URL
+- Tab
+- Repo path
+- If the user asked to spawn reviewers with different roles, the role.
 
+The reviewer is, obviously, forbidden from editing the patch.
 The reviewer should put findings in dirdiff and return only a compact handoff,
 for example:
 

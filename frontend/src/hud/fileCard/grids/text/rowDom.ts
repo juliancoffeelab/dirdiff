@@ -1,8 +1,8 @@
 /**
- * Builds the imperative row DOM for one DiffGrid render.
+ * Builds the imperative row DOM for one TextDiffGrid render.
  *
- * The module exports the three complete-fragment builders —
- * renderSplitRowsDom, renderInlineRowsDom, and renderCombinedInlineRowsDom —
+ * The module exports the two complete-fragment builders —
+ * renderSplitRowsDom and renderInlineRowsDom —
  * plus the Side type shared with their caller. Every function here is a pure
  * DOM constructor: given validated backend rows, fold state, and the two
  * caller behaviors (closing anchored review UI before a fold replacement and
@@ -17,12 +17,12 @@
  * re-armed whenever a chunk is created and dies with the last unwarmed chunk.
  *
  * It must not listen to events, own review markers or line pins, decide view
- * modes, or fetch anything; those belong to the DiffGrid component.
+ * modes, or fetch anything; those belong to the TextDiffGrid component.
  */
-import type { DecoratedPart, DiffRow, RowStatus } from "../../api/api";
+import type { DecoratedPart, DiffRow, RowStatus } from "../../../../api/api";
 import { isFoldRow, type FoldRow, type RenderRow } from "./folds";
-import type { RealHunkIdentity } from "../navigation";
-import { assert } from "../../utils";
+import type { RealHunkIdentity } from "../../../navigation";
+import { assert } from "../../../../utils";
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -238,6 +238,7 @@ export function renderSplitRowsDom(
   rightLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
+  bayKey: string,
   startRow: number,
   beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
@@ -259,13 +260,16 @@ export function renderSplitRowsDom(
           rightLabel,
           expandedFolds,
           fileIndex,
+          bayKey,
           beforeRowsReplaced,
           onRowsChanged,
         ),
       );
       cursor += row.count;
     } else {
-      appender.appendRow(renderSplitDiffRowDom(row, rowIndex, fileIndex));
+      appender.appendRow(
+        renderSplitDiffRowDom(row, rowIndex, fileIndex, bayKey),
+      );
       cursor += 1;
     }
   });
@@ -282,6 +286,7 @@ export function renderInlineRowsDom(
   rows: RenderRow[],
   expandedFolds: Set<number>,
   fileIndex: number,
+  bayKey: string,
   startRow: number,
   beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
@@ -305,7 +310,7 @@ export function renderInlineRowsDom(
           rowIndex,
           expandedFolds,
           fileIndex,
-          false,
+          bayKey,
           beforeRowsReplaced,
           onRowsChanged,
         ),
@@ -315,62 +320,11 @@ export function renderInlineRowsDom(
       cursor += row.count;
     } else {
       appender.appendRow(
-        renderInlineDiffRowsDom(row, rowIndex, fileIndex, lineNumberState),
-      );
-      cursor += 1;
-    }
-  });
-  return fragment;
-}
-
-/**
- * Renders inline rows with the engine-specific insert-only replacement combination.
- *
- * The required source-row offset and fold set retain the same identity rules as
- * ordinary inline rendering; rows outside the narrow combination predicate remain
- * byte-for-byte equivalent in presentation structure.
- */
-export function renderCombinedInlineRowsDom(
-  rows: RenderRow[],
-  expandedFolds: Set<number>,
-  fileIndex: number,
-  startRow: number,
-  beforeRowsReplaced: (container: Node) => void,
-  onRowsChanged: () => void,
-): DocumentFragment {
-  const fragment = document.createDocumentFragment();
-  const appender = createRowChunkAppender(
-    fragment,
-    rows.length > ROW_CHUNK_THRESHOLD,
-  );
-  const lineNumberState: InlineLineNumberState = {
-    leftNo: null,
-    rightNo: null,
-  };
-  let cursor = startRow;
-  rows.forEach((row) => {
-    const rowIndex = isFoldRow(row) ? row.startRow : cursor;
-    if (isFoldRow(row)) {
-      appender.appendFold(
-        renderInlineFoldDom(
-          row,
-          rowIndex,
-          expandedFolds,
-          fileIndex,
-          true,
-          beforeRowsReplaced,
-          onRowsChanged,
-        ),
-      );
-      lineNumberState.leftNo = null;
-      lineNumberState.rightNo = null;
-      cursor += row.count;
-    } else {
-      appender.appendRow(
-        renderCombinedInlineDiffRowsDom(
+        renderInlineDiffRowsDom(
           row,
           rowIndex,
           fileIndex,
+          bayKey,
           lineNumberState,
         ),
       );
@@ -383,7 +337,7 @@ export function renderCombinedInlineRowsDom(
 /**
  * Creates one stateful split-view fold subtree around an immutable FoldRow.
  *
- * Expansion lives only in the owning DiffGrid set. Toggling replaces this
+ * Expansion lives only in the owning TextDiffGrid set. Toggling replaces this
  * wrapper's children; validated folded context contains no hunk boundaries.
  */
 function renderSplitFoldDom(
@@ -393,6 +347,7 @@ function renderSplitFoldDom(
   rightLabel: string,
   expandedFolds: Set<number>,
   fileIndex: number,
+  bayKey: string,
   beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
 ): HTMLElement {
@@ -402,7 +357,7 @@ function renderSplitFoldDom(
   /**
    * Toggles this source-row range in the owning local expansion set.
    *
-   * The mutation is DiffGrid-local and immediately rebuilds only this fold
+   * The mutation is TextDiffGrid-local and immediately rebuilds only this fold
    * wrapper; it never changes file or ChangeSet expansion.
    */
   const toggle = () => {
@@ -431,6 +386,7 @@ function renderSplitFoldDom(
         rightLabel,
         expandedFolds,
         fileIndex,
+        bayKey,
         row.startRow,
         beforeRowsReplaced,
         onRowsChanged,
@@ -460,15 +416,14 @@ function renderSplitFoldDom(
 /**
  * Creates one stateful inline-view fold subtree around an immutable FoldRow.
  *
- * The required row-combination policy is propagated into expanded nested rows. The
- * wrapper owns only its current DOM children and local toggle listeners.
+ * The wrapper owns only its current DOM children and local toggle listeners.
  */
 function renderInlineFoldDom(
   row: FoldRow,
   rowIndex: number,
   expandedFolds: Set<number>,
   fileIndex: number,
-  combineInsertOnlyReplaceRows: boolean,
+  bayKey: string,
   beforeRowsReplaced: (container: Node) => void,
   onRowsChanged: () => void,
 ): HTMLElement {
@@ -478,7 +433,7 @@ function renderInlineFoldDom(
   /**
    * Toggles this source-row range in the owning local expansion set.
    *
-   * The mutation is DiffGrid-local and immediately rebuilds only this fold
+   * The mutation is TextDiffGrid-local and immediately rebuilds only this fold
    * wrapper; it never changes file or ChangeSet expansion.
    */
   const toggle = () => {
@@ -495,31 +450,21 @@ function renderInlineFoldDom(
   /**
    * Replaces this inline fold wrapper with its bar or complete expanded rows.
    *
-   * Expanded rows retain the required row-combination policy and source offsets;
+   * Expanded rows preserve source offsets and receive one fold affordance;
    * folded rows render only the backend-provided fold bar.
    */
   const renderFold = () => {
     const expanded = expandedFolds.has(rowIndex);
     if (expanded) {
-      const rows = row.foldedRows;
-      const fragment =
-        combineInsertOnlyReplaceRows === true
-          ? renderCombinedInlineRowsDom(
-              rows,
-              expandedFolds,
-              fileIndex,
-              row.startRow,
-              beforeRowsReplaced,
-              onRowsChanged,
-            )
-          : renderInlineRowsDom(
-              rows,
-              expandedFolds,
-              fileIndex,
-              row.startRow,
-              beforeRowsReplaced,
-              onRowsChanged,
-            );
+      const fragment = renderInlineRowsDom(
+        row.foldedRows,
+        expandedFolds,
+        fileIndex,
+        bayKey,
+        row.startRow,
+        beforeRowsReplaced,
+        onRowsChanged,
+      );
       attachExpandedFoldToggle(fragment, toggle);
       wrapper.replaceChildren(fragment);
       return;
@@ -552,7 +497,7 @@ function renderInlineFoldDom(
  * Describes the local interactive control attached to an expanded fold row.
  *
  * `expanded` determines visual treatment and `onToggle` mutates only the owning
- * DiffGrid's local fold set; it is not file-expansion or application state.
+ * TextDiffGrid's local fold set; it is not file-expansion or application state.
  */
 type FoldToggle = { expanded: boolean; onToggle: () => void };
 
@@ -603,6 +548,7 @@ function renderSplitDiffRowDom(
   row: DiffRow,
   rowIndex: number,
   fileIndex: number,
+  bayKey: string,
 ): HTMLElement {
   const element = document.createElement("div");
   element.className = diffRowClass(row.status, row, "");
@@ -611,11 +557,13 @@ function renderSplitDiffRowDom(
     const identity: RealHunkIdentity = {
       fileIndex,
       kind: "real",
+      bay: bayKey,
       hunkIndex: row.hunk_index,
     };
     element.dataset.hunkTarget = "";
     element.dataset.hunkKind = identity.kind;
     element.dataset.fileIndex = String(identity.fileIndex);
+    element.dataset.hunkBay = identity.bay;
     element.dataset.hunkIndex = String(identity.hunkIndex);
   }
   element.append(
@@ -630,12 +578,15 @@ function renderSplitDiffRowDom(
  *
  * Equal, insert, and delete rows emit one element; replace and move rows may
  * emit both sides while transferring hunk identity to the first visible side.
+ * Replace rows satisfying the insert-only combination predicate emit one
+ * element retaining both backend line numbers and hunk identity.
  * Unsupported backend statuses throw exhaustively.
  */
 function renderInlineDiffRowsDom(
   row: DiffRow,
   rowIndex: number,
   fileIndex: number,
+  bayKey: string,
   lineNumberState: InlineLineNumberState,
 ): DocumentFragment | HTMLElement {
   /**
@@ -666,6 +617,7 @@ function renderInlineDiffRowsDom(
         parts: sharedParts,
         rowIndex,
         fileIndex,
+        bayKey,
         sourceRow: row,
         lineNumberState,
         tokenRowStatus: null,
@@ -680,6 +632,7 @@ function renderInlineDiffRowsDom(
         parts: row.left_parts,
         rowIndex,
         fileIndex,
+        bayKey,
         sourceRow: row,
         lineNumberState,
         tokenRowStatus: null,
@@ -694,11 +647,28 @@ function renderInlineDiffRowsDom(
         parts: row.right_parts,
         rowIndex,
         fileIndex,
+        bayKey,
         sourceRow: row,
         lineNumberState,
         tokenRowStatus: null,
       });
     case "replace": {
+      if (canCombineInsertOnlyReplaceRow(row)) {
+        return renderInlineDiffRowDom({
+          status: "replace",
+          marker: " ",
+          leftNo: row.left_no,
+          rightNo: row.right_no,
+          text: rightText,
+          parts: row.right_parts,
+          rowIndex,
+          fileIndex,
+          bayKey,
+          sourceRow: row,
+          lineNumberState,
+          tokenRowStatus: null,
+        });
+      }
       const fragment = document.createDocumentFragment();
       const hasLeftSide = inlineSideExists(row.left_no, leftText);
       const hasRightSide = inlineSideExists(row.right_no, rightText);
@@ -713,6 +683,7 @@ function renderInlineDiffRowsDom(
             parts: row.left_parts,
             rowIndex,
             fileIndex,
+            bayKey,
             sourceRow: row,
             lineNumberState,
             tokenRowStatus: "replace",
@@ -730,6 +701,7 @@ function renderInlineDiffRowsDom(
             parts: row.right_parts,
             rowIndex,
             fileIndex,
+            bayKey,
             sourceRow: {
               ...row,
               hunk_index: hasLeftSide ? null : row.hunk_index,
@@ -756,6 +728,7 @@ function renderInlineDiffRowsDom(
             parts: row.left_parts,
             rowIndex,
             fileIndex,
+            bayKey,
             sourceRow: row,
             lineNumberState,
             tokenRowStatus: null,
@@ -773,6 +746,7 @@ function renderInlineDiffRowsDom(
             parts: row.right_parts,
             rowIndex,
             fileIndex,
+            bayKey,
             sourceRow: {
               ...row,
               hunk_index: hasLeftSide ? null : row.hunk_index,
@@ -790,38 +764,6 @@ function renderInlineDiffRowsDom(
       throw new Error(`Unhandled diff row status: ${String(unhandledStatus)}.`);
     }
   }
-}
-
-/**
- * Renders one inline row with the narrow insert-only replacement optimization.
- *
- * Rows failing the exact combination predicate delegate to ordinary inline
- * rendering. Combined rows retain both backend line numbers and hunk identity.
- */
-function renderCombinedInlineDiffRowsDom(
-  row: DiffRow,
-  rowIndex: number,
-  fileIndex: number,
-  lineNumberState: InlineLineNumberState,
-): DocumentFragment | HTMLElement {
-  if (!canCombineInsertOnlyReplaceRow(row)) {
-    return renderInlineDiffRowsDom(row, rowIndex, fileIndex, lineNumberState);
-  }
-
-  const rightText = sideText(row, "right");
-  return renderInlineDiffRowDom({
-    status: "replace",
-    marker: " ",
-    leftNo: row.left_no,
-    rightNo: row.right_no,
-    text: rightText,
-    parts: row.right_parts,
-    rowIndex,
-    fileIndex,
-    sourceRow: row,
-    lineNumberState,
-    tokenRowStatus: null,
-  });
 }
 
 /**
@@ -863,6 +805,7 @@ function renderInlineDiffRowDom(props: {
   parts: DecoratedPart[];
   rowIndex: number;
   fileIndex: number;
+  bayKey: string;
   sourceRow: DiffRow;
   lineNumberState: InlineLineNumberState;
   tokenRowStatus: InlineRowStatus | null;
@@ -888,11 +831,13 @@ function renderInlineDiffRowDom(props: {
     const identity: RealHunkIdentity = {
       fileIndex: props.fileIndex,
       kind: "real",
+      bay: props.bayKey,
       hunkIndex: props.sourceRow.hunk_index,
     };
     element.dataset.hunkTarget = "";
     element.dataset.hunkKind = identity.kind;
     element.dataset.fileIndex = String(identity.fileIndex);
+    element.dataset.hunkBay = identity.bay;
     element.dataset.hunkIndex = String(identity.hunkIndex);
   }
   element.append(
@@ -1040,7 +985,7 @@ function foldLineText(count: number): string {
  * Creates one line-number cell and its exact line-local interaction coordinates.
  *
  * A visible line number contributes its exact side and backend line coordinate;
- * the enclosing DiffGrid contributes file and region identity during pin or
+ * the enclosing TextDiffGrid contributes file and bay identity during pin or
  * comment activation. Its nested comment button has no listener of its own and
  * is routed by the grid's delegated listener. An absent or duplicate-suppressed
  * number is null and therefore neither pinnable nor commentable.

@@ -87,12 +87,14 @@ const presetTypes: readonly PresetType[] = [
   "fold",
   "gumtree",
   "scroll",
+  "notebook",
 ];
 const presetLabels: Record<PresetType, string> = {
   diff: "Diff Presets",
   fold: "Fold Presets",
   gumtree: "GumTree Presets",
   scroll: "Scroll Presets",
+  notebook: "Notebook Presets",
 };
 const builtinDescriptions: Record<BuiltinRef, string> = {
   HEAD: "Current commit on this branch.",
@@ -1679,14 +1681,16 @@ function PresetTab(
     initialType !== "diff" &&
     initialType !== "fold" &&
     initialType !== "gumtree" &&
-    initialType !== "scroll"
+    initialType !== "scroll" &&
+    initialType !== "notebook"
   ) {
     throw new Error(`Unsupported URL preset_type: ${initialType}.`);
   }
   const [presetType, setPresetType] = createSignal<PresetType>(
     initialType === "fold" ||
       initialType === "gumtree" ||
-      initialType === "scroll"
+      initialType === "scroll" ||
+      initialType === "notebook"
       ? initialType
       : "diff",
   );

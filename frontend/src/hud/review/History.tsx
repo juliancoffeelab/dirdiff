@@ -421,7 +421,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                         const location: ThreadCodeLocation = {
                           kind: "range",
                           file: draft.target.file,
-                          region: draft.target.region,
+                          bay: draft.target.bay,
                           side: draft.target.side,
                           range: draft.target.range,
                         };

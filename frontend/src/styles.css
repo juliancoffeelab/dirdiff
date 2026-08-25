@@ -2653,17 +2653,17 @@ h1 {
 }
 
 /*
- * Preserves measured rich geometry while distant text remains searchable.
- * Only `.virtual-file-body` uses fixed height and internal overflow; rich bodies retain
- * natural document height and the ordinary page scroll container.
+ * Preserves measured rich geometry while a distant bay remains searchable.
+ * Only `.virtual-bay-body` uses pinned height and internal overflow; rich
+ * bays retain natural document height and the ordinary page scroll container.
  */
-.virtual-file-body {
+.virtual-bay-body {
   overflow: auto;
   overscroll-behavior: auto;
   scrollbar-width: none;
 }
 
-.virtual-file-body::-webkit-scrollbar {
+.virtual-bay-body::-webkit-scrollbar {
   display: none;
 }
 
@@ -2703,10 +2703,11 @@ h1 {
   line-height: 1;
 }
 
-.file-card-engine-warning {
+.composed-bay-warning {
   background: #fff2c9;
   color: #7b4a0c;
   padding: 2px 6px;
+  margin: 0;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
@@ -2803,102 +2804,6 @@ h1 {
 
 .plain-split-diff pre + pre {
   border-left: 1px solid #ded8cc;
-}
-
-.notebook-file {
-  display: grid;
-  gap: 14px;
-}
-
-.notebook-summary,
-.badge-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.notebook-cells {
-  display: grid;
-  gap: 14px;
-}
-
-.notebook-cell-card {
-  display: grid;
-  gap: 14px;
-  border: 1px solid #ded8cc;
-  background: #fffdf8;
-  padding: 14px;
-}
-
-.notebook-cell-header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.notebook-cell-header h3 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.notebook-cell-header p {
-  margin: 4px 0 0;
-  color: #6a665d;
-  font-size: 13px;
-}
-
-.notebook-section {
-  display: grid;
-  gap: 10px;
-}
-
-.notebook-section-heading,
-.notebook-details-message {
-  margin: 0;
-  color: #6a665d;
-  font-size: 12px;
-}
-
-.notebook-section-heading {
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.notebook-details {
-  border: 1px solid #ded8cc;
-  background: #fffdf8;
-}
-
-.notebook-details summary {
-  cursor: pointer;
-  padding: 10px 12px;
-  color: #6a665d;
-  font-size: 13px;
-  font-weight: 700;
-  list-style: none;
-}
-
-.notebook-details summary::-webkit-details-marker {
-  display: none;
-}
-
-.notebook-details summary::before {
-  content: "▸";
-  display: inline-block;
-  margin-right: 8px;
-  color: #2563eb;
-}
-
-.notebook-details[open] summary::before {
-  content: "▾";
-}
-
-.notebook-details > .notebook-section,
-.notebook-details > .notebook-details-message,
-.notebook-details > .error-text {
-  margin: 0;
-  padding: 0 12px 12px;
 }
 
 .file-lazy-load-toggle {
@@ -3109,7 +3014,7 @@ h1 {
 }
 
 /* Held for one rendered frame by the warm-up pass (see warmPendingChunk and
-   forceChunkLayout in diffGrid/rowDom.ts): the forced render records the
+   forceChunkLayout in fileCard/grids/text/rowDom.ts): the forced render records the
    chunk's real height as the last remembered size, so the `auto` keyword
    above serves exact geometry ever after and the 1100px estimate stops
    mattering. */
@@ -3164,10 +3069,6 @@ h1 {
 
 .diff-row.move .diff-side {
   background: #f6e5ff;
-}
-
-.diff-grid-combine-insert-only-replace .diff-row.replace .diff-side {
-  background: transparent;
 }
 
 .inline-diff-row.insert .line-no,
@@ -4316,4 +4217,205 @@ h1 {
 
 .repo-picker-loading {
   color: #6a665d;
+}
+
+/*
+ * Composed-diff chrome: a frame groups one file's bays (a notebook cell and
+ * its parts), and each bay carries the backend label, its own expansion
+ * toggle, and its own changed-line counts. An ordinary text file composes to one
+ * bay and renders a bare grid, so none of this applies to it.
+ */
+.composed-frame {
+  margin: 10px 12px 14px;
+  border: 1px solid #e6e2d8;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fffdf8;
+}
+
+.composed-frame-heading {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e6e2d8;
+  background: #f4f1ea;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #5c574c;
+}
+
+/*
+ * The status beside a frame heading spells the `change` its tint shows, the
+ * way a File header pairs its name with a status word. It inherits the
+ * tone's heading colour and sheds the heading's weight and tracking so it
+ * reads as an annotation, not part of the name.
+ */
+.composed-frame-status {
+  margin-left: 8px;
+  font-weight: 500;
+  letter-spacing: normal;
+}
+
+/*
+ * A cell's source is the frame's body and carries no chrome of its own. What is
+ * attached to it — metadata, outputs — is indented under it and separated, so
+ * the hierarchy is visible rather than implied by order alone.
+ */
+.composed-bay + .composed-bay {
+  border-top: 1px solid #efece4;
+}
+
+.composed-bay:not(.composed-bay-body) {
+  padding-left: 12px;
+  background: #fdfcf8;
+}
+
+/*
+ * A notebook is shown whole, so every cell is present and its frame is tinted by
+ * what happened to it. The palette is the File one, not the row one: a cell that
+ * moved is the cell-level analogue of a renamed File, so it takes that blue
+ * rather than the purple a moved *line* uses. Tints stay washed out relative to
+ * row highlighting so a cell reads as context, never as a diff row.
+ */
+.composed-frame-added {
+  border-left: 3px solid #146b3b;
+}
+
+.composed-frame-added > .composed-frame-heading {
+  background: #eef8f1;
+  color: #146b3b;
+}
+
+.composed-frame-removed {
+  border-left: 3px solid #c75555;
+}
+
+.composed-frame-removed > .composed-frame-heading {
+  background: #fbeeee;
+  color: #a33b3b;
+}
+
+.composed-frame-changed {
+  border-left: 3px solid #d9ad4e;
+}
+
+.composed-frame-changed > .composed-frame-heading {
+  background: #fdf6e0;
+  color: #7b4a0c;
+}
+
+.composed-frame-moved {
+  border-left: 3px solid #5f8ed0;
+}
+
+.composed-frame-moved > .composed-frame-heading {
+  background: #eef3fb;
+  color: #3f6ba8;
+}
+
+/*
+ * An attached bay is collapsed by default, so its label is the whole of what
+ * a reviewer sees. It carries the same vocabulary as the frame around it, as a
+ * tinted chip rather than coloured text: at this size a filled background is
+ * legible where a red or green letterform is not.
+ */
+.composed-bay-label.composed-bay-added,
+.composed-bay-label.composed-bay-removed,
+.composed-bay-label.composed-bay-changed {
+  padding: 1px 7px;
+  border-radius: 3px;
+  color: #3a352c;
+}
+
+.composed-bay-label.composed-bay-added {
+  background: #dcefe3;
+}
+
+.composed-bay-label.composed-bay-removed {
+  background: #f6dede;
+}
+
+.composed-bay-label.composed-bay-changed {
+  background: #fbeec4;
+}
+
+/*
+ * A cell nothing happened to stays present and openable, but recedes so the
+ * changed cells are what the eye lands on.
+ */
+.composed-frame-unchanged {
+  background: #faf8f3;
+  border-left: 3px solid #ded8cc;
+}
+
+.composed-frame-unchanged > .composed-frame-heading {
+  background: transparent;
+  color: #a09a8c;
+}
+
+.composed-frame-unchanged .composed-bay-label,
+.composed-frame-unchanged .composed-bay-disclosure {
+  color: #8a857a;
+  font-weight: 500;
+}
+
+.composed-bay-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: #6a665d;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composed-bay-header:hover {
+  background: #faf8f3;
+}
+
+.composed-bay-disclosure {
+  width: 12px;
+  color: #8a857a;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.composed-bay-label {
+  font-weight: 600;
+  color: #4a453c;
+}
+
+/* Counts sit at the far end so labels stay left-aligned down the card. */
+.composed-bay-stats {
+  display: flex;
+  margin-left: auto;
+  gap: 6px;
+  font-size: 11px;
+}
+
+/*
+ * A collapsed bay mounts no rows, so it keeps its backend hunk coordinates
+ * in DOM as zero-height anchors that navigation can still read.
+ */
+.composed-bay-anchor {
+  display: block;
+  height: 0;
+}
+
+/*
+ * A bay whose change produces no rows explains itself in a sentence the
+ * backend authored, so landing on it never leaves the reviewer guessing why
+ * the grid below looks unchanged.
+ */
+.composed-bay-detail {
+  margin: 0;
+  padding: 0 12px 8px 34px;
+  color: #6a665d;
+  font-size: 12px;
+  line-height: 1.45;
 }

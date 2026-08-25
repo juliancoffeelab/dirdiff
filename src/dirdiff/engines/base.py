@@ -2,7 +2,7 @@
 
 Diff engines implement one boundary: render an already-loaded left/right text
 pair into a dirdiff result.  Backend loading, ref resolution, manifest
-construction, lazy metadata, and notebook routing live outside
+construction, lazy metadata, and format classification live outside
 `dirdiff.engines`.
 
 This module owns the public data transfer shapes at that boundary. Engines
@@ -321,10 +321,9 @@ class DiffEngineProtocol(Protocol):
         """Render an already-loaded left/right pair.
 
         The caller supplies two `DiffSide` values after resolving refs and
-        loading file contents.  The returned result is the rendered core of the
-        normal text-file branch of `/api/file-diff`; notebook payloads and
-        HTTP metadata are built at the API layer before or after an engine is
-        selected.
+        loading file contents.  The returned result is the rendered core of one
+        composed bay; which bays a File has, and the HTTP envelope around them,
+        are built by `dirdiff.formats` and the API layer around this call.
         """
         ...
 

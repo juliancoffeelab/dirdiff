@@ -6,7 +6,6 @@ lazy-file, and branch-review behavior at the backend boundary rather than
 testing renderer internals.
 """
 
-import json
 import subprocess
 from pathlib import Path
 
@@ -834,95 +833,3 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
         }
     ]
     assert manifest["summary"]["changed_files"] == 1
-
-
-def test_repo_diff_uses_lazy_entries_for_notebooks(tmp_path: Path) -> None:
-    subprocess.run(
-        ["git", "init", "-b", "master"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    notebook = tmp_path / "demo.ipynb"
-    notebook.write_text(
-        json.dumps(
-            {
-                "cells": [
-                    {
-                        "cell_type": "markdown",
-                        "id": "intro",
-                        "metadata": {},
-                        "source": ["# Title\n"],
-                    }
-                ],
-                "metadata": {},
-                "nbformat": 4,
-                "nbformat_minor": 5,
-            }
-        ),
-        encoding="utf-8",
-    )
-    subprocess.run(
-        ["git", "add", "demo.ipynb"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "initial"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    notebook.write_text(
-        json.dumps(
-            {
-                "cells": [
-                    {
-                        "cell_type": "markdown",
-                        "id": "intro",
-                        "metadata": {},
-                        "source": ["# Title\n\nUpdated body\n"],
-                    }
-                ],
-                "metadata": {},
-                "nbformat": 4,
-                "nbformat_minor": 5,
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    notebook_diff = service.build_git_diff_paths(
-        left_path="demo.ipynb",
-        right_path="demo.ipynb",
-        left="index",
-        right="worktree",
-        display_name="demo.ipynb",
-        change_type="modify",
-    )
-
-    assert notebook_diff["render_kind"] == "notebook"
-    assert notebook_diff["display_name"] == "demo.ipynb"
-    assert notebook_diff["summary"]["changed_cells"] == 1
-    assert notebook_diff["summary"]["modified_cells"] == 1
-    assert notebook_diff["summary"]["added_cells"] == 0
-    assert notebook_diff["summary"]["removed_cells"] == 0
-    assert notebook_diff["cells"][0]["cell_type"] == "markdown"
-    assert any(
-        row["right_text"] == "Updated body"
-        for row in notebook_diff["cells"][0]["source_rows"]
-    )

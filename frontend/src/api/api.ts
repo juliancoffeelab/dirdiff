@@ -43,7 +43,13 @@ export function isHeavyEngine(engine: DiffEngine): boolean {
   return !(engine === "dirdiff" || engine === "git");
 }
 
-const PresetTypeSchema = z.enum(["diff", "fold", "gumtree", "scroll"]);
+const PresetTypeSchema = z.enum([
+  "diff",
+  "fold",
+  "gumtree",
+  "scroll",
+  "notebook",
+]);
 
 /**
  * Identifies one backend preset catalog and its corresponding preset project.
@@ -259,10 +265,11 @@ const PresetCatalogsSchema = z.strictObject({
   fold: PresetCatalogSchema,
   gumtree: PresetCatalogSchema,
   scroll: PresetCatalogSchema,
+  notebook: PresetCatalogSchema,
 });
 
 /**
- * Contains all four preset catalogs returned by the bounded catalog endpoint.
+ * Contains preset catalogs returned by the bounded catalog endpoint.
  *
  * Consumers select a catalog by PresetType and must not copy catalogs into
  * component state merely to expose them to Preset controls.
@@ -429,9 +436,10 @@ const FilePathSchema = z.string().min(1);
 /**
  * Rejects a backend file identity that has neither a left nor right path.
  *
- * File-bearing response schemas call this after validating each present path as
- * non-empty. The callback adds one schema issue for a completely absent identity
- * and must not infer one side from the other or alter the decoded response.
+ * Response schemas that include a file identity call this after validating
+ * each present path as non-empty. The callback adds one schema issue for a
+ * completely absent identity and must not infer one side from the other or
+ * alter the decoded response.
  */
 function validateFilePaths(
   paths: { left_path: string | null; right_path: string | null },
@@ -582,22 +590,6 @@ const TextFileSummarySchema = z.strictObject({
  */
 export type TextFileSummary = z.infer<typeof TextFileSummarySchema>;
 
-const NotebookFileSummarySchema = TextFileSummarySchema.extend({
-  changed_cells: z.number().int(),
-  added_cells: z.number().int(),
-  removed_cells: z.number().int(),
-  modified_cells: z.number().int(),
-  notebook_metadata_changed: z.boolean(),
-});
-
-/**
- * Contains complete file and cell statistics for one rendered notebook.
- *
- * The notebook fields are required for notebook presentation and must not be
- * interpreted as optional text-file extensions.
- */
-export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
-
 const RowStatusSchema = z.enum([
   "equal",
   "replace",
@@ -690,106 +682,125 @@ const EngineWarningSchema = z.strictObject({
  */
 export type EngineWarning = z.infer<typeof EngineWarningSchema>;
 
-const TextFileDiffSchema = z
+const BayStatsSchema = z.strictObject({
+  changed_lines: z.number().int(),
+  modified_lines: z.number().int(),
+  added_lines: z.number().int(),
+  removed_lines: z.number().int(),
+  moved_lines: z.number().int(),
+});
+
+/**
+ * Contains one bay's engine line counts before file-level aggregation.
+ *
+ * These belong to the bay and its collapsed placeholder. Side existence is a
+ * File fact and lives on the composed-diff `summary`, not here.
+ */
+export type BayStats = z.infer<typeof BayStatsSchema>;
+
+const ChangeStatusSchema = z.strictObject({
+  kind: z.enum(["added", "removed", "changed", "unchanged"]),
+});
+
+const MovedChangeStatusSchema = z.strictObject({
+  kind: z.literal("moved"),
+  from_heading: z.string().nullable(),
+  to_heading: z.string().nullable(),
+});
+
+const TextBaySchema = z.strictObject({
+  bay_key: z.string().min(1),
+  label: z.string(),
+  detail: z.string().nullable(),
+  collapsible: z.boolean(),
+  default_expanded: z.boolean(),
+  kind: z.literal("text"),
+  left_label: z.string(),
+  right_label: z.string(),
+  rows: z.array(DiffRowSchema),
+  fold_hints: z.array(FoldHintSchema),
+  stats: BayStatsSchema,
+  engine_warning: EngineWarningSchema.nullable(),
+  change: z.discriminatedUnion("kind", [
+    ChangeStatusSchema,
+    MovedChangeStatusSchema,
+  ]),
+});
+
+/**
+ * Contains one `text` bay: decorated rows rendered by the shared renderer.
+ *
+ * `bay_key` is the sub-file coordinate shared with line pins and review text
+ * targets. `label` names the whole bay in its collapsed placeholder;
+ * `left_label`/`right_label` are the two side headings inside the grid.
+ */
+export type TextBay = z.infer<typeof TextBaySchema>;
+
+const BaySchema = z.discriminatedUnion("kind", [TextBaySchema]);
+
+/**
+ * Represents one bay of a composed diff, dispatched by its `kind`.
+ *
+ * This is a single-variant union today. Adding an `image` or `binary` bay
+ * kind extends it here and adds a matching widget, and nowhere else.
+ */
+export type Bay = z.infer<typeof BaySchema>;
+
+/**
+ * Names what happened to one bay, as the format builder determined it.
+ *
+ * Only the builder can answer this. A notebook cell that moved and one whose
+ * output changed beyond its rendered text both produce rows identical on both
+ * sides, so the frontend renders this value — a tint and a status — and never
+ * infers it. A `moved` variant carries the name the bay wore in the old and
+ * the new document, `null` on a side the builder cannot name; every other
+ * outcome is fully told by its `kind`.
+ */
+export type BayChange = Bay["change"];
+
+const FrameSchema = z.strictObject({
+  frame_key: z.string().min(1),
+  heading: z.string().nullable(),
+  // A frame is what its body bay says it is: its tint and its status are both
+  // read from `bays[0]`. Composition appends a frame only once a bay exists, so
+  // a bay-less frame is a backend bug, and rejecting it here fails the File into
+  // its LazyFile error state instead of rendering a silent, untinted heading the
+  // reviewer scrolls past as untouched.
+  bays: z.array(BaySchema).min(1),
+});
+
+/**
+ * Contains one presentational frame: an optional heading over ordered bays.
+ *
+ * A frame carries no annotations of its own. Everything a reviewer acts on
+ * belongs to a bay, which can be navigated to, collapsed, and commented on.
+ */
+export type Frame = z.infer<typeof FrameSchema>;
+
+const ComposedDiffSchema = z
   .strictObject({
     display_name: z.string(),
     left_label: z.string(),
     right_label: z.string(),
     summary: TextFileSummarySchema,
-    rows: z.array(DiffRowSchema),
-    hunk_count: z.number().int().nonnegative(),
-    file_kind: FileKindSchema,
-    left_path: FilePathSchema.nullable(),
-    right_path: FilePathSchema.nullable(),
-    lazy: LazyReasonSchema.nullable(),
-    default_expanded: z.boolean(),
-    fold_hints: z.array(FoldHintSchema),
-    engine_warning: EngineWarningSchema.nullable(),
-  })
-  .superRefine(validateFilePaths);
-
-/**
- * Contains the complete renderable response for one ordinary text file.
- *
- * The stable backend response deliberately has no text `render_kind`. At least
- * one path is present and each present path is non-empty. Callers distinguish
- * notebooks by their existing notebook discriminator.
- */
-export type TextFileDiff = z.infer<typeof TextFileDiffSchema>;
-
-const NotebookCellSchema = z.strictObject({
-  kind: z.enum(["added", "removed", "modified"]),
-  cell_type: z.string(),
-  cell_id: z.string().nullable(),
-  cell_key: z.string().min(1),
-  left_index: z.number().int().nullable(),
-  right_index: z.number().int().nullable(),
-  left_id: z.string().nullable(),
-  right_id: z.string().nullable(),
-  source_changed: z.boolean(),
-  metadata_changed: z.boolean(),
-  outputs_changed: z.boolean(),
-  source_rows: z.array(DiffRowSchema),
-  source_hunk_count: z.number().int().nonnegative(),
-  source_changed_lines: z.number().int(),
-  source_modified_lines: z.number().int(),
-  source_added_lines: z.number().int(),
-  source_removed_lines: z.number().int(),
-  source_moved_lines: z.number().int(),
-  source_fold_hints: z.array(FoldHintSchema),
-  metadata_changed_lines: z.number().int(),
-  metadata_modified_lines: z.number().int(),
-  metadata_added_lines: z.number().int(),
-  metadata_removed_lines: z.number().int(),
-  outputs_changed_lines: z.number().int(),
-  outputs_modified_lines: z.number().int(),
-  outputs_added_lines: z.number().int(),
-  outputs_removed_lines: z.number().int(),
-});
-
-/**
- * Contains one notebook cell's complete structural and diff metadata.
- *
- * The non-empty stable `cell_key` identifies the current region bridge. Source
- * rows, metadata and output statistics remain backend data rather than UI state.
- */
-export type NotebookCell = z.infer<typeof NotebookCellSchema>;
-
-const NotebookFileDiffSchema = z
-  .strictObject({
-    display_name: z.string(),
-    render_kind: z.literal("notebook"),
-    left_label: z.string(),
-    right_label: z.string(),
-    summary: NotebookFileSummarySchema,
-    hunk_count: z.number().int().nonnegative(),
-    notebook_metadata_changed_lines: z.number().int(),
-    cells: z.array(NotebookCellSchema),
     file_kind: FileKindSchema,
     left_path: FilePathSchema.nullable(),
     right_path: FilePathSchema.nullable(),
     default_expanded: z.boolean(),
+    frames: z.array(FrameSchema),
   })
   .superRefine(validateFilePaths);
 
 /**
- * Contains the complete renderable response for one notebook file.
+ * Contains the single renderable response shape returned by `/api/file-diff`.
  *
- * The notebook discriminator is the stable backend variant marker. At least one
- * path is present and each present path is non-empty. Every cell and summary
- * field required by notebook rendering is present.
+ * Every file is one composed diff: File-level metadata plus an ordered list of
+ * frames, each holding an ordered list of bays. There is no `render_kind`; a
+ * plain text file is one heading-less frame holding one `text` bay keyed
+ * `flatfile`.
+ * At least one path is present and each present path is non-empty.
  */
-export type NotebookFileDiff = z.infer<typeof NotebookFileDiffSchema>;
-
-const FileDiffSchema = z.union([NotebookFileDiffSchema, TextFileDiffSchema]);
-
-/**
- * Represents either stable backend shape returned by `/api/file-diff`.
- *
- * Consumers narrow through the notebook discriminator's presence. They must not
- * require a new text discriminator or accept optional-field placeholder shapes.
- */
-export type FileDiff = z.infer<typeof FileDiffSchema>;
+export type FileDiff = z.infer<typeof ComposedDiffSchema>;
 
 export const ReviewIdSchema = z.string().regex(/^[0-9a-f]{32}$/u);
 
@@ -844,26 +855,33 @@ export const ReviewLineRangeSchema = z
 /** Identifies one one-based inclusive review line range. */
 export type ReviewLineRange = z.infer<typeof ReviewLineRangeSchema>;
 
-const OrdinaryReviewRegionSchema = z.strictObject({
-  kind: z.literal("ordinary"),
-});
-const NotebookReviewRegionSchema = z.strictObject({
-  kind: z.literal("notebook-cell-source"),
-  cell_key: z.string().min(1),
-});
-export const ReviewTextRegionSchema = z.discriminatedUnion("kind", [
-  OrdinaryReviewRegionSchema,
-  NotebookReviewRegionSchema,
-]);
+/**
+ * Names the bay a flatfile composes into.
+ *
+ * A flatfile is a File no format claims — it has no internal structure, so
+ * composition gives it exactly one bay with this key. Callers compare
+ * against it instead of testing for a format.
+ */
+export const FLATFILE_BAY_KEY = "flatfile";
 
-/** Identifies one public rendered text region. */
-export type ReviewTextRegion = z.infer<typeof ReviewTextRegionSchema>;
+export const ReviewTextBaySchema = z.strictObject({
+  bay_key: z.string().min(1),
+});
+
+/**
+ * Identifies one composed bay by the key composition gave it.
+ *
+ * The key is the universal sub-file coordinate: `"flatfile"` for a File with no
+ * internal structure, and the composer's own key for every other bay.
+ * Callers pass it through and must not parse it or infer a format from it.
+ */
+export type ReviewTextBay = z.infer<typeof ReviewTextBaySchema>;
 
 const TextReviewTargetSchema = z
   .strictObject({
     kind: z.literal("text"),
     file: ReviewFilePairSchema,
-    region: ReviewTextRegionSchema,
+    bay: ReviewTextBaySchema,
     side: z.enum(["left", "right"]),
     range: ReviewLineRangeSchema,
   })
@@ -917,9 +935,15 @@ export type ReviewComment = z.infer<typeof ReviewCommentSchema>;
 const RangeThreadCodeLocationSchema = z.strictObject({
   kind: z.literal("range"),
   file: ReviewFilePairSchema,
-  region: ReviewTextRegionSchema,
+  bay: ReviewTextBaySchema,
   side: z.enum(["left", "right"]),
   range: ReviewLineRangeSchema,
+});
+const BayStartThreadCodeLocationSchema = z.strictObject({
+  kind: z.literal("bay-start"),
+  file: ReviewFilePairSchema,
+  bay: ReviewTextBaySchema,
+  side: z.enum(["left", "right"]),
 });
 const FileStartThreadCodeLocationSchema = z.strictObject({
   kind: z.literal("file-start"),
@@ -928,6 +952,7 @@ const FileStartThreadCodeLocationSchema = z.strictObject({
 });
 export const ThreadCodeLocationSchema = z.discriminatedUnion("kind", [
   RangeThreadCodeLocationSchema,
+  BayStartThreadCodeLocationSchema,
   FileStartThreadCodeLocationSchema,
 ]);
 
@@ -975,7 +1000,12 @@ const ReviewThreadSchema = z
     origin_target: ReviewOriginTargetSchema,
     code_location: ThreadCodeLocationSchema.nullable(),
     outdated_reason: z
-      .enum(["region_changed", "region_not_found", "file_missing"])
+      .enum([
+        "region_changed",
+        "region_not_found",
+        "bay_not_found",
+        "file_missing",
+      ])
       .nullable(),
     original_excerpt: ReviewExcerptSchema.nullable(),
     comments: z.array(ReviewCommentSchema).min(1),
@@ -990,7 +1020,10 @@ const ReviewThreadSchema = z
         (reason === "file_missing" && location === null)
       : (reason === null && location?.kind === "range") ||
         (reason === "region_changed" && location?.kind === "range") ||
-        (reason === "region_not_found" && location?.kind === "file-start") ||
+        (reason === "region_not_found" && location?.kind === "bay-start") ||
+        (reason === "bay_not_found" &&
+          (location?.kind === "bay-start" ||
+            location?.kind === "file-start")) ||
         (reason === "file_missing" && location === null);
     if (!validCodeState) {
       context.addIssue({
@@ -1020,15 +1053,16 @@ const ReviewThreadSchema = z
         });
       }
     } else if (!legacyFileStart && reason !== "file_missing") {
-      const sameRegionKind =
-        location?.kind === "range" &&
-        origin.region.kind === location.region.kind;
+      // A bay-lost landing keeps only the File-pair and side identity; every
+      // other current location also keeps the origin's own bay.
+      const originBayKept =
+        (location?.kind === "range" || location?.kind === "bay-start") &&
+        origin.bay.bay_key === location.bay.bay_key;
       const sameSide = location !== null && location.side === origin.side;
       const validTextLocation =
         locationMatchesOriginFile &&
         sameSide &&
-        ((reason === "region_not_found" && location.kind === "file-start") ||
-          ((reason === null || reason === "region_changed") && sameRegionKind));
+        (reason === "bay_not_found" || originBayKept);
       if (!validTextLocation) {
         context.addIssue({
           code: "custom",
@@ -1875,7 +1909,7 @@ function requestFileDiff(
       abortSignal,
       timeoutMs,
     },
-    FileDiffSchema,
+    ComposedDiffSchema,
   );
 }
 

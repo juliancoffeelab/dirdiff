@@ -129,7 +129,7 @@ class PullRequestCaptureSelection:
 
 
 # The closed set of preset catalogs; each backs one Mark-less Room family.
-PresetCatalog = Literal["diff", "fold", "gumtree", "scroll"]
+PresetCatalog = Literal["diff", "fold", "gumtree", "scroll", "notebook"]
 
 
 @dataclass(frozen=True)

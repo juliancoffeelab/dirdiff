@@ -6,6 +6,7 @@ to use local Git subprocesses and disposable SQLite files, but they should not
 mock backend loading or bypass request/response contracts.
 """
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -202,7 +203,9 @@ def test_historical_file_review_migration_never_reads_captured_text(
                     snapshot_file_id=file_id,
                     is_origin=True,
                     target_kind="file",
-                    region_kind=None,
+                    # The database is at `b74d52f083c1`, before the composed
+                    # key column was renamed, so this names the historical
+                    # column rather than today's `bay_key`.
                     region_key=None,
                     side=None,
                     start_line=None,
@@ -710,9 +713,11 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
 
     assert response.status_code == 200
     assert payload["display_name"] == "Cargo.lock"
-    assert payload.get("lazy") is None
     assert payload["file_kind"] == {"type": "git", "status": "modified"}
-    assert payload["rows"] != []
+    bay = payload["frames"][0]["bays"][0]
+    assert bay["kind"] == "text"
+    assert bay["bay_key"] == "flatfile"
+    assert bay["rows"] != []
 
     reloaded_manifest_response = client.get(
         "/api/manifest",
@@ -806,23 +811,31 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
     assert lazy_info_response.json() == {"files": []}
     assert file_diff_response.status_code == 200
     assert file_diff["display_name"] != ""
-    assert file_diff["rows"] != []
+    assert len(file_diff["frames"]) == 1
+    bay = file_diff["frames"][0]["bays"][0]
+    assert bay["kind"] == "text"
+    assert bay["bay_key"] == "flatfile"
+    rows = bay["rows"]
+    assert rows != []
     assert "render_mode" not in file_diff
     assert "truncated_rows" not in file_diff
     assert all(
         row["status"] in {"equal", "replace", "insert", "delete", "move"}
-        for row in file_diff["rows"]
+        for row in rows
     )
     assert all(
         "foldedRows" not in row and "count" not in row and "label" not in row
-        for row in file_diff["rows"]
+        for row in rows
     )
-    assert file_diff["hunk_count"] >= 1
-    assert [
-        row["hunk_index"]
-        for row in file_diff["rows"]
-        if row["hunk_index"] is not None
-    ] == list(range(file_diff["hunk_count"]))
+    # The composed payload carries no File hunk total; the frontend derives it
+    # from the bays it received. A row's index is bay-local, and this File
+    # composes exactly one bay, so its indices run from zero without a gap.
+    assert "hunk_count" not in file_diff
+    hunk_indices = [
+        row["hunk_index"] for row in rows if row["hunk_index"] is not None
+    ]
+    assert hunk_indices == list(range(len(hunk_indices)))
+    assert hunk_indices != []
 
 
 def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
@@ -1046,13 +1059,21 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
                 {
                     "kind": "create-finding",
                     "file": str(sides[0]),
-                    "region": {"start_line": 1, "end_line": 1},
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
                     "body": "first finding",
                 },
                 {
                     "kind": "create-finding",
                     "file": str(sides[0]),
-                    "region": {"start_line": 2, "end_line": 2},
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 2,
+                        "end_line": 2,
+                    },
                     "body": "second finding",
                 },
             ],
@@ -1163,7 +1184,11 @@ def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
                 {
                     "kind": "create-finding",
                     "file": str(sides[0]),
-                    "region": {"start_line": 1, "end_line": 1},
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
                     "body": "valid finding",
                 },
                 {
@@ -1215,13 +1240,21 @@ def test_agent_batch_reports_first_invalid_action_in_batch_order(
                 {
                     "kind": "create-finding",
                     "file": absent,
-                    "region": {"start_line": 1, "end_line": 1},
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
                     "body": "targets a missing capture",
                 },
                 {
                     "kind": "create-finding",
                     "file": "relative/left",
-                    "region": {"start_line": 1, "end_line": 1},
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
                     "body": "malformed path",
                 },
             ],
@@ -1241,7 +1274,11 @@ def test_agent_batch_reports_first_invalid_action_in_batch_order(
                 {
                     "kind": "create-finding",
                     "file": absent,
-                    "region": {"start_line": 1, "end_line": 1},
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
                     "body": " ",
                 },
             ],
@@ -1249,3 +1286,372 @@ def test_agent_batch_reports_first_invalid_action_in_batch_order(
     )
     assert doubly_invalid.status_code == 400
     assert "File is absent from the Snapshot." in doubly_invalid.text
+
+
+def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
+    tmp_path: Path,
+) -> None:
+    """An agent names a cell bay on write and reads the same one back."""
+    cell: dict[str, object] = {
+        "cell_type": "code",
+        "id": "stable-cell",
+        "metadata": {},
+        "execution_count": None,
+        "outputs": [],
+        "source": ["a = 1\n", "b = 2\n", "c = 3\n"],
+    }
+    notebook = {
+        "cells": [cell],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "demo.ipynb").write_text(
+        json.dumps(notebook, indent=1), encoding="utf-8"
+    )
+    run_git(tmp_path, "add", "demo.ipynb")
+    run_git(tmp_path, "commit", "-m", "notebook")
+    cell["source"] = ["a = 1\n", "b = 22\n", "c = 3\n"]
+    (tmp_path / "demo.ipynb").write_text(
+        json.dumps(notebook, indent=1), encoding="utf-8"
+    )
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "d" * 32,
+            "name": "notebook reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+
+    # The agent finds the notebook the way it finds any captured side: by
+    # inspecting the bytes, since File-id directories carry no repository path.
+    captured = [
+        side
+        for side in sorted(Path(joined["snapshot_path"]).glob("*/right"))
+        if "stable-cell" in side.read_text(encoding="utf-8")
+    ]
+    assert len(captured) == 1
+    notebook_side = captured[0]
+
+    # Line two of the cell's joined source is `b = 22`. Line two of the
+    # captured `.ipynb` is JSON structure, which is what the old flatfile
+    # hardcode silently addressed instead.
+    assert notebook_side.read_text(encoding="utf-8").splitlines()[
+        1
+    ].strip() != ("b = 22")
+    created = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(notebook_side),
+                    "bay": {
+                        "bay_key": "stable-cell",
+                        "start_line": 2,
+                        "end_line": 2,
+                    },
+                    "body": "the cell changed",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 200
+    thread_id = created.json()["results"][0]["thread_id"]
+
+    read = client.get(
+        f"/api/agent/thread/{thread_id}",
+        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
+    )
+    assert read.status_code == 200
+    body = read.json()
+    assert body["bay"] == {
+        "bay_key": "stable-cell",
+        "start_line": 2,
+        "end_line": 2,
+    }
+    assert body["file"] == str(notebook_side)
+    # The excerpt is cut from the cell's own text, so it holds the cell source
+    # rather than a window of the surrounding `.ipynb` JSON.
+    excerpt = body["original_excerpt"]
+    assert excerpt["lines"] == ["a = 1", "b = 22", "c = 3"]
+    assert excerpt["start_line"] == 1
+    assert excerpt["selected_start_line"] == 2
+    assert excerpt["selected_end_line"] == 2
+
+    summary = client.get(
+        "/api/agent/thread_summary",
+        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
+    ).json()
+    assert [item["bay"] for item in summary["items"]] == [
+        {"bay_key": "stable-cell", "start_line": 2, "end_line": 2}
+    ]
+
+    # A notebook composes no `flatfile` bay, so the key the agent boundary
+    # used to hardcode is now rejected rather than silently mis-addressed.
+    rejected = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(notebook_side),
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 2,
+                        "end_line": 2,
+                    },
+                    "body": "wrong bay",
+                },
+            ],
+        },
+    )
+    assert rejected.status_code == 400
+    assert "Unknown rendered bay." in rejected.text
+
+    # A line past the end of the cell's own three lines is out of range, even
+    # though the captured `.ipynb` has far more lines than that.
+    overrun = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(notebook_side),
+                    "bay": {
+                        "bay_key": "stable-cell",
+                        "start_line": 4,
+                        "end_line": 4,
+                    },
+                    "body": "past the cell",
+                },
+            ],
+        },
+    )
+    assert overrun.status_code == 400
+
+
+def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
+    tmp_path: Path,
+) -> None:
+    """Each derivation stores its landing: origin bay, first bay, File start.
+
+    One notebook Thread rides through every landing the placement matrix
+    names. The worktree mutates between captures — the origin's cell is
+    deleted, rewritten, the notebook is corrupted to non-JSON, to non-UTF-8
+    bytes, emptied of cells, and finally removed — and each capture's stored
+    placement must be exactly the shape derivation promised for that loss.
+    """
+    cell_a: dict[str, object] = {
+        "cell_type": "code",
+        "id": "cell-a",
+        "metadata": {},
+        "execution_count": None,
+        "outputs": [],
+        "source": ["x = 0\n"],
+    }
+    cell_b: dict[str, object] = {
+        "cell_type": "code",
+        "id": "cell-b",
+        "metadata": {},
+        "execution_count": None,
+        "outputs": [],
+        "source": ["def beta():\n", "    total = 1\n", "    return total\n"],
+    }
+    notebook: dict[str, object] = {
+        "cells": [cell_a, cell_b],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "demo.ipynb").write_text(
+        json.dumps(notebook, indent=1), encoding="utf-8"
+    )
+    run_git(tmp_path, "add", "demo.ipynb")
+    run_git(tmp_path, "commit", "-m", "notebook")
+    cell_b["source"] = [
+        "def beta():\n",
+        "    total = 2\n",
+        "    return total\n",
+    ]
+    (tmp_path / "demo.ipynb").write_text(
+        json.dumps(notebook, indent=1), encoding="utf-8"
+    )
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "e" * 32,
+            "name": "landing reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+    captured = [
+        side
+        for side in sorted(Path(joined["snapshot_path"]).glob("*/right"))
+        if "cell-b" in side.read_text(encoding="utf-8")
+    ]
+    assert len(captured) == 1
+    created = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(captured[0]),
+                    "bay": {
+                        "bay_key": "cell-b",
+                        "start_line": 2,
+                        "end_line": 2,
+                    },
+                    "body": "the total changed",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 200
+    thread_id = created.json()["results"][0]["thread_id"]
+
+    # The origin Snapshot itself reads back as the exact stored range.
+    origin_read = client.get(
+        "/api/review/threads",
+        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
+    ).json()
+    assert [
+        (
+            thread["code_location"]["kind"],
+            thread["code_location"]["bay"]["bay_key"],
+            thread["outdated_reason"],
+        )
+        for thread in origin_read["threads"]
+    ] == [("range", "cell-b", None)]
+
+    # Six worktree losses, each captured as its own Snapshot. Every entry is
+    # (agent uuid, notebook bytes or None to delete the file, the expected
+    # (location kind, bay key, outdated reason) of the derived placement).
+    losses: list[
+        tuple[str, bytes | None, tuple[str | None, str | None, str]]
+    ] = [
+        # The origin's own bay is gone; the File's first right-carrying bay
+        # is the unchanged first cell, chosen and stored at derivation.
+        (
+            "f" * 32,
+            json.dumps({**notebook, "cells": [cell_a]}, indent=1).encode(),
+            ("bay-start", "cell-a", "bay_not_found"),
+        ),
+        # The bay survives while nothing inside it matches the origin region.
+        (
+            "1" * 32,
+            json.dumps(
+                {
+                    **notebook,
+                    "cells": [
+                        cell_a,
+                        {
+                            **cell_b,
+                            "source": [
+                                "def omega():\n",
+                                "    return None\n",
+                            ],
+                        },
+                    ],
+                },
+                indent=1,
+            ).encode(),
+            ("bay-start", "cell-b", "region_not_found"),
+        ),
+        # Non-JSON bytes are not a notebook: the File composes the flatfile
+        # terminal, so the cell origin lands on that first right-carrying bay.
+        (
+            "2" * 32,
+            b"{ this is not a notebook\n",
+            ("bay-start", "flatfile", "bay_not_found"),
+        ),
+        # Non-UTF-8 bytes fail composition itself: no bay exists to land on.
+        (
+            "3" * 32,
+            b"\x80\xfe\xffnot text",
+            ("file-start", None, "bay_not_found"),
+        ),
+        # A valid notebook whose bays carry no right side at all: every cell
+        # pair is left-only, so the placement falls to File start.
+        (
+            "4" * 32,
+            json.dumps({**notebook, "cells": []}, indent=1).encode(),
+            ("file-start", None, "bay_not_found"),
+        ),
+        # The exact File pair is gone: a deletion pairs (left, None), which
+        # is not the origin's (left, right) pair.
+        ("5" * 32, None, (None, None, "file_missing")),
+    ]
+    for agent_uuid, notebook_bytes, expected in losses:
+        if notebook_bytes is None:
+            (tmp_path / "demo.ipynb").unlink()
+        else:
+            (tmp_path / "demo.ipynb").write_bytes(notebook_bytes)
+        rejoined = client.post(
+            "/api/agent/join_review",
+            json={
+                "agent_uuid": agent_uuid,
+                "name": f"landing reviewer {agent_uuid[:2]}",
+                "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            },
+        )
+        assert rejoined.status_code == 200
+        snapshot_id = rejoined.json()["snapshot_id"]
+        assert snapshot_id != joined["snapshot_id"]
+        read = client.get(
+            "/api/review/threads",
+            params={"snapshot_id": snapshot_id, "page": 1, "limit": 20},
+        )
+        assert read.status_code == 200
+        threads = read.json()["threads"]
+        assert [
+            (
+                thread["code_location"]["kind"]
+                if thread["code_location"] is not None
+                else None,
+                (
+                    thread["code_location"]["bay"]["bay_key"]
+                    if thread["code_location"] is not None
+                    and "bay" in thread["code_location"]
+                    else None
+                ),
+                thread["outdated_reason"],
+            )
+            for thread in threads
+        ] == [expected], f"unexpected landing for uuid {agent_uuid}"
+        # The text origin keeps its excerpt through every loss.
+        assert [
+            thread["original_excerpt"] is not None for thread in threads
+        ] == [True]
+
+        # The agent boundary reports the same stored landing: a bay-start
+        # placement is a bare bay key, a File start is no bay at all.
+        agent_read = client.get(
+            f"/api/agent/thread/{thread_id}",
+            params={"snapshot_id": snapshot_id, "page": 1, "limit": 20},
+        )
+        assert agent_read.status_code == 200
+        expected_kind, expected_bay_key, expected_reason = expected
+        agent_body = agent_read.json()
+        assert agent_body["outdated_reason"] == expected_reason
+        if expected_kind == "bay-start":
+            assert agent_body["bay"] == {"bay_key": expected_bay_key}
+            assert agent_body["file"] is not None
+        else:
+            assert agent_body["bay"] is None

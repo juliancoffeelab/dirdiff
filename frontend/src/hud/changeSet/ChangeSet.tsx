@@ -54,7 +54,7 @@ import {
 import { assert, expect } from "../../utils";
 import type { DiffViewMode } from "../App";
 import type { AppHeaderOutlets } from "../AppHeader";
-import { FileCard } from "../FileCard";
+import { FileCard } from "../fileCard/FileCard";
 import {
   createFileLane,
   fileDisplayName,
@@ -446,6 +446,9 @@ function ReviewSnapshotBoundary(
 
   /** Reports whether exact line navigation currently accepts the Thread. */
   function canViewReviewThread(location: ThreadCodeLocation): boolean {
+    // A file-start location names no bay, so there is no line to navigate
+    // to; History is the only home of such a Thread.
+    if (location.kind === "file-start") return false;
     return navigableFileIndexes().has(reviewFileIndex(location));
   }
 
@@ -457,23 +460,21 @@ function ReviewSnapshotBoundary(
     if (!navigableFileIndexes().has(fileIndex)) {
       throw new Error("Review navigation requires a loaded File.");
     }
-    const selectedPath = expect(
-      location.side === "left"
-        ? location.file.left_path
-        : location.file.right_path,
-      "Located review Thread requires its selected-side File path.",
+    // A file-start location never reaches navigation: canViewReviewThread
+    // rejects it, so every navigable location carries a stored bay — a range
+    // Thread's own bay, or the bay-start landing derivation chose.
+    assert(
+      location.kind !== "file-start",
+      "Review navigation requires a located bay.",
     );
     const line = location.kind === "range" ? location.range.start_line : 1;
+    const bay = location.bay;
     const result = await navigation.navigate({
       kind: "line",
       fileIndex,
       target: {
-        file: selectedPath,
-        region:
-          location.kind === "range" &&
-          location.region.kind === "notebook-cell-source"
-            ? location.region.cell_key
-            : null,
+        file: location.file,
+        bay,
         side: location.side,
         line: String(line),
       },
@@ -489,32 +490,24 @@ function ReviewSnapshotBoundary(
       result.state === "complete",
       "Review line navigation did not finish.",
     );
-    const changeSetRoot = inlineHistoryTarget()?.closest<HTMLElement>(
-      "[data-change-set-root]",
-    );
-    assert(
-      changeSetRoot !== null && changeSetRoot !== undefined,
-      "Review navigation requires its mounted ChangeSet.",
-    );
+    // The navigation context serves the stable Shell root, mounted in both
+    // views; the inline History slot exists only in inline view and must not
+    // stand in for it.
+    const changeSetRoot = navigation.root();
     const card = changeSetRoot.querySelector<HTMLElement>(
       `[data-file-card][data-file-index="${fileIndex}"]`,
     );
     assert(card !== null, "Review navigation lost its loaded FileCard.");
-    const region =
-      location.kind === "range" &&
-      location.region.kind === "notebook-cell-source"
-        ? location.region.cell_key
-        : "";
     const matchingGrids = [
       ...card.querySelectorAll<HTMLElement>(".diff-grid"),
-    ].filter((grid) => grid.dataset.reviewRegion === region);
+    ].filter((grid) => grid.dataset.reviewBay === bay.bay_key);
     assert(
       matchingGrids.length === 1,
-      "Review navigation requires one exact rendered region.",
+      "Review navigation requires one exact rendered bay.",
     );
     const matchingLines = expect(
       matchingGrids[0],
-      "Reviewed region disappeared after navigation.",
+      "Reviewed bay disappeared after navigation.",
     ).querySelectorAll<HTMLElement>(
       `.line-no[data-line-pin-side="${location.side}"][data-line-pin-line="${line}"]`,
     );
@@ -600,8 +593,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   // The exact FileDiff `display_name` per manifest position: repository
   // snapshots use the backend's path-pair label, while preset backends
   // deliberately name their old/new fixture pair by its new-side path. The
-  // lane asserts file responses against these names, and line-pin identity
-  // resolves through them.
+  // lane asserts file responses against these names.
   const canonicalNames = orderedFiles.map((file) =>
     props.params.tab !== "preset"
       ? fileDisplayName(file.entry)
@@ -620,19 +612,29 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
       2_000,
     );
   } else if (parsedLinePin.state === "valid") {
-    const matches = canonicalNames.flatMap((name, fileIndex) =>
-      name === parsedLinePin.target.file ? [fileIndex] : [],
+    // The pin's File pair identifies its manifest entry directly, on every
+    // Tab; a pin never resolves through display names.
+    const pinnedPair = parsedLinePin.target.file;
+    const pinnedSidePath = expect(
+      parsedLinePin.target.side === "left"
+        ? pinnedPair.left_path
+        : pinnedPair.right_path,
+      "A line pin names a side its File pair does not have.",
+    );
+    const matches = orderedFiles.flatMap((file, fileIndex) =>
+      file.entry.left_path === pinnedPair.left_path &&
+      file.entry.right_path === pinnedPair.right_path
+        ? [fileIndex]
+        : [],
     );
     if (matches.length > 1) {
-      throw new Error(
-        `Line target path ${parsedLinePin.target.file} is ambiguous.`,
-      );
+      throw new Error(`Line target path ${pinnedSidePath} is ambiguous.`);
     }
     const match = matches[0];
     if (match === undefined) {
       toast.showTransient(
         "Line pin unavailable",
-        `${parsedLinePin.target.file} is not present in this ChangeSet.`,
+        `${pinnedSidePath} is not present in this ChangeSet.`,
         2_000,
       );
       const toggleResult = pins.toggleUrlState(parsedLinePin.target);
@@ -854,7 +856,6 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
                         ] === false
                       }
                       admitted={lane.admitted(fileIndex())}
-                      engine={props.engine}
                       view={props.view}
                       aggressiveFolds={aggressiveFolds()}
                       linePins={pins}
@@ -905,7 +906,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
 /**
  * Renders current automatic progress, current failures, and one slow indicator.
  *
- * The compact region contributes no title or long path to AppHeader layout. Once
+ * The compact area contributes no title or long path to AppHeader layout. Once
  * automatic work succeeds with no failures it renders nothing and relinquishes
  * its physical space.
  */
@@ -914,7 +915,7 @@ function AppHeaderFileStatus(props: { state: FileSequenceState }): JSX.Element {
    * Reports whether compact file-lane status currently has visible information.
    *
    * Visible automatic progress, localized failures, or an active slow marker
-   * keep the region mounted. Activity without one of those children must not
+   * keep the area mounted. Activity without one of those children must not
    * create an empty bordered status group.
    */
   const visible = () => {

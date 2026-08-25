@@ -79,6 +79,52 @@ suitable for the selected tool. For a missing side, compare the present side
 with `/dev/null`. For binary or structured formats, use an appropriate
 inspector rather than forcing a text read.
 
+## Bay keys
+
+Every finding names a bay of a captured File plus a one-based inclusive line
+range **local to that bay**. Both come from the captured bytes; there is no
+API call that lists them.
+
+An ordinary text File composes exactly one bay, `flatfile`, spanning the
+whole File. Its bay lines are the File's own lines, so the numbers a normal
+read gives you are already correct:
+
+```sh
+export DD_BAY_KEY='flatfile'
+```
+
+A captured `.ipynb` composes one bay per cell instead. The bay key is the
+`id` that cell carries in the notebook, and the bay text is that cell's
+`source` entries joined together — so line one of the bay is line one of the
+cell, not of the JSON file. Print both before choosing a range:
+
+```sh
+python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+document = json.loads(Path(os.environ["DD_FILE"]).read_text(encoding="utf-8"))
+for cell in document["cells"]:
+    source = cell["source"]
+    text = source if isinstance(source, str) else "".join(source)
+    print(f"bay_key={cell['id']}")
+    for number, line in enumerate(text.splitlines(), start=1):
+        print(f"{number:5d} {line}")
+PY
+```
+
+A notebook also composes bays for cell outputs, cell metadata, and the
+notebook's own metadata. Their text is rendered rather than stored, so the
+captured bytes give you no line numbers for them. Do not address those keys.
+
+A `.ipynb` whose JSON does not load is not a notebook, and neither is one whose
+cells do not each carry a distinct `id`. Either reaches the same `flatfile`
+terminal as any other text File, so address it by its own lines.
+
+Passing a key the File does not compose is rejected, and so is a line past the
+end of the bay. Neither is silently adjusted.
+
 ## Reviewer obligations
 
 Read all captured File pairs and enough adjacent live-repository implementation
@@ -87,10 +133,12 @@ replace repository instructions, architecture documents, callers, or runtime
 inspection.
 
 Record a new finding against the exact inspected side path, normally the
-`right` side for code present after the patch:
+`right` side for code present after the patch, together with the bay of that
+File the finding addresses:
 
 ```sh
 export DD_FILE="$DD_SNAPSHOT_PATH/<opaque-file-id>/right"
+export DD_BAY_KEY='flatfile'
 ```
 
 Do not edit, rename, delete, annotate, or generate files inside

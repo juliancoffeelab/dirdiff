@@ -1,7 +1,7 @@
 /**
  * Renders immutable text-diff rows as the established split or inline grid.
  *
- * The module exports the DiffGrid component. DiffGrid owns the reactive half
+ * The module exports the TextDiffGrid component. TextDiffGrid owns the reactive half
  * of text-file rendering: the render driver that replaces its owned row
  * subtree when inputs change, the delegated line-activation listener that
  * routes clicks to line pins and review Comment inputs, review marker
@@ -22,65 +22,63 @@ import {
   onMount,
   type JSX,
 } from "solid-js";
-import type { DiffRow, FoldHint, ReviewFilePair } from "../../api/api";
-import type { DiffViewMode } from "../App";
-import { addFoldRows, isFoldRow } from "./folds";
-import type { LinePins, LinePinTarget, PreparedLine } from "../linePins";
-import { assert } from "../../utils";
-import { presentError } from "../../comp/Toasts";
 import {
+  type DiffRow,
+  type FoldHint,
+  type ReviewFilePair,
+} from "../../../../api/api";
+import type { DiffViewMode } from "../../../App";
+import { addFoldRows, isFoldRow } from "./folds";
+import type { LinePins, LinePinTarget, PreparedLine } from "../../../linePins";
+import { assert } from "../../../../utils";
+import { presentError } from "../../../../comp/Toasts";
+import {
+  LineMarkerKeySchema,
   useReview,
   type ReviewMarkerKind,
   type ReviewTextGridBinding,
-} from "../review/Review";
-import {
-  renderCombinedInlineRowsDom,
-  renderInlineRowsDom,
-  renderSplitRowsDom,
-  type Side,
-} from "./rowDom";
+} from "../../../review/Review";
+import { renderInlineRowsDom, renderSplitRowsDom, type Side } from "./rowDom";
 
 /**
  * Renders one complete immutable text FileDiff using the established grid DOM.
  *
  * Callers provide the stable manifest file index, canonical display name,
- * explicit nullable notebook region, labels, validated rows and fold hints,
+ * the composed bay key this grid renders, labels, validated rows and fold hints,
  * current view, and both fold policies. Every pinnable line receives its exact
- * side and line coordinates; the component supplies file and region from these
+ * side and line coordinates; the component supplies file and bay from these
  * typed inputs. It owns its rendered row DOM, one delegated activation listener,
  * and routes review activation through its Snapshot-bound Review binding. A
  * marker-only child observes indexed review facts beside, never around, valid
  * row DOM.
  */
-export function DiffGrid(props: {
+export function TextDiffGrid(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
   displayName: string;
-  region: string | null;
+  bayKey: string;
+  contentLabel: string;
   leftLabel: string;
   rightLabel: string;
   rows: DiffRow[];
   foldHints: FoldHint[];
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
-  combineInsertOnlyReplaceRows: boolean;
   linePins: LinePins;
 }) {
   return (
     <div
       class="diff-grid"
-      data-review-region={props.region ?? ""}
+      data-review-bay={props.bayKey}
       classList={{
         "diff-grid-inline": props.viewMode === "inline",
-        "diff-grid-combine-insert-only-replace": Boolean(
-          props.combineInsertOnlyReplaceRows,
-        ),
       }}
     >
       {props.viewMode === "inline" ? (
         <InlineHeader
           leftLabel={props.leftLabel}
           rightLabel={props.rightLabel}
+          contentLabel={props.contentLabel}
         />
       ) : (
         <SplitHeader
@@ -92,14 +90,13 @@ export function DiffGrid(props: {
         reviewFile={props.reviewFile}
         fileIndex={props.fileIndex}
         displayName={props.displayName}
-        region={props.region}
+        bayKey={props.bayKey}
         rows={props.rows}
         foldHints={props.foldHints}
         leftLabel={props.leftLabel}
         rightLabel={props.rightLabel}
         viewMode={props.viewMode}
         aggressiveFolds={props.aggressiveFolds}
-        combineInsertOnlyReplaceRows={props.combineInsertOnlyReplaceRows}
         linePins={props.linePins}
       />
     </div>
@@ -122,12 +119,19 @@ function SplitHeader(props: { leftLabel: string; rightLabel: string }) {
 }
 
 /**
- * Renders the fixed old/new/code labels above an inline diff grid.
+ * Renders the old/new line columns and the backend-named content column.
  *
- * Full backend labels remain available through the two line-column tooltips;
- * the component must not abbreviate or reinterpret them elsewhere.
+ * `contentLabel` is the backend's name for the bay this grid renders, so an
+ * inline grid holding a notebook output or cell metadata says so instead of
+ * calling every bay "Code". Full backend side labels remain available
+ * through the two line-column tooltips; the component must not abbreviate or
+ * reinterpret them elsewhere.
  */
-function InlineHeader(props: { leftLabel: string; rightLabel: string }) {
+function InlineHeader(props: {
+  leftLabel: string;
+  rightLabel: string;
+  contentLabel: string;
+}) {
   return (
     <div class="diff-header-row inline-header-row">
       <div class="diff-pane-header inline-line-header" title={props.leftLabel}>
@@ -136,13 +140,13 @@ function InlineHeader(props: { leftLabel: string; rightLabel: string }) {
       <div class="diff-pane-header inline-line-header" title={props.rightLabel}>
         new
       </div>
-      <div class="diff-pane-header">Code</div>
+      <div class="diff-pane-header">{props.contentLabel}</div>
     </div>
   );
 }
 
 /**
- * Describes the file-local preparation operation attached to one DiffGrid row root.
+ * Describes the file-local preparation operation attached to one TextDiffGrid row root.
  *
  * FileCard supplies complete semantic coordinates and an AbortSignal. The
  * operation unfolds the exact local row and returns it without scrolling,
@@ -156,7 +160,7 @@ type PreparableDiffLines = HTMLDivElement & {
 };
 
 /**
- * Synchronizes reactive DiffGrid inputs into one exclusively owned DOM root.
+ * Synchronizes reactive TextDiffGrid inputs into one exclusively owned DOM root.
  *
  * The Solid effect runs initially and whenever rows, labels, view, file name,
  * or fold policies change. It clears local expanded-fold state when any such
@@ -171,14 +175,13 @@ function ImperativeDiffLines(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
   displayName: string;
-  region: string | null;
+  bayKey: string;
   rows: DiffRow[];
   foldHints: FoldHint[];
   leftLabel: string;
   rightLabel: string;
   viewMode: DiffViewMode;
   aggressiveFolds: boolean;
-  combineInsertOnlyReplaceRows: boolean;
   linePins: LinePins;
 }) {
   let root!: PreparableDiffLines;
@@ -188,10 +191,7 @@ function ImperativeDiffLines(props: {
   const reviewBinding: ReviewTextGridBinding = {
     snapshot_id: review.snapshotId,
     file: props.reviewFile,
-    region:
-      props.region === null
-        ? { kind: "ordinary" }
-        : { kind: "notebook-cell-source", cell_key: props.region },
+    bay: { bay_key: props.bayKey },
   };
   const expandedFolds = new Set<number>();
   let previousDisplayName: string | undefined;
@@ -201,7 +201,6 @@ function ImperativeDiffLines(props: {
   let previousRightLabel: string | undefined;
   let previousViewMode: DiffViewMode | undefined;
   let previousAggressiveFolds: boolean | undefined;
-  let previousCombineInsertOnlyReplaceRows: boolean | undefined;
 
   /** Reads the required marker discriminator from one rendered Comment control. */
   function reviewMarkerKind(trigger: HTMLButtonElement): ReviewMarkerKind {
@@ -248,22 +247,26 @@ function ImperativeDiffLines(props: {
   }
 
   /**
-   * Resolves the unique rendered row for one exact target inside this DiffGrid.
+   * Resolves the unique rendered row for one exact target inside this TextDiffGrid.
    *
-   * The caller must supply this DiffGrid's typed file and nullable region
+   * The caller must supply this TextDiffGrid's typed file and nullable bay
    * identity. `null` means only that the exact side and line are not currently
-   * rendered. A target from another region, duplicate coordinate, or line
+   * rendered. A target from another bay, duplicate coordinate, or line
    * detached from a valid row is a structural contradiction and throws.
    */
   function renderedRow(target: LinePinTarget): HTMLElement | null {
-    if (target.file !== props.displayName || target.region !== props.region) {
-      throw new Error("DiffGrid received a line target from another region.");
+    if (
+      target.file.left_path !== props.reviewFile.left_path ||
+      target.file.right_path !== props.reviewFile.right_path ||
+      target.bay.bay_key !== props.bayKey
+    ) {
+      throw new Error("TextDiffGrid received a line target from another bay.");
     }
     const matchingLines = root.querySelectorAll<HTMLElement>(
       `.line-no[data-line-pin-side="${target.side}"][data-line-pin-line="${target.line}"]`,
     );
     if (matchingLines.length > 1) {
-      throw new Error("DiffGrid contains duplicate line-pin coordinates.");
+      throw new Error("TextDiffGrid contains duplicate line-pin coordinates.");
     }
     const lineNumber = matchingLines[0];
     if (lineNumber === undefined) {
@@ -271,7 +274,7 @@ function ImperativeDiffLines(props: {
     }
     const row = lineNumber.closest<HTMLElement>(".diff-row");
     if (row === null || !root.contains(row)) {
-      throw new Error("Pinnable line has no DiffGrid row.");
+      throw new Error("Pinnable line has no TextDiffGrid row.");
     }
     return row;
   }
@@ -337,18 +340,18 @@ function ImperativeDiffLines(props: {
       return;
     }
     const target: LinePinTarget = {
-      file: props.displayName,
-      region: props.region,
+      file: props.reviewFile,
+      bay: { bay_key: props.bayKey },
       side,
       line,
     };
     const row = renderedRow(target);
     if (row === null) {
-      throw new Error("Activated line disappeared from its DiffGrid.");
+      throw new Error("Activated line disappeared from its TextDiffGrid.");
     }
     const changeSetRoot = root.closest<HTMLElement>("[data-change-set-root]");
     if (changeSetRoot === null) {
-      throw new Error("DiffGrid requires its ChangeSet root.");
+      throw new Error("TextDiffGrid requires its ChangeSet root.");
     }
     const paintedRows =
       changeSetRoot.querySelectorAll<HTMLElement>(".pinned-line");
@@ -365,7 +368,7 @@ function ImperativeDiffLines(props: {
    * Restores decoration for an already-routed URL pin after row rendering.
    *
    * The caller must first verify that the valid URL target belongs to this
-   * DiffGrid. This operation tolerates a currently absent row and never paints
+   * TextDiffGrid. This operation tolerates a currently absent row and never paints
    * an expanded fold edge. It changes no URL identity and performs no loading,
    * scrolling, or hunk selection.
    */
@@ -386,7 +389,7 @@ function ImperativeDiffLines(props: {
   }
 
   /**
-   * Unfolds and returns one exact line from this complete immutable DiffGrid.
+   * Unfolds and returns one exact line from this complete immutable TextDiffGrid.
    *
    * FileCard has already expanded and materialized the owning FullFile. Missing
    * complete-file coordinates return `missing`; cancellation returns `stopped`;
@@ -396,8 +399,12 @@ function ImperativeDiffLines(props: {
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<PreparedLine> {
-    if (target.file !== props.displayName || target.region !== props.region) {
-      throw new Error("DiffGrid preparation received the wrong target.");
+    if (
+      target.file.left_path !== props.reviewFile.left_path ||
+      target.file.right_path !== props.reviewFile.right_path ||
+      target.bay.bay_key !== props.bayKey
+    ) {
+      throw new Error("TextDiffGrid preparation received the wrong target.");
     }
     if (abortSignal.aborted || !root.isConnected) {
       return { state: "stopped" };
@@ -446,6 +453,9 @@ function ImperativeDiffLines(props: {
       "A known unrendered line must belong to a collapsed fold.",
     );
     render();
+    // `render()` reopens the fold through a signal write, so the rows it
+    // reveals are mounted by Solid's flush rather than by the call. The yield
+    // lets that flush run before the reopened row is looked up.
     await Promise.resolve();
     if (abortSignal.aborted || !root.isConnected) {
       return { state: "stopped" };
@@ -605,43 +615,24 @@ function ImperativeDiffLines(props: {
    */
   function refreshChangedReviewMarkers(keys: ReadonlySet<string>): void {
     for (const key of keys) {
-      const parsed: unknown = JSON.parse(key);
-      assert(
-        Array.isArray(parsed) && parsed.length === 6,
-        "Changed marker key has an invalid shape.",
-      );
-      const [leftPath, rightPath, regionKind, cellKey, side, line] = parsed as [
-        unknown,
-        unknown,
-        unknown,
-        unknown,
-        unknown,
-        unknown,
-      ];
+      // The key's shape is declared once beside its encoder, so this reader
+      // cannot drift from it: a changed encoding fails here as a parse error
+      // rather than as a stale hand-written arity check.
+      const [leftPath, rightPath, bayKey, side, line] =
+        LineMarkerKeySchema.parse(JSON.parse(key));
       if (
         leftPath !== reviewBinding.file.left_path ||
         rightPath !== reviewBinding.file.right_path ||
-        regionKind !== reviewBinding.region.kind ||
-        cellKey !==
-          (reviewBinding.region.kind === "notebook-cell-source"
-            ? reviewBinding.region.cell_key
-            : null)
+        bayKey !== reviewBinding.bay.bay_key
       ) {
         continue;
       }
-      assert(
-        (side === "left" || side === "right") &&
-          typeof line === "number" &&
-          Number.isInteger(line) &&
-          line > 0,
-        "Changed marker key has invalid line identity.",
-      );
       const matchingLines = root.querySelectorAll<HTMLElement>(
         `.line-no[data-line-pin-side="${side}"][data-line-pin-line="${line}"]`,
       );
       assert(
         matchingLines.length <= 1,
-        "DiffGrid contains duplicate line-pin coordinates.",
+        "TextDiffGrid contains duplicate line-pin coordinates.",
       );
       const lineNumber = matchingLines[0];
       if (lineNumber === undefined) {
@@ -683,8 +674,9 @@ function ImperativeDiffLines(props: {
     const parsed = props.linePins.parseUrl();
     if (
       parsed.state === "valid" &&
-      parsed.target.file === props.displayName &&
-      parsed.target.region === props.region
+      parsed.target.file.left_path === props.reviewFile.left_path &&
+      parsed.target.file.right_path === props.reviewFile.right_path &&
+      parsed.target.bay.bay_key === props.bayKey
     ) {
       restoreOldPin();
     }
@@ -693,8 +685,9 @@ function ImperativeDiffLines(props: {
   /**
    * Rebuilds the complete owned row subtree from current reactive inputs.
    *
-   * The function resets local fold expansion only when an identity-bearing
-   * renderer input changes and atomically replaces every child of `root`.
+   * The function resets local fold expansion only when a rendering input
+   * other than review markers changes, and atomically replaces every child
+   * of `root`.
    */
   const render = () => {
     const inputChanged = [
@@ -705,8 +698,6 @@ function ImperativeDiffLines(props: {
       props.rightLabel !== previousRightLabel,
       props.viewMode !== previousViewMode,
       props.aggressiveFolds !== previousAggressiveFolds,
-      props.combineInsertOnlyReplaceRows !==
-        previousCombineInsertOnlyReplaceRows,
     ].some(Boolean);
     if (inputChanged) {
       expandedFolds.clear();
@@ -717,7 +708,6 @@ function ImperativeDiffLines(props: {
       previousRightLabel = props.rightLabel;
       previousViewMode = props.viewMode;
       previousAggressiveFolds = props.aggressiveFolds;
-      previousCombineInsertOnlyReplaceRows = props.combineInsertOnlyReplaceRows;
     }
 
     const rows = addFoldRows(
@@ -726,34 +716,27 @@ function ImperativeDiffLines(props: {
       props.aggressiveFolds,
     );
     const fragment =
-      props.viewMode === "inline" && props.combineInsertOnlyReplaceRows === true
-        ? renderCombinedInlineRowsDom(
+      props.viewMode === "inline"
+        ? renderInlineRowsDom(
             rows,
             expandedFolds,
             props.fileIndex,
+            props.bayKey,
             0,
             review.closeAnchoredUi,
             afterRowsChanged,
           )
-        : props.viewMode === "inline"
-          ? renderInlineRowsDom(
-              rows,
-              expandedFolds,
-              props.fileIndex,
-              0,
-              review.closeAnchoredUi,
-              afterRowsChanged,
-            )
-          : renderSplitRowsDom(
-              rows,
-              props.leftLabel,
-              props.rightLabel,
-              expandedFolds,
-              props.fileIndex,
-              0,
-              review.closeAnchoredUi,
-              afterRowsChanged,
-            );
+        : renderSplitRowsDom(
+            rows,
+            props.leftLabel,
+            props.rightLabel,
+            expandedFolds,
+            props.fileIndex,
+            props.bayKey,
+            0,
+            review.closeAnchoredUi,
+            afterRowsChanged,
+          );
     review.closeAnchoredUi(root);
     root.replaceChildren(fragment);
     afterRowsChanged();

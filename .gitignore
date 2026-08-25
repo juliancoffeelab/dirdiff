@@ -1,9 +1,13 @@
+# python
 .venv/
 __pycache__/
 *.pyc
 *.egg-info/
 .playwright-cli/
 .uv-cache/
+.ipynb_checkpoints
+
+# node
 frontend/dist/
 frontend/node_modules/
 frontend/.vite

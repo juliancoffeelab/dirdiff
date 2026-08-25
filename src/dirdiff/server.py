@@ -32,10 +32,8 @@ from typing import (
     Annotated,
     Any,
     Literal,
-    NotRequired,
     Optional,
     Self,
-    TypedDict,
 )
 from uuid import UUID, uuid4
 
@@ -61,16 +59,13 @@ from dirdiff.backend import (
     DefaultBaseSelection,
     GitBackend,
     LazyReason,
-    LoadedDiffSides,
     PreparedPullRequest,
     PresetBackend,
     RefChoices,
     RepoDiffPath,
-    TextVersion,
     WorkspaceBackendProtocol,
     build_lazy_info_for_paths,
     build_repo_manifest_for_paths,
-    decode_text_content,
     display_name_for_repo_paths,
     file_kind_for_change_type,
     preferred_review_selection,
@@ -86,24 +81,17 @@ from dirdiff.db import (
     open_sqlite_engine,
 )
 from dirdiff.engines import (
-    DiffEngineProtocol,
-    DiffSide,
-    DiffSummary,
     DirdiffError,
     EngineKind,
-    EngineWarning,
     InlineTokenStatus,
     engine,
 )
-from dirdiff.notebooks import (
-    build_notebook_diff_payload,
+from dirdiff.formats import (
+    ComposeContext,
+    Composer,
 )
 from dirdiff.rendering import (
-    DiffRow,
-    FoldHint,
     SyntaxClass,
-    default_expanded_for_payload,
-    enrich_rows_for_display,
 )
 from dirdiff.review import (
     AddComment,
@@ -114,8 +102,6 @@ from dirdiff.review import (
     EditComment,
     FilePair,
     LineRange,
-    NotebookCellSourceRegion,
-    OrdinaryRegion,
     ProfileAuthor,
     ReplyToThread,
     ResolveThread,
@@ -245,95 +231,6 @@ ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 BranchSelections = tuple[BranchSelection | None, BranchSelection | None]
 
 
-class DiffPayloadSummary(DiffSummary):
-    """API summary sent to the frontend for a text-file payload.
-
-    Engines return count-only summaries.  The backend returns loaded side
-    data, so the server adds side-existence flags while assembling the HTTP
-    response payload.
-    """
-
-    left_exists: bool
-    """
-    Whether the loaded old/left side exists.
-    """
-
-    right_exists: bool
-    """
-    Whether the loaded new/right side exists.
-    """
-
-
-class DiffPayload(TypedDict):
-    """Text-file response payload assembled at the API boundary.
-
-    This is intentionally wider than `DiffEngineResult`.  It carries the
-    rendered engine core plus request/UI metadata: the file display name, the
-    human-facing side labels, file-kind metadata, and the normalized paths used
-    to load each side. Engines should not construct this type directly.
-    """
-
-    summary: DiffPayloadSummary
-    """
-    Count summary plus loaded-side existence flags.
-    """
-
-    rows: list[DiffRow]
-    """
-    Display/API rows after engine rows have been syntax/fold enriched.
-    """
-
-    hunk_count: int
-    """
-    Number of backend-identified hunks in this file diff.
-    """
-
-    default_expanded: bool
-    """
-    Whether the frontend should initially expand this file.
-    """
-
-    display_name: str
-    """
-    Human-facing file display name chosen by the API/backend layer.
-    """
-
-    left_label: str
-    """
-    Human-facing label for the old/left side.
-    """
-
-    right_label: str
-    """
-    Human-facing label for the new/right side.
-    """
-
-    fold_hints: NotRequired[list[FoldHint]]
-    """
-    Syntax-aware fold hints produced during display enrichment.
-    """
-
-    engine_warning: NotRequired[EngineWarning]
-    """
-    Optional warning supplied by the selected diff engine.
-    """
-
-    file_kind: NotRequired[dict[str, str]]
-    """
-    Repository file-kind metadata attached by the API/backend layer.
-    """
-
-    left_path: NotRequired[str | None]
-    """
-    Normalized old/left backend path used to load this payload.
-    """
-
-    right_path: NotRequired[str | None]
-    """
-    Normalized new/right backend path used to load this payload.
-    """
-
-
 class ApiModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -371,32 +268,22 @@ class ReviewLineRange(ApiModel):
         return self
 
 
-class OrdinaryTextRegion(ApiModel):
-    """Address ordinary rendered File text."""
+class ReviewTextBayModel(ApiModel):
+    """Address one composed bay by its public key.
 
-    kind: Literal["ordinary"]
+    The key is the same coordinate the composed diff gives that bay, so a
+    target names a bay without describing what format produced it.
+    """
 
-
-class NotebookCellSourceRegionModel(ApiModel):
-    """Address rendered source inside one notebook cell."""
-
-    kind: Literal["notebook-cell-source"]
-    cell_key: str = Field(min_length=1)
-
-
-ReviewTextRegionModel = Annotated[
-    OrdinaryTextRegion | NotebookCellSourceRegionModel,
-    Field(discriminator="kind"),
-]
-"""Identify one rendered text region accepted by review HTTP input."""
+    bay_key: str = Field(min_length=1)
 
 
 class TextReviewTarget(ApiModel):
-    """Address one line range on one present side of a rendered region."""
+    """Address one line range on one present side of a rendered bay."""
 
     kind: Literal["text"]
     file: ReviewFilePairModel
-    region: ReviewTextRegionModel
+    bay: ReviewTextBayModel
     side: Literal["left", "right"]
     range: ReviewLineRange
 
@@ -503,13 +390,33 @@ class RangeThreadCodeLocationResponse(ApiModel):
 
     kind: Literal["range"]
     file: ReviewFilePairModel
-    region: ReviewTextRegionModel
+    bay: ReviewTextBayModel
     side: Literal["left", "right"]
     range: ReviewLineRange
 
 
+class BayStartThreadCodeLocationResponse(ApiModel):
+    """Locate one Thread at the start of one composed bay.
+
+    `region_not_found` Threads keep their origin's bay; `bay_not_found`
+    Threads land on the File's first bay carrying their side. Either way the
+    bay names a real composed unit of this Snapshot's File, chosen at
+    derivation time.
+    """
+
+    kind: Literal["bay-start"]
+    file: ReviewFilePairModel
+    bay: ReviewTextBayModel
+    side: Literal["left", "right"]
+
+
 class FileStartThreadCodeLocationResponse(ApiModel):
-    """Locate one unmatched text Thread on its File start or header."""
+    """Locate one Thread on its File with no bay coordinate to land on.
+
+    Historical File-level Threads always take this shape; a text Thread
+    takes it only when its File composes no bay carrying the side. It is
+    never navigable — History is its home.
+    """
 
     kind: Literal["file-start"]
     file: ReviewFilePairModel
@@ -517,7 +424,9 @@ class FileStartThreadCodeLocationResponse(ApiModel):
 
 
 ThreadCodeLocationResponse = Annotated[
-    RangeThreadCodeLocationResponse | FileStartThreadCodeLocationResponse,
+    RangeThreadCodeLocationResponse
+    | BayStartThreadCodeLocationResponse
+    | FileStartThreadCodeLocationResponse,
     Field(discriminator="kind"),
 ]
 """Return one valid current code-location variant."""
@@ -564,7 +473,13 @@ class ReviewThreadResponse(ApiModel):
     origin_target: ReviewOriginTargetResponse
     code_location: ThreadCodeLocationResponse | None
     outdated_reason: (
-        Literal["region_changed", "region_not_found", "file_missing"] | None
+        Literal[
+            "region_changed",
+            "region_not_found",
+            "bay_not_found",
+            "file_missing",
+        ]
+        | None
     )
     original_excerpt: ReviewExcerptResponse | None
     comments: list[ReviewCommentResponse] = Field(min_length=1)
@@ -616,9 +531,20 @@ class ReviewThreadResponse(ApiModel):
                 raise ValueError("A changed Thread requires its new range.")
         elif self.outdated_reason == "region_not_found":
             if not isinstance(
-                self.code_location, FileStartThreadCodeLocationResponse
+                self.code_location, BayStartThreadCodeLocationResponse
             ):
-                raise ValueError("An unmatched Thread requires File start.")
+                raise ValueError(
+                    "An unmatched Thread requires its origin bay's start."
+                )
+        elif self.outdated_reason == "bay_not_found":
+            if not isinstance(
+                self.code_location,
+                BayStartThreadCodeLocationResponse
+                | FileStartThreadCodeLocationResponse,
+            ):
+                raise ValueError(
+                    "A bay-lost Thread requires a bay or File start."
+                )
         elif self.code_location is not None:
             raise ValueError("A missing File cannot have a code location.")
         return self
@@ -719,17 +645,49 @@ class NewAgentReviewResponse(ApiModel):
     attention_counts: dict[Literal["author", "reviewer", "both"], int]
 
 
-class AgentLineRange(ApiModel):
-    """Expose one inclusive one-based whole-line region."""
+class AgentBayRange(ApiModel):
+    """Address one bay of a File and an inclusive line range inside it.
 
+    `bay_key` is the public composed bay key, and the line numbers are
+    local to that bay rather than to the captured File. An ordinary text
+    File composes the single `flatfile` bay spanning the whole File, so
+    there the two coincide; a composed File such as a notebook has one bay
+    per cell, where they do not. A reader that drops the key, or a writer that
+    counts lines in the wrong text, addresses the wrong code.
+
+    Agents derive both values from the captured bytes they already read: an
+    ordinary File is `flatfile` and its own lines, and a notebook cell is keyed
+    by the `id` in the `.ipynb` with the lines of that cell's joined `source`.
+    This is the one placement coordinate the agent boundary speaks, in both
+    directions.
+    """
+
+    bay_key: str = Field(min_length=1)
     start_line: int = Field(ge=1)
     end_line: int = Field(ge=1)
 
     @model_validator(mode="after")
     def validate_order(self) -> Self:
-        """Reject a region whose end precedes its start."""
+        """Reject a bay whose end precedes its start."""
         LineRange(self.start_line, self.end_line)
         return self
+
+
+class AgentBayStart(ApiModel):
+    """Address the start of one bay of a File, without a line range.
+
+    A Thread reads back with this shape when its original lines no longer
+    exist in the Snapshot being read: derivation kept the origin's bay but
+    could not match the region inside it, or the origin's bay is gone and the
+    landing is the File's first bay carrying the Thread's side. The
+    `outdated_reason` beside it says which. `bay_key` is the same public
+    composed bay key `AgentBayRange` speaks.
+
+    This shape is read-only: agents never write it, and `AgentCreateAction`
+    keeps requiring a full `AgentBayRange`.
+    """
+
+    bay_key: str = Field(min_length=1)
 
 
 class AgentAuthor(ApiModel):
@@ -772,7 +730,7 @@ class AgentThreadSummary(ApiModel):
     status: Literal["open"]
     attention: Literal["author", "reviewer", "both"]
     file: str | None
-    region: AgentLineRange | None
+    bay: AgentBayRange | AgentBayStart | None
     first_comment: AgentCommentPreview
     latest_comment: AgentCommentPreview
     comment_count: int = Field(ge=1)
@@ -786,10 +744,16 @@ class AgentThread(ApiModel):
     status: Literal["open", "resolved", "deleted"]
     attention: Literal["author", "reviewer", "both", "none"]
     file: str | None
-    region: AgentLineRange | None
+    bay: AgentBayRange | AgentBayStart | None
     original_excerpt: ReviewExcerptResponse | None
     outdated_reason: (
-        Literal["region_changed", "region_not_found", "file_missing"] | None
+        Literal[
+            "region_changed",
+            "region_not_found",
+            "bay_not_found",
+            "file_missing",
+        ]
+        | None
     )
     comments: list[AgentComment]
 
@@ -813,10 +777,16 @@ class AgentThreadPage(ApiModel):
     status: Literal["open", "resolved", "deleted"]
     attention: Literal["author", "reviewer", "both", "none"]
     file: str | None
-    region: AgentLineRange | None
+    bay: AgentBayRange | AgentBayStart | None
     original_excerpt: ReviewExcerptResponse | None
     outdated_reason: (
-        Literal["region_changed", "region_not_found", "file_missing"] | None
+        Literal[
+            "region_changed",
+            "region_not_found",
+            "bay_not_found",
+            "file_missing",
+        ]
+        | None
     )
     comments: list[AgentComment]
     page: int = Field(ge=1)
@@ -889,11 +859,15 @@ class ContinueAgentReviewResponse(ApiModel):
 
 
 class AgentCreateAction(ApiModel):
-    """Create one ordinary text Thread and its first Comment."""
+    """Create one Thread on a named bay and its first Comment.
+
+    `file` is the exact absolute captured side path the agent inspected; the
+    bay names where in that File the finding sits.
+    """
 
     kind: Literal["create-finding"]
     file: str = Field(min_length=1)
-    region: AgentLineRange
+    bay: AgentBayRange
     body: str = Field(min_length=1)
 
 
@@ -1142,6 +1116,7 @@ class PresetCatalogsResponse(ApiModel):
     fold: PresetCatalogResponse
     gumtree: PresetCatalogResponse
     scroll: PresetCatalogResponse
+    notebook: PresetCatalogResponse
 
 
 class DecoratedPartResponse(ApiModel):
@@ -1187,9 +1162,11 @@ class DiffRowResponse(ApiModel):
     right_parts: list[DecoratedPartResponse]
     hunk_index: int | None
     """
-    Zero-based file-local hunk identity on a hunk's first rendered row.
+    Zero-based bay-local hunk identity on a hunk's first rendered row.
 
-    Other rows carry `None`. The value is assigned by `/api/file-diff` before
+    Other rows carry `None`. Display enrichment numbers each bay's own rows from
+    zero, so a hunk coordinate is this index plus the owning bay's key; the
+    backend never numbers a File as a whole. The value is assigned before
     frontend folding and virtualization and is therefore independent of DOM
     layout.
     """
@@ -1203,14 +1180,6 @@ class DiffSummaryResponse(ApiModel):
     moved_lines: int = 0
     left_exists: bool
     right_exists: bool
-
-
-class NotebookDiffSummaryResponse(DiffSummaryResponse):
-    changed_cells: int
-    added_cells: int
-    removed_cells: int
-    modified_cells: int
-    notebook_metadata_changed: bool
 
 
 class RepoDiffSummaryResponse(ApiModel):
@@ -1265,65 +1234,108 @@ class EngineWarningResponse(ApiModel):
     message: str
 
 
-class TextFileDiffResponse(ApiModel):
-    display_name: str
+class BayStatsResponse(ApiModel):
+    """Per-bay engine line counts, before File-level aggregation.
+
+    A text bay reports the same five counts every engine reports. Side
+    existence is a File fact and lives on the File `summary`, not here.
+    """
+
+    changed_lines: int
+    modified_lines: int
+    added_lines: int
+    removed_lines: int
+    moved_lines: int = 0
+
+
+class ChangeStatusResponse(ApiModel):
+    """A bay outcome fully told by its kind; moves carry coordinates and
+    arrive as `MovedChangeStatusResponse` instead."""
+
+    kind: Literal["added", "removed", "changed", "unchanged"]
+
+
+class MovedChangeStatusResponse(ApiModel):
+    """A bay's move: the name it wore in the old and the new document, or
+    `None` on a side the builder cannot name. The rows may still show an
+    edit."""
+
+    kind: Literal["moved"]
+    from_heading: str | None
+    to_heading: str | None
+
+
+class TextBayResponse(ApiModel):
+    """One `text` bay: decorated rows from the shared text-bay renderer.
+
+    `bay_key` is the sub-file coordinate shared with line pins and review
+    text targets. `label` names the whole bay in its collapsed placeholder;
+    `left_label`/`right_label` are the two side headings inside the grid.
+
+    `change` reports what happened to this bay. Only the format builder can
+    answer it: a notebook cell that moved and one whose output changed beyond
+    its rendered text both have every row equal, so nothing downstream can tell
+    them apart. Row `hunk_index` values are bay-local, numbered from zero
+    within this bay; the frontend turns them into the File's one navigable
+    sequence.
+    """
+
+    bay_key: str = Field(min_length=1)
+    label: str
+    detail: str | None = None
+    collapsible: bool
+    default_expanded: bool
+    kind: Literal["text"]
     left_label: str
     right_label: str
-    summary: DiffSummaryResponse
     rows: list[DiffRowResponse]
-    hunk_count: int
-    file_kind: FileKindResponse
-    left_path: str | None = None
-    right_path: str | None = None
-    lazy: LazyReason | None = None
-    default_expanded: bool = True
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
+    stats: BayStatsResponse
     engine_warning: EngineWarningResponse | None = None
+    change: Annotated[
+        ChangeStatusResponse | MovedChangeStatusResponse,
+        Field(discriminator="kind"),
+    ]
 
 
-class NotebookCellDiffResponse(ApiModel):
-    kind: Literal["added", "removed", "modified"]
-    cell_type: str
-    cell_id: str | None = None
-    cell_key: str
-    left_index: int | None = None
-    right_index: int | None = None
-    left_id: str | None = None
-    right_id: str | None = None
-    source_changed: bool
-    metadata_changed: bool
-    outputs_changed: bool
-    source_rows: list[DiffRowResponse]
-    source_hunk_count: int
-    source_changed_lines: int
-    source_modified_lines: int
-    source_added_lines: int
-    source_removed_lines: int
-    source_moved_lines: int
-    source_fold_hints: list[FoldHintResponse] = Field(default_factory=list)
-    metadata_changed_lines: int
-    metadata_modified_lines: int
-    metadata_added_lines: int
-    metadata_removed_lines: int
-    outputs_changed_lines: int
-    outputs_modified_lines: int
-    outputs_added_lines: int
-    outputs_removed_lines: int
+BayResponse = TextBayResponse
+"""One bay of a composed diff.
+
+This is a single-variant alias today. `image` and `binary` bay kinds turn it
+into a `kind`-discriminated union; adding one is a change to make here and in the
+frontend's matching declaration, and nowhere else.
+"""
 
 
-class NotebookFileDiffResponse(ApiModel):
+class FrameResponse(ApiModel):
+    """One presentational frame: an optional heading over ordered bays.
+
+    A frame carries no annotations of its own; everything a reviewer acts on
+    belongs to a bay, which can be navigated to, collapsed, and commented on.
+    """
+
+    frame_key: str = Field(min_length=1)
+    heading: str | None = None
+    bays: list[BayResponse]
+
+
+class ComposedDiffResponse(ApiModel):
+    """The single `/api/file-diff` response shape: one composed diff.
+
+    File-level metadata plus an ordered list of frames, each holding an ordered
+    list of bays. There is no `render_kind`: the frame list is the shape, and
+    a plain text File is simply one heading-less frame holding one text bay.
+    """
+
     display_name: str
-    render_kind: Literal["notebook"]
     left_label: str
     right_label: str
-    summary: NotebookDiffSummaryResponse
-    hunk_count: int
-    notebook_metadata_changed_lines: int
-    cells: list[NotebookCellDiffResponse]
-    file_kind: FileKindResponse
     left_path: str | None = None
     right_path: str | None = None
+    file_kind: FileKindResponse
+    summary: DiffSummaryResponse
     default_expanded: bool = True
+    frames: list[FrameResponse]
 
 
 class RepoFileEntryResponse(ApiModel):
@@ -1443,7 +1455,8 @@ def preset_project_parts(
     """Parse the preset catalog and subset used to prepare a manifest.
 
     The Preset Tab uses `project_id` as the catalog discriminator (`diff`, `fold`,
-    `gumtree`, or `scroll`) and `preset_subset` as the selected group within that
+    `gumtree`, `scroll`, or `notebook`) and `preset_subset` as the selected group
+    within that
     catalog. Follow-up endpoints find the prepared Room by Snapshot key and do
     not call this parser. The preset backend still validates traversal and
     unknown-group errors while preparing the manifest.
@@ -1460,6 +1473,8 @@ def preset_project_parts(
         preset_type = "gumtree"
     elif project_id == "scroll":
         preset_type = "scroll"
+    elif project_id == "notebook":
+        preset_type = "notebook"
     else:
         raise DirdiffError(f"Unknown preset project_id: {project_id}")
     return preset_type, preset_subset
@@ -1610,6 +1625,10 @@ def create_app(
             return PresetBackend.discover(
                 presets_root=Path.cwd() / "tests" / "presets" / "gumtree"
             )
+        if preset_type == "notebook":
+            return PresetBackend.discover(
+                presets_root=Path.cwd() / "tests" / "presets" / "notebook"
+            )
         return PresetBackend.discover(
             presets_root=Path.cwd() / "tests" / "presets" / "scroll"
         )
@@ -1758,147 +1777,6 @@ def create_app(
         )
         return room, snapshot_id, preset_name
 
-    def looks_like_notebook_path(path: str | None) -> bool:
-        """Return whether a repo path should be routed through notebook logic."""
-        return path is not None and path.endswith(".ipynb")
-
-    def build_text_file_payload(
-        *,
-        renderer: DiffEngineProtocol,
-        display_name: str | None,
-        change_type: ChangeType,
-        file_kind: Literal["git", "untracked"],
-        context: LoadedDiffSides,
-    ) -> dict[str, Any]:
-        """Render an already-loaded text file and add API metadata.
-
-        Backend loading has already happened before this function runs.  That
-        keeps the renderer contract narrow: it receives text versions and path
-        hints, then the server wraps the rendered core with response fields.
-        """
-        left_version = context["left_version"]
-        right_version = context["right_version"]
-        resolved_display_name = display_name
-        if resolved_display_name is None:
-            resolved_display_name = display_name_for_repo_paths(
-                context["left_path"],
-                context["right_path"],
-            )
-        rendered = renderer.render_diff(
-            old=DiffSide(
-                exists=left_version.exists,
-                text=left_version.text,
-                path_hint=context["left_path"],
-            ),
-            new=DiffSide(
-                exists=right_version.exists,
-                text=right_version.text,
-                path_hint=context["right_path"],
-            ),
-        )
-        left_text_value = "" if left_version.text is None else left_version.text
-        right_text_value = (
-            "" if right_version.text is None else right_version.text
-        )
-        display = enrich_rows_for_display(
-            rows=[dict(row) for row in rendered["rows"]],
-            left_text=left_text_value,
-            right_text=right_text_value,
-            left_path_hint=context["left_path"],
-            right_path_hint=context["right_path"],
-        )
-        payload: DiffPayload = {
-            "display_name": resolved_display_name,
-            "left_label": context["left_label"],
-            "right_label": context["right_label"],
-            "rows": display["rows"],
-            "hunk_count": display["hunk_count"],
-            "summary": {
-                **rendered["summary"],
-                "left_exists": left_version.exists,
-                "right_exists": right_version.exists,
-            },
-            "default_expanded": False,
-        }
-        if "engine_warning" in rendered:
-            payload["engine_warning"] = rendered["engine_warning"]
-        if "fold_hints" in display:
-            payload["fold_hints"] = display["fold_hints"]
-        payload["default_expanded"] = default_expanded_for_payload(
-            dict(payload)
-        )
-        payload["file_kind"] = file_kind_for_change_type(
-            change_type,
-            file_kind=file_kind,
-        )
-        payload["left_path"] = context["left_path"]
-        payload["right_path"] = context["right_path"]
-        return dict(payload)
-
-    def build_notebook_file_payload_if_applicable(
-        *,
-        renderer: DiffEngineProtocol,
-        display_name: str | None,
-        change_type: ChangeType,
-        file_kind: Literal["git", "untracked"],
-        context: LoadedDiffSides,
-    ) -> dict[str, Any] | None:
-        """Return a notebook file payload when the request targets a notebook.
-
-        This is the boundary that keeps engines notebook-agnostic.  The server
-        inspects paths and asks `notebooks.py` to build the
-        `render_kind: "notebook"` payload from already captured text. If a path
-        looks like a notebook but parsing fails, `None` tells the caller to
-        render that text as an ordinary file.
-
-        The returned payload is shaped exactly like the existing
-        `NotebookFileDiffResponse` branch of `/api/file-diff`.  The REST API
-        therefore does not change: the only difference is that the notebook
-        decision is made before engine rendering instead of inside each service.
-        """
-        left_is_notebook = looks_like_notebook_path(context["left_path"])
-        right_is_notebook = looks_like_notebook_path(context["right_path"])
-        if not left_is_notebook and not right_is_notebook:
-            return None
-
-        left_version = context["left_version"]
-        right_version = context["right_version"]
-        resolved_display_name = display_name
-        if resolved_display_name is None:
-            resolved_display_name = display_name_for_repo_paths(
-                context["left_path"],
-                context["right_path"],
-            )
-        payload = build_notebook_diff_payload(
-            renderer=renderer,
-            display_name=resolved_display_name,
-            left_label=context["left_label"],
-            right_label=context["right_label"],
-            left_exists=left_version.exists,
-            right_exists=right_version.exists,
-            left_text=left_version.text,
-            right_text=right_version.text,
-        )
-        if payload is None:
-            return None
-        if file_kind == "untracked":
-            payload["file_kind"] = {"type": "untracked"}
-        else:
-            status_by_change_type = {
-                "modify": "modified",
-                "add": "added",
-                "delete": "deleted",
-                "rename": "renamed",
-                "copy": "copied",
-            }
-            payload["file_kind"] = {
-                "type": "git",
-                "status": status_by_change_type[change_type],
-            }
-        payload["left_path"] = context["left_path"]
-        payload["right_path"] = context["right_path"]
-        return payload
-
     def render_loaded_snapshot_file(
         *,
         room: Room,
@@ -1909,67 +1787,47 @@ def create_app(
         right_file: Optional[Path],
         file_meta: FileMeta,
     ) -> dict[str, Any]:
-        """Render one focused File through its already-recovered Room."""
-        left = Path(pair.left_path) if pair.left_path is not None else None
-        right = Path(pair.right_path) if pair.right_path is not None else None
+        """Compose one focused File into its `/api/file-diff` response payload.
+
+        The handler does HTTP work only: it checks the capture error, reads the
+        two captured byte sides, builds one `ComposeContext`, calls `compose()`,
+        and attaches the two envelope fields composition does not produce -- the
+        File's display name and file kind, which the manifest already settled.
+        Decoding, engine selection, and payload assembly belong to composition.
+        """
         if file_meta["capture_error"] is not None:
             raise DirdiffError(file_meta["capture_error"])
         snapshot_meta = room.meta(snapshot_id)
-        context: LoadedDiffSides = {
-            "left_path": pair.left_path,
-            "right_path": pair.right_path,
-            "left_label": snapshot_meta["left_label"],
-            "right_label": snapshot_meta["right_label"],
-            "left_version": TextVersion(
-                label=snapshot_meta["left_label"],
-                exists=left_file is not None,
-                text=decode_text_content(
-                    left_file.read_bytes(),
-                    label=f"{snapshot_meta['left_label']}:{left}",
-                )
-                if left_file is not None
-                else None,
-            ),
-            "right_version": TextVersion(
-                label=snapshot_meta["right_label"],
-                exists=right_file is not None,
-                text=decode_text_content(
-                    right_file.read_bytes(),
-                    label=f"{snapshot_meta['right_label']}:{right}",
-                )
-                if right_file is not None
-                else None,
-            ),
-        }
-        renderer = engine(engine_name)
+        left_bytes = left_file.read_bytes() if left_file is not None else None
+        right_bytes = (
+            right_file.read_bytes() if right_file is not None else None
+        )
+        context = ComposeContext.build(
+            left_path=pair.left_path,
+            right_path=pair.right_path,
+            left_label=snapshot_meta["left_label"],
+            right_label=snapshot_meta["right_label"],
+            renderer=engine(engine_name),
+        )
+        composed = Composer().compose(left_bytes, right_bytes, context)
+        # TODO: the frontend should probably take the display name and file kind
+        # from the manifest, which already emits one per File. Until then the
+        # HTTP boundary attaches both here: the two envelope fields composition
+        # deliberately does not produce.
         file_kind: Literal["git", "untracked"] = (
             "git" if file_meta["tracked"] else "untracked"
         )
-        # TODO: the frontend should probably use the display name from the
-        # manifest, not from file-diff. The manifest already emits one per File
-        # and this derives a second one. The file kind above has the same
-        # problem: file_kind_for_change_type exists to mirror the manifest's
-        # encoding.
         display_name = (
             pair.right_path
             if snapshot_meta["tab"] == "preset" and pair.right_path is not None
             else display_name_for_repo_paths(pair.left_path, pair.right_path)
         )
-        payload = build_notebook_file_payload_if_applicable(
-            renderer=renderer,
-            display_name=display_name,
-            change_type=file_meta["change_type"],
+        payload: dict[str, Any] = dict(composed)
+        payload["display_name"] = display_name
+        payload["file_kind"] = file_kind_for_change_type(
+            file_meta["change_type"],
             file_kind=file_kind,
-            context=context,
         )
-        if payload is None:
-            payload = build_text_file_payload(
-                renderer=renderer,
-                display_name=display_name,
-                change_type=file_meta["change_type"],
-                file_kind=file_kind,
-                context=context,
-            )
         return payload
 
     def snapshot_room(snapshot_id: UUID) -> Room:
@@ -2027,8 +1885,13 @@ def create_app(
             tuple[str | None, str | None], tuple[Path | None, Path | None]
         ],
         location: dict[str, object] | None,
-    ) -> tuple[str | None, AgentLineRange | None]:
-        """Translate one code location into its captured File path and range."""
+    ) -> tuple[str | None, AgentBayRange | AgentBayStart | None]:
+        """Translate one code location into its captured File path and bay.
+
+        A range location yields an `AgentBayRange`; a bay-start location
+        yields an `AgentBayStart`; a file-start location yields no bay at
+        all — the captured File path is the whole landing.
+        """
         if location is None:
             return None, None
         pair = location["file"]
@@ -2046,11 +1909,18 @@ def create_app(
         else:
             selected_file = left_file
         assert selected_file is not None
-        region: AgentLineRange | None = None
+        bay: AgentBayRange | AgentBayStart | None = None
         range_value = location.get("range")
+        bay_value = location.get("bay")
         if isinstance(range_value, dict):
-            region = AgentLineRange.model_validate(range_value)
-        return str(selected_file), region
+            assert isinstance(bay_value, dict), (
+                "a ranged location always names the bay it sits in"
+            )
+            bay = AgentBayRange.model_validate({**bay_value, **range_value})
+        elif isinstance(bay_value, dict):
+            # a bay without a range is a bay-start landing
+            bay = AgentBayStart.model_validate(bay_value)
+        return str(selected_file), bay
 
     def agent_thread(
         captured_files: dict[
@@ -2059,9 +1929,7 @@ def create_app(
         view: ThreadDiscussionView,
     ) -> AgentThread:
         """Translate one discussion using its existing captured File path."""
-        file_path, region = agent_location(
-            captured_files, view["code_location"]
-        )
+        file_path, bay = agent_location(captured_files, view["code_location"])
         comments = [
             AgentComment(
                 comment_id=comment["comment_id"],
@@ -2082,7 +1950,7 @@ def create_app(
             status=view["state"],
             attention=view["attention"],
             file=file_path,
-            region=region,
+            bay=bay,
             original_excerpt=(
                 ReviewExcerptResponse.model_validate(view["original_excerpt"])
                 if view["original_excerpt"] is not None
@@ -2251,14 +2119,9 @@ def create_app(
         file = FilePair(
             request.target.file.left_path, request.target.file.right_path
         )
-        region = (
-            OrdinaryRegion()
-            if isinstance(request.target.region, OrdinaryTextRegion)
-            else NotebookCellSourceRegion(request.target.region.cell_key)
-        )
         return TextTarget(
             file,
-            region,
+            request.target.bay.bay_key,
             request.target.side,
             LineRange(
                 request.target.range.start_line,
@@ -2567,7 +2430,7 @@ def create_app(
                 assert view["state"] == "open"
                 attention = view["attention"]
                 assert attention != "none"
-                file_path, region = agent_location(
+                file_path, bay = agent_location(
                     captured_files, view["code_location"]
                 )
                 first = view["first_comment"]
@@ -2578,7 +2441,7 @@ def create_app(
                         status="open",
                         attention=attention,
                         file=file_path,
-                        region=region,
+                        bay=bay,
                         first_comment=agent_preview(
                             first["body"], first["deleted"]
                         ),
@@ -2836,11 +2699,11 @@ def create_app(
                                     if right is not None
                                     else None,
                                 ),
-                                OrdinaryRegion(),
+                                action.bay.bay_key,
                                 side,
                                 LineRange(
-                                    action.region.start_line,
-                                    action.region.end_line,
+                                    action.bay.start_line,
+                                    action.bay.end_line,
                                 ),
                             ),
                             body=action.body,
@@ -3007,6 +2870,7 @@ def create_app(
                     "fold": preset_catalog_for_type("fold"),
                     "gumtree": preset_catalog_for_type("gumtree"),
                     "scroll": preset_catalog_for_type("scroll"),
+                    "notebook": preset_catalog_for_type("notebook"),
                 }
             )
         except DirdiffError as exc:
@@ -3432,7 +3296,7 @@ def create_app(
         right_path: str | None = Query(
             default=None, description="Repo-relative path on the right side."
         ),
-    ) -> TextFileDiffResponse | NotebookFileDiffResponse:
+    ) -> ComposedDiffResponse:
         """Render one exact filepath pair from a manifest Snapshot.
 
         The opaque key finds the containing Room and is passed again with the
@@ -3480,9 +3344,7 @@ def create_app(
                 detail="Internal server error.",
             ) from exc
 
-        if payload.get("render_kind") == "notebook":
-            return NotebookFileDiffResponse.model_validate(payload)
-        return TextFileDiffResponse.model_validate(payload)
+        return ComposedDiffResponse.model_validate(payload)
 
     return app
 

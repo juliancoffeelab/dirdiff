@@ -8,26 +8,40 @@
  * a component, observe browser history, fetch or admit files, paint rows, select
  * hunks, inspect query state, or create another authoritative pin identity.
  */
+import { z } from "zod";
+
+import { ReviewFilePairSchema, ReviewTextBaySchema } from "../api/api";
 import { useToasts } from "../comp/Toasts";
+import { expect } from "../utils";
 import { useNavigation } from "./navigation";
 
 const LINE_PIN_NOTICE_DURATION_MS = 2_000;
 
+const LinePinTargetSchema = z.strictObject({
+  file: ReviewFilePairSchema,
+  bay: ReviewTextBaySchema,
+  side: z.enum(["left", "right"]),
+  line: z.string().regex(/^[1-9]\d*$/u),
+});
+
 /**
  * Represents one complete URL line-pin identity.
  *
- * `file` is the canonical ChangeSet display path. Ordinary text requires
- * `region: null`; notebook source requires one non-empty backend cell key.
- * `side` identifies the old or new side and `line` is one positive backend line
- * number serialized as canonical decimal text. The type never represents DOM,
- * loading, decoration, hunk identity, or a partially parsed target.
+ * `file` is the review File pair — the same two-sided identity review
+ * threads address — so a renamed File keeps one pin identity instead of a
+ * side-dependent path. `bay` is the composed bay the pin was taken in — the
+ * same universal coordinate the backend and review targets use, so a flatfile
+ * carries `FLATFILE_BAY_KEY` rather than an absent field. `side` identifies
+ * the old or new side, and the pair's path on that side is always present.
+ * `line` is one positive backend line number serialized as canonical decimal
+ * text. The type never represents DOM, loading, decoration, hunk identity, or
+ * a partially parsed target.
+ *
+ * The shape is inferred from the schema that validates it, so the URL field and
+ * the review pair and bay identities it embeds are accepted under exactly the
+ * rules the API layer applies to those identities everywhere else.
  */
-export type LinePinTarget = {
-  file: string;
-  region: string | null;
-  side: "left" | "right";
-  line: string;
-};
+export type LinePinTarget = z.infer<typeof LinePinTargetSchema>;
 
 /**
  * Describes every validated interpretation of the URL's `pin` hash field.
@@ -100,7 +114,7 @@ export type LinePins = {
  * Constructs one line-pin interface beneath the current Navigation and Toast providers.
  *
  * `ChangeSetSnapshot` calls this exactly once and passes the returned instance
- * to every DiffGrid in that snapshot. Callers provide complete semantic targets,
+ * to every TextDiffGrid in that snapshot. Callers provide complete semantic targets,
  * valid manifest indices, and the snapshot AbortSignal. The returned operations
  * preserve unrelated URL fields, cancel replaced restoration, and never create
  * another file-loading or painting path.
@@ -115,8 +129,9 @@ export function linePins(): LinePins {
    */
   function targetsEqual(left: LinePinTarget, right: LinePinTarget): boolean {
     return (
-      left.file === right.file &&
-      left.region === right.region &&
+      left.file.left_path === right.file.left_path &&
+      left.file.right_path === right.file.right_path &&
+      left.bay.bay_key === right.bay.bay_key &&
       left.side === right.side &&
       left.line === right.line
     );
@@ -139,41 +154,27 @@ export function linePins(): LinePins {
     if (encoded === undefined) {
       throw new Error("A single line-pin field omitted its value.");
     }
+    // Only the decode can throw; everything after it is a total function on
+    // the decoded value, so the `try` covers exactly the throwing statement.
+    let decoded: unknown;
     try {
-      const parsed: unknown = JSON.parse(encoded);
-      if (typeof parsed !== "object" || parsed === null) {
-        return { state: "invalid" };
-      }
-      const fields = parsed as Record<string, unknown>;
-      const keys = Object.keys(fields).sort();
-      if (
-        keys.length !== 4 ||
-        keys[0] !== "file" ||
-        keys[1] !== "line" ||
-        keys[2] !== "region" ||
-        keys[3] !== "side" ||
-        typeof fields.file !== "string" ||
-        fields.file.length === 0 ||
-        (fields.region !== null &&
-          (typeof fields.region !== "string" || fields.region.length === 0)) ||
-        (fields.side !== "left" && fields.side !== "right") ||
-        typeof fields.line !== "string" ||
-        !/^[1-9]\d*$/u.test(fields.line)
-      ) {
-        return { state: "invalid" };
-      }
-      return {
-        state: "valid",
-        target: {
-          file: fields.file,
-          region: fields.region,
-          side: fields.side,
-          line: fields.line,
-        },
-      };
+      decoded = JSON.parse(encoded);
     } catch {
       return { state: "invalid" };
     }
+    const parsed = LinePinTargetSchema.safeParse(decoded);
+    if (!parsed.success) {
+      return { state: "invalid" };
+    }
+    const target = parsed.data;
+    // A pin lives on one side, so the pair's path on that side must exist.
+    // The pair itself only guarantees that one of the two is present.
+    const sidePath =
+      target.side === "left" ? target.file.left_path : target.file.right_path;
+    if (sidePath === null) {
+      return { state: "invalid" };
+    }
+    return { state: "valid", target };
   }
 
   /**
@@ -213,7 +214,7 @@ export function linePins(): LinePins {
   }
 
   /**
-   * Restores one admitted target through coordinate-bearing Navigation.
+   * Restores one admitted target by passing its coordinate to Navigation.
    *
    * The caller supplies the exact manifest index and snapshot lifetime.
    * Replacement aborts any older restoration. The operation verifies current
@@ -275,9 +276,13 @@ export function linePins(): LinePins {
       ) {
         return { state: "stopped" };
       }
+      const sidePath = expect(
+        target.side === "left" ? target.file.left_path : target.file.right_path,
+        "A line pin names a side its File pair does not have.",
+      );
       toast.showTransient(
         "Line pin unavailable",
-        `${target.file}:${target.line} is not present in the current file.`,
+        `${sidePath}:${target.line} is not present in the current file.`,
         LINE_PIN_NOTICE_DURATION_MS,
       );
       const toggleResult = toggleUrlState(target);
