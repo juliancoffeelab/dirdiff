@@ -160,9 +160,8 @@ Use established domain language consistently:
 - **HUD** describes the application UI in its entirety;
 - **Tab** describes the top-level review mode;
 - **diff** describes a file-local difference;
-- **bay** describes the composed two-sided unit a frame contains. It has a
-  kind, and its `bay_key` is the universal sub-file coordinate review threads,
-  line pins, and hunk identities address.
+- **frame** descibes a logical part of a file, like a notebook cell;
+- **bay** describes the physical part, composed two-sided unit a frame contains.
 
 Use the following words only for their defined meaning, avoid for anything else:
 
