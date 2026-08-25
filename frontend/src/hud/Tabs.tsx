@@ -498,96 +498,106 @@ function selectedBranch(
 }
 
 /**
- * Renders Head controls and derives the fixed complete Head DiffParams.
+ * Renders the repo gate or the required-repository Head controls.
  *
- * Repository absence gates only this action. The selected Head value is fixed,
- * while engine remains reactive and does not replace the mounted ChangeSet.
+ * The explicit null gate keeps every Head selection path, including Tab
+ * reactivation, unmounted until a repository exists, so no incomplete Head value
+ * can be constructed. The selected Head value is fixed, while engine remains
+ * reactive and does not replace the mounted ChangeSet. Workspace reset replaces
+ * repository identity.
  */
 function HeadTab(props: TabProps & { onSelected: () => void }): JSX.Element {
-  const [selected, setSelected] = createSignal<HeadDiffParams | null>(
-    props.active && props.repoId !== null
-      ? {
-          project_id: props.repoId,
-          tab: "head",
-          left: "HEAD",
-          right: "worktree",
-          show_untracked: true,
-        }
-      : null,
-  );
-  onTabReactivated(
-    () => props.active,
-    () => {
-      if (selected() === null) {
-        const projectId = expect(
-          props.repoId,
-          "Selecting the Head Tab requires a repository.",
-        );
-        setSelected({
-          project_id: projectId,
-          tab: "head",
-          left: "HEAD",
-          right: "worktree",
-          show_untracked: true,
-        });
-      }
-      props.onSelected();
-    },
-  );
   return (
-    <>
-      <form
-        class="tab-panel"
-        hidden={!props.active}
-        onSubmit={(event) => {
-          event.preventDefault();
-          const projectId = expect(
-            props.repoId,
-            "Loading the Head Tab requires a repository.",
-          );
-          setSelected({
-            project_id: projectId,
-            tab: "head",
-            left: "HEAD",
-            right: "worktree",
-            show_untracked: true,
-          });
-          props.onSelected();
-        }}
-      >
-        <Show
-          when={props.repoId !== null}
-          fallback={
-            <RepoGate
-              active={props.active}
-              metadataTarget={props.metadataTarget}
-              onSelect={props.onRepoSelected}
-            />
-          }
-        >
-          <button class="load-button" type="submit">
-            Load
-          </button>
-        </Show>
-      </form>
-      <Show when={selected()} keyed>
-        {(selection) => (
-          <ChangeSet
+    <Show
+      when={props.repoId}
+      keyed
+      fallback={
+        // Without a repository the panel starts no query and constructs no
+        // DiffParams. Every control RepoGate renders is a plain button, so this
+        // panel has no submittable content.
+        <form class="tab-panel" hidden={!props.active}>
+          <RepoGate
             active={props.active}
-            engine={props.engine}
-            params={selection}
-            view={props.view}
-            fileTreeOpen={props.fileTreeOpen}
-            debugHudOpen={props.debugHudOpen}
-            profile={props.selectedProfile}
-            appHeaderOutlets={props.appHeaderOutlets}
-            onToggleView={props.onToggleView}
-            onFileTreeOpenChange={props.onFileTreeOpenChange}
-            onDebugHudOpenChange={props.onDebugHudOpenChange}
+            metadataTarget={props.metadataTarget}
+            onSelect={props.onRepoSelected}
           />
-        )}
-      </Show>
-    </>
+        </form>
+      }
+    >
+      {(projectId) => {
+        // Solid owns this branch: the selection signal and the reactivation
+        // effect are created when a repository appears and disposed when the
+        // gate replaces the branch or the Tab unmounts. The repository is
+        // concrete for that whole lifetime, so every Head value built here is
+        // complete.
+        const [selected, setSelected] = createSignal<HeadDiffParams | null>(
+          props.active
+            ? {
+                project_id: projectId,
+                tab: "head",
+                left: "HEAD",
+                right: "worktree",
+                show_untracked: true,
+              }
+            : null,
+        );
+        onTabReactivated(
+          () => props.active,
+          () => {
+            if (selected() === null) {
+              setSelected({
+                project_id: projectId,
+                tab: "head",
+                left: "HEAD",
+                right: "worktree",
+                show_untracked: true,
+              });
+            }
+            props.onSelected();
+          },
+        );
+        return (
+          <>
+            <form
+              class="tab-panel"
+              hidden={!props.active}
+              onSubmit={(event) => {
+                event.preventDefault();
+                setSelected({
+                  project_id: projectId,
+                  tab: "head",
+                  left: "HEAD",
+                  right: "worktree",
+                  show_untracked: true,
+                });
+                props.onSelected();
+              }}
+            >
+              <button class="load-button" type="submit">
+                Load
+              </button>
+            </form>
+            <Show when={selected()} keyed>
+              {(selection) => (
+                <ChangeSet
+                  active={props.active}
+                  engine={props.engine}
+                  params={selection}
+                  view={props.view}
+                  fileTreeOpen={props.fileTreeOpen}
+                  debugHudOpen={props.debugHudOpen}
+                  profile={props.selectedProfile}
+                  appHeaderOutlets={props.appHeaderOutlets}
+                  onToggleView={props.onToggleView}
+                  onFileTreeOpenChange={props.onFileTreeOpenChange}
+                  onDebugHudOpenChange={props.onDebugHudOpenChange}
+                />
+              )}
+            </Show>
+          </>
+        );
+      }}
+    </Show>
   );
 }
 

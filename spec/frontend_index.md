@@ -412,6 +412,13 @@ Private metadata components:
 - `MetadataStatusPortal`;
 - `MetadataRefresh`.
 
+Head, Compare Refs, and Branch Review render their repository-backed content
+only behind a `repoId` gate and show `RepoGate` without one. Refs and Branch
+Review gate into separate private components; Head keeps both branches inline.
+The gated branch is the only place those Tabs construct or report a selection,
+so no repo-backed value exists without a repository, including on Tab
+reactivation.
+
 Each Tab retains one complete selected `DiffParams` value and passes that same
 value to `ChangeSet`. `ChangeSet` does not switch over the Tab to reconstruct it.
 The Pull Request value contains its URL and the two commits returned by
