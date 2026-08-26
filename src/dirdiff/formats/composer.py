@@ -80,11 +80,11 @@ class Composer:
         content, or to serve one bay's bytes, get that without rendering any bay
         and without an engine in reach.
 
-        `file_format()` decides one of notebook, image, blob, or presumed text
-        from the path pair alone. The resulting `match` calls one builder; a
-        parser failure never retries another format arm. Notebook damage is
-        preserved as raw text or byte facts, and presumed text that cannot
-        decode is stated as blob facts. Both attach visible warnings.
+        Local path classification decides one of notebook, image, blob, or
+        presumed text. The resulting `match` calls one builder; a parser failure
+        never retries another format arm. Notebook damage is preserved as raw
+        text or byte facts, and presumed text that cannot decode is stated as
+        blob facts. Both attach visible warnings.
         """
 
         def path_claim(path: str) -> tuple[FileFormat, str | None]:
