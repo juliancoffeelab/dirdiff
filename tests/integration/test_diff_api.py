@@ -1590,14 +1590,18 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
                 "region_not_found",
             ),
         ),
-        # Non-JSON bytes are not a notebook: the File composes the flatfile
-        # terminal, so the cell origin lands on that first right-carrying bay.
+        # A claimed notebook whose JSON cannot be read preserves its raw
+        # text in the notebook boundary, so the cell origin lands on that
+        # first right-carrying bay.
         (
             "2" * 32,
             b"{ this is not a notebook\n",
             (
-                {"kind": "bay-lost", "bay": {"bay_key": "flatfile"}},
-                {"bay_key": "flatfile"},
+                {
+                    "kind": "bay-lost",
+                    "bay": {"bay_key": "notebook:raw"},
+                },
+                {"bay_key": "notebook:raw"},
                 "bay_not_found",
             ),
         ),
@@ -1615,8 +1619,8 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
                 "bay_not_found",
             ),
         ),
-        # A valid notebook whose bays carry no right side at all: every cell
-        # pair is left-only, so the placement falls to File start.
+        # A notebook whose cells were all removed has only left-carrying
+        # cell bays, so the right-side origin falls to File start.
         (
             "4" * 32,
             json.dumps({**notebook, "cells": []}, indent=1).encode(),
