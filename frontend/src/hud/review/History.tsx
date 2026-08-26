@@ -29,9 +29,10 @@ import { createQuery } from "@tanstack/solid-query";
 import { Eye, RefreshCw } from "lucide-solid";
 import {
   api,
+  threadCodePoint,
   type ReviewId,
   type ReviewThread,
-  type ThreadCodeLocation,
+  type ThreadCodePoint,
 } from "../../api/api";
 import { ErrorPanel, RetryButton, useToasts } from "../../comp/Toasts";
 import { assert, expect } from "../../utils";
@@ -59,12 +60,9 @@ type ReviewHistoryProps = {
   onHistoryOpenChange(open: boolean): void;
   inlineHistoryTarget: Accessor<HTMLElement | null>;
   splitHistoryTop: Accessor<number | null>;
-  canViewThread(location: ThreadCodeLocation): boolean;
+  canViewThread(point: ThreadCodePoint): boolean;
   viewThreadInCode(thread: ReviewThread): void;
-  continueDraftInCode(
-    draft: NewThreadDraft,
-    location: ThreadCodeLocation,
-  ): void;
+  continueDraftInCode(draft: NewThreadDraft, point: ThreadCodePoint): void;
   closeCommentInputInThread(threadId: ReviewId): boolean;
   discardNewThreadDraft(draftId: ReviewId): boolean;
   clearDrafts(): void;
@@ -118,7 +116,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   /** Renders one loaded History Thread with its Snapshot-bound actions. */
   function HistoryThread(historyProps: { thread: ReviewThread }): JSX.Element {
     const thread = () => historyProps.thread;
-    const location = historyProps.thread.code_location;
+    const point = threadCodePoint(historyProps.thread);
     const replyDraft = () => discussion.replyDraftForThread(thread().thread_id);
     const hasEditDraft = () =>
       thread().comments.some(
@@ -137,9 +135,9 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
         expanded={expanded()}
         navigation={{
           kind: "history",
-          viewable: location !== null && props.canViewThread(location),
+          viewable: point !== null && props.canViewThread(point),
           onView: () => {
-            if (location === null) return;
+            if (point === null) return;
             const next = new Map(expandedThreads());
             next.set(thread().thread_id, true);
             setExpandedThreads(next);
@@ -418,20 +416,21 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                           draft.kind === "new-thread",
                           "History Drafts contains only new Threads.",
                         );
-                        const location: ThreadCodeLocation = {
-                          kind: "range",
+                        // An unposted draft has no placement, so the code it
+                        // continues at is its own selected target.
+                        const point: ThreadCodePoint = {
                           file: draft.target.file,
                           bay: draft.target.bay,
                           side: draft.target.side,
-                          range: draft.target.range,
+                          line: draft.target.range.start_line,
                         };
                         const continuable = () =>
                           draft.profile_id === discussion.profileId() &&
                           draft.snapshot_id === props.snapshotId;
                         const path = expect(
-                          location.side === "left"
-                            ? location.file.left_path
-                            : location.file.right_path,
+                          draft.target.side === "left"
+                            ? draft.target.file.left_path
+                            : draft.target.file.right_path,
                           "A new Thread draft requires its selected-side File path.",
                         );
                         return (
@@ -443,12 +442,12 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                             <p class="review-draft-location">
                               <strong>{path}</strong>
                               <span>
-                                {location.side === "left" ? "old" : "new"} · L
-                                {location.range.start_line}
-                                {location.range.start_line ===
-                                location.range.end_line
+                                {draft.target.side === "left" ? "old" : "new"} ·
+                                L{draft.target.range.start_line}
+                                {draft.target.range.start_line ===
+                                draft.target.range.end_line
                                   ? ""
-                                  : `–${location.range.end_line}`}
+                                  : `–${draft.target.range.end_line}`}
                               </span>
                             </p>
                             <Show when={!continuable()}>
@@ -471,7 +470,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                                     .has(draft.draft_id)
                                 }
                                 onClick={() =>
-                                  props.continueDraftInCode(draft, location)
+                                  props.continueDraftInCode(draft, point)
                                 }
                               >
                                 Continue editing

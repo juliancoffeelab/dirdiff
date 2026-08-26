@@ -624,8 +624,9 @@ class SnapshotFileLoadRecord:
 class ReviewThreadRecord:
     """Immutable placement facts for one Thread and Snapshot pair.
 
-    A missing `snapshot_file_id` is valid only for `file_missing`.  Private
-    locator fields occur only on a text Thread's unique origin record.
+    A missing `snapshot_file_id` is valid only for the two unlocated reasons,
+    `file_missing` and `file_unreadable`.  Private locator fields occur only on
+    a text Thread's unique origin record.
     """
 
     thread_id: str
@@ -642,6 +643,7 @@ class ReviewThreadRecord:
             "region_changed",
             "region_not_found",
             "bay_not_found",
+            "file_unreadable",
             "file_missing",
         ]
     ]
@@ -651,12 +653,12 @@ class ReviewThreadRecord:
         """Reject any placement shape review derivation cannot produce.
 
         Placement is a tagged union in `dirdiff.review` — a range, a bay start,
-        a File start, a missing File — and one flat row holds all four, so the
-        tag and the fields it implies are checked here to agree. Both
-        directions of persistence build this record: `_record_of` before an
-        insert and `_thread_record` after a select. One check therefore guards
-        the write and the read, and no stored row can hold a shape review
-        cannot interpret.
+        a File start, a missing File, an unreadable File — and one flat row
+        holds all five, so the tag and the fields it implies are checked here
+        to agree. Both directions of persistence build this record:
+        `_record_of` before an insert and `_thread_record` after a select. One
+        check therefore guards the write and the read, and no stored row can
+        hold a shape review cannot interpret.
 
         It raises instead of asserting because it is the only guard this
         invariant has. `assert` disappears under `-O`, and a stripped check
@@ -670,10 +672,11 @@ class ReviewThreadRecord:
                 or self.side is not None
                 or self.start_line is not None
                 or self.end_line is not None
-                or self.outdated_reason != "file_missing"
+                or self.outdated_reason
+                not in ("file_missing", "file_unreadable")
             ):
                 raise AssertionError(
-                    f"a File-missing placement carries nothing but its "
+                    f"an unlocated placement carries nothing but its "
                     f"reason: {where}"
                 )
         elif self.target_kind == "range":
@@ -923,6 +926,7 @@ class RoomStore:
                 "region_changed"
                 | "region_not_found"
                 | "bay_not_found"
+                | "file_unreadable"
                 | "file_missing"
                 | None
             ):

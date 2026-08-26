@@ -118,6 +118,7 @@ from dirdiff.review import (
     ReviewErrorCode,
     TextTarget,
     ThreadDiscussionView,
+    ThreadSummaryView,
 )
 from dirdiff.room_lord import (
     BranchReviewCaptureSelection,
@@ -396,57 +397,114 @@ class ReviewCommentResponse(ApiModel):
         return self
 
 
-class RangeThreadCodeLocationResponse(ApiModel):
-    """Locate one Thread on an exact rendered range."""
+class ThreadRegionKeptPlacementResponse(ApiModel):
+    """Locate one Thread on its unchanged region, wherever it now sits.
 
-    kind: Literal["range"]
-    file: ReviewFilePairModel
-    bay: ReviewTextBayModel
-    side: Literal["left", "right"]
+    The region holds the bytes the Thread was created against; only its line
+    numbers may have moved, so the range is the relocated one. This is the
+    single text placement that reports nothing wrong.
+    """
+
+    kind: Literal["region-kept"]
     range: ReviewLineRange
 
 
-class BayStartThreadCodeLocationResponse(ApiModel):
-    """Locate one Thread at the start of one composed bay.
+class ThreadRegionChangedPlacementResponse(ApiModel):
+    """Locate one Thread on the first line of its changed region.
 
-    `region_not_found` Threads keep their origin's bay; `bay_not_found`
-    Threads land on the File's first bay carrying their side. Either way the
-    bay names a real composed unit of this Snapshot's File, chosen at
-    derivation time.
+    The origin's structural container matched uniquely but its bytes differ,
+    so the range is one line: where the reviewed region now begins.
     """
 
-    kind: Literal["bay-start"]
-    file: ReviewFilePairModel
+    kind: Literal["region-changed"]
+    range: ReviewLineRange
+
+
+class ThreadRegionLostPlacementResponse(ApiModel):
+    """Locate one Thread at the start of its own bay, its region unmatched.
+
+    The bay the Thread was created in still composes, but the region inside it
+    matched nothing or matched ambiguously, so no line can be named. The bay
+    is the origin's, which is why this states no coordinate of its own.
+    """
+
+    kind: Literal["region-lost"]
+
+
+class ThreadBayLostPlacementResponse(ApiModel):
+    """Locate one Thread at the start of a bay that is not its own.
+
+    The origin's bay no longer composes, so derivation chose the File's first
+    composed bay carrying the origin's side and stored that choice. This is
+    the only placement that states a bay, because it is the only one whose
+    bay differs from the origin's.
+    """
+
+    kind: Literal["bay-lost"]
     bay: ReviewTextBayModel
-    side: Literal["left", "right"]
 
 
-class FileStartThreadCodeLocationResponse(ApiModel):
-    """Locate one Thread on its File with no bay coordinate to land on.
+class ThreadSideLostPlacementResponse(ApiModel):
+    """Locate one Thread on its File, no composed bay carrying its side.
 
-    Historical File-level Threads always take this shape; a text Thread
-    takes it only when its File composes no bay carrying the side. It is
-    never navigable — History is its home.
+    The File composes, but nothing it composes carries the origin's side, so
+    there is no bay to land on. Never navigable — History is its home.
     """
 
-    kind: Literal["file-start"]
-    file: ReviewFilePairModel
-    side: Literal["left", "right"]
+    kind: Literal["side-lost"]
 
 
-ThreadCodeLocationResponse = Annotated[
-    RangeThreadCodeLocationResponse
-    | BayStartThreadCodeLocationResponse
-    | FileStartThreadCodeLocationResponse,
+class ThreadFileAbsentPlacementResponse(ApiModel):
+    """State that the Thread's exact File pair is absent from this Snapshot.
+
+    The read that loads placement Files proves that absence, so this is an
+    invariant rather than a stand-in for a File that failed to load.
+    """
+
+    kind: Literal["file-absent"]
+
+
+class ThreadFileUnreadablePlacementResponse(ApiModel):
+    """State that the Thread's File is present and could not be captured.
+
+    The capture retains dirdiff's placeholder text rather than the File's own
+    bytes, so every coordinate the File could offer would describe something
+    dirdiff wrote. Never navigable.
+    """
+
+    kind: Literal["file-unreadable"]
+
+
+class ThreadWholeFilePlacementResponse(ApiModel):
+    """Locate one retained historical File-level Thread on its File.
+
+    Only a `file-start` origin takes this shape, and it takes it in every
+    Snapshot holding the File pair: such a Thread names no bay in the first
+    place, so nothing about it can go outdated. Never navigable.
+    """
+
+    kind: Literal["whole-file"]
+
+
+ThreadPlacementResponse = Annotated[
+    ThreadRegionKeptPlacementResponse
+    | ThreadRegionChangedPlacementResponse
+    | ThreadRegionLostPlacementResponse
+    | ThreadBayLostPlacementResponse
+    | ThreadSideLostPlacementResponse
+    | ThreadFileAbsentPlacementResponse
+    | ThreadFileUnreadablePlacementResponse
+    | ThreadWholeFilePlacementResponse,
     Field(discriminator="kind"),
 ]
-"""Return one valid current code-location variant."""
+"""Return where one Thread sits in one Snapshot, and what became of it.
 
-ReviewOriginTargetResponse = Annotated[
-    TextReviewTarget | FileStartThreadCodeLocationResponse,
-    Field(discriminator="kind"),
-]
-"""Return a text origin or one retained historical File-start origin."""
+Each variant names one derivation outcome and states only what the origin
+does not: the File pair and side are the origin's in every variant, and the
+bay is the origin's in all but `bay-lost`. `region-kept` and `whole-file`
+report nothing wrong; the six others are the complete public outdated
+vocabulary, one name per state.
+"""
 
 
 class ReviewExcerptResponse(ApiModel):
@@ -472,8 +530,50 @@ class ReviewExcerptResponse(ApiModel):
         return self
 
 
+class TextReviewOriginResponse(TextReviewTarget):
+    """Return the text target a Thread was created against, with its excerpt.
+
+    Creation accepts `TextReviewTarget`; only a read can carry the excerpt cut
+    from the origin Snapshot's captured bytes, so the response states its own
+    model. A File-level origin has no excerpt field at all, which makes "only
+    a text origin has an excerpt" a fact of the shape rather than a rule.
+    """
+
+    excerpt: ReviewExcerptResponse
+
+
+class FileStartReviewOriginResponse(ApiModel):
+    """Return one retained historical File-level origin.
+
+    The migration that removed File-level creation retains these; no new
+    Thread takes this shape, and none can be created in it.
+    """
+
+    kind: Literal["file-start"]
+    file: ReviewFilePairModel
+    side: Literal["left", "right"]
+
+
+ReviewOriginResponse = Annotated[
+    TextReviewOriginResponse | FileStartReviewOriginResponse,
+    Field(discriminator="kind"),
+]
+"""Return the immutable creation target of one Thread.
+
+This is the only place the response states a Thread's File pair, bay, and
+side: a placement repeats none of them, so a reader assembles a code
+coordinate from this and the placement together.
+"""
+
+
 class ReviewThreadResponse(ApiModel):
-    """Return one complete live discussion through one exact Snapshot."""
+    """Return one complete live discussion through one exact Snapshot.
+
+    `origin_target` states what the Thread was written against and never
+    changes; `placement` states where that landed in this Snapshot and what
+    became of it. Nothing is stated twice, so no combination of the two needs
+    proving here.
+    """
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -481,84 +581,9 @@ class ReviewThreadResponse(ApiModel):
     state: Literal["open", "resolved", "deleted"]
     attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int = Field(ge=0)
-    origin_target: ReviewOriginTargetResponse
-    code_location: ThreadCodeLocationResponse | None
-    outdated_reason: (
-        Literal[
-            "region_changed",
-            "region_not_found",
-            "bay_not_found",
-            "file_missing",
-        ]
-        | None
-    )
-    original_excerpt: ReviewExcerptResponse | None
+    origin_target: ReviewOriginResponse
+    placement: ThreadPlacementResponse
     comments: list[ReviewCommentResponse] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_review_state(self) -> Self:
-        """Require exact code, reason, and snippet combinations."""
-        if isinstance(self.origin_target, FileStartThreadCodeLocationResponse):
-            if self.original_excerpt is not None:
-                raise ValueError(
-                    "A historical File-start origin cannot have an excerpt."
-                )
-            if self.outdated_reason is None:
-                if not isinstance(
-                    self.code_location, FileStartThreadCodeLocationResponse
-                ):
-                    raise ValueError(
-                        "A historical File-start Thread requires File start."
-                    )
-                if (
-                    self.code_location.file != self.origin_target.file
-                    or self.code_location.side != self.origin_target.side
-                ):
-                    raise ValueError(
-                        "A historical File-start location changed identity."
-                    )
-            elif (
-                self.outdated_reason != "file_missing"
-                or self.code_location is not None
-            ):
-                raise ValueError(
-                    "A historical File-start Thread may only lose its File."
-                )
-            return self
-        if self.original_excerpt is None:
-            raise ValueError("A text Thread requires its original excerpt.")
-        if self.outdated_reason is None:
-            if not isinstance(
-                self.code_location,
-                RangeThreadCodeLocationResponse,
-            ):
-                raise ValueError(
-                    "A current Thread requires a current location."
-                )
-        elif self.outdated_reason == "region_changed":
-            if not isinstance(
-                self.code_location, RangeThreadCodeLocationResponse
-            ):
-                raise ValueError("A changed Thread requires its new range.")
-        elif self.outdated_reason == "region_not_found":
-            if not isinstance(
-                self.code_location, BayStartThreadCodeLocationResponse
-            ):
-                raise ValueError(
-                    "An unmatched Thread requires its origin bay's start."
-                )
-        elif self.outdated_reason == "bay_not_found":
-            if not isinstance(
-                self.code_location,
-                BayStartThreadCodeLocationResponse
-                | FileStartThreadCodeLocationResponse,
-            ):
-                raise ValueError(
-                    "A bay-lost Thread requires a bay or File start."
-                )
-        elif self.code_location is not None:
-            raise ValueError("A missing File cannot have a code location.")
-        return self
 
 
 class ReviewThreadUpdateResponse(ApiModel):
@@ -747,6 +772,22 @@ class AgentThreadSummary(ApiModel):
     comment_count: int = Field(ge=1)
 
 
+AgentOutdatedReason = Literal[
+    "region_changed",
+    "region_not_found",
+    "bay_not_found",
+    "file_unreadable",
+    "file_missing",
+]
+"""Name what became of a Thread, in the agent boundary's own vocabulary.
+
+The agent shape states placement as a bay plus this nullable reason, which
+predates the browser response's placement union and stays frozen for the
+skills and tooling written against it. `None` means the Thread still rests
+where it was written.
+"""
+
+
 class AgentThread(ApiModel):
     """Expose one complete Snapshot-bound review discussion."""
 
@@ -757,15 +798,7 @@ class AgentThread(ApiModel):
     file: str | None
     bay: AgentBayRange | AgentBayStart | None
     original_excerpt: ReviewExcerptResponse | None
-    outdated_reason: (
-        Literal[
-            "region_changed",
-            "region_not_found",
-            "bay_not_found",
-            "file_missing",
-        ]
-        | None
-    )
+    outdated_reason: AgentOutdatedReason | None
     comments: list[AgentComment]
 
 
@@ -790,15 +823,7 @@ class AgentThreadPage(ApiModel):
     file: str | None
     bay: AgentBayRange | AgentBayStart | None
     original_excerpt: ReviewExcerptResponse | None
-    outdated_reason: (
-        Literal[
-            "region_changed",
-            "region_not_found",
-            "bay_not_found",
-            "file_missing",
-        ]
-        | None
-    )
+    outdated_reason: AgentOutdatedReason | None
     comments: list[AgentComment]
     page: int = Field(ge=1)
     limit: int = Field(ge=1)
@@ -1914,70 +1939,110 @@ def create_app(
             body=f"{body[:255]}…", deleted=deleted, truncated=True
         )
 
-    def captured_files_for_locations(
-        room: Room,
-        snapshot_id: UUID,
-        locations: list[dict[str, object] | None],
-    ) -> dict[tuple[str | None, str | None], tuple[Path | None, Path | None]]:
-        """Load actual retained paths for exactly the referenced locations.
+    def placed_file_pair(
+        origin: dict[str, object], placement: dict[str, object]
+    ) -> tuple[str | None, str | None] | None:
+        """Return the File pair a placement rests on, or `None` for no File.
 
-        Only the Files the supplied code locations name are read; Threads
-        without a code location contribute nothing. Contents are never read.
+        A placement states no File pair of its own — it is the origin's — so
+        the only question here is whether this Snapshot holds captured bytes
+        under it. `file-absent` names no File at all, and `file-unreadable`
+        names one whose capture retains dirdiff's placeholder text, so
+        neither addresses code an agent may read.
         """
-        pairs: list[tuple[str | None, str | None]] = []
-        for location in locations:
-            if location is None:
-                continue
-            pair = location["file"]
-            assert isinstance(pair, dict)
-            left_value = pair.get("left_path")
-            right_value = pair.get("right_path")
-            assert left_value is None or isinstance(left_value, str)
-            assert right_value is None or isinstance(right_value, str)
-            pairs.append((left_value, right_value))
-        return room.captured_files_for_pairs(snapshot_id, tuple(pairs))
-
-    def agent_location(
-        captured_files: dict[
-            tuple[str | None, str | None], tuple[Path | None, Path | None]
-        ],
-        location: dict[str, object] | None,
-    ) -> tuple[str | None, AgentBayRange | AgentBayStart | None]:
-        """Translate one code location into its captured File path and bay.
-
-        A range location yields an `AgentBayRange`; a bay-start location
-        yields an `AgentBayStart`; a file-start location yields no bay at
-        all — the captured File path is the whole landing.
-        """
-        if location is None:
-            return None, None
-        pair = location["file"]
+        if placement["kind"] in ("file-absent", "file-unreadable"):
+            return None
+        pair = origin["file"]
         assert isinstance(pair, dict)
         left_value = pair.get("left_path")
         right_value = pair.get("right_path")
         assert left_value is None or isinstance(left_value, str)
         assert right_value is None or isinstance(right_value, str)
-        left_file, right_file = captured_files[(left_value, right_value)]
-        side_value = location.get("side")
-        if side_value == "left":
-            selected_file = left_file
-        elif side_value == "right" or right_file is not None:
-            selected_file = right_file
-        else:
-            selected_file = left_file
-        assert selected_file is not None
+        return left_value, right_value
+
+    def captured_files_for_placements(
+        room: Room,
+        snapshot_id: UUID,
+        views: list[ThreadDiscussionView] | list[ThreadSummaryView],
+    ) -> dict[tuple[str | None, str | None], tuple[Path | None, Path | None]]:
+        """Load actual retained paths for exactly the Files placements rest on.
+
+        Only the Files the supplied Threads landed in are read; a Thread whose
+        placement rests on no File contributes nothing. Contents are never
+        read.
+        """
+        pairs: list[tuple[str | None, str | None]] = []
+        for view in views:
+            pair = placed_file_pair(view["origin_target"], view["placement"])
+            if pair is not None:
+                pairs.append(pair)
+        return room.captured_files_for_pairs(snapshot_id, tuple(pairs))
+
+    def agent_placement(
+        captured_files: dict[
+            tuple[str | None, str | None], tuple[Path | None, Path | None]
+        ],
+        origin: dict[str, object],
+        placement: dict[str, object],
+    ) -> tuple[str | None, AgentBayRange | AgentBayStart | None]:
+        """Translate one placement into its captured File path and bay.
+
+        The File pair and side come from the origin, which is where the
+        response states them; the placement contributes the bay it landed in
+        and the range inside it. A placement resting on no File yields
+        neither, and one naming no bay yields the captured File path alone.
+        """
+        pair = placed_file_pair(origin, placement)
+        if pair is None:
+            return None, None
+        left_file, right_file = captured_files[pair]
+        # An equal File pair holds equal side presence, so the origin's own
+        # side was captured wherever the placement rests.
+        selected_file = left_file if origin["side"] == "left" else right_file
+        assert selected_file is not None, (
+            "a placement rests on a side this Snapshot did not capture"
+        )
         bay: AgentBayRange | AgentBayStart | None = None
-        range_value = location.get("range")
-        bay_value = location.get("bay")
-        if isinstance(range_value, dict):
-            assert isinstance(bay_value, dict), (
-                "a ranged location always names the bay it sits in"
-            )
-            bay = AgentBayRange.model_validate({**bay_value, **range_value})
-        elif isinstance(bay_value, dict):
-            # a bay without a range is a bay-start landing
-            bay = AgentBayStart.model_validate(bay_value)
+        kind = placement["kind"]
+        if kind in ("region-kept", "region-changed", "region-lost"):
+            origin_bay = origin["bay"]
+            assert isinstance(origin_bay, dict)
+            if kind == "region-lost":
+                bay = AgentBayStart.model_validate(origin_bay)
+            else:
+                landed = placement["range"]
+                assert isinstance(landed, dict)
+                bay = AgentBayRange.model_validate({**origin_bay, **landed})
+        elif kind == "bay-lost":
+            landed_bay = placement["bay"]
+            assert isinstance(landed_bay, dict)
+            bay = AgentBayStart.model_validate(landed_bay)
         return str(selected_file), bay
+
+    def agent_outdated_reason(
+        placement: dict[str, object],
+    ) -> AgentOutdatedReason | None:
+        """Translate one placement into the agent boundary's outdated name.
+
+        Every placement maps to exactly one name, and the two that report
+        nothing wrong map to `None`. Both bay-level losses map to
+        `bay_not_found`: the agent shape has no name for the difference
+        between landing in another bay and landing in none.
+        """
+        match placement["kind"]:
+            case "region-kept" | "whole-file":
+                return None
+            case "region-changed":
+                return "region_changed"
+            case "region-lost":
+                return "region_not_found"
+            case "bay-lost" | "side-lost":
+                return "bay_not_found"
+            case "file-absent":
+                return "file_missing"
+            case "file-unreadable":
+                return "file_unreadable"
+        raise AssertionError(f"unknown placement kind {placement['kind']!r}")
 
     def agent_thread(
         captured_files: dict[
@@ -1986,7 +2051,13 @@ def create_app(
         view: ThreadDiscussionView,
     ) -> AgentThread:
         """Translate one discussion using its existing captured File path."""
-        file_path, bay = agent_location(captured_files, view["code_location"])
+        origin = view["origin_target"]
+        file_path, bay = agent_placement(
+            captured_files, origin, view["placement"]
+        )
+        # The excerpt travels inside the text origin it is cut from; a
+        # File-level origin has none to carry.
+        excerpt = origin.get("excerpt")
         comments = [
             AgentComment(
                 comment_id=comment["comment_id"],
@@ -2009,11 +2080,11 @@ def create_app(
             file=file_path,
             bay=bay,
             original_excerpt=(
-                ReviewExcerptResponse.model_validate(view["original_excerpt"])
-                if view["original_excerpt"] is not None
+                ReviewExcerptResponse.model_validate(excerpt)
+                if excerpt is not None
                 else None
             ),
-            outdated_reason=view["outdated_reason"],
+            outdated_reason=agent_outdated_reason(view["placement"]),
             comments=comments,
         )
 
@@ -2479,16 +2550,16 @@ def create_app(
                 through_activity_id=None,
             )
             views = [thread.summary() for thread in page_threads]
-            captured_files = captured_files_for_locations(
-                room, snapshot_id, [view["code_location"] for view in views]
+            captured_files = captured_files_for_placements(
+                room, snapshot_id, views
             )
             summaries = []
             for view in views:
                 assert view["state"] == "open"
                 attention = view["attention"]
                 assert attention != "none"
-                file_path, bay = agent_location(
-                    captured_files, view["code_location"]
+                file_path, bay = agent_placement(
+                    captured_files, view["origin_target"], view["placement"]
                 )
                 first = view["first_comment"]
                 latest = view["latest_comment"]
@@ -2535,8 +2606,8 @@ def create_app(
                 through_activity_id=through_activity_id,
             )
             views = [thread.discussion() for thread in page_threads]
-            captured_files = captured_files_for_locations(
-                room, snapshot_id, [view["code_location"] for view in views]
+            captured_files = captured_files_for_placements(
+                room, snapshot_id, views
             )
             threads = [agent_thread(captured_files, view) for view in views]
             return agent_page(threads, page, limit, total, concrete_activity_id)
@@ -2556,9 +2627,7 @@ def create_app(
             room = snapshot_room(snapshot_id)
             view = room.get_thread(snapshot_id, thread_id).discussion()
             thread = agent_thread(
-                captured_files_for_locations(
-                    room, snapshot_id, [view["code_location"]]
-                ),
+                captured_files_for_placements(room, snapshot_id, [view]),
                 view,
             )
             total = len(thread.comments)

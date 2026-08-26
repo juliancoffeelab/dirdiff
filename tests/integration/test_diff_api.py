@@ -8,9 +8,11 @@ mock backend loading or bypass request/response contracts.
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import MetaData, create_engine, select
@@ -318,11 +320,9 @@ def test_historical_file_review_migration_never_reads_captured_text(
         "file-start",
         "file-start",
     ]
-    assert [thread["original_excerpt"] for thread in payload["threads"]] == [
-        None,
-        None,
-        None,
-    ]
+    assert [
+        "excerpt" in thread["origin_target"] for thread in payload["threads"]
+    ] == [False, False, False]
     client.close()
     current_engine.dispose()
 
@@ -1533,26 +1533,37 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
     ).json()
     assert [
-        (
-            thread["code_location"]["kind"],
-            thread["code_location"]["bay"]["bay_key"],
-            thread["outdated_reason"],
-        )
+        (thread["origin_target"]["bay"]["bay_key"], thread["placement"])
         for thread in origin_read["threads"]
-    ] == [("range", "cell-b", None)]
+    ] == [
+        (
+            "cell-b",
+            {"kind": "region-kept", "range": {"start_line": 2, "end_line": 2}},
+        )
+    ]
 
     # Six worktree losses, each captured as its own Snapshot. Every entry is
     # (agent uuid, notebook bytes or None to delete the file, the expected
-    # (location kind, bay key, outdated reason) of the derived placement).
+    # (browser placement, agent bay, agent outdated reason) of the derived
+    # landing). The two boundaries are stated separately because the agent
+    # shape keeps five reason names for eight placement kinds.
     losses: list[
-        tuple[str, bytes | None, tuple[str | None, str | None, str]]
+        tuple[
+            str,
+            bytes | None,
+            tuple[dict[str, object], dict[str, str] | None, str],
+        ]
     ] = [
         # The origin's own bay is gone; the File's first right-carrying bay
         # is the unchanged first cell, chosen and stored at derivation.
         (
             "f" * 32,
             json.dumps({**notebook, "cells": [cell_a]}, indent=1).encode(),
-            ("bay-start", "cell-a", "bay_not_found"),
+            (
+                {"kind": "bay-lost", "bay": {"bay_key": "cell-a"}},
+                {"bay_key": "cell-a"},
+                "bay_not_found",
+            ),
         ),
         # The bay survives while nothing inside it matches the origin region.
         (
@@ -1573,14 +1584,22 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
                 },
                 indent=1,
             ).encode(),
-            ("bay-start", "cell-b", "region_not_found"),
+            (
+                {"kind": "region-lost"},
+                {"bay_key": "cell-b"},
+                "region_not_found",
+            ),
         ),
         # Non-JSON bytes are not a notebook: the File composes the flatfile
         # terminal, so the cell origin lands on that first right-carrying bay.
         (
             "2" * 32,
             b"{ this is not a notebook\n",
-            ("bay-start", "flatfile", "bay_not_found"),
+            (
+                {"kind": "bay-lost", "bay": {"bay_key": "flatfile"}},
+                {"bay_key": "flatfile"},
+                "bay_not_found",
+            ),
         ),
         # Non-UTF-8 bytes are not a notebook and are not text either, so
         # classification reaches the blob terminal. That composes a bay, so
@@ -1590,18 +1609,22 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         (
             "3" * 32,
             b"\x80\xfe\xffnot text",
-            ("bay-start", "blob", "bay_not_found"),
+            (
+                {"kind": "bay-lost", "bay": {"bay_key": "blob"}},
+                {"bay_key": "blob"},
+                "bay_not_found",
+            ),
         ),
         # A valid notebook whose bays carry no right side at all: every cell
         # pair is left-only, so the placement falls to File start.
         (
             "4" * 32,
             json.dumps({**notebook, "cells": []}, indent=1).encode(),
-            ("file-start", None, "bay_not_found"),
+            ({"kind": "side-lost"}, None, "bay_not_found"),
         ),
         # The exact File pair is gone: a deletion pairs (left, None), which
         # is not the origin's (left, right) pair.
-        ("5" * 32, None, (None, None, "file_missing")),
+        ("5" * 32, None, ({"kind": "file-absent"}, None, "file_missing")),
     ]
     for agent_uuid, notebook_bytes, expected in losses:
         if notebook_bytes is None:
@@ -1625,41 +1648,131 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         )
         assert read.status_code == 200
         threads = read.json()["threads"]
-        assert [
-            (
-                thread["code_location"]["kind"]
-                if thread["code_location"] is not None
-                else None,
-                (
-                    thread["code_location"]["bay"]["bay_key"]
-                    if thread["code_location"] is not None
-                    and "bay" in thread["code_location"]
-                    else None
-                ),
-                thread["outdated_reason"],
-            )
-            for thread in threads
-        ] == [expected], f"unexpected landing for uuid {agent_uuid}"
+        expected_placement, expected_bay, expected_reason = expected
+        assert [thread["placement"] for thread in threads] == [
+            expected_placement
+        ], f"unexpected landing for uuid {agent_uuid}"
         # The text origin keeps its excerpt through every loss.
-        assert [
-            thread["original_excerpt"] is not None for thread in threads
-        ] == [True]
+        assert ["excerpt" in thread["origin_target"] for thread in threads] == [
+            True
+        ]
 
-        # The agent boundary reports the same stored landing: a bay-start
-        # placement is a bare bay key, a File start is no bay at all.
+        # The agent boundary reports the same stored landing under its own
+        # five-name vocabulary: a bay-level landing is a bare bay key, a
+        # File-level one is no bay at all.
         agent_read = client.get(
             f"/api/agent/thread/{thread_id}",
             params={"snapshot_id": snapshot_id, "page": 1, "limit": 20},
         )
         assert agent_read.status_code == 200
-        expected_kind, expected_bay_key, expected_reason = expected
         agent_body = agent_read.json()
         assert agent_body["outdated_reason"] == expected_reason
-        if expected_kind == "bay-start":
-            assert agent_body["bay"] == {"bay_key": expected_bay_key}
+        assert agent_body["bay"] == expected_bay
+        if expected_bay is not None:
             assert agent_body["file"] is not None
-        else:
-            assert agent_body["bay"] is None
+
+
+def test_unreadable_file_lands_its_thread_without_hiding_the_others(
+    tmp_path: Path,
+) -> None:
+    """An uncapturable File reports why, and costs the Snapshot nothing else.
+
+    A capture failure persists an `error` on the File and fills its capture
+    directory with dirdiff's placeholder text, so composing it would quote a
+    fabrication back to the reviewer. Derivation must therefore land that
+    File's Thread with no code location at all, naming `file_unreadable` — not
+    the `bay_not_found` a lost bay would report, and not a File start whose
+    side record digests dirdiff's own prose — while every other Thread in the
+    same Snapshot keeps its exact range.
+
+    The unreadable side is an untracked worktree file the process cannot open.
+    That is the reachable shape of the failure: only object-id-less sides are
+    read eagerly, and `git ls-files --others` lists an untracked file by its
+    stat alone, so listing succeeds and the read that follows is the one thing
+    that fails. A tracked file would abort the whole capture inside `git diff`
+    instead, which is a different contract and not this one.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root reads a mode-000 file, so no capture can fail")
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "loud.py").write_text("def loud():\n    return 1\n")
+    run_git(tmp_path, "add", "loud.py")
+    run_git(tmp_path, "commit", "-m", "one module")
+    (tmp_path / "loud.py").write_text("def loud():\n    return 2\n")
+    (tmp_path / "shy.py").write_text("def shy():\n    return 2\n")
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "a" * 32,
+            "name": "capture reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+    captured = sorted(Path(joined["snapshot_path"]).glob("*/right"))
+    for name in ("shy.py", "loud.py"):
+        captured_side = next(
+            side
+            for side in captured
+            if side.read_text(encoding="utf-8").startswith(f"def {name[:-3]}")
+        )
+        created = client.post(
+            "/api/agent/actions",
+            json={
+                "snapshot_id": joined["snapshot_id"],
+                "profile_id": joined["profile_id"],
+                "actions": [
+                    {
+                        "kind": "create-finding",
+                        "file": str(captured_side),
+                        "bay": {
+                            "bay_key": "flatfile",
+                            "start_line": 2,
+                            "end_line": 2,
+                        },
+                        "body": f"the {name} return changed",
+                    },
+                ],
+            },
+        )
+        assert created.status_code == 200
+
+    # The next capture lists shy.py and then cannot read it.
+    (tmp_path / "shy.py").chmod(0o000)
+    rejoined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "b" * 32,
+            "name": "capture reviewer two",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    )
+    assert rejoined.status_code == 200
+    snapshot_id = rejoined.json()["snapshot_id"]
+    assert snapshot_id != joined["snapshot_id"]
+    (tmp_path / "shy.py").chmod(0o644)
+
+    read = client.get(
+        "/api/review/threads",
+        params={"snapshot_id": snapshot_id, "page": 1, "limit": 20},
+    )
+    assert read.status_code == 200
+    landings = {
+        thread["origin_target"]["file"]["right_path"]: thread["placement"]
+        for thread in read.json()["threads"]
+    }
+    assert landings == {
+        # Every coordinate this File could offer describes dirdiff's own
+        # placeholder text, so the Thread lands nowhere.
+        "shy.py": {"kind": "file-unreadable"},
+        # The unreadable File cost this one nothing: same Snapshot, same read,
+        # exact original range.
+        "loud.py": {
+            "kind": "region-kept",
+            "range": {"start_line": 2, "end_line": 2},
+        },
+    }
 
 
 def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:

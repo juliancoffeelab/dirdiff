@@ -204,9 +204,11 @@ excerpt from immutable captured Files, independently of every rendering engine.
 The module privately derives missing placements only for a genuinely new
 Snapshot; selecting an equal retained Snapshot performs no derivation. Private
 source coordinates do not cross Room, HTTP, frontend, draft, or cache
-boundaries. Public matching outcomes are limited to `region_changed`,
-`region_not_found`, and `file_missing`. The review model is described in
-[`reviews.md`](reviews.md).
+boundaries. A read publishes each Thread as its immutable origin plus one
+placement, and the placement vocabulary is limited to `region-kept`,
+`region-changed`, `region-lost`, `bay-lost`, `side-lost`, `file-absent`,
+`file-unreadable`, and `whole-file`.
+The review model is described in [`reviews.md`](reviews.md).
 
 ## `dirdiff.server`
 

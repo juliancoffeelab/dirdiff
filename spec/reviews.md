@@ -84,8 +84,10 @@ every File uses.
 Every placement for an existing File references its `snapshot_file` row through
 the composite `(snapshot_file_id, snapshot_id)` foreign key. If that exact File
 pair is absent, the placement has no File reference and reports
-`file_missing`. A present File with a missing reference is an invariant
-violation, including empty, blob, lazy, capture-error, and notebook Files.
+`file_missing`; a present File whose capture failed is deliberately
+unreferenced too, and reports `file_unreadable`. Every other present File with
+a missing reference is an invariant violation, including empty, blob, lazy, and
+notebook Files.
 
 The migration that removed File-level creation retains each historical
 File-level origin and placement as `file-start`, choosing the captured right
@@ -96,18 +98,39 @@ only selected text ranges.
 
 Every newly created Thread originates from a selected text range. Retained
 historical File-level Threads are the sole `file-start` origin exception.
-A text-origin placement reports one of five public states:
+A text-origin placement lands in one of six stored states, and each one
+publishes as exactly one browser placement kind:
 
 ```text
-unchanged unique region -> exact relocated range, no outdated reason
-unique changed region   -> first line of that region, region_changed
-region not identified   -> start of the origin's own bay, region_not_found
-bay no longer composed  -> start of the File's first bay carrying the
-                           origin side, bay_not_found; a File where no
-                           composed bay carries that side, or that does
-                           not compose at all, is file-start, bay_not_found
-exact File absent       -> no code location, file_missing
+unchanged unique region -> exact relocated range              -> region-kept
+unique changed region   -> first line of that region,
+                           region_changed                     -> region-changed
+region not identified   -> start of the origin's own bay,
+                           region_not_found                   -> region-lost
+bay no longer composed  -> start of the File's first bay
+                           carrying the origin side,
+                           bay_not_found                      -> bay-lost
+   ... and where no composed bay carries that side, File
+       start, bay_not_found                                   -> side-lost
+File not captured       -> no code, file_unreadable           -> file-unreadable
+exact File absent       -> no code, file_missing              -> file-absent
 ```
+
+A retained historical File-level placement is the eighth kind, `whole-file`.
+The stored `bay_not_found` covers two different landings, and the browser
+names them apart because they present differently: `bay-lost` has a bay to
+mark and navigate to, `side-lost` has none.
+
+`file_unreadable` is the exact File whose capture failed in this Snapshot. The
+File pair is present — the backend listed it — but its capture directory holds
+dirdiff's placeholder text rather than the File's own bytes, so every
+coordinate it could offer describes something dirdiff wrote: a bay would name
+composed placeholder text, and File start would name a side record whose digest
+describes that same text. The Thread therefore lands with no code location at
+all, which distinguishes it from `file_missing` by reason alone. Derivation
+contains the failure at this one placement — a Snapshot with one unreadable
+File still lists every other Thread — and logs the captured `error`, which no
+placement field carries.
 
 Derivation chooses and stores every landing, including the first-bay
 `bay_not_found` landing, while it already holds the target File's composed
@@ -276,6 +299,13 @@ current status, attention, discussion revision, and only the changed Comment.
 Lifecycle actions return a Comment when their optional body is present. The discussion revision is the
 accepted action's per-Thread sequence. No follow-up read is required for a
 contiguous action result.
+A returned Thread states its immutable creation target once, as
+`origin_target`, and what this Snapshot did to it once, as `placement`. The
+origin is the only place the File pair, bay, and side appear, and it carries
+the reconstructed excerpt cut from its own Snapshot; the placement adds only
+what the origin cannot say — the relocated range, the substitute bay, or the
+bare name of the loss. No field pairing crosses the two, so no response shape
+is valid in one field and invalid in another.
 No History endpoint exists. Expected browser review failures return a direct
 `{code, message}` body using the stable review error enum; clients never parse
 presentation text to distinguish conflicts.
@@ -340,12 +370,12 @@ action. Success removes it; failure leaves the ordinary editable local draft.
 Thread state and Comment deletion controls send one direct action and retain no
 replay state.
 
-A `range` placement marks its stored bay-local line, and a `bay-start`
-placement marks line one of its stored bay — both are ordinary line markers
-on coordinates the backend stored, with no read-time reconstruction and no
-frontend-minted bay key. A `file-start` placement names no bay: it produces
-no marker, its View action is disabled, and History is its only
-presentation. Before a renderer replaces or disposes row DOM,
+A `region-kept` or `region-changed` placement marks its stored bay-local
+line; `region-lost` and `bay-lost` mark line one of the bay they name — both
+are ordinary line markers on coordinates the backend stored, with no read-time
+reconstruction and no frontend-minted bay key. The three placements naming no
+bay — `side-lost`, `file-absent`, `file-unreadable` — and every `whole-file`
+placement produce no marker, and History is their only presentation. Before a renderer replaces or disposes row DOM,
 it explicitly closes only the Comment input or inline Thread panel anchored inside
 that DOM; unfinished input remains saved, and Comment inputs anchored in other Files
 remain open. An expanded fold-edge Comment trigger remains visible and its
@@ -440,10 +470,11 @@ text replaces a textual outdated label. Go-to is enabled only for an already
 loaded full File. It uses the existing exact-line navigation to reveal the
 selected side and first selected line, then opens only that Thread in the
 code-aligned panel. It never loads or admits a lazy File or Husk. Neither the
-navigation nor Thread opening selects a hunk or starts scroll-follow. A
-`file_missing` Thread disables
-the control and states on hover and in its expanded content that the reviewed
-File is not present in the Snapshot. Folding a History row does not navigate.
+navigation nor Thread opening selects a hunk or starts scroll-follow. A Thread whose
+File this Snapshot could not offer at all — `file-absent` or
+`file-unreadable` — disables the control and states on hover and in its
+expanded content which of the two happened to the reviewed File. Every other
+placement keeps the enabled control, which the loaded-File rule then governs. Folding a History row does not navigate.
 
 Unexpected review-presentation derivation failures are contained around the
 Comment input, inline Thread panel, and History presentation. The File lane is a
@@ -518,7 +549,7 @@ metadata on each page, default to 20 Comments, and permit at most 100. Pages
 are one-based; pages past the end are empty. A reported range placement names
 its public bay key beside its line range, and those lines are local to that
 bay rather than to the captured File; a bay-start placement names its bay key
-alone, and a file-start placement reports no bay at all. Agents write only
+alone, and a File-level landing reports no bay at all. Agents write only
 full ranges — the bay-key-only shape is read-only. Preview bodies contain at most 256
 Unicode characters, using the first 255 and `…` when truncated. Complete
 Thread data and present original excerpts are never truncated; text excerpts

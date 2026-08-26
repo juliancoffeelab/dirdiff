@@ -17,7 +17,12 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { LocateFixed, Pencil, Trash2, TriangleAlert } from "lucide-solid";
-import type { ReviewComment, ReviewId, ReviewThread } from "../../api/api";
+import {
+  threadOutdated,
+  type ReviewComment,
+  type ReviewId,
+  type ReviewThread,
+} from "../../api/api";
 import { ErrorPanel } from "../../comp/Toasts";
 import { assert, expect } from "../../utils";
 import type { NewThreadDraft, ReviewDraft } from "./drafts";
@@ -371,11 +376,51 @@ export function ThreadCard(props: {
     "A review origin requires its selected-side File path.",
   );
   const excerptFileName = excerptPath.slice(excerptPath.lastIndexOf("/") + 1);
+  // The excerpt travels inside a text origin, so the three sites that render
+  // it need this arm; a retained File-level origin carries none.
+  const textOrigin = origin.kind === "text" ? origin : null;
   const firstComment = () =>
     expect(
       props.thread.comments[0],
       "A review Thread requires its first Comment.",
     );
+  /**
+   * States what this Snapshot did to the reviewed code, or `null` for nothing.
+   *
+   * A kept region and a retained File-level Thread both still rest where they
+   * were written, and those are exactly the placements that raise no warning.
+   */
+  function placementNote(): string | null {
+    switch (props.thread.placement.kind) {
+      case "region-kept":
+      case "whole-file":
+        return null;
+      case "file-absent":
+        return "The reviewed file is not present in this Snapshot.";
+      case "file-unreadable":
+        return "The reviewed file could not be read in this Snapshot.";
+      case "bay-lost":
+      case "side-lost":
+        return "The reviewed part of the file is gone from this Snapshot.";
+      case "region-changed":
+      case "region-lost":
+        return "The reviewed code changed after this Thread was created.";
+    }
+  }
+  /**
+   * States why this Thread names no code at all, or `null` when it names some.
+   *
+   * Only the two File-level failures drop every coordinate: one File pair is
+   * absent from this Snapshot, the other holds nothing dirdiff could read.
+   * Both disable go-to and print their sentence in the expanded card, which
+   * every other placement — landing somewhere, however degraded — must not.
+   */
+  function unlocatedNote(): string | null {
+    const kind = props.thread.placement.kind;
+    return kind === "file-absent" || kind === "file-unreadable"
+      ? expect(placementNote(), "An unlocated placement states its reason.")
+      : null;
+  }
   /** Reports whether the currently selected Profile authored one Comment. */
   function authoredByCurrentProfile(comment: ReviewComment): boolean {
     const author = comment.author;
@@ -391,23 +436,16 @@ export function ThreadCard(props: {
         </strong>
         <span class="review-thread-location" title={excerptPath}>
           {excerptFileName}
-          <Show when={props.thread.original_excerpt} keyed>
-            {(excerpt) => <> · L{excerpt.selected_start_line}</>}
+          <Show when={textOrigin} keyed>
+            {(text) => <> · L{text.excerpt.selected_start_line}</>}
           </Show>
         </span>
-        <Show when={props.thread.outdated_reason !== null}>
-          <span
-            class="review-warning"
-            title={
-              props.thread.code_location === null
-                ? "The reviewed file is not present in this Snapshot."
-                : props.thread.outdated_reason === "bay_not_found"
-                  ? "The reviewed part of the file is gone from this Snapshot."
-                  : "The reviewed code changed after this Thread was created."
-            }
-          >
-            <TriangleAlert aria-hidden="true" />
-          </span>
+        <Show when={placementNote()}>
+          {(note) => (
+            <span class="review-warning" title={note()}>
+              <TriangleAlert aria-hidden="true" />
+            </span>
+          )}
         </Show>
       </>
     );
@@ -432,9 +470,7 @@ export function ThreadCard(props: {
       (total, comment) => total + 90 + (comment.body ?? "").length / 2.5,
       0,
     );
-    return Math.round(
-      140 + (props.thread.original_excerpt !== null ? 240 : 0) + commentPixels,
-    );
+    return Math.round(140 + (textOrigin !== null ? 240 : 0) + commentPixels);
   }
   return (
     <article
@@ -446,7 +482,7 @@ export function ThreadCard(props: {
         "review-thread-expanded": props.expanded,
         "review-thread-resolved": props.thread.state === "resolved",
         "review-thread-deleted": props.thread.state === "deleted",
-        "review-thread-outdated": props.thread.outdated_reason !== null,
+        "review-thread-outdated": threadOutdated(props.thread),
       }}
       style={
         props.navigation.kind === "history"
@@ -488,52 +524,49 @@ export function ThreadCard(props: {
         >
           {(navigation) => (
             <Show
-              when={props.thread.code_location !== null}
+              when={unlocatedNote()}
               fallback={
-                <span
-                  class="review-view-unavailable"
-                  title="The reviewed file is not present in this Snapshot."
+                <button
+                  type="button"
+                  class="review-view review-thread-goto"
+                  title={
+                    navigation.viewable
+                      ? "Go to reviewed code"
+                      : "The reviewed File is not loaded."
+                  }
+                  aria-label={
+                    navigation.viewable
+                      ? "Go to reviewed code"
+                      : "Go to code unavailable: the reviewed File is not loaded."
+                  }
+                  disabled={!navigation.viewable}
+                  onClick={navigation.onView}
                 >
+                  <LocateFixed aria-hidden="true" />
+                </button>
+              }
+            >
+              {(note) => (
+                <span class="review-view-unavailable" title={note()}>
                   <button
                     type="button"
                     class="review-view review-thread-goto"
                     disabled
-                    aria-label="Go to code unavailable: the reviewed file is not present in this Snapshot."
+                    aria-label={`Go to code unavailable: ${note()}`}
                   >
                     <LocateFixed aria-hidden="true" />
                   </button>
                 </span>
-              }
-            >
-              <button
-                type="button"
-                class="review-view review-thread-goto"
-                title={
-                  navigation.viewable
-                    ? "Go to reviewed code"
-                    : "The reviewed File is not loaded."
-                }
-                aria-label={
-                  navigation.viewable
-                    ? "Go to reviewed code"
-                    : "Go to code unavailable: the reviewed File is not loaded."
-                }
-                disabled={!navigation.viewable}
-                onClick={navigation.onView}
-              >
-                <LocateFixed aria-hidden="true" />
-              </button>
+              )}
             </Show>
           )}
         </Show>
       </header>
       <Show when={props.expanded}>
-        <Show when={props.thread.code_location === null}>
-          <p class="review-no-location">
-            The reviewed file is not present in this Snapshot.
-          </p>
+        <Show when={unlocatedNote()}>
+          {(note) => <p class="review-no-location">{note()}</p>}
         </Show>
-        <Show when={props.thread.original_excerpt} keyed>
+        <Show when={textOrigin?.excerpt} keyed>
           {(excerpt) => (
             <pre class="review-excerpt" data-side={excerpt.side}>
               <For each={excerpt.lines}>

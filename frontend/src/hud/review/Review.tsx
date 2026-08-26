@@ -29,13 +29,15 @@ import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { Portal } from "solid-js/web";
 import {
   api,
+  threadCodePoint,
+  threadOutdated,
   type ReviewComment,
   type ReviewFilePair,
   type ReviewId,
   type ReviewTarget,
   type ReviewTextBay,
   type ReviewThread,
-  type ThreadCodeLocation,
+  type ThreadCodePoint,
 } from "../../api/api";
 import { UnexpectedErrorBoundary, useToasts } from "../../comp/Toasts";
 import { assert, expect } from "../../utils";
@@ -191,8 +193,8 @@ type ReviewProviderProps = {
   profile: StoredProfile | null;
   children: JSX.Element;
   inlineHistoryTarget: Accessor<HTMLElement | null>;
-  canViewThread(location: ThreadCodeLocation): boolean;
-  viewThread(location: ThreadCodeLocation): Promise<ReviewCodeAnchor | null>;
+  canViewThread(point: ThreadCodePoint): boolean;
+  viewThread(point: ThreadCodePoint): Promise<ReviewCodeAnchor | null>;
 };
 
 export const LineMarkerKeySchema = z.tuple([
@@ -412,39 +414,24 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       }
     }
 
-    // A file-start location contributes no marker: it names no bay, and only
-    // History presents such Threads.
+    // A Thread naming no code contributes no marker: there is no bay to mark,
+    // and only History presents such Threads.
     for (const thread of revision[0]) {
-      const location = thread.code_location;
-      if (location?.kind === "range") {
-        append(
-          lineThreads,
-          lineMarkerKey(
-            {
-              snapshot_id: props.snapshotId,
-              file: location.file,
-              bay: location.bay,
-            },
-            location.side,
-            location.range.start_line,
-          ),
-          thread,
-        );
-      } else if (location?.kind === "bay-start") {
-        append(
-          lineThreads,
-          lineMarkerKey(
-            {
-              snapshot_id: props.snapshotId,
-              file: location.file,
-              bay: location.bay,
-            },
-            location.side,
-            1,
-          ),
-          thread,
-        );
-      }
+      const point = threadCodePoint(thread);
+      if (point === null) continue;
+      append(
+        lineThreads,
+        lineMarkerKey(
+          {
+            snapshot_id: props.snapshotId,
+            file: point.file,
+            bay: point.bay,
+          },
+          point.side,
+          point.line,
+        ),
+        thread,
+      );
     }
     for (const marker of revision[1]) {
       append(lineDraftIds, marker.lineKey, marker.draftId);
@@ -464,7 +451,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         for (const thread of lineThreads.get(key) ?? []) {
           const state = counts[thread.state];
           state.count += 1;
-          state.warning ||= thread.outdated_reason !== null;
+          state.warning ||= threadOutdated(thread);
         }
         for (const kind of ["open", "resolved", "deleted"] as const) {
           const state = counts[kind];
@@ -830,10 +817,10 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
 
   /** Opens the viewed Thread's discussion panel at its rendered code line. */
   function viewThreadInCode(thread: ReviewThread): void {
-    const location = thread.code_location;
-    if (location === null) return;
+    const point = threadCodePoint(thread);
+    if (point === null) return;
     void (async () => {
-      const anchor = await props.viewThread(location);
+      const anchor = await props.viewThread(point);
       if (anchor === null) return;
       const trigger = anchor.trigger.parentElement?.querySelector(
         `[data-review-marker-kind="${thread.state}"]`,
@@ -855,13 +842,13 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   /** Continues one persisted new-Thread draft at its rendered code line. */
   function continueDraftInCode(
     draft: NewThreadDraft,
-    location: ThreadCodeLocation,
+    point: ThreadCodePoint,
   ): void {
     void (async () => {
-      if (!props.canViewThread(location)) {
+      if (!props.canViewThread(point)) {
         throw new Error("Load the reviewed File before continuing this draft.");
       }
-      const anchor = await props.viewThread(location);
+      const anchor = await props.viewThread(point);
       if (anchor === null) return;
       setActiveThreadPanel(null);
       const mount = anchor.codeCell.parentElement;

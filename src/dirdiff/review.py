@@ -18,6 +18,7 @@ import fcntl
 import hashlib
 import importlib
 import json
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -78,6 +79,14 @@ __all__ = [
     "get_thread",
     "thread_objects",
 ]
+
+LOGGER = logging.getLogger(__name__)
+"""Report a contained File failure that no HTTP status can carry.
+
+Derivation refuses to fail a whole Snapshot's Threads over one File dirdiff
+could not capture, so the placement it stores names the failure and the
+operator still gets the captured `error` text here.
+"""
 
 ReviewErrorCode = Literal[
     "profile_not_found",
@@ -320,16 +329,7 @@ class ThreadDiscussionView(TypedDict):
     attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int
     origin_target: dict[str, object]
-    code_location: Optional[dict[str, object]]
-    outdated_reason: Optional[
-        Literal[
-            "region_changed",
-            "region_not_found",
-            "bay_not_found",
-            "file_missing",
-        ]
-    ]
-    original_excerpt: Optional[dict[str, object]]
+    placement: dict[str, object]
     comments: list[ReviewCommentView]
 
 
@@ -339,21 +339,16 @@ class ThreadSummaryView(TypedDict):
     The lightweight agent-summary contract: the same action fold and
     placement semantics as `ThreadDiscussionView`, but no original excerpt
     is constructed (so no captured text is read from disk) and only the
-    first and latest Comments travel with their total count.
+    first and latest Comments travel with their total count. The origin
+    travels because a placement states no File pair, bay, or side of its own:
+    every coordinate a caller needs to name captured code comes from here.
     """
 
     thread_id: str
     state: Literal["open", "resolved", "deleted"]
     attention: Literal["author", "reviewer", "both", "none"]
-    code_location: Optional[dict[str, object]]
-    outdated_reason: Optional[
-        Literal[
-            "region_changed",
-            "region_not_found",
-            "bay_not_found",
-            "file_missing",
-        ]
-    ]
+    origin_target: dict[str, object]
+    placement: dict[str, object]
     first_comment: ReviewCommentView
     latest_comment: ReviewCommentView
     comment_count: int
@@ -458,8 +453,7 @@ class _FileStartPlacement:
     its home. A reason of None marks a retained historical File-level
     origin — the only origins of this shape — and every placement derived
     from such an origin. `bay_not_found` marks a placement derived from a
-    range origin whose File failed to compose or composes no bay carrying
-    the side.
+    range origin whose File composes no bay carrying the side.
     """
 
     thread_id: str
@@ -481,16 +475,38 @@ class _FileMissingPlacement:
     snapshot_id: str
 
 
+@dataclass(frozen=True)
+class _FileUnreadablePlacement:
+    """A Thread with no code location, because its File could not be captured.
+
+    The exact File pair is present in this Snapshot — the backend listed it —
+    but capture failed, so the only bytes beneath its capture directory are
+    the ones dirdiff generated to stand in for the File. Nothing here can hold
+    a Thread: a bay would name composed placeholder text, and File start would
+    name a side record whose digest describes that same text. It references no
+    Snapshot File, and its public outdated reason is always `file_unreadable`,
+    so neither is carried as a field.
+
+    This is not `_FileMissingPlacement`. That one states the File pair is
+    absent from the Snapshot, and the read boundary verifies that absence;
+    this one states the opposite about the same Snapshot.
+    """
+
+    thread_id: str
+    snapshot_id: str
+
+
 _Placement = (
     _RangePlacement
     | _BayStartPlacement
     | _FileStartPlacement
     | _FileMissingPlacement
+    | _FileUnreadablePlacement
 )
 """One Thread's immutable location in one Snapshot, in the shape review needs.
 
 `RoomStore` returns the flat `ReviewThreadRecord`, whose eight optional fields can
-describe any of these four shapes and cannot say which. `_placement_of()` proves
+describe any of these five shapes and cannot say which. `_placement_of()` proves
 the shape once, at the read boundary, so no later consumer re-proves it;
 `_record_of()` converts back for persistence. `is_origin` is deliberately absent:
 it is not a stored column but a per-query label, and a discussion's origin is
@@ -759,6 +775,14 @@ def _composed_bays(
     renderer shows, so validation and rendering cannot disagree about which
     bays exist. `Composer.bays()` takes a `BayContext`, which carries no
     renderer, so reconstructing an origin still involves no diff engine.
+
+    Composition is total — every pair of byte sides reaches the blob terminal —
+    so the one failure this can report is its own: a File whose capture failed
+    retains dirdiff's placeholder text rather than the File's bytes, and reading
+    it as review content would quote a fabrication back to the reviewer. That
+    raises `ReviewError("invalid_target", ...)` carrying the persisted reason.
+    A caller that must survive such a File checks `SnapshotFileRecord.error`
+    before calling; there is nothing else here to catch.
     """
     cached = cache.bays.get(file.id)
     if cached is not None:
@@ -802,45 +826,42 @@ def _composed_bays(
             f"sha256 {ref['digest']}"
         )
 
-    try:
-        composed = Composer().bays(
-            side_bytes("left"),
-            side_bytes("right"),
-            BayContext(
-                left_path=pair.left_path,
-                right_path=pair.right_path,
-                left_label="left",
-                right_label="right",
-            ),
-        )
-        bays = {
-            bay.bay_key: (
-                _ComposedBay(
-                    bay_key=bay.bay_key,
-                    kind="text",
-                    left_text=bay.left.text,
-                    right_text=bay.right.text,
-                    left_hint=bay.left.path_hint,
-                    right_hint=bay.right.path_hint,
-                )
-                if isinstance(bay, TextBay)
-                else _ComposedBay(
-                    bay_key=bay.bay_key,
-                    kind="image",
-                    left_text=pseudo_line(bay.left),
-                    right_text=pseudo_line(bay.right),
-                    # A pseudo-line is not source in any language, so it must
-                    # not select a parser. `media` names no suffix any parser
-                    # claims, which keeps structural matching over the whole
-                    # line and off whatever the File's real extension implies.
-                    left_hint="media",
-                    right_hint="media",
-                )
+    composed = Composer().bays(
+        side_bytes("left"),
+        side_bytes("right"),
+        BayContext(
+            left_path=pair.left_path,
+            right_path=pair.right_path,
+            left_label="left",
+            right_label="right",
+        ),
+    )
+    bays = {
+        bay.bay_key: (
+            _ComposedBay(
+                bay_key=bay.bay_key,
+                kind="text",
+                left_text=bay.left.text,
+                right_text=bay.right.text,
+                left_hint=bay.left.path_hint,
+                right_hint=bay.right.path_hint,
             )
-            for bay in composed
-        }
-    except DirdiffError as exc:
-        raise ReviewError("invalid_target", str(exc)) from exc
+            if isinstance(bay, TextBay)
+            else _ComposedBay(
+                bay_key=bay.bay_key,
+                kind="image",
+                left_text=pseudo_line(bay.left),
+                right_text=pseudo_line(bay.right),
+                # A pseudo-line is not source in any language, so it must
+                # not select a parser. `media` names no suffix any parser
+                # claims, which keeps structural matching over the whole
+                # line and off whatever the File's real extension implies.
+                left_hint="media",
+                right_hint="media",
+            )
+        )
+        for bay in composed
+    }
     cache.bays[file.id] = bays
     return bays
 
@@ -977,10 +998,13 @@ def _placement_of(record: ReviewThreadRecord) -> _Placement:
     """Prove one stored placement's shape, once, at the read boundary.
 
     `RoomStore` returns every placement as the same flat row because the schema
-    is one table. The four shapes it can hold are distinguished by
-    `target_kind`, and the check constraint on that table already guarantees the
-    field combinations asserted here; a violation is a corrupt database rather
-    than an input this code can place.
+    is one table. `target_kind` distinguishes the located shapes, and the
+    outdated reason separates the two untagged ones — a File that is absent
+    from a File that is present and unreadable. `ReviewThreadRecord` has
+    already refused any row whose
+    fields disagree with its tag, so the assertions here re-state that shape to
+    narrow the record's optional fields into this module's variants; a
+    violation is a corrupt database rather than an input this code can place.
     """
     match record.target_kind:
         case "range":
@@ -1041,6 +1065,14 @@ def _placement_of(record: ReviewThreadRecord) -> _Placement:
             assert record.bay_key is None and record.side is None
             assert record.start_line is None and record.end_line is None
             assert record.private_locator is None
+            # Both unlocated shapes persist as the same untagged row. The
+            # reason is what separates a File that is gone from one that is
+            # here and unreadable, so it selects the variant.
+            if record.outdated_reason == "file_unreadable":
+                return _FileUnreadablePlacement(
+                    thread_id=record.thread_id,
+                    snapshot_id=record.snapshot_id,
+                )
             assert record.outdated_reason == "file_missing"
             return _FileMissingPlacement(
                 thread_id=record.thread_id,
@@ -1125,6 +1157,20 @@ def _record_of(
                 outdated_reason="file_missing",
                 private_locator=None,
             )
+        case _FileUnreadablePlacement():
+            return ReviewThreadRecord(
+                thread_id=placement.thread_id,
+                snapshot_id=placement.snapshot_id,
+                snapshot_file_id=None,
+                is_origin=is_origin,
+                target_kind=None,
+                bay_key=None,
+                side=None,
+                start_line=None,
+                end_line=None,
+                outdated_reason="file_unreadable",
+                private_locator=None,
+            )
 
 
 def _derive_record(
@@ -1192,40 +1238,30 @@ def _derive_record(
     origin_text = origin_bay_text
     assert locator is not None, "a range origin retains its coordinates"
     _verify_locator(origin, locator, text=origin_text)
+    # A File whose capture failed retains dirdiff's placeholder text, not the
+    # File's own bytes, so every coordinate it could offer describes something
+    # dirdiff wrote. The Thread therefore lands nowhere, which is the damage
+    # boundary: raising instead would fail the whole Snapshot's Threads over
+    # one unreadable File and hide every other discussion in the review. The
+    # `error` text cannot travel in a placement, so it is logged here.
+    if target_file.error is not None:
+        target_pair = _file_pair(target_file)
+        LOGGER.error(
+            "Thread %s has no code location: %s could not be captured in "
+            "Snapshot %s: %s",
+            origin.thread_id,
+            target_pair.right_path or target_pair.left_path,
+            target_snapshot_id,
+            target_file.error,
+        )
+        return _FileUnreadablePlacement(
+            thread_id=origin.thread_id,
+            snapshot_id=target_snapshot_id,
+        )
     # The bay key is durable identity, so the same key names the same
     # bay in the target Snapshot. A File that offers no bay coordinate at all
     # lands at File start instead.
-    #
-    # TODO: this branch reports the wrong reason, and fixing it needs a human
-    # decision rather than a mechanical refactor. Do not "clean it up" without
-    # one.
-    #
-    # What it catches: composition is total since the blob terminal landed, so
-    # content no longer fails here. In practice the only thing left that raises
-    # is `side_bytes()` finding a persisted `SnapshotFile.error` — the capture
-    # failed for this File in this Snapshot (a gitlink where a blob was
-    # expected, an unfetched blob in a partial clone, an unreadable worktree
-    # file).
-    #
-    # What is wrong: `file_start()` hardcodes `bay_not_found`, so the reviewer
-    # is told their comment's bay disappeared when the truth is that dirdiff
-    # could not read the File. The real reason is not even lost — it is the
-    # persisted `error` column, carried by the exception this bare `except`
-    # discards without logging. `/api/file-diff` and `/api/file-media` surface
-    # that same field honestly as a 400; only this path invents a reason.
-    #
-    # Why it is not simply "stop catching": propagating would fail the whole
-    # threads read because one File in the Snapshot is unreadable, hiding every
-    # other Thread in the review. Containing the damage at one placement is
-    # right; substituting a false reason for it is not.
-    #
-    # The likely fix is a distinct persisted `outdated_reason` (the File could
-    # not be composed) plus a log at this boundary — which touches the schema,
-    # the API model, the frontend, and the spec. That is the human call.
-    try:
-        target_bays = _composed_bays(target_file, cache)
-    except ReviewError:
-        return file_start(origin_side)
+    target_bays = _composed_bays(target_file, cache)
     target_bay = target_bays.get(target_bay_key)
     target_text = (
         target_bay.text_for(origin_side) if target_bay is not None else None
@@ -1697,9 +1733,12 @@ class Thread:
             origin_ref = (origin.snapshot_id, origin.snapshot_file_id)
             selected_ids: tuple[str, ...] = ()
             absent_refs: tuple[tuple[str, str], ...] = ()
+            # An unreadable File is present and deliberately unreferenced, so
+            # it asks for neither: proving its absence would fail, and loading
+            # it would offer bytes no read may use.
             if isinstance(placement, _FileMissingPlacement):
                 absent_refs = (origin_ref,)
-            else:
+            elif not isinstance(placement, _FileUnreadablePlacement):
                 selected_ids = (placement.snapshot_file_id,)
             origin_files, selected_files, conflicts = (
                 self._database.review_thread_files(
@@ -1713,7 +1752,11 @@ class Thread:
                 "file_missing placement has an exact Snapshot File"
             )
             selected_file: Optional[SnapshotFileRecord] = None
-            if not isinstance(placement, _FileMissingPlacement):
+            if selected_ids != ():
+                assert not isinstance(
+                    placement,
+                    _FileMissingPlacement | _FileUnreadablePlacement,
+                )
                 selected_file = selected_files.get(placement.snapshot_file_id)
                 assert selected_file is not None, (
                     "located placement has no exact Snapshot File"
@@ -1725,21 +1768,30 @@ class Thread:
             )
         return self._files
 
-    def _locate(self) -> Optional[dict[str, object]]:
-        """Fold placement facts into the public code location, if located.
+    def _placement_view(self) -> dict[str, object]:
+        """Fold placement facts into the public placement.
 
-        `None` means the placement is file-missing; the File-loading read
-        has already verified no selected-Snapshot File carries the origin
-        pair, so absence here is an invariant, not a substitute.
+        The returned shape names one derivation outcome and states only what
+        the origin does not: the File pair and side are the origin's in every
+        variant, and the bay is the origin's in all but a `bay-lost` landing,
+        which names the bay derivation chose instead. `region-kept` and
+        `whole-file` report nothing wrong; the six others are the complete
+        public outdated vocabulary, one name per state.
+
+        The two unlocated variants state nothing but their kind. For the
+        absent File the File-loading read has already verified no
+        selected-Snapshot File carries the origin pair, so absence there is an
+        invariant, not a substitute.
         """
-        placement, _origin = self._records()
+        placement, origin = self._records()
         files = self._located_files()
-        origin_file = files.origin_file
+        if isinstance(placement, _FileUnreadablePlacement):
+            return {"kind": "file-unreadable"}
         if isinstance(placement, _FileMissingPlacement):
             assert files.selected_file is None, (
                 "file_missing placement has an exact Snapshot File"
             )
-            return None
+            return {"kind": "file-absent"}
         target_file = files.selected_file
         assert target_file is not None, (
             "located placement has no exact Snapshot File"
@@ -1747,53 +1799,79 @@ class Thread:
         assert target_file.id == placement.snapshot_file_id, (
             "placement references the wrong Snapshot File"
         )
-        assert _file_pair(target_file) == _file_pair(origin_file), (
+        # The File pair travels once, on the origin. A placement that named
+        # another File would be read under the origin's paths with nothing
+        # left to contradict it, so the equality is proven here instead.
+        assert _file_pair(target_file) == _file_pair(files.origin_file), (
             "placement references the wrong Snapshot File pair"
         )
-        target_pair = _file_pair(target_file)
-        pair = {
-            "left_path": target_pair.left_path,
-            "right_path": target_pair.right_path,
-        }
-        if isinstance(placement, _RangePlacement):
-            return {
-                "kind": "range",
-                "file": pair,
-                "bay": {"bay_key": placement.bay_key},
-                "side": placement.side,
-                "range": {
-                    "start_line": placement.start_line,
-                    "end_line": placement.end_line,
-                },
-            }
-        if isinstance(placement, _BayStartPlacement):
-            return {
-                "kind": "bay-start",
-                "file": pair,
-                "bay": {"bay_key": placement.bay_key},
-                "side": placement.side,
-            }
-        return {
-            "kind": "file-start",
-            "file": pair,
-            "side": placement.side,
-        }
+        assert placement.side == origin.side, (
+            "placement selects the side the origin did not"
+        )
+        match placement:
+            case _RangePlacement():
+                # A matched region stays inside the bay it was written in, so
+                # the bay the wire omits here is exactly the origin's.
+                assert isinstance(origin, _RangePlacement), (
+                    "a File-level origin never matches a region"
+                )
+                assert placement.bay_key == origin.bay_key, (
+                    "a matched region left its origin's bay"
+                )
+                return {
+                    "kind": (
+                        "region-changed"
+                        if placement.outdated_reason == "region_changed"
+                        else "region-kept"
+                    ),
+                    "range": {
+                        "start_line": placement.start_line,
+                        "end_line": placement.end_line,
+                    },
+                }
+            case _BayStartPlacement():
+                if placement.outdated_reason == "region_not_found":
+                    # Only the region inside the bay was lost, so this landing
+                    # also sits in the origin's own bay.
+                    assert isinstance(origin, _RangePlacement), (
+                        "a File-level origin never loses a region"
+                    )
+                    assert placement.bay_key == origin.bay_key, (
+                        "a region-lost landing left its origin's bay"
+                    )
+                    return {"kind": "region-lost"}
+                return {
+                    "kind": "bay-lost",
+                    "bay": {"bay_key": placement.bay_key},
+                }
+            case _FileStartPlacement():
+                if placement.outdated_reason is None:
+                    assert isinstance(origin, _FileStartPlacement), (
+                        "a text origin never rests on its File unchanged"
+                    )
+                    return {"kind": "whole-file"}
+                return {"kind": "side-lost"}
 
     def discussion(self) -> ThreadDiscussionView:
         """Fold the complete discussion with its bounded original excerpt.
 
-        Index-style callers use the public location and explicitly render
-        that File when an outdated Thread reports `region_changed`.
+        The excerpt travels inside the origin it is cut from, so a File-level
+        origin carries none. Index-style callers read the placement for where
+        the Thread landed, and explicitly render that File when it reports
+        `region-changed`.
         """
-        placement, origin = self._records()
+        _placement, origin = self._records()
         actions = self._actions()
         state, attention, comments = fold_actions(actions, self._profiles)
         files = self._located_files()
-        original_excerpt = (
-            _build_original_excerpt(origin, files.origin_file, files.cache)
-            if isinstance(origin, _RangePlacement)
-            else None
-        )
+        origin_target = _origin_target_dict(origin, files.origin_file)
+        if isinstance(origin, _RangePlacement):
+            # Only a discussion read builds an excerpt, and it belongs to the
+            # origin it is cut from. The summary path reads no captured text,
+            # so the key is attached here rather than by the shared builder.
+            origin_target["excerpt"] = _build_original_excerpt(
+                origin, files.origin_file, files.cache
+            )
         return ThreadDiscussionView(
             thread_id=self.thread_id.hex,
             snapshot_id=self.snapshot_id.hex,
@@ -1801,14 +1879,8 @@ class Thread:
             state=state,
             attention=attention,
             discussion_revision=len(actions) - 1,
-            origin_target=_origin_target_dict(origin, files.origin_file),
-            code_location=self._locate(),
-            outdated_reason=(
-                "file_missing"
-                if isinstance(placement, _FileMissingPlacement)
-                else placement.outdated_reason
-            ),
-            original_excerpt=original_excerpt,
+            origin_target=origin_target,
+            placement=self._placement_view(),
             comments=comments,
         )
 
@@ -1816,21 +1888,21 @@ class Thread:
         """Fold discovery facts without reading any captured text.
 
         The same action fold and placement checks as `discussion`, minus the
-        original-excerpt construction and the complete Comment list.
+        original-excerpt construction and the complete Comment list. The
+        origin still travels: it is where the File pair, bay, and side a
+        caller needs to name captured code are stated.
         """
         actions = self._actions()
         state, attention, comments = fold_actions(actions, self._profiles)
         assert comments != [], "persisted Thread folded to zero Comments"
+        _placement, origin = self._records()
+        files = self._located_files()
         return ThreadSummaryView(
             thread_id=self.thread_id.hex,
             state=state,
             attention=attention,
-            code_location=self._locate(),
-            outdated_reason=(
-                "file_missing"
-                if isinstance(self._placement, _FileMissingPlacement)
-                else self._placement.outdated_reason
-            ),
+            origin_target=_origin_target_dict(origin, files.origin_file),
+            placement=self._placement_view(),
             first_comment=comments[0],
             latest_comment=comments[-1],
             comment_count=len(comments),
@@ -2072,7 +2144,10 @@ def _bind_threads(
                 origin_file_id,
             )
             for placement in data.threads
+            # An unreadable File is unreferenced but present, so it is not an
+            # absence to prove.
             if placement.snapshot_file_id is None
+            and placement.outdated_reason != "file_unreadable"
             and (
                 origin_file_id := origins[placement.thread_id].snapshot_file_id
             )

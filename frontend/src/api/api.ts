@@ -1041,37 +1041,33 @@ const ReviewCommentSchema = z
 /** Returns one current Comment or retained deletion tombstone. */
 export type ReviewComment = z.infer<typeof ReviewCommentSchema>;
 
-const RangeThreadCodeLocationSchema = z.strictObject({
-  kind: z.literal("range"),
-  file: ReviewFilePairSchema,
-  bay: ReviewTextBaySchema,
-  side: z.enum(["left", "right"]),
-  range: ReviewLineRangeSchema,
-});
-const BayStartThreadCodeLocationSchema = z.strictObject({
-  kind: z.literal("bay-start"),
-  file: ReviewFilePairSchema,
-  bay: ReviewTextBaySchema,
-  side: z.enum(["left", "right"]),
-});
-const FileStartThreadCodeLocationSchema = z.strictObject({
-  kind: z.literal("file-start"),
-  file: ReviewFilePairSchema,
-  side: z.enum(["left", "right"]),
-});
-export const ThreadCodeLocationSchema = z.discriminatedUnion("kind", [
-  RangeThreadCodeLocationSchema,
-  BayStartThreadCodeLocationSchema,
-  FileStartThreadCodeLocationSchema,
+const ThreadPlacementSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("region-kept"),
+    range: ReviewLineRangeSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("region-changed"),
+    range: ReviewLineRangeSchema,
+  }),
+  z.strictObject({ kind: z.literal("region-lost") }),
+  z.strictObject({ kind: z.literal("bay-lost"), bay: ReviewTextBaySchema }),
+  z.strictObject({ kind: z.literal("side-lost") }),
+  z.strictObject({ kind: z.literal("file-absent") }),
+  z.strictObject({ kind: z.literal("file-unreadable") }),
+  z.strictObject({ kind: z.literal("whole-file") }),
 ]);
 
-/** Identifies one current public code location for a Thread. */
-export type ThreadCodeLocation = z.infer<typeof ThreadCodeLocationSchema>;
-
-const ReviewOriginTargetSchema = z.union([
-  ReviewTargetSchema,
-  FileStartThreadCodeLocationSchema,
-]);
+/**
+ * Identifies where one Thread sits in a Snapshot, and what became of it.
+ *
+ * Each variant names one derivation outcome and states only what the origin
+ * does not: the File pair and side are the origin's in every variant, and the
+ * bay is the origin's in all but `bay-lost`. `region-kept` and `whole-file`
+ * report nothing wrong; the six others are the complete outdated vocabulary,
+ * one name per state.
+ */
+export type ThreadPlacement = z.infer<typeof ThreadPlacementSchema>;
 
 const ReviewExcerptSchema = z
   .strictObject({
@@ -1098,109 +1094,130 @@ const ReviewExcerptSchema = z
 /** Returns one bounded selected-side excerpt from the origin Snapshot. */
 export type ReviewExcerpt = z.infer<typeof ReviewExcerptSchema>;
 
-const ReviewThreadSchema = z
-  .strictObject({
-    thread_id: ReviewIdSchema,
-    snapshot_id: ReviewIdSchema,
-    created_at: z.string().datetime({ offset: true }),
-    state: z.enum(["open", "resolved", "deleted"]),
-    attention: z.enum(["author", "reviewer", "both", "none"]),
-    discussion_revision: z.number().int().nonnegative(),
-    origin_target: ReviewOriginTargetSchema,
-    code_location: ThreadCodeLocationSchema.nullable(),
-    outdated_reason: z
-      .enum([
-        "region_changed",
-        "region_not_found",
-        "bay_not_found",
-        "file_missing",
-      ])
-      .nullable(),
-    original_excerpt: ReviewExcerptSchema.nullable(),
-    comments: z.array(ReviewCommentSchema).min(1),
-  })
-  .superRefine((thread, context) => {
-    const location = thread.code_location;
-    const reason = thread.outdated_reason;
-    const origin = thread.origin_target;
-    const legacyFileStart = origin.kind === "file-start";
-    const validCodeState = legacyFileStart
-      ? (reason === null && location?.kind === "file-start") ||
-        (reason === "file_missing" && location === null)
-      : (reason === null && location?.kind === "range") ||
-        (reason === "region_changed" && location?.kind === "range") ||
-        (reason === "region_not_found" && location?.kind === "bay-start") ||
-        (reason === "bay_not_found" &&
-          (location?.kind === "bay-start" ||
-            location?.kind === "file-start")) ||
-        (reason === "file_missing" && location === null);
-    if (!validCodeState) {
-      context.addIssue({
-        code: "custom",
-        message: "Thread code location and outdated state disagree.",
+const TextReviewOriginSchema = TextReviewTargetSchema.extend({
+  excerpt: ReviewExcerptSchema,
+});
+const FileStartReviewOriginSchema = z.strictObject({
+  kind: z.literal("file-start"),
+  file: ReviewFilePairSchema,
+  side: z.enum(["left", "right"]),
+});
+const ReviewOriginSchema = z.discriminatedUnion("kind", [
+  TextReviewOriginSchema,
+  FileStartReviewOriginSchema,
+]);
+
+/**
+ * Identifies the immutable creation target of one Thread.
+ *
+ * This is the only place a response states a Thread's File pair, bay, and
+ * side; a placement repeats none of them. A text origin carries the excerpt
+ * cut from its own Snapshot, and a retained historical File-level origin has
+ * no excerpt field at all.
+ */
+export type ReviewOrigin = z.infer<typeof ReviewOriginSchema>;
+
+const ReviewThreadSchema = z.strictObject({
+  thread_id: ReviewIdSchema,
+  snapshot_id: ReviewIdSchema,
+  created_at: z.string().datetime({ offset: true }),
+  state: z.enum(["open", "resolved", "deleted"]),
+  attention: z.enum(["author", "reviewer", "both", "none"]),
+  discussion_revision: z.number().int().nonnegative(),
+  origin_target: ReviewOriginSchema,
+  placement: ThreadPlacementSchema,
+  comments: z
+    .array(ReviewCommentSchema)
+    .min(1)
+    .superRefine((comments, context) => {
+      const commentIds = new Set<string>();
+      comments.forEach((comment, index) => {
+        if (comment.sequence !== index) {
+          context.addIssue({
+            code: "custom",
+            message: "Thread Comments must have contiguous sequence order.",
+            path: [index, "sequence"],
+          });
+        }
+        if (commentIds.has(comment.comment_id)) {
+          context.addIssue({
+            code: "custom",
+            message: "Thread Comment identities must be unique.",
+            path: [index, "comment_id"],
+          });
+        }
+        commentIds.add(comment.comment_id);
       });
-    }
-    if (legacyFileStart !== (thread.original_excerpt === null)) {
-      context.addIssue({
-        code: "custom",
-        message: "Only historical File-start origins omit an excerpt.",
-      });
-    }
-    const locationMatchesOriginFile =
-      location !== null &&
-      origin.file.left_path === location.file.left_path &&
-      origin.file.right_path === location.file.right_path;
-    if (legacyFileStart && reason !== "file_missing") {
-      if (
-        !locationMatchesOriginFile ||
-        location?.kind !== "file-start" ||
-        location.side !== origin.side
-      ) {
-        context.addIssue({
-          code: "custom",
-          message: "Historical File-start identity changed.",
-        });
-      }
-    } else if (!legacyFileStart && reason !== "file_missing") {
-      // A bay-lost landing keeps only the File-pair and side identity; every
-      // other current location also keeps the origin's own bay.
-      const originBayKept =
-        (location?.kind === "range" || location?.kind === "bay-start") &&
-        origin.bay.bay_key === location.bay.bay_key;
-      const sameSide = location !== null && location.side === origin.side;
-      const validTextLocation =
-        locationMatchesOriginFile &&
-        sameSide &&
-        (reason === "bay_not_found" || originBayKept);
-      if (!validTextLocation) {
-        context.addIssue({
-          code: "custom",
-          message: "Text Thread origin and current location disagree.",
-        });
-      }
-    }
-    const commentIds = new Set<string>();
-    thread.comments.forEach((comment, index) => {
-      if (comment.sequence !== index) {
-        context.addIssue({
-          code: "custom",
-          message: "Thread Comments must have contiguous sequence order.",
-          path: ["comments", index, "sequence"],
-        });
-      }
-      if (commentIds.has(comment.comment_id)) {
-        context.addIssue({
-          code: "custom",
-          message: "Thread Comment identities must be unique.",
-          path: ["comments", index, "comment_id"],
-        });
-      }
-      commentIds.add(comment.comment_id);
-    });
-  });
+    }),
+});
 
 /** Returns one runtime-validated discussion through an exact Snapshot. */
 export type ReviewThread = z.infer<typeof ReviewThreadSchema>;
+
+/**
+ * Reports whether this Snapshot changed what the Thread was written against.
+ *
+ * `region-kept` and `whole-file` are the placements that state nothing went
+ * wrong; every other kind is one of the outdated states. Three call sites in
+ * two modules ask this question, so the mapping is stated once here instead
+ * of as a kind list repeated at each of them.
+ */
+export function threadOutdated(thread: ReviewThread): boolean {
+  const kind = thread.placement.kind;
+  return kind !== "region-kept" && kind !== "whole-file";
+}
+
+/** Addresses the exact captured code one Thread navigates to. */
+export type ThreadCodePoint = {
+  file: ReviewFilePair;
+  bay: ReviewTextBay;
+  side: "left" | "right";
+  line: number;
+};
+
+/**
+ * Returns the code this Thread navigates to, or `null` if it navigates to none.
+ *
+ * The File pair and side are the origin's; the bay is the origin's except for
+ * a `bay-lost` landing, which states the bay derivation chose instead; the
+ * line is the placement's range where it has one, and the bay's first line
+ * where it does not. `null` means the placement names no bay at all, so
+ * History is that Thread's only home. ChangeSet navigation and History's view
+ * control both need this assembly, which is why it is stated once.
+ */
+export function threadCodePoint(thread: ReviewThread): ThreadCodePoint | null {
+  const origin = thread.origin_target;
+  if (origin.kind === "file-start") {
+    return null;
+  }
+  const placement = thread.placement;
+  switch (placement.kind) {
+    case "region-kept":
+    case "region-changed":
+      return {
+        file: origin.file,
+        bay: origin.bay,
+        side: origin.side,
+        line: placement.range.start_line,
+      };
+    case "region-lost":
+      return {
+        file: origin.file,
+        bay: origin.bay,
+        side: origin.side,
+        line: 1,
+      };
+    case "bay-lost":
+      return {
+        file: origin.file,
+        bay: placement.bay,
+        side: origin.side,
+        line: 1,
+      };
+    default:
+      return null;
+  }
+}
 
 const ReviewThreadUpdateSchema = z.strictObject({
   thread_id: ReviewIdSchema,

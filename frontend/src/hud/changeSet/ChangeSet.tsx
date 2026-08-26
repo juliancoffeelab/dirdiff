@@ -43,7 +43,7 @@ import {
   type Manifest,
   type ManifestFile,
   type ManifestSummary,
-  type ThreadCodeLocation,
+  type ThreadCodePoint,
 } from "../../api/api";
 import {
   ErrorPanel,
@@ -431,10 +431,10 @@ function ReviewSnapshotBoundary(
   const [inlineHistoryTarget, setInlineHistoryTarget] =
     createSignal<HTMLElement | null>(null);
 
-  /** Resolves one located Thread to its unique immutable manifest index. */
-  function reviewFileIndex(location: ThreadCodeLocation): number {
+  /** Returns the unique immutable manifest index one code point addresses. */
+  function reviewFileIndex(point: ThreadCodePoint): number {
     const fileIndex = reviewFileIndexes.get(
-      JSON.stringify([location.file.left_path, location.file.right_path]),
+      JSON.stringify([point.file.left_path, point.file.right_path]),
     );
     if (fileIndex === undefined) {
       throw new Error(
@@ -444,39 +444,28 @@ function ReviewSnapshotBoundary(
     return fileIndex;
   }
 
-  /** Reports whether exact line navigation currently accepts the Thread. */
-  function canViewReviewThread(location: ThreadCodeLocation): boolean {
-    // A file-start location names no bay, so there is no line to navigate
-    // to; History is the only home of such a Thread.
-    if (location.kind === "file-start") return false;
-    return navigableFileIndexes().has(reviewFileIndex(location));
+  /** Reports whether exact line navigation currently accepts the code point. */
+  function canViewReviewThread(point: ThreadCodePoint): boolean {
+    return navigableFileIndexes().has(reviewFileIndex(point));
   }
 
   /** Navigates to one loaded Thread line and returns its mounted review anchor. */
   async function viewReviewThread(
-    location: ThreadCodeLocation,
+    point: ThreadCodePoint,
   ): Promise<ReviewCodeAnchor | null> {
-    const fileIndex = reviewFileIndex(location);
+    const fileIndex = reviewFileIndex(point);
     if (!navigableFileIndexes().has(fileIndex)) {
       throw new Error("Review navigation requires a loaded File.");
     }
-    // A file-start location never reaches navigation: canViewReviewThread
-    // rejects it, so every navigable location carries a stored bay — a range
-    // Thread's own bay, or the bay-start landing derivation chose.
-    assert(
-      location.kind !== "file-start",
-      "Review navigation requires a located bay.",
-    );
-    const line = location.kind === "range" ? location.range.start_line : 1;
-    const bay = location.bay;
+    const bay = point.bay;
     const result = await navigation.navigate({
       kind: "line",
       fileIndex,
       target: {
-        file: location.file,
+        file: point.file,
         bay,
-        side: location.side,
-        line: String(line),
+        side: point.side,
+        line: String(point.line),
       },
       abortSignal: reviewNavigationAbort.signal,
     });
@@ -509,7 +498,7 @@ function ReviewSnapshotBoundary(
       matchingGrids[0],
       "Reviewed bay disappeared after navigation.",
     ).querySelectorAll<HTMLElement>(
-      `.line-no[data-line-pin-side="${location.side}"][data-line-pin-line="${line}"]`,
+      `.line-no[data-line-pin-side="${point.side}"][data-line-pin-line="${point.line}"]`,
     );
     assert(
       matchingLines.length === 1,
