@@ -70,11 +70,22 @@ An explicit lazy loading policy does not prohibit a text target once the caller
 has rendered and selected valid captured contents; origin validation uses the
 retained side digest, bay, and range exactly like any other File.
 
+An `image` or `blob` bay holds no lines, and a target against one is defined
+to name the single line `1..1`. Validation reads the kind `bays()` reports and
+refuses every other range against such a bay, so a range is never silently
+clamped into the one line that exists. That single line is not empty: review
+reconstructs it from the media side's own facts as `<media type>, <n> bytes,
+sha256 <digest>`, which makes the ordinary origin machinery do real work on a
+picture — replacing the content changes the line, the retained region hash stops
+matching, and the Thread is reported outdated. Nothing else about the target shape
+differs: the bay key, side, range, digest, and placement states are the ones
+every File uses.
+
 Every placement for an existing File references its `snapshot_file` row through
 the composite `(snapshot_file_id, snapshot_id)` foreign key. If that exact File
 pair is absent, the placement has no File reference and reports
 `file_missing`. A present File with a missing reference is an invariant
-violation, including empty, binary, lazy, capture-error, and notebook Files.
+violation, including empty, blob, lazy, capture-error, and notebook Files.
 
 The migration that removed File-level creation retains each historical
 File-level origin and placement as `file-start`, choosing the captured right
@@ -137,7 +148,9 @@ text target cannot leave a discussion that later review reads cannot render.
 Review text uses the same binary rejection and UTF-8-with-optional-BOM decoding
 as the File renderer. The excerpt is the named bay's own text, which
 composition already decoded, so a notebook cell reads its cell source and a File
-that composes no `flatfile` bay accepts no flatfile target. Excerpt
+that composes no `flatfile` bay accepts no flatfile target. A media bay's excerpt
+is its one pseudo-line, quoted back like any other selected line, so an agent
+reading the discussion sees the media type, size, and digest it commented on. Excerpt
 construction does not call or expose a diff engine or perform a comparison. A retained
 historical `file-start` origin has no selected range and therefore returns no
 excerpt; reads never fabricate one from captured content.
@@ -476,7 +489,10 @@ in the `.ipynb`, and its lines are the lines of that cell's joined `source`.
 Bays whose text a renderer produces rather than the File — cell outputs, cell
 metadata, and notebook metadata — hold no coordinate an agent can derive from
 the bytes. Review accepts those keys like any other; the agent boundary simply
-gives an agent no way to count lines inside them.
+gives an agent no way to count lines inside them. An `image` or `blob` File
+composes one bay keyed `image` or `blob`, and there is nothing to count there
+either: the agent inspects the captured bytes with content-appropriate tools and
+addresses the whole content as the single line `1..1`.
 
 This filesystem contract has separate role-specific operational instructions
 in `.agents/skills/review-patch/references/snapshot_structure.md` and the
@@ -518,7 +534,8 @@ items. The Profile is the ordinary Profile returned by join review. Creation
 accepts the actual absolute path of an existing captured File in the named
 Snapshot, the public bay key that File composes, and an inclusive one-based
 range local to that bay. Bay keys the File does not compose are rejected;
-the boundary assumes no key of its own.
+the boundary assumes no key of its own. A non-text bay accepts only `1..1`,
+and any wider or later range against it is rejected rather than clamped.
 The complete array is validated and appended under the Room write lock in one
 database transaction; any invalid item discards the complete batch. Generated
 Thread, Comment, and operation ids are fresh. Re-sending an HTTP entity simply

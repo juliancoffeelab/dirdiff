@@ -67,7 +67,6 @@ __all__ = [
     "CaptureSelection",
     "FileMeta",
     "PresetCaptureSelection",
-    "PresetCatalog",
     "PullRequestCaptureSelection",
     "RevisionsCaptureSelection",
     "Room",
@@ -128,15 +127,18 @@ class PullRequestCaptureSelection:
     right_commit: str
 
 
-# The closed set of preset catalogs; each backs one Mark-less Room family.
-PresetCatalog = Literal["diff", "fold", "gumtree", "scroll", "notebook"]
-
-
 @dataclass(frozen=True)
 class PresetCaptureSelection:
-    """Select the Preset Tab: one validated catalog and fixture group."""
+    """Select the Preset Tab: one validated catalog and fixture group.
 
-    catalog: PresetCatalog
+    `catalog` is a preset catalog id — the name of a directory under the
+    presets root. The set of them is not enumerated here: it is whatever
+    `preset_catalogs()` finds, and the HTTP boundary rejects an id no catalog
+    directory answers to before a selection is built. Each catalog/subset pair
+    backs one Mark-less Room.
+    """
+
+    catalog: str
     subset: str
 
 
@@ -1326,10 +1328,17 @@ class _SnapshotStore:
                 assert isinstance(backend, PresetBackend), (
                     "preset Rooms require PresetBackend"
                 )
-                assert right_path is not None, (
-                    "preset Files require a right repository path"
+                # A fixture's metadata lives beside both of its sides, so
+                # either path reaches it. A deleted fixture has only the old
+                # side, which is the one the preset backend named the File by
+                # when it built this entry.
+                metadata_path = (
+                    right_path if right_path is not None else left_path
                 )
-                lazy_metadata = backend.lazy_reason_metadata(right_path)
+                assert metadata_path is not None, (
+                    "a captured File has at least one side"
+                )
+                lazy_metadata = backend.lazy_reason_metadata(metadata_path)
                 assert (
                     lazy_metadata[0] if lazy_metadata is not None else None
                 ) == lazy_reason_override, (

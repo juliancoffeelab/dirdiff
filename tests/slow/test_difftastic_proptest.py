@@ -24,7 +24,7 @@ from dirdiff.engines import DiffSide, DirdiffError
 from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
 from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 
-PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "difftastic"
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 Side = Literal["left", "right"]
 

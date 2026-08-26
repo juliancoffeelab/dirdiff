@@ -41,6 +41,14 @@ backend failure reason. Workspace backends do not select Rooms, retain state
 between HTTP requests, classify contents for renderers, or invent
 renderer-dependent line counts.
 
+It also owns the single definition of what this project calls text — no NUL
+byte, and valid UTF-8 with an optional BOM — in two spellings that cannot drift
+apart. `decode_text_content` is the boundary a consumer that requires text
+calls, and it raises naming the offending file. `text_content_or_none` asks the
+same thing as a question and returns `None` instead, which is what composition
+classification calls: "these bytes are not text" selects the blob
+classification there rather than failing.
+
 Its public interface is exported from `dirdiff.backend`.
 
 ## `dirdiff.engines`
@@ -91,9 +99,10 @@ the single shape behind `/api/file-diff`; there is no `render_kind`.
 
 `Composer` has two entry points. `bays()` yields every bay a File composes
 into, in document order, with nothing an engine produces; it is the engine-free
-lookup review validation and the (future) blob endpoint call. `compose()`
+lookup review validation and the media endpoint call. `compose()`
 consumes that stream, renders each text bay through the shared text-bay
-renderer, aggregates the summary, and returns the envelope minus the two fields
+renderer, reduces each image bay to its two `MediaRef` descriptions, aggregates the
+summary, and returns the envelope minus the two fields
 the HTTP boundary attaches (`display_name`, `file_kind`). It assigns no hunk
 numbering: rows keep the bay-local boundaries enrichment gave them, and the
 frontend turns those into the File's navigable sequence. `base.py` holds those
@@ -102,13 +111,35 @@ contracts (contexts, the text-bay renderer, the serialized shapes);
 holds the class and the ordered classification; per-format sibling builders live
 beside them.
 
-Classification is an ordered check: a `.ipynb` whose bytes load as notebook JSON
+Classification is an ordered check, and it is total — every File reaches an
+answer, so none arrives at the frontend as an error where a diff was expected.
+A `.ipynb` whose bytes load as notebook JSON
 composes through `notebook.py` into one frame per cell — every cell, so the
-notebook reads as the document it is — plus a `notebook:metadata` frame;
-everything else,
-including a `.ipynb` that does not load, composes as one heading-less frame
-holding one `flatfile` text bay. Image and binary bay kinds and the blob
-endpoint are later stages.
+notebook reads as the document it is — plus a `notebook:metadata` frame. A File
+whose every captured side's path names one of the image types the browser
+displays natively composes through `image.py` into one heading-less frame
+holding two bays: an `image` bay keyed `image`, which is the frame's body, and
+an `image-facts` text bay beside it, open by default and collapsible;
+classification there
+is by filename extension, which is what the repository asserts the file is. A
+File whose every captured side decodes as text composes as one heading-less
+frame holding one `flatfile` text bay, which is also where a `.ipynb` that does
+not load and an `.svg` land. Everything left composes through `blob.py` into
+one `text` bay keyed `blob`, which is that frame's body: a blob is a
+classification, not a bay kind, and what it composes is a diff of the facts.
+
+The facts are the same three lines in both builders — `type:`, `size:`, and
+`sha256:`, one per line — and the ordinary engine diffs them, so a reviewer
+reads the type, size, and lowercase-hex digest changing line by line and can
+comment on any of them. Those lines are real lines: they count toward the File
+summary the way any other bay's do.
+
+`image.py` produces an `ImageBay`, which holds two optional sides of exact
+captured bytes. `compose()` never serializes those bytes: each present side
+becomes a `MediaRef` of media type, byte size, and lowercase-hex SHA-256, and
+the bytes themselves are served only by `/api/file-media`. An image bay's
+`change` is read from the bytes, so two byte-identical sides are `unchanged`
+and take no navigation stop.
 
 `dirdiff.formats.notebook` owns everything notebook-shaped: parsing, cell
 pairing, public cell keys, and each bay's content. A cell's public key is its
@@ -199,6 +230,17 @@ Profile routes explicitly select an existing exact username, create a unique
 username, or rename one Profile to another unique username.
 Unexpected HTTP failures are logged with their method, path, and traceback at
 the application boundary before the generic internal-error response is sent.
+`/api/file-media` serves one captured image side as the exact Snapshot bytes,
+addressed by Snapshot id, side, and the same nullable File-path pair
+`/api/file-diff` uses, because a renamed image is unaddressable by one path
+alone. It recovers the File through the Room, asks `bays()` which image bay the
+File composes into, and writes that side's bytes under the media type composition
+concluded — so no engine runs to serve a picture and no second opinion about
+the media type is formed at the boundary. A File that composes no image bay —
+a blob among them, since its bytes are stated as facts rather than shown — and
+a side that was never captured are both refused rather than answered with empty
+bytes. Snapshot ids are never reused, so the response is declared immutable and
+cacheable outright.
 `/api/manifest` receives the
 complete selected Tab parameters, shows that state, and provides Snapshot/File
 keys; it performs no Pull Request preparation. `/api/pull-request/prepare` is the

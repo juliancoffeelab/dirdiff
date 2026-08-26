@@ -24,7 +24,7 @@ from dirdiff.engines import (
     TokenDiffEngine,
 )
 
-PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "difftastic"
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 Side = Literal["left", "right"]
 
 __all__: list[str] = []

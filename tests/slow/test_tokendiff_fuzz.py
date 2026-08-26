@@ -22,7 +22,7 @@ from dirdiff.engines import (
     TokenDiffEngine,
 )
 
-PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "difftastic"
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 MUTANTS_PER_SOURCE = 20
 Side = Literal["left", "right"]
 

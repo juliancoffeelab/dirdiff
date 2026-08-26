@@ -1,9 +1,10 @@
 """The flatfile format: a File with no internal structure to decompose.
 
-A flatfile is a File that no other format claims — source code, configuration,
-prose, anything dirdiff renders as its own text rather than interpreting. It is
-the terminal of `composer.py`'s ordered classification, and by volume it is the
-ordinary case: most Files in most reviews are flatfiles.
+A flatfile is a File that no other format claims and that decodes as text —
+source code, configuration, prose, anything dirdiff renders as its own text
+rather than interpreting. By volume it is the ordinary case: most Files in most
+reviews are flatfiles. It is not the terminal of `composer.py`'s ordered
+classification; `blob.py` is, and it takes the content that does not decode.
 
 The name states a fact about the File rather than a judgement about it. A
 flatfile has no parts, so composition has nothing to split: it produces one
@@ -18,24 +19,23 @@ Public interface: `flatfile_bays()`, which yields that one bay.
 outside this package — review targets, line pins, the agent API — compare
 against it, and they must not import a format module to do so.
 
-What this module does not own: classification. It never decides whether a File
-is a flatfile; `composer.py` does, and calls this module once that answer is
-final. It also owns no engine — the sides it yields are decoded text, and
-rendering them is `render_text_bay()`'s job.
+What this module does not own: classification, or decoding. It never decides
+whether a File is a flatfile; `composer.py` does, by decoding the two sides, and
+calls this module with the text it already has. It also owns no engine — the
+sides it yields are that decoded text, and rendering them is
+`text_kind_payload()`'s job.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 
-from dirdiff.backend import decode_text_content
 from dirdiff.engines import DiffSide
 from dirdiff.formats.base import (
     FLATFILE_BAY_KEY,
-    BayChange,
     BayContext,
-    ChangeStatus,
     TextBay,
+    whole_file_change,
 )
 
 __all__ = [
@@ -44,46 +44,26 @@ __all__ = [
 
 
 def flatfile_bays(
-    left: bytes | None,
-    right: bytes | None,
+    left_text: str | None,
+    right_text: str | None,
     context: BayContext,
 ) -> Iterator[TextBay]:
     """Yield the single bay a flatfile composes into.
 
-    Both sides are decoded here, because a flatfile *is* its decoded text: a
-    binary or non-UTF-8 side raises `DirdiffError` at this boundary, which the
-    request handler reports as an unsupported file diff. An absent side is
-    absent, not empty — that is how an added or removed File is expressed.
+    Both sides arrive already decoded, because deciding that a File *is* a
+    flatfile means decoding it: classification decodes once, hands the result
+    here, and sends content that did not decode to the blob terminal instead.
+    Nothing is decoded twice and this builder cannot be handed content that is
+    not text.
 
-    The bay is never collapsible. Its `change` is read from the two decoded
-    texts rather than from rendered rows, because a flatfile has no fact beyond
-    its own text: one side absent is an addition or a removal, identical text is
-    `unchanged`, and anything else is `changed`. A flatfile is never `moved`,
-    which is a position within a document and a flatfile has no positions.
+    `None` on a side means the File was not captured there — that is how an
+    added or removed File is expressed. A captured empty File decodes to `""`
+    and is a present side, not an absent one.
+
+    The bay is never collapsible, and its `change` follows the whole-File rule:
+    a flatfile has no fact beyond its own text and no positions to move within.
     """
-    left_text = (
-        None
-        if left is None
-        else decode_text_content(
-            left, label=f"{context.left_label}:{context.left_path}"
-        )
-    )
-    right_text = (
-        None
-        if right is None
-        else decode_text_content(
-            right, label=f"{context.right_label}:{context.right_path}"
-        )
-    )
-    change: BayChange
-    if left_text is None:
-        change = ChangeStatus(kind="added")
-    elif right_text is None:
-        change = ChangeStatus(kind="removed")
-    elif left_text == right_text:
-        change = ChangeStatus(kind="unchanged")
-    else:
-        change = ChangeStatus(kind="changed")
+    change = whole_file_change(left_text, right_text)
     yield TextBay(
         # One frame, and nothing to name above a File that is entirely its own
         # text, so the frame is keyed "file" and carries no heading. "Code" is
@@ -99,10 +79,12 @@ def flatfile_bays(
         left_label=context.left_label,
         right_label=context.right_label,
         left=DiffSide(
-            exists=left is not None, text=left_text, path_hint=context.left_path
+            exists=left_text is not None,
+            text=left_text,
+            path_hint=context.left_path,
         ),
         right=DiffSide(
-            exists=right is not None,
+            exists=right_text is not None,
             text=right_text,
             path_hint=context.right_path,
         ),

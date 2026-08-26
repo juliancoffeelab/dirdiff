@@ -57,20 +57,26 @@ We don't have tests for the frontend yet.
 Create the preset under:
 
 ```text
-tests/presets/<kind>/<group>/<case>/
+tests/presets/<catalog>/<group>/<case>/
 ```
 
-The directory must contain:
+The catalog directory is a directory under the presets root holding a
+`preset.toml` that states the `name` the Preset Tab shows; its own directory
+name is the catalog id. Creating a catalog is creating that directory and that
+one line — `/api/presets` lists whatever is there.
+
+The case directory must contain:
 
 - exactly one `old.*` file;
 - exactly one `new.*` file with the same extension;
 - the standard preset `Makefile`, copied from an adjacent preset.
 
-Golden snapshots mirror the preset path under:
+A case describing an addition or a deletion holds only its one side and has no
+`Makefile`, since there is no pair to run. Golden snapshot tests cover the
+two-sided cases.
 
-```text
-tests/golden/<kind>/<group>/<case>/
-```
+Golden snapshots mirror the group and case path under the golden root the
+snapshot extension names, such as `tests/golden/difftastic/<group>/<case>/`.
 
 Run `make snapshot` to verify the current snapshots. Run `make resnapshot` to
 delete and regenerate all golden JSON after an intentional behavior change or

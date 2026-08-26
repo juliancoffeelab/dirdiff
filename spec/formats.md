@@ -5,10 +5,15 @@
 This is the living description of the formats subsystem. It is not an approval
 gate and not a frozen contract.
 
-Composition, the flatfile terminal, notebook composition, and the composed-diff
-wire shape describe running code and are corrected to it. The image and binary
-bay kinds, the blob endpoint, and the hybrid-notebook shape are not implemented;
-those sections describe intent, and are marked where they appear.
+Composition, the flatfile terminal, notebook composition, the composed-diff wire
+shape, and the media endpoint describe running code and are corrected to it.
+
+Two things are intent rather than description, and are marked where they appear.
+The hybrid-notebook shape and symlink composition are unimplemented stages. And
+`blob` is a bay kind in the running code, while this document describes it as a
+File classification whose bay is `text`; that change is described under
+[Blob is a classification, not a kind](#blob-is-a-classification-not-a-kind) and
+everything downstream of it is written to the target rather than to the code.
 
 As each remaining stage lands, its sections become ordinary living description
 under [`goal.md`](goal.md) and must be corrected to whatever the implementation
@@ -55,13 +60,13 @@ type ComposedDiff = {
   file_kind: FileKind;
   summary: DiffSummary;
   default_expanded: boolean;
-  frames: Frame[];
+  frames: FramePayload[];
 };
 
-type Frame = {
+type FramePayload = {
   frame_key: string;
   heading: string | null;
-  bays: Bay[];
+  bays: BayPayload[];
 };
 ```
 
@@ -111,10 +116,10 @@ format adds a classification step and a bay builder. Adding a kind of thing
 a reviewer can look at
 adds a bay kind and its widget.
 
-Target shape, not existing code:
+The shape on the wire, one record carrying one union:
 
 ```ts
-type BayBase = {
+type BayPayload = {
   bay_key: string;
   label: string;
   detail: string | null;
@@ -123,37 +128,65 @@ type BayBase = {
   change:
     | { kind: "added" | "removed" | "changed" | "unchanged" }
     | { kind: "moved"; from_heading: string | null; to_heading: string | null };
+  kind_data: BayKindPayload;
 };
 
-type Bay = BayBase &
-  (
-    | {
-        kind: "text";
-        left_label: string;
-        right_label: string;
-        rows: DiffRow[];
-        fold_hints: FoldHint[];
-        stats: BayStats;
-        engine_warning: EngineWarning | null;
-      }
-    | { kind: "image"; left: BlobRef | null; right: BlobRef | null }
-    | { kind: "binary"; left: BlobRef | null; right: BlobRef | null }
-  );
+type BayKindPayload = TextKindPayload | ImageKindPayload;
 
-type BlobRef = { media_type: string; byte_size: number; digest: string };
+type TextKindPayload = {
+  kind: "text";
+  left_label: string;
+  right_label: string;
+  rows: DiffRow[];
+  fold_hints: FoldHint[];
+  stats: BayStats;
+  engine_warning: EngineWarning | null;
+};
+
+type ImageKindPayload = {
+  kind: "image";
+  left: MediaRef | null;
+  right: MediaRef | null;
+};
+
+type MediaRef = { media_type: string; byte_size: number; digest: string };
 ```
 
-The intersection keeps the fields every bay carries in one place. It also
-matches existing frontend practice: `api.ts` already declares its four
-`*DiffParams` types over a shared `RepoBackedDiffParams` this way. Flattening the
-union so each variant repeats those fields is a change to make everywhere or
-nowhere, and it is not worth a sweep.
+`BayPayload` is what a consumer receives for one bay: the fields every bay has
+whatever it holds, and `kind_data`, the single field that varies. It is a real
+declaration on both sides rather than a reading aid. Python declares one
+`TypedDict` whose `kind_data` is the kind union; `api.ts` declares one
+`strictObject` whose `kind_data` is the `z.discriminatedUnion`. The shared
+fields are written once on each side instead of once per kind, and adding a kind
+adds one variant and touches nothing else.
+
+Both sides spell these names identically, because the wire shape is one thing
+and deserves one name. `Payload` is what crosses the wire, so the pre-render
+types under [What `bays()` yields](#what-bays-yields) keep the bare names —
+`Bay`, `TextBay`, `ImageBay` — and nothing named `Payload` holds
+bytes or decoded text. The frontend has no pre-render stage and adopts the wire
+names as they are; it consumes the payload rather than deriving a second
+representation from it.
+
+The discriminator sits one level down as a consequence. Placement, identity,
+collapse, and status read `BayPayload` directly and never learn the kind; only
+the widget dispatch descends into `kind_data` and switches on its `kind`.
+`kind_data` is backend-owned like every other wire field: the frontend chooses a
+widget from it and never authors or rewrites it. The field keeps the plain name
+because it is data inside a payload, not a second payload.
+
+The arms are named `TextKindPayload` and friends rather than `TextBayPayload`,
+because they carry only the varying part: a name ending in "BayPayload" would
+claim to be a whole bay's payload when it is not.
+
+The union has two arms because there are two things a reviewer can look at:
+lines, and a picture. `MediaRef` belongs to `ImageKindPayload` alone. It names
+the bytes the widget must fetch, and no other kind fetches bytes.
 
 | Kind | Contents | Rendered by |
 | --- | --- | --- |
 | `text` | decorated rows, fold hints, per-bay stats, optional engine warning | the existing `TextDiffGrid` |
-| `image` | optional left/right `BlobRef` | the image widget |
-| `binary` | optional left/right `BlobRef` | the binary widget |
+| `image` | optional left/right `MediaRef` | `ImageBayView`, showing the pictures |
 
 `text` bays are produced by one shared text-bay renderer, extracted from
 today's `_render_notebook_text_payload` and `build_text_file_payload`. It calls
@@ -189,20 +222,65 @@ raw cell, or a cell that is nothing but a loop yields no hints at all. "This
 whole bay is unchanged" is a fact composition already holds once it has
 rendered the bay, and it belongs in the payload rather than in a parser.
 
-`image` bays carry no bytes. `BlobRef` describes the captured side; the widget
-requests the bytes from the blob endpoint below.
+`image` bays carry no bytes. `MediaRef` describes the captured side; the widget
+requests the bytes from the media endpoint below. Which Files are images is not
+this document's decision: `image_media_type()` in `formats/image.py` names the
+media type a path is an image of, or nothing, and composition asks it. A File it
+names nothing for reaches a later step, and the blob terminal at the end.
 
-`binary` is the defined contract for content the frontend cannot render, not a
-fallback: before and after digests and sizes, in the spirit of what `git diff`
-prints for binary files. It replaces today's `DirdiffError` from
-`decode_text_content` for non-text, non-image content. That is an approved
-behavior change: a binary File currently becomes an error `LazyFile` and will
-instead become an ordinary composed diff with one `binary` bay.
+An image File composes two bays: the `image` bay holding the picture, and a
+`text` bay holding what is known about the bytes. The picture answers "does it
+look different"; the facts answer "did it actually change, and to what". Neither
+answers the other — a re-encode that changes every byte can look identical, and
+two visually different renderings of one asset have different digests for a
+reason worth reading.
 
-Future kinds arrive as new bay kinds with their own widget. Nothing about
-frames, hunk allocation, or the composed-diff envelope changes to admit them. No
-such kind is currently planned; a 3D model viewer is the shape most often
-imagined for one, and it is postponed.
+They stand in the ordinary body-and-attachment relation: the picture is the
+frame's body and is always shown, and the facts bay is an attachment beside it,
+open by default and collapsible. Three lines cost a reviewer nothing to read and
+answer the question the picture cannot, so they are stated rather than hidden
+behind a disclosure; a reviewer who does not want them shuts the bay. A blob File
+differs only because it has no picture — there its facts bay *is* the body,
+shown and not collapsible.
+
+Future kinds arrive as new bay kinds with their own widget. The bar for one is
+that the thing genuinely cannot be read as lines — a picture clears it, and
+named facts about a file do not, whatever produced them. Nothing about frames,
+hunk allocation, or the composed-diff envelope changes to admit a kind that
+clears it. No such kind is currently planned; a 3D model viewer is the shape
+most often imagined for one, and it is postponed.
+
+### Blob is a classification, not a kind
+
+**Not implemented.** The running code has a third bay kind, `blob`, with its own
+payload arm and its own widget. It should not, and the rest of this document is
+written as though it does not.
+
+A blob File is content nothing else claimed. What can honestly be shown for it
+is its media type, its size, and its digest, in the spirit of what `git diff`
+prints for a binary file. Those are lines of text. So a blob File composes one
+`text` bay holding them, and the reviewer gets a real diff of the facts — the
+size row changed, the digest row changed, the media type row did not — instead of
+one undiffed line to eyeball twice.
+
+That deletes rather than adds. There is no `blob` payload arm, no `BlobBay`, no
+blob widget, and no pseudo-line for blob targets: the bay has three real lines,
+so a comment can land on the digest specifically, and `1..1` stops being the only
+range a blob target may hold. Classification still ends at blob — that is what
+makes it total — but blob names a File, the way "notebook" and "flatfile" do,
+rather than naming a kind of thing to look at.
+
+The same text bay is what an image File's facts bay holds, and later the same
+shape carries EXIF for the formats that have it: named facts about a side, which
+change, and whose change is the point. None of that needs a kind, because
+diffing named facts is what `text` already does.
+
+What this gives up is that a blob File no longer composes any bay carrying
+bytes. Today it does, so "download this blob" is one caller away from working;
+under the target the media endpoint has no blob bay to be asked about, and a
+download would need its own answer to "which bytes, addressed how". Nothing
+currently asks — no blob widget requests bytes — so nothing regresses, but the
+capability is being spent, not merely deferred.
 
 ## Composers
 
@@ -235,29 +313,39 @@ nothing an engine produces. `compose()` consumes that stream, applies the shared
 text-bay renderer to each text bay, and returns the complete composed diff.
 
 Neither method returns `None`, and neither has a "not my format" outcome.
-Classification always reaches an answer because `binary` is terminal.
+Classification always reaches an answer because `blob` is terminal.
 
 ### What `bays()` yields
 
-A `Bay` here is the same bay the frontend eventually receives, before
-rendering and before serialization. It is tagged by what the bay is made of,
-because that is the distinction its consumers act on:
+A bay here is the same bay the frontend eventually receives as a `BayPayload`,
+before rendering and before serialization. The union has one member per kind,
+matching the wire and the widgets:
 
-- a **text** bay carries its identity, its label, its expansion state, and
-  its two decoded sides;
-- a **blob** bay carries the same identity fields plus its bytes and media
-  type.
+```python
+Bay = TextBay | ImageBay
+```
 
-Review reconstructs an excerpt from one or the other, the blob endpoint serves
-the second, and `compose()` renders the first through the engine and reduces the
-second to a `BlobRef`. The `kind` a widget dispatches on rides along; the union
-splits on content because content is what the callers need.
+- a **`TextBay`** carries its identity, its label, its expansion state, and its
+  two decoded sides — whether those sides are a file's own text, a notebook
+  cell's source, or facts composition stated about bytes;
+- an **`ImageBay`** carries the same identity fields plus its two captured
+  sides, each holding exact bytes and the media type composition concluded.
+
+There is no base class and no `kind` field distinguishing cases inside one type:
+the type *is* the distinction, so a consumer that must act differently on a
+picture writes two branches the type checker enforces, and one that must not
+act differently writes none.
+
+Review reconstructs an excerpt from either, the media endpoint serves the
+captured sides of the second, and `compose()` renders the first through the
+engine and reduces the second to `MediaRef` sides. The union splits on content
+because content is what the callers need.
 
 Identity includes the frame. Frames are contiguous in document order, so a
 consumer that wants frames groups consecutive items by their frame key and
 heading, and no second structure or second call is needed.
 
-It is an iterator because its two engine-free consumers are lookups. The blob
+It is an iterator because its two engine-free consumers are lookups. The media
 endpoint wants one output of one cell of a two-hundred-cell notebook, and review
 validation wants to know whether one key exists and what kind it is. Returning a
 built structure would make both construct every bay to answer about one. This
@@ -268,9 +356,10 @@ The decoded sides a text bay carries are not extra work done for review.
 They are the same sides `compose()` renders, so nothing is decoded or parsed
 twice.
 
-Bytes never reach the wire. A blob bay holds its payload while composing, so
-the blob endpoint can serve it; by the time the bay is serialized it carries
-only the `BlobRef` describing that payload. The two shapes under **Bay kinds**
+Bytes never reach the wire. An `ImageBay` holds its payload while composing, so
+the media endpoint can serve it; by the time it is serialized it carries only
+the `MediaRef` describing that payload. The shapes
+under **Bay kinds**
 above are what survives serialization, not a second type. Python and TypeScript
 declare that shape independently, as they do for everything else crossing this
 boundary; neither declaration is generated from or derived from the other.
@@ -344,7 +433,7 @@ selects an engine, never names one, and never learns which one it was handed.
 Consumers:
 
 - review validation and line-pin matching call `bays()`;
-- the blob endpoint calls `bays()`;
+- the media endpoint calls `bays()`;
 - `/api/file-diff` calls `compose()`.
 
 Purity is the required contract for both methods. The same two byte sides and
@@ -357,20 +446,24 @@ place, not a registry, plugin table, or media-type map:
 
 1. notebook, when a path suffix says `.ipynb` and every present side loads as
    notebook JSON;
-2. flatfile, the terminal every other File reaches.
+2. image, when `image_media_type()` names a type for every present side's
+   path;
+3. flatfile, when every present side decodes as text;
+4. blob, the terminal every other File reaches.
 
-A `.ipynb` whose bytes do not load is not a notebook; it falls through to the
-flatfile terminal. An absent side is not a failure to load — the File was added
-or removed, and the notebook builder reports that side absent. The image check
-and the terminal `binary` bay are later stages; when they land they take their
-places in this list, before and after `text` respectively.
+A step that any present side fails falls through to the next, and the terminal
+accepts everything, so classification always reaches an answer and no input
+raises here at all. A `.ipynb` whose bytes do not load is not a notebook and is
+diffed as the text it is; a `.png` renamed to `.txt` is neither an image on both
+sides nor text on both sides, and lands on blob. An absent side is not a failure
+— the File was added or removed, and the builder reports that side absent.
 
-The check owns the decision completely, and each step hands its bay builder
-the value it already validated: the notebook builder takes parsed notebooks, the
-flatfile builder takes bytes and decodes them. A builder cannot be handed the
-wrong format, because its parameters do not admit one. A binary or non-UTF-8
-side raises `DirdiffError` at the flatfile builder's decode boundary, which the
-request handler reports as an unsupported file diff.
+The check owns the decision completely, and each step hands its bay builder the
+value it already validated — parsed notebooks, media types, decoded text, raw
+bytes. A builder cannot be handed the wrong format, because its parameters do
+not admit one, and a binary or non-UTF-8 side is not a builder's problem: it
+failed the flatfile step and reached the terminal, which is why nothing here
+reports an unsupported file diff any more.
 
 Cell identity is part of loading. A notebook must give every cell a distinct
 `id` in the schema's `cell_id` shape (1 to 64 characters, ASCII letters,
@@ -443,6 +536,13 @@ One manifest entry remains one stable `FileCard` with one file index. Ordinary
 a flatfile uses the bay key `"flatfile"`. Notebook cell source keeps its existing
 public cell key. Bay keys are non-empty and unique within one composed diff.
 
+A bay key names the classification that produced the bay, not the kind of the
+bay. A blob File's facts bay is keyed `"blob"` and an image File's facts bay is
+keyed `"image-facts"`, though both are `text` bays holding the same three facts.
+Keying both `"facts"` would let a target survive a File changing classification,
+landing a comment written about a picture on the bytes that replaced it — which
+is the same reason `"image"` and `"flatfile"` are distinct keys.
+
 A notebook cell's bays are keyed by that cell's key together with what the
 bay is: its source, its metadata, or its position in the cell's output list.
 All of those are facts about the notebook's structure, so a key does not depend
@@ -472,8 +572,8 @@ either side:
 - a `text` bay contributes the wire's own `hunk_index` values verbatim — one
   per row that begins a changed run, numbered from zero in row order;
 - a bay whose `change` is anything but `unchanged`, contributing no such row,
-  takes one stop of its own at index zero. This covers `image`, `binary`,
-  future kinds, and a `text` bay whose rendered text is identical on both
+  takes one stop of its own at index zero. This covers `image`, future kinds,
+  and a `text` bay whose rendered text is identical on both
   sides. The two rules are exclusive per bay, so the stop cannot collide
   with a row's index.
 
@@ -514,7 +614,8 @@ widget calls it.
 | --- | --- | --- |
 | flatfile | one, no heading | one `text` bay keyed `"flatfile"` |
 | notebook | one per cell, plus one for notebook metadata | cell source `text` keyed by cell key, plus one bay for changed cell metadata and one per changed output |
-| image | one, no heading | one `image` bay |
+| image | one, no heading | one `image` bay, plus a collapsible `text` bay of its facts keyed `"image-facts"` |
+| blob | one, no heading | one `text` bay of its facts keyed `"blob"` |
 | hybrid notebook | one per cell, plus one for notebook metadata | the same shape, with `image` bays for the outputs whose bundle offers one |
 | symlink | one | one `text` bay holding the link target |
 
@@ -529,42 +630,140 @@ The hybrid case is the point of the design, and if stage 1 chooses output
 representations as described it costs almost nothing later: showing a rendered
 plot beside its source is that same choice preferring `image/png` over
 `text/plain` for one output. It is not a new format and not a new frontend
-renderer. It does need the blob addressing recorded below.
+renderer. It does need the media addressing recorded below.
 
 Symlinks are stage 4. Their shape needs nothing from this design that images
 and notebooks do not already need; what they need is the recorded file mode,
 which capture does not carry today.
 
-## Blob transport
+## Media transport
 
-A new endpoint serves captured bytes:
+One endpoint serves captured bytes:
 
 ```text
-GET /api/file-blob?snapshot_id=...&side=left|right&path=...
+GET /api/file-media?snapshot_id=...&side=left|right&left_path=...&right_path=...
 ```
 
-It is addressed by Snapshot id, side, and repository path — the same addressing
-`/api/file-diff` already uses — and returns the exact captured Snapshot bytes
-with the correct `Content-Type` for the media type. Snapshots are immutable, so
-responses are stable and cacheable.
+It is addressed by Snapshot id, side, and the same nullable File-path pair
+`/api/file-diff` uses, because a File is identified by that pair and not by one
+path: a renamed image has a different name on each side, and an added or removed
+one has a name on only one. Either path parameter is omitted for a side the File
+was not captured on. The response is the exact captured Snapshot bytes under the
+media type composition concluded, so no second opinion about the media type is
+formed at the boundary and no engine runs to serve a picture. Snapshot ids are
+never reused, so the response is declared immutable and cached outright:
+`Cache-Control: private, max-age=31536000, immutable`.
 
 The endpoint reads through the existing Room interface over the capture store
-that already holds exact bytes on disk. Capture and publication stores remain
-private behind Room, as described in [`rooms.md`](rooms.md). No copy, materialized
-directory, or second content store is introduced.
+that already holds exact bytes on disk, then asks `bays()` which `ImageBay` the
+File composes into — the same engine-free call review validation makes, not a
+second mechanism. Capture and publication stores remain private behind Room, as
+described in [`rooms.md`](rooms.md). No copy, materialized directory, or second
+content store is introduced.
 
-Bay payloads never inline bytes. A `BlobRef` digest identifies the content the
+It serves `image` bays and nothing else, because they are the only bays that
+carry bytes. Its one caller is the `<img src>` in the image widget. A blob File
+composes no bay it can be asked about, which is the cost recorded under
+[Blob is a classification, not a kind](#blob-is-a-classification-not-a-kind).
+
+A File that composes no `image` bay, and a side that was never captured, are
+both refused. Neither is answered with empty bytes: an empty response would be a
+believable picture of nothing, and there is no such thing.
+
+Bay payloads never inline bytes. A `MediaRef` digest identifies the content the
 endpoint will serve for that side.
 
 This addressing has a known gap, and it is a stage 3 problem rather than a stage
-2 one. An `image` bay for an image File names bytes that really are a file at
-a path, which this endpoint already serves. A notebook's rendered plot is base64
-inside one output of one cell of the `.ipynb` and has no path of its own.
-Serving notebook-embedded bytes therefore needs a sub-file coordinate in the
-endpoint, resolved by calling `bays()` on the captured bytes and reading the
-payload the named bay holds. That is the same engine-free call review
-validation makes, not a second mechanism. The endpoint shape belongs to stage 3,
-the first stage that must serve such bytes.
+2 one. Everything a File pair can name is the whole content of one captured
+side, and today a File composes at most one bay carrying bytes, so the pair and
+the side pick them without ambiguity. An image File's facts bay does not disturb
+that: it is a `text` bay and carries none.
+
+Under the hybrid-notebook shape it stops holding. A cell's frame may hold an
+image bay beside its source bay, and several cells' outputs share one File pair,
+so the pair and the side no longer pick one side's bytes. Serving
+notebook-embedded bytes therefore needs a bay key in the endpoint, selecting
+among the bays the same `bays()` call already yields. The widened endpoint shape
+belongs to stage 3, the first stage that must serve such bytes.
+
+## Frontend representation
+
+The idea of formats is to split the concept of a file into two *asymmetric*
+representations.
+One is about the structure of a file, what it composed of and what its
+higher-level data.
+The other is about how that file is visually presented to a human.
+
+The highest level is a file, that's what largely managed by backend.
+Then backend splits the file into frames.
+For simplest case, flatfile, the frames are just one text segment.
+For notebooks, frames are the cells of the notebook.
+
+When it gets interesting and what highlights the concept of formats are bays.
+Each frame ultimately gets split into bays.
+Notebook cell is split into multiple bays, the bay for source text, then bays
+for output text, and potentially, other shapes, like image.
+
+That's where the backend ends.
+
+Now each bay payload, in frames, in files gets sent to a frontend.
+These are independent:
+- there's text
+- there's image
+
+There should be no hierarchy, and honestly, probably not a lot of shared code
+between them, since they would get complicated pretty fast.
+
+Notice how these are independent.
+Text file can have text bay, image can have image bay.
+But notebook has all of them.
+Hell, image can have an image bay, and then text bay for metadata.
+Blob, while being strictly non-textual, will have text bay for metadata, cause
+that's all we have.
+Link can have two textual bays, one for path metadata (points to X), and
+then collapsed set of bays for the original file.
+
+**Not implemented.** Today `image` and `blob` are two kinds sharing one
+`MediaBayView` and one Python `MediaBay` with a `kind` field, and each composes
+exactly one bay for a whole File. What follows is the target, and the rest of
+this document is written to it.
+
+Taking the paragraph above seriously removes a kind rather than adding one. A
+blob File's metadata bay is a text bay, so blob is a File classification and not
+something the frontend renders; an image File's metadata bay is a text bay too,
+beside its picture. That leaves two kinds, and the frame walk is the only place
+either is examined:
+
+```tsx
+// FrameView hands each widget its own arm of the union, already narrowed.
+switch (bay.kind_data.kind) {
+  case "text":
+    return <TextDiffGrid bay={bay} text={bay.kind_data} {...rest} />;
+  case "image":
+    return <ImageBayView bay={bay} image={bay.kind_data} {...rest} />;
+}
+```
+
+Every widget takes the same two things: the `BayPayload`, for identity, label,
+collapse state, and `change`, and its own arm, for content. None of them can ask
+what kind it is, because the question was answered before it mounted and there
+is no `kind` prop to read. A new kind is a `case` and a module under
+`hud/fileCard/grids/<kind>/`, and nothing else moves.
+
+There is no `MediaBayView` and no `BlobBayView`. `ImageBayView` calls
+`fileMediaUrl()` to fill an `<img src>` and is the only widget that fetches
+anything; a blob File's facts arrive as rows in a `text` bay and `TextDiffGrid`
+draws them like any other rows, folding, highlighting, and hunk-marking included
+because there is nothing to exempt.
+
+The shared-code question the paragraph above raises answers itself for now.
+`TextDiffGrid` and `ImageBayView` share the line-host DOM every bay hosting a
+review line writes — a `data-bay-key` wrapper, a `data-review-bay` grid, a line
+container, and a `.line-no` beside its `.line-code` — because `ImageBayView`
+hosts the pseudo-line a comment on the picture lands on. Whether that is a
+shared component or two writers is decided when the split lands; if a component
+appears, it is a review-line host any bay kind may use, never a media base
+class.
 
 ## Review and line pins
 
@@ -595,12 +794,27 @@ bay identity without an engine, and there is still one implementation of that
 identity rather than a validation-side approximation of it, which is what
 `rendered_notebook_cell_pairs` already achieves for notebooks today.
 
-### Non-text review targets
+### Image review targets
 
-A non-text bay exposes exactly one pseudo-line. A review target against it is
+An `image` bay exposes exactly one pseudo-line. A review target against it is
 an ordinary text target: the same File pair, the same bay, the same selected
-side, and the one-based inclusive range `1..1`. Line pins on non-text bays use
+side, and the one-based inclusive range `1..1`. Line pins on image bays use
 the same coordinate.
+
+`image` is the only bay kind that needs this, and that is its whole
+justification: a picture has no lines of its own, and "this icon is too dark"
+belongs on the picture rather than on the digest row of the facts bay sitting
+beside it in the same frame. Every other bay a File composes — a blob File's
+facts, an image's facts, a link's target, a cell's source — is a `text` bay with
+real lines and needs nothing from this section.
+
+That pseudo-line is a placeholder, but review renders it from the image side's
+own facts — `<media type>, <n> bytes, sha256 <digest>` — so the ordinary origin
+machinery does real work on it: replacing the content changes the line, the
+region hash retained at creation stops matching, and the Thread is reported
+outdated, which is what a comment on a replaced image deserves. Its parser path
+hint is `media`, which claims no language, so structural matching stays over the
+whole line rather than following whatever the File's real extension implies.
 
 One target shape therefore runs through validation, placement, History, and every
 frontend path that handles a target. The pin URL shape and the whole Comment input
@@ -609,12 +823,15 @@ review work a new bay kind owes.
 
 The costs are real, and are accepted rather than hidden:
 
-- the persisted target carries a line number that describes no line;
-- a range other than `1..1` against a non-text bay is invalid, and validation
-  rejects it using the bay's kind from `bays()`;
-- excerpt reads still branch on kind. Review context for a non-text bay is
-  reconstructed from the blob digests rather than from decoded text, so the
-  pseudo-line buys one target variant, not kind-blindness.
+- the persisted target carries a line number that describes no line in the file;
+- a range other than `1..1` against an `image` bay is invalid, and validation
+  rejects it — rather than clamping it — using the bay's kind from `bays()`.
+  Review branches on kind twice, and nowhere else: once to build the
+  pseudo-line, once to decide which ranges are valid. Composition does not
+  branch at all — it hands over bays, and review reads them. Everything between
+  those two branches — origin matching, placement, excerpt reads, History, and
+  the frontend — sees one line of text and asks nothing about where it came
+  from.
 
 The alternative was a tagged bay target addressing a whole bay with no line
 range. It persists honestly, at the price of a second target variant through
@@ -636,7 +853,20 @@ A new package `dirdiff.formats`, following the project's package rules:
   the one module that imports the per-format siblings, which keeps `base.py` free
   of them and the import graph acyclic.
 - one sibling module per format holding that format's bay builder:
-  `notebook.py`, `image.py`, and later ones. None of them is a `Composer`.
+  `flatfile.py`, `notebook.py`, `image.py`, `blob.py`, and later ones. None of
+  them is a `Composer`. What each owns is the classification question it answers
+  — "does the repository call this a picture" against "nothing else claimed it"
+  — of which only the second is terminal, and neither imports the other.
+- `ImageBay`, `MediaSide`, and `MediaRef` belong to `base.py`, not to
+  `image.py`. `ImageBay` is an arm of the `Bay` union `base.py` defines, and the
+  facts text and the `MediaRef` reduction both take a `MediaSide`; putting the
+  types in `image.py` would make `base.py` import a sibling, which the rule
+  above forbids. `image.py` is the only builder that constructs them, and the
+  media endpoint reaches them through the facade.
+- the facts text — media type, size, digest, one per line — is built in
+  `base.py`. `image.py` uses it for the facts bay beside its picture and
+  `blob.py` for its only bay, which is two callers in sibling modules and
+  therefore belongs there rather than in either of them.
 - `__init__.py` is a facade of re-exports only.
 - `server.py` calls the facade and never a submodule.
 
@@ -648,15 +878,17 @@ dissolve into the shared text-bay renderer and the ordered classification.
 
 The `frontend/src/hud/fileCard/` directory, behind its `FileCard.tsx` facade:
 
-- the generic frame renderer, which walks frames and dispatches each bay to
-  its widget by `kind`;
-- one widget per bay kind. The `text` widget delegates to the existing
-  `TextDiffGrid` in `hud/fileCard/grids/text/`.
+- `FrameView.tsx`, the generic frame renderer, which walks frames and dispatches
+  each bay to its widget by `kind`;
+- one widget per bay kind, in `hud/fileCard/grids/<kind>/`: `TextDiffGrid` in
+  `grids/text/` and `ImageBayView` in `grids/image/`. One directory per kind and
+  none shared by two, under
+  [Frontend representation](#frontend-representation). The running code instead
+  has `grids/media/MediaBayView.tsx` serving both `image` and `blob`, which that
+  section marks as the part not yet implemented.
 
-`FileBody` stops switching on `render_kind` and mounts the frame renderer.
-`NotebookFile.tsx` dissolves into it. Bay widgets start small and share one
-module; a widget earns its own module by the ordinary size rule, and none of the
-planned widgets is expected to.
+`FileBody` stopped switching on `render_kind` and mounts the frame renderer.
+`NotebookFile.tsx` dissolved into it.
 
 A widget needing a third-party rendering library would be the first thing in this
 frontend to carry that weight. No planned bay kind does. If one is ever
@@ -693,7 +925,7 @@ proposed, the vendoring question is decided before the kind is, not after.
 - Damage boundaries are unchanged: `FileRendererBoundary` still contains one
   File body, and an unexpected widget failure is terminal local damage for that
   File, not a backend File error.
-- The blob endpoint serves captured Snapshot bytes only. It creates no store,
+- The media endpoint serves captured Snapshot bytes only. It creates no store,
   copy, or mutable path.
 
 ## Implementation stages
@@ -721,17 +953,33 @@ its `detail` says the rows show nothing. Nothing here needs bytes, so this
 stage adds no endpoint.
 
 This stage opens the `notebook/` preset set described under **Goals and
-expectations** and fills the `basic` cases it can reach without blobs — cell
+expectations** and fills the `basic` cases it can reach without media — cell
 source, structure, metadata, and the text outputs — and the `invalid` case. The
 plot case is added here too, showing its text representation, and changes shape
 rather than appearing when stage 3 lands.
 
-### Stage 2 — blobs, images, binaries
+### Stage 2 — media, images, binaries
 
-Add `/api/file-blob`, the `image` bay kind, and the `binary` bay kind. Every
-blob this stage serves is a file at a path, so path addressing is sufficient here.
-The `decode_text_content` behavior change lands here: non-text, non-image content
-stops raising and becomes a `binary` bay.
+Landed, with one part of it since decided to be wrong. `/api/file-media` and the
+`image` bay kind exist and are described above as running code. Everything this
+stage serves is the whole content of one captured side, so File-pair-and-side
+addressing is sufficient here. The `decode_text_content` behavior change landed
+with it: non-text, non-image content stopped raising and made classification
+total.
+
+What landed as a third bay kind should be a `text` bay of a blob File's facts,
+and an image File should compose a facts bay beside its picture. That is
+[Blob is a classification, not a kind](#blob-is-a-classification-not-a-kind),
+and it is a correction to this stage rather than a stage of its own: it removes
+a kind, a payload arm, and a widget, and adds no endpoint and no coordinate.
+
+The stage filled the `formats/basic` image and blob cases; the symlink cases
+in that set wait for stage 4, which is the stage that carries the recorded file
+mode. Those fixtures were unreachable from the HUD's preset picker when the
+stage landed, and two separate changes to the preset path made them reachable:
+the backend now reads a fixture holding only `new.*` as an addition and one
+holding only `old.*` as a deletion, and the catalog set is now the directory
+listing under the presets root rather than a closed set spelled in code.
 
 ### Stage 3 — hybrid notebooks
 
@@ -739,9 +987,10 @@ The notebook builder prefers `image/png` for the outputs that offer it. If stage
 1 chose output representations as described and stage 2's `image` bay exists,
 that part is one changed rule and adds no bay kind and no widget.
 
-This stage also settles the blob addressing gap recorded above, because a
-notebook-embedded plot is the first blob that is not a file at a path. That work
-is expected and is not evidence of an earlier shortcut. Anything beyond those two
+This stage also settles the media addressing gap recorded above, because a
+notebook-embedded plot is the first captured content that is not a file at a
+path. That work is expected and is not evidence of an earlier shortcut. Anything
+beyond those two
 — a new bay kind, a new widget, a second endpoint, a change to frames or hunk
 allocation — is such evidence, and should be investigated rather than absorbed.
 
@@ -774,11 +1023,11 @@ This document lists them; it does not edit them.
 | 1 | `backend_index.md` | the `dirdiff.notebooks` entry and the application-flow diagram |
 | 1 | `frontend_index.md` | source layout, the `NotebookFile.tsx` entry, and the direct-interface table |
 | 1 | `reviews.md` | the notebook-specific bridge, now the format-independent `bays()` rule |
-| 2 | `backend_index.md`, `frontend_index.md` | the blob endpoint and the bay widgets |
-| 2 | `file-meat.md` | the binary File behavior that no longer produces an error `LazyFile` |
-| 3 | `backend_index.md` | the blob endpoint's addressing, once it serves sub-file bytes |
-| 2 | `navigation.md` | non-text hunk targets, first visited when image and binary bays exist |
-| 2 | `reviews.md` | the pseudo-line target for non-text bays |
+| 2 | `backend_index.md`, `frontend_index.md` | the media endpoint and the bay widgets |
+| 2 | `file-meat.md` | the blob File behavior that no longer produces an error `LazyFile` |
+| 3 | `backend_index.md` | the media endpoint's addressing, once it serves sub-file bytes |
+| 2 | `navigation.md` | non-text hunk targets, first visited when image bays exist |
+| 2 | `reviews.md` | the pseudo-line target for `image` bays |
 | 4 | `rooms.md`, `backend_index.md` | the recorded file mode that capture carries to composition |
 
 ## Goals and expectations
@@ -820,7 +1069,7 @@ dependency group when the set is built; nothing there covers it today.
 
 **Images are downloaded, and their licence permits redistribution.** Public
 domain or CC0, with the source and licence recorded beside the fixture. The same
-goes for any other binary content the `binary` cases need.
+goes for any other binary content the `blob` cases need.
 
 **Symlinks are symlinks**, created with `ln -s`, not files describing a link.
 
@@ -862,17 +1111,26 @@ chosen for being the least misleading available, not for being right.
 
 | Category | Case | What it must show |
 | --- | --- | --- |
-| `basic` | an image changed on both sides | both sides rendered, one hunk index consumed |
+| `basic` | an image changed on both sides | both sides rendered, the facts bay showing size and digest changed, two stops consumed |
 | `basic` | an image added, an image removed | the one captured side, with the other absent rather than blank |
-| `basic` | non-text, non-image content changed | digests and sizes, and no error `LazyFile` |
+| `basic` | non-text, non-image content changed | a diff of the facts, size and digest marked changed, and no error `LazyFile` |
 | `basic` | the link target changed | the target as text |
 | `basic` | a symlink replaced by a regular file, and the reverse | that the kind changed, not only that bytes did |
 | `invalid` | a broken symlink | its recorded target, because that is what Git stores |
 
-Two fixture problems belong to whoever builds this set. The preset README says
+The four non-symlink cases exist, each with its source and licence recorded
+beside it, and `tests/formats/test_media.py` composes them and checks the bytes
+it gets back. The three symlink rows wait for stage 4.
+
+Two fixture problems belong to whoever builds those rows. The preset README says
 both sides of a case share an extension, which suits images and binaries and
 does not suit symlinks. And a symlink fixture is only a fixture if nothing in
 the test path follows it, which is a property of the loader, not of the file.
+
+A third problem was making this set browsable, and it is solved: the preset
+backend reads a one-sided case as an addition or a deletion, and the catalog a
+`preset.toml` beside the group directories names is listed by `/api/presets`,
+so `Format Presets` is one of the buttons the Preset Tab draws.
 
 ### Handlers should be handlers
 
@@ -890,17 +1148,17 @@ attaches the display name and file kind. Decoding, engine selection, and payload
 assembly moved into composition. The two attached fields stay until the TODO in
 `server.py` is resolved, so the handler is minimal rather than empty.
 
-The same standard applies to the two routes this design adds. The blob endpoint
-resolves a Snapshot, calls `bays()`, and writes bytes with a media type.
-Review validation asks `bays()` whether a key exists. Neither grows a second
-notion of what a file is.
+The same standard applies to the route this design added. `/api/file-media`
+resolves a Snapshot, calls `bays()`, and writes one side's bytes with the media
+type composition concluded. Review validation asks `bays()` whether a key exists
+and what kind it is. Neither grew a second notion of what a file is.
 
 ### What none of these may require
 
-No case above may be made to pass by adding a bay kind for one file type, by
-letting the frontend decide what a format looks like, by hiding a change that
-has no rows, or by making a reviewer expand something to discover that it
-changed.
+Frontend remains responsible for visuals and interaction, backend remains
+responsible for data, structure and semantics.
+Hence formats/ folder in backend code, but grids/ folder in frontend code.
+Backend parses files, frontend paints bays.
 
 ## TODO
 

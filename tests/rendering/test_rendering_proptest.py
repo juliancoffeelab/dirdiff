@@ -11,6 +11,7 @@ from pathlib import Path
 from hypothesis import given
 from hypothesis import strategies as st
 
+from dirdiff.backend import text_content_or_none
 from dirdiff.engines import (
     DiffSide,
     InlineToken,
@@ -175,8 +176,13 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
         if len(new_candidates) != 1:
             continue
         new_path = new_candidates[0]
-        old_text = old_path.read_text()
-        new_text = new_path.read_text()
+        # The corpus holds image and blob fixtures too, and the text engine
+        # is not what composes those. The same rule composition classifies by
+        # decides which pairs this walk can render.
+        old_text = text_content_or_none(old_path.read_bytes())
+        new_text = text_content_or_none(new_path.read_bytes())
+        if old_text is None or new_text is None:
+            continue
         rendered = TextDiffEngine().render_diff(
             old=DiffSide(
                 exists=True,

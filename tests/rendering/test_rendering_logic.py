@@ -10,6 +10,7 @@ from typing import get_args
 
 import pytest
 
+from dirdiff.backend import text_content_or_none
 from dirdiff.engines import InlineToken
 from dirdiff.rendering import (
     SyntaxClass,
@@ -35,10 +36,13 @@ def test_preset_highlights_use_declared_syntax_classes() -> None:
 
     assert preset_files != []
     for path in preset_files:
-        highlighted_lines = highlight_lines_for_path(
-            str(path),
-            path.read_text(),
-        )
+        # The corpus holds image and blob fixtures too. A highlighter has
+        # nothing to say about bytes, so the same rule composition classifies
+        # by decides what this walk can read.
+        text = text_content_or_none(path.read_bytes())
+        if text is None:
+            continue
+        highlighted_lines = highlight_lines_for_path(str(path), text)
         if highlighted_lines is None:
             continue
         emitted_classes = {

@@ -1,12 +1,27 @@
 # Test presets
 
-Preset directories contain paired files for regression tests:
+This directory is the presets root. Each subdirectory is one catalog, and its
+name is the catalog id the HUD carries in `preset_type`. A catalog holds a
+`preset.toml` stating exactly the `name` the Preset Tab shows:
+
+```toml
+name = "Diff Presets"
+```
+
+That file is the whole registration. Adding a catalog is creating the directory
+and writing that line; no code names the set.
+
+Below a catalog, each group directory holds preset directories of paired files:
 
 - `old.<ext>` is the left side.
 - `new.<ext>` is the right side.
 - Both files in a preset use the same extension.
 
-`difftastic/` mirrors the difftastic adapter cases. These fixtures are intended
+A preset may hold only one side. One with just `new.*` is an addition and one
+with just `old.*` is a deletion, which is how the format catalog covers an added
+and a removed image.
+
+`diff/` mirrors the difftastic adapter cases. These fixtures are intended
 to become the source files for golden row-output tests.
 
 A `borked/` directory holds known-bug cases: inputs that reproduce a defect the

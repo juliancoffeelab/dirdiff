@@ -3150,6 +3150,82 @@ h1 {
   background: #eff6ff;
 }
 
+/* An image bay reuses the diff row vocabulary above — the two side columns, the
+   absent-side tint, the pinned outline, the Comment triggers — because its one
+   pseudo-line is a review coordinate like any other. What it cannot reuse is
+   the row height: a picture is as tall as it is, so the row grows to its
+   content instead of sitting on a line grid. See fileCard/grids/image. */
+.media-row {
+  min-height: 0;
+  align-items: start;
+}
+
+/* Inline stacks what split places side by side, so the two panes become rows
+   and their divider moves with them. */
+.media-row-inline {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.media-row-inline .media-side + .media-side {
+  border-top: 1px solid #ded8cc;
+  border-left: 0;
+}
+
+.media-side {
+  align-content: start;
+}
+
+/* The coordinate and its triggers belong at the top of a tall pane, beside
+   where the content starts, not floating at the vertical middle of an image. */
+.media-line-no {
+  align-items: flex-start;
+  padding-top: 10px;
+}
+
+.media-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  white-space: normal;
+}
+
+.media-side-name {
+  color: #6a665d;
+  font-size: 12px;
+}
+
+/* The picture keeps its own size up to the pane width and is never stretched:
+   a reviewer comparing two images is comparing their real proportions, and a
+   small icon blown up to pane width would misrepresent both. The checkerboard
+   is what makes a transparent PNG's alpha visible instead of letting it read
+   as the page background. */
+.media-image {
+  align-self: flex-start;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #ded8cc;
+  background-color: #fffdf8;
+  background-image:
+    linear-gradient(45deg, #eae5db 25%, transparent 25%),
+    linear-gradient(-45deg, #eae5db 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #eae5db 75%),
+    linear-gradient(-45deg, transparent 75%, #eae5db 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}
+
+.media-absent {
+  margin: 0;
+  color: #6a665d;
+  font-size: 13px;
+  font-style: italic;
+}
+
 .fold-bar {
   appearance: none;
   min-height: 0;

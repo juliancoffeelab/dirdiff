@@ -223,7 +223,11 @@ def test_composed_diff_response_accepts_real_composition() -> None:
     response = ComposedDiffResponse.model_validate(payload)
     assert len(response.frames) == 1
     bay = response.frames[0].bays[0]
-    assert bay.kind == "text"
+    assert bay.kind_data.kind == "text"
     assert bay.bay_key == "flatfile"
-    carried = [row.hunk_index for row in bay.rows if row.hunk_index is not None]
+    carried = [
+        row.hunk_index
+        for row in bay.kind_data.rows
+        if row.hunk_index is not None
+    ]
     assert carried == [0], "one edit is one bay-local hunk boundary"

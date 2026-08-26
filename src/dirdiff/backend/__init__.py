@@ -34,6 +34,7 @@ from dirdiff.backend.base import (
     decode_text_content,
     display_name_for_repo_paths,
     load_diff_sides,
+    text_content_or_none,
 )
 from dirdiff.backend.git import (
     GitBackend,
@@ -46,7 +47,11 @@ from dirdiff.backend.manifest import (
     build_repo_manifest_for_paths,
     file_kind_for_change_type,
 )
-from dirdiff.backend.preset import PresetBackend
+from dirdiff.backend.preset import (
+    PresetBackend,
+    PresetCatalogDir,
+    preset_catalogs,
+)
 from dirdiff.backend.pull_request import (
     PreparedPullRequest,
     prepare_pull_request,
@@ -64,6 +69,7 @@ __all__ = [
     "LocalBranchSelection",
     "PreparedPullRequest",
     "PresetBackend",
+    "PresetCatalogDir",
     "RefChoices",
     "RefMetadata",
     "RemoteBranchRef",
@@ -82,5 +88,7 @@ __all__ = [
     "load_diff_sides",
     "preferred_review_selection",
     "prepare_pull_request",
+    "preset_catalogs",
     "ref_choices",
+    "text_content_or_none",
 ]

@@ -47,6 +47,7 @@ __all__ = [
     "display_name_for_repo_paths",
     "git_executable",
     "load_diff_sides",
+    "text_content_or_none",
 ]
 
 
@@ -206,6 +207,27 @@ def decode_text_content(data: bytes, *, label: str) -> str:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise DirdiffError(f"{label} is not valid UTF-8 text: {exc}") from exc
+
+
+def text_content_or_none(data: bytes) -> str | None:
+    """Decode exact file contents as text, or report that they are not text.
+
+    This asks the same two questions `decode_text_content` enforces — no NUL
+    byte, and valid UTF-8 with an optional BOM — as a question rather than as a
+    boundary. Composition classification calls it, where "these bytes are not
+    text" is an answer that selects the blob bay rather than a failure: the
+    caller has somewhere else to send the content and nothing has gone wrong.
+
+    Callers that require text call `decode_text_content` instead, which names
+    the offending file in the error it raises. The two definitions of text are
+    stated here side by side so they cannot drift apart.
+    """
+    if b"\x00" in data:
+        return None
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return None
 
 
 def display_name_for_repo_paths(

@@ -82,20 +82,6 @@ const tabLabels: Record<TabId, string> = {
   preset: "Preset",
 };
 
-const presetTypes: readonly PresetType[] = [
-  "diff",
-  "fold",
-  "gumtree",
-  "scroll",
-  "notebook",
-];
-const presetLabels: Record<PresetType, string> = {
-  diff: "Diff Presets",
-  fold: "Fold Presets",
-  gumtree: "GumTree Presets",
-  scroll: "Scroll Presets",
-  notebook: "Notebook Presets",
-};
 const builtinDescriptions: Record<BuiltinRef, string> = {
   HEAD: "Current commit on this branch.",
   index: "Staged snapshot, what the next commit would include.",
@@ -1029,9 +1015,13 @@ type BranchReviewRepoTabProps = RepoTabProps & {
  *
  * Catalog arrival alone cannot create a ChangeSet without the waiting command.
  * Live kind and highlighted control state are not selected Tab parameters.
+ *
+ * A wait's `presetType` is the catalog the user asked for, which is `null`
+ * when nobody has asked for one yet and the first listed catalog will answer.
+ * It exists so a wait cannot be completed against a catalog selected after it.
  */
 type PresetSelected =
-  | { kind: "waiting-default"; presetType: PresetType }
+  | { kind: "waiting-default"; presetType: PresetType | null }
   | PresetDiffParams
   | null;
 
@@ -1681,43 +1671,22 @@ function PresetTab(
       toast.showError(
         "Could not restore preset type from URL",
         new Error(
-          "preset_type is missing. Restored Diff Presets for this page.",
+          "preset_type is missing. Restored the first preset catalog for this page.",
         ),
       );
     });
   }
-  if (
-    initialType !== null &&
-    initialType !== "diff" &&
-    initialType !== "fold" &&
-    initialType !== "gumtree" &&
-    initialType !== "scroll" &&
-    initialType !== "notebook"
-  ) {
-    throw new Error(`Unsupported URL preset_type: ${initialType}.`);
-  }
-  const [presetType, setPresetType] = createSignal<PresetType>(
-    initialType === "fold" ||
-      initialType === "gumtree" ||
-      initialType === "scroll" ||
-      initialType === "notebook"
-      ? initialType
-      : "diff",
+  // Null until somebody names a catalog: which catalogs exist is a backend
+  // directory listing, so a URL value cannot be judged before it arrives.
+  const [presetType, setPresetType] = createSignal<PresetType | null>(
+    initialType,
   );
   const initialPreset = props.active ? search.get("preset_subset") : null;
   if (initialPreset !== null && initialPreset.length === 0) {
     throw new Error("preset_subset must not be empty.");
   }
   const [selected, setSelected] = createSignal<PresetSelected>(
-    props.active
-      ? initialPreset === null
-        ? { kind: "waiting-default", presetType: presetType() }
-        : {
-            project_id: presetType(),
-            tab: "preset",
-            preset_subset: initialPreset,
-          }
-      : null,
+    props.active ? { kind: "waiting-default", presetType: initialType } : null,
   );
   const [highlightedPreset, setHighlightedPreset] = createSignal<string | null>(
     initialPreset,
@@ -1726,12 +1695,35 @@ function PresetTab(
     ...api.presets.catalogs(),
     enabled: props.active,
   }));
+
+  /**
+   * Selects the one listed catalog these controls are showing.
+   *
+   * Null while the listing is unknown, and null when the backend offers no
+   * catalog at all — both are states in which no preset can be selected, and
+   * neither is repaired here. A `preset_type` the listing does not contain is
+   * a broken URL and throws to the surrounding boundary, which is the same
+   * outcome an unsupported value had when the set was compiled in.
+   */
+  const activeCatalog = createMemo(() => {
+    const listed = catalogs.data;
+    if (listed === undefined) {
+      return null;
+    }
+    const requested = presetType();
+    if (requested === null) {
+      return listed[0] ?? null;
+    }
+    const found = listed.find((catalog) => catalog.id === requested);
+    assert(found !== undefined, `Unsupported preset_type: ${requested}.`);
+    return found;
+  });
   const effectivePreset = createMemo(() => {
     const highlighted = highlightedPreset();
     if (highlighted !== null) {
       return highlighted;
     }
-    return catalogs.data?.[presetType()].default_preset ?? null;
+    return activeCatalog()?.default_preset ?? null;
   });
   const selectedValue = createMemo(() => {
     const current = selected();
@@ -1749,7 +1741,7 @@ function PresetTab(
         props.onSelected(current.project_id, current.preset_subset);
       } else {
         const preset = effectivePreset();
-        if (preset === null) {
+        if (activeCatalog() === null || preset === null) {
           setSelected({ kind: "waiting-default", presetType: presetType() });
         } else {
           selectPreset(preset);
@@ -1761,16 +1753,23 @@ function PresetTab(
   /**
    * Completes only an explicitly waiting Preset selection from its live catalog.
    *
-   * The effect observes active state, the tagged selection, current preset kind,
-   * and effective catalog default. Once a concrete preset appears it performs the
+   * The effect observes active state, the tagged selection, the requested
+   * preset kind, the listed catalog answering it, and the effective catalog
+   * default. Once a concrete catalog and preset both exist it performs the
    * external URL/selection command and replaces the command with complete
    * parameters, making itself inert. It creates no external subscription and is
    * disposed with the eternal Tab.
    */
   createEffect(
     on(
-      [() => props.active, selected, presetType, effectivePreset] as const,
-      ([active, current, type, preset]) => {
+      [
+        () => props.active,
+        selected,
+        presetType,
+        activeCatalog,
+        effectivePreset,
+      ] as const,
+      ([active, current, type, catalog, preset]) => {
         if (
           !active ||
           current === null ||
@@ -1780,7 +1779,7 @@ function PresetTab(
         ) {
           return;
         }
-        if (preset !== null) {
+        if (catalog !== null && preset !== null) {
           selectPreset(preset);
         }
       },
@@ -1791,17 +1790,22 @@ function PresetTab(
    * Selects and serializes one concrete preset subset for the current kind.
    *
    * The value must come from the visible validated catalog; no missing/default
-   * placeholder is stored as user selection.
+   * placeholder is stored as user selection. The catalog it belongs to is the
+   * shown one, so callers must not call this before the listing arrives.
    */
   function selectPreset(preset: string): void {
-    const type = presetType();
+    const catalog = activeCatalog();
+    assert(
+      catalog !== null,
+      "Selecting a preset requires a listed preset catalog.",
+    );
     setHighlightedPreset(preset);
     setSelected({
-      project_id: type,
+      project_id: catalog.id,
       tab: "preset",
       preset_subset: preset,
     });
-    props.onSelected(type, preset);
+    props.onSelected(catalog.id, preset);
   }
 
   return (
@@ -1821,19 +1825,22 @@ function PresetTab(
       >
         <fieldset class="tab-choices preset-tabs preset-kind-tabs">
           <legend>Preset type</legend>
-          <For each={presetTypes}>
-            {(kind) => (
+          <For each={catalogs.data}>
+            {(catalog) => (
               <button
                 type="button"
-                classList={{ "is-active": presetType() === kind }}
-                aria-pressed={presetType() === kind}
+                classList={{ "is-active": activeCatalog()?.id === catalog.id }}
+                aria-pressed={activeCatalog()?.id === catalog.id}
                 onClick={() => {
-                  setPresetType(kind);
+                  setPresetType(catalog.id);
                   setHighlightedPreset(null);
-                  setSelected({ kind: "waiting-default", presetType: kind });
+                  setSelected({
+                    kind: "waiting-default",
+                    presetType: catalog.id,
+                  });
                 }}
               >
-                {presetLabels[kind]}
+                {catalog.name}
               </button>
             )}
           </For>
@@ -1844,7 +1851,7 @@ function PresetTab(
             onRefetch={() => void catalogs.refetch({ cancelRefetch: false })}
           />
         </fieldset>
-        <Show when={catalogs.data?.[presetType()]} keyed>
+        <Show when={activeCatalog()} keyed>
           {(catalog) => (
             <fieldset class="tab-choices preset-tabs preset-subset-tabs">
               <legend>Presets</legend>
@@ -1866,7 +1873,7 @@ function PresetTab(
         <button
           class="load-button"
           type="submit"
-          disabled={effectivePreset() === null}
+          disabled={activeCatalog() === null || effectivePreset() === null}
         >
           Load
         </button>

@@ -592,14 +592,15 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
 
   // The exact FileDiff `display_name` per manifest position: repository
   // snapshots use the backend's path-pair label, while preset backends
-  // deliberately name their old/new fixture pair by its new-side path. The
-  // lane asserts file responses against these names.
+  // deliberately name their fixture by its new-side path, falling to the
+  // old side for a fixture that only deletes. The lane asserts file
+  // responses against these names.
   const canonicalNames = orderedFiles.map((file) =>
     props.params.tab !== "preset"
       ? fileDisplayName(file.entry)
       : expect(
-          file.entry.right_path,
-          "Preset manifest file requires its canonical new-side path.",
+          file.entry.right_path ?? file.entry.left_path,
+          "Preset manifest file requires an old- or new-side path.",
         ),
   );
 

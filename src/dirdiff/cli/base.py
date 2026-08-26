@@ -73,7 +73,9 @@ def start(
     ] = None,
     presets_root: Annotated[
         str | None,
-        typer.Option(help="Preset directory."),
+        typer.Option(
+            help="Directory of preset catalogs. Defaults to tests/presets.",
+        ),
     ] = None,
     port: Annotated[
         int,

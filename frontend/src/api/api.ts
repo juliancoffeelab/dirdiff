@@ -43,21 +43,18 @@ export function isHeavyEngine(engine: DiffEngine): boolean {
   return !(engine === "dirdiff" || engine === "git");
 }
 
-const PresetTypeSchema = z.enum([
-  "diff",
-  "fold",
-  "gumtree",
-  "scroll",
-  "notebook",
-]);
-
 /**
  * Identifies one backend preset catalog and its corresponding preset project.
  *
  * The value is both the Preset Tab kind and the `project_id` used by preset
  * DiffParams. It must not identify a repository-backed project.
+ *
+ * The set of catalogs is a backend directory listing, so this is not an
+ * enumeration here. A value is legitimate only when it is the `id` of a
+ * catalog the catalog query returned; the frontend must not invent one, and
+ * one read from the URL is checked against that listing before it is used.
  */
-export type PresetType = z.infer<typeof PresetTypeSchema>;
+export type PresetType = string;
 
 /**
  * Identifies one repository known to the Python backend.
@@ -248,31 +245,30 @@ const PresetGroupSchema = z.strictObject({
 export type PresetGroup = z.infer<typeof PresetGroupSchema>;
 
 const PresetCatalogSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string().min(1),
   default_preset: z.string().min(1),
   groups: z.array(PresetGroupSchema),
 });
 
 /**
- * Describes one preset kind's default and selectable groups.
+ * Describes one preset catalog: how to select it, its caption, its groups.
  *
- * The catalog is directory metadata only. Consumers must request a ChangeSet
- * separately after the user selects one group.
+ * `id` is sent as `project_id`; `name` is the caption the picker draws and
+ * selects nothing. The catalog is directory metadata only. Consumers must
+ * request a ChangeSet separately after the user selects one group.
  */
 export type PresetCatalog = z.infer<typeof PresetCatalogSchema>;
 
-const PresetCatalogsSchema = z.strictObject({
-  diff: PresetCatalogSchema,
-  fold: PresetCatalogSchema,
-  gumtree: PresetCatalogSchema,
-  scroll: PresetCatalogSchema,
-  notebook: PresetCatalogSchema,
-});
+const PresetCatalogsSchema = z.array(PresetCatalogSchema);
 
 /**
- * Contains preset catalogs returned by the bounded catalog endpoint.
+ * Contains every preset catalog the backend currently offers, in its order.
  *
- * Consumers select a catalog by PresetType and must not copy catalogs into
- * component state merely to expose them to Preset controls.
+ * This is a list because the backend's catalogs are a directory listing, so
+ * neither their number nor their names are known to this schema. Consumers
+ * find a catalog by matching `id` and must not copy catalogs into component
+ * state merely to expose them to Preset controls.
  */
 export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
 
@@ -708,12 +704,7 @@ const MovedChangeStatusSchema = z.strictObject({
   to_heading: z.string().nullable(),
 });
 
-const TextBaySchema = z.strictObject({
-  bay_key: z.string().min(1),
-  label: z.string(),
-  detail: z.string().nullable(),
-  collapsible: z.boolean(),
-  default_expanded: z.boolean(),
+const TextKindPayloadSchema = z.strictObject({
   kind: z.literal("text"),
   left_label: z.string(),
   right_label: z.string(),
@@ -721,30 +712,91 @@ const TextBaySchema = z.strictObject({
   fold_hints: z.array(FoldHintSchema),
   stats: BayStatsSchema,
   engine_warning: EngineWarningSchema.nullable(),
+});
+
+/**
+ * Contains what a `text` bay holds: rows decorated by the shared renderer.
+ *
+ * `left_label`/`right_label` are the two side headings inside the grid,
+ * distinct from the bay's own `label`. Rows, fold hints, stats, and the engine
+ * warning live here rather than on the bay because they exist only where an
+ * engine ran, so a holder of an image bay cannot reach for them.
+ */
+export type TextKindPayload = z.infer<typeof TextKindPayloadSchema>;
+
+const MediaRefSchema = z.strictObject({
+  media_type: z.string().min(1),
+  byte_size: z.number().int().nonnegative(),
+  digest: z.string().min(1),
+});
+
+/**
+ * Describes one captured media side without carrying its bytes.
+ *
+ * This is everything an image bay says about captured content: enough for a
+ * widget to know the side exists and to request it. The bytes come from
+ * `/api/file-media`, addressed by Snapshot, side, and File pair — never inline
+ * in the payload. The same three facts also reach the reviewer as rows, in the
+ * `text` bay stating them.
+ */
+export type MediaRef = z.infer<typeof MediaRefSchema>;
+
+const ImageKindPayloadSchema = z.strictObject({
+  kind: z.literal("image"),
+  left: MediaRefSchema.nullable(),
+  right: MediaRefSchema.nullable(),
+});
+
+/**
+ * Contains what an `image` bay holds: two optional references to pictures.
+ *
+ * A `null` side is a File that was added or removed, and must read as absent
+ * rather than as an empty picture frame. The bay carries no dimensions: the
+ * widget asks the endpoint for the bytes and lets the browser decode them.
+ */
+export type ImageKindPayload = z.infer<typeof ImageKindPayloadSchema>;
+
+const BayKindPayloadSchema = z.discriminatedUnion("kind", [
+  TextKindPayloadSchema,
+  ImageKindPayloadSchema,
+]);
+
+/**
+ * Contains one bay's content, dispatched to a widget by its `kind`.
+ *
+ * Two variants, because there are two things a reviewer can look at: lines, and
+ * a picture. Named facts about bytes — a blob File's only bay, an image File's
+ * facts bay — are lines, so they arrive as `text` and need no variant. A new
+ * kind is a variant here plus a matching widget; nothing about frames, hunk
+ * numbering, or the composed-diff envelope changes to admit it.
+ */
+export type BayKindPayload = z.infer<typeof BayKindPayloadSchema>;
+
+const BayPayloadSchema = z.strictObject({
+  bay_key: z.string().min(1),
+  label: z.string(),
+  detail: z.string().nullable(),
+  collapsible: z.boolean(),
+  default_expanded: z.boolean(),
   change: z.discriminatedUnion("kind", [
     ChangeStatusSchema,
     MovedChangeStatusSchema,
   ]),
+  kind_data: BayKindPayloadSchema,
 });
 
 /**
- * Contains one `text` bay: decorated rows rendered by the shared renderer.
+ * Represents one bay of a composed diff: its identity, plus what it holds.
  *
- * `bay_key` is the sub-file coordinate shared with line pins and review text
- * targets. `label` names the whole bay in its collapsed placeholder;
- * `left_label`/`right_label` are the two side headings inside the grid.
- */
-export type TextBay = z.infer<typeof TextBaySchema>;
-
-const BaySchema = z.discriminatedUnion("kind", [TextBaySchema]);
-
-/**
- * Represents one bay of a composed diff, dispatched by its `kind`.
+ * `bay_key` is the sub-file coordinate shared with line pins and review
+ * targets. `label` names the whole bay where it is shown by name, which is its
+ * collapsed placeholder and the content column of the inline grid.
  *
- * This is a single-variant union today. Adding an `image` or `binary` bay
- * kind extends it here and adds a matching widget, and nowhere else.
+ * The discriminator sits one level down, in `kind_data`. Bay chrome, collapse
+ * state, navigation, and tinting read this record and never learn the kind;
+ * only the frame walk's widget dispatch descends into `kind_data`.
  */
-export type Bay = z.infer<typeof BaySchema>;
+export type BayPayload = z.infer<typeof BayPayloadSchema>;
 
 /**
  * Names what happened to one bay, as the format builder determined it.
@@ -756,7 +808,7 @@ export type Bay = z.infer<typeof BaySchema>;
  * the new document, `null` on a side the builder cannot name; every other
  * outcome is fully told by its `kind`.
  */
-export type BayChange = Bay["change"];
+export type BayChange = BayPayload["change"];
 
 const FrameSchema = z.strictObject({
   frame_key: z.string().min(1),
@@ -766,7 +818,7 @@ const FrameSchema = z.strictObject({
   // a bay-less frame is a backend bug, and rejecting it here fails the File into
   // its LazyFile error state instead of rendering a silent, untinted heading the
   // reviewer scrolls past as untouched.
-  bays: z.array(BaySchema).min(1),
+  bays: z.array(BayPayloadSchema).min(1),
 });
 
 /**
@@ -863,6 +915,63 @@ export type ReviewLineRange = z.infer<typeof ReviewLineRangeSchema>;
  * against it instead of testing for a format.
  */
 export const FLATFILE_BAY_KEY = "flatfile";
+
+/**
+ * Names the picture bay of an image File.
+ *
+ * An image File composes this bay and the `text` bay stating what its bytes
+ * are. The key is deliberately not `FLATFILE_BAY_KEY`: a File that stops being
+ * text keeps its stored review targets addressable only if the key they name
+ * disappears, so a line range recorded against the old text bay reads as a
+ * missing bay rather than landing on a bay with no lines.
+ */
+export const IMAGE_BAY_KEY = "image";
+
+/**
+ * Names the `text` bay stating what an image File's bytes are.
+ *
+ * A bay key names the classification that produced the bay rather than the kind
+ * of the bay, which is why this is not simply `"facts"`: a blob File's bay
+ * holds the very same three lines under `BLOB_BAY_KEY`, and one shared key
+ * would let a target survive a File changing classification.
+ */
+export const IMAGE_FACTS_BAY_KEY = "image-facts";
+
+/**
+ * Names the `text` bay unreadable content composes into.
+ *
+ * This is the terminal every File reaches that no other format claimed. Its
+ * media type, size, and digest are all that can honestly be shown for it, and
+ * those are lines, so the bay holding them is an ordinary `text` bay. The key
+ * exists for the same reason and under the same rule as the ones above.
+ */
+export const BLOB_BAY_KEY = "blob";
+
+/**
+ * Builds the URL serving one captured side of one File as its exact bytes.
+ *
+ * Callers supply the Snapshot the composed diff came from, the same nullable
+ * File pair every review and pin coordinate uses, and which side they want.
+ * The pair is the address because a renamed File has two different paths and
+ * neither identifies it alone. The result is a plain URL for `src` or `href`:
+ * the bytes are the browser's to fetch, decode, and cache, and no validated
+ * transport wraps a picture.
+ */
+export function fileMediaUrl(
+  snapshotId: string,
+  file: ReviewFilePair,
+  side: "left" | "right",
+): string {
+  const search = snapshotSearchParams(snapshotId);
+  search.set("side", side);
+  if (file.left_path !== null) {
+    search.set("left_path", file.left_path);
+  }
+  if (file.right_path !== null) {
+    search.set("right_path", file.right_path);
+  }
+  return `/api/file-media?${search.toString()}`;
+}
 
 export const ReviewTextBaySchema = z.strictObject({
   bay_key: z.string().min(1),
@@ -1632,8 +1741,9 @@ function requestSaveMainBranch(input: {
 /**
  * Requests the complete bounded preset catalog collection.
  *
- * The caller supplies query cancellation and receives every preset kind in one
- * validated response. This function performs no tab or subset selection.
+ * The caller supplies query cancellation and receives every catalog the
+ * backend found, in its order. This function performs no tab or subset
+ * selection.
  */
 function requestPresets(abortSignal: AbortSignal): Promise<PresetCatalogs> {
   return requestJson(

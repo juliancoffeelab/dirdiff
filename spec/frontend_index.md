@@ -27,6 +27,8 @@ frontend/src/
 │   │   ├── FileCard.tsx
 │   │   ├── FrameView.tsx
 │   │   └── grids/
+│   │       ├── image/
+│   │       │   └── ImageBayView.tsx
 │   │       └── text/
 │   │           ├── TextDiffGrid.tsx
 │   │           ├── folds.ts
@@ -128,8 +130,10 @@ Main exported type groups:
   complete parameters are sent unchanged to manifest;
 - manifest trees and manifest statistics;
 - lazy-file information;
-- text and notebook file diffs;
+- composed file diffs: frames, the bay envelope they hold, and the `text` and
+  `image` arms of its `kind_data`;
 - decorated row parts, folds, and engine warnings;
+- image references, and `fileMediaUrl` addressing one captured side's bytes;
 - review authors, targets, Threads, Comments, and structured review
   failure codes.
 
@@ -770,12 +774,24 @@ Inputs:
 
 `FrameView` walks the composed diff's frames in backend order, renders a frame's
 optional backend-authored heading, and dispatches each bay to the widget for
-its `kind`. The only kind today is `text`, whose widget delegates to
-`TextDiffGrid`. Every grid takes a `bayKey` string; a flatfile's is the literal
+its `kind_data`. `BayBody` is the single dispatch point and the only place a
+kind is examined: `text` delegates to `TextDiffGrid`, `image` to
+`ImageBayView`. Each widget receives the whole `BayPayload`, for identity and
+label, and its own already-narrowed arm of `kind_data`, for content. Every grid
+takes a `bayKey` string; a flatfile's is the literal
 `flatfile`, so line pins and review targets keep their existing flatfile
 identity through the same coordinate every other bay uses. `FrameView` nests
 `bareTextBay`, which recognises the one-frame one-bay flatfile shape that
-must render as a bare grid with no bay chrome.
+must render as a bare grid with no bay chrome. A blob File composes the same
+one-frame one-bay shape around a differently keyed bay and is deliberately not
+bare: it keeps its frame, because the frame is what states what happened to
+those bytes.
+
+`BayStats` renders a bay's own changed-line counts, which only a bay holding
+lines has; an image bay renders none, because printing three zeroes beside a
+replaced picture would claim an engine looked and found nothing. `BayWarning`
+renders whatever `engine_warning` a bay's `kind_data` carries. Neither decides
+which kind is entitled to one: they read what the payload states.
 
 `composedHunks` collects each bay's hunk stops. A hunk is a stop for Next
 and Previous, so what counts as one is a navigation decision and it is made
@@ -803,6 +819,49 @@ in both layouts: inside the header block for a bay with chrome, and directly
 above the grid for a bare flatfile. A warning belongs to the bay whose rows
 the engine gave up on, not to the File, because one composed File holds many
 bays and only some of them carry one.
+
+### `hud/fileCard/grids/image/ImageBayView.tsx`
+
+Exports:
+
+```ts
+ImageBayView
+```
+
+Private components:
+
+- `ImageSideView`;
+- `CommentTrigger`.
+
+Inputs:
+
+- exact nullable left/right review File pair;
+- the whole bay envelope;
+- its narrowed `image` content;
+- view mode;
+- `LinePins`.
+
+`ImageBayView` renders one bay whose content is a captured picture: for each
+side, the side's name and the picture itself. A side the File was not captured
+on says so in words rather than showing an empty pane. Bytes never arrive in
+the payload — a side's picture is an `<img>` whose source is the
+`/api/file-media` address for that Snapshot, File pair, and side — and a
+picture the browser refuses to decode raises a Toast rather than failing
+silently. The facts about those bytes are not this widget's business: an image
+File composes a second, collapsible `image-facts` text bay, and the ordinary
+text grid diffs the type, size, and digest there.
+
+The widget mounts no rich/virtual representation. It has no rows to virtualize,
+its two sides are one row, and it is always mounted, which is what lets the bay
+chrome carry its single hunk stop.
+
+It hosts exactly one review line, numbered 1, on each captured side, matching
+the single pseudo-line the backend exposes for a non-text bay. That line is the
+host `FileCard` resolves for line pins and `navigation.tsx` line preparation, so
+the widget writes the same line-host DOM contract `TextDiffGrid` does: a
+`data-bay-key` wrapper carrying the enrichment operation, a `data-review-bay`
+grid, a line container carrying the preparation operation, and per side a
+`.line-no` carrying the pin coordinate beside its `.line-code`.
 
 The review subsystem lives in the `hud/review/` directory: `Review.tsx` is
 the Snapshot review boundary, `drafts.tsx` is the application-lifetime draft
@@ -1053,6 +1112,9 @@ type LinePins = {
 | `fileCard/grids/text/TextDiffGrid.tsx` | `review/Review.tsx` | line marker state and text Comment-input activation |
 | `fileCard/FileCard.tsx` | `fileCard/FrameView.tsx` | complete composed-diff rendering inputs |
 | `fileCard/FrameView.tsx` | `fileCard/grids/text/TextDiffGrid.tsx` | one text bay's rows, hints, and bay key |
+| `fileCard/FrameView.tsx` | `fileCard/grids/image/ImageBayView.tsx` | one `image` bay and its two picture references |
+| `fileCard/grids/image/ImageBayView.tsx` | `review/Review.tsx` | line marker state and image Comment-input activation |
+| `fileCard/grids/image/ImageBayView.tsx` | `linePins.ts` | URL parsing and direct pin toggling |
 | `fileCard/grids/text/TextDiffGrid.tsx` | `fileCard/grids/text/rowDom.ts` | validated rows, fold state, and the two render callbacks |
 | `fileCard/grids/text/*` | `fileCard/grids/text/folds.ts` | rows, fold hints, and expansion |
 | `fileCard/grids/text/TextDiffGrid.tsx` | `linePins.ts` | URL parsing and direct pin toggling |

@@ -57,11 +57,18 @@ def test_error_traceback_output_bay_keeps_uninterpreted_escapes() -> None:
     output_bay = next(
         bay
         for bay in bays
-        if "IndexError"
-        in "\n".join((row["right_text"] or "") for row in bay["rows"])
+        if bay["kind_data"]["kind"] == "text"
+        and "IndexError"
+        in "\n".join(
+            (row["right_text"] or "") for row in bay["kind_data"]["rows"]
+        )
     )
     assert ":output:" in output_bay["bay_key"]
-    text = "\n".join((row["right_text"] or "") for row in output_bay["rows"])
+    output_content = output_bay["kind_data"]
+    assert output_content["kind"] == "text"
+    text = "\n".join(
+        (row["right_text"] or "") for row in output_content["rows"]
+    )
     assert "\x1b[" in text, "traceback escape codes must not be interpreted"
     assert output_bay["default_expanded"] is False
 
@@ -98,8 +105,10 @@ def test_metadata_change_collapses_source_and_adds_metadata_bay() -> None:
     assert bays[1]["collapsible"] is True
     assert bays[1]["default_expanded"] is False
     assert bays[1]["bay_key"].endswith(":metadata")
+    metadata_bay = bays[1]
+    assert metadata_bay["kind_data"]["kind"] == "text"
     metadata_text = "\n".join(
-        (row["right_text"] or "") for row in bays[1]["rows"]
+        (row["right_text"] or "") for row in metadata_bay["kind_data"]["rows"]
     )
     assert "tags" in metadata_text and "parameters" in metadata_text
 
@@ -125,7 +134,12 @@ def test_added_and_removed_cells_are_separate_frames() -> None:
     # that changed compose a frame; the untouched ones do not.
     def statuses(frame: FramePayload) -> set[str]:
         """Collect every row status a frame's bays render."""
-        return {row["status"] for bay in frame["bays"] for row in bay["rows"]}
+        return {
+            row["status"]
+            for bay in frame["bays"]
+            if bay["kind_data"]["kind"] == "text"
+            for row in bay["kind_data"]["rows"]
+        }
 
     frames = composed["frames"]
     # Every cell is present, so the frame count exceeds the changed-cell count.
@@ -224,7 +238,14 @@ def test_source_and_output_both_change_in_one_frame() -> None:
         for frame in composed["frames"]
         for bay in frame["bays"]
         if bay["change"]["kind"] != "unchanged"
-        or any(row["hunk_index"] is not None for row in bay["rows"])
+        or any(
+            row["hunk_index"] is not None
+            for row in (
+                bay["kind_data"]["rows"]
+                if bay["kind_data"]["kind"] == "text"
+                else []
+            )
+        )
     ]
     assert len(reachable) >= 2
 
@@ -304,8 +325,11 @@ def test_cells_pair_by_id_so_an_edited_cell_is_not_an_add_and_a_remove() -> (
     assert [bay["bay_key"] for bay in frame["bays"]] == ["intro"]
     # The untouched cell is still present, collapsed.
     assert len(composed["frames"]) == 2
+    source_bay = frame["bays"][0]
+    assert source_bay["kind_data"]["kind"] == "text"
     assert any(
-        row["right_text"] == "Updated body" for row in frame["bays"][0]["rows"]
+        row["right_text"] == "Updated body"
+        for row in source_bay["kind_data"]["rows"]
     )
 
 
@@ -398,7 +422,14 @@ def test_cell_reorder_keeps_one_unique_key_per_cell() -> None:
     # A move is a change, so it stays reachable rather than composing nothing.
     assert any(
         bay["change"]["kind"] != "unchanged"
-        or any(row["hunk_index"] is not None for row in bay["rows"])
+        or any(
+            row["hunk_index"] is not None
+            for row in (
+                bay["kind_data"]["rows"]
+                if bay["kind_data"]["kind"] == "text"
+                else []
+            )
+        )
         for frame in composed["frames"]
         for bay in frame["bays"]
     )
@@ -435,16 +466,19 @@ def test_output_changed_beyond_its_text_stays_reachable() -> None:
         bay
         for frame in composed["frames"]
         for bay in frame["bays"]
-        if bay["change"]["kind"] != "unchanged"
-        and all(row["hunk_index"] is None for row in bay["rows"])
+        if bay["kind_data"]["kind"] == "text"
+        and bay["change"]["kind"] != "unchanged"
+        and all(row["hunk_index"] is None for row in bay["kind_data"]["rows"])
     ]
     assert carried_by_bay != [], (
         "a change with no changed row needs a stop of its own"
     )
     for bay in carried_by_bay:
+        content = bay["kind_data"]
+        assert content["kind"] == "text"
         assert bay["change"] == {"kind": "changed"}
         assert "changed beyond its text" in bay["label"]
-        assert bay["stats"]["changed_lines"] == 0
+        assert content["stats"]["changed_lines"] == 0
 
 
 def test_cells_without_distinct_ids_make_it_not_a_notebook() -> None:
@@ -646,7 +680,14 @@ def test_notebook_level_metadata_change_is_reachable() -> None:
     )
     assert any(
         bay["change"]["kind"] != "unchanged"
-        or any(row["hunk_index"] is not None for row in bay["rows"])
+        or any(
+            row["hunk_index"] is not None
+            for row in (
+                bay["kind_data"]["rows"]
+                if bay["kind_data"]["kind"] == "text"
+                else []
+            )
+        )
         for frame in changed["frames"]
         for bay in frame["bays"]
     ), "the change must not be hidden"
@@ -667,7 +708,14 @@ def test_notebook_level_metadata_change_is_reachable() -> None:
     )
     assert any(
         bay["change"]["kind"] != "unchanged"
-        or any(row["hunk_index"] is not None for row in bay["rows"])
+        or any(
+            row["hunk_index"] is not None
+            for row in (
+                bay["kind_data"]["rows"]
+                if bay["kind_data"]["kind"] == "text"
+                else []
+            )
+        )
         for frame in version["frames"]
         for bay in frame["bays"]
     )
@@ -720,7 +768,8 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
     assert all(
         row["left_no"] is None and row["status"] == "insert"
         for bay in bays
-        for row in bay["rows"]
+        if bay["kind_data"]["kind"] == "text"
+        for row in bay["kind_data"]["rows"]
     ), "no row of an added notebook may claim content existed on the left"
 
     context = ComposeContext.build(
@@ -739,7 +788,8 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
     assert all(
         row["right_no"] is None and row["status"] == "delete"
         for bay in bays
-        for row in bay["rows"]
+        if bay["kind_data"]["kind"] == "text"
+        for row in bay["kind_data"]["rows"]
     ), "no row of a removed notebook may claim content existed on the right"
 
 

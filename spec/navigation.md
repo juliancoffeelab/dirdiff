@@ -17,6 +17,14 @@ Hunk indexes are bay-local: every bay numbers its hunks from zero, so
 the index alone names no target and the bay key is the other half of the
 coordinate. No layer renumbers hunks file-wide.
 
+A bay's stops usually come from its rows. A bay that changed and contributes no
+changed row — an `image` or `blob` bay, which has no rows at all, or a text
+bay whose change is a move — instead carries one stop at index zero on its own
+chrome. The coordinate is an ordinary `real` hunk and resolves the ordinary way;
+what differs is only which element carries the target. Chrome stays mounted in
+every representation, so such a stop is always landable, which is what makes
+every change reachable by Next and Previous.
+
 Real hunks use `kind: "real"`. File-state pseudo-hunks use `"husk"`, `"lazy"`,
 or `"zero"` with `hunkIndex: 0` and no bay. Collapsed real hunks use
 `"skip"` while preserving their original bay and hunk index.
@@ -283,7 +291,8 @@ decoration, and one final Navigation scroll. They never select a hunk.
 ### URL identity
 
 Each `ChangeSetSnapshot` creates one `LinePins` instance and passes it to every
-`TextDiffGrid`.
+bay widget that hosts pinnable lines: every `TextDiffGrid`, and every media bay
+widget, whose one pseudo-line per captured side is pinnable like any other.
 
 The URL hash contains at most one `pin` JSON value:
 
@@ -313,7 +322,7 @@ when the exact target is already present, or replaces it otherwise. It preserves
 the path, query, and unrelated hash fields through `history.replaceState`;
 changing the URL does not itself start restoration.
 
-### Direct TextDiffGrid activation
+### Direct grid activation
 
 `TextDiffGrid` has one delegated click listener on its persistent root. An ordinary
 line-number click combines:
@@ -330,12 +339,20 @@ Fold-edge rows are not pinnable and retain their fold interaction. No direct
 click invokes Navigation or file loading because the clicked row is already
 rendered.
 
+A media bay widget does the same for its single pseudo-line: clicking a captured
+side's line number toggles the same URL target with line `1`, removes the
+previous decoration from this ChangeSet, and paints its own row when the result
+is pinned. It has no folds and no other pinnable line.
+
 ### Decoration during rendering
 
-TextDiffGrid owns all `.pinned-line` paint. Initial rendering, explicit fold
+Each bay widget owns the `.pinned-line` paint inside its own bay. For
+TextDiffGrid that is initial rendering, explicit fold
 replacement, rich rendering after virtualization, inline/split replacement,
-and notebook source rendering each read `LinePins.parseUrl()` and paint the
-matching ordinary row when it is present in that grid.
+and notebook source rendering, each reading `LinePins.parseUrl()` and painting
+the matching ordinary row when it is present in that grid. A media bay widget
+reads the same parsed pin once when it mounts and paints its own row when the
+pin names its File, its bay, line `1`, and a side the File was captured on.
 
 Decoration follows rendered rows and may disappear when a file collapses, a
 line folds, or rich content becomes virtual. The URL identity remains unchanged.
@@ -369,9 +386,15 @@ Navigation calls the target `FullFile`’s `prepareLine_impl()`:
 
 1. expand the target file when collapsed;
 2. expand the target's bay and enrich it;
-3. locate the exact ordinary or notebook `TextDiffGrid` inside that bay;
-4. ask that grid to expand every line fold containing the target;
+3. locate that bay's line host inside it;
+4. delegate to that host, which for a text bay expands every line fold
+   containing the target;
 5. return the exact complete row.
+
+The bay is found by its bay key alone, because that wrapper is the one element
+every bay kind mounts. Enrichment and the line host are the widget's, so a bay
+holding captured bytes answers the same three DOM operations without having a
+rich and a virtual representation to switch between.
 
 Preparation returns `ready`, `missing`, or `stopped`. It does not fetch, paint,
 select a hunk, or scroll.
@@ -428,6 +451,9 @@ behavior, and never selects a hunk. Unlocated Threads have no go-to action.
   the authoritative selected-hunk coordinates.
 - Every real or skipped hunk carries all three coordinates; file-state
   pseudo-hunks carry the file index and index zero without a bay.
+- A changed bay that contributes no changed row carries its single stop at
+  index zero on its own always-mounted chrome, so no change is unreachable
+  by traversal merely because its bay has no rows.
 - `selectHunk()` has exactly four direct callers: `nextHunk()`, `prevHunk()`,
   `scrollFollow()`, and the initialization-only `writeInitialHunkSelection()`.
 - Initial selection belongs to the mounted snapshot; FileTree and line pins

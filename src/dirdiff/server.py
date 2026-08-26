@@ -43,7 +43,12 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -61,6 +66,7 @@ from dirdiff.backend import (
     LazyReason,
     PreparedPullRequest,
     PresetBackend,
+    PresetCatalogDir,
     RefChoices,
     RepoDiffPath,
     WorkspaceBackendProtocol,
@@ -70,6 +76,7 @@ from dirdiff.backend import (
     file_kind_for_change_type,
     preferred_review_selection,
     prepare_pull_request,
+    preset_catalogs,
     ref_choices,
 )
 from dirdiff.db import (
@@ -87,8 +94,10 @@ from dirdiff.engines import (
     engine,
 )
 from dirdiff.formats import (
+    BayContext,
     ComposeContext,
     Composer,
+    ImageBay,
 )
 from dirdiff.rendering import (
     SyntaxClass,
@@ -115,7 +124,6 @@ from dirdiff.room_lord import (
     CaptureSelection,
     FileMeta,
     PresetCaptureSelection,
-    PresetCatalog,
     PullRequestCaptureSelection,
     RevisionsCaptureSelection,
     Room,
@@ -213,7 +221,11 @@ class RuntimeConfig:
 
     presets_root: str | None = None
     """
-    Optional preset root supplied by the CLI for local fixture browsing.
+    Directory holding preset catalogs, or `None` for `tests/presets` under the
+    working directory.
+
+    Its immediate subdirectories are the catalogs the Preset Tab offers, one
+    per directory. It is not a catalog itself.
     """
 
 
@@ -225,7 +237,6 @@ TabParam = Literal[
     "preset",
 ]
 """One complete HUD Tab discriminator accepted by manifest."""
-PresetTypeParam = PresetCatalog
 BranchSourceParam = BranchSource
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 BranchSelections = tuple[BranchSelection | None, BranchSelection | None]
@@ -1107,16 +1118,18 @@ class PresetGroupResponse(ApiModel):
 
 
 class PresetCatalogResponse(ApiModel):
+    """One preset catalog: how to select it, what to call it, what it holds.
+
+    `id` is the catalog directory's name and is what a later manifest request
+    sends back as `project_id`. `name` is the caption the picker draws and
+    selects nothing. `/api/presets` returns these as a list because the set of
+    catalogs is a directory listing, not a fixed shape any schema can name.
+    """
+
+    id: str
+    name: str
     default_preset: str
     groups: list[PresetGroupResponse]
-
-
-class PresetCatalogsResponse(ApiModel):
-    diff: PresetCatalogResponse
-    fold: PresetCatalogResponse
-    gumtree: PresetCatalogResponse
-    scroll: PresetCatalogResponse
-    notebook: PresetCatalogResponse
 
 
 class DecoratedPartResponse(ApiModel):
@@ -1265,26 +1278,19 @@ class MovedChangeStatusResponse(ApiModel):
     to_heading: str | None
 
 
-class TextBayResponse(ApiModel):
-    """One `text` bay: decorated rows from the shared text-bay renderer.
+class TextKindResponse(ApiModel):
+    """What a `text` bay holds: decorated rows from the shared text renderer.
 
-    `bay_key` is the sub-file coordinate shared with line pins and review
-    text targets. `label` names the whole bay in its collapsed placeholder;
-    `left_label`/`right_label` are the two side headings inside the grid.
+    `left_label`/`right_label` are the two side headings inside the grid,
+    distinct from the bay's own `label`. Row `hunk_index` values are bay-local,
+    numbered from zero within this bay; the frontend turns them into the File's
+    one navigable sequence.
 
-    `change` reports what happened to this bay. Only the format builder can
-    answer it: a notebook cell that moved and one whose output changed beyond
-    its rendered text both have every row equal, so nothing downstream can tell
-    them apart. Row `hunk_index` values are bay-local, numbered from zero
-    within this bay; the frontend turns them into the File's one navigable
-    sequence.
+    Rows, fold hints, stats, and the engine warning live here rather than on
+    `BayResponse` because they exist only where an engine ran, so a consumer
+    holding an image bay cannot ask for them.
     """
 
-    bay_key: str = Field(min_length=1)
-    label: str
-    detail: str | None = None
-    collapsible: bool
-    default_expanded: bool
     kind: Literal["text"]
     left_label: str
     right_label: str
@@ -1292,19 +1298,78 @@ class TextBayResponse(ApiModel):
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
     stats: BayStatsResponse
     engine_warning: EngineWarningResponse | None = None
+
+
+class MediaRefResponse(ApiModel):
+    """One captured media side, described without its bytes.
+
+    This is the whole of what a bay payload says about captured content: enough
+    for a widget to know the side exists and to request it. The bytes come from
+    `/api/file-media`, addressed by Snapshot, side, and path. The same three
+    facts also reach the reviewer as rows, in the `text` bay stating them.
+    """
+
+    media_type: str = Field(min_length=1)
+    byte_size: int = Field(ge=0)
+    digest: str = Field(min_length=1)
+
+
+class ImageKindResponse(ApiModel):
+    """What an `image` bay holds: two optional references to captured pictures.
+
+    Either side may be `None`, which is a File that was added or removed and
+    must be shown as an absent side rather than an empty frame. It carries no
+    bytes and no dimensions: the widget requests each side from
+    `/api/file-media` and lets the browser decode it.
+    """
+
+    kind: Literal["image"]
+    left: MediaRefResponse | None = None
+    right: MediaRefResponse | None = None
+
+
+BayKindResponse = Annotated[
+    TextKindResponse | ImageKindResponse,
+    Field(discriminator="kind"),
+]
+"""The content of one bay, discriminated by the widget that renders it.
+
+Two arms, because there are two things a reviewer can look at: lines, and a
+picture. Named facts about bytes — a blob File's only bay, an image File's facts
+bay — are lines, so they are `text` and need no arm of their own. The bar for a
+new kind is that the thing genuinely cannot be read as lines; a new one is a
+variant here and a matching variant in the frontend's independent declaration,
+and nothing about frames, hunk allocation, or the envelope changes to admit it.
+"""
+
+
+class BayResponse(ApiModel):
+    """One bay of a composed diff: its identity, plus what it holds.
+
+    `bay_key` is the sub-file coordinate shared with line pins and review
+    targets. `label` names the whole bay where it is shown by name, which is its
+    collapsed placeholder and the content column of the inline grid.
+
+    `change` reports what happened to this bay. Only the format builder can
+    answer it: a notebook cell that moved and one whose output changed beyond
+    its rendered text both have every row equal, so nothing downstream can tell
+    them apart.
+
+    The discriminator sits one level down, in `kind_data`. Placement, identity,
+    collapse, and status read this record and never learn the kind; only widget
+    dispatch descends.
+    """
+
+    bay_key: str = Field(min_length=1)
+    label: str
+    detail: str | None = None
+    collapsible: bool
+    default_expanded: bool
     change: Annotated[
         ChangeStatusResponse | MovedChangeStatusResponse,
         Field(discriminator="kind"),
     ]
-
-
-BayResponse = TextBayResponse
-"""One bay of a composed diff.
-
-This is a single-variant alias today. `image` and `binary` bay kinds turn it
-into a `kind`-discriminated union; adding one is a change to make here and in the
-frontend's matching declaration, and nowhere else.
-"""
+    kind_data: BayKindResponse
 
 
 class FrameResponse(ApiModel):
@@ -1451,33 +1516,23 @@ def preset_project_parts(
     *,
     project_id: str | None,
     preset_subset: str | None,
-) -> tuple[PresetTypeParam, str]:
-    """Parse the preset catalog and subset used to prepare a manifest.
+) -> tuple[str, str]:
+    """Parse the preset catalog id and subset used to prepare a manifest.
 
-    The Preset Tab uses `project_id` as the catalog discriminator (`diff`, `fold`,
-    `gumtree`, `scroll`, or `notebook`) and `preset_subset` as the selected group
-    within that
-    catalog. Follow-up endpoints find the prepared Room by Snapshot key and do
-    not call this parser. The preset backend still validates traversal and
+    The Preset Tab uses `project_id` as the catalog id — the name of a
+    directory under the presets root — and `preset_subset` as the selected
+    group within that catalog. Both are required; whether the catalog exists is
+    settled by `preset_backend_for_catalog`, which is the one place that reads
+    the presets root, so this parser does not carry a second copy of the
+    catalog set. Follow-up endpoints find the prepared Room by Snapshot key and
+    do not call this parser. The preset backend still validates traversal and
     unknown-group errors while preparing the manifest.
     """
     if project_id is None or project_id.strip() == "":
         raise DirdiffError("project_id is required for the Preset Tab.")
     if preset_subset is None or preset_subset.strip() == "":
         raise DirdiffError("preset_subset is required for the Preset Tab.")
-    if project_id == "diff":
-        preset_type: PresetTypeParam = "diff"
-    elif project_id == "fold":
-        preset_type = "fold"
-    elif project_id == "gumtree":
-        preset_type = "gumtree"
-    elif project_id == "scroll":
-        preset_type = "scroll"
-    elif project_id == "notebook":
-        preset_type = "notebook"
-    else:
-        raise DirdiffError(f"Unknown preset project_id: {project_id}")
-    return preset_type, preset_subset
+    return project_id, preset_subset
 
 
 def marked_project_id(project_id: str | None) -> int:
@@ -1605,36 +1660,37 @@ def create_app(
             content={"detail": "Internal server error."},
         )
 
-    def preset_backend_for_type(preset_type: PresetTypeParam) -> PresetBackend:
-        """Resolve which preset catalog backs a preset request.
+    def preset_catalog_dirs() -> tuple[PresetCatalogDir, ...]:
+        """List the preset catalogs this server offers right now.
 
-        Diff, fold, GumTree, and scroll presets live in separate catalogs because
-        they exercise different product surfaces. Keeping that split here means
-        `/api/presets` can expose all catalogs without asking any rendering
-        engine to know about fixture layout.
+        The presets root is rescanned per request rather than captured at
+        startup, so a catalog directory added while the server runs appears on
+        the next refresh, which is how every other hot-reloadable part of this
+        project behaves.
         """
-        if preset_type == "diff":
-            if presets_root is not None:
-                return PresetBackend.discover(presets_root=Path(presets_root))
-            return PresetBackend.discover()
-        if preset_type == "fold":
-            return PresetBackend.discover(
-                presets_root=Path.cwd() / "tests" / "presets" / "folds"
-            )
-        if preset_type == "gumtree":
-            return PresetBackend.discover(
-                presets_root=Path.cwd() / "tests" / "presets" / "gumtree"
-            )
-        if preset_type == "notebook":
-            return PresetBackend.discover(
-                presets_root=Path.cwd() / "tests" / "presets" / "notebook"
-            )
-        return PresetBackend.discover(
-            presets_root=Path.cwd() / "tests" / "presets" / "scroll"
+        root = (
+            Path(presets_root)
+            if presets_root is not None
+            else Path.cwd() / "tests" / "presets"
         )
+        return preset_catalogs(root)
 
-    def preset_catalog_for_type(
-        preset_type: PresetTypeParam,
+    def preset_backend_for_catalog(catalog_id: str) -> PresetBackend:
+        """Construct the backend reading one named preset catalog.
+
+        This is the only place a catalog id is checked against the catalogs
+        that exist; an id no directory answers to is refused here rather than
+        producing an empty listing. Catalogs exercise different product
+        surfaces and each is a directory, so nothing but the directory listing
+        decides which ones a request may name.
+        """
+        for catalog in preset_catalog_dirs():
+            if catalog.catalog_id == catalog_id:
+                return PresetBackend(catalog.root)
+        raise DirdiffError(f"Unknown preset catalog: {catalog_id}")
+
+    def preset_catalog_response(
+        catalog: PresetCatalogDir,
     ) -> PresetCatalogResponse:
         """Serialize one preset catalog for the presets endpoint.
 
@@ -1642,11 +1698,12 @@ def create_app(
         controls, so this endpoint exposes catalog metadata without involving a
         renderer.
         """
-        preset_backend = preset_backend_for_type(preset_type)
-        default_preset = preset_backend.default_preset_name()
+        preset_backend = PresetBackend(catalog.root)
         return PresetCatalogResponse.model_validate(
             {
-                "default_preset": default_preset,
+                "id": catalog.catalog_id,
+                "name": catalog.name,
+                "default_preset": preset_backend.default_preset_name(),
                 "groups": preset_backend.list_preset_groups(),
             }
         )
@@ -1761,7 +1818,7 @@ def create_app(
         parsed_project_id: int | None = None
         if isinstance(selection, PresetCaptureSelection):
             preset_name = selection.subset
-            backend: WorkspaceBackendProtocol = preset_backend_for_type(
+            backend: WorkspaceBackendProtocol = preset_backend_for_catalog(
                 selection.catalog
             )
         else:
@@ -2862,17 +2919,12 @@ def create_app(
         },
         summary="Load grouped preset metadata",
     )
-    def serve_presets() -> PresetCatalogsResponse:
+    def serve_presets() -> list[PresetCatalogResponse]:
         try:
-            return PresetCatalogsResponse.model_validate(
-                {
-                    "diff": preset_catalog_for_type("diff"),
-                    "fold": preset_catalog_for_type("fold"),
-                    "gumtree": preset_catalog_for_type("gumtree"),
-                    "scroll": preset_catalog_for_type("scroll"),
-                    "notebook": preset_catalog_for_type("notebook"),
-                }
-            )
+            return [
+                preset_catalog_response(catalog)
+                for catalog in preset_catalog_dirs()
+            ]
         except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -3345,6 +3397,118 @@ def create_app(
             ) from exc
 
         return ComposedDiffResponse.model_validate(payload)
+
+    @app.get(
+        "/api/file-media",
+        responses={
+            HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+            HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+        },
+        summary="Serve one captured media side",
+        response_class=Response,
+    )
+    def serve_file_media(
+        snapshot_id: str = Query(
+            description="Opaque Snapshot id returned by /api/manifest.",
+        ),
+        side: Literal["left", "right"] = Query(
+            description="Which captured side of the File pair to serve.",
+        ),
+        left_path: str | None = Query(
+            default=None, description="Repo-relative path on the left side."
+        ),
+        right_path: str | None = Query(
+            default=None, description="Repo-relative path on the right side."
+        ),
+    ) -> Response:
+        """Serve one side of one File as the exact bytes the Snapshot captured.
+
+        Addressed by Snapshot, side, and File pair -- the same addressing
+        `/api/file-diff` uses, and for the same reason: a File is identified by
+        its pair of nullable paths, so a renamed image is unaddressable by one
+        path alone. The composed diff the caller already holds carries both.
+
+        The route does HTTP work only: it recovers the Room, reads the two
+        captured byte sides, asks `bays()` which image bay the File composes
+        into, and writes that side's bytes under its media type. `bays()` runs
+        no engine, so this never renders a diff to serve a picture, and the
+        media type is the one composition concluded rather than a second
+        opinion formed here.
+
+        Snapshots are immutable and a Snapshot id is never reused, so the
+        response for one address can never change and is declared cacheable
+        outright.
+        """
+        try:
+            try:
+                snapshot_key = UUID(hex=snapshot_id)
+            except ValueError as exc:
+                raise DirdiffError(
+                    f"Unknown snapshot id: {snapshot_id}"
+                ) from exc
+            try:
+                pair = FilePair(left_path, right_path)
+            except ValueError as exc:
+                raise DirdiffError(str(exc)) from exc
+            room = room_lord.find_room(snapshot_key)
+            left_file, right_file, file_meta = room.get(
+                snapshot_key,
+                Path(pair.left_path) if pair.left_path is not None else None,
+                Path(pair.right_path) if pair.right_path is not None else None,
+            )
+            if file_meta["capture_error"] is not None:
+                raise DirdiffError(file_meta["capture_error"])
+            snapshot_meta = room.meta(snapshot_key)
+            media_bays = [
+                bay
+                for bay in Composer().bays(
+                    left_file.read_bytes() if left_file is not None else None,
+                    right_file.read_bytes() if right_file is not None else None,
+                    BayContext(
+                        left_path=pair.left_path,
+                        right_path=pair.right_path,
+                        left_label=snapshot_meta["left_label"],
+                        right_label=snapshot_meta["right_label"],
+                    ),
+                )
+                if isinstance(bay, ImageBay)
+            ]
+            if media_bays == []:
+                raise DirdiffError(
+                    "The selected file composes no media content."
+                )
+            # A File addressed by path composes at most one image bay, because
+            # the only format that composes one is a whole-File terminal. The
+            # first image bay that is not a file at a path is a
+            # notebook-embedded image, and serving it needs a sub-file
+            # coordinate in this route.
+            assert len(media_bays) == 1, (
+                "path addressing selected more than one image bay"
+            )
+            media_side = (
+                media_bays[0].left if side == "left" else media_bays[0].right
+            )
+            if media_side is None:
+                raise DirdiffError(
+                    f"The selected file was not captured on the {side} side."
+                )
+        except DirdiffError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            LOGGER.exception("File media request crashed: %s", exc)
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail="Internal server error.",
+            ) from exc
+
+        return Response(
+            content=media_side.data,
+            media_type=media_side.media_type,
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        )
 
     return app
 

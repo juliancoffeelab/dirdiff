@@ -608,9 +608,8 @@ function FullFileRenderer(
    *
    * Navigation supplies the complete URL target and its operation AbortSignal.
    * The operation expands this FileCard, expands and enriches the one bay the
-   * pin names, resolves that bay's TextDiffGrid, and delegates local
-   * unfolding. It does not fetch, scroll, paint, parse the URL, or select a
-   * hunk.
+   * pin names, resolves that bay's line host, and delegates the rest to it. It
+   * does not fetch, scroll, paint, parse the URL, or select a hunk.
    */
   async function prepareLine_impl(
     target: LinePinTarget,
@@ -651,14 +650,14 @@ function FullFileRenderer(
     if (abortSignal.aborted || !props.card().isConnected) {
       return { state: "stopped" };
     }
-    // The grid exists only while its bay is rich, so the pin is answered
-    // through the mode-independent bay wrapper: enrich that one bay, then
-    // search inside it.
+    // A text bay's grid exists only while that bay is rich, so the pin is
+    // answered through the bay wrapper every kind mounts: enrich that one bay,
+    // then search inside it. The wrapper is addressed by its bay key alone —
+    // `data-bay-render` names a text bay's rich-or-virtual mode, which a bay
+    // holding captured bytes has no equivalent of.
     const wrapper = props
       .card()
-      .querySelector<HTMLElement>(
-        `[data-bay-render][data-bay-key="${CSS.escape(bayKey)}"]`,
-      );
+      .querySelector<HTMLElement>(`[data-bay-key="${CSS.escape(bayKey)}"]`);
     if (wrapper === null) {
       return { state: "missing" };
     }
@@ -674,16 +673,16 @@ function FullFileRenderer(
       `.diff-grid[data-review-bay="${CSS.escape(bayKey)}"]`,
     );
     if (gridRoot === null) {
-      throw new Error("Enriched bay did not mount its TextDiffGrid.");
+      throw new Error("Enriched bay did not mount its grid.");
     }
     const grid: HTMLElement | undefined =
       gridRoot.querySelector<HTMLElement>(".diff-lines") ?? undefined;
     if (grid === undefined) {
-      throw new Error("Prepared TextDiffGrid disappeared.");
+      throw new Error("Prepared bay grid disappeared.");
     }
     const prepareLine: unknown = Reflect.get(grid, "prepareLine_impl");
     if (typeof prepareLine !== "function") {
-      throw new Error("TextDiffGrid omitted its line-preparation operation.");
+      throw new Error("Bay line host omitted its preparation operation.");
     }
     const result: unknown = await Reflect.apply(prepareLine, grid, [
       target,
@@ -697,15 +696,13 @@ function FullFileRenderer(
         result.state !== "missing" &&
         result.state !== "stopped")
     ) {
-      throw new Error("TextDiffGrid returned an invalid preparation result.");
+      throw new Error("Bay line host returned an invalid preparation result.");
     }
     if (
       result.state === "ready" &&
       (!("row" in result) || !(result.row instanceof HTMLElement))
     ) {
-      throw new Error(
-        "Ready TextDiffGrid preparation omitted its rendered row.",
-      );
+      throw new Error("Ready line preparation omitted its rendered row.");
     }
     return result as PreparedLine;
   }

@@ -252,6 +252,15 @@ key is its `nbformat` cell id, so the key survives an edit to the cell it names.
 A `.ipynb` that does not load as notebook JSON composes as one `flatfile` text
 bay instead, which is an ordinary text diff of its bytes.
 
+A File whose captured bytes this project shows rather than diffs composes one
+bay made of bytes: an `image` bay keyed `image` for the image types the browser
+displays natively, and a `blob` bay keyed `blob` for content nothing here
+can read. Both hold two optional captured sides described by media type, byte
+size, and digest, and both render through the same widget. Neither participates
+in rich/virtual replacement — a bay with no rows has nothing to virtualize, and
+staying mounted is what lets its chrome carry its single hunk stop. Neither
+carries line statistics or an engine warning, because no engine ran.
+
 Each bay renders with its backend label and its own expansion state. The
 state itself is owned by the card — the same ownership the File's `expanded`
 has — keyed by bay key and read as the backend's `default_expanded` until
@@ -268,6 +277,13 @@ A `LazyFile` represents either:
 - a manifest-deferred file with lazy metadata; or
 - an ordinary file-query error; or
 - an ordinary lazy-info failure presented through each manifest-lazy file.
+
+Content this project cannot read is no longer among those reasons. A File whose
+bytes are not text used to fail at the text-decode boundary and arrive as an
+error `LazyFile`; it now composes an ordinary diff holding one `blob` bay,
+which states the two sides' sizes and digests. Classification is total, so no
+File reaches this card as an error where a diff was expected, and the error
+states above describe real failures only.
 
 Both use the ordinary Lazy header and one pseudo-hunk with the file index,
 `kind: "lazy"`, and `hunkIndex: 0`. Collapsing keeps `kind: "lazy"` and the same

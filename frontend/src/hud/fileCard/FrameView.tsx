@@ -23,9 +23,13 @@
  * that actually composes into several bays, because that is the only case
  * where a reviewer needs to be told which bay they are reading.
  *
- * The only bay kind today is `text`, which delegates to the established
- * `TextDiffGrid`. An `image` or `binary` kind adds its widget here beside the text
- * one; nothing about the frame walk or the envelope changes to admit it.
+ * Two bay kinds exist. `text` delegates to the established `TextDiffGrid`;
+ * `image` delegates to `ImageBayView`, which shows a captured picture rather
+ * than rows. Every widget takes the whole `BayPayload`, for identity and label,
+ * and its own already-narrowed arm of `kind_data`, for content; none of them
+ * can ask what kind it is, because `BayBody` answered that before it mounted.
+ * A further kind adds a branch in `BayBody` and its widget module; nothing
+ * about the frame walk or the envelope changes to admit it.
  */
 
 import {
@@ -42,15 +46,17 @@ import {
 import {
   FLATFILE_BAY_KEY,
   type BayChange,
+  type BayPayload,
+  type EngineWarning,
   type FileDiff,
   type Frame,
-  type Bay,
   type ReviewFilePair,
-  type TextBay,
+  type TextKindPayload,
 } from "../../api/api";
 import type { DiffViewMode } from "../App";
 import { finishForcedChunkLayout, forceChunkLayout } from "./grids/text/rowDom";
 
+import { ImageBayView } from "./grids/image/ImageBayView";
 import { TextDiffGrid } from "./grids/text/TextDiffGrid";
 import type { LinePins } from "../linePins";
 import type { RealHunkIdentity } from "../navigation";
@@ -100,7 +106,10 @@ export function composedHunks(diff: FileDiff): {
   for (const frame of diff.frames) {
     for (const bay of frame.bays) {
       const stops: number[] = [];
-      for (const row of bay.rows) {
+      // Don't special case a kind here: whether a bay carries its own stops is
+      // decided by whether it has rows with hunks in them.
+      const rows = "rows" in bay.kind_data ? bay.kind_data.rows : [];
+      for (const row of rows) {
         if (row.hunk_index !== null) {
           stops.push(row.hunk_index);
         }
@@ -255,9 +264,15 @@ export function composedHunkCount(diff: FileDiff): number {
  * whether or not the bay is expanded, because a reviewer needs to know the
  * rows are unreliable before deciding to open them.
  */
-function BayWarning(props: { bay: Bay }): JSX.Element {
+function BayWarning(props: { bay: BayPayload }): JSX.Element {
+  // If the backend reports a warning, display it. Nothing here decides which
+  // kind is allowed to have one.
+  const warning = (): EngineWarning | null =>
+    "engine_warning" in props.bay.kind_data
+      ? props.bay.kind_data.engine_warning
+      : null;
   return (
-    <Show when={props.bay.engine_warning}>
+    <Show when={warning()}>
       {(warning) => (
         <p class="composed-bay-warning" title={warning().message}>
           {warning().message}
@@ -283,14 +298,15 @@ function BayWarning(props: { bay: Bay }): JSX.Element {
  */
 function VirtualBay(props: {
   fileIndex: number;
-  bay: TextBay;
+  bay: BayPayload;
+  content: TextKindPayload;
   reservedRichHeight: number | null;
 }): JSX.Element {
   const text = createMemo(() => {
     const leftLines: string[] = [];
     const rightLines: string[] = [];
     const hunkAnchors: { hunkIndex: number; rowOffset: number }[] = [];
-    props.bay.rows.forEach((row, rowOffset) => {
+    props.content.rows.forEach((row, rowOffset) => {
       // A side a row is missing is a blank line, not an absent one: the two
       // texts stay aligned so a reader compares the same position on both.
       leftLines.push(row.left_text ?? "");
@@ -348,10 +364,12 @@ function VirtualBay(props: {
 /**
  * Renders one `text` bay's body and owns its rich or virtual representation.
  *
- * The bay key is the sub-file coordinate, passed through verbatim to the
- * grid so line pins and review targets keep their identity. The backend bay
- * label names the grid's content column, so an inline grid over a notebook
- * output is not labelled as code.
+ * It takes the whole bay, for the identity and label every widget needs, and
+ * its already-narrowed `text` content, for the rows. The bay key is the
+ * sub-file coordinate, passed through verbatim to the grid so line pins and
+ * review targets keep their identity. The backend bay label names the grid's
+ * content column, so an inline grid over a notebook output is not labelled as
+ * code.
  *
  * The persistent wrapper element carries `data-bay-render` and
  * `data-bay-key`, registers its mode in the card's `BayRenderModes` for
@@ -369,7 +387,8 @@ function TextBayView(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
   displayName: string;
-  bay: TextBay;
+  bay: BayPayload;
+  content: TextKindPayload;
   view: DiffViewMode;
   aggressiveFolds: boolean;
   linePins: LinePins;
@@ -384,7 +403,7 @@ function TextBayView(props: {
   // read by the JSX below before mount, so the key must already exist.
   props.bayRenderModes.setMode(
     bayKey,
-    initialRenderMode(props.card(), props.bay.rows.length),
+    initialRenderMode(props.card(), props.content.rows.length),
   );
   onCleanup(() => props.bayRenderModes.clearMode(bayKey));
   const mode = (): BayRenderMode => props.bayRenderModes.mode(bayKey);
@@ -482,7 +501,7 @@ function TextBayView(props: {
     const bayTop = window.scrollY + rect.top;
     const bayBottom = window.scrollY + rect.bottom;
     const margin =
-      richZone(props.bay.rows.length).enterViewports * viewportHeight;
+      richZone(props.content.rows.length).enterViewports * viewportHeight;
     return (
       bayBottom >= viewportTop - margin &&
       bayTop <= viewportTop + viewportHeight + margin
@@ -493,7 +512,7 @@ function TextBayView(props: {
     const enrichableBay = wrapper as EnrichableBay;
     enrichableBay.intersectsRichEntryZone = intersectsRichEntryZone;
     enrichableBay.waitToEnrich_impl = waitToEnrich_impl;
-    const rowCount = props.bay.rows.length;
+    const rowCount = props.content.rows.length;
     let enterObserver: IntersectionObserver | null = null;
     let exitObserver: IntersectionObserver | null = null;
 
@@ -577,6 +596,7 @@ function TextBayView(props: {
           <VirtualBay
             fileIndex={props.fileIndex}
             bay={props.bay}
+            content={props.content}
             reservedRichHeight={reservedRichHeight()}
           />
         }
@@ -587,10 +607,10 @@ function TextBayView(props: {
           displayName={props.displayName}
           bayKey={props.bay.bay_key}
           contentLabel={props.bay.label}
-          leftLabel={props.bay.left_label}
-          rightLabel={props.bay.right_label}
-          rows={props.bay.rows}
-          foldHints={props.bay.fold_hints}
+          leftLabel={props.content.left_label}
+          rightLabel={props.content.right_label}
+          rows={props.content.rows}
+          foldHints={props.content.fold_hints}
           viewMode={props.view}
           aggressiveFolds={props.aggressiveFolds}
           linePins={props.linePins}
@@ -601,23 +621,29 @@ function TextBayView(props: {
 }
 
 /**
- * Dispatches one bay to the widget for its `kind`.
+ * Dispatches one bay to the widget for its `kind_data`.
  *
- * The switch is exhaustive over the bay union. A new bay kind adds a
- * branch here and its widget module; there is no other dispatch point.
+ * The switch is exhaustive over the kind union, and it is the only place either
+ * kind is examined. Each widget receives the whole bay for identity and label
+ * and its own narrowed arm for content, so no widget reads a `kind` of its own.
+ * A new bay kind adds a branch here and its widget module; there is no other
+ * dispatch point.
  */
 function BayBody(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
   displayName: string;
-  bay: Bay;
+  bay: BayPayload;
   view: DiffViewMode;
   aggressiveFolds: boolean;
   linePins: LinePins;
   card: Accessor<HTMLElement>;
   bayRenderModes: BayRenderModes;
 }): JSX.Element {
-  switch (props.bay.kind) {
+  // Read once into a local so the narrowing below survives into each branch;
+  // `props.bay.kind_data` is a fresh getter call and narrows nothing.
+  const content = props.bay.kind_data;
+  switch (content.kind) {
     case "text":
       return (
         <TextBayView
@@ -625,11 +651,22 @@ function BayBody(props: {
           fileIndex={props.fileIndex}
           displayName={props.displayName}
           bay={props.bay}
+          content={content}
           view={props.view}
           aggressiveFolds={props.aggressiveFolds}
           linePins={props.linePins}
           card={props.card}
           bayRenderModes={props.bayRenderModes}
+        />
+      );
+    case "image":
+      return (
+        <ImageBayView
+          reviewFile={props.reviewFile}
+          bay={props.bay}
+          content={content}
+          view={props.view}
+          linePins={props.linePins}
         />
       );
   }
@@ -651,7 +688,7 @@ export type BayExpansion = {
    * Whether the bay is expanded: its recorded choice, or its backend
    * `default_expanded` while none has been made.
    */
-  isExpanded(bay: Bay): boolean;
+  isExpanded(bay: BayPayload): boolean;
   /** Records one bay's expansion choice under its `bay_key`. */
   setExpanded(bayKey: string, expanded: boolean): void;
 };
@@ -663,25 +700,33 @@ export type BayExpansion = {
  * expand it to learn whether it is worth expanding. Counts come from the
  * bay's backend stats; a count of zero is omitted rather than shown as zero,
  * so the summary stays readable at a glance.
+ *
+ * A bay with no lines has no such counts and renders nothing here. Printing
+ * three zeroes for a changed image would claim the engine looked and found
+ * nothing, when the truth is that lines are the wrong unit for it; the bay's
+ * tint and its frame's status already say what happened.
  */
-function BayStats(props: { bay: Bay }): JSX.Element {
-  const counts = (): { added: number; modified: number; removed: number } => ({
-    added: props.bay.stats.added_lines,
-    modified: props.bay.stats.modified_lines,
-    removed: props.bay.stats.removed_lines,
-  });
+function BayStats(props: { bay: BayPayload }): JSX.Element {
+  // Counts belong to whichever kind reports them, so this asks the payload for
+  // its stats instead of naming the kinds allowed to have any.
+  const counts = () =>
+    "stats" in props.bay.kind_data ? props.bay.kind_data.stats : null;
   return (
-    <span class="composed-bay-stats">
-      <Show when={counts().added > 0}>
-        <span class="delta added">+{counts().added}</span>
-      </Show>
-      <Show when={counts().modified > 0}>
-        <span class="delta changed">~{counts().modified}</span>
-      </Show>
-      <Show when={counts().removed > 0}>
-        <span class="delta removed">-{counts().removed}</span>
-      </Show>
-    </span>
+    <Show when={counts()}>
+      {(stats) => (
+        <span class="composed-bay-stats">
+          <Show when={stats().added_lines > 0}>
+            <span class="delta added">+{stats().added_lines}</span>
+          </Show>
+          <Show when={stats().modified_lines > 0}>
+            <span class="delta changed">~{stats().modified_lines}</span>
+          </Show>
+          <Show when={stats().removed_lines > 0}>
+            <span class="delta removed">-{stats().removed_lines}</span>
+          </Show>
+        </span>
+      )}
+    </Show>
   );
 }
 
@@ -710,7 +755,7 @@ function BayView(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
   displayName: string;
-  bay: Bay;
+  bay: BayPayload;
   hunks: BayHunks;
   view: DiffViewMode;
   aggressiveFolds: boolean;
@@ -856,7 +901,7 @@ export function FrameView(props: {
   /**
    * Returns the stops for one bay, which the walk always produced.
    */
-  const bayHunks = (bay: Bay): BayHunks => {
+  const bayHunks = (bay: BayPayload): BayHunks => {
     const value = hunks().get(bay.bay_key);
     if (value === undefined) {
       throw new Error(
@@ -873,7 +918,10 @@ export function FrameView(props: {
    * bay, and must render as one bare grid with no heading and no bay
    * header. Any other shape renders as frames.
    */
-  const bareTextBay = (): TextBay | null => {
+  const bareTextBay = (): {
+    bay: BayPayload;
+    content: TextKindPayload;
+  } | null => {
     const diff = props.backend_data;
     if (diff.frames.length !== 1) {
       return null;
@@ -883,10 +931,11 @@ export function FrameView(props: {
       return null;
     }
     const bay = frame.bays[0];
-    if (bay.kind !== "text" || bay.bay_key !== FLATFILE_BAY_KEY) {
+    const content = bay.kind_data;
+    if (content.kind !== "text" || bay.bay_key !== FLATFILE_BAY_KEY) {
       return null;
     }
-    return bay;
+    return { bay, content };
   };
 
   return (
@@ -962,16 +1011,17 @@ export function FrameView(props: {
         </For>
       }
     >
-      {(bay) => (
+      {(bare) => (
         <>
           {/* A bare text File has no bay chrome to hang a warning on, so it
               renders directly above the grid it describes. */}
-          <BayWarning bay={bay} />
+          <BayWarning bay={bare.bay} />
           <TextBayView
             reviewFile={props.reviewFile}
             fileIndex={props.fileIndex}
             displayName={props.backend_data.display_name}
-            bay={bay}
+            bay={bare.bay}
+            content={bare.content}
             view={props.view}
             aggressiveFolds={props.aggressiveFolds}
             linePins={props.linePins}

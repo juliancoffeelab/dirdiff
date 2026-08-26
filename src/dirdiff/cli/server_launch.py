@@ -73,7 +73,7 @@ class AppOptions:
 
     presets_root: str | None
     """
-    Optional preset root passed through to the server startup config.
+    Directory of preset catalogs passed through to the server startup config.
     """
 
     port: int

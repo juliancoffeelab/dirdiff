@@ -2,7 +2,7 @@
 
 This module is the snapshot boundary for exact difftastic row projection.  Each
 non-borked preset directory supplies old/new source files, and the snapshot name
-is the preset path relative to `tests/presets/difftastic`.  It tests
+is the preset path relative to `tests/presets/diff`.  It tests
 projection output only; subprocess invocation details belong to the engine, and
 broad token and row-shape invariants live in `test_difftastic_proptest`.
 """
@@ -18,7 +18,7 @@ from dirdiff.engines.difftastic.logic import (
     _difftastic_rows_from_json,
 )
 
-PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "difftastic"
+PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 GOLDEN_ROOT = Path(__file__).parents[1] / "golden" / "difftastic"
 BROKEN_PRESET_GROUPS: set[str] = {
     "borked",

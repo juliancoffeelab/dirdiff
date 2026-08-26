@@ -41,7 +41,13 @@ from dirdiff.db import (
     UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
-from dirdiff.formats import BayContext, Composer
+from dirdiff.formats import (
+    BayContext,
+    Composer,
+    MediaSide,
+    TextBay,
+    media_ref,
+)
 
 __all__ = [
     "AddComment",
@@ -506,22 +512,29 @@ class _SourceRegion:
 
 @dataclass(frozen=True)
 class _ComposedBay:
-    """One composed bay's identity and both of its decoded sides.
+    """One composed bay's identity and the text review reads on each side.
 
     This is what review needs from composition and all it needs: the public
-    bay key a target may name, the text each side holds, and the path hint
-    that selects a parser for structural matching. It carries nothing an engine
-    produced, because `Composer.bays()` has no renderer in reach.
+    bay key a target may name, its kind, the text each side holds, and the path
+    hint that selects a parser for structural matching. It carries nothing an
+    engine produced, because `Composer.bays()` has no renderer in reach.
+
+    An image bay reaches review through the same shape. Its text is the one
+    pseudo-line it exposes, reconstructed from the picture's own facts, so a
+    target against it runs through validation, placement, and excerpt reads
+    without a second variant. `kind` is retained because one thing does still
+    depend on it: which line ranges are valid.
     """
 
     bay_key: str
+    kind: Literal["text", "image"]
     left_text: Optional[str]
     right_text: Optional[str]
     left_hint: Optional[str]
     right_hint: Optional[str]
 
     def text_for(self, side: Literal["left", "right"]) -> Optional[str]:
-        """Return the decoded text this bay holds on one side."""
+        """Return the text this bay exposes to review on one side."""
         return self.left_text if side == "left" else self.right_text
 
     def hint_for(self, side: Literal["left", "right"]) -> Optional[str]:
@@ -765,6 +778,30 @@ def _composed_bays(
         )
         return content
 
+    def pseudo_line(side: Optional[MediaSide]) -> Optional[str]:
+        """Render the one line an image bay exposes to review, or `None`.
+
+        An image bay has no lines, and a target against one is defined to name
+        the single line `1..1`, so review needs exactly one line of text to
+        place that target in and to quote back as its excerpt. It is built
+        from the media side's own facts — its media type, its size, and its
+        digest — which makes it do real work rather than stand in for missing
+        text: when the content changes the line changes, so the region hash
+        retained at creation stops matching and the Thread is reported
+        outdated, which is precisely what a comment on a replaced image
+        deserves.
+
+        `None` is a side the File was not captured on, matching how a text bay
+        reports the same thing.
+        """
+        if side is None:
+            return None
+        ref = media_ref(side)
+        return (
+            f"{ref['media_type']}, {ref['byte_size']} bytes, "
+            f"sha256 {ref['digest']}"
+        )
+
     try:
         composed = Composer().bays(
             side_bytes("left"),
@@ -777,12 +814,28 @@ def _composed_bays(
             ),
         )
         bays = {
-            bay.bay_key: _ComposedBay(
-                bay_key=bay.bay_key,
-                left_text=bay.left.text,
-                right_text=bay.right.text,
-                left_hint=bay.left.path_hint,
-                right_hint=bay.right.path_hint,
+            bay.bay_key: (
+                _ComposedBay(
+                    bay_key=bay.bay_key,
+                    kind="text",
+                    left_text=bay.left.text,
+                    right_text=bay.right.text,
+                    left_hint=bay.left.path_hint,
+                    right_hint=bay.right.path_hint,
+                )
+                if isinstance(bay, TextBay)
+                else _ComposedBay(
+                    bay_key=bay.bay_key,
+                    kind="image",
+                    left_text=pseudo_line(bay.left),
+                    right_text=pseudo_line(bay.right),
+                    # A pseudo-line is not source in any language, so it must
+                    # not select a parser. `media` names no suffix any parser
+                    # claims, which keeps structural matching over the whole
+                    # line and off whatever the File's real extension implies.
+                    left_hint="media",
+                    right_hint="media",
+                )
             )
             for bay in composed
         }
@@ -1140,8 +1193,35 @@ def _derive_record(
     assert locator is not None, "a range origin retains its coordinates"
     _verify_locator(origin, locator, text=origin_text)
     # The bay key is durable identity, so the same key names the same
-    # bay in the target Snapshot. A File that fails to compose at all has
-    # no bay coordinate to offer, so the placement falls to File start.
+    # bay in the target Snapshot. A File that offers no bay coordinate at all
+    # lands at File start instead.
+    #
+    # TODO: this branch reports the wrong reason, and fixing it needs a human
+    # decision rather than a mechanical refactor. Do not "clean it up" without
+    # one.
+    #
+    # What it catches: composition is total since the blob terminal landed, so
+    # content no longer fails here. In practice the only thing left that raises
+    # is `side_bytes()` finding a persisted `SnapshotFile.error` — the capture
+    # failed for this File in this Snapshot (a gitlink where a blob was
+    # expected, an unfetched blob in a partial clone, an unreadable worktree
+    # file).
+    #
+    # What is wrong: `file_start()` hardcodes `bay_not_found`, so the reviewer
+    # is told their comment's bay disappeared when the truth is that dirdiff
+    # could not read the File. The real reason is not even lost — it is the
+    # persisted `error` column, carried by the exception this bare `except`
+    # discards without logging. `/api/file-diff` and `/api/file-media` surface
+    # that same field honestly as a 400; only this path invents a reason.
+    #
+    # Why it is not simply "stop catching": propagating would fail the whole
+    # threads read because one File in the Snapshot is unreadable, hiding every
+    # other Thread in the review. Containing the damage at one placement is
+    # right; substituting a false reason for it is not.
+    #
+    # The likely fix is a distinct persisted `outdated_reason` (the File could
+    # not be composed) plus a log at this boundary — which touches the schema,
+    # the API model, the frontend, and the spec. That is the human call.
     try:
         target_bays = _composed_bays(target_file, cache)
     except ReviewError:
@@ -2236,6 +2316,15 @@ def _origin_record(
         bay_key=command.target.bay_key,
         cache=cache,
     )
+    # An image bay exposes exactly one pseudo-line, so `1..1` is the only
+    # coordinate that describes anything in it. The kind comes from
+    # composition, so this rejects a stale line range against a File that used
+    # to be text rather than trusting the range the client sent.
+    if selected.kind != "text" and command.target.range != LineRange(1, 1):
+        raise ReviewError(
+            "invalid_target",
+            "A non-text bay accepts only the single line 1 to 1.",
+        )
     text = selected.text_for(command.target.side)
     assert text is not None, "selected bay text was already required"
     path = selected.hint_for(command.target.side) or _path_hint(

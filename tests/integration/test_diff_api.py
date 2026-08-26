@@ -6,6 +6,7 @@ to use local Git subprocesses and disposable SQLite files, but they should not
 mock backend loading or bypass request/response contracts.
 """
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -715,9 +716,9 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     assert payload["display_name"] == "Cargo.lock"
     assert payload["file_kind"] == {"type": "git", "status": "modified"}
     bay = payload["frames"][0]["bays"][0]
-    assert bay["kind"] == "text"
+    assert bay["kind_data"]["kind"] == "text"
     assert bay["bay_key"] == "flatfile"
-    assert bay["rows"] != []
+    assert bay["kind_data"]["rows"] != []
 
     reloaded_manifest_response = client.get(
         "/api/manifest",
@@ -758,7 +759,7 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
             repo_marks,
             user_profile,
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
-            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+            presets_root=str(Path.cwd() / "tests" / "presets"),
         )
     )
 
@@ -813,9 +814,9 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
     assert file_diff["display_name"] != ""
     assert len(file_diff["frames"]) == 1
     bay = file_diff["frames"][0]["bays"][0]
-    assert bay["kind"] == "text"
+    assert bay["kind_data"]["kind"] == "text"
     assert bay["bay_key"] == "flatfile"
-    rows = bay["rows"]
+    rows = bay["kind_data"]["rows"]
     assert rows != []
     assert "render_mode" not in file_diff
     assert "truncated_rows" not in file_diff
@@ -848,7 +849,7 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
             repo_marks,
             user_profile,
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
-            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+            presets_root=str(Path.cwd() / "tests" / "presets"),
         )
     )
 
@@ -883,7 +884,7 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
             RepoMarkStore(engine),
             UserProfileStore(engine),
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
-            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+            presets_root=str(Path.cwd() / "tests" / "presets"),
         )
     )
 
@@ -930,7 +931,7 @@ def test_preset_manifest_validates_required_preset_fields(
             repo_marks,
             user_profile,
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
-            presets_root=str(Path.cwd() / "tests" / "presets" / "difftastic"),
+            presets_root=str(Path.cwd() / "tests" / "presets"),
         )
     )
 
@@ -1581,11 +1582,15 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
             b"{ this is not a notebook\n",
             ("bay-start", "flatfile", "bay_not_found"),
         ),
-        # Non-UTF-8 bytes fail composition itself: no bay exists to land on.
+        # Non-UTF-8 bytes are not a notebook and are not text either, so
+        # classification reaches the blob terminal. That composes a bay, so
+        # the cell origin lands on its start exactly as the flatfile case
+        # above does — the File stopped being a notebook, and the Thread
+        # lands on whatever terminal it became.
         (
             "3" * 32,
             b"\x80\xfe\xffnot text",
-            ("file-start", None, "bay_not_found"),
+            ("bay-start", "blob", "bay_not_found"),
         ),
         # A valid notebook whose bays carry no right side at all: every cell
         # pair is left-only, so the placement falls to File start.
@@ -1655,3 +1660,316 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
             assert agent_body["file"] is not None
         else:
             assert agent_body["bay"] is None
+
+
+def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
+    """Serve the captured bytes themselves, and refuse what there are none of.
+
+    The whole point of the endpoint is that the reviewer sees the picture the
+    Snapshot holds, so the assertions compare the response body against the
+    fixture on disk byte for byte rather than checking a length or a prefix.
+    The refusals matter just as much: a side that was never captured and a
+    File that composes no media at all must both be errors, because either one
+    answered with empty bytes would render as a broken image.
+    """
+    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "basic"
+    old_png = (fixtures / "image-changed" / "old.png").read_bytes()
+    new_png = (fixtures / "image-changed" / "new.png").read_bytes()
+    old_ogg = (fixtures / "blob-content-changed" / "old.ogg").read_bytes()
+
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "logo.png").write_bytes(old_png)
+    (tmp_path / "gone.png").write_bytes(old_png)
+    (tmp_path / "clip.ogg").write_bytes(old_ogg)
+    (tmp_path / "untouched.png").write_bytes(old_png)
+    run_git(
+        tmp_path, "add", "logo.png", "gone.png", "clip.ogg", "untouched.png"
+    )
+    run_git(tmp_path, "commit", "-m", "assets")
+    (tmp_path / "logo.png").write_bytes(new_png)
+    (tmp_path / "gone.png").unlink()
+    (tmp_path / "clip.ogg").unlink()
+    # Touched so the text File is captured too: the Snapshot only holds what
+    # changed, and the endpoint must have a text bay to refuse.
+    (tmp_path / "alpha.txt").write_text("one\ntwo\n", encoding="utf-8")
+
+    client, project_id = create_repo_client(tmp_path)
+    manifest = client.get(
+        "/api/manifest",
+        params={
+            "project_id": str(project_id),
+            "tab": "refs",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
+    assert manifest.status_code == 200
+    snapshot_id = manifest.json()["snapshot_id"]
+
+    # The composed diff is where a widget learns a side exists at all, so the
+    # references it carries must describe the same bytes the endpoint serves.
+    diff = client.get(
+        "/api/file-diff",
+        params={
+            "snapshot_id": snapshot_id,
+            "engine": "dirdiff",
+            "left_path": "logo.png",
+            "right_path": "logo.png",
+        },
+    )
+    assert diff.status_code == 200
+    image_bay = diff.json()["frames"][0]["bays"][0]
+    assert image_bay["kind_data"]["kind"] == "image"
+    assert image_bay["bay_key"] == "image"
+    assert image_bay["kind_data"]["left"] == {
+        "media_type": "image/png",
+        "byte_size": len(old_png),
+        "digest": hashlib.sha256(old_png).hexdigest(),
+    }
+    assert image_bay["kind_data"]["right"] == {
+        "media_type": "image/png",
+        "byte_size": len(new_png),
+        "digest": hashlib.sha256(new_png).hexdigest(),
+    }
+
+    for side, expected in (("left", old_png), ("right", new_png)):
+        served = client.get(
+            "/api/file-media",
+            params={
+                "snapshot_id": snapshot_id,
+                "side": side,
+                "left_path": "logo.png",
+                "right_path": "logo.png",
+            },
+        )
+        assert served.status_code == 200, side
+        assert served.content == expected, side
+        assert served.headers["content-type"] == "image/png", side
+        # A Snapshot id is never reused, so one address always names one
+        # answer and the response says so outright.
+        assert served.headers["cache-control"] == (
+            "private, max-age=31536000, immutable"
+        ), side
+
+    # A removed image is captured on one side, and that side is served under
+    # the media type composition concluded.
+    removed = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "side": "left",
+            "left_path": "gone.png",
+        },
+    )
+    assert removed.status_code == 200
+    assert removed.content == old_png
+    assert removed.headers["content-type"] == "image/png"
+
+    absent = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "side": "right",
+            "left_path": "gone.png",
+        },
+    )
+    assert absent.status_code == 400
+    assert "was not captured on the right side" in absent.text
+
+    # A blob File composes its facts as rows and no bay carrying bytes, so
+    # there is nothing here to serve: the endpoint refuses rather than
+    # inventing a download route of its own.
+    blob = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "side": "left",
+            "left_path": "clip.ogg",
+        },
+    )
+    assert blob.status_code == 400
+    assert "composes no media content" in blob.text
+
+    # A text File composes a text bay, which holds no bytes to serve. The
+    # endpoint says so rather than returning the source as a download.
+    textual = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "side": "left",
+            "left_path": "alpha.txt",
+            "right_path": "alpha.txt",
+        },
+    )
+    assert textual.status_code == 400
+    assert "composes no media content" in textual.text
+
+    # An image the Snapshot never captured is not readable through it, even
+    # though it sits in the repository and would have composed a media bay.
+    unchanged = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "side": "left",
+            "left_path": "untouched.png",
+            "right_path": "untouched.png",
+        },
+    )
+    assert unchanged.status_code == 400
+    assert "Snapshot manifest path is missing." in unchanged.text
+
+    unknown_snapshot = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": "0" * 32,
+            "side": "left",
+            "left_path": "logo.png",
+            "right_path": "logo.png",
+        },
+    )
+    assert unknown_snapshot.status_code == 400
+
+    # A path that climbs out of the repository is refused where every other
+    # File address is, which is what stops the endpoint from becoming a way to
+    # read the machine it runs on.
+    outside = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "side": "left",
+            "left_path": "../escape.png",
+            "right_path": "../escape.png",
+        },
+    )
+    assert outside.status_code == 400
+    assert "must be normalized relative names" in outside.text
+
+
+def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
+    tmp_path: Path,
+) -> None:
+    """A non-text bay accepts `1..1` and nothing else.
+
+    The one line it exposes is not source: it is the sentence describing the
+    captured bytes, so a Thread on a picture stores an excerpt that still says
+    something when the picture is gone. Every other range names a line that
+    does not exist, and must be refused rather than clamped -- a stale target
+    from a Snapshot where the File was text would otherwise land silently on
+    the digest sentence.
+    """
+    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "basic"
+    old_png = (fixtures / "image-changed" / "old.png").read_bytes()
+    new_png = (fixtures / "image-changed" / "new.png").read_bytes()
+
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "logo.png").write_bytes(old_png)
+    run_git(tmp_path, "add", "logo.png")
+    run_git(tmp_path, "commit", "-m", "logo")
+    (tmp_path / "logo.png").write_bytes(new_png)
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "e" * 32,
+            "name": "image reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+
+    # The agent finds the captured side by its bytes, as it must: a File-id
+    # directory carries no repository path, and these bytes are not text.
+    captured = [
+        side
+        for side in sorted(Path(joined["snapshot_path"]).glob("*/right"))
+        if side.read_bytes() == new_png
+    ]
+    assert len(captured) == 1
+    image_side = captured[0]
+
+    created = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(image_side),
+                    "bay": {
+                        "bay_key": "image",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
+                    "body": "the logo changed",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 200
+    thread_id = created.json()["results"][0]["thread_id"]
+
+    read = client.get(
+        f"/api/agent/thread/{thread_id}",
+        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
+    )
+    assert read.status_code == 200
+    body = read.json()
+    assert body["bay"] == {"bay_key": "image", "start_line": 1, "end_line": 1}
+    excerpt = body["original_excerpt"]
+    assert excerpt["lines"] == [
+        f"image/png, {len(new_png)} bytes, "
+        f"sha256 {hashlib.sha256(new_png).hexdigest()}"
+    ]
+    assert excerpt["start_line"] == 1
+    assert excerpt["selected_start_line"] == 1
+    assert excerpt["selected_end_line"] == 1
+
+    for start_line, end_line in ((1, 2), (2, 2)):
+        rejected = client.post(
+            "/api/agent/actions",
+            json={
+                "snapshot_id": joined["snapshot_id"],
+                "profile_id": joined["profile_id"],
+                "actions": [
+                    {
+                        "kind": "create-finding",
+                        "file": str(image_side),
+                        "bay": {
+                            "bay_key": "image",
+                            "start_line": start_line,
+                            "end_line": end_line,
+                        },
+                        "body": "past the one line there is",
+                    },
+                ],
+            },
+        )
+        assert rejected.status_code == 400, (start_line, end_line)
+        assert "A non-text bay accepts only the single line 1 to 1." in (
+            rejected.text
+        ), (start_line, end_line)
+
+    # An image File composes no `flatfile` bay, so the key a text File would
+    # have carried names a coordinate that no longer exists.
+    stale = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(image_side),
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
+                    "body": "wrong bay",
+                },
+            ],
+        },
+    )
+    assert stale.status_code == 400
+    assert "Unknown rendered bay." in stale.text
