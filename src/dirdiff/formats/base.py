@@ -26,7 +26,7 @@ This module owns the enduring contracts every sibling depends on:
 
 Sibling modules import these from `base.py`, never from the package facade. This
 module owns no format-specific decision: which bays a file composes into is
-`composer.py`'s ordered classification and the per-format builders it calls. It
+`composer.py`'s path classification and the per-format builders it calls. It
 owns no request state, no Room vocabulary, and no HTTP concern.
 
 It also owns no hunk numbering. Enrichment marks which rows begin a changed run,
@@ -66,12 +66,14 @@ __all__ = [
     "FLATFILE_BAY_KEY",
     "IMAGE_BAY_KEY",
     "IMAGE_FACTS_BAY_KEY",
+    "IMAGE_METADATA_BAY_KEY",
     "MEDIA_FACTS_PATH_HINT",
     "Bay",
     "BayChange",
     "BayContext",
     "BayKindPayload",
     "BayPayload",
+    "BayWarning",
     "ChangeStatus",
     "ComposeContext",
     "ComposedFilePayload",
@@ -84,11 +86,12 @@ __all__ = [
     "MovedChangeStatus",
     "TextBay",
     "TextKindPayload",
+    "TextRejection",
     "image_kind_payload",
     "media_facts",
     "media_ref",
-    "text_content_or_none",
     "text_kind_payload",
+    "try_decode_text",
     "whole_file_change",
 ]
 
@@ -168,6 +171,10 @@ holds the very same three lines under `BLOB_BAY_KEY`; keying both `"facts"`
 would let a target survive a File changing classification, landing a comment
 written about a picture on the bytes that replaced it.
 """
+
+
+IMAGE_METADATA_BAY_KEY = "image-metadata"
+"""Bay key for dimensions and EXIF parsed from an image File's bytes."""
 
 
 BLOB_BAY_KEY = "blob"
@@ -342,6 +349,9 @@ class TextBay:
     right: DiffSide
     """The right side's decoded text, under the same contract as `left`."""
 
+    warnings: tuple[BayWarning, ...] = ()
+    """Non-fatal format damage affecting this bay's representation."""
+
 
 @dataclass(frozen=True)
 class MediaSide:
@@ -424,6 +434,9 @@ class ImageBay:
     right: MediaSide | None
     """The right side's captured bytes, under the same contract as `left`."""
 
+    warnings: tuple[BayWarning, ...] = ()
+    """Non-fatal format damage affecting this bay's representation."""
+
 
 Bay = TextBay | ImageBay
 """One bay a format builder yields, before rendering and before serialization.
@@ -435,6 +448,18 @@ writes none. `compose()` renders a text bay through the engine and reduces an
 image bay to references, the media endpoint serves only the second, and review
 reconstructs an excerpt from either.
 """
+
+
+class BayWarning(TypedDict):
+    """A non-fatal degradation attached to the smallest affected bay.
+
+    `type` is a stable machine-readable discriminator. `message` is the full
+    explanation shown to the reviewer. Engine warnings and format warnings use
+    this common wire shape without claiming the same source.
+    """
+
+    type: str
+    message: str
 
 
 class MediaRef(TypedDict):
@@ -466,7 +491,7 @@ class MediaRef(TypedDict):
 class TextKindPayload(TypedDict):
     """The varying half of a serialized `text` bay: what an engine produced.
 
-    Rows, fold hints, stats, and the engine warning are text-only by nature:
+    Rows, fold hints, and stats are text-only by nature:
     they are what an engine produced from two decoded sides, and a bay with no
     rows has none of them. They live on this arm rather than on `BayPayload`
     so that a consumer holding an image bay cannot ask for them.
@@ -496,11 +521,6 @@ class TextKindPayload(TypedDict):
     stats: DiffSummary
     """This bay's own line counts, shown in the header of a collapsible
     bay so a reviewer can judge whether opening it is worthwhile."""
-
-    engine_warning: EngineWarning | None
-    """The engine's report that it gave up matching these rows, or `None`. It
-    belongs to the bay whose rows it describes, not to the File, since one
-    File holds many bays and only some may carry one."""
 
 
 class ImageKindPayload(TypedDict):
@@ -572,6 +592,9 @@ class BayPayload(TypedDict):
     """What happened to this bay. Only the format builder can answer it, and
     the frontend colours from it and infers nothing. Anything but `unchanged`
     needs somewhere for the reviewer to land."""
+
+    warnings: list[BayWarning]
+    """Non-fatal engine or format degradation affecting this bay."""
 
     kind_data: BayKindPayload
     """What this bay holds, and the only field that varies by kind. It is
@@ -651,8 +674,19 @@ class ComposedFilePayload(TypedDict):
     bay, which is what makes `bay_key` a total coordinate."""
 
 
-def text_content_or_none(data: bytes) -> str | None:
-    """Decode exact file contents as text, or answer that they are not text.
+@dataclass(frozen=True)
+class TextRejection:
+    """Why exact captured bytes cannot be represented as project text."""
+
+    reason: Literal["nul-byte", "invalid-utf8"]
+    """Stable discriminator for the rejected text contract."""
+
+    detail: str
+    """Human-readable location or explanation of the invalid bytes."""
+
+
+def try_decode_text(data: bytes) -> str | TextRejection:
+    """Decode exact file contents as text or return the precise rejection.
 
     This is the single definition of what this project calls text: no NUL byte,
     and valid UTF-8 with an optional BOM. It lives here because classification
@@ -661,15 +695,22 @@ def text_content_or_none(data: bytes) -> str | None:
     the blob terminal rather than a failure, and the decoded value it returns is
     the text the flatfile builder renders, so a File is decoded once.
 
-    Nothing here raises. A caller that cannot proceed without text is a caller
-    composition does not have: every File reaches a bay.
+    Nothing here raises. Composition turns a rejection into blob facts and a
+    visible warning rather than hiding the failed contract.
     """
-    if b"\x00" in data:
-        return None
+    nul_offset = data.find(b"\x00")
+    if nul_offset >= 0:
+        return TextRejection(
+            reason="nul-byte",
+            detail=f"NUL byte at byte {nul_offset}",
+        )
     try:
         return data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return None
+    except UnicodeDecodeError as error:
+        return TextRejection(
+            reason="invalid-utf8",
+            detail=f"invalid UTF-8 at byte {error.start}",
+        )
 
 
 def media_ref(side: MediaSide) -> MediaRef:
@@ -740,7 +781,7 @@ def image_kind_payload(bay: ImageBay) -> ImageKindPayload:
 def text_kind_payload(
     bay: TextBay,
     renderer: DiffEngineProtocol,
-) -> TextKindPayload:
+) -> tuple[TextKindPayload, EngineWarning | None]:
     """Render one `TextBay`'s content into its serialized wire form.
 
     This is the one shared text-bay renderer, so ordinary text and every
@@ -764,12 +805,14 @@ def text_kind_payload(
         left_path_hint=bay.left.path_hint,
         right_path_hint=bay.right.path_hint,
     )
-    return {
-        "kind": "text",
-        "left_label": bay.left_label,
-        "right_label": bay.right_label,
-        "rows": display["rows"],
-        "fold_hints": display.get("fold_hints", []),
-        "stats": rendered["summary"],
-        "engine_warning": rendered.get("engine_warning"),
-    }
+    return (
+        {
+            "kind": "text",
+            "left_label": bay.left_label,
+            "right_label": bay.right_label,
+            "rows": display["rows"],
+            "fold_hints": display.get("fold_hints", []),
+            "stats": rendered["summary"],
+        },
+        rendered.get("engine_warning"),
+    )

@@ -1,12 +1,12 @@
 """The image format: a File the browser can display but nobody can read.
 
-An image File composes one heading-less frame holding two bays. The `image` bay
+An image File composes one heading-less frame holding three bays. The `image` bay
 is the picture, and it is the frame's body: a reviewer who opened an image came
 to look at it, so it is always shown. Beside it, open by default and
-collapsible, is a `text` bay stating what is known about the bytes — media
-type, size, digest. Three lines cost nothing to read, so they are stated rather
-than hidden behind a disclosure, and a reviewer who does not want them shuts
-the bay.
+collapsible, is a `text` metadata bay containing Pillow's dimensions and EXIF,
+followed by a `text` bay stating what is known about the bytes — media type,
+size, digest. A decode failure damages only the metadata bay and is shown as
+its warning; the exact picture bytes and byte facts remain available.
 
 Neither bay answers the other's question. The picture answers "does it look
 different", and a re-encode that rewrites every byte can look identical. The
@@ -15,29 +15,34 @@ differ visibly have different digests for a reason worth reading. So both are
 composed, always, and the reviewer decides which one to read.
 
 Public interface: `image_media_type()`, which is both the classification test
-and the answer classification needs, and `image_bays()`, which yields those two
+and the answer classification needs, and `image_bays()`, which yields those three
 bays in that order.
 
-What this module does not own: rendering, scaling, or decoding. It never looks
-inside the bytes, never asks how large the picture is, and never produces a
-thumbnail — the bytes it yields are the captured bytes, and the browser is the
-thing that turns them into a picture. It does not own the wording of the facts
-either; `base.py` writes those, because a blob File states the same three facts
-the same way. It also does not own classification order; `composer.py` decides
-when to ask, and calls `image_bays()` once the answer is final.
+What this module does not own: rendering or scaling. It never produces a
+thumbnail: the image bay retains captured bytes, and the browser turns them
+into a picture. Pillow reads metadata only. It does not own the wording of the
+facts either; `base.py` writes those, because a blob File states the same three
+facts the same way. It also does not own classification order; `composer.py`
+decides when to ask, and calls `image_bays()` once the answer is final.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
+from io import BytesIO
+
+from PIL import ExifTags, Image
 
 from dirdiff.engines import DiffSide
 from dirdiff.formats.base import (
     IMAGE_BAY_KEY,
     IMAGE_FACTS_BAY_KEY,
+    IMAGE_METADATA_BAY_KEY,
     MEDIA_FACTS_PATH_HINT,
     Bay,
     BayContext,
+    BayWarning,
     ImageBay,
     MediaSide,
     TextBay,
@@ -123,6 +128,59 @@ def image_bays(
     rename that only changes the declared media type: the type row honestly
     reads as changed while the picture reads unchanged.
     """
+
+    def metadata(
+        side: MediaSide | None,
+        side_label: str,
+    ) -> tuple[str | None, tuple[BayWarning, ...]]:
+        """Read stable dimensions and EXIF text for one captured image side."""
+        if side is None:
+            return None, ()
+        try:
+            with Image.open(BytesIO(side.data)) as image:
+                image.load()
+                rows = [
+                    f"width: {image.width} px",
+                    f"height: {image.height} px",
+                ]
+                warnings: list[BayWarning] = []
+                for tag_id, value in sorted(
+                    image.getexif().items(),
+                    key=lambda item: ExifTags.TAGS.get(item[0], str(item[0])),
+                ):
+                    tag = ExifTags.TAGS.get(tag_id, str(tag_id))
+                    try:
+                        if isinstance(value, bytes) and len(value) > 256:
+                            rendered = (
+                                f"<{len(value)} bytes, sha256 "
+                                f"{hashlib.sha256(value).hexdigest()}>"
+                            )
+                        else:
+                            rendered = str(value)
+                    except (TypeError, ValueError) as error:
+                        warnings.append(
+                            {
+                                "type": "image_invalid_exif_value",
+                                "message": (
+                                    f"{side_label} EXIF {tag} could not be "
+                                    f"shown: {error}."
+                                ),
+                            }
+                        )
+                        continue
+                    rows.append(f"exif:{tag}: {rendered}")
+                return "\n".join(rows), tuple(warnings)
+        except (OSError, SyntaxError, ValueError) as error:
+            return "", (
+                {
+                    "type": "image_decode_failed",
+                    "message": (
+                        f"{side_label} image metadata could not be read: "
+                        f"{error}."
+                    ),
+                },
+            )
+
     left_side: MediaSide | None = None
     if left is not None:
         assert left_media_type is not None, (
@@ -135,6 +193,7 @@ def image_bays(
             "an image File's captured right side must have a media type"
         )
         right_side = MediaSide(media_type=right_media_type, data=right)
+
     # One frame, and nothing to name above a File that is entirely one picture,
     # so both bays are keyed "file" and carry no heading, exactly as a
     # flatfile's one bay does.
@@ -150,6 +209,35 @@ def image_bays(
         left=left_side,
         right=right_side,
     )
+
+    # Then show metadata, like things from EXIF
+    left_metadata, left_warnings = metadata(left_side, context.left_label)
+    right_metadata, right_warnings = metadata(right_side, context.right_label)
+    yield TextBay(
+        frame_key="file",
+        heading=None,
+        bay_key=IMAGE_METADATA_BAY_KEY,
+        label="Image metadata",
+        detail=None,
+        collapsible=True,
+        default_expanded=True,
+        change=whole_file_change(left_metadata, right_metadata),
+        left_label=context.left_label,
+        right_label=context.right_label,
+        left=DiffSide(
+            exists=left_side is not None,
+            text=left_metadata,
+            path_hint=MEDIA_FACTS_PATH_HINT,
+        ),
+        right=DiffSide(
+            exists=right_side is not None,
+            text=right_metadata,
+            path_hint=MEDIA_FACTS_PATH_HINT,
+        ),
+        warnings=(*left_warnings, *right_warnings),
+    )
+
+    # And finally, generic file data, like file size
     left_facts = media_facts(left_side)
     right_facts = media_facts(right_side)
     yield TextBay(

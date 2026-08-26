@@ -183,8 +183,8 @@ def test_markdown_edit_is_one_source_bay() -> None:
     assert len(composed["frames"]) > 1
 
 
-def test_invalid_notebook_composes_as_ordinary_text() -> None:
-    """A `.ipynb` that is not valid notebook JSON falls through to ordinary text."""
+def test_invalid_notebook_composes_as_warned_raw_notebook() -> None:
+    """Unreadable notebook structure remains visibly notebook-shaped."""
     directory = NOTEBOOKS / "invalid" / "not-valid-notebook-json"
     context = ComposeContext.build(
         left_path="b.ipynb",
@@ -200,9 +200,19 @@ def test_invalid_notebook_composes_as_ordinary_text() -> None:
     )
     assert len(composed["frames"]) == 1
     frame = composed["frames"][0]
-    assert frame["heading"] is None
+    assert frame["heading"] == "Notebook"
     assert len(frame["bays"]) == 1
-    assert frame["bays"][0]["bay_key"] == "flatfile"
+    bay = frame["bays"][0]
+    assert bay["bay_key"] == "notebook:raw"
+    assert bay["label"] == "Raw notebook JSON"
+    assert bay["warnings"] == [
+        {
+            "type": "notebook_invalid_document",
+            "message": (
+                "Notebook structure could not be read; showing its raw JSON."
+            ),
+        }
+    ]
 
 
 def test_source_and_output_both_change_in_one_frame() -> None:
@@ -481,13 +491,12 @@ def test_output_changed_beyond_its_text_stays_reachable() -> None:
         assert content["stats"]["changed_lines"] == 0
 
 
-def test_cells_without_distinct_ids_make_it_not_a_notebook() -> None:
-    """A document that cannot name its cells composes as ordinary text.
+def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
+    """Missing or duplicate ids preserve cells under degraded source keys.
 
-    Bay keys are what review and line pins persist, so a cell with no id, or
-    two cells claiming one id, leaves nothing durable to store. Such a document
-    reaches the flatfile terminal like a `.ipynb` whose JSON does not load,
-    rather than composing under keys invented for it.
+    Bay keys are what review and line pins persist. When an id cannot supply a
+    unique durable key, the source hash and occurrence among identical sources
+    supply an unambiguous degraded coordinate and the source bay warns.
     """
 
     def notebook(identifiers: list[object]) -> bytes:
@@ -532,19 +541,28 @@ def test_cells_without_distinct_ids_make_it_not_a_notebook() -> None:
             for frame in composed["frames"]
             for bay in frame["bays"]
         ]
-        assert keys == ["flatfile"], f"{identifiers} composed as {keys}"
+        assert "flatfile" not in keys, f"{identifiers} composed as {keys}"
+        assert any(key.startswith("pseudocell:") for key in keys)
+        assert any(
+            warning["type"] == "notebook_missing_cell_id"
+            for frame in composed["frames"]
+            for bay in frame["bays"]
+            for warning in bay["warnings"]
+        )
 
     # One malformed side is enough: pairing needs keys on both.
     composed = Composer().compose(
         notebook(["a", "b"]), notebook(["a", "a"]), context
     )
-    assert [
-        bay["bay_key"] for frame in composed["frames"] for bay in frame["bays"]
-    ] == ["flatfile"]
+    assert any(
+        bay["bay_key"].startswith("pseudocell:")
+        for frame in composed["frames"]
+        for bay in frame["bays"]
+    )
 
 
-def test_schema_violations_in_read_fields_make_it_not_a_notebook() -> None:
-    """A document breaking a read field's schema shape composes as text.
+def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
+    """A broken read field preserves the notebook and reports its damage.
 
     The loader is strict about every field composition reads, where strict
     means the `nbformat` v4.5 schema shape: an id outside the `cell_id`
@@ -600,7 +618,12 @@ def test_schema_violations_in_read_fields_make_it_not_a_notebook() -> None:
             for frame in composed["frames"]
             for bay in frame["bays"]
         ]
-        assert keys == ["flatfile"], f"{cell} composed as {keys}"
+        assert "flatfile" not in keys, f"{cell} composed as {keys}"
+        assert any(
+            bay["warnings"]
+            for frame in composed["frames"]
+            for bay in frame["bays"]
+        ), f"{cell} produced no degradation warning"
 
 
 def test_a_cell_key_is_the_id_verbatim() -> None:

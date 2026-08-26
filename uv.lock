@@ -509,6 +509,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "pillow" },
     { name = "sqlalchemy" },
     { name = "tree-sitter" },
     { name = "tree-sitter-bash" },
@@ -552,6 +553,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.5" },
     { name = "fastapi", specifier = ">=0.136.3" },
+    { name = "pillow", specifier = ">=12.3.0" },
     { name = "sqlalchemy", specifier = ">=2.0.50" },
     { name = "tree-sitter", specifier = ">=0.25.2" },
     { name = "tree-sitter-bash", specifier = ">=0.25.1" },

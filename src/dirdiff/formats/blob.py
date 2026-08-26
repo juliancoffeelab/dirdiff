@@ -33,6 +33,7 @@ from dirdiff.formats.base import (
     BLOB_BAY_KEY,
     MEDIA_FACTS_PATH_HINT,
     BayContext,
+    BayWarning,
     MediaSide,
     TextBay,
     media_facts,
@@ -41,6 +42,7 @@ from dirdiff.formats.base import (
 
 __all__ = [
     "blob_bays",
+    "blob_media_type",
 ]
 
 
@@ -53,10 +55,48 @@ sides, which is the row a reviewer reads as "nothing here understood this".
 """
 
 
+_BLOB_MEDIA_TYPES = {
+    ".7z": "application/x-7z-compressed",
+    ".bz2": "application/x-bzip2",
+    ".db": "application/vnd.sqlite3",
+    ".gz": "application/gzip",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
+    ".ogg": "audio/ogg",
+    ".otf": "font/otf",
+    ".pdf": "application/pdf",
+    ".sqlite": "application/vnd.sqlite3",
+    ".ttf": "font/ttf",
+    ".wasm": "application/wasm",
+    ".wav": "audio/wav",
+    ".webm": "video/webm",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".xz": "application/x-xz",
+    ".zip": "application/zip",
+}
+"""Extensions dirdiff explicitly presents as opaque byte facts."""
+
+
+def blob_media_type(path: str | None) -> str | None:
+    """Return the declared blob media type for `path`, if explicitly known."""
+    if path is None:
+        return None
+    lowered = path.lower()
+    for suffix, media_type in _BLOB_MEDIA_TYPES.items():
+        if lowered.endswith(suffix):
+            return media_type
+    return None
+
+
 def blob_bays(
     left: bytes | None,
     right: bytes | None,
     context: BayContext,
+    *,
+    left_media_type: str | None,
+    right_media_type: str | None,
+    warnings: tuple[BayWarning, ...] = (),
 ) -> Iterator[TextBay]:
     """Yield the single bay a blob File composes into.
 
@@ -73,12 +113,18 @@ def blob_bays(
     left_facts = media_facts(
         None
         if left is None
-        else MediaSide(media_type=BLOB_MEDIA_TYPE, data=left)
+        else MediaSide(
+            media_type=left_media_type or BLOB_MEDIA_TYPE,
+            data=left,
+        )
     )
     right_facts = media_facts(
         None
         if right is None
-        else MediaSide(media_type=BLOB_MEDIA_TYPE, data=right)
+        else MediaSide(
+            media_type=right_media_type or BLOB_MEDIA_TYPE,
+            data=right,
+        )
     )
     yield TextBay(
         # One frame, and nothing to name above a File that is entirely one
@@ -104,4 +150,5 @@ def blob_bays(
             text=right_facts,
             path_hint=MEDIA_FACTS_PATH_HINT,
         ),
+        warnings=warnings,
     )

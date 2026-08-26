@@ -154,6 +154,13 @@ or moved cell keeps it. A File that no longer composes the stored key places
 nothing. Nested source structure is then matched within the selected bay by
 the same rules as ordinary text.
 
+An id-less notebook cell instead derives a pseudo-cell frame key from the
+SHA-256 of its source plus its zero-based occurrence among cells with that same
+source. Its source, metadata, and output bays extend that frame key. The
+occurrence only makes repeated identical source unique; the source is the
+identity, so any matching pseudo-cell has the exact source the Thread named. An
+edit changes the hash and therefore follows ordinary `bay_not_found` placement.
+
 Validation calls `bays()` rather than re-deriving what the renderer shows, so
 the bay keys a target may name are exactly the keys composition produces. That
 call carries a `BayContext`, which has no renderer field, so bay identity

@@ -19,10 +19,10 @@ Public interface: `flatfile_bays()`, which yields that one bay.
 outside this package — review targets, line pins, the agent API — compare
 against it, and they must not import a format module to do so.
 
-What this module does not own: classification, or decoding. It never decides
-whether a File is a flatfile; `composer.py` does, by decoding the two sides, and
-calls this module with the text it already has. It also owns no engine — the
-sides it yields are that decoded text, and rendering them is
+What this module does not own: classification. It receives bytes only after
+`composer.py` has selected presumed text, decodes each side once, and degrades
+the whole File to blob facts with a warning when either side is not project
+text. It owns no engine: rendering decoded sides is
 `text_kind_payload()`'s job.
 """
 
@@ -35,8 +35,11 @@ from dirdiff.formats.base import (
     FLATFILE_BAY_KEY,
     BayContext,
     TextBay,
+    TextRejection,
+    try_decode_text,
     whole_file_change,
 )
+from dirdiff.formats.blob import blob_bays
 
 __all__ = [
     "flatfile_bays",
@@ -44,17 +47,15 @@ __all__ = [
 
 
 def flatfile_bays(
-    left_text: str | None,
-    right_text: str | None,
+    left: bytes | None,
+    right: bytes | None,
     context: BayContext,
 ) -> Iterator[TextBay]:
     """Yield the single bay a flatfile composes into.
 
-    Both sides arrive already decoded, because deciding that a File *is* a
-    flatfile means decoding it: classification decodes once, hands the result
-    here, and sends content that did not decode to the blob terminal instead.
-    Nothing is decoded twice and this builder cannot be handed content that is
-    not text.
+    Both sides arrive as exact bytes after path classification presumed text.
+    This builder decodes each once. If either present side rejects the text
+    contract, it yields blob facts for both sides with the rejection warning.
 
     `None` on a side means the File was not captured there — that is how an
     added or removed File is expressed. A captured empty File decodes to `""`
@@ -63,6 +64,34 @@ def flatfile_bays(
     The bay is never collapsible, and its `change` follows the whole-File rule:
     a flatfile has no fact beyond its own text and no positions to move within.
     """
+    left_text = None if left is None else try_decode_text(left)
+    right_text = None if right is None else try_decode_text(right)
+    rejections = [
+        value
+        for value in (left_text, right_text)
+        if isinstance(value, TextRejection)
+    ]
+    if len(rejections) > 0:
+        yield from blob_bays(
+            left,
+            right,
+            context,
+            left_media_type=None,
+            right_media_type=None,
+            warnings=tuple(
+                {
+                    "type": rejection.reason.replace("-", "_"),
+                    "message": (
+                        "Presumed text shown as byte facts: "
+                        f"{rejection.detail}."
+                    ),
+                }
+                for rejection in rejections
+            ),
+        )
+        return
+    assert not isinstance(left_text, TextRejection)
+    assert not isinstance(right_text, TextRejection)
     change = whole_file_change(left_text, right_text)
     yield TextBay(
         # One frame, and nothing to name above a File that is entirely its own

@@ -104,25 +104,23 @@ numbering: rows keep the bay-local boundaries enrichment gave them, and the
 frontend turns those into the File's navigable sequence. `base.py` holds those
 contracts (contexts, the text-bay renderer, the serialized shapes);
 `composer.py`
-holds the class and the ordered classification; per-format sibling builders live
+holds the class and the path-only classification; per-format sibling builders live
 beside them.
 
-Classification is an ordered check, and it is total — every File reaches an
-answer, so none arrives at the frontend as an error where a diff was expected.
-A `.ipynb` whose bytes load as notebook JSON
-composes through `notebook.py` into one frame per cell — every cell, so the
-notebook reads as the document it is — plus a `notebook:metadata` frame. A File
-whose every captured side's path names one of the image types the browser
-displays natively composes through `image.py` into one heading-less frame
-holding two bays: an `image` bay keyed `image`, which is the frame's body, and
-an `image-facts` text bay beside it, open by default and collapsible;
-classification there
-is by filename extension, which is what the repository asserts the file is. A
-File whose every captured side decodes as text composes as one heading-less
-frame holding one `flatfile` text bay, which is also where a `.ipynb` that does
-not load and an `.svg` land. Everything left composes through `blob.py` into
-one `text` bay keyed `blob`, which is that frame's body: a blob is a
-classification, not a bay kind, and what it composes is a diff of the facts.
+Classification reads paths only and is total. `.ipynb` paths are notebooks,
+the image extension table names images, the blob extension table names formats
+dirdiff explicitly treats as bytes, and every other path is presumed text. A
+two-sided File keeps a specialized classification only when both paths agree;
+a mixed rename is presumed text. A presumed text File that does not satisfy the
+text contract composes as blob facts with a warning.
+
+Notebook loading preserves valid cells and outputs when a sibling is malformed.
+The rejected part becomes canonical JSON in its own text bay with a warning;
+damage before a usable cell list exists produces one raw notebook bay. Missing
+or duplicate cell ids use source-derived pseudo-cell keys. An image composes a
+picture bay, a Pillow-derived metadata text bay for dimensions and EXIF, and a
+byte-facts text bay. Blob Files compose one text bay keyed `blob` containing
+their byte facts.
 
 The facts are the same three lines in both builders — `type:`, `size:`, and
 `sha256:`, one per line — and the ordinary engine diffs them, so a reviewer
@@ -138,16 +136,16 @@ the bytes themselves are served only by `/api/file-media`. An image bay's
 and take no navigation stop.
 
 `dirdiff.formats.notebook` owns everything notebook-shaped: parsing, cell
-pairing, public cell keys, and each bay's content. A cell's public key is its
-`nbformat` id, which makes the key durable identity — that is what lets review
-store a bay key and nothing else.
+pairing, public cell keys, and each bay's content. A valid distinct `nbformat`
+id is durable identity. An id-less or duplicate-id cell visibly degrades to a
+source-derived pseudo key, including an occurrence among identical sources, so
+review can still store one unambiguous bay key.
 
-`text_content_or_none()` is the single definition of what this project calls
-text — no NUL byte, and valid UTF-8 with an optional BOM — and it lives here
-because classification is the only thing that asks. It is a question rather than
-a boundary: "these bytes are not text" selects the blob terminal instead of
-failing, and the value it returns is the text the flatfile builder renders, so a
-File is decoded once.
+`try_decode_text()` is the single definition of what this project calls text:
+no NUL byte, and valid UTF-8 with an optional BOM. It returns decoded text or a
+typed rejection naming the invalid byte boundary. The text arm turns rejection
+into blob facts and a visible bay warning, and decoded text reaches the engine
+without a second decode.
 
 
 

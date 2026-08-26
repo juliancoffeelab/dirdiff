@@ -132,7 +132,7 @@ Main exported type groups:
 - lazy-file information;
 - composed file diffs: frames, the bay envelope they hold, and the `text` and
   `image` arms of its `kind_data`;
-- decorated row parts, folds, and engine warnings;
+- decorated row parts, folds, and bay warnings from engines or format parsing;
 - image references, and `fileMediaUrl` addressing one captured side's bytes;
 - review authors, targets, Threads, Comments, and structured review
   failure codes.
@@ -789,9 +789,9 @@ those bytes.
 
 `BayStats` renders a bay's own changed-line counts, which only a bay holding
 lines has; an image bay renders none, because printing three zeroes beside a
-replaced picture would claim an engine looked and found nothing. `BayWarning`
-renders whatever `engine_warning` a bay's `kind_data` carries. Neither decides
-which kind is entitled to one: they read what the payload states.
+replaced picture would claim an engine looked and found nothing. `BayWarnings`
+renders every warning on the bay envelope, whether an engine or a format
+builder reported it.
 
 `composedHunks` collects each bay's hunk stops. A hunk is a stop for Next
 and Previous, so what counts as one is a navigation decision and it is made
@@ -814,11 +814,10 @@ instead of rows: the bay's two plain texts and transparent anchors for its
 row-carried hunk stops. It never sees a decorated `DiffRow` part; a bay-root
 stop stays with the bay chrome, which is mounted in both representations.
 
-`BayWarning` renders a bay's `engine_warning` beside the rows it describes,
-in both layouts: inside the header block for a bay with chrome, and directly
-above the grid for a bare flatfile. A warning belongs to the bay whose rows
-the engine gave up on, not to the File, because one composed File holds many
-bays and only some of them carry one.
+`BayWarnings` renders a bay's warnings in both layouts: inside the header block
+for a bay with chrome, and directly above the grid for a bare flatfile. A
+warning belongs to the smallest bay whose engine or format representation
+degraded, not to the File.
 
 ### `hud/fileCard/grids/image/ImageBayView.tsx`
 

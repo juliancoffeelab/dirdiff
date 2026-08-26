@@ -18,19 +18,15 @@ Each frame holds, in order:
 - one `text` bay per changed output, carrying the text this builder
   chooses for the output's variant, collapsed by default.
 
-## Cell keys are durable identity
+## Cell keys
 
-A bay key is the coordinate a review target and a line pin name, so it has to
-survive an edit to the thing it names. `nbformat` gives every cell an `id` for
-exactly this purpose, and that id is the cell's public key. A cell whose source
-is rewritten keeps its key; a cell that moves keeps its key. A document whose
-cells do not each carry a distinct id offers no such identity, so it is not a
-notebook here at all and composes as ordinary text instead.
-
-This is what lets review store a bay key and nothing else: the key is the
-durable identity, so no consumer needs a second, notebook-shaped way to find a
-cell again. Derived bays extend the cell's key with what they are, so they
-inherit the same durability.
+A valid distinct `nbformat` id is the cell's public key. A cell without one
+uses a pseudo-cell frame key derived from its source hash and its occurrence
+among identical source, with explicit source, metadata, and output suffixes.
+Source is the pseudo-cell identity: unchanged source remains findable, while an
+edit changes the key and takes normal `bay_not_found` placement. This is a
+visible degradation, but it preserves the notebook's readable structure rather
+than replacing every cell with raw JSON.
 
 This module owns everything notebook-shaped: parsing the notebook subset dirdiff
 renders, pairing cells across the two sides, minting public keys, and choosing
@@ -41,6 +37,7 @@ variant. It touches no diff engine — composition renders the bays it yields.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Iterator
@@ -51,13 +48,19 @@ from dirdiff.engines import DiffSide
 from dirdiff.formats.base import (
     BayChange,
     BayContext,
+    BayWarning,
     ChangeStatus,
     MovedChangeStatus,
     TextBay,
+    TextRejection,
+    try_decode_text,
+    whole_file_change,
 )
+from dirdiff.formats.blob import blob_bays
 
 __all__ = [
     "NotebookDocument",
+    "RejectedNotebookPart",
     "notebook_bays",
     "try_load_notebook_document",
 ]
@@ -146,6 +149,21 @@ composition's choice, not a fact of the loaded data.
 
 
 @dataclass(frozen=True)
+class RejectedNotebookPart:
+    """One cell or output preserved as raw JSON after shape rejection."""
+
+    raw: object
+    """The exact parsed JSON value at the rejected boundary."""
+
+    warning: BayWarning
+    """Why normal structured composition was impossible for this value."""
+
+
+NotebookOutputEntry = NotebookOutput | RejectedNotebookPart
+"""One valid notebook output or its honestly preserved raw value."""
+
+
+@dataclass(frozen=True)
 class NotebookCell:
     """One loaded cell, reduced to the fields composition reads.
 
@@ -157,10 +175,13 @@ class NotebookCell:
     """
     The cell's public key, distinct within its document.
 
-    Its shape is the schema's `cell_id`: 1 to 64 characters, ASCII letters,
-    digits, `-`, and `_`.
-    The loader rejects any document that cannot supply one per cell.
+    A valid distinct schema `cell_id` is retained. Otherwise the loader derives
+    a pseudo-cell key from source and its occurrence among identical sources,
+    and records a visible warning on the cell.
     """
+
+    source_bay_key: str
+    """The source bay's public key; pseudo-cells add the explicit `:src`."""
 
     cell_type: str
     """
@@ -183,7 +204,7 @@ class NotebookCell:
     reads inside it.
     """
 
-    outputs: list[NotebookOutput]
+    outputs: list[NotebookOutputEntry]
     """
     One entry per output of a code cell, in output order.
 
@@ -201,12 +222,19 @@ class NotebookCell:
     read as changed.
     """
 
+    warnings: tuple[BayWarning, ...] = field(compare=False)
+    """Non-fatal identity or heading damage shown on the source bay."""
+
+
+NotebookCellEntry = NotebookCell | RejectedNotebookPart
+"""One structured cell or the raw JSON value rejected at that boundary."""
+
 
 @dataclass(frozen=True)
 class NotebookDocument:
     """One side's loaded notebook: cells plus everything else in the file."""
 
-    cells: list[NotebookCell]
+    cells: list[NotebookCellEntry]
     """
     Every cell in the file, in document order.
     """
@@ -223,7 +251,7 @@ class NotebookDocument:
 
 
 def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
-    """Return one side's loaded notebook, or `None` when it is not a notebook.
+    """Load every usable notebook part, or reject the document boundary.
 
     Composition's classification calls this to decide the notebook branch: a
     side this rejects composes as ordinary text, where every difference is
@@ -231,11 +259,10 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
     is the caller's concern: it passes an empty document, which one-sided
     pairing already expects, rather than asking this to accept absent bytes.
 
-    The rule is strict about every field composition reads and silent about
-    every field it does not: nothing is coerced and nothing is dropped, so a
-    document violating any shape below is not a notebook here at all, rather
-    than a notebook with invented contents.
-    Strict means the shape the `nbformat` v4.5 schema gives the field.
+    The document boundary requires UTF-8 JSON mapping with a cell list. Inside
+    that list, each cell and output is checked independently. A rejected part
+    retains its parsed JSON and warning while valid siblings keep their typed
+    structure. Nothing is coerced or silently dropped.
     The bytes must decode as UTF-8 and load as a JSON mapping whose `cells` is
     a list of mappings.
     Every cell must carry one of the three `nbformat` cell types and a source
@@ -246,13 +273,8 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
     composition treats whole — the document mapping, cell metadata, each raw
     output entry — are kept verbatim, whatever shape they have.
 
-    Cell identity is the requirement the whole design rests on: every cell
-    must carry an `id` in the schema's `cell_id` shape (1 to 64 characters,
-    ASCII letters, digits, `-`, and `_`), distinct within the side, because
-    the id is the public key review targets and line pins persist. A document
-    that cannot supply one identity per cell has nothing durable to persist.
-    `nbformat` 4.5 and later always write ids, so identity rejection excludes
-    documents older than that rather than anything a current tool produces.
+    A unique schema-valid cell id remains its key. Missing, invalid, or
+    duplicate ids receive source-derived pseudo-cell keys and a warning.
     """
     try:
         text = data.decode("utf-8-sig")
@@ -289,8 +311,8 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
             parts.append(part)
         return "".join(parts)
 
-    def try_load_output(entry: object) -> NotebookOutput | None:
-        """Load one output entry as its variant, or `None` when misshapen.
+    def try_load_output(entry: object) -> NotebookOutputEntry:
+        """Load one output entry or preserve its raw rejected value.
 
         The raw entry is kept verbatim beside the fields the entry's
         `output_type` says to read: a `stream` requires its `text`, an
@@ -299,59 +321,119 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         optional. Any other `output_type` is not an `nbformat` output, so
         the entry is rejected.
         """
+
+        def rejected(reason: str) -> RejectedNotebookPart:
+            """Preserve this output with one stable warning."""
+            return RejectedNotebookPart(
+                raw=entry,
+                warning={
+                    "type": "notebook_invalid_output",
+                    "message": f"Notebook output shown as raw JSON: {reason}.",
+                },
+            )
+
         if not isinstance(entry, dict):
-            return None
+            return rejected("output is not a mapping")
         output_type: object = entry.get("output_type")
         if output_type == "stream":
             stream_text = try_multistring(entry.get("text"))
             if stream_text is None:
-                return None
+                return rejected("stream text is not a string or string list")
             return StreamOutput(raw=entry, text=stream_text)
         if output_type == "error":
             traceback: object = entry.get("traceback")
             if not isinstance(traceback, list):
-                return None
+                return rejected("error traceback is not a list")
             frames: list[str] = []
             for frame in traceback:
                 if not isinstance(frame, str):
-                    return None
+                    return rejected("error traceback contains a non-string")
                 frames.append(frame)
             return ErrorOutput(raw=entry, traceback=frames)
         if output_type not in ("execute_result", "display_data"):
-            return None
+            return rejected("output_type is missing or unsupported")
         data: object = entry.get("data")
         if not isinstance(data, dict):
-            return None
+            return rejected("display data is not a mapping")
         if "text/plain" in data:
             text_plain = try_multistring(data["text/plain"])
             if text_plain is None:
-                return None
+                return rejected("text/plain is not a string or string list")
         else:
             text_plain = None
         if output_type == "execute_result":
             return ExecuteResultOutput(raw=entry, text_plain=text_plain)
         return DisplayDataOutput(raw=entry, text_plain=text_plain)
 
-    cells: list[NotebookCell] = []
+    valid_identifiers = [
+        cell.get("id")
+        for cell in cell_values
+        if isinstance(cell, dict)
+        and isinstance(cell.get("id"), str)
+        and re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", cell["id"]) is not None
+    ]
+    identifier_counts = {
+        identifier: valid_identifiers.count(identifier)
+        for identifier in valid_identifiers
+    }
+    source_occurrences: dict[str, int] = {}
+    cells: list[NotebookCellEntry] = []
     for cell in cell_values:
         if not isinstance(cell, dict):
-            return None
-        identifier: object = cell.get("id")
-        if not isinstance(identifier, str):
-            return None
-        # The schema's `cell_id` shape: 1 to 64 characters, ASCII letters,
-        # digits, `-`, and `_`.
-        if re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", identifier) is None:
-            return None
+            cells.append(
+                RejectedNotebookPart(
+                    raw=cell,
+                    warning={
+                        "type": "notebook_invalid_cell",
+                        "message": "Notebook cell shown as raw JSON: cell is not a mapping.",
+                    },
+                )
+            )
+            continue
         cell_type: object = cell.get("cell_type")
-        if not isinstance(cell_type, str):
-            return None
-        if cell_type not in ("code", "markdown", "raw"):
-            return None
         source = try_multistring(cell.get("source"))
-        if source is None:
-            return None
-        outputs: list[NotebookOutput] = []
+        if cell_type not in ("code", "markdown", "raw") or source is None:
+            cells.append(
+                RejectedNotebookPart(
+                    raw=cell,
+                    warning={
+                        "type": "notebook_invalid_cell",
+                        "message": (
+                            "Notebook cell shown as raw JSON: it has no valid "
+                            "cell type and source."
+                        ),
+                    },
+                )
+            )
+            continue
+        assert isinstance(cell_type, str)
+        warnings: list[BayWarning] = []
+        identifier: object = cell.get("id")
+        valid_identifier = (
+            isinstance(identifier, str)
+            and re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", identifier) is not None
+            and identifier_counts[identifier] == 1
+        )
+        if valid_identifier:
+            assert isinstance(identifier, str)
+            cell_key = identifier
+            source_bay_key = identifier
+        else:
+            source_digest = hashlib.sha256(source.encode()).hexdigest()
+            occurrence = source_occurrences.get(source_digest, 0)
+            source_occurrences[source_digest] = occurrence + 1
+            cell_key = f"pseudocell:{source_digest}:{occurrence}"
+            source_bay_key = f"{cell_key}:src"
+            warnings.append(
+                {
+                    "type": "notebook_missing_cell_id",
+                    "message": (
+                        "Cell has no unique valid id; its review key is "
+                        "derived from the cell source."
+                    ),
+                }
+            )
+        outputs: list[NotebookOutputEntry] = []
         # The schema requires `execution_count` on code cells: an integer
         # prompt number, or null for a cell never executed. Other cell types
         # carry no prompt. A bool is not a prompt number, even though
@@ -359,34 +441,60 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         execution_count: int | None = None
         if cell_type == "code":
             output_values: object = cell.get("outputs")
-            if not isinstance(output_values, list):
-                return None
-            for entry in output_values:
-                output = try_load_output(entry)
-                if output is None:
-                    return None
-                outputs.append(output)
+            if isinstance(output_values, list):
+                outputs.extend(
+                    try_load_output(entry) for entry in output_values
+                )
+            else:
+                outputs.append(
+                    RejectedNotebookPart(
+                        raw=output_values,
+                        warning={
+                            "type": "notebook_invalid_output",
+                            "message": (
+                                "Notebook outputs shown as raw JSON: outputs "
+                                "is not a list."
+                            ),
+                        },
+                    )
+                )
+            raw_count: object = cell.get("execution_count")
             if "execution_count" not in cell:
-                return None
-            raw_count: object = cell["execution_count"]
-            if isinstance(raw_count, bool):
-                return None
-            if raw_count is not None and not isinstance(raw_count, int):
-                return None
-            execution_count = raw_count
+                warnings.append(
+                    {
+                        "type": "notebook_invalid_execution_count",
+                        "message": (
+                            "Cell has no execution_count; its heading omits "
+                            "the prompt number."
+                        ),
+                    }
+                )
+            elif raw_count is None or (
+                isinstance(raw_count, int) and not isinstance(raw_count, bool)
+            ):
+                execution_count = raw_count
+            else:
+                warnings.append(
+                    {
+                        "type": "notebook_invalid_execution_count",
+                        "message": (
+                            "Cell execution_count is invalid; its heading "
+                            "omits the prompt number."
+                        ),
+                    }
+                )
         cells.append(
             NotebookCell(
-                id=identifier,
+                id=cell_key,
+                source_bay_key=source_bay_key,
                 cell_type=cell_type,
                 source=source,
                 metadata=cell.get("metadata"),
                 outputs=outputs,
                 execution_count=execution_count,
+                warnings=tuple(warnings),
             )
         )
-    identifiers = [cell.id for cell in cells]
-    if len(set(identifiers)) != len(identifiers):
-        return None
     return NotebookDocument(
         cells=cells,
         document={
@@ -396,8 +504,8 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
 
 
 def _paired_cells(
-    left_cells: list[NotebookCell],
-    right_cells: list[NotebookCell],
+    left_cells: list[NotebookCellEntry],
+    right_cells: list[NotebookCellEntry],
 ) -> list[tuple[str, int | None, int | None, bool]]:
     """Pair cells across the two sides by public key, in document order.
 
@@ -411,10 +519,30 @@ def _paired_cells(
     for it precisely because the cell changed position, and a move is a change
     the reviewer must be able to reach even when the cell's contents are equal.
     """
-    # A key is the cell's `id`, verbatim: what an agent greps out of the
-    # captured `.ipynb` is the key review stores.
-    left_keys = [cell.id for cell in left_cells]
-    right_keys = [cell.id for cell in right_cells]
+
+    def entry_keys(entries: list[NotebookCellEntry]) -> list[str]:
+        """Return unique keys for structured and raw rejected cells."""
+        occurrences: dict[str, int] = {}
+        keys: list[str] = []
+        for entry in entries:
+            if isinstance(entry, NotebookCell):
+                keys.append(entry.id)
+                continue
+            digest = hashlib.sha256(
+                json.dumps(
+                    entry.raw,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            occurrence = occurrences.get(digest, 0)
+            occurrences[digest] = occurrence + 1
+            keys.append(f"rejected-cell:{digest}:{occurrence}")
+        return keys
+
+    left_keys = entry_keys(left_cells)
+    right_keys = entry_keys(right_cells)
     aligned: list[tuple[str, int | None, int | None]] = []
     matcher = SequenceMatcher(a=left_keys, b=right_keys, autojunk=False)
     for (
@@ -477,11 +605,11 @@ def _paired_cells(
 
 
 def notebook_bays(
-    left: NotebookDocument | None,
-    right: NotebookDocument | None,
+    left_bytes: bytes | None,
+    right_bytes: bytes | None,
     context: BayContext,
 ) -> Iterator[TextBay]:
-    """Yield the frames and bays a notebook composes into, in document order.
+    """Parse notebook bytes and yield their bays in document order.
 
     A change to the notebook's own top-level fields comes first, in its own
     frame, because it belongs to no cell. Each changed cell then becomes one
@@ -490,10 +618,10 @@ def notebook_bays(
     touches a diff engine; the loaded sides ride along for composition to
     render.
 
-    A `None` side means the file itself was added or removed. At least one side
-    is present. Every bay of a one-sided notebook reports that side as
-    absent and derives its `change` from the absence; nothing diffs against an
-    invented empty document.
+    Damage before a usable cell list exists produces raw notebook text or blob
+    facts with a warning. Inside a usable cell list, loading preserves rejected
+    cells and outputs at their own boundary. A `None` byte side means the File
+    was added or removed; no empty document is invented for it.
     """
 
     def canonical_json(value: object) -> str:
@@ -504,6 +632,77 @@ def notebook_bays(
         changes only when the value does.
         """
         return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+
+    left = (
+        None if left_bytes is None else try_load_notebook_document(left_bytes)
+    )
+    right = (
+        None if right_bytes is None else try_load_notebook_document(right_bytes)
+    )
+    if (left_bytes is not None and left is None) or (
+        right_bytes is not None and right is None
+    ):
+        left_text = None if left_bytes is None else try_decode_text(left_bytes)
+        right_text = (
+            None if right_bytes is None else try_decode_text(right_bytes)
+        )
+        rejections = [
+            value
+            for value in (left_text, right_text)
+            if isinstance(value, TextRejection)
+        ]
+        warnings: tuple[BayWarning, ...] = tuple(
+            {
+                "type": f"notebook_{rejection.reason.replace('-', '_')}",
+                "message": (
+                    f"Notebook shown as byte facts: {rejection.detail}."
+                ),
+            }
+            for rejection in rejections
+        ) or (
+            {
+                "type": "notebook_invalid_document",
+                "message": (
+                    "Notebook structure could not be read; showing its raw JSON."
+                ),
+            },
+        )
+        if len(rejections) > 0:
+            yield from blob_bays(
+                left_bytes,
+                right_bytes,
+                context,
+                left_media_type=None,
+                right_media_type=None,
+                warnings=warnings,
+            )
+            return
+        assert not isinstance(left_text, TextRejection)
+        assert not isinstance(right_text, TextRejection)
+        yield TextBay(
+            frame_key="notebook:raw",
+            heading="Notebook",
+            bay_key="notebook:raw",
+            label="Raw notebook JSON",
+            detail=None,
+            collapsible=False,
+            default_expanded=True,
+            change=whole_file_change(left_text, right_text),
+            left_label=context.left_label,
+            right_label=context.right_label,
+            left=DiffSide(
+                exists=left_bytes is not None,
+                text=left_text,
+                path_hint=context.left_path,
+            ),
+            right=DiffSide(
+                exists=right_bytes is not None,
+                text=right_text,
+                path_hint=context.right_path,
+            ),
+            warnings=warnings,
+        )
+        return
 
     present_side = right if right is not None else left
     assert present_side is not None, "a File always carries at least one side"
@@ -570,7 +769,7 @@ def notebook_bays(
             return "cell.md"
         return "cell.txt"
 
-    def rendered_text(out: NotebookOutput | None) -> str | None:
+    def rendered_text(out: NotebookOutputEntry | None) -> str | None:
         """Choose the text shown for one side of an output bay.
 
         This is the builder's representation choice: a stream shows its
@@ -584,6 +783,8 @@ def notebook_bays(
         match out:
             case None:
                 return None
+            case RejectedNotebookPart():
+                return canonical_json(out.raw)
             case StreamOutput():
                 return out.text
             case ErrorOutput():
@@ -608,6 +809,50 @@ def notebook_bays(
         present = right_cell if right_cell is not None else left_cell
         # Pairing yields no pair without at least one side.
         assert present is not None, "a cell pair always carries one side"
+        if isinstance(left_cell, RejectedNotebookPart) or isinstance(
+            right_cell, RejectedNotebookPart
+        ):
+            left_text = (
+                canonical_json(left_cell.raw)
+                if isinstance(left_cell, RejectedNotebookPart)
+                else None
+            )
+            right_text = (
+                canonical_json(right_cell.raw)
+                if isinstance(right_cell, RejectedNotebookPart)
+                else None
+            )
+            yield TextBay(
+                frame_key=key,
+                heading="Invalid notebook cell",
+                bay_key=key,
+                label="Raw cell JSON",
+                detail=None,
+                collapsible=False,
+                default_expanded=True,
+                change=whole_file_change(left_text, right_text),
+                left_label=context.left_label,
+                right_label=context.right_label,
+                left=DiffSide(
+                    exists=left_cell is not None,
+                    text=left_text,
+                    path_hint="notebook-cell.json",
+                ),
+                right=DiffSide(
+                    exists=right_cell is not None,
+                    text=right_text,
+                    path_hint="notebook-cell.json",
+                ),
+                warnings=tuple(
+                    entry.warning
+                    for entry in (left_cell, right_cell)
+                    if isinstance(entry, RejectedNotebookPart)
+                ),
+            )
+            continue
+        assert left_cell is None or isinstance(left_cell, NotebookCell)
+        assert right_cell is None or isinstance(right_cell, NotebookCell)
+        assert isinstance(present, NotebookCell)
         hint = source_hint(present)
         # The frame wears the name the cell has in the document the reviewer
         # ends with, and for a removed cell the one it had in the document
@@ -648,7 +893,7 @@ def notebook_bays(
         yield TextBay(
             frame_key=key,
             heading=frame_heading,
-            bay_key=key,
+            bay_key=present.source_bay_key,
             # A cell that only moved has no changed row to land on, so its
             # `detail` says what happened and it consumes a hunk at its own root.
             label=source_label,
@@ -679,6 +924,12 @@ def notebook_bays(
                 exists=right_cell is not None,
                 text=None if right_cell is None else right_cell.source,
                 path_hint=hint,
+            ),
+            warnings=tuple(
+                warning
+                for cell in (left_cell, right_cell)
+                if cell is not None
+                for warning in cell.warnings
             ),
         )
 
@@ -802,5 +1053,10 @@ def notebook_bays(
                     exists=right_out is not None,
                     text=right_text,
                     path_hint=None,
+                ),
+                warnings=tuple(
+                    output.warning
+                    for output in (left_out, right_out)
+                    if isinstance(output, RejectedNotebookPart)
                 ),
             )

@@ -23,15 +23,14 @@ submodule:
 - `MediaRef` and `media_ref()` describe one captured media side without its
   bytes, so the digest on the wire and the digest review reads are one
   computation.
-- `text_content_or_none()` is the definition of what this project calls text.
-  Classification asks it, and a caller outside this package that must classify
-  content the way composition does — a test walk over the preset corpus, say —
-  asks the same function rather than writing the rule again.
+- `try_decode_text()` is the definition of what this project calls text. It
+  returns decoded text or a typed rejection, so format builders can preserve
+  rejected bytes as facts and explain the degradation.
 
 Package-internal contracts (`ComposeContext`'s renderer, the two shared kind
 renderers, the facts text both media classifications state, and the serialized
 frame/bay shapes) live in `base.py`; sibling modules import them from there.
-`composer.py` is the one module that owns the ordered classification;
+`composer.py` is the one module that owns path classification;
 `flatfile.py`, `notebook.py`, `image.py`, and `blob.py` own the bays each
 format composes into.
 """
@@ -41,6 +40,7 @@ from dirdiff.formats.base import (
     FLATFILE_BAY_KEY,
     IMAGE_BAY_KEY,
     IMAGE_FACTS_BAY_KEY,
+    IMAGE_METADATA_BAY_KEY,
     Bay,
     BayChange,
     BayContext,
@@ -51,8 +51,9 @@ from dirdiff.formats.base import (
     MediaRef,
     MediaSide,
     TextBay,
+    TextRejection,
     media_ref,
-    text_content_or_none,
+    try_decode_text,
 )
 from dirdiff.formats.composer import Composer
 
@@ -61,6 +62,7 @@ __all__ = [
     "FLATFILE_BAY_KEY",
     "IMAGE_BAY_KEY",
     "IMAGE_FACTS_BAY_KEY",
+    "IMAGE_METADATA_BAY_KEY",
     "Bay",
     "BayChange",
     "BayContext",
@@ -72,6 +74,7 @@ __all__ = [
     "MediaRef",
     "MediaSide",
     "TextBay",
+    "TextRejection",
     "media_ref",
-    "text_content_or_none",
+    "try_decode_text",
 ]

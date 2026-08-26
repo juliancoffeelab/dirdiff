@@ -11,7 +11,7 @@ from typing import get_args
 import pytest
 
 from dirdiff.engines import InlineToken
-from dirdiff.formats import text_content_or_none
+from dirdiff.formats import TextRejection, try_decode_text
 from dirdiff.rendering import (
     SyntaxClass,
     SyntaxSpan,
@@ -39,8 +39,8 @@ def test_preset_highlights_use_declared_syntax_classes() -> None:
         # The corpus holds image and blob fixtures too. A highlighter has
         # nothing to say about bytes, so the same rule composition classifies
         # by decides what this walk can read.
-        text = text_content_or_none(path.read_bytes())
-        if text is None:
+        text = try_decode_text(path.read_bytes())
+        if isinstance(text, TextRejection):
             continue
         highlighted_lines = highlight_lines_for_path(str(path), text)
         if highlighted_lines is None:

@@ -2,7 +2,7 @@
 
 `Composer` is not a protocol with an implementation per format. The
 format-specific part is only *which bays get built*, and that lives in the
-ordered classification below and the sibling builders it calls. Composition
+path-only classification below and the sibling builders it calls. Composition
 itself is one class with two entry points, because two of its three consumers
 must not touch a diff engine:
 
@@ -28,30 +28,61 @@ keys, and order. Composition reads no clock, database, Room, or outside file.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Literal
 
 from dirdiff.formats.base import (
     Bay,
     BayContext,
     BayKindPayload,
     BayPayload,
+    BayWarning,
     ComposeContext,
     ComposedFilePayload,
     ComposedSummary,
     FramePayload,
     TextBay,
     image_kind_payload,
-    text_content_or_none,
     text_kind_payload,
 )
-from dirdiff.formats.blob import blob_bays
+from dirdiff.formats.blob import blob_bays, blob_media_type
 from dirdiff.formats.flatfile import flatfile_bays
 from dirdiff.formats.image import image_bays, image_media_type
-from dirdiff.formats.notebook import (
-    notebook_bays,
-    try_load_notebook_document,
-)
+from dirdiff.formats.notebook import notebook_bays
 
 __all__ = ["Composer"]
+
+
+FileFormat = Literal["notebook", "image", "blob", "text"]
+"""The path-declared format one File pair composes through."""
+
+
+def file_format(left_path: str | None, right_path: str | None) -> FileFormat:
+    """Classify a File pair from paths alone.
+
+    A one-sided File takes its present path's claim. Two-sided Files retain a
+    specialized claim only when both paths agree; every mixed rename is
+    presumed text and may still degrade to blob when its bytes do not decode.
+    """
+
+    def path_format(path: str) -> FileFormat:
+        """Classify one present repository path."""
+        if path.lower().endswith(".ipynb"):
+            return "notebook"
+        if image_media_type(path) is not None:
+            return "image"
+        if blob_media_type(path) is not None:
+            return "blob"
+        return "text"
+
+    present = [
+        path_format(path)
+        for path in (left_path, right_path)
+        if path is not None
+    ]
+    assert len(present) > 0, "a File pair always has at least one path"
+    return (
+        present[0] if all(value == present[0] for value in present) else "text"
+    )
 
 
 class Composer:
@@ -78,79 +109,41 @@ class Composer:
         content, or to serve one bay's bytes, get that without rendering any bay
         and without an engine in reach.
 
-        Classification is an explicit ordered check, written here in one place:
-
-        1. notebook, when a path suffix says `.ipynb` and every present side
-           loads as notebook JSON;
-        2. image, when every present side's path names an image type;
-        3. flatfile, when every present side decodes as text;
-        4. blob, the terminal every other File reaches.
-
-        Each step hands its builder the value it already validated — parsed
-        notebooks, media types, decoded text, raw bytes — so a builder cannot be
-        handed the wrong format, because its parameters do not admit one.
-
-        A step that any present side fails falls through to the next, and the
-        terminal accepts everything, so classification always reaches an answer:
-        a `.ipynb` whose bytes do not load is diffed as the text it is, a `.png`
-        renamed to a `.txt` is neither an image on both sides nor text on both
-        sides and lands on blob, and no input raises here at all.
+        `file_format()` decides one of notebook, image, blob, or presumed text
+        from the path pair alone. The resulting `match` calls one builder; a
+        parser failure never retries another format arm. Notebook damage is
+        preserved as raw text or byte facts, and presumed text that cannot
+        decode is stated as blob facts. Both attach visible warnings.
         """
-        if any(
-            path is not None and path.endswith(".ipynb")
-            for path in (context.left_path, context.right_path)
-        ):
-            left_document = (
-                None if left is None else try_load_notebook_document(left)
-            )
-            right_document = (
-                None if right is None else try_load_notebook_document(right)
-            )
-            # A present side that did not load is a malformed notebook and
-            # falls through to the next check. An absent side is not
-            # malformed: the file was added or removed, and the notebook
-            # builder reports that side as absent.
-            left_is_notebook = left is None or left_document is not None
-            right_is_notebook = right is None or right_document is not None
-            if left_is_notebook and right_is_notebook:
-                yield from notebook_bays(left_document, right_document, context)
+        match file_format(context.left_path, context.right_path):
+            case "notebook":
+                yield from notebook_bays(left, right, context)
                 return
-
-        # Both sides must claim an image type, so a File that was an image on
-        # one side and something else on the other is not composed as one. It
-        # reaches the blob terminal below, where the two digests still report
-        # honestly that the content changed.
-        left_media_type = image_media_type(context.left_path)
-        right_media_type = image_media_type(context.right_path)
-        # A File captured on neither side has no picture to show, so it is not
-        # an image whatever its paths claim, and it takes the same route it
-        # always has.
-        captured = left is not None or right is not None
-        left_is_image = left is None or left_media_type is not None
-        right_is_image = right is None or right_media_type is not None
-        if captured and left_is_image and right_is_image:
-            yield from image_bays(
-                left,
-                right,
-                context,
-                left_media_type=left_media_type,
-                right_media_type=right_media_type,
-            )
-            return
-
-        # Decoding is the classification test, so it happens here rather than
-        # inside the flatfile builder, and its result is handed down. Nothing
-        # is decoded twice and nothing raises: content that is not text has
-        # the blob terminal to go to.
-        left_text = None if left is None else text_content_or_none(left)
-        right_text = None if right is None else text_content_or_none(right)
-        left_is_text = left is None or left_text is not None
-        right_is_text = right is None or right_text is not None
-        if left_is_text and right_is_text:
-            yield from flatfile_bays(left_text, right_text, context)
-            return
-
-        yield from blob_bays(left, right, context)
+            case "image":
+                if left is None and right is None:
+                    yield from flatfile_bays(None, None, context)
+                    return
+                yield from image_bays(
+                    left,
+                    right,
+                    context,
+                    left_media_type=image_media_type(context.left_path),
+                    right_media_type=image_media_type(context.right_path),
+                )
+                return
+            case "blob":
+                yield from blob_bays(
+                    left,
+                    right,
+                    context,
+                    left_media_type=blob_media_type(context.left_path),
+                    right_media_type=blob_media_type(context.right_path),
+                    warnings=(),
+                )
+                return
+            case "text":
+                yield from flatfile_bays(left, right, context)
+                return
 
     def compose(
         self,
@@ -173,11 +166,27 @@ class Composer:
             # is the same record whatever the kind, and is written once here
             # rather than by each renderer, so a new kind adds an arm to
             # `BayKindPayload` and nothing else.
-            kind_data: BayKindPayload = (
-                text_kind_payload(bay, context.renderer)
-                if isinstance(bay, TextBay)
-                else image_kind_payload(bay)
-            )
+            kind_data: BayKindPayload
+            engine_warning = None
+            if isinstance(bay, TextBay):
+                kind_data, engine_warning = text_kind_payload(
+                    bay, context.renderer
+                )
+            else:
+                kind_data = image_kind_payload(bay)
+            warnings = list(bay.warnings)
+            if engine_warning is not None:
+                warnings.append(
+                    BayWarning(
+                        type=engine_warning["type"],
+                        message=engine_warning["message"],
+                    )
+                )
+            warnings = [
+                warning
+                for index, warning in enumerate(warnings)
+                if warning not in warnings[:index]
+            ]
             rendered: BayPayload = {
                 "bay_key": bay.bay_key,
                 "label": bay.label,
@@ -185,6 +194,7 @@ class Composer:
                 "collapsible": bay.collapsible,
                 "default_expanded": bay.default_expanded,
                 "change": bay.change,
+                "warnings": warnings,
                 "kind_data": kind_data,
             }
             if (

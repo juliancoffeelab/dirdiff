@@ -23,7 +23,7 @@ from dirdiff.backend import GitBackend
 from dirdiff.engines import DiffSide, DirdiffError
 from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
 from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
-from dirdiff.formats import text_content_or_none
+from dirdiff.formats import TextRejection, try_decode_text
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -64,11 +64,13 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
         if isinstance(right_content, DirdiffError):
             continue
 
-        left_text = text_content_or_none(left_content)
-        right_text = text_content_or_none(right_content)
+        left_text = try_decode_text(left_content)
+        right_text = try_decode_text(right_content)
         # Content this project does not call text has no row projection to
         # replay, exactly as composition classifies it away from a text bay.
-        if left_text is None or right_text is None:
+        if isinstance(left_text, TextRejection) or isinstance(
+            right_text, TextRejection
+        ):
             continue
         # A pure rename compares a file against its own content. Difftastic
         # rightly reports it unchanged and the engine returns zero rows, but

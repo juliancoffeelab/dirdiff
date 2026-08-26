@@ -128,6 +128,7 @@ type BayPayload = {
   change:
     | { kind: "added" | "removed" | "changed" | "unchanged" }
     | { kind: "moved"; from_heading: string | null; to_heading: string | null };
+  warnings: BayWarning[];
   kind_data: BayKindPayload;
 };
 
@@ -140,7 +141,6 @@ type TextKindPayload = {
   rows: DiffRow[];
   fold_hints: FoldHint[];
   stats: BayStats;
-  engine_warning: EngineWarning | null;
 };
 
 type ImageKindPayload = {
@@ -228,7 +228,8 @@ this document's decision: `image_media_type()` in `formats/image.py` names the
 media type a path is an image of, or nothing, and composition asks it. A File it
 names nothing for reaches a later step, and the blob terminal at the end.
 
-An image File composes two bays: the `image` bay holding the picture, and a
+An image File composes three bays: the `image` bay holding the picture, an
+`image-metadata` text bay holding dimensions and EXIF parsed by Pillow, and a
 `text` bay holding what is known about the bytes. The picture answers "does it
 look different"; the facts answer "did it actually change, and to what". Neither
 answers the other — a re-encode that changes every byte can look identical, and
@@ -441,48 +442,39 @@ the same context produce the same frames, the same bay keys, and the same
 order. Composition reads no clock, no database, no Room, and no file outside the
 bytes it was given.
 
-Classification is an explicit ordered check inside `bays()`, written in one
-place, not a registry, plugin table, or media-type map:
+Classification is one path-only decision inside `bays()`. `.ipynb` is a
+notebook, the image extension table names images, the blob extension table
+names explicitly unsupported formats, and everything else is presumed text. A
+one-sided File takes its present path's classification. Two present paths keep
+a specialized classification only when they agree; a mixed rename is presumed
+text. No parser participates in this decision.
 
-1. notebook, when a path suffix says `.ipynb` and every present side loads as
-   notebook JSON;
-2. image, when `image_media_type()` names a type for every present side's
-   path;
-3. flatfile, when every present side decodes as text;
-4. blob, the terminal every other File reaches.
+Each classification calls one builder. Presumed text that contains NUL or is
+not UTF-8 composes as blob facts with a warning. A claimed notebook remains a
+notebook when one part is malformed: valid cells and outputs remain structured,
+and the smallest rejected JSON value becomes its own text bay with a warning.
+Only damage before a usable cell list exists produces one raw notebook bay.
 
-A step that any present side fails falls through to the next, and the terminal
-accepts everything, so classification always reaches an answer and no input
-raises here at all. A `.ipynb` whose bytes do not load is not a notebook and is
-diffed as the text it is; a `.png` renamed to `.txt` is neither an image on both
-sides nor text on both sides, and lands on blob. An absent side is not a failure
-— the File was added or removed, and the builder reports that side absent.
+A valid distinct `nbformat` cell id remains the cell's public key. A cell
+without one uses `pseudocell:<source-sha256>:<source-occurrence>` as its frame
+key, with `:src`, `:metadata`, and `:output:<index>` bay suffixes. Occurrence is
+zero-based among cells with the same source hash and exists only to keep keys
+unique. Source is the identity: finding the same source is a correct landing,
+while an edited source changes its key and takes ordinary `bay_not_found`
+placement. This is an explicit degradation: a source-derived coordinate is
+weaker than an `nbformat` id, so the source bay warns, but preserving readable
+cells is more useful than reducing the whole notebook to raw JSON.
 
-The check owns the decision completely, and each step hands its bay builder the
-value it already validated — parsed notebooks, media types, decoded text, raw
-bytes. A builder cannot be handed the wrong format, because its parameters do
-not admit one, and a binary or non-UTF-8 side is not a builder's problem: it
-failed the flatfile step and reached the terminal, which is why nothing here
-reports an unsupported file diff any more.
-
-Cell identity is part of loading. A notebook must give every cell a distinct
-`id` in the schema's `cell_id` shape (1 to 64 characters, ASCII letters,
-digits, `-`, and `_`), because that id is the bay key review targets and line
-pins persist; a document that cannot supply one per cell has no durable
-coordinate to store, and inventing one from cell contents would not survive an
-edit to those contents. Such a document is not a notebook and takes the same
-route as one whose JSON does not parse. `nbformat` 4.5 and later always write
-ids.
-
-Shape is part of loading the same way. The loader is strict about every field
-composition reads — `cell_type`, `source`, a code cell's `outputs` and the
-output fields it reads text from — and silent about every field it does not,
-keeping the document mapping, cell metadata, and each raw output entry
-verbatim. Strict means the shape the `nbformat` v4.5 schema gives the field,
-its closed cell and output type sets included. Nothing is coerced and nothing
-is dropped: a document violating a read field's `nbformat` shape is not a
-notebook, and falls through to text, where the difference stays visible as
-raw JSON instead of being hidden behind an invented default.
+Shape is part of loading the same way. The loader checks every field composition
+reads — `cell_type`, `source`, a code cell's `outputs`, and the output fields it
+reads text from — and is silent about every field it does not, keeping document
+fields, cell metadata, and each raw output entry verbatim. A malformed cell or
+output is preserved as canonical raw JSON in its own warned bay; valid siblings
+remain structured. Missing or invalid execution count merely removes the prompt
+number and warns. Only invalid UTF-8, invalid JSON, a non-object document, or a
+missing/non-list `cells` value prevents a usable cell list: that whole notebook
+side is then shown as one warned raw-text bay, or as warned byte facts when it
+cannot decode. Nothing is coerced or silently dropped.
 
 ### Notebook outputs
 
@@ -614,7 +606,7 @@ widget calls it.
 | --- | --- | --- |
 | flatfile | one, no heading | one `text` bay keyed `"flatfile"` |
 | notebook | one per cell, plus one for notebook metadata | cell source `text` keyed by cell key, plus one bay for changed cell metadata and one per changed output |
-| image | one, no heading | one `image` bay, plus a collapsible `text` bay of its facts keyed `"image-facts"` |
+| image | one, no heading | one `image` bay, a metadata `text` bay keyed `"image-metadata"`, and a facts `text` bay keyed `"image-facts"` |
 | blob | one, no heading | one `text` bay of its facts keyed `"blob"` |
 | hybrid notebook | one per cell, plus one for notebook metadata | the same shape, with `image` bays for the outputs whose bundle offers one |
 | symlink | one | one `text` bay holding the link target |
@@ -849,7 +841,7 @@ A new package `dirdiff.formats`, following the project's package rules:
 - `base.py` holds the bay and frame contracts, the contexts, the shared
   text-bay renderer, and the hunk allocator. Sibling modules import those
   internals from `base.py`.
-- `composer.py` holds the `Composer` class and the ordered classification. It is
+- `composer.py` holds the `Composer` class and path classification. It is
   the one module that imports the per-format siblings, which keeps `base.py` free
   of them and the import graph acyclic.
 - one sibling module per format holding that format's bay builder:
@@ -872,7 +864,7 @@ A new package `dirdiff.formats`, following the project's package rules:
 
 `dirdiff.notebooks` dissolves into `dirdiff.formats.notebook`. The server's
 `build_text_file_payload` and `build_notebook_file_payload_if_applicable`
-dissolve into the shared text-bay renderer and the ordered classification.
+dissolve into the shared text-bay renderer and path classification.
 
 ### Frontend
 

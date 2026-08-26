@@ -28,6 +28,7 @@ from dirdiff.formats import (
     FLATFILE_BAY_KEY,
     IMAGE_BAY_KEY,
     IMAGE_FACTS_BAY_KEY,
+    IMAGE_METADATA_BAY_KEY,
     BayContext,
     ComposeContext,
     Composer,
@@ -38,8 +39,8 @@ from dirdiff.formats import (
 __all__: list[str] = []
 
 
-def test_image_pair_composes_a_picture_bay_and_a_facts_bay() -> None:
-    """A `.png` pair composes one frame holding the picture and its facts.
+def test_image_pair_composes_picture_metadata_and_facts_bays() -> None:
+    """A `.png` pair composes picture, parsed metadata, and byte facts.
 
     Each side's reference must describe the exact bytes handed in, because the
     reviewer decides whether the picture changed by comparing the two digests
@@ -61,7 +62,7 @@ def test_image_pair_composes_a_picture_bay_and_a_facts_bay() -> None:
     frame = composed["frames"][0]
     assert frame["frame_key"] == "file"
     assert frame["heading"] is None
-    assert len(frame["bays"]) == 2
+    assert len(frame["bays"]) == 3
 
     picture = frame["bays"][0]
     picture_content = picture["kind_data"]
@@ -81,7 +82,14 @@ def test_image_pair_composes_a_picture_bay_and_a_facts_bay() -> None:
         "digest": hashlib.sha256(right).hexdigest(),
     }
 
-    facts = frame["bays"][1]
+    metadata = frame["bays"][1]
+    assert metadata["bay_key"] == IMAGE_METADATA_BAY_KEY
+    assert metadata["kind_data"]["kind"] == "text"
+    assert metadata["warnings"] != [], (
+        "the deliberately invalid PNG bytes must report metadata degradation"
+    )
+
+    facts = frame["bays"][2]
     facts_content = facts["kind_data"]
     assert facts_content["kind"] == "text"
     assert facts["bay_key"] == IMAGE_FACTS_BAY_KEY
@@ -125,8 +133,8 @@ def test_byte_identical_media_sides_are_unchanged() -> None:
     assert image_bays[0]["change"] == {"kind": "unchanged"}
     assert picture_content["left"] == picture_content["right"]
     # Identical bytes state identical facts, so the facts bay is unchanged too.
-    assert image_bays[1]["bay_key"] == IMAGE_FACTS_BAY_KEY
-    assert image_bays[1]["change"] == {"kind": "unchanged"}
+    assert image_bays[2]["bay_key"] == IMAGE_FACTS_BAY_KEY
+    assert image_bays[2]["change"] == {"kind": "unchanged"}
 
     same_blob = b"\x00\x01\x02identical"
     blob_context = ComposeContext.build(
@@ -167,7 +175,7 @@ def test_added_and_removed_images_carry_exactly_one_side() -> None:
     assert added_content["left"] is None
     assert added_content["right"] is not None
     assert added_content["right"]["media_type"] == "image/webp"
-    added_facts = added_bays[1]["kind_data"]
+    added_facts = added_bays[2]["kind_data"]
     assert added_facts["kind"] == "text"
     assert all(row["left_no"] is None for row in added_facts["rows"])
     assert "type: image/webp" in [
@@ -191,7 +199,7 @@ def test_added_and_removed_images_carry_exactly_one_side() -> None:
     assert removed_content["right"] is None
     assert removed_content["left"] is not None
     assert removed_content["left"]["media_type"] == "image/gif"
-    removed_facts = removed_bays[1]["kind_data"]
+    removed_facts = removed_bays[2]["kind_data"]
     assert removed_facts["kind"] == "text"
     assert all(row["right_no"] is None for row in removed_facts["rows"])
     assert removed["summary"]["left_exists"] is True
@@ -399,7 +407,7 @@ def test_bays_yields_an_image_bay_holding_the_exact_captured_bytes() -> None:
             ),
         )
     )
-    assert len(produced) == 2
+    assert len(produced) == 3
     picture = produced[0]
     assert isinstance(picture, ImageBay)
     assert picture.bay_key == IMAGE_BAY_KEY
@@ -409,7 +417,12 @@ def test_bays_yields_an_image_bay_holding_the_exact_captured_bytes() -> None:
     assert picture.right is not None and picture.right.data == right
     assert picture.left.media_type == "image/bmp"
 
-    facts = produced[1]
+    metadata = produced[1]
+    assert isinstance(metadata, TextBay)
+    assert metadata.bay_key == IMAGE_METADATA_BAY_KEY
+    assert metadata.warnings != ()
+
+    facts = produced[2]
     assert isinstance(facts, TextBay)
     assert facts.bay_key == IMAGE_FACTS_BAY_KEY
     assert facts.frame_key == "file", "one frame holds both bays"
@@ -516,7 +529,13 @@ def test_real_preset_fixtures_compose_to_their_captured_bytes() -> None:
         # Whichever classification produced them, the facts a reviewer reads
         # are the facts of the bytes on disk: the picture states them in its
         # reference, and a blob states them as its rows.
-        facts_content = bays[-1]["kind_data"]
+        facts = next(
+            bay
+            for bay in bays
+            if bay["bay_key"] == BLOB_BAY_KEY
+            or bay["bay_key"] == IMAGE_FACTS_BAY_KEY
+        )
+        facts_content = facts["kind_data"]
         assert facts_content["kind"] == "text", case
         # An absent side numbers no lines; a present one states every fact.
         left_stated = [

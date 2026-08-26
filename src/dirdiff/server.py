@@ -1262,13 +1262,10 @@ class UntrackedFileKindResponse(ApiModel):
 FileKindResponse = GitFileKindResponse | UntrackedFileKindResponse
 
 
-class EngineWarningResponse(ApiModel):
-    type: Literal[
-        "difftastic_graph_limit",
-        "difftastic_empty_rows",
-        "gumtree_invalid_json",
-        "tokendiff_region_limit",
-    ]
+class BayWarningResponse(ApiModel):
+    """A non-fatal engine or format degradation on one usable bay."""
+
+    type: str = Field(min_length=1)
     message: str
 
 
@@ -1311,9 +1308,9 @@ class TextKindResponse(ApiModel):
     numbered from zero within this bay; the frontend turns them into the File's
     one navigable sequence.
 
-    Rows, fold hints, stats, and the engine warning live here rather than on
-    `BayResponse` because they exist only where an engine ran, so a consumer
-    holding an image bay cannot ask for them.
+    Rows, fold hints, and stats live here because they exist only where an
+    engine ran. Warnings live on the bay envelope because format builders can
+    also degrade a representation.
     """
 
     kind: Literal["text"]
@@ -1322,7 +1319,6 @@ class TextKindResponse(ApiModel):
     rows: list[DiffRowResponse]
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
     stats: BayStatsResponse
-    engine_warning: EngineWarningResponse | None = None
 
 
 class MediaRefResponse(ApiModel):
@@ -1394,6 +1390,7 @@ class BayResponse(ApiModel):
         ChangeStatusResponse | MovedChangeStatusResponse,
         Field(discriminator="kind"),
     ]
+    warnings: list[BayWarningResponse]
     kind_data: BayKindResponse
 
 

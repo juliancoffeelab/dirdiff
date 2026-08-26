@@ -660,23 +660,18 @@ const FoldHintSchema = z.strictObject({
  */
 export type FoldHint = z.infer<typeof FoldHintSchema>;
 
-const EngineWarningSchema = z.strictObject({
-  type: z.enum([
-    "difftastic_graph_limit",
-    "difftastic_empty_rows",
-    "gumtree_invalid_json",
-    "tokendiff_region_limit",
-  ]),
+const BayWarningSchema = z.strictObject({
+  type: z.string().min(1),
   message: z.string(),
 });
 
 /**
- * Describes a non-fatal renderer warning attached to one file response.
+ * Describes non-fatal engine or format damage attached to one bay.
  *
  * Callers display the complete backend message while continuing to render valid
  * file data. It must not be treated as a request error or hidden Toast.
  */
-export type EngineWarning = z.infer<typeof EngineWarningSchema>;
+export type BayWarning = z.infer<typeof BayWarningSchema>;
 
 const BayStatsSchema = z.strictObject({
   changed_lines: z.number().int(),
@@ -711,7 +706,6 @@ const TextKindPayloadSchema = z.strictObject({
   rows: z.array(DiffRowSchema),
   fold_hints: z.array(FoldHintSchema),
   stats: BayStatsSchema,
-  engine_warning: EngineWarningSchema.nullable(),
 });
 
 /**
@@ -782,6 +776,7 @@ const BayPayloadSchema = z.strictObject({
     ChangeStatusSchema,
     MovedChangeStatusSchema,
   ]),
+  warnings: z.array(BayWarningSchema),
   kind_data: BayKindPayloadSchema,
 });
 

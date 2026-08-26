@@ -47,7 +47,6 @@ import {
   FLATFILE_BAY_KEY,
   type BayChange,
   type BayPayload,
-  type EngineWarning,
   type FileDiff,
   type Frame,
   type ReviewFilePair,
@@ -256,29 +255,21 @@ export function composedHunkCount(diff: FileDiff): number {
 }
 
 /**
- * Renders the engine warning belonging to one bay, when it has one.
+ * Renders every non-fatal warning belonging to one bay.
  *
- * A warning is the engine's report that it gave up matching *these* rows, so it
- * belongs beside the rows it describes rather than on the File: one composed
- * File holds many bays and only some of them carry a warning. It renders
- * whether or not the bay is expanded, because a reviewer needs to know the
- * rows are unreliable before deciding to open them.
+ * Engine and format damage both stop at the affected bay. Warnings render even
+ * when the bay is collapsed, so a reviewer sees degraded content before
+ * deciding whether to open it.
  */
-function BayWarning(props: { bay: BayPayload }): JSX.Element {
-  // If the backend reports a warning, display it. Nothing here decides which
-  // kind is allowed to have one.
-  const warning = (): EngineWarning | null =>
-    "engine_warning" in props.bay.kind_data
-      ? props.bay.kind_data.engine_warning
-      : null;
+function BayWarnings(props: { bay: BayPayload }): JSX.Element {
   return (
-    <Show when={warning()}>
+    <For each={props.bay.warnings}>
       {(warning) => (
-        <p class="composed-bay-warning" title={warning().message}>
-          {warning().message}
+        <p class="composed-bay-warning" title={warning.message}>
+          {warning.message}
         </p>
       )}
-    </Show>
+    </For>
   );
 }
 
@@ -820,7 +811,7 @@ function BayView(props: {
       <Show when={props.bay.detail}>
         {(detail) => <p class="composed-bay-detail">{detail()}</p>}
       </Show>
-      <BayWarning bay={props.bay} />
+      <BayWarnings bay={props.bay} />
       <For each={anchors()}>
         {(hunkIndex, position) => {
           const identity: RealHunkIdentity = {
@@ -1015,7 +1006,7 @@ export function FrameView(props: {
         <>
           {/* A bare text File has no bay chrome to hang a warning on, so it
               renders directly above the grid it describes. */}
-          <BayWarning bay={bare.bay} />
+          <BayWarnings bay={bare.bay} />
           <TextBayView
             reviewFile={props.reviewFile}
             fileIndex={props.fileIndex}

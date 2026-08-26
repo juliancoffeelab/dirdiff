@@ -18,7 +18,7 @@ from dirdiff.engines import (
     TextDiffEngine,
     text_diff_summary,
 )
-from dirdiff.formats import text_content_or_none
+from dirdiff.formats import TextRejection, try_decode_text
 from dirdiff.rendering import (
     SyntaxClass,
     SyntaxSpan,
@@ -179,9 +179,11 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
         # The corpus holds image and blob fixtures too, and the text engine
         # is not what composes those. The same rule composition classifies by
         # decides which pairs this walk can render.
-        old_text = text_content_or_none(old_path.read_bytes())
-        new_text = text_content_or_none(new_path.read_bytes())
-        if old_text is None or new_text is None:
+        old_text = try_decode_text(old_path.read_bytes())
+        new_text = try_decode_text(new_path.read_bytes())
+        if isinstance(old_text, TextRejection) or isinstance(
+            new_text, TextRejection
+        ):
             continue
         rendered = TextDiffEngine().render_diff(
             old=DiffSide(
