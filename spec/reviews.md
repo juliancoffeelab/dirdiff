@@ -231,9 +231,15 @@ lifecycle and attention are read directly from the latest persisted outcome.
 continuation reads. There is no separate event, submission, delta, checkpoint,
 or agent-authorship action variant.
 
-All nullable variant constraints use explicit discriminated `CASE` predicates.
-An unknown or incomplete bay, location, locator, or action shape
-therefore evaluates false rather than SQLite's permissive NULL CHECK result.
+Variant shape — which location fields a `target_kind` implies, when a private
+locator may be retained, which fields an action `kind` carries — is checked in
+Python, in the record dataclass both persistence directions construct, so one
+check guards the insert and the select. The database states no enumerated
+vocabulary: every such column arrives as a `Literal`, and a persisted value
+that is not one is rejected where it is read rather than restated as a list of
+strings in SQL. What the schema still enforces is what a Python type cannot
+say: identifier shapes, non-empty text, ordinal ranges, presence pairings,
+foreign keys, and uniqueness.
 
 There is at most one origin per `thread_id`; Thread creation establishes that
 one exists with its first action in the same transaction. Action sequence is

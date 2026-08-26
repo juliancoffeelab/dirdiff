@@ -74,12 +74,6 @@ class Room(TableBase):
     __tablename__ = "room"
     __table_args__ = (
         CheckConstraint(
-            column("tab").in_(
-                ("head", "refs", "branch-review", "pull-request", "preset")
-            ),
-            name="ck_room_tab",
-        ),
-        CheckConstraint(
             column("mark_id").is_(None) == (column("tab") == "preset"),
             name="ck_room_mark_tab",
         ),
@@ -215,12 +209,6 @@ class SnapshotFile(TableBase):
             name="ck_snapshot_file_path",
         ),
         CheckConstraint(
-            column("change_type").in_(
-                ("modify", "add", "delete", "rename", "copy")
-            ),
-            name="ck_snapshot_file_change_type",
-        ),
-        CheckConstraint(
             column("error").is_(None) | (func.length(column("error")) > 0),
             name="ck_snapshot_file_error",
         ),
@@ -311,14 +299,6 @@ class SnapshotFileLazyReason(TableBase):
     """
 
     __tablename__ = "snapshot_file_lazy_reason"
-    __table_args__ = (
-        CheckConstraint(
-            column("reason").in_(
-                ("too_big", "generated", "deleted", "untracked", "pure_renamed")
-            ),
-            name="ck_snapshot_file_lazy_reason",
-        ),
-    )
 
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file.id"),
@@ -385,88 +365,6 @@ class ReviewThreadPlacement(TableBase):
             (func.length(column("thread_id")) == 32)
             & column("thread_id").op("NOT GLOB")("*[^0-9a-f]*"),
             name="ck_review_thread_placement_id",
-        ),
-        CheckConstraint(
-            column("target_kind").is_(None)
-            | column("target_kind").in_(("range", "bay-start", "file-start")),
-            name="ck_review_thread_target_kind",
-        ),
-        CheckConstraint(
-            column("side").is_(None) | column("side").in_(("left", "right")),
-            name="ck_review_thread_side",
-        ),
-        CheckConstraint(
-            column("outdated_reason").is_(None)
-            | column("outdated_reason").in_(
-                (
-                    "region_changed",
-                    "region_not_found",
-                    "bay_not_found",
-                    "file_missing",
-                )
-            ),
-            name="ck_review_thread_outdated_reason",
-        ),
-        CheckConstraint(
-            case(
-                (
-                    column("snapshot_file_id").is_(None),
-                    column("target_kind").is_(None)
-                    & column("bay_key").is_(None)
-                    & column("side").is_(None)
-                    & column("start_line").is_(None)
-                    & column("end_line").is_(None)
-                    & column("outdated_reason").is_not(None)
-                    & (column("outdated_reason") == "file_missing"),
-                ),
-                (
-                    column("target_kind") == "range",
-                    column("bay_key").is_not(None)
-                    & (func.length(column("bay_key")) > 0)
-                    & column("side").is_not(None)
-                    & column("start_line").is_not(None)
-                    & (column("start_line") >= 1)
-                    & column("end_line").is_not(None)
-                    & (column("end_line") >= column("start_line"))
-                    & (
-                        column("outdated_reason").is_(None)
-                        | (column("outdated_reason") == "region_changed")
-                    ),
-                ),
-                (
-                    column("target_kind") == "bay-start",
-                    column("bay_key").is_not(None)
-                    & (func.length(column("bay_key")) > 0)
-                    & column("side").is_not(None)
-                    & column("start_line").is_(None)
-                    & column("end_line").is_(None)
-                    & column("outdated_reason").is_not(None)
-                    & column("outdated_reason").in_(
-                        ("region_not_found", "bay_not_found")
-                    ),
-                ),
-                (
-                    column("target_kind") == "file-start",
-                    column("bay_key").is_(None)
-                    & column("side").is_not(None)
-                    & column("start_line").is_(None)
-                    & column("end_line").is_(None)
-                    & (
-                        column("outdated_reason").is_(None)
-                        | (column("outdated_reason") == "bay_not_found")
-                    ),
-                ),
-                else_=False,
-            ),
-            name="ck_review_thread_location",
-        ),
-        CheckConstraint(
-            column("private_locator").is_(None)
-            | (
-                (column("target_kind") == "range")
-                & column("outdated_reason").is_(None)
-            ),
-            name="ck_review_thread_placement_locator",
         ),
     )
 
@@ -553,73 +451,6 @@ class ReviewAction(TableBase):
                 | (column("expected_revision") >= 0)
             ),
             name="ck_review_action_revisions",
-        ),
-        CheckConstraint(
-            case(
-                (
-                    column("kind").in_(("thread-created", "comment-created")),
-                    column("thread_id").is_not(None)
-                    & column("sequence").is_not(None)
-                    & column("comment_id").is_not(None)
-                    & column("expected_revision").is_(None)
-                    & column("body").is_not(None)
-                    & (func.length(column("body")) > 0),
-                ),
-                (
-                    column("kind") == "comment-edited",
-                    column("thread_id").is_not(None)
-                    & column("sequence").is_not(None)
-                    & column("comment_id").is_not(None)
-                    & column("expected_revision").is_not(None)
-                    & column("body").is_not(None)
-                    & (func.length(column("body")) > 0),
-                ),
-                (
-                    column("kind") == "comment-deleted",
-                    column("thread_id").is_not(None)
-                    & column("sequence").is_not(None)
-                    & column("comment_id").is_not(None)
-                    & column("expected_revision").is_not(None)
-                    & column("body").is_(None),
-                ),
-                (
-                    column("kind").in_(("thread-resolved", "thread-reopened")),
-                    column("thread_id").is_not(None)
-                    & column("sequence").is_not(None)
-                    & column("expected_revision").is_(None)
-                    & (
-                        (
-                            column("comment_id").is_(None)
-                            & column("body").is_(None)
-                        )
-                        | (
-                            column("comment_id").is_not(None)
-                            & column("body").is_not(None)
-                            & (func.length(column("body")) > 0)
-                        )
-                    ),
-                ),
-                (
-                    column("kind") == "thread-deleted",
-                    column("thread_id").is_not(None)
-                    & column("sequence").is_not(None)
-                    & column("comment_id").is_(None)
-                    & column("expected_revision").is_(None)
-                    & column("body").is_(None),
-                ),
-                else_=False,
-            ),
-            name="ck_review_action_variant",
-        ),
-        CheckConstraint(
-            column("status_after").in_(("open", "resolved", "deleted")),
-            name="ck_review_action_status_after",
-        ),
-        CheckConstraint(
-            column("attention_after").in_(
-                ("author", "reviewer", "both", "none")
-            ),
-            name="ck_review_action_attention_after",
         ),
         CheckConstraint(
             func.length(column("created_at")) > 0,
@@ -816,6 +647,91 @@ class ReviewThreadRecord:
     ]
     private_locator: Optional[bytes]
 
+    def __post_init__(self) -> None:
+        """Reject any placement shape review derivation cannot produce.
+
+        Placement is a tagged union in `dirdiff.review` — a range, a bay start,
+        a File start, a missing File — and one flat row holds all four, so the
+        tag and the fields it implies are checked here to agree. Both
+        directions of persistence build this record: `_record_of` before an
+        insert and `_thread_record` after a select. One check therefore guards
+        the write and the read, and no stored row can hold a shape review
+        cannot interpret.
+
+        It raises instead of asserting because it is the only guard this
+        invariant has. `assert` disappears under `-O`, and a stripped check
+        would admit a row every later reader then fails on.
+        """
+        where = f"thread {self.thread_id} in Snapshot {self.snapshot_id}"
+        if self.snapshot_file_id is None:
+            if (
+                self.target_kind is not None
+                or self.bay_key is not None
+                or self.side is not None
+                or self.start_line is not None
+                or self.end_line is not None
+                or self.outdated_reason != "file_missing"
+            ):
+                raise AssertionError(
+                    f"a File-missing placement carries nothing but its "
+                    f"reason: {where}"
+                )
+        elif self.target_kind == "range":
+            if (
+                self.bay_key is None
+                or len(self.bay_key) == 0
+                or self.side is None
+                or self.start_line is None
+                or self.start_line < 1
+                or self.end_line is None
+                or self.end_line < self.start_line
+                or self.outdated_reason not in (None, "region_changed")
+            ):
+                raise AssertionError(
+                    f"a range placement names a bay and an ordered line "
+                    f"span: {where}"
+                )
+        elif self.target_kind == "bay-start":
+            if (
+                self.bay_key is None
+                or len(self.bay_key) == 0
+                or self.side is None
+                or self.start_line is not None
+                or self.end_line is not None
+                or self.outdated_reason
+                not in ("region_not_found", "bay_not_found")
+            ):
+                raise AssertionError(
+                    f"a bay-start placement names a bay, no line span, and a "
+                    f"lost-region reason: {where}"
+                )
+        elif self.target_kind == "file-start":
+            if (
+                self.bay_key is not None
+                or self.side is None
+                or self.start_line is not None
+                or self.end_line is not None
+                or self.outdated_reason not in (None, "bay_not_found")
+            ):
+                raise AssertionError(
+                    f"a File-start placement names a side and nothing "
+                    f"narrower: {where}"
+                )
+        else:
+            raise AssertionError(
+                f"a placement on a File states its target kind: {where}"
+            )
+        # Private coordinates retain where their author put a live range, so
+        # they belong to a range placement that has not gone outdated. Every
+        # other shape either never had them or has lost what they addressed.
+        if self.private_locator is not None and not (
+            self.target_kind == "range" and self.outdated_reason is None
+        ):
+            raise AssertionError(
+                f"only a current range placement retains private "
+                f"coordinates: {where}"
+            )
+
 
 @dataclass(frozen=True)
 class ReviewActionRecord:
@@ -845,8 +761,62 @@ class ReviewActionRecord:
     """Global Room order after persistence; `None` only before insertion."""
 
     def __post_init__(self) -> None:
-        """Require one valid relational Profile identity."""
-        assert self.profile_id > 0
+        """Reject any action whose fields disagree with the operation it names.
+
+        Each `kind` implies exactly which of `comment_id`, `expected_revision`,
+        and `body` are present: an authoring operation carries a Comment and a
+        non-empty body, an edit or a delete carries the revision it expected,
+        and a lifecycle operation carries a Comment and a body together or
+        neither. `thread_id` and `sequence` are required by their own types.
+
+        Both directions of persistence build this record, so one check guards
+        the insert and the select, and no stored action can name an operation
+        its fields do not describe. It raises rather than asserting for the
+        same reason the placement record does: `-O` strips `assert`, and this
+        is the only guard the invariant has.
+        """
+        assert self.profile_id > 0, (
+            "review actions require a relational Profile"
+        )
+        where = f"action {self.operation_id} on thread {self.thread_id}"
+        has_body = self.body is not None and len(self.body) > 0
+        match self.kind:
+            case "thread-created" | "comment-created":
+                valid = (
+                    self.comment_id is not None
+                    and self.expected_revision is None
+                    and has_body
+                )
+            case "comment-edited":
+                valid = (
+                    self.comment_id is not None
+                    and self.expected_revision is not None
+                    and has_body
+                )
+            case "comment-deleted":
+                valid = (
+                    self.comment_id is not None
+                    and self.expected_revision is not None
+                    and self.body is None
+                )
+            case "thread-resolved" | "thread-reopened":
+                # A lifecycle operation may carry a Comment written in the same
+                # action. Then it carries that Comment's body too; alone, it
+                # carries neither.
+                valid = self.expected_revision is None and (
+                    (self.comment_id is None and self.body is None)
+                    or (self.comment_id is not None and has_body)
+                )
+            case "thread-deleted":
+                valid = (
+                    self.comment_id is None
+                    and self.expected_revision is None
+                    and self.body is None
+                )
+        if not valid:
+            raise AssertionError(
+                f"{self.kind} does not carry these fields: {where}"
+            )
 
 
 @dataclass(frozen=True)
@@ -996,6 +966,22 @@ class RoomStore:
                 raise AssertionError(
                     f"invalid persisted review action kind: {kind_value!r}"
                 )
+        status_value = row.status_after
+        match status_value:
+            case "open" | "resolved" | "deleted":
+                status_after = status_value
+            case _:
+                raise AssertionError(
+                    f"invalid persisted thread status: {status_value!r}"
+                )
+        attention_value = row.attention_after
+        match attention_value:
+            case "author" | "reviewer" | "both" | "none":
+                attention_after = attention_value
+            case _:
+                raise AssertionError(
+                    f"invalid persisted thread attention: {attention_value!r}"
+                )
         return ReviewActionRecord(
             operation_id=row.operation_id,
             thread_id=row.thread_id,
@@ -1007,8 +993,8 @@ class RoomStore:
             expected_revision=row.expected_revision,
             body=row.body,
             created_at=row.created_at,
-            status_after=row.status_after,
-            attention_after=row.attention_after,
+            status_after=status_after,
+            attention_after=attention_after,
             activity_id=row.activity_id,
         )
 
