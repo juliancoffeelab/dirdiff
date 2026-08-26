@@ -160,6 +160,11 @@ def image_bays(
                             )
                         else:
                             rendered = str(value)
+                            if len(rendered) > 256:
+                                rendered = (
+                                    f"<{len(rendered)} characters, sha256 "
+                                    f"{hashlib.sha256(rendered.encode()).hexdigest()}>"
+                                )
                     except (TypeError, ValueError) as error:
                         warnings.append(
                             {
@@ -173,7 +178,12 @@ def image_bays(
                         continue
                     rows.append(f"exif:{tag}: {rendered}")
                 return "\n".join(rows), tuple(warnings)
-        except (OSError, SyntaxError, ValueError) as error:
+        except (
+            OSError,
+            SyntaxError,
+            ValueError,
+            Image.DecompressionBombError,
+        ) as error:
             return "", (
                 {
                     "type": "image_decode_failed",

@@ -712,9 +712,11 @@ def notebook_bays(
     # gone, so its metadata bay appears only when the present side carries
     # something to read, and renders one-sided, the way cell metadata does.
     if left is not None and right is not None:
-        show_document = left.document != right.document
+        show_document = left.document != right.document or (
+            left.cells == [] and right.cells == []
+        )
     else:
-        show_document = present_side.document not in (None, {})
+        show_document = present_side.document != {} or present_side.cells == []
     if show_document:
         yield TextBay(
             # The colon keeps this key clear of every cell key, which is an
@@ -995,7 +997,9 @@ def notebook_bays(
             right_out = (
                 right_outputs[index] if index < len(right_outputs) else None
             )
-            if left_out == right_out:
+            if left_out == right_out and not isinstance(
+                left_out, RejectedNotebookPart
+            ):
                 continue
             left_text = rendered_text(left_out)
             right_text = rendered_text(right_out)

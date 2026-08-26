@@ -237,6 +237,11 @@ answers the other — a re-encode that changes every byte can look identical, an
 two visually different renderings of one asset have different digests for a
 reason worth reading.
 
+Each EXIF value is one bounded line. Values longer than 256 bytes or characters
+are represented by their length and SHA-256 rather than copied into the diff.
+Pillow refusals and malformed metadata damage only this bay and appear as its
+warning; the picture and byte facts remain available.
+
 They stand in the ordinary body-and-attachment relation: the picture is the
 frame's body and is always shown, and the facts bay is an attachment beside it,
 open by default and collapsible. Three lines cost a reviewer nothing to read and
