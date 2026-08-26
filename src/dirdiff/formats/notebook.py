@@ -718,6 +718,12 @@ def notebook_bays(
     else:
         show_document = present_side.document != {} or present_side.cells == []
     if show_document:
+        left_document_text = (
+            None if left is None else canonical_json(left.document)
+        )
+        right_document_text = (
+            None if right is None else canonical_json(right.document)
+        )
         yield TextBay(
             # The colon keeps this key clear of every cell key, which is an
             # `nbformat` cell id.
@@ -728,25 +734,17 @@ def notebook_bays(
             detail=None,
             collapsible=True,
             default_expanded=False,
-            change=ChangeStatus(
-                kind=(
-                    "added"
-                    if left is None
-                    else "removed"
-                    if right is None
-                    else "changed"
-                )
-            ),
+            change=whole_file_change(left_document_text, right_document_text),
             left_label=context.left_label,
             right_label=context.right_label,
             left=DiffSide(
                 exists=left is not None,
-                text=None if left is None else canonical_json(left.document),
+                text=left_document_text,
                 path_hint="notebook-metadata.json",
             ),
             right=DiffSide(
                 exists=right is not None,
-                text=None if right is None else canonical_json(right.document),
+                text=right_document_text,
                 path_hint="notebook-metadata.json",
             ),
         )
@@ -997,9 +995,8 @@ def notebook_bays(
             right_out = (
                 right_outputs[index] if index < len(right_outputs) else None
             )
-            if left_out == right_out and not isinstance(
-                left_out, RejectedNotebookPart
-            ):
+            output_equal = left_out == right_out
+            if output_equal and not isinstance(left_out, RejectedNotebookPart):
                 continue
             left_text = rendered_text(left_out)
             right_text = rendered_text(right_out)
@@ -1009,7 +1006,8 @@ def notebook_bays(
             # text at all. The bay still has to say it changed, because a
             # change nothing can land on is a hidden change.
             text_identical = (
-                left_out is not None
+                not output_equal
+                and left_out is not None
                 and right_out is not None
                 and left_text == right_text
             )
@@ -1045,6 +1043,8 @@ def notebook_bays(
                         if left_out is None
                         else "removed"
                         if right_out is None
+                        else "unchanged"
+                        if output_equal
                         else "changed"
                     )
                 ),
