@@ -20,6 +20,7 @@ import {
   type JSX,
 } from "solid-js";
 import { useToasts } from "../../comp/Toasts";
+import { assert, expect } from "../../utils";
 import type { HunkPosition } from "../fileCard/FileCard";
 import {
   NavigationProvider,
@@ -523,10 +524,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       kind: "husk" | "lazy" | "zero" | "real";
       skipped: boolean;
     } {
-      const hunkSet = card.dataset.hunkSet;
-      if (hunkSet === undefined) {
-        throw new Error("Every FileCard requires data-hunk-set.");
-      }
+      const hunkSet = expect(
+        card.dataset.hunkSet,
+        "Every FileCard requires data-hunk-set.",
+      );
       const pseudo = /^(husk|lazy|zero)(:skip)?$/.exec(hunkSet);
       if (pseudo !== null) {
         const kind = pseudo[1];
@@ -536,12 +537,12 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
           case "zero":
             return { kind, skipped: pseudo[2] === ":skip" };
         }
-        throw new Error("FileCard has an invalid pseudo-hunk set.");
+        assert(false, "FileCard has an invalid pseudo-hunk set.");
       }
-      const real = /^real:([1-9]\d*)(:skip)?$/.exec(hunkSet);
-      if (real === null) {
-        throw new Error(`FileCard has invalid hunk set ${hunkSet}.`);
-      }
+      const real = expect(
+        /^real:([1-9]\d*)(:skip)?$/.exec(hunkSet),
+        `FileCard has invalid hunk set ${hunkSet}.`,
+      );
       return { kind: "real", skipped: real[2] === ":skip" };
     }
 
@@ -578,9 +579,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         (card) => card.dataset.selectedHunkIndex !== undefined,
       );
       if (cards.length === 0) {
-        if (selectedCards.length !== 0) {
-          throw new Error("Empty ChangeSet contains a selected FileCard.");
-        }
+        assert(
+          selectedCards.length === 0,
+          "Empty ChangeSet contains a selected FileCard.",
+        );
         cardStats = new Map();
         return {
           selectedFileIndex: null,
@@ -591,11 +593,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
           fileSelectedHunks: new Map(),
         };
       }
-      if (selectedCards.length !== 1) {
-        throw new Error(
-          "A non-empty ChangeSet requires exactly one selected FileCard.",
-        );
-      }
+      assert(
+        selectedCards.length === 1,
+        "A non-empty ChangeSet requires exactly one selected FileCard.",
+      );
 
       let stablePositionOffset = 0;
       let participatingTotal = 0;
@@ -607,12 +608,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
 
       cards.forEach((card) => {
         const fileIndexText = card.dataset.fileIndex;
-        if (
-          fileIndexText === undefined ||
-          !/^(?:0|[1-9]\d*)$/.test(fileIndexText)
-        ) {
-          throw new Error("FileCard has an invalid manifest file index.");
-        }
+        assert(
+          fileIndexText !== undefined && /^(?:0|[1-9]\d*)$/.test(fileIndexText),
+          "FileCard has an invalid manifest file index.",
+        );
         const fileIndex = Number(fileIndexText);
         const hunkSet = parseHunkSet(card);
         const targets = Array.from(
@@ -620,15 +619,12 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         );
         for (const target of targets) {
           const hunkIndex = target.dataset.hunkIndex;
-          if (
-            target.dataset.fileIndex !== fileIndexText ||
-            hunkIndex === undefined ||
-            !/^(?:0|[1-9]\d*)$/.test(hunkIndex)
-          ) {
-            throw new Error(
-              `FileCard ${fileIndexText} contains a hunk with invalid coordinates.`,
-            );
-          }
+          assert(
+            target.dataset.fileIndex === fileIndexText &&
+              hunkIndex !== undefined &&
+              /^(?:0|[1-9]\d*)$/.test(hunkIndex),
+            `FileCard ${fileIndexText} contains a hunk with invalid coordinates.`,
+          );
         }
         const participatingTargets = targets.filter(
           (target) => !target.classList.contains("skip"),
@@ -656,9 +652,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         participatingTotal += localTotal;
       });
 
-      if (selectedFileIndex === null || selectedCurrent === null) {
-        throw new Error("Selected hunk has no calculable DOM position.");
-      }
+      assert(
+        selectedFileIndex !== null && selectedCurrent !== null,
+        "Selected hunk has no calculable DOM position.",
+      );
       cardStats = stats;
       return {
         selectedFileIndex,
@@ -687,11 +684,10 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       const selectedCards = root.querySelectorAll<HTMLElement>(
         "[data-file-card][data-selected-hunk-index]",
       );
-      if (selectedCards.length !== 1) {
-        throw new Error(
-          "A non-empty ChangeSet requires exactly one selected FileCard.",
-        );
-      }
+      assert(
+        selectedCards.length === 1,
+        "A non-empty ChangeSet requires exactly one selected FileCard.",
+      );
       const card = selectedCards[0];
       if (card === undefined) {
         return null;

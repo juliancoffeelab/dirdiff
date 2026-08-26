@@ -47,13 +47,10 @@ export function expect<T>(
  * bounds throw immediately rather than silently returning a misleading value.
  */
 export function clamp(value: number, min: number, max: number): number {
-  if (![value, min, max].every(Number.isFinite)) {
-    throw new Error(
-      `Clamp arguments must be finite, received ${value}, ${min}, ${max}.`,
-    );
-  }
-  if (min > max) {
-    throw new Error(`Clamp minimum ${min} exceeds maximum ${max}.`);
-  }
+  assert(
+    [value, min, max].every(Number.isFinite),
+    `Clamp arguments must be finite, received ${value}, ${min}, ${max}.`,
+  );
+  assert(min <= max, `Clamp minimum ${min} exceeds maximum ${max}.`);
   return Math.min(Math.max(value, min), max);
 }

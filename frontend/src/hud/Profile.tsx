@@ -26,6 +26,7 @@ import { CircleUserRound } from "lucide-solid";
 import { z } from "zod";
 import { api, type Preferences, type UserProfile } from "../api/api";
 import { ErrorPopover } from "../comp/Toasts";
+import { assert, expect } from "../utils";
 
 const PROFILE_STORAGE_KEY = "dirdiff:v1:profile";
 const StoredProfileSchema = z.strictObject({
@@ -236,22 +237,21 @@ export function Profile(props: ProfileProps): JSX.Element {
    */
   function submitUsername(): void {
     const state = ui();
-    if (
-      state.view !== "login" &&
-      state.view !== "create" &&
-      state.view !== "rename"
-    ) {
-      throw new Error("Username submission requires the username editor.");
-    }
+    assert(
+      state.view === "login" ||
+        state.view === "create" ||
+        state.view === "rename",
+      "Username submission requires the username editor.",
+    );
     if (state.view === "login") {
       loginProfile.mutate(state.input);
     } else if (state.view === "create") {
       registerProfile.mutate(state.input);
     } else {
-      const selected = props.selected;
-      if (selected === null) {
-        throw new Error("Profile rename requires a selected Profile.");
-      }
+      const selected = expect(
+        props.selected,
+        "Profile rename requires a selected Profile.",
+      );
       renameProfile.mutate({
         profileId: selected.id,
         username: state.input,
@@ -270,7 +270,7 @@ export function Profile(props: ProfileProps): JSX.Element {
     if (state.view === "login") return loginProfile;
     if (state.view === "create") return registerProfile;
     if (state.view === "rename") return renameProfile;
-    throw new Error("Profile mutation requires a username action.");
+    assert(false, "Profile mutation requires a username action.");
   }
 
   /**
@@ -281,13 +281,12 @@ export function Profile(props: ProfileProps): JSX.Element {
    */
   function usernameInput(): string {
     const state = ui();
-    if (
-      state.view !== "login" &&
-      state.view !== "create" &&
-      state.view !== "rename"
-    ) {
-      throw new Error("Username editor state changed unexpectedly.");
-    }
+    assert(
+      state.view === "login" ||
+        state.view === "create" ||
+        state.view === "rename",
+      "Username editor state changed unexpectedly.",
+    );
     return state.input;
   }
 
@@ -414,15 +413,12 @@ export function Profile(props: ProfileProps): JSX.Element {
                   value={usernameInput()}
                   onInput={(event) => {
                     const state = ui();
-                    if (
-                      state.view !== "login" &&
-                      state.view !== "create" &&
-                      state.view !== "rename"
-                    ) {
-                      throw new Error(
-                        "Username input requires a username action.",
-                      );
-                    }
+                    assert(
+                      state.view === "login" ||
+                        state.view === "create" ||
+                        state.view === "rename",
+                      "Username input requires a username action.",
+                    );
                     setUi({
                       view: state.view,
                       input: event.currentTarget.value,
@@ -569,12 +565,13 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
     if (preferences.isPending) {
       return { state: "pending" };
     }
-    if (preferences.data === undefined) {
-      throw new Error(
+    return {
+      state: "available",
+      preferences: expect(
+        preferences.data,
         "A settled preferences query requires data or an explicit error.",
-      );
-    }
-    return { state: "available", preferences: preferences.data };
+      ),
+    };
   });
   const loadError = createMemo(() => {
     const current = state();

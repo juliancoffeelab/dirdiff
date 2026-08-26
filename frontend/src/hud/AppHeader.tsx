@@ -22,6 +22,7 @@ import {
 } from "../api/api";
 import { Select, type SelectOption } from "../comp/Select";
 import { ErrorPopover } from "../comp/Toasts";
+import { assert, expect } from "../utils";
 import { Profile, type StoredProfile } from "./Profile";
 import type { DiffViewMode } from "./App";
 
@@ -118,12 +119,13 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
     if (repos.isPending) {
       return { state: "pending" };
     }
-    if (repos.data === undefined) {
-      throw new Error(
+    return {
+      state: "available",
+      repos: expect(
+        repos.data,
         "A settled repository query requires data or an explicit error.",
-      );
-    }
-    return { state: "available", repos: repos.data };
+      ),
+    };
   });
   const repositoryError = createMemo(() => {
     const current = repositories();
@@ -154,13 +156,14 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
    */
   function confirmRemoveRepo(projectId: ProjectId): void {
     const current = repositories();
-    if (current.state !== "available") {
-      throw new Error("Removing a repository requires available metadata.");
-    }
-    const repo = current.repos.find((candidate) => candidate.id === projectId);
-    if (repo === undefined) {
-      throw new Error(`Cannot remove unknown repository ${projectId}.`);
-    }
+    assert(
+      current.state === "available",
+      "Removing a repository requires available metadata.",
+    );
+    const repo = expect(
+      current.repos.find((candidate) => candidate.id === projectId),
+      `Cannot remove unknown repository ${projectId}.`,
+    );
     if (window.confirm(`Remove ${repo.name} from marked repositories?`)) {
       removeRepo.mutate(projectId);
     }
@@ -202,15 +205,14 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
               disabled={false}
               onOpen={null}
               onChange={(value) => {
-                if (
-                  value !== "dirdiff" &&
-                  value !== "git" &&
-                  value !== "difftastic" &&
-                  value !== "gumtree" &&
-                  value !== "tokendiff"
-                ) {
-                  throw new Error(`Unsupported diff engine: ${value}.`);
-                }
+                assert(
+                  value === "dirdiff" ||
+                    value === "git" ||
+                    value === "difftastic" ||
+                    value === "gumtree" ||
+                    value === "tokendiff",
+                  `Unsupported diff engine: ${value}.`,
+                );
                 props.onEngineSelected(value);
               }}
               optionAction={null}
@@ -227,9 +229,10 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
               disabled={false}
               onOpen={null}
               onChange={(value) => {
-                if (value !== "split" && value !== "inline") {
-                  throw new Error(`Unsupported diff view: ${value}.`);
-                }
+                assert(
+                  value === "split" || value === "inline",
+                  `Unsupported diff view: ${value}.`,
+                );
                 props.onViewSelected(value);
               }}
               optionAction={null}
@@ -270,12 +273,10 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
               title="Failed to remove repository"
               error={removeRepo.error}
               onRetry={() => {
-                const projectId = removeRepo.variables;
-                if (projectId === undefined) {
-                  throw new Error(
-                    "Repository removal error is missing its project ID.",
-                  );
-                }
+                const projectId = expect(
+                  removeRepo.variables,
+                  "Repository removal error is missing its project ID.",
+                );
                 removeRepo.mutate(projectId);
               }}
               trigger={<span>Repo removal failed</span>}
@@ -326,12 +327,10 @@ function RepoSelect(props: RepoSelectProps): JSX.Element {
     if (props.selectedRepoId === null) {
       return "Choose repo";
     }
-    const repo = repos.find(
-      (candidate) => candidate.id === props.selectedRepoId,
+    const repo = expect(
+      repos.find((candidate) => candidate.id === props.selectedRepoId),
+      `Unknown selected repository ${props.selectedRepoId}.`,
     );
-    if (repo === undefined) {
-      throw new Error(`Unknown selected repository ${props.selectedRepoId}.`);
-    }
     return repo.name;
   }
 
@@ -343,12 +342,14 @@ function RepoSelect(props: RepoSelectProps): JSX.Element {
    */
   function selectRepo(repos: readonly RepoMark[], value: string): void {
     const projectId = Number(value);
-    if (!Number.isInteger(projectId) || projectId <= 0) {
-      throw new Error(`Invalid selected repository ID: ${value}.`);
-    }
-    if (!repos.some((repo) => repo.id === projectId)) {
-      throw new Error(`Unknown selected repository ID: ${projectId}.`);
-    }
+    assert(
+      Number.isInteger(projectId) && projectId > 0,
+      `Invalid selected repository ID: ${value}.`,
+    );
+    assert(
+      repos.some((repo) => repo.id === projectId),
+      `Unknown selected repository ID: ${projectId}.`,
+    );
     if (projectId !== props.selectedRepoId) {
       props.onSelect(projectId);
     }
@@ -375,11 +376,9 @@ function RepoSelect(props: RepoSelectProps): JSX.Element {
           selectedValue=""
           disabled={true}
           onOpen={null}
-          onChange={() => {
-            throw new Error(
-              "An unavailable repository selector cannot change.",
-            );
-          }}
+          onChange={() =>
+            assert(false, "An unavailable repository selector cannot change.")
+          }
           optionAction={null}
         />
       }

@@ -59,6 +59,7 @@ import { ImageBayView } from "./grids/image/ImageBayView";
 import { TextDiffGrid } from "./grids/text/TextDiffGrid";
 import type { LinePins } from "../linePins";
 import type { RealHunkIdentity } from "../navigation";
+import { assert, expect } from "../../utils";
 
 /**
  * Collects every hunk stop in one composed diff, in document order.
@@ -185,9 +186,10 @@ type RichZone = {
  * composed text-bay contract and throw instead of selecting a cost band.
  */
 function richZone(rowCount: number): RichZone {
-  if (!Number.isInteger(rowCount) || rowCount < 0) {
-    throw new Error("Virtualization requires a non-negative row count.");
-  }
+  assert(
+    Number.isInteger(rowCount) && rowCount >= 0,
+    "Virtualization requires a non-negative row count.",
+  );
   const cost: BayCost =
     rowCount <= 250 ? "small" : rowCount <= 1_000 ? "medium" : "large";
   switch (cost) {
@@ -212,21 +214,18 @@ function richZone(rowCount: number): RichZone {
 function initialRenderMode(card: HTMLElement, rowCount: number): BayRenderMode {
   const viewportHeight = window.innerHeight;
   const rect = card.getBoundingClientRect();
-  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
-    throw new Error(
-      "Initial virtualization requires a finite positive viewport height.",
-    );
-  }
-  if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) {
-    throw new Error(
-      "Initial virtualization requires a finite FileCard rectangle.",
-    );
-  }
-  if (rect.width === 0 && rect.height === 0) {
-    throw new Error(
-      "Initial virtualization requires measurable FileCard geometry.",
-    );
-  }
+  assert(
+    Number.isFinite(viewportHeight) && viewportHeight > 0,
+    "Initial virtualization requires a finite positive viewport height.",
+  );
+  assert(
+    Number.isFinite(rect.top) && Number.isFinite(rect.bottom),
+    "Initial virtualization requires a finite FileCard rectangle.",
+  );
+  assert(
+    rect.width !== 0 || rect.height !== 0,
+    "Initial virtualization requires measurable FileCard geometry.",
+  );
   const margin = richZone(rowCount).enterViewports * viewportHeight;
   return rect.bottom >= -margin && rect.top <= viewportHeight + margin
     ? "rich"
@@ -421,11 +420,10 @@ function TextBayView(props: {
       // restoration.
       forceChunkLayout(wrapper);
       const measuredHeight = wrapper.getBoundingClientRect().height;
-      if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
-        throw new Error(
-          "Rich bay body must have a finite positive height before virtualization.",
-        );
-      }
+      assert(
+        Number.isFinite(measuredHeight) && measuredHeight > 0,
+        "Rich bay body must have a finite positive height before virtualization.",
+      );
       setReservedRichHeight(measuredHeight);
     }
     props.bayRenderModes.setMode(bayKey, next);
@@ -474,21 +472,20 @@ function TextBayView(props: {
    * must not be used for the larger rich-exit zone.
    */
   function intersectsRichEntryZone(viewportTop: number): boolean {
-    if (!Number.isFinite(viewportTop) || viewportTop < 0) {
-      throw new Error(
-        "Rich-entry geometry requires a finite non-negative viewport top.",
-      );
-    }
+    assert(
+      Number.isFinite(viewportTop) && viewportTop >= 0,
+      "Rich-entry geometry requires a finite non-negative viewport top.",
+    );
     const viewportHeight = window.innerHeight;
-    if (viewportHeight <= 0) {
-      throw new Error(
-        "Rich-entry geometry requires a positive viewport height.",
-      );
-    }
+    assert(
+      viewportHeight > 0,
+      "Rich-entry geometry requires a positive viewport height.",
+    );
     const rect = wrapper.getBoundingClientRect();
-    if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) {
-      throw new Error("Rich-entry geometry requires a finite bay rectangle.");
-    }
+    assert(
+      Number.isFinite(rect.top) && Number.isFinite(rect.bottom),
+      "Rich-entry geometry requires a finite bay rectangle.",
+    );
     const bayTop = window.scrollY + rect.top;
     const bayBottom = window.scrollY + rect.bottom;
     const margin =
@@ -527,11 +524,11 @@ function TextBayView(props: {
           // an out-then-in transition, and acting on the stale first entry
           // left visible bays stuck virtual. Only the newest entry is the
           // bay's current state.
-          const entry = entries[entries.length - 1];
-          if (entry === undefined) {
-            throw new Error("Rich-zone observer omitted its bay entry.");
-          }
-          if (entry.isIntersecting) {
+          const currentEntry = expect(
+            entries[entries.length - 1],
+            "Rich-zone observer omitted its bay entry.",
+          );
+          if (currentEntry.isIntersecting) {
             changeRenderMode("rich");
           }
         },
@@ -542,11 +539,11 @@ function TextBayView(props: {
       exitObserver = new IntersectionObserver(
         (entries) => {
           // Same newest-entry rule as the enter observer above.
-          const entry = entries[entries.length - 1];
-          if (entry === undefined) {
-            throw new Error("Virtual-zone observer omitted its bay entry.");
-          }
-          if (!entry.isIntersecting) {
+          const currentEntry = expect(
+            entries[entries.length - 1],
+            "Virtual-zone observer omitted its bay entry.",
+          );
+          if (!currentEntry.isIntersecting) {
             changeRenderMode("virtual");
           }
         },
@@ -893,13 +890,10 @@ export function FrameView(props: {
    * Returns the stops for one bay, which the walk always produced.
    */
   const bayHunks = (bay: BayPayload): BayHunks => {
-    const value = hunks().get(bay.bay_key);
-    if (value === undefined) {
-      throw new Error(
-        `Bay ${bay.bay_key} is absent from its File's hunk stops.`,
-      );
-    }
-    return value;
+    return expect(
+      hunks().get(bay.bay_key),
+      `Bay ${bay.bay_key} is absent from its File's hunk stops.`,
+    );
   };
 
   /**

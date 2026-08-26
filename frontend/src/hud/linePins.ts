@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import { ReviewFilePairSchema, ReviewTextBaySchema } from "../api/api";
 import { useToasts } from "../comp/Toasts";
-import { expect } from "../utils";
+import { assert, expect } from "../utils";
 import { useNavigation } from "./navigation";
 
 const LINE_PIN_NOTICE_DURATION_MS = 2_000;
@@ -150,10 +150,10 @@ export function linePins(): LinePins {
     if (encodedPins.length !== 1) {
       return { state: "invalid" };
     }
-    const encoded = encodedPins[0];
-    if (encoded === undefined) {
-      throw new Error("A single line-pin field omitted its value.");
-    }
+    const encoded = expect(
+      encodedPins[0],
+      "A single line-pin field omitted its value.",
+    );
     // Only the decode can throw; everything after it is a total function on
     // the decoded value, so the `try` covers exactly the throwing statement.
     let decoded: unknown;
@@ -226,9 +226,10 @@ export function linePins(): LinePins {
     fileIndex: number,
     changeSetAbortSignal: AbortSignal,
   ): Promise<LinePinRestoration> {
-    if (!Number.isInteger(fileIndex) || fileIndex < 0) {
-      throw new Error("Line-pin restoration requires a manifest file index.");
-    }
+    assert(
+      Number.isInteger(fileIndex) && fileIndex >= 0,
+      "Line-pin restoration requires a manifest file index.",
+    );
     activeRestoration?.abort();
     const abortController = new AbortController();
     activeRestoration = abortController;
@@ -286,9 +287,10 @@ export function linePins(): LinePins {
         LINE_PIN_NOTICE_DURATION_MS,
       );
       const toggleResult = toggleUrlState(target);
-      if (toggleResult !== "unpinned") {
-        throw new Error("Missing line-pin removal changed its current target.");
-      }
+      assert(
+        toggleResult === "unpinned",
+        "Missing line-pin removal changed its current target.",
+      );
       return { state: "missing" };
     } finally {
       changeSetAbortSignal.removeEventListener("abort", abortFromChangeSet);

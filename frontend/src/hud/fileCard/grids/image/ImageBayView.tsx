@@ -57,7 +57,7 @@ import {
 } from "../../../../api/api";
 import type { DiffViewMode } from "../../../App";
 import type { LinePins, LinePinTarget, PreparedLine } from "../../../linePins";
-import { assert } from "../../../../utils";
+import { assert, expect } from "../../../../utils";
 import { useToasts } from "../../../../comp/Toasts";
 import {
   useReview,
@@ -147,15 +147,16 @@ export function ImageBayView(props: {
       side,
       line: String(PSEUDO_LINE),
     };
-    const changeSetRoot = row.closest<HTMLElement>("[data-change-set-root]");
-    if (changeSetRoot === null) {
-      throw new Error("Image bay requires its ChangeSet root.");
-    }
+    const changeSetRoot = expect(
+      row.closest<HTMLElement>("[data-change-set-root]"),
+      "Image bay requires its ChangeSet root.",
+    );
     const paintedRows =
       changeSetRoot.querySelectorAll<HTMLElement>(".pinned-line");
-    if (paintedRows.length > 1) {
-      throw new Error("ChangeSet contains multiple painted line pins.");
-    }
+    assert(
+      paintedRows.length <= 1,
+      "ChangeSet contains multiple painted line pins.",
+    );
     paintedRows[0]?.classList.remove("pinned-line");
     if (props.linePins.toggleUrlState(target) === "pinned") {
       row.classList.add("pinned-line");
@@ -175,13 +176,12 @@ export function ImageBayView(props: {
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<PreparedLine> {
-    if (
-      target.file.left_path !== props.reviewFile.left_path ||
-      target.file.right_path !== props.reviewFile.right_path ||
-      target.bay.bay_key !== bayKey
-    ) {
-      throw new Error("Image bay received a line target from another bay.");
-    }
+    assert(
+      target.file.left_path === props.reviewFile.left_path &&
+        target.file.right_path === props.reviewFile.right_path &&
+        target.bay.bay_key === bayKey,
+      "Image bay received a line target from another bay.",
+    );
     // Nothing is fetched, unfolded, or enriched to answer this, so the result
     // is already known; the operation is asynchronous because it is one
     // implementation of the line host every bay widget offers.

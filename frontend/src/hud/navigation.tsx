@@ -186,10 +186,7 @@ const NavigationContext = createContext<Navigation>();
  */
 export function useNavigation(): Navigation {
   const navigation = useContext(NavigationContext);
-  if (navigation === undefined) {
-    throw new Error("Hunk navigation requires NavigationProvider.");
-  }
-  return navigation;
+  return expect(navigation, "Hunk navigation requires NavigationProvider.");
 }
 
 /**
@@ -202,52 +199,57 @@ export function useNavigation(): Navigation {
  * are removed before the target fields are copied onto its stable FileCard.
  */
 function selectHunk(root: HTMLElement, target: HTMLElement): void {
-  if (!target.matches("[data-hunk-target]")) {
-    throw new Error("Selected element is not a hunk target.");
-  }
-  if (!root.contains(target)) {
-    throw new Error("Selected hunk target belongs to another ChangeSet.");
-  }
-  const fileCard = target.closest<HTMLElement>("[data-file-card]");
-  if (fileCard === null || !root.contains(fileCard)) {
-    throw new Error("Selected hunk target has no owning FileCard.");
-  }
+  assert(
+    target.matches("[data-hunk-target]"),
+    "Selected element is not a hunk target.",
+  );
+  assert(
+    root.contains(target),
+    "Selected hunk target belongs to another ChangeSet.",
+  );
+  const fileCard = expect(
+    target.closest<HTMLElement>("[data-file-card]"),
+    "Selected hunk target has no owning FileCard.",
+  );
+  assert(
+    root.contains(fileCard),
+    "Selected hunk target has no owning FileCard.",
+  );
   const kind = target.dataset.hunkKind;
   const fileIndex = target.dataset.fileIndex;
-  if (
-    kind !== "real" &&
-    kind !== "husk" &&
-    kind !== "lazy" &&
-    kind !== "zero" &&
-    kind !== "skip"
-  ) {
-    throw new Error("Hunk target has an invalid kind.");
-  }
-  if (fileIndex === undefined || fileCard.dataset.fileIndex !== fileIndex) {
-    throw new Error("Hunk target and FileCard indices do not match.");
-  }
-  if (!/^(?:0|[1-9]\d*)$/.test(fileIndex)) {
-    throw new Error("Hunk target has an invalid file index.");
-  }
-  const hunkIndex = target.dataset.hunkIndex;
-  if (hunkIndex === undefined) {
-    throw new Error("Hunk target is missing its hunk index.");
-  }
-  if (!/^(?:0|[1-9]\d*)$/.test(hunkIndex)) {
-    throw new Error("Hunk target has an invalid hunk index.");
-  }
+  assert(
+    kind === "real" ||
+      kind === "husk" ||
+      kind === "lazy" ||
+      kind === "zero" ||
+      kind === "skip",
+    "Hunk target has an invalid kind.",
+  );
+  assert(
+    fileIndex !== undefined && fileCard.dataset.fileIndex === fileIndex,
+    "Hunk target and FileCard indices do not match.",
+  );
+  assert(
+    /^(?:0|[1-9]\d*)$/.test(fileIndex),
+    "Hunk target has an invalid file index.",
+  );
+  const hunkIndex = expect(
+    target.dataset.hunkIndex,
+    "Hunk target is missing its hunk index.",
+  );
+  assert(
+    /^(?:0|[1-9]\d*)$/.test(hunkIndex),
+    "Hunk target has an invalid hunk index.",
+  );
   const bay = target.dataset.hunkBay;
   if (kind === "real" || kind === "skip") {
-    if (bay === undefined || bay.length === 0) {
-      throw new Error(`${kind} hunk target requires a bay key.`);
-    }
+    assert(
+      bay !== undefined && bay.length > 0,
+      `${kind} hunk target requires a bay key.`,
+    );
   } else {
-    if (bay !== undefined) {
-      throw new Error(`${kind} pseudo-hunk must not carry a bay key.`);
-    }
-    if (hunkIndex !== "0") {
-      throw new Error(`${kind} pseudo-hunk requires hunk index zero.`);
-    }
+    assert(bay === undefined, `${kind} pseudo-hunk must not carry a bay key.`);
+    assert(hunkIndex === "0", `${kind} pseudo-hunk requires hunk index zero.`);
   }
 
   for (const previousTarget of root.querySelectorAll<HTMLElement>(
@@ -373,36 +375,36 @@ export function writeInitialHunkSelection(root: HTMLElement): void {
     return;
   }
   for (const card of cards) {
-    if (card.querySelector("[data-hunk-target]") === null) {
-      throw new Error("Every FileCard requires a hunk target.");
-    }
+    assert(
+      card.querySelector("[data-hunk-target]") !== null,
+      "Every FileCard requires a hunk target.",
+    );
   }
-  const firstCard = cards[0];
-  if (firstCard === undefined) {
-    throw new Error("Non-empty FileCard collection has no first card.");
-  }
-  const firstFileIndex = firstCard.dataset.fileIndex;
-  if (firstFileIndex === undefined) {
-    throw new Error("First FileCard has no manifest file index.");
-  }
+  const firstCard = expect(
+    cards[0],
+    "Non-empty FileCard collection has no first card.",
+  );
+  const firstFileIndex = expect(
+    firstCard.dataset.fileIndex,
+    "First FileCard has no manifest file index.",
+  );
   // Bays each number their hunks from zero, so an index alone names no
   // single target; the snapshot's first hunk is the first target in DOM
   // order, which renderers keep equal to document order.
-  const firstTarget =
-    firstCard.querySelector<HTMLElement>("[data-hunk-target]");
-  if (firstTarget === null) {
-    throw new Error("First hunk target disappeared during initialization.");
-  }
-  if (firstTarget.dataset.fileIndex !== firstFileIndex) {
-    throw new Error("First hunk target has the wrong manifest index.");
-  }
-  if (
+  const firstTarget = expect(
+    firstCard.querySelector<HTMLElement>("[data-hunk-target]"),
+    "First hunk target disappeared during initialization.",
+  );
+  assert(
+    firstTarget.dataset.fileIndex === firstFileIndex,
+    "First hunk target has the wrong manifest index.",
+  );
+  assert(
     root.querySelector(
       "[data-hunk-target][data-selected], [data-file-card][data-selected-hunk-index]",
-    ) !== null
-  ) {
-    throw new Error("Initial hunk selection requires unselected DOM.");
-  }
+    ) === null,
+    "Initial hunk selection requires unselected DOM.",
+  );
   selectHunk(root, firstTarget);
 }
 
@@ -510,12 +512,10 @@ export function NavigationProvider(
      * Extracts the required primary touch position from a touch event.
      */
     function primaryTouchY(event: TouchEvent): number {
-      const touch = event.touches.item(0);
-
-      if (touch === null) {
-        throw new Error("Touch input requires a primary touch.");
-      }
-
+      const touch = expect(
+        event.touches.item(0),
+        "Touch input requires a primary touch.",
+      );
       return touch.clientY;
     }
 
@@ -533,14 +533,12 @@ export function NavigationProvider(
        * `null` means that the touch moved without changing its vertical position.
        */
       comparedDirection(event: TouchEvent): "up" | "down" | null {
-        if (previousTouchY === null) {
-          throw new Error(
-            "Touch movement requires a preceding touch position.",
-          );
-        }
+        const previousY = expect(
+          previousTouchY,
+          "Touch movement requires a preceding touch position.",
+        );
 
         const currentTouchY = primaryTouchY(event);
-        const previousY = previousTouchY;
         previousTouchY = currentTouchY;
 
         if (currentTouchY === previousY) {
@@ -562,10 +560,10 @@ export function NavigationProvider(
    * This operation never scrolls, enriches, expands, fetches, or reads counters.
    */
   function scrollFollow(root: HTMLElement): void {
-    const fileList = root.querySelector<HTMLElement>(".file-list");
-    if (fileList === null) {
-      throw new Error("Scroll following requires the ChangeSet file list.");
-    }
+    const fileList = expect(
+      root.querySelector<HTMLElement>(".file-list"),
+      "Scroll following requires the ChangeSet file list.",
+    );
     const fileListRect = fileList.getBoundingClientRect();
     const visibleLeft = Math.max(0, fileListRect.left);
     const visibleRight = Math.min(window.innerWidth, fileListRect.right);
@@ -686,9 +684,10 @@ export function NavigationProvider(
    */
   async function waitToEnrich(bay: HTMLElement): Promise<void> {
     const enrichableBay = bay as Partial<EnrichableBay>;
-    if (typeof enrichableBay.waitToEnrich_impl !== "function") {
-      throw new Error("Bay omitted waitToEnrich_impl.");
-    }
+    assert(
+      typeof enrichableBay.waitToEnrich_impl === "function",
+      "Bay omitted waitToEnrich_impl.",
+    );
     await enrichableBay.waitToEnrich_impl();
   }
 
@@ -703,25 +702,29 @@ export function NavigationProvider(
     root: HTMLElement,
     initialTarget: HTMLElement,
   ): Promise<HTMLElement | null> {
-    if (!initialTarget.matches(PARTICIPATING_HUNK_SELECTOR)) {
-      throw new Error("Navigation destination does not participate.");
-    }
-    const card = initialTarget.closest<HTMLElement>("[data-file-card]");
-    if (card === null || !root.contains(card)) {
-      throw new Error("Navigation destination has no owning FileCard.");
-    }
+    assert(
+      initialTarget.matches(PARTICIPATING_HUNK_SELECTOR),
+      "Navigation destination does not participate.",
+    );
+    const card = expect(
+      initialTarget.closest<HTMLElement>("[data-file-card]"),
+      "Navigation destination has no owning FileCard.",
+    );
+    assert(
+      root.contains(card),
+      "Navigation destination has no owning FileCard.",
+    );
     const fileIndex = initialTarget.dataset.fileIndex;
     const hunkIndex = initialTarget.dataset.hunkIndex;
     const hunkBay = initialTarget.dataset.hunkBay;
-    if (
-      fileIndex === undefined ||
-      hunkIndex === undefined ||
-      !/^(?:0|[1-9]\d*)$/.test(fileIndex) ||
-      !/^(?:0|[1-9]\d*)$/.test(hunkIndex) ||
-      card.dataset.fileIndex !== fileIndex
-    ) {
-      throw new Error("Navigation destination has invalid hunk coordinates.");
-    }
+    assert(
+      fileIndex !== undefined &&
+        hunkIndex !== undefined &&
+        /^(?:0|[1-9]\d*)$/.test(fileIndex) &&
+        /^(?:0|[1-9]\d*)$/.test(hunkIndex) &&
+        card.dataset.fileIndex === fileIndex,
+      "Navigation destination has invalid hunk coordinates.",
+    );
     let target = initialTarget;
     // Only a target inside a bay wrapper can be virtual: pseudo-hunks, bay
     // chrome anchors, and collapsed-file skips live outside every wrapper
@@ -733,9 +736,10 @@ export function NavigationProvider(
       initialTarget.dataset.hunkKind === "real"
     ) {
       const kind = initialTarget.dataset.hunkKind;
-      if (hunkBay === undefined) {
-        throw new Error("Real navigation destination is missing its bay.");
-      }
+      const bayKey = expect(
+        hunkBay,
+        "Real navigation destination is missing its bay.",
+      );
       await waitToEnrich(bay);
       if (!alive) {
         return null;
@@ -746,18 +750,17 @@ export function NavigationProvider(
         (candidate) =>
           candidate.dataset.hunkKind === kind &&
           candidate.dataset.fileIndex === fileIndex &&
-          candidate.dataset.hunkBay === hunkBay &&
+          candidate.dataset.hunkBay === bayKey &&
           candidate.dataset.hunkIndex === hunkIndex,
       );
-      if (replacements.length !== 1) {
-        throw new Error(
-          "Rich FullFile did not mount one matching hunk target.",
-        );
-      }
-      const replacement = replacements[0];
-      if (replacement === undefined) {
-        throw new Error("Rich hunk target disappeared during navigation.");
-      }
+      assert(
+        replacements.length === 1,
+        "Rich FullFile did not mount one matching hunk target.",
+      );
+      const replacement = expect(
+        replacements[0],
+        "Rich hunk target disappeared during navigation.",
+      );
       target = replacement;
     }
     if (!alive) {
@@ -819,22 +822,22 @@ export function NavigationProvider(
    * calculates counters, or updates the FileTree.
    */
   async function navigateToFile(fileIndex: number): Promise<void> {
-    if (!Number.isInteger(fileIndex) || fileIndex < 0) {
-      throw new Error("File navigation requires a valid manifest index.");
-    }
+    assert(
+      Number.isInteger(fileIndex) && fileIndex >= 0,
+      "File navigation requires a valid manifest index.",
+    );
     const root = props.root();
     const cards = root.querySelectorAll<HTMLElement>(
       `[data-file-card][data-file-index="${fileIndex}"]`,
     );
-    if (cards.length !== 1) {
-      throw new Error(
-        `File navigation requires one FileCard at index ${fileIndex}.`,
-      );
-    }
-    const card = cards[0];
-    if (card === undefined) {
-      throw new Error("Indexed FileCard disappeared during navigation.");
-    }
+    assert(
+      cards.length === 1,
+      `File navigation requires one FileCard at index ${fileIndex}.`,
+    );
+    const card = expect(
+      cards[0],
+      "Indexed FileCard disappeared during navigation.",
+    );
 
     /**
      * Resolves the first target from the FileCard's current DOM representation.
@@ -845,23 +848,23 @@ export function NavigationProvider(
      * renderer-contract failure rather than an alternate destination.
      */
     function firstTarget(): HTMLElement {
-      const target = card.querySelector<HTMLElement>("[data-hunk-target]");
-      if (target === null) {
-        throw new Error("FileCard first hunk target disappeared.");
-      }
-      if (target.dataset.fileIndex !== String(fileIndex)) {
-        throw new Error("FileCard target has the wrong manifest index.");
-      }
+      const target = expect(
+        card.querySelector<HTMLElement>("[data-hunk-target]"),
+        "FileCard first hunk target disappeared.",
+      );
+      assert(
+        target.dataset.fileIndex === String(fileIndex),
+        "FileCard target has the wrong manifest index.",
+      );
       const kind = target.dataset.hunkKind;
-      if (
-        kind !== "real" &&
-        kind !== "skip" &&
-        kind !== "husk" &&
-        kind !== "lazy" &&
-        kind !== "zero"
-      ) {
-        throw new Error("FileCard hunk-zero target has an invalid kind.");
-      }
+      assert(
+        kind === "real" ||
+          kind === "skip" ||
+          kind === "husk" ||
+          kind === "lazy" ||
+          kind === "zero",
+        "FileCard hunk-zero target has an invalid kind.",
+      );
       return target;
     }
 
@@ -877,9 +880,10 @@ export function NavigationProvider(
      */
     function centeredViewportTop(currentTarget: HTMLElement): number {
       const viewportHeight = window.innerHeight;
-      if (viewportHeight <= 0) {
-        throw new Error("File navigation requires a positive viewport height.");
-      }
+      assert(
+        viewportHeight > 0,
+        "File navigation requires a positive viewport height.",
+      );
       let targetDocumentTop = 0;
       let offsetElement: HTMLElement | null = currentTarget;
       while (offsetElement !== null) {
@@ -887,18 +891,16 @@ export function NavigationProvider(
         offsetElement = offsetElement.offsetParent as HTMLElement | null;
       }
       const targetHeight = currentTarget.offsetHeight;
-      if (
-        !Number.isFinite(targetDocumentTop) ||
-        !Number.isFinite(targetHeight)
-      ) {
-        throw new Error("File navigation requires finite target geometry.");
-      }
+      assert(
+        Number.isFinite(targetDocumentTop) && Number.isFinite(targetHeight),
+        "File navigation requires finite target geometry.",
+      );
       const desiredTop =
         targetDocumentTop + targetHeight / 2 - viewportHeight / 2;
-      const scrollingElement = document.scrollingElement;
-      if (scrollingElement === null) {
-        throw new Error("File navigation requires a document scroll element.");
-      }
+      const scrollingElement = expect(
+        document.scrollingElement,
+        "File navigation requires a document scroll element.",
+      );
       const maximumTop = Math.max(
         0,
         scrollingElement.scrollHeight - viewportHeight,
@@ -907,9 +909,10 @@ export function NavigationProvider(
     }
 
     let target = firstTarget();
-    if (target.dataset.hunkKind === "husk") {
-      throw new Error("File navigation cannot target a HuskFile.");
-    }
+    assert(
+      target.dataset.hunkKind !== "husk",
+      "File navigation cannot target a HuskFile.",
+    );
     // Only a target inside a bay wrapper can be virtual; chrome anchors and
     // collapsed-file skips live outside every wrapper with exact geometry.
     const destinationBay = target.closest<HTMLElement>("[data-bay-render]");
@@ -926,12 +929,10 @@ export function NavigationProvider(
       target = firstTarget();
       // The first target of any bay is that bay's hunk zero, so the
       // enriched bay must still lead with a real index-zero target.
-      if (
-        target.dataset.hunkKind !== "real" ||
-        target.dataset.hunkIndex !== "0"
-      ) {
-        throw new Error("Enriched bay omitted its first real hunk.");
-      }
+      assert(
+        target.dataset.hunkKind === "real" && target.dataset.hunkIndex === "0",
+        "Enriched bay omitted its first real hunk.",
+      );
     }
     if (!alive) {
       return;
@@ -955,9 +956,10 @@ export function NavigationProvider(
           continue;
         }
         const enrichableBay = candidate as Partial<EnrichableBay>;
-        if (typeof enrichableBay.intersectsRichEntryZone !== "function") {
-          throw new Error("Virtual bay omitted rich-entry geometry.");
-        }
+        assert(
+          typeof enrichableBay.intersectsRichEntryZone === "function",
+          "Virtual bay omitted rich-entry geometry.",
+        );
         if (enrichableBay.intersectsRichEntryZone(viewportTop)) {
           intersectingVirtualBay = candidate;
           break;
@@ -997,14 +999,14 @@ export function NavigationProvider(
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<NavigationResult> {
-    if (!Number.isInteger(fileIndex) || fileIndex < 0) {
-      throw new Error("Line navigation requires a valid manifest index.");
-    }
-    if (!/^[1-9]\d*$/u.test(target.line)) {
-      throw new Error(
-        "Line navigation requires a positive decimal backend line identity.",
-      );
-    }
+    assert(
+      Number.isInteger(fileIndex) && fileIndex >= 0,
+      "Line navigation requires a valid manifest index.",
+    );
+    assert(
+      /^[1-9]\d*$/u.test(target.line),
+      "Line navigation requires a positive decimal backend line identity.",
+    );
     if (abortSignal.aborted) {
       return { state: "stopped" };
     }
@@ -1012,18 +1014,18 @@ export function NavigationProvider(
     const cards = root.querySelectorAll<HTMLElement>(
       `[data-file-card][data-file-index="${fileIndex}"]`,
     );
-    if (cards.length !== 1) {
-      throw new Error(
-        `Line navigation requires one FileCard at index ${fileIndex}.`,
-      );
-    }
+    assert(
+      cards.length === 1,
+      `Line navigation requires one FileCard at index ${fileIndex}.`,
+    );
     const card = expect(
       cards.item(0),
       "Line navigation FileCard disappeared.",
     ) as Partial<PreparableFileCard>;
-    if (typeof card.prepareLine_impl !== "function") {
-      throw new Error("Line navigation requires FullFile preparation.");
-    }
+    assert(
+      typeof card.prepareLine_impl === "function",
+      "Line navigation requires FullFile preparation.",
+    );
     const enrichedBays = new Set<HTMLElement>();
 
     /**
@@ -1031,9 +1033,10 @@ export function NavigationProvider(
      */
     function centeredViewportTop(target: HTMLElement): number {
       const viewportHeight = window.innerHeight;
-      if (viewportHeight <= 0) {
-        throw new Error("Line navigation requires a positive viewport height.");
-      }
+      assert(
+        viewportHeight > 0,
+        "Line navigation requires a positive viewport height.",
+      );
       let targetDocumentTop = 0;
       let offsetElement: HTMLElement | null = target;
       while (offsetElement !== null) {
@@ -1041,19 +1044,16 @@ export function NavigationProvider(
         offsetElement = offsetElement.offsetParent as HTMLElement | null;
       }
       const targetHeight = target.offsetHeight;
-      if (
-        !Number.isFinite(targetDocumentTop) ||
-        !Number.isFinite(targetHeight) ||
-        targetHeight <= 0
-      ) {
-        throw new Error(
-          "Line navigation requires finite, positive target geometry.",
-        );
-      }
-      const scrollingElement = document.scrollingElement;
-      if (scrollingElement === null) {
-        throw new Error("Line navigation requires a document scroll element.");
-      }
+      assert(
+        Number.isFinite(targetDocumentTop) &&
+          Number.isFinite(targetHeight) &&
+          targetHeight > 0,
+        "Line navigation requires finite, positive target geometry.",
+      );
+      const scrollingElement = expect(
+        document.scrollingElement,
+        "Line navigation requires a document scroll element.",
+      );
       const desiredTop =
         targetDocumentTop + targetHeight / 2 - viewportHeight / 2;
       const maximumTop = Math.max(
@@ -1079,9 +1079,10 @@ export function NavigationProvider(
           continue;
         }
         const enrichableBay = candidate as Partial<EnrichableBay>;
-        if (typeof enrichableBay.intersectsRichEntryZone !== "function") {
-          throw new Error("Virtual bay omitted rich-entry geometry.");
-        }
+        assert(
+          typeof enrichableBay.intersectsRichEntryZone === "function",
+          "Virtual bay omitted rich-entry geometry.",
+        );
         if (enrichableBay.intersectsRichEntryZone(viewportTop)) {
           intersectingVirtualBay = candidate;
           break;
@@ -1147,11 +1148,10 @@ export function NavigationProvider(
     let destination: HTMLElement | undefined;
     if (!location.target.classList.contains("skip")) {
       const currentIndex = participants.indexOf(location.target);
-      if (currentIndex === -1) {
-        throw new Error(
-          "Selected participating hunk is absent from DOM order.",
-        );
-      }
+      assert(
+        currentIndex !== -1,
+        "Selected participating hunk is absent from DOM order.",
+      );
       const destinationIndex =
         direction === "next" ? currentIndex + 1 : currentIndex - 1;
       destination =
@@ -1163,9 +1163,10 @@ export function NavigationProvider(
         root.querySelectorAll<HTMLElement>("[data-hunk-target]"),
       );
       const currentIndex = allTargets.indexOf(location.target);
-      if (currentIndex === -1) {
-        throw new Error("Skipped selected hunk is absent from DOM order.");
-      }
+      assert(
+        currentIndex !== -1,
+        "Skipped selected hunk is absent from DOM order.",
+      );
       for (let offset = 1; offset <= allTargets.length; offset += 1) {
         const candidateIndex =
           direction === "next" ? currentIndex + offset : currentIndex - offset;
@@ -1180,12 +1181,13 @@ export function NavigationProvider(
         }
       }
     }
-    if (destination === undefined) {
-      throw new Error(
+    return await enrichTarget(
+      root,
+      expect(
+        destination,
         "Navigation could not resolve a participating destination.",
-      );
-    }
-    return await enrichTarget(root, destination);
+      ),
+    );
   }
 
   /**

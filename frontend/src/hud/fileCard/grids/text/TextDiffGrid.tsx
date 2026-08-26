@@ -30,7 +30,7 @@ import {
 import type { DiffViewMode } from "../../../App";
 import { addFoldRows, isFoldRow } from "./folds";
 import type { LinePins, LinePinTarget, PreparedLine } from "../../../linePins";
-import { assert } from "../../../../utils";
+import { assert, expect } from "../../../../utils";
 import { presentError } from "../../../../comp/Toasts";
 import {
   LineMarkerKeySchema,
@@ -205,15 +205,14 @@ function ImperativeDiffLines(props: {
   /** Reads the required marker discriminator from one rendered Comment control. */
   function reviewMarkerKind(trigger: HTMLButtonElement): ReviewMarkerKind {
     const markerKind = trigger.dataset.reviewMarkerKind;
-    if (
-      markerKind !== "new" &&
-      markerKind !== "draft" &&
-      markerKind !== "open" &&
-      markerKind !== "resolved" &&
-      markerKind !== "deleted"
-    ) {
-      throw new Error("Comment trigger has an invalid marker kind.");
-    }
+    assert(
+      markerKind === "new" ||
+        markerKind === "draft" ||
+        markerKind === "open" ||
+        markerKind === "resolved" ||
+        markerKind === "deleted",
+      "Comment trigger has an invalid marker kind.",
+    );
     return markerKind;
   }
 
@@ -255,27 +254,28 @@ function ImperativeDiffLines(props: {
    * detached from a valid row is a structural contradiction and throws.
    */
   function renderedRow(target: LinePinTarget): HTMLElement | null {
-    if (
-      target.file.left_path !== props.reviewFile.left_path ||
-      target.file.right_path !== props.reviewFile.right_path ||
-      target.bay.bay_key !== props.bayKey
-    ) {
-      throw new Error("TextDiffGrid received a line target from another bay.");
-    }
+    assert(
+      target.file.left_path === props.reviewFile.left_path &&
+        target.file.right_path === props.reviewFile.right_path &&
+        target.bay.bay_key === props.bayKey,
+      "TextDiffGrid received a line target from another bay.",
+    );
     const matchingLines = root.querySelectorAll<HTMLElement>(
       `.line-no[data-line-pin-side="${target.side}"][data-line-pin-line="${target.line}"]`,
     );
-    if (matchingLines.length > 1) {
-      throw new Error("TextDiffGrid contains duplicate line-pin coordinates.");
-    }
+    assert(
+      matchingLines.length <= 1,
+      "TextDiffGrid contains duplicate line-pin coordinates.",
+    );
     const lineNumber = matchingLines[0];
     if (lineNumber === undefined) {
       return null;
     }
     const row = lineNumber.closest<HTMLElement>(".diff-row");
-    if (row === null || !root.contains(row)) {
-      throw new Error("Pinnable line has no TextDiffGrid row.");
-    }
+    assert(
+      row !== null && root.contains(row),
+      "Pinnable line has no TextDiffGrid row.",
+    );
     return row;
   }
 
@@ -310,12 +310,14 @@ function ImperativeDiffLines(props: {
     }
     const side = lineNumber.dataset.linePinSide;
     const line = lineNumber.dataset.linePinLine;
-    if (side !== "left" && side !== "right") {
-      throw new Error("Pinnable line has an invalid side identity.");
-    }
-    if (line === undefined || !/^[1-9]\d*$/u.test(line)) {
-      throw new Error("Pinnable line has an invalid backend line identity.");
-    }
+    assert(
+      side === "left" || side === "right",
+      "Pinnable line has an invalid side identity.",
+    );
+    assert(
+      line !== undefined && /^[1-9]\d*$/u.test(line),
+      "Pinnable line has an invalid backend line identity.",
+    );
     if (commentTrigger !== null) {
       const commentRowPart = lineNumber.parentElement;
       const commentCodeCell =
@@ -345,19 +347,20 @@ function ImperativeDiffLines(props: {
       side,
       line,
     };
-    const row = renderedRow(target);
-    if (row === null) {
-      throw new Error("Activated line disappeared from its TextDiffGrid.");
-    }
-    const changeSetRoot = root.closest<HTMLElement>("[data-change-set-root]");
-    if (changeSetRoot === null) {
-      throw new Error("TextDiffGrid requires its ChangeSet root.");
-    }
+    const row = expect(
+      renderedRow(target),
+      "Activated line disappeared from its TextDiffGrid.",
+    );
+    const changeSetRoot = expect(
+      root.closest<HTMLElement>("[data-change-set-root]"),
+      "TextDiffGrid requires its ChangeSet root.",
+    );
     const paintedRows =
       changeSetRoot.querySelectorAll<HTMLElement>(".pinned-line");
-    if (paintedRows.length > 1) {
-      throw new Error("ChangeSet contains multiple painted line pins.");
-    }
+    assert(
+      paintedRows.length <= 1,
+      "ChangeSet contains multiple painted line pins.",
+    );
     paintedRows[0]?.classList.remove("pinned-line");
     if (props.linePins.toggleUrlState(target) === "pinned") {
       row.classList.add("pinned-line");
@@ -399,13 +402,12 @@ function ImperativeDiffLines(props: {
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<PreparedLine> {
-    if (
-      target.file.left_path !== props.reviewFile.left_path ||
-      target.file.right_path !== props.reviewFile.right_path ||
-      target.bay.bay_key !== props.bayKey
-    ) {
-      throw new Error("TextDiffGrid preparation received the wrong target.");
-    }
+    assert(
+      target.file.left_path === props.reviewFile.left_path &&
+        target.file.right_path === props.reviewFile.right_path &&
+        target.bay.bay_key === props.bayKey,
+      "TextDiffGrid preparation received the wrong target.",
+    );
     if (abortSignal.aborted || !root.isConnected) {
       return { state: "stopped" };
     }
@@ -421,13 +423,14 @@ function ImperativeDiffLines(props: {
     if (matchingRowIndexes.length === 0) {
       return { state: "missing" };
     }
-    if (matchingRowIndexes.length !== 1) {
-      throw new Error("Backend rows contain duplicate line-pin coordinates.");
-    }
-    const targetRowIndex = matchingRowIndexes[0];
-    if (targetRowIndex === undefined) {
-      throw new Error("Matched line row index disappeared.");
-    }
+    assert(
+      matchingRowIndexes.length === 1,
+      "Backend rows contain duplicate line-pin coordinates.",
+    );
+    const targetRowIndex = expect(
+      matchingRowIndexes[0],
+      "Matched line row index disappeared.",
+    );
     let expanded = false;
     const remaining = [
       ...addFoldRows(props.rows, props.foldHints, props.aggressiveFolds),

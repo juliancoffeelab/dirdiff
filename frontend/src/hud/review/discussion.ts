@@ -482,9 +482,10 @@ export function createThreadDiscussion(
     }
     const profile = profileForWrite();
     if (profile === null) return;
-    if (comment.author.profile_id !== profile.id || comment.body === null) {
-      throw new Error("Only the original Profile may edit a current Comment.");
-    }
+    assert(
+      comment.author.profile_id === profile.id && comment.body !== null,
+      "Only the original Profile may edit a current Comment.",
+    );
     if (editDraftForComment(thread.thread_id, comment.comment_id) !== null)
       return;
     const draft: ReviewDraft = {

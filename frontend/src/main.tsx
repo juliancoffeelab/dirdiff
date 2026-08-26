@@ -13,6 +13,7 @@ import { QueryProvider } from "./api/queryClient";
 import { ApplicationErrorPanel, ToastProvider, useToasts } from "./comp/Toasts";
 import { App } from "./hud/App";
 import { ReviewDraftRoot } from "./hud/review/drafts";
+import { expect } from "./utils";
 import "./styles.css";
 
 /**
@@ -46,10 +47,10 @@ function Root(): JSX.Element {
  * A missing `#root` is an invalid host document and throws immediately.
  */
 function main(): void {
-  const root = document.getElementById("root");
-  if (root === null) {
-    throw new Error("The frontend root element #root is missing.");
-  }
+  const root = expect(
+    document.getElementById("root"),
+    "The frontend root element #root is missing.",
+  );
 
   render(
     () => (

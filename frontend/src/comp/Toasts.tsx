@@ -21,6 +21,7 @@ import {
   type Accessor,
   type JSX,
 } from "solid-js";
+import { assert, expect } from "../utils";
 
 const TIMEOUT_TOAST_TTL_MS = 10_000;
 const UNDISPLAYABLE_THROWN_VALUE_MESSAGE =
@@ -232,14 +233,14 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
     message: string,
     durationMs: number,
   ): void {
-    if (title.length === 0 || message.length === 0) {
-      throw new Error(
-        "Transient Toasts require visible title and message text.",
-      );
-    }
-    if (!Number.isFinite(durationMs) || durationMs <= 0) {
-      throw new Error("Transient Toasts require a positive finite duration.");
-    }
+    assert(
+      title.length > 0 && message.length > 0,
+      "Transient Toasts require visible title and message text.",
+    );
+    assert(
+      Number.isFinite(durationMs) && durationMs > 0,
+      "Transient Toasts require a positive finite duration.",
+    );
     const toast: TransientToast = {
       id: nextToastId,
       title,
@@ -317,11 +318,7 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
  * so a missing application boundary cannot silently discard failures.
  */
 export function useToasts(): ToastCommands {
-  const commands = useContext(ToastContext);
-  if (commands === undefined) {
-    throw new Error("useToasts requires ToastProvider.");
-  }
-  return commands;
+  return expect(useContext(ToastContext), "useToasts requires ToastProvider.");
 }
 
 /**

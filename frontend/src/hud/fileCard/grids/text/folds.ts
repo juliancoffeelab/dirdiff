@@ -7,6 +7,7 @@
  * expanded-fold UI state, mutate backend rows, touch the DOM, or navigate hunks.
  */
 import type { DiffRow, FoldHint } from "../../../../api/api";
+import { assert, expect } from "../../../../utils";
 
 /**
  * Represents one validated backend fold range in the nested fold tree.
@@ -90,24 +91,30 @@ function parseFoldHint(
   index: number,
   rowCount: number,
 ): NormalizedFoldHint {
-  if (!Number.isInteger(hint.start_row)) {
-    throw new Error(`Fold hint ${index} has invalid start row.`);
-  }
-  if (!Number.isInteger(hint.end_row)) {
-    throw new Error(`Fold hint ${index} has invalid end row.`);
-  }
-  if (hint.start_row < 0) {
-    throw new Error(`Fold hint ${index} starts before the first row.`);
-  }
-  if (hint.end_row > rowCount) {
-    throw new Error(`Fold hint ${index} ends after the last row.`);
-  }
-  if (hint.end_row <= hint.start_row) {
-    throw new Error(`Fold hint ${index} has an empty row range.`);
-  }
-  if (typeof hint.label !== "string") {
-    throw new Error(`Fold hint ${index} is missing a label.`);
-  }
+  assert(
+    Number.isInteger(hint.start_row),
+    `Fold hint ${index} has invalid start row.`,
+  );
+  assert(
+    Number.isInteger(hint.end_row),
+    `Fold hint ${index} has invalid end row.`,
+  );
+  assert(
+    hint.start_row >= 0,
+    `Fold hint ${index} starts before the first row.`,
+  );
+  assert(
+    hint.end_row <= rowCount,
+    `Fold hint ${index} ends after the last row.`,
+  );
+  assert(
+    hint.end_row > hint.start_row,
+    `Fold hint ${index} has an empty row range.`,
+  );
+  assert(
+    typeof hint.label === "string",
+    `Fold hint ${index} is missing a label.`,
+  );
   return {
     startRow: hint.start_row,
     endRow: hint.end_row,
@@ -142,7 +149,7 @@ function nestFoldHints(hints: NormalizedFoldHint[]): NormalizedFoldHint[] {
     } else if (hint.endRow <= parent.endRow) {
       parent.children.push(hint);
     } else {
-      throw new Error(`Fold hint ${index} crosses another fold hint.`);
+      assert(false, `Fold hint ${index} crosses another fold hint.`);
     }
 
     stack.push(hint);
@@ -192,14 +199,11 @@ function addFoldRowsInRange<TRow extends DiffRow>(
     result.push(...rows.slice(cursor, hint.startRow));
     for (let rowIndex = hint.startRow; rowIndex < hint.endRow; rowIndex += 1) {
       const row = rows[rowIndex];
-      if (row === undefined) {
-        throw new Error(`Fold hint lost source row ${rowIndex}.`);
-      }
-      if (row.hunk_index !== null) {
-        throw new Error(
-          `Fold hint contains hunk ${row.hunk_index} at row ${rowIndex}.`,
-        );
-      }
+      const sourceRow = expect(row, `Fold hint lost source row ${rowIndex}.`);
+      assert(
+        sourceRow.hunk_index === null,
+        `Fold hint contains hunk ${sourceRow.hunk_index} at row ${rowIndex}.`,
+      );
     }
     const foldedRows = addFoldRowsInRange(
       rows,

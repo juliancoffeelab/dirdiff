@@ -15,6 +15,7 @@ import {
   isCancelledError,
 } from "@tanstack/solid-query";
 import type { JSX } from "solid-js";
+import { assert } from "../utils";
 
 /**
  * Describes the application-specific TanStack metadata recognized on failure.
@@ -78,9 +79,10 @@ export function QueryProvider(props: {
         if (isCancelledError(error)) {
           return;
         }
-        if (query.meta === undefined) {
-          throw new Error("Failed query requires error-title metadata.");
-        }
+        assert(
+          query.meta !== undefined,
+          "Failed query requires error-title metadata.",
+        );
         const errorTitle = query.meta.errorTitle;
         props.onError(
           typeof errorTitle === "string" ? errorTitle : errorTitle(error),
@@ -97,9 +99,10 @@ export function QueryProvider(props: {
        * even though TanStack's underlying option remains optional.
        */
       onError(error, _variables, _result, mutation) {
-        if (mutation.meta === undefined) {
-          throw new Error("Failed mutation requires error-title metadata.");
-        }
+        assert(
+          mutation.meta !== undefined,
+          "Failed mutation requires error-title metadata.",
+        );
         const errorTitle = mutation.meta.errorTitle;
         props.onError(
           typeof errorTitle === "string" ? errorTitle : errorTitle(error),

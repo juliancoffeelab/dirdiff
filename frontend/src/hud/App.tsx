@@ -19,7 +19,7 @@ import {
   type ProjectId,
   type PullRequestDiffParams,
 } from "../api/api";
-import { assert } from "../utils";
+import { assert, expect } from "../utils";
 import { AppHeader, type AppHeaderOutlets } from "./AppHeader";
 import { loadStoredProfile, type StoredProfile } from "./Profile";
 import { TabStrip, Tabs, type TabId } from "./Tabs";
@@ -106,9 +106,10 @@ function initialRepo(search: URLSearchParams): RepoSelection {
     return { state: "missing" };
   }
   const projectId = Number(raw);
-  if (!Number.isInteger(projectId) || projectId <= 0) {
-    throw new Error(`repo_id must be a positive integer, received ${raw}.`);
-  }
+  assert(
+    Number.isInteger(projectId) && projectId > 0,
+    `repo_id must be a positive integer, received ${raw}.`,
+  );
   return { state: "selected", projectId };
 }
 
@@ -271,11 +272,10 @@ function Workspace(props: WorkspaceProps): JSX.Element {
    * consumers must otherwise receive a concrete physical Portal mount.
    */
   function statusOutlet(): HTMLDivElement {
-    const target = changeSetStatusTarget();
-    if (target === null) {
-      throw new Error("The AppHeader ChangeSet status outlet is not mounted.");
-    }
-    return target;
+    return expect(
+      changeSetStatusTarget(),
+      "The AppHeader ChangeSet status outlet is not mounted.",
+    );
   }
 
   /**
@@ -285,11 +285,10 @@ function Workspace(props: WorkspaceProps): JSX.Element {
    * consumers must otherwise receive a concrete physical Portal mount.
    */
   function summaryOutlet(): HTMLDivElement {
-    const target = changeSetSummaryTarget();
-    if (target === null) {
-      throw new Error("The AppHeader ChangeSet summary outlet is not mounted.");
-    }
-    return target;
+    return expect(
+      changeSetSummaryTarget(),
+      "The AppHeader ChangeSet summary outlet is not mounted.",
+    );
   }
 
   const appHeaderOutlets: AppHeaderOutlets = {

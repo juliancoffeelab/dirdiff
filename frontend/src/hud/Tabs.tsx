@@ -841,9 +841,10 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   function loadRefs(): void {
     const currentLeft = left();
     const currentRight = right();
-    if (currentLeft.trim().length === 0 || currentRight.trim().length === 0) {
-      throw new Error("Loading refs requires nonblank old and new refs.");
-    }
+    assert(
+      currentLeft.trim().length > 0 && currentRight.trim().length > 0,
+      "Loading refs requires nonblank old and new refs.",
+    );
     const next: RefsDiffParams = {
       project_id: props.projectId,
       tab: "refs",
@@ -1211,11 +1212,10 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   function loadBranchReview(): void {
     const baseSelection = selectedBranch(base());
     const reviewSelection = selectedBranch(review());
-    if (baseSelection === null || reviewSelection === null) {
-      throw new Error(
-        "Branch Review submission requires complete base and review selections.",
-      );
-    }
+    assert(
+      baseSelection !== null && reviewSelection !== null,
+      "Branch Review submission requires complete base and review selections.",
+    );
     setBaseEdit(baseSelection);
     setReviewEdit(reviewSelection);
     selectBranchReview(baseSelection, reviewSelection);
@@ -1247,10 +1247,10 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   function saveMainBranchControl(): JSX.Element {
     const failure = saveMainBranch.error;
     if (failure !== null) {
-      const variables = saveMainBranch.variables;
-      if (variables === undefined) {
-        throw new Error("Main-branch save error is missing its command input.");
-      }
+      const variables = expect(
+        saveMainBranch.variables,
+        "Main-branch save error is missing its command input.",
+      );
       return (
         <ErrorPopover
           title="Failed to save main branch"
@@ -1272,10 +1272,10 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
         title="Save main branch"
         disabled={!savable || saveMainBranch.isPending}
         onClick={() => {
-          const current = selectedBranch(base());
-          if (current === null) {
-            throw new Error("Saving main branch requires a base selection.");
-          }
+          const current = expect(
+            selectedBranch(base()),
+            "Saving main branch requires a base selection.",
+          );
           saveMainBranch.mutate({
             projectId: props.projectId,
             selection: current,
@@ -1459,9 +1459,10 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
         onEditNotification={props.onEditNotification}
         onDone={(remote) => {
           const selection = props.selection;
-          if (selection.source !== "remote") {
-            throw new Error("Remote completion requires a remote selection.");
-          }
+          assert(
+            selection.source === "remote",
+            "Remote completion requires a remote selection.",
+          );
           props.onSelection({ ...selection, remote });
         }}
       />
@@ -1682,9 +1683,10 @@ function PresetTab(
     initialType,
   );
   const initialPreset = props.active ? search.get("preset_subset") : null;
-  if (initialPreset !== null && initialPreset.length === 0) {
-    throw new Error("preset_subset must not be empty.");
-  }
+  assert(
+    initialPreset === null || initialPreset.length > 0,
+    "preset_subset must not be empty.",
+  );
   const [selected, setSelected] = createSignal<PresetSelected>(
     props.active ? { kind: "waiting-default", presetType: initialType } : null,
   );
@@ -2009,12 +2011,13 @@ function RepoGate(props: RepoGateProps): JSX.Element {
     if (repos.isPending) {
       return { state: "pending" };
     }
-    if (repos.data === undefined) {
-      throw new Error(
+    return {
+      state: "available",
+      repos: expect(
+        repos.data,
         "A settled repository query requires data or an explicit error.",
-      );
-    }
-    return { state: "available", repos: repos.data };
+      ),
+    };
   });
   const repositoryError = createMemo(() => {
     const current = repositories();
@@ -2064,12 +2067,10 @@ function RepoGate(props: RepoGateProps): JSX.Element {
           title="Failed to remove repository"
           error={removeRepo.error}
           onRetry={() => {
-            const projectId = removeRepo.variables;
-            if (projectId === undefined) {
-              throw new Error(
-                "Repository removal error is missing its project ID.",
-              );
-            }
+            const projectId = expect(
+              removeRepo.variables,
+              "Repository removal error is missing its project ID.",
+            );
             removeRepo.mutate(projectId);
           }}
           trigger={<span>Failed to remove marked repo</span>}
@@ -2086,12 +2087,10 @@ function RepoGate(props: RepoGateProps): JSX.Element {
         loadingText="Removing marked repo..."
         errorTitle="Failed to remove repository"
         onRetry={() => {
-          const projectId = removeRepo.variables;
-          if (projectId === undefined) {
-            throw new Error(
-              "Repository removal retry is missing its project ID.",
-            );
-          }
+          const projectId = expect(
+            removeRepo.variables,
+            "Repository removal retry is missing its project ID.",
+          );
           removeRepo.mutate(projectId);
         }}
       />

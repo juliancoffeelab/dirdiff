@@ -9,6 +9,7 @@
  */
 import { mutationOptions, queryOptions } from "@tanstack/solid-query";
 import { z } from "zod";
+import { assert } from "../utils";
 
 const DiffEngineSchema = z.enum([
   "dirdiff",
@@ -1446,9 +1447,10 @@ function createMultiAbortSignal(
 ): MultiAbortSignal {
   const abortController = new AbortController();
   let didTimeout = false;
-  if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
-    throw new Error("HTTP timeout must be a positive finite duration.");
-  }
+  assert(
+    timeoutMs === null || (Number.isFinite(timeoutMs) && timeoutMs > 0),
+    "HTTP timeout must be a positive finite duration.",
+  );
 
   /**
    * Forwards cancellation from the caller's AbortSignal into the owned controller.
@@ -1718,11 +1720,10 @@ async function requestRemoveRepo(projectId: ProjectId): Promise<void> {
   if (!response.ok) {
     return throwResponseError(response);
   }
-  if (response.status !== 204) {
-    throw new Error(
-      `Repository deletion requires 204 No Content; received ${response.status} ${response.statusText}.`,
-    );
-  }
+  assert(
+    response.status === 204,
+    `Repository deletion requires 204 No Content; received ${response.status} ${response.statusText}.`,
+  );
 }
 
 /**
@@ -2060,9 +2061,10 @@ async function requestReviewThreads(
       },
       ReviewThreadPageSchema,
     );
-    if (response.snapshot_id !== snapshotId || response.page !== pageNumber) {
-      throw new Error("Review response returned another page identity.");
-    }
+    assert(
+      response.snapshot_id === snapshotId && response.page === pageNumber,
+      "Review response returned another page identity.",
+    );
     return response;
   }
 
@@ -2074,20 +2076,25 @@ async function requestReviewThreads(
     const response = await page(pageNumber, throughActivityId);
     if (throughActivityId === null) {
       throughActivityId = response.through_activity_id;
-    } else if (response.through_activity_id !== throughActivityId) {
-      throw new Error("Review transport pages use different activity pivots.");
+    } else {
+      assert(
+        response.through_activity_id === throughActivityId,
+        "Review transport pages use different activity pivots.",
+      );
     }
     for (const thread of response.threads) {
-      if (threadIds.has(thread.thread_id)) {
-        throw new Error("Review transport pages contain a duplicate Thread.");
-      }
+      assert(
+        !threadIds.has(thread.thread_id),
+        "Review transport pages contain a duplicate Thread.",
+      );
       threadIds.add(thread.thread_id);
       threads.push(thread);
     }
     if (!response.has_more) {
-      if (threads.length !== response.total_threads) {
-        throw new Error("Review transport pages do not contain every Thread.");
-      }
+      assert(
+        threads.length === response.total_threads,
+        "Review transport pages do not contain every Thread.",
+      );
       return threads;
     }
     pageNumber += 1;
@@ -2105,11 +2112,10 @@ function assertReviewThreadIdentity(
   snapshotId: ReviewId,
   threadId: ReviewId,
 ): void {
-  if (thread.snapshot_id !== snapshotId || thread.thread_id !== threadId) {
-    throw new Error(
-      "Review mutation response returned another Snapshot-bound Thread.",
-    );
-  }
+  assert(
+    thread.snapshot_id === snapshotId && thread.thread_id === threadId,
+    "Review mutation response returned another Snapshot-bound Thread.",
+  );
 }
 
 /** Creates one Snapshot-bound Thread and its first Comment. */
@@ -2135,9 +2141,10 @@ async function requestCreateReviewThread(
     },
     ReviewThreadSchema,
   );
-  if (thread.snapshot_id !== input.snapshotId) {
-    throw new Error("Review mutation response returned another Snapshot.");
-  }
+  assert(
+    thread.snapshot_id === input.snapshotId,
+    "Review mutation response returned another Snapshot.",
+  );
   return thread;
 }
 

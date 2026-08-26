@@ -433,15 +433,12 @@ function ReviewSnapshotBoundary(
 
   /** Returns the unique immutable manifest index one code point addresses. */
   function reviewFileIndex(point: ThreadCodePoint): number {
-    const fileIndex = reviewFileIndexes.get(
-      JSON.stringify([point.file.left_path, point.file.right_path]),
+    return expect(
+      reviewFileIndexes.get(
+        JSON.stringify([point.file.left_path, point.file.right_path]),
+      ),
+      "A located review Thread requires one exact manifest File.",
     );
-    if (fileIndex === undefined) {
-      throw new Error(
-        "A located review Thread requires one exact manifest File.",
-      );
-    }
-    return fileIndex;
   }
 
   /** Reports whether exact line navigation currently accepts the code point. */
@@ -571,11 +568,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   const fileIndexByKey = new Map<string, number>();
   for (const [fileIndex, file] of orderedFiles.entries()) {
     const key = manifestEntryKey(file.entry);
-    if (fileIndexByKey.has(key)) {
-      throw new Error(
-        `Manifest returned duplicate file ${fileDisplayName(file.entry)}.`,
-      );
-    }
+    assert(
+      !fileIndexByKey.has(key),
+      `Manifest returned duplicate file ${fileDisplayName(file.entry)}.`,
+    );
     fileIndexByKey.set(key, fileIndex);
   }
 
@@ -617,9 +613,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
         ? [fileIndex]
         : [],
     );
-    if (matches.length > 1) {
-      throw new Error(`Line target path ${pinnedSidePath} is ambiguous.`);
-    }
+    assert(
+      matches.length <= 1,
+      `Line target path ${pinnedSidePath} is ambiguous.`,
+    );
     const match = matches[0];
     if (match === undefined) {
       toast.showTransient(
@@ -628,9 +625,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
         2_000,
       );
       const toggleResult = pins.toggleUrlState(parsedLinePin.target);
-      if (toggleResult !== "unpinned") {
-        throw new Error("Missing line-pin file changed its current target.");
-      }
+      assert(
+        toggleResult === "unpinned",
+        "Missing line-pin file changed its current target.",
+      );
     } else {
       lineTarget = {
         fileIndex: match,
@@ -701,19 +699,14 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
    * contract and throw instead of inventing a directory-expansion default.
    */
   function stateForManifestFile(file: ManifestFile): FileState {
-    const fileIndex = fileIndexByKey.get(manifestEntryKey(file.entry));
-    if (fileIndex === undefined) {
-      throw new Error(
-        `ChangeSet cannot index ${fileDisplayName(file.entry)} for directory reachability.`,
-      );
-    }
-    const state = lane.fileStates()[fileIndex];
-    if (state === undefined) {
-      throw new Error(
-        `ChangeSet is missing state for ${fileDisplayName(file.entry)}.`,
-      );
-    }
-    return state;
+    const fileIndex = expect(
+      fileIndexByKey.get(manifestEntryKey(file.entry)),
+      `ChangeSet cannot index ${fileDisplayName(file.entry)} for directory reachability.`,
+    );
+    return expect(
+      lane.fileStates()[fileIndex],
+      `ChangeSet is missing state for ${fileDisplayName(file.entry)}.`,
+    );
   }
 
   const directoryExpansion = createMemo(() =>
@@ -983,10 +976,7 @@ function ManifestStatistics(props: { summary: ManifestSummary }): JSX.Element {
     key: "added_cells" | "modified_cells" | "removed_cells",
   ): number {
     const value = props.summary[key];
-    if (value === null) {
-      throw new Error(`Manifest summary is missing ${key}.`);
-    }
-    return value;
+    return expect(value, `Manifest summary is missing ${key}.`);
   }
 
   return (

@@ -26,6 +26,7 @@ import type {
   ManifestNode,
 } from "../../api/api";
 import { useToasts } from "../../comp/Toasts";
+import { assert, expect } from "../../utils";
 import type { DiffViewMode } from "../App";
 import {
   fileDisplayName,
@@ -157,11 +158,10 @@ export function FileTree(props: FileTreeProps): JSX.Element {
    * Missing identity violates the immutable manifest ordering and throws.
    */
   const indexForFile = (file: ManifestFile): number => {
-    const index = indexByKey.get(manifestEntryKey(file.entry));
-    if (index === undefined) {
-      throw new Error(`FileTree cannot index ${fileDisplayName(file.entry)}.`);
-    }
-    return index;
+    return expect(
+      indexByKey.get(manifestEntryKey(file.entry)),
+      `FileTree cannot index ${fileDisplayName(file.entry)}.`,
+    );
   };
 
   /**
@@ -186,13 +186,10 @@ export function FileTree(props: FileTreeProps): JSX.Element {
    */
   const stateForFile = (file: ManifestFile): FileState => {
     const index = indexForFile(file);
-    const state = props.states()[index];
-    if (state === undefined) {
-      throw new Error(
-        `FileTree is missing state for ${fileDisplayName(file.entry)}.`,
-      );
-    }
-    return state;
+    return expect(
+      props.states()[index],
+      `FileTree is missing state for ${fileDisplayName(file.entry)}.`,
+    );
   };
 
   const ancestorPathsByFileIndex = new Map<number, readonly string[]>();
@@ -240,20 +237,16 @@ export function FileTree(props: FileTreeProps): JSX.Element {
      */
     const expanded = () => {
       const current = props.directoryExpansion().get(rowProps.directory.path);
-      if (current === undefined) {
-        throw new Error(
-          `FileTree is missing reachability for ${rowProps.directory.path}.`,
-        );
-      }
-      return current;
+      return expect(
+        current,
+        `FileTree is missing reachability for ${rowProps.directory.path}.`,
+      );
     };
     const directoryFiles = manifestFilesInOrder(rowProps.directory.entries);
-    const firstFile = directoryFiles[0];
-    if (firstFile === undefined) {
-      throw new Error(
-        `FileTree directory ${rowProps.directory.path} contains no files.`,
-      );
-    }
+    const firstFile = expect(
+      directoryFiles[0],
+      `FileTree directory ${rowProps.directory.path} contains no files.`,
+    );
     const statistics = createMemo(() =>
       sumTreeStatistics(directoryFiles.map(stateForFile)),
     );
@@ -530,19 +523,20 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       if (fileIndex === null) {
         return false;
       }
-      if (!Number.isInteger(fileIndex) || fileIndex < 0) {
-        throw new Error("Selected hunk display has an invalid file index.");
-      }
-      const ancestorPaths = ancestorPathsByFileIndex.get(fileIndex);
-      if (ancestorPaths === undefined) {
-        throw new Error("FileTree is missing the selected manifest file.");
-      }
+      assert(
+        Number.isInteger(fileIndex) && fileIndex >= 0,
+        "Selected hunk display has an invalid file index.",
+      );
+      const ancestorPaths = expect(
+        ancestorPathsByFileIndex.get(fileIndex),
+        "FileTree is missing the selected manifest file.",
+      );
       const expansion = props.directoryExpansion();
       for (const path of ancestorPaths) {
-        const expanded = expansion.get(path);
-        if (expanded === undefined) {
-          throw new Error(`FileTree is missing reachability for ${path}.`);
-        }
+        const expanded = expect(
+          expansion.get(path),
+          `FileTree is missing reachability for ${path}.`,
+        );
         if (!expanded) {
           return false;
         }
@@ -552,9 +546,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
 
     onMount(() => {
       const root = props.changeSetRoot();
-      if (!root.isConnected) {
-        throw new Error("FileTree requires a mounted ChangeSet root.");
-      }
+      assert(root.isConnected, "FileTree requires a mounted ChangeSet root.");
 
       /**
        * Reads current FullFile render modes from authoritative stable FileCards.
@@ -572,20 +564,24 @@ export function FileTree(props: FileTreeProps): JSX.Element {
           if (mode === undefined) {
             continue;
           }
-          if (mode !== "rich" && mode !== "virtual") {
-            throw new Error(`FileCard exposed invalid render mode ${mode}.`);
-          }
+          assert(
+            mode === "rich" || mode === "virtual",
+            `FileCard exposed invalid render mode ${mode}.`,
+          );
           const indexText = card.dataset.fileIndex;
-          if (indexText === undefined || !/^\d+$/.test(indexText)) {
-            throw new Error("FileCard exposed an invalid manifest index.");
-          }
+          assert(
+            indexText !== undefined && /^\d+$/.test(indexText),
+            "FileCard exposed an invalid manifest index.",
+          );
           const fileIndex = Number(indexText);
-          if (fileIndex >= files.length) {
-            throw new Error("FileCard render mode is outside the manifest.");
-          }
-          if (modes.has(fileIndex)) {
-            throw new Error("FileTree found duplicate stable FileCards.");
-          }
+          assert(
+            fileIndex < files.length,
+            "FileCard render mode is outside the manifest.",
+          );
+          assert(
+            !modes.has(fileIndex),
+            "FileTree found duplicate stable FileCards.",
+          );
           modes.set(fileIndex, mode);
         }
         return modes;
@@ -631,12 +627,12 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       if (!highlightedRowReachable()) {
         return;
       }
-      const row = groups.querySelector<HTMLElement>(
-        `[data-file-tree-index="${fileIndex}"]`,
+      const row = expect(
+        groups.querySelector<HTMLElement>(
+          `[data-file-tree-index="${fileIndex}"]`,
+        ),
+        "FileTree did not render the selected manifest file.",
       );
-      if (row === null) {
-        throw new Error("FileTree did not render the selected manifest file.");
-      }
       const containerRect = groups.getBoundingClientRect();
       const rowRect = row.getBoundingClientRect();
       if (rowRect.top < containerRect.top) {
@@ -809,9 +805,10 @@ function TreeVisibilityIndicator(props: {
   virtualized: boolean;
 }): JSX.Element {
   const virtualized = createMemo(() => {
-    if (props.visible && props.virtualized) {
-      throw new Error("FileTree marker cannot be both rich and virtual.");
-    }
+    assert(
+      !(props.visible && props.virtualized),
+      "FileTree marker cannot be both rich and virtual.",
+    );
     return props.virtualized;
   });
   return (

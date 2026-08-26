@@ -49,7 +49,7 @@ import {
   type ManifestFile,
   type ManifestNode,
 } from "../../api/api";
-import { expect } from "../../utils";
+import { assert, expect } from "../../utils";
 
 const SLOW_FILE_THRESHOLD_MS = 8_000;
 // Automatic loading overlaps this many upcoming file fetches with the active
@@ -96,7 +96,10 @@ export function fileDisplayName(entry: {
   if (rightPath !== null) {
     return rightPath;
   }
-  throw new Error("File entry requires a left or right path.");
+  return expect(
+    entry.left_path ?? entry.right_path,
+    "File entry requires a left or right path.",
+  );
 }
 
 /**
@@ -350,38 +353,33 @@ export function createFileLane(args: FileLaneArgs): FileLane {
         continue;
       }
       const key = manifestEntryKey(file.entry);
-      if (expected.has(key)) {
-        throw new Error(
-          `Manifest returned duplicate lazy file ${fileDisplayName(file.entry)}.`,
-        );
-      }
+      assert(
+        !expected.has(key),
+        `Manifest returned duplicate lazy file ${fileDisplayName(file.entry)}.`,
+      );
       expected.set(key, file);
     }
     for (const info of query.data.files) {
       const key = manifestEntryKey(info);
-      if (!expected.has(key)) {
-        throw new Error(
-          `Lazy info returned unexpected file ${fileDisplayName(info)}.`,
-        );
-      }
-      if (result.has(key)) {
-        throw new Error(
-          `Lazy info returned duplicate file ${fileDisplayName(info)}.`,
-        );
-      }
-      if (info.lazy === null) {
-        throw new Error(
-          `Lazy info omitted the reason for ${fileDisplayName(info)}.`,
-        );
-      }
+      assert(
+        expected.has(key),
+        `Lazy info returned unexpected file ${fileDisplayName(info)}.`,
+      );
+      assert(
+        !result.has(key),
+        `Lazy info returned duplicate file ${fileDisplayName(info)}.`,
+      );
+      assert(
+        info.lazy !== null,
+        `Lazy info omitted the reason for ${fileDisplayName(info)}.`,
+      );
       result.set(key, info);
     }
     for (const [key, file] of expected) {
-      if (!result.has(key)) {
-        throw new Error(
-          `Lazy info omitted manifest file ${fileDisplayName(file.entry)}.`,
-        );
-      }
+      assert(
+        result.has(key),
+        `Lazy info omitted manifest file ${fileDisplayName(file.entry)}.`,
+      );
     }
     return result;
   });
@@ -408,11 +406,10 @@ export function createFileLane(args: FileLaneArgs): FileLane {
           canonicalNames[fileIndex],
           `File lane is missing the canonical name for index ${fileIndex}.`,
         );
-        if (backendData.display_name !== canonicalDisplayName) {
-          throw new Error(
-            `File query returned ${backendData.display_name} for canonical file ${canonicalDisplayName}.`,
-          );
-        }
+        assert(
+          backendData.display_name === canonicalDisplayName,
+          `File query returned ${backendData.display_name} for canonical file ${canonicalDisplayName}.`,
+        );
         return {
           state: "full" as const,
           fileIndex,
@@ -420,9 +417,10 @@ export function createFileLane(args: FileLaneArgs): FileLane {
         };
       }
       if (view.phase === "error") {
-        if (!(view.error instanceof Error)) {
-          throw new Error(`File query ${path} failed without an Error value.`);
-        }
+        assert(
+          view.error instanceof Error,
+          `File query ${path} failed without an Error value.`,
+        );
         return {
           state: "lazy" as const,
           fileIndex,
@@ -437,11 +435,10 @@ export function createFileLane(args: FileLaneArgs): FileLane {
       if (manifestFile.entry.lazy !== null) {
         const lazyInfoQuery = lazyInfo;
         if (lazyInfoQuery !== null && lazyInfoQuery.isError) {
-          if (!(lazyInfoQuery.error instanceof Error)) {
-            throw new Error(
-              `Lazy-info query for ${path} failed without an Error value.`,
-            );
-          }
+          assert(
+            lazyInfoQuery.error instanceof Error,
+            `Lazy-info query for ${path} failed without an Error value.`,
+          );
           return {
             state: "lazy" as const,
             fileIndex,
@@ -553,17 +550,16 @@ export function createFileLane(args: FileLaneArgs): FileLane {
           lineTarget.needsLazyInfo
         ) {
           const preparingTarget = lineTarget;
-          if (lazyInfo === null) {
-            throw new Error(
-              "Line target requires the canonical lazy-info observer.",
-            );
-          }
+          const lazyInfoQuery = expect(
+            lazyInfo,
+            "Line target requires the canonical lazy-info observer.",
+          );
           try {
             // Solid exposes QueryObserverResult.promise in its client type, but
             // that Promise only settles with experimental prefetch enabled.
             // Refetching this already-fetching canonical observer with
             // cancellation disabled returns TanStack's same in-flight Promise.
-            const lazyInfoResult = await lazyInfo.refetch({
+            const lazyInfoResult = await lazyInfoQuery.refetch({
               cancelRefetch: false,
             });
             if (lazyInfoResult.isError) {
@@ -623,12 +619,10 @@ export function createFileLane(args: FileLaneArgs): FileLane {
         } else if (pendingLineTarget !== null || selectedQueue.length === 0) {
           kind = "sequence";
           while (automaticCursor < files.length) {
-            const candidate = files[automaticCursor];
-            if (candidate === undefined) {
-              throw new Error(
-                `File lane lost manifest index ${automaticCursor}.`,
-              );
-            }
+            const candidate = expect(
+              files[automaticCursor],
+              `File lane lost manifest index ${automaticCursor}.`,
+            );
             if (
               candidate.entry.lazy === null ||
               pendingLineTarget?.goal.fileIndex === automaticCursor
@@ -640,12 +634,11 @@ export function createFileLane(args: FileLaneArgs): FileLane {
           if (automaticCursor >= files.length) {
             break;
           }
-          if (
-            pendingLineTarget !== null &&
-            automaticCursor > pendingLineTarget.goal.fileIndex
-          ) {
-            throw new Error("File lane advanced beyond a pending line target.");
-          }
+          assert(
+            pendingLineTarget === null ||
+              automaticCursor <= pendingLineTarget.goal.fileIndex,
+            "File lane advanced beyond a pending line target.",
+          );
           fileIndex = automaticCursor;
           automaticCursor += 1;
           countsAsAutomatic =
@@ -669,10 +662,10 @@ export function createFileLane(args: FileLaneArgs): FileLane {
           selectedSet.delete(fileIndex);
         }
 
-        const file = files[fileIndex];
-        if (file === undefined) {
-          throw new Error(`File lane selected invalid index ${fileIndex}.`);
-        }
+        const file = expect(
+          files[fileIndex],
+          `File lane selected invalid index ${fileIndex}.`,
+        );
         if (kind === "sequence") {
           // Launch a bounded number of upcoming automatic fetches so the
           // network overlaps this file's fetch and admission. Their errors
@@ -858,13 +851,11 @@ export function createFileLane(args: FileLaneArgs): FileLane {
   function enqueue(fileIndex: number, timeout: FileDiffTimeout): void {
     // A stopped lane is being disposed or replaced; accepting the request
     // would silently drop it, so the broken expectation stays visible.
-    if (stopped) {
-      throw new Error("Cannot load a file after its lane stopped.");
-    }
-    const file = files[fileIndex];
-    if (file === undefined) {
-      throw new Error(`Cannot load unknown file index ${fileIndex}.`);
-    }
+    assert(!stopped, "Cannot load a file after its lane stopped.");
+    const file = expect(
+      files[fileIndex],
+      `Cannot load unknown file index ${fileIndex}.`,
+    );
     if (fileView(fileIndex).phase === "success" || activeIndex === fileIndex) {
       return;
     }

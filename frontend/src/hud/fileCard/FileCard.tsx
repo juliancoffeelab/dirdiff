@@ -51,6 +51,7 @@ import {
 } from "./FrameView";
 import type { PseudoHunkIdentity, SkippedHunkIdentity } from "../navigation";
 import { useReview } from "../review/Review";
+import { assert, expect } from "../../utils";
 
 /**
  * Describes the line-preparation operation attached by FullFile.
@@ -478,11 +479,10 @@ function FullFile(
   >({});
   const bayRenderModes: BayRenderModes = {
     mode: (bayKey) => {
-      const mode = bayModes[bayKey];
-      if (mode === undefined) {
-        throw new Error(`Bay ${bayKey} read its render mode unregistered.`);
-      }
-      return mode;
+      return expect(
+        bayModes[bayKey],
+        `Bay ${bayKey} read its render mode unregistered.`,
+      );
     },
     setMode: (bayKey, mode) => setBayModes(bayKey, mode),
     clearMode: (bayKey) => setBayModes(bayKey, undefined),
@@ -577,31 +577,28 @@ function FullFileRenderer(
   const hunkStops = backend_data.frames.flatMap((frame) =>
     frame.bays.flatMap((bay) => {
       const hunks = bayHunks.get(bay.bay_key);
-      if (hunks === undefined) {
-        throw new Error(
-          `${backend_data.display_name} bay ${bay.bay_key} is absent from its File's hunk stops.`,
-        );
-      }
-      if (hunks.carrier === "rows") {
-        hunks.stops.forEach((stop, position) => {
-          if (stop !== position) {
-            throw new Error(
-              `${backend_data.display_name} bay ${bay.bay_key} numbers hunk ${stop} at position ${position}.`,
-            );
-          }
+      const presentHunks = expect(
+        hunks,
+        `${backend_data.display_name} bay ${bay.bay_key} is absent from its File's hunk stops.`,
+      );
+      if (presentHunks.carrier === "rows") {
+        presentHunks.stops.forEach((stop, position) => {
+          assert(
+            stop === position,
+            `${backend_data.display_name} bay ${bay.bay_key} numbers hunk ${stop} at position ${position}.`,
+          );
         });
       }
-      return hunks.stops.map((hunkIndex) => ({
+      return presentHunks.stops.map((hunkIndex) => ({
         bay: bay.bay_key,
         hunkIndex,
       }));
     }),
   );
-  if (hunkStops.length !== hunkTotal) {
-    throw new Error(
-      `${backend_data.display_name} wrote ${hunkStops.length} hunk targets for ${hunkTotal} counted hunks.`,
-    );
-  }
+  assert(
+    hunkStops.length === hunkTotal,
+    `${backend_data.display_name} wrote ${hunkStops.length} hunk targets for ${hunkTotal} counted hunks.`,
+  );
 
   /**
    * Prepares one exact semantic line inside this admitted FullFile.
@@ -615,18 +612,15 @@ function FullFileRenderer(
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<PreparedLine> {
-    if (
-      target.file.left_path !== props.reviewFile.left_path ||
-      target.file.right_path !== props.reviewFile.right_path
-    ) {
-      throw new Error("Line preparation targeted the wrong FileCard.");
-    }
+    assert(
+      target.file.left_path === props.reviewFile.left_path &&
+        target.file.right_path === props.reviewFile.right_path,
+      "Line preparation targeted the wrong FileCard.",
+    );
     if (abortSignal.aborted || !props.card().isConnected) {
       return { state: "stopped" };
     }
-    if (!props.admitted) {
-      throw new Error("Line preparation requires an admitted FullFile.");
-    }
+    assert(props.admitted, "Line preparation requires an admitted FullFile.");
     if (!props.expanded) {
       props.onExpandedChange(true);
       // Expansion is a signal write, so the File body does not exist until
@@ -662,48 +656,47 @@ function FullFileRenderer(
       return { state: "missing" };
     }
     const waitToEnrich: unknown = Reflect.get(wrapper, "waitToEnrich_impl");
-    if (typeof waitToEnrich !== "function") {
-      throw new Error("Bay omitted its enrichment operation.");
-    }
+    assert(
+      typeof waitToEnrich === "function",
+      "Bay omitted its enrichment operation.",
+    );
     await Reflect.apply(waitToEnrich, wrapper, []);
     if (abortSignal.aborted || !props.card().isConnected) {
       return { state: "stopped" };
     }
-    const gridRoot = wrapper.querySelector<HTMLElement>(
-      `.diff-grid[data-review-bay="${CSS.escape(bayKey)}"]`,
+    const gridRoot = expect(
+      wrapper.querySelector<HTMLElement>(
+        `.diff-grid[data-review-bay="${CSS.escape(bayKey)}"]`,
+      ),
+      "Enriched bay did not mount its grid.",
     );
-    if (gridRoot === null) {
-      throw new Error("Enriched bay did not mount its grid.");
-    }
-    const grid: HTMLElement | undefined =
-      gridRoot.querySelector<HTMLElement>(".diff-lines") ?? undefined;
-    if (grid === undefined) {
-      throw new Error("Prepared bay grid disappeared.");
-    }
+    const grid = expect(
+      gridRoot.querySelector<HTMLElement>(".diff-lines"),
+      "Prepared bay grid disappeared.",
+    );
     const prepareLine: unknown = Reflect.get(grid, "prepareLine_impl");
-    if (typeof prepareLine !== "function") {
-      throw new Error("Bay line host omitted its preparation operation.");
-    }
+    assert(
+      typeof prepareLine === "function",
+      "Bay line host omitted its preparation operation.",
+    );
     const result: unknown = await Reflect.apply(prepareLine, grid, [
       target,
       abortSignal,
     ]);
-    if (
-      typeof result !== "object" ||
-      result === null ||
-      !("state" in result) ||
-      (result.state !== "ready" &&
-        result.state !== "missing" &&
-        result.state !== "stopped")
-    ) {
-      throw new Error("Bay line host returned an invalid preparation result.");
-    }
-    if (
-      result.state === "ready" &&
-      (!("row" in result) || !(result.row instanceof HTMLElement))
-    ) {
-      throw new Error("Ready line preparation omitted its rendered row.");
-    }
+    assert(
+      typeof result === "object" &&
+        result !== null &&
+        "state" in result &&
+        (result.state === "ready" ||
+          result.state === "missing" ||
+          result.state === "stopped"),
+      "Bay line host returned an invalid preparation result.",
+    );
+    assert(
+      result.state !== "ready" ||
+        ("row" in result && result.row instanceof HTMLElement),
+      "Ready line preparation omitted its rendered row.",
+    );
     return result as PreparedLine;
   }
 
@@ -1039,7 +1032,7 @@ function DeferredFilePlank(props: {
       case "pure_renamed":
         return "Load renamed file diff";
       case null:
-        throw new Error("LazyFile metadata requires a lazy reason.");
+        assert(false, "LazyFile metadata requires a lazy reason.");
     }
   };
   /**
@@ -1061,7 +1054,7 @@ function DeferredFilePlank(props: {
       case "pure_renamed":
         return `${props.info.display_name} was renamed without content changes. Click to fetch and open it.`;
       case null:
-        throw new Error("LazyFile metadata requires a lazy reason.");
+        assert(false, "LazyFile metadata requires a lazy reason.");
     }
   };
 
