@@ -365,17 +365,19 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
             return ExecuteResultOutput(raw=entry, text_plain=text_plain)
         return DisplayDataOutput(raw=entry, text_plain=text_plain)
 
-    valid_identifiers = [
-        cell.get("id")
-        for cell in cell_values
-        if isinstance(cell, dict)
-        and isinstance(cell.get("id"), str)
-        and re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", cell["id"]) is not None
-    ]
-    identifier_counts = {
-        identifier: valid_identifiers.count(identifier)
-        for identifier in valid_identifiers
-    }
+    identifier_counts: dict[str, int] = {}
+    for cell in cell_values:
+        if not isinstance(cell, dict):
+            continue
+        claimed_identifier = cell.get("id")
+        if (
+            not isinstance(claimed_identifier, str)
+            or re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", claimed_identifier) is None
+        ):
+            continue
+        identifier_counts[claimed_identifier] = (
+            identifier_counts.get(claimed_identifier, 0) + 1
+        )
     source_occurrences: dict[str, int] = {}
     cells: list[NotebookCellEntry] = []
     for cell in cell_values:

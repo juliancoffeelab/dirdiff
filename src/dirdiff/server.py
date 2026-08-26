@@ -3525,35 +3525,24 @@ def create_app(
             if file_meta["capture_error"] is not None:
                 raise DirdiffError(file_meta["capture_error"])
             snapshot_meta = room.meta(snapshot_key)
-            media_bays = [
-                bay
-                for bay in Composer().bays(
-                    left_file.read_bytes() if left_file is not None else None,
-                    right_file.read_bytes() if right_file is not None else None,
-                    BayContext(
-                        left_path=pair.left_path,
-                        right_path=pair.right_path,
-                        left_label=snapshot_meta["left_label"],
-                        right_label=snapshot_meta["right_label"],
-                    ),
-                )
-                if isinstance(bay, ImageBay)
-            ]
-            if media_bays == []:
+            for bay in Composer().bays(
+                left_file.read_bytes() if left_file is not None else None,
+                right_file.read_bytes() if right_file is not None else None,
+                BayContext(
+                    left_path=pair.left_path,
+                    right_path=pair.right_path,
+                    left_label=snapshot_meta["left_label"],
+                    right_label=snapshot_meta["right_label"],
+                ),
+            ):
+                if isinstance(bay, ImageBay):
+                    media_bay = bay
+                    break
+            else:
                 raise DirdiffError(
                     "The selected file composes no media content."
                 )
-            # A File addressed by path composes at most one image bay, because
-            # the only format that composes one is a whole-File terminal. The
-            # first image bay that is not a file at a path is a
-            # notebook-embedded image, and serving it needs a sub-file
-            # coordinate in this route.
-            assert len(media_bays) == 1, (
-                "path addressing selected more than one image bay"
-            )
-            media_side = (
-                media_bays[0].left if side == "left" else media_bays[0].right
-            )
+            media_side = media_bay.left if side == "left" else media_bay.right
             if media_side is None:
                 raise DirdiffError(
                     f"The selected file was not captured on the {side} side."

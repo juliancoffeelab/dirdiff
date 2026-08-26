@@ -229,8 +229,9 @@ media type a path is an image of, or nothing, and composition asks it. A File it
 names nothing for reaches a later step, and the blob terminal at the end.
 
 An image File composes three bays: the `image` bay holding the picture, an
-`image-metadata` text bay holding dimensions and EXIF parsed by Pillow, and a
-`text` bay holding what is known about the bytes. The picture answers "does it
+`image-metadata` text bay holding dimensions and EXIF exposed while Pillow opens
+the container without decoding its pixel raster, and a `text` bay holding what
+is known about the bytes. The picture answers "does it
 look different"; the facts answer "did it actually change, and to what". Neither
 answers the other — a re-encode that changes every byte can look identical, and
 two visually different renderings of one asset have different digests for a

@@ -138,14 +138,17 @@ def image_bays(
             return None, ()
         try:
             with Image.open(BytesIO(side.data)) as image:
-                image.load()
                 rows = [
                     f"width: {image.width} px",
                     f"height: {image.height} px",
                 ]
                 warnings: list[BayWarning] = []
+                # PNG's override decodes the complete raster when no early EXIF
+                # chunk exists. The base implementation reads only metadata
+                # already available from opening the container.
+                exif = Image.Image.getexif(image)
                 for tag_id, value in sorted(
-                    image.getexif().items(),
+                    exif.items(),
                     key=lambda item: ExifTags.TAGS.get(item[0], str(item[0])),
                 ):
                     tag = ExifTags.TAGS.get(tag_id, str(tag_id))

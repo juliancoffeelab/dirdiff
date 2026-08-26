@@ -87,39 +87,54 @@ class Composer:
         blob facts. Both attach visible warnings.
         """
 
-        def path_claim(path: str) -> tuple[FileFormat, str | None]:
-            """Classify one present path and retain its declared media type."""
-            if path.lower().endswith(".ipynb"):
-                return "notebook", None
-            image_type = image_media_type(path)
-            if image_type is not None:
-                return "image", image_type
-            blob_type = blob_media_type(path)
-            if blob_type is not None:
-                return "blob", blob_type
-            return "text", None
+        def file_format() -> tuple[FileFormat, str | None, str | None]:
+            """Classify the path pair and retain its declared media types."""
 
-        left_claim = (
-            None if context.left_path is None else path_claim(context.left_path)
-        )
-        right_claim = (
-            None
-            if context.right_path is None
-            else path_claim(context.right_path)
-        )
-        present_claims = [
-            claim for claim in (left_claim, right_claim) if claim is not None
-        ]
-        assert len(present_claims) > 0, (
-            "a File pair always has at least one path"
-        )
-        file_format: FileFormat = (
-            present_claims[0][0]
-            if all(claim[0] == present_claims[0][0] for claim in present_claims)
-            else "text"
-        )
+            def path_claim(path: str) -> tuple[FileFormat, str | None]:
+                """Classify one present repository path."""
+                if path.lower().endswith(".ipynb"):
+                    return "notebook", None
+                image_type = image_media_type(path)
+                if image_type is not None:
+                    return "image", image_type
+                blob_type = blob_media_type(path)
+                if blob_type is not None:
+                    return "blob", blob_type
+                return "text", None
 
-        match file_format:
+            left_claim = (
+                None
+                if context.left_path is None
+                else path_claim(context.left_path)
+            )
+            right_claim = (
+                None
+                if context.right_path is None
+                else path_claim(context.right_path)
+            )
+            present_claims = [
+                claim
+                for claim in (left_claim, right_claim)
+                if claim is not None
+            ]
+            assert len(present_claims) > 0, (
+                "a File pair always has at least one path"
+            )
+            name: FileFormat = (
+                present_claims[0][0]
+                if all(
+                    claim[0] == present_claims[0][0] for claim in present_claims
+                )
+                else "text"
+            )
+            return (
+                name,
+                None if left_claim is None else left_claim[1],
+                None if right_claim is None else right_claim[1],
+            )
+
+        format_name, left_media_type, right_media_type = file_format()
+        match format_name:
             case "notebook":
                 yield from notebook_bays(left, right, context)
                 return
@@ -131,12 +146,8 @@ class Composer:
                     left,
                     right,
                     context,
-                    left_media_type=(
-                        None if left_claim is None else left_claim[1]
-                    ),
-                    right_media_type=(
-                        None if right_claim is None else right_claim[1]
-                    ),
+                    left_media_type=left_media_type,
+                    right_media_type=right_media_type,
                 )
                 return
             case "blob":
@@ -144,12 +155,8 @@ class Composer:
                     left,
                     right,
                     context,
-                    left_media_type=(
-                        None if left_claim is None else left_claim[1]
-                    ),
-                    right_media_type=(
-                        None if right_claim is None else right_claim[1]
-                    ),
+                    left_media_type=left_media_type,
+                    right_media_type=right_media_type,
                     warnings=(),
                 )
                 return
