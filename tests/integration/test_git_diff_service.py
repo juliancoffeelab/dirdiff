@@ -9,9 +9,11 @@ testing renderer internals.
 import subprocess
 from pathlib import Path
 
-from helpers import GitDiffService, TextDiffService
+from helpers import TextDiffService
 
 from dirdiff.backend import GitBackend
+from dirdiff.engines import GitDiffEngine, TextDiffEngine
+from dirdiff.formats import ComposeContext, Composer
 
 __all__: list[str] = []
 
@@ -317,20 +319,28 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(
     untracked_file = tmp_path / "beta.txt"
     untracked_file.write_text("new file\n", encoding="utf-8")
 
-    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    payload = service.build_git_diff_paths(
-        left_path=None,
-        right_path="beta.txt",
-        left="HEAD",
-        right="worktree",
-        change_type="add",
-        file_kind="untracked",
+    backend = GitBackend.discover(cwd=tmp_path)
+    # An untracked File exists only in the worktree, so the left side is
+    # absent and composition receives no bytes for it at all.
+    composed = Composer().compose(
+        None,
+        backend.load_version("beta.txt", "worktree"),
+        ComposeContext.build(
+            left_path=None,
+            right_path="beta.txt",
+            left_label="HEAD",
+            right_label="worktree",
+            renderer=TextDiffEngine(),
+        ),
     )
+    (frame,) = composed["frames"]
+    (bay,) = frame["bays"]
+    kind_data = bay["kind_data"]
+    assert kind_data["kind"] == "text"
 
-    assert payload["file_kind"] == {"type": "untracked"}
-    assert payload["summary"]["added_lines"] == 1
-    assert payload["rows"][0]["status"] == "insert"
-    assert payload["rows"][0]["right_text"] == "new file"
+    assert composed["summary"]["added_lines"] == 1
+    assert kind_data["rows"][0]["status"] == "insert"
+    assert kind_data["rows"][0]["right_text"] == "new file"
 
 
 def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
@@ -496,50 +506,85 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(
     changed_file.write_text("one\ntwo changed\nthree\n", encoding="utf-8")
 
     repo = GitBackend.discover(cwd=tmp_path)
-    rich_service = TextDiffService(repo)
-    git_service = GitDiffService(repo)
+    head_content, worktree_content = repo.load_versions(
+        (("alpha.txt", "HEAD"), ("alpha.txt", "worktree"))
+    )
+    assert isinstance(head_content, bytes)
+    assert isinstance(worktree_content, bytes)
 
-    rich_diff = rich_service.build_git_diff_paths(
-        left_path="alpha.txt",
-        right_path="alpha.txt",
-        left="HEAD",
-        right="worktree",
+    # The same two byte sides, composed three times: the ordinary text engine,
+    # the Git-style engine, and the Git-style engine with the sides swapped.
+    rich_composed = Composer().compose(
+        head_content,
+        worktree_content,
+        ComposeContext.build(
+            left_path="alpha.txt",
+            right_path="alpha.txt",
+            left_label="HEAD",
+            right_label="worktree",
+            renderer=TextDiffEngine(),
+        ),
     )
-    git_diff = git_service.build_git_diff_paths(
-        left_path="alpha.txt",
-        right_path="alpha.txt",
-        left="HEAD",
-        right="worktree",
+    git_composed = Composer().compose(
+        head_content,
+        worktree_content,
+        ComposeContext.build(
+            left_path="alpha.txt",
+            right_path="alpha.txt",
+            left_label="HEAD",
+            right_label="worktree",
+            renderer=GitDiffEngine(),
+        ),
     )
-    reversed_git_diff = git_service.build_git_diff_paths(
-        left_path="alpha.txt",
-        right_path="alpha.txt",
-        left="worktree",
-        right="HEAD",
+    reversed_composed = Composer().compose(
+        worktree_content,
+        head_content,
+        ComposeContext.build(
+            left_path="alpha.txt",
+            right_path="alpha.txt",
+            left_label="worktree",
+            right_label="HEAD",
+            renderer=GitDiffEngine(),
+        ),
     )
 
-    assert [row["status"] for row in rich_diff["rows"]] == [
+    # A flat text File composes into one text bay, and that bay holds the
+    # rendered rows each engine produced.
+    (rich_frame,) = rich_composed["frames"]
+    (rich_bay,) = rich_frame["bays"]
+    rich_kind = rich_bay["kind_data"]
+    assert rich_kind["kind"] == "text"
+    (git_frame,) = git_composed["frames"]
+    (git_bay,) = git_frame["bays"]
+    git_kind = git_bay["kind_data"]
+    assert git_kind["kind"] == "text"
+    (reversed_frame,) = reversed_composed["frames"]
+    (reversed_bay,) = reversed_frame["bays"]
+    reversed_kind = reversed_bay["kind_data"]
+    assert reversed_kind["kind"] == "text"
+
+    assert [row["status"] for row in rich_kind["rows"]] == [
         "equal",
         "replace",
         "equal",
     ]
-    assert [row["status"] for row in git_diff["rows"]] == [
+    assert [row["status"] for row in git_kind["rows"]] == [
         "equal",
         "delete",
         "insert",
         "equal",
     ]
-    assert git_diff["summary"]["modified_lines"] == 0
-    assert git_diff["summary"]["removed_lines"] == 1
-    assert git_diff["summary"]["added_lines"] == 1
-    assert [row["status"] for row in reversed_git_diff["rows"]] == [
+    assert git_composed["summary"]["modified_lines"] == 0
+    assert git_composed["summary"]["removed_lines"] == 1
+    assert git_composed["summary"]["added_lines"] == 1
+    assert [row["status"] for row in reversed_kind["rows"]] == [
         "equal",
         "delete",
         "insert",
         "equal",
     ]
-    assert reversed_git_diff["rows"][1]["left_text"] == "two changed"
-    assert reversed_git_diff["rows"][2]["right_text"] == "two"
+    assert reversed_kind["rows"][1]["left_text"] == "two changed"
+    assert reversed_kind["rows"][2]["right_text"] == "two"
 
 
 def test_build_repo_manifest_summarizes_changed_files(

@@ -41,13 +41,9 @@ backend failure reason. Workspace backends do not select Rooms, retain state
 between HTTP requests, classify contents for renderers, or invent
 renderer-dependent line counts.
 
-It also owns the single definition of what this project calls text — no NUL
-byte, and valid UTF-8 with an optional BOM — in two spellings that cannot drift
-apart. `decode_text_content` is the boundary a consumer that requires text
-calls, and it raises naming the offending file. `text_content_or_none` asks the
-same thing as a question and returns `None` instead, which is what composition
-classification calls: "these bytes are not text" selects the blob
-classification there rather than failing.
+Loading stops at bytes. What those bytes are — text, a notebook, an image — is
+`dirdiff.formats`' decision, and the definition of what this project calls text
+lives there with the classification that asks it.
 
 Its public interface is exported from `dirdiff.backend`.
 
@@ -145,6 +141,13 @@ and take no navigation stop.
 pairing, public cell keys, and each bay's content. A cell's public key is its
 `nbformat` id, which makes the key durable identity — that is what lets review
 store a bay key and nothing else.
+
+`text_content_or_none()` is the single definition of what this project calls
+text — no NUL byte, and valid UTF-8 with an optional BOM — and it lives here
+because classification is the only thing that asks. It is a question rather than
+a boundary: "these bytes are not text" selects the blob terminal instead of
+failing, and the value it returns is the text the flatfile builder renders, so a
+File is decoded once.
 
 
 

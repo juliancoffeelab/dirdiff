@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Literal, override
+from typing import Any, ClassVar, override
 
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
@@ -21,9 +21,6 @@ from dirdiff.backend import (
     RefChoices,
     WorkspaceBackendProtocol,
     build_repo_manifest_for_backend,
-    display_name_for_repo_paths,
-    file_kind_for_change_type,
-    load_diff_sides,
     ref_choices,
 )
 from dirdiff.engines import (
@@ -43,7 +40,6 @@ __all__ = [
     "TextDiffService",
     "WorkspaceDiffServiceAdapter",
     "build_loaded_diff",
-    "build_workspace_file_payload",
 ]
 
 
@@ -190,84 +186,6 @@ def build_loaded_diff(
     return payload
 
 
-def build_workspace_file_payload(
-    *,
-    backend: WorkspaceBackendProtocol,
-    renderer: DiffEngineProtocol,
-    left_path: str | None,
-    right_path: str | None,
-    left: str,
-    right: str,
-    display_name: str | None = None,
-    change_type: Literal[
-        "modify", "add", "delete", "rename", "copy"
-    ] = "modify",
-    file_kind: Literal["git", "untracked"] = "git",
-) -> dict[str, Any]:
-    context = load_diff_sides(
-        backend=backend,
-        left_path=left_path,
-        right_path=right_path,
-        left=left,
-        right=right,
-    )
-    left_version = context["left_version"]
-    right_version = context["right_version"]
-    if display_name is None:
-        resolved_display_name = display_name_for_repo_paths(
-            context["left_path"],
-            context["right_path"],
-        )
-    else:
-        resolved_display_name = display_name
-    rendered = renderer.render_diff(
-        old=DiffSide(
-            exists=left_version.exists,
-            text=left_version.text,
-            path_hint=context["left_path"],
-        ),
-        new=DiffSide(
-            exists=right_version.exists,
-            text=right_version.text,
-            path_hint=context["right_path"],
-        ),
-    )
-    left_text_value = "" if left_version.text is None else left_version.text
-    right_text_value = "" if right_version.text is None else right_version.text
-    display = enrich_rows_for_display(
-        rows=[dict(row) for row in rendered["rows"]],
-        left_text=left_text_value,
-        right_text=right_text_value,
-        left_path_hint=context["left_path"],
-        right_path_hint=context["right_path"],
-    )
-    payload: dict[str, Any] = {
-        "display_name": resolved_display_name,
-        "left_label": context["left_label"],
-        "right_label": context["right_label"],
-        "rows": display["rows"],
-        "summary": {
-            **rendered["summary"],
-            "left_exists": left_version.exists,
-            "right_exists": right_version.exists,
-        },
-        "default_expanded": False,
-        "left_path": context["left_path"],
-        "right_path": context["right_path"],
-        "file_kind": (
-            {"type": "untracked"}
-            if file_kind == "untracked"
-            else file_kind_for_change_type(change_type, file_kind="git")
-        ),
-    }
-    if "engine_warning" in rendered:
-        payload["engine_warning"] = rendered["engine_warning"]
-    if "fold_hints" in display:
-        payload["fold_hints"] = display["fold_hints"]
-    payload["default_expanded"] = default_expanded_for_payload(payload)
-    return payload
-
-
 class WorkspaceDiffServiceAdapter:
     def __init__(
         self,
@@ -276,31 +194,6 @@ class WorkspaceDiffServiceAdapter:
     ) -> None:
         self.backend = backend
         self.renderer = renderer
-
-    def build_git_diff_paths(
-        self,
-        *,
-        left_path: str | None,
-        right_path: str | None,
-        left: str,
-        right: str,
-        display_name: str | None = None,
-        change_type: Literal[
-            "modify", "add", "delete", "rename", "copy"
-        ] = "modify",
-        file_kind: Literal["git", "untracked"] = "git",
-    ) -> dict[str, Any]:
-        return build_workspace_file_payload(
-            backend=self.backend,
-            renderer=self.renderer,
-            left_path=left_path,
-            right_path=right_path,
-            left=left,
-            right=right,
-            display_name=display_name,
-            change_type=change_type,
-            file_kind=file_kind,
-        )
 
     def build_repo_manifest(
         self,

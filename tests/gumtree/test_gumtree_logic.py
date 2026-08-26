@@ -3,16 +3,14 @@
 This module uses the checked-in GumTree presets to verify action matching,
 token mapping, and rendered payload shape.  It may call GumTree engine internals
 only where the public payload cannot expose the tree-action detail under test;
-ordinary UI payload behavior should go through the service adapter.
+ordinary UI payload behavior goes through composition, the way the file-diff
+endpoint produces it.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from helpers import WorkspaceDiffServiceAdapter
-
-from dirdiff.backend import PresetBackend
 from dirdiff.engines.gumtree import (
     GumTreeDiffEngine,
     GumTreeJson,
@@ -21,6 +19,7 @@ from dirdiff.engines.gumtree.logic import (
     _line_segments,
     _range_from_tree,
 )
+from dirdiff.formats import ComposeContext, ComposedFilePayload, Composer
 
 __all__: list[str] = []
 
@@ -52,15 +51,17 @@ def _extract_helper_engine() -> GumTreeDiffEngine:
     return GumTreeDiffEngine()
 
 
-def _extract_helper_payload() -> dict[str, Any]:
-    return WorkspaceDiffServiceAdapter(
-        PresetBackend(PRESETS_ROOT),
-        _extract_helper_engine(),
-    ).build_git_diff_paths(
-        left_path=LEFT_PATH,
-        right_path=RIGHT_PATH,
-        left="python",
-        right="new",
+def _extract_helper_payload() -> ComposedFilePayload:
+    return Composer().compose(
+        (FIXTURE_ROOT / "old.py").read_bytes(),
+        (FIXTURE_ROOT / "new.py").read_bytes(),
+        ComposeContext.build(
+            left_path=LEFT_PATH,
+            right_path=RIGHT_PATH,
+            left_label="python",
+            right_label="new",
+            renderer=_extract_helper_engine(),
+        ),
     )
 
 
@@ -181,13 +182,20 @@ def _expected_action_statuses(
 
 
 def _row_for_line(
-    payload: dict[str, Any],
+    payload: ComposedFilePayload,
     *,
     side: str,
     line_no: int,
 ) -> dict[str, Any]:
     line_key = f"{side}_no"
-    rows: list[dict[str, Any]] = payload["rows"]
+    # A flat Python file composes into exactly one text bay, and its rows are
+    # the rows this module asserts against.
+    (frame,) = payload["frames"]
+    (bay,) = frame["bays"]
+    kind_data = bay["kind_data"]
+    assert kind_data["kind"] == "text"
+    rows: list[Any] = kind_data["rows"]
+    row: dict[str, Any]
     for row in rows:
         if row[line_key] == line_no:
             return row
@@ -195,7 +203,7 @@ def _row_for_line(
 
 
 def _actual_status_intervals(
-    payload: dict[str, Any],
+    payload: ComposedFilePayload,
     *,
     side: str,
     status: str,

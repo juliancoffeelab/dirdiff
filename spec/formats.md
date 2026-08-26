@@ -963,9 +963,8 @@ rather than appearing when stage 3 lands.
 Landed, with one part of it since decided to be wrong. `/api/file-media` and the
 `image` bay kind exist and are described above as running code. Everything this
 stage serves is the whole content of one captured side, so File-pair-and-side
-addressing is sufficient here. The `decode_text_content` behavior change landed
-with it: non-text, non-image content stopped raising and made classification
-total.
+addressing is sufficient here. The text question changed behavior with it:
+non-text, non-image content stopped raising and made classification total.
 
 What landed as a third bay kind should be a `text` bay of a blob File's facts,
 and an image File should compose a facts bay beside its picture. That is

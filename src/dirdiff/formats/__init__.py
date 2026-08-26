@@ -23,6 +23,10 @@ submodule:
 - `MediaRef` and `media_ref()` describe one captured media side without its
   bytes, so the digest on the wire and the digest review reads are one
   computation.
+- `text_content_or_none()` is the definition of what this project calls text.
+  Classification asks it, and a caller outside this package that must classify
+  content the way composition does — a test walk over the preset corpus, say —
+  asks the same function rather than writing the rule again.
 
 Package-internal contracts (`ComposeContext`'s renderer, the two shared kind
 renderers, the facts text both media classifications state, and the serialized
@@ -48,6 +52,7 @@ from dirdiff.formats.base import (
     MediaSide,
     TextBay,
     media_ref,
+    text_content_or_none,
 )
 from dirdiff.formats.composer import Composer
 
@@ -68,4 +73,5 @@ __all__ = [
     "MediaSide",
     "TextBay",
     "media_ref",
+    "text_content_or_none",
 ]

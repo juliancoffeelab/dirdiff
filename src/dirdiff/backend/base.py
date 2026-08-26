@@ -2,11 +2,12 @@
 
 Concrete backends such as `GitBackend` and `PresetBackend` implement
 `WorkspaceBackendProtocol` to provide normalized sides, changed path lists, ref
-metadata, and exact file contents. This module also defines the text boundary
-used by consumers that require decoded input.
+metadata, and exact file contents. Loading stops at bytes: what those bytes are
+— text, a notebook, an image — is classified by `dirdiff.formats`, which owns
+the definition of text and the decoding that goes with it.
 
 It should not know about HTTP endpoints, Snapshot ids, frontend rendering, or
-which diff engine will consume the loaded text.
+which diff engine will consume the loaded bytes.
 """
 
 from __future__ import annotations
@@ -31,7 +32,6 @@ __all__ = [
     "DefaultBaseSelection",
     "DefaultBaseSelectionError",
     "LazyReason",
-    "LoadedDiffSides",
     "LocalBranchSelection",
     "RefChoices",
     "RefMetadata",
@@ -41,24 +41,10 @@ __all__ = [
     "RepoDiffPath",
     "SideName",
     "StructuredRemoteBranchRef",
-    "TextVersion",
     "WorkspaceBackendProtocol",
-    "decode_text_content",
     "display_name_for_repo_paths",
     "git_executable",
-    "load_diff_sides",
-    "text_content_or_none",
 ]
-
-
-@dataclass(frozen=True)
-class TextVersion:
-    """One loaded side of a file before it is handed to a diff engine."""
-
-    label: str
-    exists: bool
-    text: str | None
-    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,60 +162,6 @@ class RefMetadata(TypedDict):
     remote_head_branches: dict[str, str]
 
 
-class LoadedDiffSides(TypedDict):
-    """Loaded left/right text sides returned by `load_diff_sides`.
-
-    `WorkspaceBackendProtocol` objects own path normalization, side-name
-    normalization, and exact content loading. `load_diff_sides` applies the
-    text requirement and builds this handoff into server-level notebook routing
-    or engine rendering: normalized repo paths, display labels, and loaded
-    `TextVersion` objects.
-    """
-
-    left_path: str | None
-    right_path: str | None
-    left_label: str
-    right_label: str
-    left_version: TextVersion
-    right_version: TextVersion
-
-
-def decode_text_content(data: bytes, *, label: str) -> str:
-    """Decode exact file contents for a consumer that requires UTF-8 text.
-
-    Loading and Snapshot capture accept arbitrary file contents. Text renderers
-    call this boundary only when they need a textual representation; binary or
-    non-UTF-8 input is then reported as an unsupported file diff.
-    """
-    if b"\x00" in data:
-        raise DirdiffError(f"{label} appears to be a binary file.")
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise DirdiffError(f"{label} is not valid UTF-8 text: {exc}") from exc
-
-
-def text_content_or_none(data: bytes) -> str | None:
-    """Decode exact file contents as text, or report that they are not text.
-
-    This asks the same two questions `decode_text_content` enforces — no NUL
-    byte, and valid UTF-8 with an optional BOM — as a question rather than as a
-    boundary. Composition classification calls it, where "these bytes are not
-    text" is an answer that selects the blob bay rather than a failure: the
-    caller has somewhere else to send the content and nothing has gone wrong.
-
-    Callers that require text call `decode_text_content` instead, which names
-    the offending file in the error it raises. The two definitions of text are
-    stated here side by side so they cannot drift apart.
-    """
-    if b"\x00" in data:
-        return None
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return None
-
-
 def display_name_for_repo_paths(
     left_path: str | None,
     right_path: str | None,
@@ -322,79 +254,3 @@ class WorkspaceBackendProtocol(Protocol):
         abort the complete operation.
         """
         ...
-
-
-def load_diff_sides(
-    *,
-    backend: WorkspaceBackendProtocol,
-    left_path: str | None,
-    right_path: str | None,
-    left: str,
-    right: str,
-) -> LoadedDiffSides:
-    """Load and validate the left/right text sides for one file diff.
-
-    The caller supplies already-resolved side names: raw refs for repository
-    Tabs, preset names for the Preset Tab, or merge-base/review refs for Branch
-    Review. Missing paths are represented as `TextVersion` values with
-    `exists=False` so added/deleted files can still render through the same
-    downstream payload builders.
-
-    This is the text-consumer boundary: normalize repo paths and side names, ask
-    the selected backend for exact contents, decode each present side, and
-    raise `DirdiffError` when a textual diff cannot be produced safely.
-    """
-    normalized_left = (
-        backend.normalize_repo_path(left_path)
-        if left_path is not None
-        else None
-    )
-    normalized_right = (
-        backend.normalize_repo_path(right_path)
-        if right_path is not None
-        else None
-    )
-    normalized_left_side = backend.normalize_side(left)
-    normalized_right_side = backend.normalize_side(right)
-    left_content = (
-        backend.load_version(normalized_left, normalized_left_side)
-        if normalized_left is not None
-        else None
-    )
-    right_content = (
-        backend.load_version(normalized_right, normalized_right_side)
-        if normalized_right is not None
-        else None
-    )
-    if left_content is None and right_content is None:
-        raise DirdiffError("The selected file is missing on both sides.")
-
-    left_version = TextVersion(
-        label=normalized_left_side,
-        exists=left_content is not None,
-        text=decode_text_content(
-            left_content,
-            label=f"{normalized_left_side}:{normalized_left}",
-        )
-        if left_content is not None
-        else None,
-    )
-    right_version = TextVersion(
-        label=normalized_right_side,
-        exists=right_content is not None,
-        text=decode_text_content(
-            right_content,
-            label=f"{normalized_right_side}:{normalized_right}",
-        )
-        if right_content is not None
-        else None,
-    )
-
-    return {
-        "left_path": normalized_left,
-        "right_path": normalized_right,
-        "left_label": normalized_left_side,
-        "right_label": normalized_right_side,
-        "left_version": left_version,
-        "right_version": right_version,
-    }

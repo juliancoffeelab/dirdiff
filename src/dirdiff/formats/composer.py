@@ -29,7 +29,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from dirdiff.backend import text_content_or_none
 from dirdiff.formats.base import (
     Bay,
     BayContext,
@@ -41,6 +40,7 @@ from dirdiff.formats.base import (
     FramePayload,
     TextBay,
     image_kind_payload,
+    text_content_or_none,
     text_kind_payload,
 )
 from dirdiff.formats.blob import blob_bays

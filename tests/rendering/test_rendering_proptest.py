@@ -11,7 +11,6 @@ from pathlib import Path
 from hypothesis import given
 from hypothesis import strategies as st
 
-from dirdiff.backend import text_content_or_none
 from dirdiff.engines import (
     DiffSide,
     InlineToken,
@@ -19,6 +18,7 @@ from dirdiff.engines import (
     TextDiffEngine,
     text_diff_summary,
 )
+from dirdiff.formats import text_content_or_none
 from dirdiff.rendering import (
     SyntaxClass,
     SyntaxSpan,

@@ -19,10 +19,11 @@ import tree_sitter_rust
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
-from dirdiff.backend import GitBackend, load_diff_sides
+from dirdiff.backend import GitBackend
 from dirdiff.engines import DiffSide, DirdiffError
 from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
 from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
+from dirdiff.formats import text_content_or_none
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,23 +45,31 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
         right="worktree",
         show_untracked=True,
     ).paths:
-        try:
-            sides = load_diff_sides(
-                backend=backend,
-                left_path=entry.left_path,
-                right_path=entry.right_path,
-                left="HEAD",
-                right="worktree",
-            )
-        except DirdiffError:
+        # An absent path is an addition or a deletion, which replays against
+        # empty content. `load_versions` answers with the concrete failure for
+        # a side it cannot read instead of raising, so a File that vanished
+        # between listing and loading drops out of the corpus here.
+        left_content = (
+            b""
+            if entry.left_path is None
+            else backend.load_versions(((entry.left_path, "HEAD"),))[0]
+        )
+        right_content = (
+            b""
+            if entry.right_path is None
+            else backend.load_versions(((entry.right_path, "worktree"),))[0]
+        )
+        if isinstance(left_content, DirdiffError):
+            continue
+        if isinstance(right_content, DirdiffError):
             continue
 
-        left_version = sides["left_version"]
-        right_version = sides["right_version"]
-        left_text = left_version.text if left_version.exists else ""
-        right_text = right_version.text if right_version.exists else ""
-        assert left_text is not None
-        assert right_text is not None
+        left_text = text_content_or_none(left_content)
+        right_text = text_content_or_none(right_content)
+        # Content this project does not call text has no row projection to
+        # replay, exactly as composition classifies it away from a text bay.
+        if left_text is None or right_text is None:
+            continue
         # A pure rename compares a file against its own content. Difftastic
         # rightly reports it unchanged and the engine returns zero rows, but
         # the replay invariants assert that rows cover every source

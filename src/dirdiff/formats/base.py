@@ -87,6 +87,7 @@ __all__ = [
     "image_kind_payload",
     "media_facts",
     "media_ref",
+    "text_content_or_none",
     "text_kind_payload",
     "whole_file_change",
 ]
@@ -648,6 +649,27 @@ class ComposedFilePayload(TypedDict):
     """The File's frames in document order. Always at least one: a File with no
     internal structure composes a single heading-less frame holding a single
     bay, which is what makes `bay_key` a total coordinate."""
+
+
+def text_content_or_none(data: bytes) -> str | None:
+    """Decode exact file contents as text, or answer that they are not text.
+
+    This is the single definition of what this project calls text: no NUL byte,
+    and valid UTF-8 with an optional BOM. It lives here because classification
+    is the only thing that asks the question — `bays()` calls it as its text
+    step, where "these bytes are not text" is an answer that hands the File to
+    the blob terminal rather than a failure, and the decoded value it returns is
+    the text the flatfile builder renders, so a File is decoded once.
+
+    Nothing here raises. A caller that cannot proceed without text is a caller
+    composition does not have: every File reaches a bay.
+    """
+    if b"\x00" in data:
+        return None
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return None
 
 
 def media_ref(side: MediaSide) -> MediaRef:

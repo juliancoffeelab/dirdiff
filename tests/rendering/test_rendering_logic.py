@@ -10,8 +10,8 @@ from typing import get_args
 
 import pytest
 
-from dirdiff.backend import text_content_or_none
 from dirdiff.engines import InlineToken
+from dirdiff.formats import text_content_or_none
 from dirdiff.rendering import (
     SyntaxClass,
     SyntaxSpan,
