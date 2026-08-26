@@ -96,7 +96,7 @@ def blob_bays(
     *,
     left_media_type: str | None,
     right_media_type: str | None,
-    warnings: tuple[BayWarning, ...] = (),
+    warnings: tuple[BayWarning, ...],
 ) -> Iterator[TextBay]:
     """Yield the single bay a blob File composes into.
 

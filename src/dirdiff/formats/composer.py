@@ -56,35 +56,6 @@ FileFormat = Literal["notebook", "image", "blob", "text"]
 """The path-declared format one File pair composes through."""
 
 
-def file_format(left_path: str | None, right_path: str | None) -> FileFormat:
-    """Classify a File pair from paths alone.
-
-    A one-sided File takes its present path's claim. Two-sided Files retain a
-    specialized claim only when both paths agree; every mixed rename is
-    presumed text and may still degrade to blob when its bytes do not decode.
-    """
-
-    def path_format(path: str) -> FileFormat:
-        """Classify one present repository path."""
-        if path.lower().endswith(".ipynb"):
-            return "notebook"
-        if image_media_type(path) is not None:
-            return "image"
-        if blob_media_type(path) is not None:
-            return "blob"
-        return "text"
-
-    present = [
-        path_format(path)
-        for path in (left_path, right_path)
-        if path is not None
-    ]
-    assert len(present) > 0, "a File pair always has at least one path"
-    return (
-        present[0] if all(value == present[0] for value in present) else "text"
-    )
-
-
 class Composer:
     """Compose two captured byte sides into one composed diff.
 
@@ -115,7 +86,40 @@ class Composer:
         preserved as raw text or byte facts, and presumed text that cannot
         decode is stated as blob facts. Both attach visible warnings.
         """
-        match file_format(context.left_path, context.right_path):
+
+        def path_claim(path: str) -> tuple[FileFormat, str | None]:
+            """Classify one present path and retain its declared media type."""
+            if path.lower().endswith(".ipynb"):
+                return "notebook", None
+            image_type = image_media_type(path)
+            if image_type is not None:
+                return "image", image_type
+            blob_type = blob_media_type(path)
+            if blob_type is not None:
+                return "blob", blob_type
+            return "text", None
+
+        left_claim = (
+            None if context.left_path is None else path_claim(context.left_path)
+        )
+        right_claim = (
+            None
+            if context.right_path is None
+            else path_claim(context.right_path)
+        )
+        present_claims = [
+            claim for claim in (left_claim, right_claim) if claim is not None
+        ]
+        assert len(present_claims) > 0, (
+            "a File pair always has at least one path"
+        )
+        file_format: FileFormat = (
+            present_claims[0][0]
+            if all(claim[0] == present_claims[0][0] for claim in present_claims)
+            else "text"
+        )
+
+        match file_format:
             case "notebook":
                 yield from notebook_bays(left, right, context)
                 return
@@ -127,8 +131,12 @@ class Composer:
                     left,
                     right,
                     context,
-                    left_media_type=image_media_type(context.left_path),
-                    right_media_type=image_media_type(context.right_path),
+                    left_media_type=(
+                        None if left_claim is None else left_claim[1]
+                    ),
+                    right_media_type=(
+                        None if right_claim is None else right_claim[1]
+                    ),
                 )
                 return
             case "blob":
@@ -136,8 +144,12 @@ class Composer:
                     left,
                     right,
                     context,
-                    left_media_type=blob_media_type(context.left_path),
-                    right_media_type=blob_media_type(context.right_path),
+                    left_media_type=(
+                        None if left_claim is None else left_claim[1]
+                    ),
+                    right_media_type=(
+                        None if right_claim is None else right_claim[1]
+                    ),
                     warnings=(),
                 )
                 return
@@ -182,11 +194,6 @@ class Composer:
                         message=engine_warning["message"],
                     )
                 )
-            warnings = [
-                warning
-                for index, warning in enumerate(warnings)
-                if warning not in warnings[:index]
-            ]
             rendered: BayPayload = {
                 "bay_key": bay.bay_key,
                 "label": bay.label,
