@@ -11,9 +11,10 @@ The generator is seeded per case, so a failure reproduces exactly.
 import random
 import zlib
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import pytest
+from _pytest.mark.structures import ParameterSet
 
 from dirdiff.engines import (
     DiffEngineRow,
@@ -29,9 +30,9 @@ Side = Literal["left", "right"]
 __all__: list[str] = []
 
 
-def _preset_sources() -> list[Any]:
+def _preset_sources() -> list[ParameterSet]:
     """Collect every preset side as one seed-named fuzz subject."""
-    sources: list[Any] = []
+    sources: list[ParameterSet] = []
     for preset in sorted(PRESETS_ROOT.glob("*/*")):
         if not preset.is_dir():
             continue

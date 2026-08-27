@@ -12,9 +12,10 @@ and joining lines conserves the changed content as moved text.
 
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import pytest
+from _pytest.mark.structures import ParameterSet
 
 from dirdiff.engines import (
     DiffEngineResult,
@@ -30,9 +31,9 @@ Side = Literal["left", "right"]
 __all__: list[str] = []
 
 
-def _preset_cases() -> list[Any]:
+def _preset_cases() -> list[ParameterSet]:
     """Collect every preset's (old text, new text) pair as one test case."""
-    cases: list[Any] = []
+    cases: list[ParameterSet] = []
     for preset in sorted(PRESETS_ROOT.glob("*/*")):
         if not preset.is_dir():
             continue

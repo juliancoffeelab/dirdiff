@@ -17,6 +17,7 @@ import tree_sitter_javascript
 import tree_sitter_python
 import tree_sitter_rust
 import tree_sitter_typescript
+from _pytest.mark.structures import ParameterSet
 from tree_sitter import Language, Node, Parser
 
 from dirdiff.backend import GitBackend
@@ -33,11 +34,24 @@ Side = Literal["left", "right"]
 __all__: list[str] = []
 
 
-def _preset_dirs() -> list[Path]:
-    """
-    Used as pytest parametrizer to run tests over preset directories
-    """
-    return [path for path in sorted(PRESETS_ROOT.glob("*/*")) if path.is_dir()]
+def _preset_cases() -> list[ParameterSet]:
+    """Return the sole old/new file pair from each diff preset."""
+    cases: list[ParameterSet] = []
+    for preset_dir in sorted(PRESETS_ROOT.glob("*/*")):
+        if not preset_dir.is_dir():
+            continue
+        old_paths = sorted(preset_dir.glob("old.*"))
+        new_paths = sorted(preset_dir.glob("new.*"))
+        assert len(old_paths) == 1, preset_dir
+        assert len(new_paths) == 1, preset_dir
+        cases.append(
+            pytest.param(
+                old_paths[0],
+                new_paths[0],
+                id=str(preset_dir.relative_to(PRESETS_ROOT)),
+            )
+        )
+    return cases
 
 
 def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
@@ -93,27 +107,14 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
     return cases
 
 
-def _preset_paths(preset_dir: Path) -> tuple[Path, Path]:
-    """Return the preset's sole old and new files, in that order.
-
-    The preset directory must contain exactly one `old.*` file and exactly one
-    `new.*` file.
-    """
-    old_paths = sorted(preset_dir.glob("old.*"))
-    new_paths = sorted(preset_dir.glob("new.*"))
-    assert len(old_paths) == 1, preset_dir
-    assert len(new_paths) == 1, preset_dir
-    return old_paths[0], new_paths[0]
-
-
 def _difftastic_rows_for_preset(
-    preset_dir: Path,
+    old_path: Path,
+    new_path: Path,
 ) -> tuple[list[DifftasticRow], str, str]:
     """
     Returns private-ish difftastic parser result, without handling
     bad cases like fallback to unified_diff, if difftastic fails
     """
-    old_path, new_path = _preset_paths(preset_dir)
     old_text = old_path.read_text()
     new_text = new_path.read_text()
     service = DifftasticDiffEngine()
@@ -223,9 +224,10 @@ def _text_without_difftastic_ignored_trailing_commas(
     return "".join(normalized_pieces)
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+@pytest.mark.parametrize(("old_path", "new_path"), _preset_cases())
 def test_difftastic_preset_tokens_stay_in_source_order(
-    preset_dir: Path,
+    old_path: Path,
+    new_path: Path,
 ) -> None:
     """This test verifies that for both old source and new source, the output
     on the left and on the right has all tokens in full, and in the same order
@@ -237,22 +239,18 @@ def test_difftastic_preset_tokens_stay_in_source_order(
         *,
         side: Side,
     ) -> str:
-        text_key = "left_text" if side == "left" else "right_text"
-        no_key = "left_no" if side == "left" else "right_no"
-        pieces: list[str] = []
-        for row in rows:
-            line_no = row.get(no_key)
-            if line_no is None:
-                continue
-            text = row.get(text_key)
-            assert isinstance(text, str)
-            pieces.append(text)
-        return "\n".join(pieces)
+        if side == "left":
+            return "\n".join(
+                row["left_text"] for row in rows if row["left_no"] is not None
+            )
+        return "\n".join(
+            row["right_text"] for row in rows if row["right_no"] is not None
+        )
 
     def _token_atoms(text: str) -> list[str]:
         return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S", text)
 
-    rows, old_text, new_text = _difftastic_rows_for_preset(preset_dir)
+    rows, old_text, new_text = _difftastic_rows_for_preset(old_path, new_path)
     # Difftastic can report no structured rows for changed files; the service
     # layer handles that by falling back to git-style rows, so parser-level
     # row/token invariants have nothing to check here.
@@ -264,23 +262,18 @@ def test_difftastic_preset_tokens_stay_in_source_order(
         ("right", new_text),
     )
     for side, source_text in sides:
-        text_key = "left_text" if side == "left" else "right_text"
-        tokens_key = "left_tokens" if side == "left" else "right_tokens"
         for row in rows:
-            tokens = row.get(tokens_key)
+            if side == "left":
+                tokens = row.get("left_tokens")
+                text = row["left_text"]
+            else:
+                tokens = row.get("right_tokens")
+                text = row["right_text"]
             if tokens is None:
                 continue
-            assert isinstance(tokens, list)
             if tokens == []:
                 continue
-            text = row.get(text_key)
-            assert isinstance(text, str)
-            pieces: list[str] = []
-            for token in tokens:
-                assert isinstance(token, dict)
-                token_text = token.get("text")
-                assert isinstance(token_text, str)
-                pieces.append(token_text)
+            pieces = [token["text"] for token in tokens]
             assert "".join(pieces) == text
 
         source_atoms = _token_atoms(source_text)
@@ -288,11 +281,11 @@ def test_difftastic_preset_tokens_stay_in_source_order(
         assert rendered_atoms == source_atoms
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+@pytest.mark.parametrize(("old_path", "new_path"), _preset_cases())
 def test_difftastic_preset_token_spans_match_difftastic_json(
-    preset_dir: Path,
+    old_path: Path,
+    new_path: Path,
 ) -> None:
-    old_path, new_path = _preset_paths(preset_dir)
     old_text = old_path.read_text()
     new_text = new_path.read_text()
     service = DifftasticDiffEngine()
@@ -313,30 +306,20 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
     }
 
     expected: dict[Side, dict[int, set[int]]] = {"left": {}, "right": {}}
-    json_sides: tuple[tuple[str, Side], ...] = (
-        ("lhs", "left"),
-        ("rhs", "right"),
-    )
     for chunk in diff_json.get("chunks", []):
-        assert isinstance(chunk, list)
         for entry in chunk:
-            assert isinstance(entry, dict)
-            for json_side, side in json_sides:
-                side_data = entry.get(json_side)
+            for side in ("left", "right"):
+                side_data = (
+                    entry.get("lhs") if side == "left" else entry.get("rhs")
+                )
                 if side_data is None:
                     continue
-                assert isinstance(side_data, dict)
-                line_number = side_data.get("line_number")
-                assert isinstance(line_number, int)
-                changes = side_data.get("changes")
-                assert isinstance(changes, list)
+                line_number = side_data["line_number"]
+                changes = side_data["changes"]
                 line_spans = expected[side].setdefault(line_number, set())
                 for change in changes:
-                    assert isinstance(change, dict)
-                    start = change.get("start")
-                    end = change.get("end")
-                    assert isinstance(start, int)
-                    assert isinstance(end, int)
+                    start = change["start"]
+                    end = change["end"]
                     source_bytes = source_lines[side][line_number].encode(
                         "utf-8"
                     )
@@ -348,22 +331,20 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
     cursors: dict[Side, dict[int, int]] = {"left": {}, "right": {}}
     diagnostics: list[str] = []
     sides: tuple[Side, Side] = ("left", "right")
-    side_fields: tuple[tuple[Side, str, str, str], ...] = (
-        ("left", "left_no", "left_text", "left_tokens"),
-        ("right", "right_no", "right_text", "right_tokens"),
-    )
     for row_index, row in enumerate(rows):
-        for side, no_key, text_key, tokens_key in side_fields:
-            line_no = row.get(no_key)
+        for side in sides:
+            if side == "left":
+                line_no = row["left_no"]
+                text = row["left_text"]
+                tokens = row.get("left_tokens")
+            else:
+                line_no = row["right_no"]
+                text = row["right_text"]
+                tokens = row.get("right_tokens")
             if line_no is None:
                 continue
-            assert isinstance(line_no, int)
-            tokens = row.get(tokens_key)
             if tokens is None:
                 continue
-            assert isinstance(tokens, list)
-            text = row.get(text_key)
-            assert isinstance(text, str)
             source_line = source_lines[side][line_no - 1]
             cursor = cursors[side].get(line_no - 1, 0)
             if source_line.startswith(text, cursor):
@@ -379,11 +360,8 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
             token_offset = start_offset
             line_spans = actual[side].setdefault(line_no - 1, set())
             for token in tokens:
-                assert isinstance(token, dict)
-                token_text = token.get("text")
-                assert isinstance(token_text, str)
-                status = token.get("status")
-                assert isinstance(status, str)
+                token_text = token["text"]
+                status = token["status"]
                 if status != "unchanged":
                     line_spans.update(
                         range(token_offset, token_offset + len(token_text))
@@ -408,11 +386,12 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
     assert diagnostics == []
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+@pytest.mark.parametrize(("old_path", "new_path"), _preset_cases())
 def test_difftastic_preset_line_status_matches_token_statuses(
-    preset_dir: Path,
+    old_path: Path,
+    new_path: Path,
 ) -> None:
-    rows, _, _ = _difftastic_rows_for_preset(preset_dir)
+    rows, _, _ = _difftastic_rows_for_preset(old_path, new_path)
 
     diagnostics: list[tuple[int, str, str, list[str]]] = []
     for row_index, row in enumerate(rows, start=1):
@@ -421,21 +400,21 @@ def test_difftastic_preset_line_status_matches_token_statuses(
         changed_tokens_are_ws = True
         has_unchanged_text = False
         for side in ("left", "right"):
-            tokens_key = "left_tokens" if side == "left" else "right_tokens"
-            tokens = row.get(tokens_key)
+            tokens = (
+                row.get("left_tokens")
+                if side == "left"
+                else row.get("right_tokens")
+            )
             if tokens is None:
                 continue
-            assert isinstance(tokens, list)
             if tokens != []:
                 has_token_data = True
             for token in tokens:
-                assert isinstance(token, dict)
-                status = token.get("status")
-                assert isinstance(status, str)
+                status = token["status"]
                 token_statuses.append(status)
-                if status == "unchanged" and token.get("is_ws") is not True:
+                if status == "unchanged" and not token["is_ws"]:
                     has_unchanged_text = True
-                if status != "unchanged" and token.get("is_ws") is not True:
+                if status != "unchanged" and not token["is_ws"]:
                     changed_tokens_are_ws = False
         if token_statuses == [] and not has_token_data:
             continue
@@ -452,19 +431,18 @@ def test_difftastic_preset_line_status_matches_token_statuses(
         else:
             expected = "replace"
 
-        actual = row.get("status")
-        assert isinstance(actual, str)
+        actual = row["status"]
         if actual != expected:
             diagnostics.append((row_index, actual, expected, token_statuses))
 
     assert diagnostics == []
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+@pytest.mark.parametrize(("old_path", "new_path"), _preset_cases())
 def test_difftastic_preset_line_alignment_matches_difftastic(
-    preset_dir: Path,
+    old_path: Path,
+    new_path: Path,
 ) -> None:
-    old_path, new_path = _preset_paths(preset_dir)
     old_text = old_path.read_text()
     new_text = new_path.read_text()
     service = DifftasticDiffEngine()
@@ -483,11 +461,8 @@ def test_difftastic_preset_line_alignment_matches_difftastic(
     new_line_count = len(new_text.splitlines())
     expected: list[tuple[int | None, int | None]] = []
     for pair in diff_json.get("aligned_lines", []):
-        assert isinstance(pair, list)
         assert len(pair) == 2
         left_raw, right_raw = pair
-        assert left_raw is None or isinstance(left_raw, int)
-        assert right_raw is None or isinstance(right_raw, int)
         left_no = None if left_raw is None else left_raw + 1
         right_no = None if right_raw is None else right_raw + 1
         if left_no is not None and left_no > old_line_count:
@@ -496,16 +471,16 @@ def test_difftastic_preset_line_alignment_matches_difftastic(
             continue
         expected.append((left_no, right_no))
 
-    actual = [(row.get("left_no"), row.get("right_no")) for row in rows]
+    actual = [(row["left_no"], row["right_no"]) for row in rows]
     assert actual == expected
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+@pytest.mark.parametrize(("old_path", "new_path"), _preset_cases())
 def test_difftastic_preset_diff_replays_left_to_right(
-    preset_dir: Path,
+    old_path: Path,
+    new_path: Path,
 ) -> None:
     """Token statuses should replay the old file into the new file."""
-    old_path, new_path = _preset_paths(preset_dir)
     source_texts = {
         "left": old_path.read_text(),
         "right": new_path.read_text(),
@@ -541,26 +516,27 @@ def test_difftastic_preset_diff_replays_left_to_right(
 
     # Stage 1: collect difftastic statuses as non-whitespace characters.
     side_parts: dict[Side, list[tuple[str, str]]] = {"left": [], "right": []}
-    side_fields: tuple[tuple[Side, str, str, str], ...] = (
-        ("left", "left_no", "left_text", "left_tokens"),
-        ("right", "right_no", "right_text", "right_tokens"),
-    )
-    for side, no_key, text_key, tokens_key in side_fields:
+    for side in sides:
         for row in rows:
-            if row.get(no_key) is None:
+            if side == "left":
+                line_no = row["left_no"]
+                row_text = row["left_text"]
+                tokens = row["left_tokens"]
+            else:
+                line_no = row["right_no"]
+                row_text = row["right_text"]
+                tokens = row["right_tokens"]
+            if line_no is None:
                 continue
-            tokens = row.get(tokens_key)
-            if tokens is None or tokens == []:
-                row_text = row.get(text_key)
-                assert isinstance(row_text, str)
-                row_status = row.get("status")
-                assert isinstance(row_status, str)
+            assert isinstance(row_text, str)
+            if tokens == []:
+                row_status = row["status"]
                 if row_status == "equal":
                     token_status = "unchanged"
-                elif side == "left" and row.get("right_no") is None:
+                elif side == "left" and row["right_no"] is None:
                     assert row_status == "delete"
                     token_status = "delete"
-                elif side == "right" and row.get("left_no") is None:
+                elif side == "right" and row["left_no"] is None:
                     assert row_status == "insert"
                     token_status = "insert"
                 else:
@@ -570,13 +546,9 @@ def test_difftastic_preset_diff_replays_left_to_right(
                         continue
                     side_parts[side].append((token_status, char))
                 continue
-            assert isinstance(tokens, list)
             for token in tokens:
-                assert isinstance(token, dict)
-                token_text = token.get("text")
-                assert isinstance(token_text, str)
-                listed_token_status = token.get("status")
-                assert isinstance(listed_token_status, str)
+                token_text = token["text"]
+                listed_token_status = token["status"]
                 for char in token_text:
                     if char.isspace():
                         continue
@@ -646,12 +618,12 @@ def test_difftastic_preset_diff_replays_left_to_right(
     assert replayed == new_source_chars
 
 
-@pytest.mark.parametrize("preset_dir", _preset_dirs(), ids=str)
+@pytest.mark.parametrize(("old_path", "new_path"), _preset_cases())
 def test_difftastic_preset_diff_replays_right_to_left(
-    preset_dir: Path,
+    old_path: Path,
+    new_path: Path,
 ) -> None:
     """Token statuses should replay the new file back into the old file."""
-    old_path, new_path = _preset_paths(preset_dir)
     source_texts = {
         "left": old_path.read_text(),
         "right": new_path.read_text(),
@@ -687,26 +659,27 @@ def test_difftastic_preset_diff_replays_right_to_left(
 
     # Stage 1: collect difftastic statuses as non-whitespace characters.
     side_parts: dict[Side, list[tuple[str, str]]] = {"left": [], "right": []}
-    side_fields: tuple[tuple[Side, str, str, str], ...] = (
-        ("left", "left_no", "left_text", "left_tokens"),
-        ("right", "right_no", "right_text", "right_tokens"),
-    )
-    for side, no_key, text_key, tokens_key in side_fields:
+    for side in sides:
         for row in rows:
-            if row.get(no_key) is None:
+            if side == "left":
+                line_no = row["left_no"]
+                row_text = row["left_text"]
+                tokens = row["left_tokens"]
+            else:
+                line_no = row["right_no"]
+                row_text = row["right_text"]
+                tokens = row["right_tokens"]
+            if line_no is None:
                 continue
-            tokens = row.get(tokens_key)
-            if tokens is None or tokens == []:
-                row_text = row.get(text_key)
-                assert isinstance(row_text, str)
-                row_status = row.get("status")
-                assert isinstance(row_status, str)
+            assert isinstance(row_text, str)
+            if tokens == []:
+                row_status = row["status"]
                 if row_status == "equal":
                     token_status = "unchanged"
-                elif side == "left" and row.get("right_no") is None:
+                elif side == "left" and row["right_no"] is None:
                     assert row_status == "delete"
                     token_status = "delete"
-                elif side == "right" and row.get("left_no") is None:
+                elif side == "right" and row["left_no"] is None:
                     assert row_status == "insert"
                     token_status = "insert"
                 else:
@@ -716,13 +689,9 @@ def test_difftastic_preset_diff_replays_right_to_left(
                         continue
                     side_parts[side].append((token_status, char))
                 continue
-            assert isinstance(tokens, list)
             for token in tokens:
-                assert isinstance(token, dict)
-                token_text = token.get("text")
-                assert isinstance(token_text, str)
-                listed_token_status = token.get("status")
-                assert isinstance(listed_token_status, str)
+                token_text = token["text"]
+                listed_token_status = token["status"]
                 for char in token_text:
                     if char.isspace():
                         continue
@@ -803,12 +772,16 @@ def test_difftastic_current_diff_matches_preset_invariants(
     suffix = Path(right_name).suffix or Path(left_name).suffix or ".txt"
     current_case = tmp_path / display_name.replace("/", "__")
     current_case.mkdir()
-    (current_case / f"old{suffix}").write_text(left_text)
-    (current_case / f"new{suffix}").write_text(right_text)
+    old_path = current_case / f"old{suffix}"
+    new_path = current_case / f"new{suffix}"
+    old_path.write_text(left_text)
+    new_path.write_text(right_text)
 
-    test_difftastic_preset_tokens_stay_in_source_order(current_case)
-    test_difftastic_preset_token_spans_match_difftastic_json(current_case)
-    test_difftastic_preset_line_status_matches_token_statuses(current_case)
-    test_difftastic_preset_line_alignment_matches_difftastic(current_case)
-    test_difftastic_preset_diff_replays_left_to_right(current_case)
-    test_difftastic_preset_diff_replays_right_to_left(current_case)
+    test_difftastic_preset_tokens_stay_in_source_order(old_path, new_path)
+    test_difftastic_preset_token_spans_match_difftastic_json(old_path, new_path)
+    test_difftastic_preset_line_status_matches_token_statuses(
+        old_path, new_path
+    )
+    test_difftastic_preset_line_alignment_matches_difftastic(old_path, new_path)
+    test_difftastic_preset_diff_replays_left_to_right(old_path, new_path)
+    test_difftastic_preset_diff_replays_right_to_left(old_path, new_path)

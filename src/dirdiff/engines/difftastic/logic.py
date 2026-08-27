@@ -96,7 +96,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import unified_diff
-from typing import Any, Literal, TypedDict, final, override
+from typing import Any, Literal, NotRequired, TypedDict, final, override
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
@@ -136,7 +136,7 @@ class DifftasticInlineToken(TypedDict):
     is_ws: bool
 
 
-class DifftasticRow(TypedDict, total=False):
+class DifftasticRow(TypedDict):
     """Rendered row shape exported from difftastic logic to the service.
 
     One row renders one aligned line pair. Absent sides carry `None` line
@@ -150,8 +150,8 @@ class DifftasticRow(TypedDict, total=False):
     right_no: int | None
     left_text: str
     right_text: str
-    left_tokens: list[DifftasticInlineToken]
-    right_tokens: list[DifftasticInlineToken]
+    left_tokens: NotRequired[list[DifftasticInlineToken]]
+    right_tokens: NotRequired[list[DifftasticInlineToken]]
 
 
 @dataclass(frozen=True)
