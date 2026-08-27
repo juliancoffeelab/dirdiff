@@ -7,6 +7,9 @@ checkFormatPython:
 tscheck:
 	bun run --cwd frontend typecheck
 
+tstest:
+	bun run --cwd frontend test
+
 eslint:
 	bun run --cwd frontend lint
 
@@ -80,11 +83,12 @@ fullpycheck: fullpycode fullpytest
 
 # all frontend checks
 fulltscode: checkFormatJs tscheck eslint
-fulltscheck: fulltscode
+fulltstest: tstest
+fulltscheck: fulltscode fulltstest
 
 # combined ones
 fullcode: fullpycode fulltscode
-fulltest: fullpytest
+fulltest: fullpytest fulltstest
 
 # *the* full check
 fullcheck: fullcode fulltest

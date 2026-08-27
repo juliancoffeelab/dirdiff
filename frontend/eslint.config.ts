@@ -17,7 +17,7 @@ export default defineConfig(
     ignores: ["dist/**", "node_modules/**", ".vite/**"],
   },
   {
-    files: ["src/**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {

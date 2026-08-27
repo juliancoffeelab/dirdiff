@@ -5,10 +5,11 @@
   "scripts": {
     "dev": "vite",
     "build": "bun run typecheck && vite build",
+    "test": "VITE_DIRDIFF_BACKEND_ORIGIN=http://127.0.0.1:5052 vitest run --environment jsdom",
     "typecheck": "bun run typecheck:src && bun run typecheck:tools",
     "typecheck:src": "tsc --noEmit -p tsconfig.json",
     "typecheck:tools": "tsc --noEmit -p tsconfig.tools.json",
-    "lint": "eslint \"src/**/*.{ts,tsx}\" eslint.config.ts \"eslint-rules/**/*.mjs\"",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" eslint.config.ts \"eslint-rules/**/*.mjs\"",
     "lint:human": "eslint --config eslint.human.config.ts \"src/**/*.{ts,tsx}\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -24,11 +25,15 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",
+    "@solidjs/testing-library": "0.8.10",
+    "@testing-library/jest-dom": "7.0.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "9.39.2",
     "jiti": "^2.7.0",
+    "jsdom": "30.0.1",
     "prettier": "^3.8.4",
-    "@typescript/native": "npm:typescript@^7.0.2",
     "typescript": "^6.0.2",
-    "typescript-eslint": "8.68.0"
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11"
   }
 }
