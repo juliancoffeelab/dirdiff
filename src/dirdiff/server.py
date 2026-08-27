@@ -1654,7 +1654,7 @@ def create_app(
         return _ReviewHttpException(status, error)
 
     @app.exception_handler(_ReviewHttpException)
-    async def serve_review_error(
+    async def serve_review_error(  # pyright: ignore[reportUnusedFunction]
         request: Request,
         error: _ReviewHttpException,
     ) -> JSONResponse:
@@ -1666,7 +1666,7 @@ def create_app(
         )
 
     @app.exception_handler(Exception)
-    async def serve_unexpected_error(
+    async def serve_unexpected_error(  # pyright: ignore[reportUnusedFunction]
         request: Request,
         error: Exception,
     ) -> JSONResponse:
@@ -2103,7 +2103,7 @@ def create_app(
         )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_failure(
+    async def validation_failure(  # pyright: ignore[reportUnusedFunction]
         request: Request, exc: RequestValidationError
     ) -> Any:
         """Return validation detail at the agent API boundary."""
@@ -2122,7 +2122,7 @@ def create_app(
         return await request_validation_exception_handler(request, exc)
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_failure(
+    async def http_failure(  # pyright: ignore[reportUnusedFunction]
         request: Request, exc: StarletteHTTPException
     ) -> Any:
         """Return framework failure detail at the agent API boundary."""
@@ -2132,7 +2132,7 @@ def create_app(
         return await http_exception_handler(request, exc)
 
     @app.get("/", response_class=HTMLResponse)
-    def serve_frontend_missing() -> HTMLResponse:
+    def serve_frontend_missing() -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
         return HTMLResponse(
             """
             <!doctype html>
@@ -2189,7 +2189,7 @@ def create_app(
         responses=_REVIEW_ERROR_RESPONSES,
         summary="Read one page of review Threads",
     )
-    def serve_review(
+    def serve_review(  # pyright: ignore[reportUnusedFunction]
         snapshot_id: UUID = Query(description="Exact retained Snapshot id."),
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=100),
@@ -2260,7 +2260,7 @@ def create_app(
         responses=_REVIEW_ERROR_RESPONSES,
         summary="Post one review Comment",
     )
-    def post_review_comment(
+    def post_review_comment(  # pyright: ignore[reportUnusedFunction]
         request: PostCommentRequest,
     ) -> ReviewThreadResponse | ReviewThreadUpdateResponse:
         """Start one Thread or append one Comment to an existing Thread."""
@@ -2305,7 +2305,7 @@ def create_app(
         responses=_REVIEW_ERROR_RESPONSES,
         summary="Edit one review Comment",
     )
-    def edit_review_comment(
+    def edit_review_comment(  # pyright: ignore[reportUnusedFunction]
         request: EditReviewCommentRequest,
     ) -> ReviewThreadUpdateResponse:
         """Edit one authored Comment using the backend's current revision."""
@@ -2336,7 +2336,7 @@ def create_app(
         responses=_REVIEW_ERROR_RESPONSES,
         summary="Delete one review Comment",
     )
-    def delete_review_comment(
+    def delete_review_comment(  # pyright: ignore[reportUnusedFunction]
         request: DeleteReviewCommentRequest,
     ) -> ReviewThreadUpdateResponse:
         """Tombstone one Comment and retain its acting Profile in the action log."""
@@ -2401,7 +2401,7 @@ def create_app(
         responses=_REVIEW_ERROR_RESPONSES,
         summary="Resolve one review Thread",
     )
-    def resolve_review_thread(
+    def resolve_review_thread(  # pyright: ignore[reportUnusedFunction]
         request: ChangeReviewThreadStateRequest,
     ) -> ReviewThreadUpdateResponse:
         """Resolve an open Thread at its exact current revision."""
@@ -2416,7 +2416,7 @@ def create_app(
         responses=_REVIEW_ERROR_RESPONSES,
         summary="Reopen one review Thread",
     )
-    def reopen_review_thread(
+    def reopen_review_thread(  # pyright: ignore[reportUnusedFunction]
         request: ChangeReviewThreadStateRequest,
     ) -> ReviewThreadUpdateResponse:
         """Reopen a resolved Thread at its exact current revision."""
@@ -2431,7 +2431,7 @@ def create_app(
         responses=_REVIEW_ERROR_RESPONSES,
         summary="Delete one review Thread",
     )
-    def delete_review_thread(
+    def delete_review_thread(  # pyright: ignore[reportUnusedFunction]
         request: DeleteReviewThreadRequest,
     ) -> ReviewThreadUpdateResponse:
         """Record terminal Thread deletion at its exact current revision."""
@@ -2444,7 +2444,7 @@ def create_app(
         "/api/agent/join_review",
         response_model=NewAgentReviewResponse,
     )
-    def join_agent_review(
+    def join_agent_review(  # pyright: ignore[reportUnusedFunction]
         request: NewAgentReviewRequest,
     ) -> NewAgentReviewResponse | PlainTextResponse:
         """Register one disposable Profile and capture its explicit Tab."""
@@ -2531,7 +2531,7 @@ def create_app(
         "/api/agent/thread_summary",
         response_model=AgentPage[AgentThreadSummary],
     )
-    def agent_thread_summary(
+    def agent_thread_summary(  # pyright: ignore[reportUnusedFunction]
         snapshot_id: UUID,
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=100),
@@ -2582,7 +2582,7 @@ def create_app(
             return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.get("/api/agent/threads", response_model=AgentPage[AgentThread])
-    def agent_threads(
+    def agent_threads(  # pyright: ignore[reportUnusedFunction]
         snapshot_id: UUID,
         for_role: Literal["author", "reviewer"] | None = Query(
             default=None, alias="for"
@@ -2613,7 +2613,7 @@ def create_app(
             return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.get("/api/agent/thread/{thread_id}", response_model=AgentThreadPage)
-    def agent_thread_by_id(
+    def agent_thread_by_id(  # pyright: ignore[reportUnusedFunction]
         thread_id: UUID,
         snapshot_id: UUID,
         page: int = Query(default=1, ge=1),
@@ -2645,7 +2645,7 @@ def create_app(
         "/api/agent/continue_review",
         response_model=ContinueAgentReviewResponse,
     )
-    def continue_agent_review(
+    def continue_agent_review(  # pyright: ignore[reportUnusedFunction]
         request: ContinueAgentReviewRequest,
     ) -> ContinueAgentReviewResponse | PlainTextResponse:
         """Recapture one Tab and return its bounded File and Thread changes."""
@@ -2771,7 +2771,7 @@ def create_app(
             return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.post("/api/agent/actions", response_model=AgentActionsResponse)
-    def apply_agent_actions(
+    def apply_agent_actions(  # pyright: ignore[reportUnusedFunction]
         request: AgentActionsRequest,
     ) -> AgentActionsResponse | PlainTextResponse:
         """Validate and atomically apply one ordered agent-authored batch."""
@@ -2887,7 +2887,7 @@ def create_app(
             return agent_failure(HTTPStatus.BAD_REQUEST, exc)
 
     @app.get("/api/repo-defaults")
-    def serve_repo_defaults(
+    def serve_repo_defaults(  # pyright: ignore[reportUnusedFunction]
         project_id: int = Query(
             description="Marked project id. Required for repo-backed defaults.",
         ),
@@ -2919,7 +2919,7 @@ def create_app(
         )
 
     @app.get("/api/repo-refs")
-    def serve_repo_refs(
+    def serve_repo_refs(  # pyright: ignore[reportUnusedFunction]
         project_id: int = Query(
             description="Marked project id. Required for repo-backed refs.",
         ),
@@ -2944,7 +2944,7 @@ def create_app(
         },
         summary="Save the repository main branch selection",
     )
-    def save_repo_main_branch(
+    def save_repo_main_branch(  # pyright: ignore[reportUnusedFunction]
         project_id: int,
         request: RepoMainBranchRequest,
     ) -> RepoMainBranchResponse:
@@ -2985,7 +2985,7 @@ def create_app(
         },
         summary="Load grouped preset metadata",
     )
-    def serve_presets() -> list[PresetCatalogResponse]:
+    def serve_presets() -> list[PresetCatalogResponse]:  # pyright: ignore[reportUnusedFunction]
         try:
             return [
                 preset_catalog_response(catalog)
@@ -3004,7 +3004,7 @@ def create_app(
             ) from exc
 
     @app.get("/api/repos")
-    def serve_repos() -> list[RepoMarkResponse]:
+    def serve_repos() -> list[RepoMarkResponse]:  # pyright: ignore[reportUnusedFunction]
         return [
             RepoMarkResponse.model_validate(mark, from_attributes=True)
             for mark in db.list()
@@ -3019,7 +3019,7 @@ def create_app(
         },
         summary="Remove a marked repository",
     )
-    def delete_repo_mark(project_id: int) -> None:
+    def delete_repo_mark(project_id: int) -> None:  # pyright: ignore[reportUnusedFunction]
         try:
             if not db.delete(project_id):
                 raise HTTPException(
@@ -3043,7 +3043,7 @@ def create_app(
         },
         summary="Prepare immutable repository state for a Pull Request Tab",
     )
-    def prepare_pull_request_endpoint(
+    def prepare_pull_request_endpoint(  # pyright: ignore[reportUnusedFunction]
         request: PullRequestPrepareRequest,
     ) -> PullRequestPrepareResponse:
         try:
@@ -3072,7 +3072,7 @@ def create_app(
         },
         summary="Create persisted user profile data",
     )
-    def create_user_profile(
+    def create_user_profile(  # pyright: ignore[reportUnusedFunction]
         request: UserProfileUpdateRequest,
     ) -> UserProfileResponse:
         try:
@@ -3094,7 +3094,7 @@ def create_app(
         },
         summary="Select persisted user profile data by exact username",
     )
-    def get_user_profile(username: str) -> UserProfileResponse:
+    def get_user_profile(username: str) -> UserProfileResponse:  # pyright: ignore[reportUnusedFunction]
         """Return the one existing Profile selected by its exact username."""
         try:
             profile = user_profile_store.get_by_username(username)
@@ -3121,7 +3121,7 @@ def create_app(
         },
         summary="Update persisted user profile data",
     )
-    def update_user_profile(
+    def update_user_profile(  # pyright: ignore[reportUnusedFunction]
         profile_id: int,
         request: UserProfileUpdateRequest,
     ) -> UserProfileResponse:
@@ -3151,7 +3151,7 @@ def create_app(
         },
         summary="Load persisted user preferences",
     )
-    def serve_preferences(profile_id: int) -> PreferencesResponse:
+    def serve_preferences(profile_id: int) -> PreferencesResponse:  # pyright: ignore[reportUnusedFunction]
         profile = user_profile_store.get(profile_id)
         if profile is None:
             raise HTTPException(
@@ -3170,7 +3170,7 @@ def create_app(
         },
         summary="Update persisted user preferences",
     )
-    def update_preferences(
+    def update_preferences(  # pyright: ignore[reportUnusedFunction]
         profile_id: int,
         request: PreferencesUpdateRequest,
     ) -> PreferencesResponse:
@@ -3195,7 +3195,7 @@ def create_app(
         },
         summary="Show the repository state selected by a Tab",
     )
-    def serve_manifest(
+    def serve_manifest(  # pyright: ignore[reportUnusedFunction]
         project_id: str = Query(
             description="Manifest project id: marked project id for repo-backed Tabs, preset catalog id for Preset.",
         ),
@@ -3324,7 +3324,7 @@ def create_app(
         },
         summary="Load repository lazy file metadata",
     )
-    def serve_lazy_info(
+    def serve_lazy_info(  # pyright: ignore[reportUnusedFunction]
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
@@ -3403,7 +3403,7 @@ def create_app(
         },
         summary="Load a single file diff",
     )
-    def serve_file_diff(
+    def serve_file_diff(  # pyright: ignore[reportUnusedFunction]
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
@@ -3473,7 +3473,7 @@ def create_app(
         summary="Serve one captured media side",
         response_class=Response,
     )
-    def serve_file_media(
+    def serve_file_media(  # pyright: ignore[reportUnusedFunction]
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
