@@ -9,7 +9,7 @@ endpoint produces it.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Literal
 
 from dirdiff.engines.gumtree import (
     GumTreeDiffEngine,
@@ -20,6 +20,7 @@ from dirdiff.engines.gumtree.logic import (
     _range_from_tree,
 )
 from dirdiff.formats import ComposeContext, ComposedFilePayload, Composer
+from dirdiff.rendering import DiffRow
 
 __all__: list[str] = []
 
@@ -31,7 +32,7 @@ RIGHT_PATH = "python/extract-python-helper-function/new.py"
 
 @dataclass(frozen=True)
 class ExpectedTokenStatus:
-    side: str
+    side: Literal["left", "right"]
     status: str
     line_no: int
     start: int
@@ -72,7 +73,7 @@ def _source_text(side: str) -> str:
 
 def _expected_for_tree(
     *,
-    side: str,
+    side: Literal["left", "right"],
     status: str,
     tree: str,
 ) -> list[ExpectedTokenStatus]:
@@ -184,20 +185,18 @@ def _expected_action_statuses(
 def _row_for_line(
     payload: ComposedFilePayload,
     *,
-    side: str,
+    side: Literal["left", "right"],
     line_no: int,
-) -> dict[str, Any]:
-    line_key = f"{side}_no"
+) -> DiffRow:
     # A flat Python file composes into exactly one text bay, and its rows are
     # the rows this module asserts against.
     (frame,) = payload["frames"]
     (bay,) = frame["bays"]
     kind_data = bay["kind_data"]
     assert kind_data["kind"] == "text"
-    rows: list[Any] = kind_data["rows"]
-    row: dict[str, Any]
-    for row in rows:
-        if row[line_key] == line_no:
+    for row in kind_data["rows"]:
+        row_line_no = row["left_no"] if side == "left" else row["right_no"]
+        if row_line_no == line_no:
             return row
     raise AssertionError(f"Missing {side} row for line {line_no}")
 
@@ -205,14 +204,15 @@ def _row_for_line(
 def _actual_status_intervals(
     payload: ComposedFilePayload,
     *,
-    side: str,
+    side: Literal["left", "right"],
     status: str,
     line_no: int,
 ) -> list[ActualTokenStatus]:
     row = _row_for_line(payload, side=side, line_no=line_no)
     cursor = 0
     intervals: list[ActualTokenStatus] = []
-    for part in row[f"{side}_parts"]:
+    parts = row["left_parts"] if side == "left" else row["right_parts"]
+    for part in parts:
         token_text = part["text"]
         start = cursor
         end = cursor + len(token_text)

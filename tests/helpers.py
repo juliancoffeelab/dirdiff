@@ -10,15 +10,23 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar, override
+from typing import ClassVar, NotRequired, TypedDict, override
 
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
+from syrupy.location import PyTestLocation
+from syrupy.types import (
+    PropertyFilter,
+    PropertyMatcher,
+    SerializableData,
+    SnapshotIndex,
+)
 
 from dirdiff.backend import (
     BranchSelection,
     GitBackend,
     RefChoices,
+    RepoDiffPath,
     RepoManifest,
     WorkspaceBackendProtocol,
     build_repo_manifest_for_backend,
@@ -27,10 +35,13 @@ from dirdiff.backend import (
 from dirdiff.engines import (
     DiffEngineProtocol,
     DiffSide,
+    DiffSummary,
     GitDiffEngine,
     TextDiffEngine,
 )
 from dirdiff.rendering import (
+    DiffRow,
+    FoldHint,
     default_expanded_for_payload,
     enrich_rows_for_display,
 )
@@ -42,6 +53,26 @@ __all__ = [
     "WorkspaceDiffServiceAdapter",
     "build_loaded_diff",
 ]
+
+
+class _LoadedDiffSummary(DiffSummary):
+    """Add side-presence facts to an engine's line-count summary."""
+
+    left_exists: bool
+    right_exists: bool
+
+
+class _LoadedDiff(TypedDict):
+    """Describe the legacy single-text-bay payload used by rendering tests."""
+
+    display_name: str
+    left_label: str
+    right_label: str
+    summary: _LoadedDiffSummary
+    rows: list[DiffRow]
+    hunk_count: int
+    default_expanded: bool
+    fold_hints: NotRequired[list[FoldHint]]
 
 
 class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
@@ -63,11 +94,11 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     @override
     def serialize(
         self,
-        data: Any,
+        data: SerializableData,
         *,
-        exclude: Any = None,
-        include: Any = None,
-        matcher: Any = None,
+        exclude: PropertyFilter | None = None,
+        include: PropertyFilter | None = None,
+        matcher: PropertyMatcher | None = None,
     ) -> str:
         return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
@@ -84,13 +115,13 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
 
     @classmethod
     @override
-    def dirname(cls, *, test_location: Any) -> str:
+    def dirname(cls, *, test_location: PyTestLocation) -> str:
         return str(cls.golden_root)
 
     @classmethod
     @override
     def get_snapshot_name(
-        cls, *, test_location: Any, index: int | str = 0
+        cls, *, test_location: PyTestLocation, index: SnapshotIndex = 0
     ) -> str:
         if isinstance(index, str):
             preset_path = cls.preset_root / index
@@ -102,7 +133,9 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
 
     @classmethod
     @override
-    def get_location(cls, *, test_location: Any, index: int | str) -> str:
+    def get_location(
+        cls, *, test_location: PyTestLocation, index: SnapshotIndex
+    ) -> str:
         if isinstance(index, str):
             return str(
                 cls.golden_root
@@ -135,7 +168,7 @@ def build_loaded_diff(
     right_text: str | None,
     left_path_hint: str | None = None,
     right_path_hint: str | None = None,
-) -> dict[str, Any]:
+) -> _LoadedDiff:
     """Build the ordinary text payload shape expected by legacy logic tests.
 
     The production helper with this name was removed when rendering was split
@@ -168,7 +201,7 @@ def build_loaded_diff(
         left_path_hint=left_path_hint,
         right_path_hint=right_path_hint,
     )
-    payload: dict[str, Any] = {
+    payload: _LoadedDiff = {
         "display_name": display_name,
         "left_label": left_label,
         "right_label": right_label,
@@ -210,7 +243,9 @@ class WorkspaceDiffServiceAdapter:
             show_untracked=show_untracked,
         )
 
-    def list_repo_diff_paths(self, *, left: str, right: str) -> Any:
+    def list_repo_diff_paths(
+        self, *, left: str, right: str
+    ) -> tuple[RepoDiffPath, ...]:
         return self.backend.repo_diff(left=left, right=right).paths
 
     def list_ref_choices(self) -> RefChoices:

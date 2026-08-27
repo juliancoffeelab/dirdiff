@@ -8,10 +8,10 @@ broad token and row-shape invariants live in `test_difftastic_proptest`.
 """
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from helpers import GoldenJsonSnapshotExtension
+from syrupy.assertion import SnapshotAssertion
 
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import (
@@ -34,7 +34,7 @@ class DifftasticGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
 
 
 @pytest.fixture
-def snapshot_json(snapshot: Any) -> Any:
+def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     return snapshot.with_defaults(
         extension_class=DifftasticGoldenSnapshotExtension
     )
@@ -52,7 +52,7 @@ def snapshot_json(snapshot: Any) -> Any:
 )
 def test_difftastic_preset_rows_match_golden(
     preset_dir: Path,
-    snapshot_json: Any,
+    snapshot_json: SnapshotAssertion,
 ) -> None:
     old_files = sorted(preset_dir.glob("old.*"))
     new_files = sorted(preset_dir.glob("new.*"))

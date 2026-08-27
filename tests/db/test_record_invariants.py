@@ -13,10 +13,14 @@ Emphasis falls on the shapes SQL admitted only by accident of NULL semantics
 and on the fields that had no Python check at all before the migration,
 `status_after` and `attention_after`, since those two columns were guarded by
 their constraint alone.
+
+Some cases intentionally cross typed boundaries with invalid field shapes or
+persisted values. Those calls carry narrow type-checker suppressions because
+accepting the values in the surrounding test code would hide the contract the
+test is meant to violate.
 """
 
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -133,14 +137,16 @@ _ACTION = {
         ),
     ],
 )
-def test_valid_placements_construct(changes: dict[str, Any]) -> None:
+def test_valid_placements_construct(changes: dict[str, object]) -> None:
     """Every placement review derivation emits must still be constructible.
 
     The four tagged-union variants and both outdated forms of a range are the
     whole set `dirdiff.review` produces, so a check that rejected one of them
     would break persistence outright rather than merely tighten it.
     """
-    record = ReviewThreadRecord(**{**_RANGE, **changes})
+    record = ReviewThreadRecord(
+        **{**_RANGE, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    )
     assert record.thread_id == _RANGE["thread_id"]
 
 
@@ -247,7 +253,7 @@ def test_valid_placements_construct(changes: dict[str, Any]) -> None:
         ),
     ],
 )
-def test_invalid_placement_is_refused(changes: dict[str, Any]) -> None:
+def test_invalid_placement_is_refused(changes: dict[str, object]) -> None:
     """No placement outside the tagged union may be constructed.
 
     Each case is a row the dropped `ck_review_thread_location` or
@@ -256,7 +262,9 @@ def test_invalid_placement_is_refused(changes: dict[str, Any]) -> None:
     one from being read as if it made sense.
     """
     with pytest.raises(AssertionError):
-        ReviewThreadRecord(**{**_RANGE, **changes})
+        ReviewThreadRecord(
+            **{**_RANGE, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )
 
 
 @pytest.mark.parametrize(
@@ -291,9 +299,11 @@ def test_invalid_placement_is_refused(changes: dict[str, Any]) -> None:
         ),
     ],
 )
-def test_valid_actions_construct(changes: dict[str, Any]) -> None:
+def test_valid_actions_construct(changes: dict[str, object]) -> None:
     """Every action variant the review API writes must stay constructible."""
-    record = ReviewActionRecord(**{**_ACTION, **changes})
+    record = ReviewActionRecord(
+        **{**_ACTION, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    )
     assert record.operation_id == _ACTION["operation_id"]
 
 
@@ -331,14 +341,16 @@ def test_valid_actions_construct(changes: dict[str, Any]) -> None:
         pytest.param({"kind": "thread-deleted"}, id="deleted-carrying-a-body"),
     ],
 )
-def test_invalid_action_is_refused(changes: dict[str, Any]) -> None:
+def test_invalid_action_is_refused(changes: dict[str, object]) -> None:
     """No action whose fields contradict its kind may be constructed.
 
     Each case is a row `ck_review_action_variant` rejected, plus the Profile
     identity that `__post_init__` has always required.
     """
     with pytest.raises(AssertionError):
-        ReviewActionRecord(**{**_ACTION, **changes})
+        ReviewActionRecord(
+            **{**_ACTION, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )
 
 
 @pytest.mark.parametrize(
@@ -366,8 +378,10 @@ def test_persisted_action_enums_are_validated_on_read(
     """
     columns = {**_ACTION, "status_after": status_after}
     columns["attention_after"] = attention_after
-    action: Any = SimpleNamespace(**columns)
+    action = SimpleNamespace(**columns)
     with pytest.raises(
         AssertionError, match=f"invalid persisted thread {message}"
     ):
-        RoomStore._action_record(action)
+        RoomStore._action_record(
+            action  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )

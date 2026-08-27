@@ -7,10 +7,10 @@ cases that are easier to read inline belong in `test_fold_logic`.
 """
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from helpers import GoldenJsonSnapshotExtension, build_loaded_diff
+from syrupy.assertion import SnapshotAssertion
 
 from dirdiff.engines import engine_row_has_change
 
@@ -30,7 +30,7 @@ class FoldGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
 
 
 @pytest.fixture
-def snapshot_json(snapshot: Any) -> Any:
+def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     return snapshot.with_defaults(extension_class=FoldGoldenSnapshotExtension)
 
 
@@ -46,7 +46,7 @@ def snapshot_json(snapshot: Any) -> Any:
 )
 def test_fold_preset_hints_match_golden(
     preset_dir: Path,
-    snapshot_json: Any,
+    snapshot_json: SnapshotAssertion,
 ) -> None:
     old_files = sorted(preset_dir.glob("old.*"))
     new_files = sorted(preset_dir.glob("new.*"))

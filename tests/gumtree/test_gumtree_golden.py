@@ -8,10 +8,10 @@ enrichment has its own rendering tests.
 """
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from helpers import GoldenJsonSnapshotExtension
+from syrupy.assertion import SnapshotAssertion
 
 from dirdiff.engines.gumtree import GumTreeDiffEngine
 from dirdiff.engines.gumtree.logic import build_gumtree_rows_from_json
@@ -32,7 +32,7 @@ class GumTreeGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
 
 
 @pytest.fixture
-def snapshot_json(snapshot: Any) -> Any:
+def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     return snapshot.with_defaults(
         extension_class=GumTreeGoldenSnapshotExtension
     )
@@ -50,7 +50,7 @@ def snapshot_json(snapshot: Any) -> Any:
 )
 def test_gumtree_preset_rows_match_golden(
     preset_dir: Path,
-    snapshot_json: Any,
+    snapshot_json: SnapshotAssertion,
 ) -> None:
     old_files = sorted(preset_dir.glob("old.*"))
     new_files = sorted(preset_dir.glob("new.*"))

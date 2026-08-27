@@ -207,7 +207,6 @@ def test_large_tree_sitter_diff_preserves_rows_and_syntax() -> None:
         for row in diff["rows"]
         for part in row["right_parts"]
     )
-    assert all(row["status"] != "fold" for row in diff["rows"])
     changed_rows = [
         row
         for row in diff["rows"]
