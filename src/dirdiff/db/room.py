@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -28,6 +28,7 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    Select,
     String,
     UniqueConstraint,
     and_,
@@ -40,7 +41,6 @@ from sqlalchemy import (
     select,
     tuple_,
 )
-from sqlalchemy.engine import Row
 from sqlalchemy.orm import Mapped, Session, aliased, mapped_column
 
 from dirdiff.db.base import (
@@ -381,14 +381,26 @@ class ReviewThreadPlacement(TableBase):
     snapshot_file_id: Mapped[Optional[str]] = mapped_column(
         String(32), nullable=True
     )
-    target_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    target_kind: Mapped[
+        Optional[Literal["range", "bay-start", "file-start"]]
+    ] = mapped_column(String, nullable=True)
     bay_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    side: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    start_line: Mapped[Optional[int]] = mapped_column(nullable=True)
-    end_line: Mapped[Optional[int]] = mapped_column(nullable=True)
-    outdated_reason: Mapped[Optional[str]] = mapped_column(
+    side: Mapped[Optional[Literal["left", "right"]]] = mapped_column(
         String, nullable=True
     )
+    start_line: Mapped[Optional[int]] = mapped_column(nullable=True)
+    end_line: Mapped[Optional[int]] = mapped_column(nullable=True)
+    outdated_reason: Mapped[
+        Optional[
+            Literal[
+                "region_changed",
+                "region_not_found",
+                "bay_not_found",
+                "file_unreadable",
+                "file_missing",
+            ]
+        ]
+    ] = mapped_column(String, nullable=True)
     private_locator: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True
     )
@@ -463,7 +475,17 @@ class ReviewAction(TableBase):
     thread_id: Mapped[str] = mapped_column(String(32), nullable=False)
     snapshot_id: Mapped[str] = mapped_column(String(32), nullable=False)
     sequence: Mapped[int] = mapped_column(nullable=False)
-    kind: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[
+        Literal[
+            "comment-created",
+            "thread-created",
+            "comment-edited",
+            "comment-deleted",
+            "thread-resolved",
+            "thread-reopened",
+            "thread-deleted",
+        ]
+    ] = mapped_column(String, nullable=False)
     profile_id: Mapped[int] = mapped_column(
         ForeignKey("user_profile.id"), nullable=False
     )
@@ -471,8 +493,12 @@ class ReviewAction(TableBase):
     expected_revision: Mapped[Optional[int]] = mapped_column(nullable=True)
     body: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
-    status_after: Mapped[str] = mapped_column(String, nullable=False)
-    attention_after: Mapped[str] = mapped_column(String, nullable=False)
+    status_after: Mapped[Literal["open", "resolved", "deleted"]] = (
+        mapped_column(String, nullable=False)
+    )
+    attention_after: Mapped[Literal["author", "reviewer", "both", "none"]] = (
+        mapped_column(String, nullable=False)
+    )
 
 
 Index(
@@ -896,15 +922,18 @@ class RoomStore:
     @staticmethod
     def _next_review_activity_id(session: Session) -> int:
         """Return the next durable authored-action order in this database."""
-        latest = session.execute(
+        latest: int | None = session.execute(
             select(func.max(ReviewAction.activity_id))
         ).scalar_one()
         return 1 if latest is None else latest + 1
 
     @staticmethod
-    def _thread_record(row: Row[Any]) -> ReviewThreadRecord:
+    def _thread_record(
+        placement: ReviewThreadPlacement,
+        is_origin: bool,
+    ) -> ReviewThreadRecord:
         """Validate one selected database row as a Thread placement record."""
-        target_kind_value = row.target_kind
+        target_kind_value = placement.target_kind
         match target_kind_value:
             case "range" | "bay-start" | "file-start" | None:
                 target_kind = target_kind_value
@@ -912,7 +941,7 @@ class RoomStore:
                 raise AssertionError(
                     f"invalid persisted review target kind: {target_kind_value!r}"
                 )
-        side_value = row.side
+        side_value = placement.side
         match side_value:
             case "left" | "right" | None:
                 side = side_value
@@ -920,7 +949,7 @@ class RoomStore:
                 raise AssertionError(
                     f"invalid persisted review side: {side_value!r}"
                 )
-        reason_value = row.outdated_reason
+        reason_value = placement.outdated_reason
         match reason_value:
             case (
                 "region_changed"
@@ -936,25 +965,23 @@ class RoomStore:
                     f"invalid persisted outdated reason: {reason_value!r}"
                 )
         return ReviewThreadRecord(
-            thread_id=row.thread_id,
-            snapshot_id=row.snapshot_id,
-            snapshot_file_id=row.snapshot_file_id,
-            is_origin=row.is_origin,
+            thread_id=placement.thread_id,
+            snapshot_id=placement.snapshot_id,
+            snapshot_file_id=placement.snapshot_file_id,
+            is_origin=is_origin,
             target_kind=target_kind,
-            bay_key=row.bay_key,
+            bay_key=placement.bay_key,
             side=side,
-            start_line=row.start_line,
-            end_line=row.end_line,
+            start_line=placement.start_line,
+            end_line=placement.end_line,
             outdated_reason=outdated_reason,
-            private_locator=row.private_locator,
+            private_locator=placement.private_locator,
         )
 
     @staticmethod
-    def _action_record(row: Row[Any]) -> ReviewActionRecord:
+    def _action_record(action: ReviewAction) -> ReviewActionRecord:
         """Validate one selected database row as an authored action record."""
-        assert row.thread_id is not None
-        assert row.sequence is not None
-        kind_value = row.kind
+        kind_value = action.kind
         match kind_value:
             case (
                 "comment-created"
@@ -970,7 +997,7 @@ class RoomStore:
                 raise AssertionError(
                     f"invalid persisted review action kind: {kind_value!r}"
                 )
-        status_value = row.status_after
+        status_value = action.status_after
         match status_value:
             case "open" | "resolved" | "deleted":
                 status_after = status_value
@@ -978,7 +1005,7 @@ class RoomStore:
                 raise AssertionError(
                     f"invalid persisted thread status: {status_value!r}"
                 )
-        attention_value = row.attention_after
+        attention_value = action.attention_after
         match attention_value:
             case "author" | "reviewer" | "both" | "none":
                 attention_after = attention_value
@@ -987,50 +1014,56 @@ class RoomStore:
                     f"invalid persisted thread attention: {attention_value!r}"
                 )
         return ReviewActionRecord(
-            operation_id=row.operation_id,
-            thread_id=row.thread_id,
-            snapshot_id=row.snapshot_id,
-            sequence=row.sequence,
+            operation_id=action.operation_id,
+            thread_id=action.thread_id,
+            snapshot_id=action.snapshot_id,
+            sequence=action.sequence,
             kind=kind,
-            profile_id=row.profile_id,
-            comment_id=row.comment_id,
-            expected_revision=row.expected_revision,
-            body=row.body,
-            created_at=row.created_at,
+            profile_id=action.profile_id,
+            comment_id=action.comment_id,
+            expected_revision=action.expected_revision,
+            body=action.body,
+            created_at=action.created_at,
             status_after=status_after,
             attention_after=attention_after,
-            activity_id=row.activity_id,
+            activity_id=action.activity_id,
         )
 
     @staticmethod
-    def _file_record(row: Row[Any]) -> SnapshotFileRecord:
+    def _file_record(
+        file: SnapshotFile,
+        left_path: str | None,
+        left_hash: bytes | None,
+        right_path: str | None,
+        right_hash: bytes | None,
+    ) -> SnapshotFileRecord:
         """Validate one joined File/side row into the shared record shape."""
-        assert (row.left_path is None) == (row.left_hash is None), (
+        assert (left_path is None) == (left_hash is None), (
             "persisted left File path and hash must have equal presence"
         )
-        assert (row.right_path is None) == (row.right_hash is None), (
+        assert (right_path is None) == (right_hash is None), (
             "persisted right File path and hash must have equal presence"
         )
         left = (
-            SnapshotFileSideRecord(row.left_path, row.left_hash)
-            if row.left_path is not None and row.left_hash is not None
+            SnapshotFileSideRecord(left_path, left_hash)
+            if left_path is not None and left_hash is not None
             else None
         )
         right = (
-            SnapshotFileSideRecord(row.right_path, row.right_hash)
-            if row.right_path is not None and row.right_hash is not None
+            SnapshotFileSideRecord(right_path, right_hash)
+            if right_path is not None and right_hash is not None
             else None
         )
         assert left is not None or right is not None, (
-            f"persisted Snapshot File has no sides: {row.id!r}"
+            f"persisted Snapshot File has no sides: {file.id!r}"
         )
         return SnapshotFileRecord(
-            id=row.id,
-            snapshot_id=row.snapshot_id,
-            path=row.path,
-            tracked=row.tracked,
-            change_type=row.change_type,
-            error=row.error,
+            id=file.id,
+            snapshot_id=file.snapshot_id,
+            path=file.path,
+            tracked=file.tracked,
+            change_type=file.change_type,
+            error=file.error,
             left=left,
             right=right,
         )
@@ -1422,12 +1455,7 @@ class RoomStore:
                 return None
             file_rows = session.execute(
                 select(
-                    SnapshotFile.id,
-                    SnapshotFile.snapshot_id,
-                    SnapshotFile.path,
-                    SnapshotFile.tracked,
-                    SnapshotFile.change_type,
-                    SnapshotFile.error,
+                    SnapshotFile,
                     SnapshotFileLeft.repository_path.label("left_path"),
                     SnapshotFileLeft.content_hash.label("left_hash"),
                     SnapshotFileRight.repository_path.label("right_path"),
@@ -1444,7 +1472,7 @@ class RoomStore:
                 .where(SnapshotFile.snapshot_id == snapshot_id)
             ).all()
 
-        files = [self._file_record(row) for row in file_rows]
+        files = [self._file_record(*row) for row in file_rows]
         return SnapshotRecord(
             id=snapshot_row.id,
             content_hash=snapshot_row.content_hash,
@@ -1514,12 +1542,7 @@ class RoomStore:
         with Session(self.engine) as session:
             row = session.execute(
                 select(
-                    SnapshotFile.id,
-                    SnapshotFile.snapshot_id,
-                    SnapshotFile.path,
-                    SnapshotFile.tracked,
-                    SnapshotFile.change_type,
-                    SnapshotFile.error,
+                    SnapshotFile,
                     SnapshotFileLeft.repository_path.label("left_path"),
                     SnapshotFileLeft.content_hash.label("left_hash"),
                     SnapshotFileRight.repository_path.label("right_path"),
@@ -1574,8 +1597,8 @@ class RoomStore:
                 return exists, None
 
         return True, SnapshotFileLoadRecord(
-            file=self._file_record(row),
-            lazy_reason=row.lazy_reason,
+            file=self._file_record(row[0], row[1], row[2], row[3], row[4]),
+            lazy_reason=row[5],
         )
 
     def snapshot_files_by_ids(
@@ -1601,12 +1624,7 @@ class RoomStore:
         with Session(self.engine) as session:
             rows = session.execute(
                 select(
-                    SnapshotFile.id,
-                    SnapshotFile.snapshot_id,
-                    SnapshotFile.path,
-                    SnapshotFile.tracked,
-                    SnapshotFile.change_type,
-                    SnapshotFile.error,
+                    SnapshotFile,
                     SnapshotFileLeft.repository_path.label("left_path"),
                     SnapshotFileLeft.content_hash.label("left_hash"),
                     SnapshotFileRight.repository_path.label("right_path"),
@@ -1630,7 +1648,7 @@ class RoomStore:
                     mark_clause,
                 )
             ).all()
-        return {row.id: self._file_record(row) for row in rows}
+        return {row[0].id: self._file_record(*row) for row in rows}
 
     def snapshot_files_by_pairs(
         self,
@@ -1673,12 +1691,7 @@ class RoomStore:
             rows = (
                 session.execute(
                     select(
-                        SnapshotFile.id,
-                        SnapshotFile.snapshot_id,
-                        SnapshotFile.path,
-                        SnapshotFile.tracked,
-                        SnapshotFile.change_type,
-                        SnapshotFile.error,
+                        SnapshotFile,
                         SnapshotFileLeft.repository_path.label("left_path"),
                         SnapshotFileLeft.content_hash.label("left_hash"),
                         SnapshotFileRight.repository_path.label("right_path"),
@@ -1707,7 +1720,7 @@ class RoomStore:
             )
             found = {}
             for row in rows:
-                record = self._file_record(row)
+                record = self._file_record(*row)
                 left = (
                     record.left.repository_path
                     if record.left is not None
@@ -1768,34 +1781,28 @@ class RoomStore:
         with `review_threads`.
         """
 
-        def file_query() -> Any:
-            return (
-                select(
-                    SnapshotFile.id,
-                    SnapshotFile.snapshot_id,
-                    SnapshotFile.path,
-                    SnapshotFile.tracked,
-                    SnapshotFile.change_type,
-                    SnapshotFile.error,
-                    SnapshotFileLeft.repository_path.label("left_path"),
-                    SnapshotFileLeft.content_hash.label("left_hash"),
-                    SnapshotFileRight.repository_path.label("right_path"),
-                    SnapshotFileRight.content_hash.label("right_hash"),
-                )
-                .outerjoin(
-                    SnapshotFileLeft,
-                    SnapshotFileLeft.file_id == SnapshotFile.id,
-                )
-                .outerjoin(
-                    SnapshotFileRight,
-                    SnapshotFileRight.file_id == SnapshotFile.id,
-                )
+        file_query = (
+            select(
+                SnapshotFile,
+                SnapshotFileLeft.repository_path.label("left_path"),
+                SnapshotFileLeft.content_hash.label("left_hash"),
+                SnapshotFileRight.repository_path.label("right_path"),
+                SnapshotFileRight.content_hash.label("right_hash"),
             )
+            .outerjoin(
+                SnapshotFileLeft,
+                SnapshotFileLeft.file_id == SnapshotFile.id,
+            )
+            .outerjoin(
+                SnapshotFileRight,
+                SnapshotFileRight.file_id == SnapshotFile.id,
+            )
+        )
 
         with Session(self.engine) as session:
             origin_rows = (
                 session.execute(
-                    file_query().where(
+                    file_query.where(
                         tuple_(SnapshotFile.snapshot_id, SnapshotFile.id).in_(
                             set(origin_refs)
                         )
@@ -1806,7 +1813,7 @@ class RoomStore:
             )
             selected_rows = (
                 session.execute(
-                    file_query().where(
+                    file_query.where(
                         SnapshotFile.snapshot_id == selected_snapshot_id,
                         SnapshotFile.id.in_(set(located_file_ids)),
                     )
@@ -1815,7 +1822,7 @@ class RoomStore:
                 else []
             )
             origin_files = {
-                (row.snapshot_id, row.id): self._file_record(row)
+                (row[0].snapshot_id, row[0].id): self._file_record(*row)
                 for row in origin_rows
             }
             assert origin_files.keys() == set(origin_refs), (
@@ -1867,7 +1874,7 @@ class RoomStore:
                 )
         return (
             origin_files,
-            {row.id: self._file_record(row) for row in selected_rows},
+            {row[0].id: self._file_record(*row) for row in selected_rows},
             conflict_ids,
         )
 
@@ -1926,7 +1933,7 @@ class RoomStore:
             if room_id is None:
                 return None
             if through_activity_id is None:
-                latest_activity_id = session.execute(
+                latest_activity_id: int | None = session.execute(
                     select(func.max(ReviewAction.activity_id))
                     .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
                     .where(Snapshot.room_id == room_id)
@@ -1978,11 +1985,12 @@ class RoomStore:
                     last_action.attention_after.in_((attention, "both"))
                 )
 
-            def filtered(*columns: Any) -> Any:
+            def filtered[T: tuple[object, ...]](
+                query: Select[T],
+            ) -> Select[T]:
                 """Select from placements joined to their latest actions."""
                 return (
-                    select(*columns)
-                    .select_from(ReviewThreadPlacement)
+                    query.select_from(ReviewThreadPlacement)
                     .join(
                         latest,
                         latest.c.thread_id == ReviewThreadPlacement.thread_id,
@@ -2002,13 +2010,15 @@ class RoomStore:
 
             total_threads = session.execute(
                 select(func.count()).select_from(
-                    filtered(ReviewThreadPlacement.thread_id).subquery()
+                    filtered(select(ReviewThreadPlacement.thread_id)).subquery()
                 )
             ).scalar_one()
             selected_query = (
                 filtered(
-                    *ReviewThreadPlacement.__table__.c,
-                    literal(False).label("is_origin"),
+                    select(
+                        ReviewThreadPlacement,
+                        literal(False).label("is_origin"),
+                    )
                 )
                 .order_by(
                     state_rank,
@@ -2020,7 +2030,7 @@ class RoomStore:
             if limit is not None:
                 selected_query = selected_query.limit(limit)
             selected_rows = session.execute(selected_query).all()
-            thread_ids = [row.thread_id for row in selected_rows]
+            thread_ids = [row[0].thread_id for row in selected_rows]
             if thread_ids == []:
                 return (
                     ReviewThreadsRecord((), (), (), (), total_threads),
@@ -2028,7 +2038,7 @@ class RoomStore:
                 )
             origin_rows = session.execute(
                 select(
-                    *ReviewThreadPlacement.__table__.c,
+                    ReviewThreadPlacement,
                     literal(True).label("is_origin"),
                 )
                 .join(
@@ -2041,22 +2051,22 @@ class RoomStore:
                 )
                 .where(ReviewThreadPlacement.thread_id.in_(thread_ids))
             ).all()
-            origins_by_thread = {row.thread_id: row for row in origin_rows}
+            origins_by_thread = {row[0].thread_id: row for row in origin_rows}
             assert origins_by_thread.keys() == set(thread_ids), (
                 "Snapshot review placement exists without a Thread origin"
             )
             origin_rows = [
                 origins_by_thread[thread_id] for thread_id in thread_ids
             ]
-            action_rows = session.execute(
-                select(*ReviewAction.__table__.c)
+            actions = session.scalars(
+                select(ReviewAction)
                 .where(
                     ReviewAction.thread_id.in_(thread_ids),
                     ReviewAction.activity_id <= through_activity_id,
                 )
                 .order_by(ReviewAction.thread_id, ReviewAction.sequence)
             ).all()
-            profile_ids = {row.profile_id for row in action_rows}
+            profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
                 select(
                     UserProfile.id,
@@ -2072,10 +2082,12 @@ class RoomStore:
         return (
             ReviewThreadsRecord(
                 threads=tuple(
-                    self._thread_record(row) for row in selected_rows
+                    self._thread_record(*row) for row in selected_rows
                 ),
-                origins=tuple(self._thread_record(row) for row in origin_rows),
-                actions=tuple(self._action_record(row) for row in action_rows),
+                origins=tuple(self._thread_record(*row) for row in origin_rows),
+                actions=tuple(
+                    self._action_record(action) for action in actions
+                ),
                 profiles=tuple(profiles),
                 total_threads=total_threads,
             ),
@@ -2115,7 +2127,7 @@ class RoomStore:
                 return None
             selected_row = session.execute(
                 select(
-                    *ReviewThreadPlacement.__table__.c,
+                    ReviewThreadPlacement,
                     literal(False).label("is_origin"),
                 ).where(
                     ReviewThreadPlacement.snapshot_id == snapshot_id,
@@ -2124,7 +2136,7 @@ class RoomStore:
             ).one_or_none()
             origin_row = session.execute(
                 select(
-                    *ReviewThreadPlacement.__table__.c,
+                    ReviewThreadPlacement,
                     literal(True).label("is_origin"),
                 )
                 .join(
@@ -2148,13 +2160,13 @@ class RoomStore:
                 return ReviewThreadsRecord((), (), (), (), 0)
             if selected_row is None:
                 return ReviewThreadsRecord((), (), (), (), 0)
-            action_rows = session.execute(
-                select(*ReviewAction.__table__.c)
+            actions = session.scalars(
+                select(ReviewAction)
                 .where(ReviewAction.thread_id == thread_id)
                 .order_by(ReviewAction.sequence)
             ).all()
-            assert action_rows != [], "review Thread has no creation action"
-            profile_ids = {row.profile_id for row in action_rows}
+            assert actions != [], "review Thread has no creation action"
+            profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
                 select(
                     UserProfile.id,
@@ -2168,9 +2180,9 @@ class RoomStore:
             "review action references a missing Profile"
         )
         return ReviewThreadsRecord(
-            threads=(self._thread_record(selected_row),),
-            origins=(self._thread_record(origin_row),),
-            actions=tuple(self._action_record(row) for row in action_rows),
+            threads=(self._thread_record(*selected_row),),
+            origins=(self._thread_record(*origin_row),),
+            actions=tuple(self._action_record(action) for action in actions),
             profiles=profiles,
             total_threads=1,
         )
@@ -2197,13 +2209,13 @@ class RoomStore:
             ).scalar_one_or_none()
             if placed is None:
                 return None
-            action_rows = session.execute(
-                select(*ReviewAction.__table__.c)
+            actions = session.scalars(
+                select(ReviewAction)
                 .where(ReviewAction.thread_id == thread_id)
                 .order_by(ReviewAction.sequence)
             ).all()
-            assert action_rows != [], "review Thread has no creation action"
-            profile_ids = {row.profile_id for row in action_rows}
+            assert actions != [], "review Thread has no creation action"
+            profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
                 select(UserProfile.id, UserProfile.username).where(
                     UserProfile.id.in_(profile_ids)
@@ -2216,7 +2228,7 @@ class RoomStore:
             "review action references a missing Profile"
         )
         return (
-            tuple(self._action_record(row) for row in action_rows),
+            tuple(self._action_record(action) for action in actions),
             profiles,
         )
 
@@ -2268,21 +2280,21 @@ class RoomStore:
             )
             if placed == set():
                 return {}, ()
-            action_rows = session.execute(
-                select(*ReviewAction.__table__.c)
+            actions = session.scalars(
+                select(ReviewAction)
                 .where(ReviewAction.thread_id.in_(placed))
                 .order_by(ReviewAction.thread_id, ReviewAction.sequence)
             ).all()
-            profile_ids = {row.profile_id for row in action_rows}
+            profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
                 select(UserProfile.id, UserProfile.username).where(
                     UserProfile.id.in_(profile_ids)
                 )
             ).all()
         actions_by_thread: dict[str, list[ReviewActionRecord]] = {}
-        for row in action_rows:
-            actions_by_thread.setdefault(row.thread_id, []).append(
-                self._action_record(row)
+        for action in actions:
+            actions_by_thread.setdefault(action.thread_id, []).append(
+                self._action_record(action)
             )
         assert actions_by_thread.keys() == placed, (
             "review Thread has no creation action"
@@ -2315,7 +2327,7 @@ class RoomStore:
         with Session(self.engine) as session:
             rows = session.execute(
                 select(
-                    *ReviewThreadPlacement.__table__.c,
+                    ReviewThreadPlacement,
                     literal(True).label("is_origin"),
                 )
                 .join(
@@ -2340,7 +2352,7 @@ class RoomStore:
                     mark_clause,
                 )
             ).all()
-        return tuple(self._thread_record(row) for row in rows)
+        return tuple(self._thread_record(*row) for row in rows)
 
     def insert_review_threads(
         self,
@@ -2361,7 +2373,7 @@ class RoomStore:
         with Session(self.engine) as session, session.begin():
             persisted_rows = session.execute(
                 select(
-                    *ReviewThreadPlacement.__table__.c,
+                    ReviewThreadPlacement,
                     (
                         ReviewThread.origin_snapshot_id
                         == ReviewThreadPlacement.snapshot_id
@@ -2379,7 +2391,9 @@ class RoomStore:
                 )
             ).all()
             persisted = {
-                (row.thread_id, row.snapshot_id): self._thread_record(row)
+                (row[0].thread_id, row[0].snapshot_id): self._thread_record(
+                    *row
+                )
                 for row in persisted_rows
             }
             additions = []
@@ -2495,7 +2509,7 @@ class RoomStore:
             else Room.mark_id == identity.mark_id
         )
         with Session(self.engine) as session:
-            latest = session.execute(
+            latest: int | None = session.execute(
                 select(func.max(ReviewAction.activity_id))
                 .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
                 .join(Room, Room.id == Snapshot.room_id)
@@ -2585,8 +2599,8 @@ class RoomStore:
             else Room.mark_id == identity.mark_id
         )
         with Session(self.engine) as session:
-            rows = session.execute(
-                select(*ReviewAction.__table__.c)
+            rows = session.scalars(
+                select(ReviewAction)
                 .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
                 .join(Room, Room.id == Snapshot.room_id)
                 .where(
@@ -2631,7 +2645,7 @@ class RoomStore:
             "review action references a missing Profile"
         )
         return (
-            tuple(self._action_record(row) for row in page),
+            tuple(self._action_record(action) for action in page),
             len(rows) > limit,
             open_count,
             profiles,

@@ -11,24 +11,27 @@ from __future__ import annotations
 import importlib
 import re
 from bisect import bisect_right
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
 from operator import itemgetter
-from typing import Any, Literal, TypedDict, TypeIs, get_args
+from typing import Literal, NotRequired, TypedDict, TypeIs, get_args
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
 from dirdiff.engines import (
+    DiffEngineRow,
     InlineToken,
     InlineTokenStatus,
     engine_row_has_change,
 )
-from dirdiff.rendering.fold import fold_hints_for_path
+from dirdiff.rendering.fold import FoldHint, fold_hints_for_path
 
 __all__ = [
     "DecoratedPart",
     "DiffRow",
+    "EnrichedRows",
     "SyntaxClass",
     "SyntaxSpan",
     "default_expanded_for_payload",
@@ -385,6 +388,25 @@ class DiffRow(TypedDict):
     zero; the frontend walks bays in document order to build the File's
     navigable sequence.
     """
+
+
+class EnrichedRows(TypedDict):
+    """Display-ready result for one text bay's neutral engine rows.
+
+    `rows` contains the complete decorated row sequence and `hunk_count` counts
+    its bay-local changed runs. `fold_hints` is omitted when structural parsing
+    found no foldable ranges. This contract does not carry engine summary or
+    warning data, which remain alongside it in the format layer.
+    """
+
+    hunk_count: int
+    """Number of bay-local changed runs represented by `rows`."""
+
+    rows: list[DiffRow]
+    """Display rows in the engine's original order."""
+
+    fold_hints: NotRequired[list[FoldHint]]
+    """Optional structural source ranges the frontend may fold."""
 
 
 @dataclass(frozen=True)
@@ -803,7 +825,7 @@ def _append_syntax_span(
     spans.append(_SyntaxSpan(start, end, classes))
 
 
-def default_expanded_for_payload(payload: dict[str, Any]) -> bool:
+def default_expanded_for_payload(payload: Mapping[str, object]) -> bool:
     """Return whether a file payload should start expanded in the UI.
 
     The current rule is intentionally shared: lazy payloads start collapsed,
@@ -816,12 +838,12 @@ def default_expanded_for_payload(payload: dict[str, Any]) -> bool:
 
 def enrich_rows_for_display(
     *,
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
     left_text: str,
     right_text: str,
     left_path_hint: str | None = None,
     right_path_hint: str | None = None,
-) -> dict[str, Any]:
+) -> EnrichedRows:
     """Attach display-only row metadata without calculating diff summary.
 
     This helper preserves every engine row while assigning hunk identities,
@@ -829,82 +851,67 @@ def enrich_rows_for_display(
     syntax-aware fold hints. It does not decide changed/added/removed/moved line
     counts; engines calculate summaries before calling it.
     """
-    hunk_count = _assign_hunk_indices(rows)
     left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
     right_syntax_lines = highlight_lines_for_path(
         right_path_hint,
         right_text,
     )
     fold_hints = fold_hints_for_path(right_path_hint, right_text, rows)
+    enriched_rows: list[DiffRow] = []
+    hunk_count = 0
+    previous_changed = False
     for row in rows:
-        left_no = row.get("left_no")
+        changed = engine_row_has_change(row)
+        hunk_index = hunk_count if changed and not previous_changed else None
+        if hunk_index is not None:
+            hunk_count += 1
+        previous_changed = changed
+
+        left_no = row["left_no"]
         left_syntax: list[SyntaxSpan] = []
         if (
-            isinstance(left_no, int)
+            left_no is not None
             and left_syntax_lines is not None
             and left_no - 1 < len(left_syntax_lines)
         ):
             left_syntax = left_syntax_lines[left_no - 1]
 
-        right_no = row.get("right_no")
+        right_no = row["right_no"]
         right_syntax: list[SyntaxSpan] = []
         if (
-            isinstance(right_no, int)
+            right_no is not None
             and right_syntax_lines is not None
             and right_no - 1 < len(right_syntax_lines)
         ):
             right_syntax = right_syntax_lines[right_no - 1]
 
-        assert (
-            "left_text" in row
-            and "right_text" in row
-            and "left_tokens" in row
-            and "right_tokens" in row
-        ), (
-            "Every engine row requires both text sides and both inline-token "
-            "arrays."
-        )
         left_text_value = row["left_text"]
         right_text_value = row["right_text"]
-        left_tokens = row.pop("left_tokens")
-        right_tokens = row.pop("right_tokens")
-        row["left_parts"] = weave_decorated_parts(
-            "" if left_text_value is None else left_text_value,
-            left_tokens,
-            left_syntax,
-        )
-        row["right_parts"] = weave_decorated_parts(
-            "" if right_text_value is None else right_text_value,
-            right_tokens,
-            right_syntax,
+        enriched_rows.append(
+            {
+                "status": row["status"],
+                "left_no": left_no,
+                "right_no": right_no,
+                "left_text": left_text_value,
+                "right_text": right_text_value,
+                "left_parts": weave_decorated_parts(
+                    "" if left_text_value is None else left_text_value,
+                    row["left_tokens"],
+                    left_syntax,
+                ),
+                "right_parts": weave_decorated_parts(
+                    "" if right_text_value is None else right_text_value,
+                    row["right_tokens"],
+                    right_syntax,
+                ),
+                "hunk_index": hunk_index,
+            }
         )
 
-    payload: dict[str, Any] = {
+    payload: EnrichedRows = {
         "hunk_count": hunk_count,
-        "rows": rows,
+        "rows": enriched_rows,
     }
     if fold_hints != []:
         payload["fold_hints"] = fold_hints
     return payload
-
-
-def _assign_hunk_indices(rows: list[dict[str, Any]]) -> int:
-    """Mark each changed-run start with its zero-based bay-local hunk index.
-
-    The caller hands one bay's rows, so the numbering restarts at zero for every
-    bay and this function never sees a File as a whole. The backend owns hunk
-    identity within a bay independently of the frontend's fold/virtualization
-    representation. Equal rows carry `None`; only the first row of each
-    contiguous changed run carries an index.
-    """
-    hunk_count = 0
-    previous_changed = False
-    for row in rows:
-        changed = engine_row_has_change(row)
-        row["hunk_index"] = (
-            hunk_count if changed and not previous_changed else None
-        )
-        if changed and not previous_changed:
-            hunk_count += 1
-        previous_changed = changed
-    return hunk_count

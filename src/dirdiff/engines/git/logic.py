@@ -11,7 +11,9 @@ does not attach syntax highlighting, fold rows, labels, or API metadata.
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Literal
+
+from dirdiff.engines.base import DiffEngineRow
 
 GIT_HUNK_HEADER_PATTERN = re.compile(
     r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
@@ -28,14 +30,14 @@ def plain_line_rows_for_side(
     *,
     text: str,
     side: Literal["left", "right"],
-) -> list[dict[str, Any]]:
+) -> list[DiffEngineRow]:
     """Build engine rows for one-sided added or deleted files.
 
     There is no old/new pair to ask Git to compare for an added or deleted
     file.  The engine still returns the same strict row shape, with every source
     line mapped to either an insert or delete row.
     """
-    rows: list[dict[str, Any]] = []
+    rows: list[DiffEngineRow] = []
     for index, line in enumerate(text.splitlines(), start=1):
         if side == "left":
             rows.append(
@@ -66,7 +68,7 @@ def plain_line_rows_for_side(
 
 def _append_equal_rows(
     *,
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
     left_lines: list[str],
     right_lines: list[str],
     left_no: int,
@@ -108,7 +110,7 @@ def git_diff_rows_from_patch(
     patch: str,
     left_text: str,
     right_text: str,
-) -> list[dict[str, Any]]:
+) -> list[DiffEngineRow]:
     """Parse Git unified patch content into complete dirdiff engine rows.
 
     File headers and metadata are ignored.  Hunk headers identify where Git's
@@ -117,7 +119,7 @@ def git_diff_rows_from_patch(
     Git's `\\ No newline at end of file` marker is metadata about the preceding
     content line, not a row, so it is skipped.
     """
-    rows: list[dict[str, Any]] = []
+    rows: list[DiffEngineRow] = []
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
     left_no = 1

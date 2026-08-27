@@ -799,7 +799,7 @@ def text_kind_payload(
     left_text = "" if bay.left.text is None else bay.left.text
     right_text = "" if bay.right.text is None else bay.right.text
     display = enrich_rows_for_display(
-        rows=[dict(row) for row in rendered["rows"]],
+        rows=rendered["rows"],
         left_text=left_text,
         right_text=right_text,
         left_path_hint=bay.left.path_hint,

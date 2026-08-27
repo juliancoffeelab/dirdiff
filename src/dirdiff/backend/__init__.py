@@ -37,6 +37,7 @@ from dirdiff.backend.git import (
     ref_choices,
 )
 from dirdiff.backend.manifest import (
+    RepoManifest,
     build_lazy_info_for_paths,
     build_repo_manifest_for_backend,
     build_repo_manifest_for_paths,
@@ -69,6 +70,7 @@ __all__ = [
     "RemoteBranchRef",
     "RemoteBranchSelection",
     "RepoDiffPath",
+    "RepoManifest",
     "SideName",
     "StructuredRemoteBranchRef",
     "WorkspaceBackendProtocol",

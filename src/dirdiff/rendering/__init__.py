@@ -15,6 +15,7 @@ HTTP route responses. Syntax highlighting and hunk enrichment live in
 from dirdiff.rendering.base import (
     DecoratedPart,
     DiffRow,
+    EnrichedRows,
     SyntaxClass,
     SyntaxSpan,
     default_expanded_for_payload,
@@ -27,6 +28,7 @@ from dirdiff.rendering.fold import FoldHint
 __all__ = [
     "DecoratedPart",
     "DiffRow",
+    "EnrichedRows",
     "FoldHint",
     "SyntaxClass",
     "SyntaxSpan",

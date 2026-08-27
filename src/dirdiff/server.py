@@ -24,16 +24,17 @@ source coordinates.
 import json
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 from typing import (
     Annotated,
-    Any,
     Literal,
     Optional,
     Self,
+    TypedDict,
 )
 from uuid import UUID, uuid4
 
@@ -998,11 +999,24 @@ class _ReviewHttpException(Exception):
         )
 
 
-_REVIEW_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    int(HTTPStatus.BAD_REQUEST): {"model": ReviewErrorResponse},
-    int(HTTPStatus.NOT_FOUND): {"model": ReviewErrorResponse},
-    int(HTTPStatus.FORBIDDEN): {"model": ReviewErrorResponse},
-    int(HTTPStatus.CONFLICT): {"model": ReviewErrorResponse},
+class _ReviewErrorResponseMetadata(TypedDict):
+    """Name the validated response model FastAPI publishes for one error."""
+
+    model: type[ReviewErrorResponse]
+
+
+# This is compatible with FastAPI, but their typings are a bit wrong
+# So each usage uses targeted ignore.
+#
+# C'est la vie.
+_REVIEW_ERROR_RESPONSES: Mapping[
+    HTTPStatus,
+    _ReviewErrorResponseMetadata,
+] = {
+    HTTPStatus.BAD_REQUEST: {"model": ReviewErrorResponse},
+    HTTPStatus.NOT_FOUND: {"model": ReviewErrorResponse},
+    HTTPStatus.FORBIDDEN: {"model": ReviewErrorResponse},
+    HTTPStatus.CONFLICT: {"model": ReviewErrorResponse},
 }
 
 
@@ -1865,7 +1879,7 @@ def create_app(
         left_file: Optional[Path],
         right_file: Optional[Path],
         file_meta: FileMeta,
-    ) -> dict[str, Any]:
+    ) -> ComposedDiffResponse:
         """Compose one focused File into its `/api/file-diff` response payload.
 
         The handler does HTTP work only: it checks the capture error, reads the
@@ -1901,13 +1915,16 @@ def create_app(
             if snapshot_meta["tab"] == "preset" and pair.right_path is not None
             else display_name_for_repo_paths(pair.left_path, pair.right_path)
         )
-        payload: dict[str, Any] = dict(composed)
-        payload["display_name"] = display_name
-        payload["file_kind"] = file_kind_for_change_type(
-            file_meta["change_type"],
-            file_kind=file_kind,
+        return ComposedDiffResponse.model_validate(
+            {
+                **composed,
+                "display_name": display_name,
+                "file_kind": file_kind_for_change_type(
+                    file_meta["change_type"],
+                    file_kind=file_kind,
+                ),
+            }
         )
-        return payload
 
     def snapshot_room(snapshot_id: UUID) -> Room:
         """Return the Room containing one exact agent-selected Snapshot."""
@@ -2105,7 +2122,7 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def validation_failure(  # pyright: ignore[reportUnusedFunction]
         request: Request, exc: RequestValidationError
-    ) -> Any:
+    ) -> Response:
         """Return validation detail at the agent API boundary."""
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
@@ -2124,7 +2141,7 @@ def create_app(
     @app.exception_handler(StarletteHTTPException)
     async def http_failure(  # pyright: ignore[reportUnusedFunction]
         request: Request, exc: StarletteHTTPException
-    ) -> Any:
+    ) -> Response:
         """Return framework failure detail at the agent API boundary."""
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
@@ -2186,7 +2203,7 @@ def create_app(
     @app.get(
         "/api/review/threads",
         response_model=ReviewThreadPage,
-        responses=_REVIEW_ERROR_RESPONSES,
+        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         summary="Read one page of review Threads",
     )
     def serve_review(  # pyright: ignore[reportUnusedFunction]
@@ -2257,7 +2274,7 @@ def create_app(
     @app.post(
         "/api/review/post_comment",
         response_model=ReviewThreadResponse | ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,
+        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         summary="Post one review Comment",
     )
     def post_review_comment(  # pyright: ignore[reportUnusedFunction]
@@ -2302,7 +2319,7 @@ def create_app(
     @app.post(
         "/api/review/edit_comment",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,
+        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         summary="Edit one review Comment",
     )
     def edit_review_comment(  # pyright: ignore[reportUnusedFunction]
@@ -2333,7 +2350,7 @@ def create_app(
     @app.post(
         "/api/review/delete_comment",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,
+        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         summary="Delete one review Comment",
     )
     def delete_review_comment(  # pyright: ignore[reportUnusedFunction]
@@ -2398,7 +2415,7 @@ def create_app(
     @app.post(
         "/api/review/resolve_thread",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,
+        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         summary="Resolve one review Thread",
     )
     def resolve_review_thread(  # pyright: ignore[reportUnusedFunction]
@@ -2413,7 +2430,7 @@ def create_app(
     @app.post(
         "/api/review/reopen_thread",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,
+        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         summary="Reopen one review Thread",
     )
     def reopen_review_thread(  # pyright: ignore[reportUnusedFunction]
@@ -2428,7 +2445,7 @@ def create_app(
     @app.post(
         "/api/review/delete_thread",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,
+        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         summary="Delete one review Thread",
     )
     def delete_review_thread(  # pyright: ignore[reportUnusedFunction]
@@ -3291,7 +3308,7 @@ def create_app(
                     key=lambda path: (path.display_name, path.change_type),
                 )
             )
-            payload = build_repo_manifest_for_paths(
+            manifest = build_repo_manifest_for_paths(
                 left_label=snapshot_meta["left_label"],
                 right_label=snapshot_meta["right_label"],
                 paths=manifest_paths,
@@ -3300,8 +3317,8 @@ def create_app(
             )
             if tab == "preset":
                 assert preset_name is not None
-                payload["display_name"] = preset_name
-            payload["snapshot_id"] = snapshot_id.hex
+                manifest["display_name"] = preset_name
+            payload = {"snapshot_id": snapshot_id.hex, **manifest}
         except DirdiffError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -3462,7 +3479,7 @@ def create_app(
                 detail="Internal server error.",
             ) from exc
 
-        return ComposedDiffResponse.model_validate(payload)
+        return payload
 
     @app.get(
         "/api/file-media",

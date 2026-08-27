@@ -9,10 +9,21 @@ backends list, classify, and load workspace paths.
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any, Literal, Optional
+from typing import Literal
 
 from dirdiff.backend.base import (
+    GitFileStatus,
+    LazyInfo,
+    LazyInfoFile,
+    LazyReason,
     RepoDiffPath,
+    RepoFileKind,
+    RepoManifest,
+    RepoManifestDirectoryNode,
+    RepoManifestFileEntry,
+    RepoManifestFileNode,
+    RepoManifestSummary,
+    RepoManifestTreeEntry,
     WorkspaceBackendProtocol,
 )
 
@@ -31,7 +42,9 @@ GENERATED_FILES = frozenset(
         "yarn.lock",
     }
 )
-GIT_FILE_STATUS_BY_CHANGE_TYPE = {
+GIT_FILE_STATUS_BY_CHANGE_TYPE: dict[
+    Literal["modify", "add", "delete", "rename", "copy"], GitFileStatus
+] = {
     "modify": "modified",
     "add": "added",
     "delete": "deleted",
@@ -42,6 +55,7 @@ GIT_FILE_STATUS_BY_CHANGE_TYPE = {
 __all__ = [
     "GENERATED_FILES",
     "GIT_FILE_STATUS_BY_CHANGE_TYPE",
+    "RepoManifest",
     "build_lazy_info_for_paths",
     "build_repo_manifest_for_backend",
     "build_repo_manifest_for_paths",
@@ -50,15 +64,13 @@ __all__ = [
 ]
 
 
-def file_kind_for_repo_entry(entry: RepoDiffPath) -> dict[str, str]:
+def file_kind_for_repo_entry(entry: RepoDiffPath) -> RepoFileKind:
     """Convert backend change metadata into the frontend's file-kind contract."""
     if entry.untracked:
         return {"type": "untracked"}
     return {
         "type": "git",
-        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE.get(
-            entry.change_type, "modified"
-        ),
+        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE[entry.change_type],
     }
 
 
@@ -66,17 +78,17 @@ def file_kind_for_change_type(
     change_type: Literal["modify", "add", "delete", "rename", "copy"],
     *,
     file_kind: Literal["git", "untracked"] | None = None,
-) -> dict[str, str]:
+) -> RepoFileKind:
     """Mirror manifest file-kind encoding for lazy file-diff responses."""
     if file_kind == "untracked":
         return {"type": "untracked"}
     return {
         "type": "git",
-        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE.get(change_type, "modified"),
+        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE[change_type],
     }
 
 
-def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
+def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> LazyReason | None:
     """Classify files that should be represented by lazy placeholders."""
 
     def _looks_generated_path(path: str | None) -> bool:
@@ -98,7 +110,7 @@ def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> str | None:
     return None
 
 
-def _empty_repo_summary() -> dict[str, Any]:
+def _empty_repo_summary() -> RepoManifestSummary:
     """Provide zero File totals before aggregate line metadata is attached."""
     return {
         "changed_files": 0,
@@ -111,7 +123,9 @@ def _empty_repo_summary() -> dict[str, Any]:
     }
 
 
-def _to_lazy_info_file_entry(entry: RepoDiffPath, lazy: str) -> dict[str, Any]:
+def _to_lazy_info_file_entry(
+    entry: RepoDiffPath, lazy: LazyReason
+) -> LazyInfoFile:
     """Expose enough metadata for the frontend to render unloaded file rows.
 
     The caller supplies the entry's already-derived lazy reason so the
@@ -130,11 +144,11 @@ def _to_lazy_info_file_entry(entry: RepoDiffPath, lazy: str) -> dict[str, Any]:
 
 
 def _insert_tree_entry(
-    root_entries: list[dict[str, Any]],
-    directories: dict[str, dict[str, Any]],
+    root_entries: list[RepoManifestTreeEntry],
+    directories: dict[str, RepoManifestDirectoryNode],
     *,
     parts: list[str],
-    file_entry: dict[str, Any],
+    file_entry: RepoManifestFileEntry,
 ) -> None:
     """Mutate the tree while preserving directory identity by path.
 
@@ -149,9 +163,9 @@ def _insert_tree_entry(
     prefix = ""
     for name in parts[:-1]:
         prefix = name if prefix == "" else f"{prefix}/{name}"
-        directory_node = directories.get(prefix)
-        if directory_node is None:
-            directory_node = {
+        existing_directory = directories.get(prefix)
+        if existing_directory is None:
+            directory_node: RepoManifestDirectoryNode = {
                 "type": "directory",
                 "name": name,
                 "path": prefix,
@@ -159,18 +173,22 @@ def _insert_tree_entry(
             }
             directories[prefix] = directory_node
             entries.append(directory_node)
+        else:
+            directory_node = existing_directory
         entries = directory_node["entries"]
     entries.append({"type": "file", "name": parts[-1], "entry": file_entry})
 
 
-def _root_files_last(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _root_files_last(
+    entries: list[RepoManifestTreeEntry],
+) -> list[RepoManifestTreeEntry]:
     """Order each tree level for `_build_repo_manifest_tree`.
 
     Directory entries stay before file entries so root files render last in the
     frontend tree and flat depth-first file list.
     """
-    directory_entries: list[dict[str, Any]] = []
-    file_entries: list[dict[str, Any]] = []
+    directory_entries: list[RepoManifestDirectoryNode] = []
+    file_entries: list[RepoManifestFileNode] = []
     for entry in entries:
         if entry["type"] == "directory":
             entry["entries"] = _root_files_last(entry["entries"])
@@ -181,8 +199,8 @@ def _root_files_last(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _compact_single_directory_chains(
-    entries: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    entries: list[RepoManifestTreeEntry],
+) -> list[RepoManifestTreeEntry]:
     """Collapse directory chains that contain no branching choice.
 
     Used by `_build_repo_manifest_tree` after root-file ordering.
@@ -191,7 +209,7 @@ def _compact_single_directory_chains(
     consumers get a tree shaped around meaningful choices rather than every
     path segment.
     """
-    compacted_entries: list[dict[str, Any]] = []
+    compacted_entries: list[RepoManifestTreeEntry] = []
     for entry in entries:
         if entry["type"] != "directory":
             compacted_entries.append(entry)
@@ -201,10 +219,9 @@ def _compact_single_directory_chains(
         compacted_entry = entry
         while len(compacted_entry["entries"]) == 1:
             child = compacted_entry["entries"][0]
-            assert isinstance(child, dict)
             if child["type"] != "directory":
                 break
-            collapsed_entry = {
+            collapsed_entry: RepoManifestDirectoryNode = {
                 "type": "directory",
                 "name": f"{compacted_entry['name']}/{child['name']}",
                 "path": child["path"],
@@ -217,10 +234,10 @@ def _compact_single_directory_chains(
 
 def _build_repo_manifest_tree(
     entries: list[RepoDiffPath],
-) -> list[dict[str, Any]]:
+) -> list[RepoManifestTreeEntry]:
     """Turn flat backend paths into the nested tree consumed by the sidebar."""
-    tree_entries: list[dict[str, Any]] = []
-    directories: dict[str, dict[str, Any]] = {}
+    tree_entries: list[RepoManifestTreeEntry] = []
+    directories: dict[str, RepoManifestDirectoryNode] = {}
     for entry in entries:
         path = (
             entry.right_path
@@ -230,7 +247,7 @@ def _build_repo_manifest_tree(
         if path is None:
             raise ValueError("Repo manifest entry is missing both paths.")
         parts = [part for part in PurePosixPath(path).parts if part != "."]
-        file_entry = {
+        file_entry: RepoManifestFileEntry = {
             "left_path": entry.left_path,
             "right_path": entry.right_path,
             "file_kind": file_kind_for_repo_entry(entry),
@@ -254,7 +271,7 @@ def build_repo_manifest_for_backend(
     left: str,
     right: str,
     show_untracked: bool = False,
-) -> dict[str, Any]:
+) -> RepoManifest:
     """Build a manifest from a backend for tests and uncached callers."""
     normalized_left = backend.normalize_side(left)
     normalized_right = backend.normalize_side(right)
@@ -277,9 +294,9 @@ def build_repo_manifest_for_paths(
     left_label: str,
     right_label: str,
     paths: list[RepoDiffPath] | tuple[RepoDiffPath, ...],
-    added_lines: Optional[int],
-    removed_lines: Optional[int],
-) -> dict[str, Any]:
+    added_lines: int | None,
+    removed_lines: int | None,
+) -> RepoManifest:
     """Build a manifest from captured paths and aggregate Snapshot metadata."""
     assert (added_lines is None) == (removed_lines is None), (
         "manifest line counts must have equal presence"
@@ -309,9 +326,9 @@ def build_repo_manifest_for_paths(
 def build_lazy_info_for_paths(
     *,
     paths: list[RepoDiffPath] | tuple[RepoDiffPath, ...],
-) -> dict[str, Any]:
+) -> LazyInfo:
     """Derive lazy-file metadata from the same path snapshot as the manifest."""
-    files: list[dict[str, Any]] = []
+    files: list[LazyInfoFile] = []
 
     for entry in paths:
         lazy = _lazy_reason_for_repo_entry(entry)

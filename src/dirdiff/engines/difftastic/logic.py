@@ -96,7 +96,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import unified_diff
-from typing import Any, Literal, NotRequired, TypedDict, final, override
+from typing import Literal, NotRequired, TypedDict, final, override
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
@@ -577,13 +577,13 @@ def _plain_line_rows_for_side(
     *,
     text: str,
     side: Literal["left", "right"],
-) -> list[dict[str, Any]]:
+) -> list[DifftasticRow]:
     """Render one existing side of an added or deleted file as plain rows.
 
     Every line becomes one one-sided row with the side's whole-line status;
     no tokens are attached because there is nothing to pair against.
     """
-    rows: list[dict[str, Any]] = []
+    rows: list[DifftasticRow] = []
     for index, line in enumerate(text.splitlines(), start=1):
         if side == "left":
             rows.append(
@@ -614,7 +614,7 @@ def _unified_diff_rows(
     right_text: str,
     left_label: str,
     right_label: str,
-) -> list[dict[str, Any]]:
+) -> list[DifftasticRow]:
     """Return textual rows when Difftastic cannot produce structural rows.
 
     The caller supplies both complete text sides and their display labels.
@@ -635,7 +635,7 @@ def _unified_diff_rows(
         r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
         r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
     )
-    rows: list[dict[str, Any]] = []
+    rows: list[DifftasticRow] = []
     left_no = 1
     right_no = 1
     in_hunk = False

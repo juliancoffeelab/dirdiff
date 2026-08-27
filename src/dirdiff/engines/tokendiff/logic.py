@@ -57,15 +57,17 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any, final, override
+from typing import Literal, final, override
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
+    DiffEngineRow,
     DiffSide,
     DiffSummary,
     EngineWarning,
-    strict_engine_rows,
+    InlineToken,
+    InlineTokenStatus,
 )
 
 __all__ = [
@@ -105,6 +107,9 @@ Isolated word matches at or below this size between changed surroundings
 are demoted; larger ones are real shared content and stay matched. Matched
 separators and whitespace never count and never demote.
 """
+
+type _TokenPiece = tuple[str, InlineTokenStatus]
+"""One exact line slice paired with its final inline-diff status."""
 
 
 @dataclass
@@ -418,14 +423,14 @@ def _pair_lines(
     return pairs
 
 
-def _merge_tokens(pieces: list[tuple[str, str]]) -> list[dict[str, Any]]:
+def _merge_tokens(pieces: list[_TokenPiece]) -> list[InlineToken]:
     """Merge adjacent same-status pieces into display tokens.
 
     Pieces arrive in line order as exact text slices; merging compresses
     runs sharing one status into one token per contiguous verdict. Token
     `is_ws` describes the merged slice exactly.
     """
-    merged: list[tuple[str, str]] = []
+    merged: list[_TokenPiece] = []
     for text, status in pieces:
         if merged != [] and merged[-1][1] == status:
             merged[-1] = (merged[-1][0] + text, status)
@@ -442,7 +447,7 @@ def _anchored_line_row(
     right_line: str,
     left_no: int,
     right_no: int,
-) -> dict[str, Any]:
+) -> DiffEngineRow:
     """Render one line pair anchored by lstrip-equality.
 
     Anchored pairs differ at most in leading whitespace, so the row is
@@ -477,9 +482,11 @@ def _anchored_line_row(
     left_middle = left_lead[prefix : len(left_lead) - suffix]
     right_middle = right_lead[prefix : len(right_lead) - suffix]
 
-    def lead_pieces(middle: str, one_sided: str) -> list[tuple[str, str]]:
+    def lead_pieces(
+        middle: str, one_sided: Literal["delete", "insert"]
+    ) -> list[_TokenPiece]:
         """Assemble one side's pieces around its trimmed leading middle."""
-        pieces: list[tuple[str, str]] = []
+        pieces: list[_TokenPiece] = []
         if prefix > 0:
             pieces.append((left_lead[:prefix], "unchanged"))
         if middle != "":
@@ -509,7 +516,7 @@ def _region_rows(
     *,
     left_no: int,
     right_no: int,
-) -> tuple[list[dict[str, Any]], bool]:
+) -> tuple[list[DiffEngineRow], bool]:
     """Render one changed line region into aligned rows.
 
     `left_region` and `right_region` are the region's exact text including
@@ -520,8 +527,8 @@ def _region_rows(
     """
     left_atoms = _tokenize(left_region)
     right_atoms = _tokenize(right_region)
+    rows: list[DiffEngineRow] = []
     if len(left_atoms) * len(right_atoms) > _REGION_ATOM_LIMIT:
-        rows: list[dict[str, Any]] = []
         for offset, line in enumerate(_split_lines(left_region)):
             rows.append(
                 {
@@ -592,10 +599,8 @@ def _region_rows(
     # other is demoted here to a one-sided pair, keeping every one-sided
     # row entirely its own status; newline steps shape lines but are never
     # rendered as tokens.
-    left_line_pieces: list[list[tuple[str, str]]] = [
-        [] for _ in range(left_count)
-    ]
-    right_line_pieces: list[list[tuple[str, str]]] = [
+    left_line_pieces: list[list[_TokenPiece]] = [[] for _ in range(left_count)]
+    right_line_pieces: list[list[_TokenPiece]] = [
         [] for _ in range(right_count)
     ]
     for index, op in enumerate(ops):
@@ -609,23 +614,26 @@ def _region_rows(
         if op.left is not None and op.left != "\n":
             assert line_left is not None
             if kept:
-                status = "unchanged" if op.left == op.right else "replace"
+                left_status: InlineTokenStatus = (
+                    "unchanged" if op.left == op.right else "replace"
+                )
             else:
-                status = "delete"
-            left_line_pieces[line_left].append((op.left, status))
+                left_status = "delete"
+            left_line_pieces[line_left].append((op.left, left_status))
         if op.right is not None and op.right != "\n":
             assert line_right is not None
             if kept:
-                status = "unchanged" if op.left == op.right else "replace"
+                right_status: InlineTokenStatus = (
+                    "unchanged" if op.left == op.right else "replace"
+                )
             else:
-                status = "insert"
-            right_line_pieces[line_right].append((op.right, status))
+                right_status = "insert"
+            right_line_pieces[line_right].append((op.right, right_status))
 
-    rows = []
     left_cursor = 0
     right_cursor = 0
 
-    def append_one_sided(line: int, side: str) -> None:
+    def append_one_sided(line: int, side: Literal["left", "right"]) -> None:
         """Emit one unpaired region line as a fully one-sided row."""
         nonlocal left_cursor, right_cursor
         if side == "left":
@@ -702,7 +710,7 @@ def _region_rows(
 def _build_token_rows(
     left_text: str,
     right_text: str,
-) -> tuple[list[dict[str, Any]], EngineWarning | None]:
+) -> tuple[list[DiffEngineRow], EngineWarning | None]:
     """Build neutral tokendiff rows before display enrichment.
 
     Line runs equal after left-strip anchor the walk and pair one to one,
@@ -713,7 +721,7 @@ def _build_token_rows(
     """
     left_lines = _split_lines(left_text)
     right_lines = _split_lines(right_text)
-    rows: list[dict[str, Any]] = []
+    rows: list[DiffEngineRow] = []
     warning: EngineWarning | None = None
     left_no = 1
     right_no = 1
@@ -797,7 +805,7 @@ def _build_token_rows(
     return rows, warning
 
 
-def _token_summary(rows: list[dict[str, Any]]) -> DiffSummary:
+def _token_summary(rows: list[DiffEngineRow]) -> DiffSummary:
     """Line-count summary for tokendiff rows.
 
     Tokendiff does not report moved lines. A paired row counts as modified
@@ -842,7 +850,7 @@ class TokenDiffEngine(DiffEngineProtocol):
         rows, warning = _build_token_rows(old.text or "", new.text or "")
         result: DiffEngineResult = {
             "summary": _token_summary(rows),
-            "rows": strict_engine_rows(rows),
+            "rows": rows,
         }
         if warning is not None:
             result["engine_warning"] = warning

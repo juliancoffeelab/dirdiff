@@ -19,6 +19,7 @@ from dirdiff.backend import (
     BranchSelection,
     GitBackend,
     RefChoices,
+    RepoManifest,
     WorkspaceBackendProtocol,
     build_repo_manifest_for_backend,
     ref_choices,
@@ -161,7 +162,7 @@ def build_loaded_diff(
     left_text_value = "" if left_text is None else left_text
     right_text_value = "" if right_text is None else right_text
     display = enrich_rows_for_display(
-        rows=[dict(row) for row in rendered["rows"]],
+        rows=rendered["rows"],
         left_text=left_text_value,
         right_text=right_text_value,
         left_path_hint=left_path_hint,
@@ -201,7 +202,7 @@ class WorkspaceDiffServiceAdapter:
         left: str,
         right: str,
         show_untracked: bool = False,
-    ) -> dict[str, Any]:
+    ) -> RepoManifest:
         return build_repo_manifest_for_backend(
             self.backend,
             left=left,

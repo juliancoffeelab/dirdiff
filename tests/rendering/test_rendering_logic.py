@@ -15,7 +15,6 @@ from dirdiff.formats import TextRejection, try_decode_text
 from dirdiff.rendering import (
     SyntaxClass,
     SyntaxSpan,
-    enrich_rows_for_display,
     highlight_lines_for_path,
     weave_decorated_parts,
 )
@@ -106,30 +105,3 @@ def test_decorated_parts_reject_invalid_syntax_spans(
     """Reject syntax spans that do not form valid ordered source ranges."""
     with pytest.raises(AssertionError):
         weave_decorated_parts("abc", [], syntax)
-
-
-@pytest.mark.parametrize(
-    "missing_field",
-    ["left_text", "right_text", "left_tokens", "right_tokens"],
-)
-def test_display_enrichment_requires_complete_engine_rows(
-    missing_field: str,
-) -> None:
-    """Reject engine rows missing any required text or token field."""
-    row: dict[str, object] = {
-        "status": "equal",
-        "left_no": 1,
-        "right_no": 1,
-        "left_text": "text",
-        "right_text": "text",
-        "left_tokens": [],
-        "right_tokens": [],
-    }
-    row.pop(missing_field)
-
-    with pytest.raises(AssertionError):
-        enrich_rows_for_display(
-            rows=[row],
-            left_text="text",
-            right_text="text",
-        )

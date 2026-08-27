@@ -23,6 +23,142 @@ BranchSource = Literal["local", "remote"]
 LazyReason = Literal[
     "too_big", "generated", "deleted", "untracked", "pure_renamed"
 ]
+type GitFileStatus = Literal[
+    "modified", "added", "deleted", "renamed", "copied"
+]
+"""Git-backed File classification published in manifest metadata."""
+
+
+class GitFileKind(TypedDict):
+    """Manifest metadata for one tracked Git File."""
+
+    type: Literal["git"]
+    """Discriminator for tracked repository content."""
+
+    status: GitFileStatus
+    """Frontend-visible Git change classification."""
+
+
+class UntrackedFileKind(TypedDict):
+    """Manifest metadata for one untracked File."""
+
+    type: Literal["untracked"]
+    """Discriminator for worktree content absent from Git."""
+
+
+type RepoFileKind = GitFileKind | UntrackedFileKind
+"""Complete manifest File-kind union consumed by the frontend."""
+
+
+class RepoManifestSummary(TypedDict):
+    """Repository-wide File totals and optional backend line totals.
+
+    File counts partition `changed_files` into added, removed, and updated
+    Files; `skipped_files` records entries omitted from loading. Added and
+    removed line counts are either both backend-reported integers or both
+    `None` when the backend cannot provide aggregate line metadata.
+    """
+
+    changed_files: int
+    added_files: int
+    removed_files: int
+    updated_files: int
+    added_lines: int | None
+    removed_lines: int | None
+    skipped_files: int
+
+
+class RepoManifestFileEntry(TypedDict):
+    """File metadata stored at one leaf of the manifest tree.
+
+    At least one repository-relative side path is present. `file_kind`
+    describes tracked status or untracked provenance, while `lazy` names why
+    the File has not been loaded and is `None` for an eagerly loadable File.
+    """
+
+    left_path: str | None
+    right_path: str | None
+    file_kind: RepoFileKind
+    lazy: LazyReason | None
+
+
+class RepoManifestFileNode(TypedDict):
+    """One named File leaf in the recursive manifest tree.
+
+    `type` is the recursive-union discriminator, `name` is the final path
+    component displayed at this level, and `entry` carries the File metadata.
+    A File node never contains child entries.
+    """
+
+    type: Literal["file"]
+    name: str
+    entry: RepoManifestFileEntry
+
+
+class RepoManifestDirectoryNode(TypedDict):
+    """One named directory containing recursive manifest entries.
+
+    `path` is the complete repository-relative directory path used for stable
+    identity. `name` may contain several slash-separated components after
+    single-child chain compaction, and `entries` contains the resulting child
+    directories and Files.
+    """
+
+    type: Literal["directory"]
+    name: str
+    path: str
+    entries: list[RepoManifestTreeEntry]
+
+
+type RepoManifestTreeEntry = RepoManifestFileNode | RepoManifestDirectoryNode
+"""One recursive node in the repository manifest tree."""
+
+
+class RepoManifest(TypedDict):
+    """Complete repository manifest before its Snapshot id is attached.
+
+    Labels describe the compared sides, `summary` carries repository-wide
+    totals, and `tree` contains every listed File exactly once. Snapshot
+    identity belongs to Room/server orchestration and must not enter this
+    backend value.
+    """
+
+    display_name: str
+    left_label: str
+    right_label: str
+    summary: RepoManifestSummary
+    tree: list[RepoManifestTreeEntry]
+
+
+class LazyInfoFile(TypedDict):
+    """Metadata sufficient to render one unloaded File placeholder.
+
+    Side paths, display name, and File kind reproduce the manifest identity.
+    `lazy` is required because this record represents only unloaded Files;
+    line counts remain `None` until the File is rendered.
+    """
+
+    left_path: str | None
+    right_path: str | None
+    file_kind: RepoFileKind
+    display_name: str
+    changed_lines: int | None
+    added_lines: int | None
+    removed_lines: int | None
+    lazy: LazyReason
+
+
+class LazyInfo(TypedDict):
+    """Complete lazy-file metadata response before HTTP validation.
+
+    `files` contains only entries with a concrete lazy reason and preserves
+    their backend path order. The response carries no Snapshot identity or
+    eagerly loaded File metadata.
+    """
+
+    files: list[LazyInfoFile]
+
+
 BUILTIN_SIDES = frozenset({"HEAD", "index", "worktree"})
 
 __all__ = [
@@ -31,6 +167,10 @@ __all__ = [
     "BranchSource",
     "DefaultBaseSelection",
     "DefaultBaseSelectionError",
+    "GitFileKind",
+    "GitFileStatus",
+    "LazyInfo",
+    "LazyInfoFile",
     "LazyReason",
     "LocalBranchSelection",
     "RefChoices",
@@ -39,8 +179,16 @@ __all__ = [
     "RemoteBranchSelection",
     "RepoDiff",
     "RepoDiffPath",
+    "RepoFileKind",
+    "RepoManifest",
+    "RepoManifestDirectoryNode",
+    "RepoManifestFileEntry",
+    "RepoManifestFileNode",
+    "RepoManifestSummary",
+    "RepoManifestTreeEntry",
     "SideName",
     "StructuredRemoteBranchRef",
+    "UntrackedFileKind",
     "WorkspaceBackendProtocol",
     "display_name_for_repo_paths",
     "git_executable",

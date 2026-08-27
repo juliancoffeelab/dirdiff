@@ -209,7 +209,7 @@ def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
     )
 
     display = enrich_rows_for_display(
-        rows=[dict(row) for row in rendered["rows"]],
+        rows=rendered["rows"],
         left_text=old_text,
         right_text=new_text,
         left_path_hint=old_path.name,

@@ -13,11 +13,11 @@ import importlib
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
-from typing import Any, Literal, TypedDict
+from typing import Literal, TypedDict
 
 from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
-from dirdiff.engines import engine_row_has_change
+from dirdiff.engines import DiffEngineRow, engine_row_has_change
 
 __all__ = ["FoldHint", "fold_hints_for_path"]
 
@@ -380,7 +380,7 @@ FOLD_LANGUAGE_SPECS: tuple[FoldLanguageSpec, ...] = (
 def fold_hints_for_path(
     path: str | None,
     text: str,
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
 ) -> list[FoldHint]:
     """Return fold hints for the right side of an already-rendered diff.
 
@@ -414,7 +414,7 @@ def fold_hints_for_path(
     right_line_to_row = {
         row["right_no"]: index
         for index, row in enumerate(rows)
-        if isinstance(row.get("right_no"), int)
+        if row["right_no"] is not None
     }
     if right_line_to_row == {}:
         return []
@@ -470,7 +470,7 @@ def _collect_markdown_section_hints(
     matches: list[tuple[int, dict[str, list[Node]]]],
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
 ) -> list[FoldHint]:
     """Collect hierarchical Markdown section folds from heading captures.
 
@@ -699,7 +699,7 @@ def _assign_candidate_parents(candidates: list[FoldCandidate]) -> None:
 def _collect_hints(
     candidate: FoldCandidate,
     all_candidates: list[FoldCandidate],
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
     hints: list[FoldHint],
 ) -> None:
     """Apply fold policy recursively and append accepted display hints.
@@ -753,7 +753,7 @@ def _collect_hints(
 
 def _candidate_to_hint(
     candidate: FoldCandidate,
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
 ) -> FoldHint | None:
     """Convert an accepted candidate into the compact API fold-hint shape.
 
@@ -769,9 +769,9 @@ def _candidate_to_hint(
     visible_index = candidate.hidden_start_row - 1
     visible_label = ""
     if 0 <= visible_index < len(rows):
-        raw_visible_label = rows[visible_index].get("right_text")
+        raw_visible_label = rows[visible_index]["right_text"]
         visible_label = (
-            "" if raw_visible_label is None else str(raw_visible_label).strip()
+            "" if raw_visible_label is None else raw_visible_label.strip()
         )
     if candidate.rule.region_kind == "section":
         if candidate.label_text is not None:
@@ -796,7 +796,7 @@ def _collect_top_level_hints(
     root_node: Node,
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
     existing_hints: list[FoldHint],
 ) -> list[FoldHint]:
     """Build grouped top-level folds for unchanged imports/declarations.
@@ -973,7 +973,7 @@ def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
 
 def _append_top_level_run_hint(
     run: list[TopLevelItem],
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
     existing_ranges: set[tuple[int, int]],
     hints: list[FoldHint],
 ) -> None:
@@ -1070,7 +1070,7 @@ def _child_candidates(
 
 def _region_is_unchanged(
     candidate: FoldCandidate,
-    rows: list[dict[str, Any]],
+    rows: list[DiffEngineRow],
 ) -> bool:
     """Return whether a candidate's rendered context has no engine changes.
 
@@ -1082,7 +1082,7 @@ def _region_is_unchanged(
     return _rows_are_unchanged(span)
 
 
-def _rows_are_unchanged(rows: list[dict[str, Any]]) -> bool:
+def _rows_are_unchanged(rows: list[DiffEngineRow]) -> bool:
     """Return whether every row in a non-empty span is engine-unchanged.
 
     Empty spans are not foldable. Non-empty spans use the exact classification

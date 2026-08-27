@@ -10,14 +10,15 @@ from __future__ import annotations
 
 import re
 from difflib import SequenceMatcher
-from typing import Any, final, override
+from typing import TypedDict, final, override
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
+    DiffEngineRow,
     DiffSide,
     DiffSummary,
-    strict_engine_rows,
+    InlineToken,
 )
 
 __all__ = [
@@ -34,7 +35,22 @@ ALIGNMENT_NOISE_WORDS = frozenset({"none", "true", "false", "null"})
 MIN_SIMILAR_LINE_RATIO = 0.45
 
 
-def _text_summary(rows: list[dict[str, Any]]) -> DiffSummary:
+class _TokenPiece(TypedDict):
+    """One lexical piece before inline alignment assigns a status.
+
+    Text and whitespace identity are complete at tokenization time. The piece
+    must not represent a public inline token because its diff status does not
+    exist until the two token sequences have been aligned.
+    """
+
+    text: str
+    """Exact source text carried by the piece."""
+
+    is_ws: bool
+    """Whether the complete piece is whitespace."""
+
+
+def _text_summary(rows: list[DiffEngineRow]) -> DiffSummary:
     """Return line-count summary for TextDiff rows.
 
     The TextDiff algorithm does not report moved lines. GumTree owns move
@@ -86,7 +102,7 @@ class TextDiffEngine(DiffEngineProtocol):
         )
         return {
             "summary": _text_summary(rows),
-            "rows": strict_engine_rows(rows),
+            "rows": rows,
         }
 
 
@@ -109,11 +125,11 @@ def _build_text_rows(
     right_text: str,
     *,
     with_inline_tokens: bool,
-) -> list[dict[str, Any]]:
+) -> list[DiffEngineRow]:
     """Build neutral TextDiff rows before display enrichment."""
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
-    rows: list[dict[str, Any]] = []
+    rows: list[DiffEngineRow] = []
     left_no = 1
     right_no = 1
 
@@ -261,8 +277,8 @@ def _paired_line_row(
     right_no: int,
     *,
     with_inline_tokens: bool,
-) -> dict[str, Any]:
-    row: dict[str, Any] = {
+) -> DiffEngineRow:
+    row: DiffEngineRow = {
         "status": (
             "equal" if left_line.lstrip() == right_line.lstrip() else "replace"
         ),
@@ -283,8 +299,8 @@ def _paired_line_row(
 def _append_char_level_diff(
     left_text: str,
     right_text: str,
-    left_tokens: list[dict[str, Any]],
-    right_tokens: list[dict[str, Any]],
+    left_tokens: list[InlineToken],
+    right_tokens: list[InlineToken],
     *,
     is_ws: bool = False,
 ) -> None:
@@ -332,8 +348,8 @@ def _identifier_diff_parts(text: str) -> list[str]:
 def _append_identifier_level_diff(
     left_text: str,
     right_text: str,
-    left_tokens: list[dict[str, Any]],
-    right_tokens: list[dict[str, Any]],
+    left_tokens: list[InlineToken],
+    right_tokens: list[InlineToken],
 ) -> None:
     left_parts = _identifier_diff_parts(left_text)
     right_parts = _identifier_diff_parts(right_text)
@@ -520,12 +536,12 @@ def _align_similar_lines(
 
 def _inline_diff(
     left_text: str, right_text: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[InlineToken], list[InlineToken]]:
     left_bits = INLINE_TOKEN_PATTERN.findall(left_text)
     right_bits = INLINE_TOKEN_PATTERN.findall(right_text)
 
-    def make_tokens(bits: list[str]) -> list[dict[str, Any]]:
-        tokens: list[dict[str, Any]] = []
+    def make_tokens(bits: list[str]) -> list[_TokenPiece]:
+        tokens: list[_TokenPiece] = []
         for bit in bits:
             tokens.append(
                 {
@@ -543,8 +559,8 @@ def _inline_diff(
     ]
 
     matcher = SequenceMatcher(a=left_keys, b=right_keys, autojunk=False)
-    left_tokens: list[dict[str, Any]] = []
-    right_tokens: list[dict[str, Any]] = []
+    left_tokens: list[InlineToken] = []
+    right_tokens: list[InlineToken] = []
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":

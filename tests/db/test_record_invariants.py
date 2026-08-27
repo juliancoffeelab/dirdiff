@@ -15,16 +15,15 @@ and on the fields that had no Python check at all before the migration,
 their constraint alone.
 """
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from sqlalchemy import literal, null, select
 
 from dirdiff.db import (
     ReviewActionRecord,
     ReviewThreadRecord,
     RoomStore,
-    open_ephemeral_engine,
 )
 
 __all__ = [
@@ -362,28 +361,13 @@ def test_persisted_action_enums_are_validated_on_read(
 ) -> None:
     """A stored lifecycle value outside its vocabulary must fail the read.
 
-    `status_after` and `attention_after` reach `ReviewActionRecord` through
-    `Row[Any]`, where their `Literal` annotations assert nothing, and until
-    revision `e2a71c6b5d94` their only guard was a check constraint. The match
-    that replaced it is exercised here against a real row: the selected
-    literals stand in for a persisted action, since the database no longer
-    refuses to store one shaped like this.
+    Mapped string columns cannot express the record's narrower lifecycle
+    vocabulary, so the read boundary must still reject values outside it.
     """
     columns = {**_ACTION, "status_after": status_after}
     columns["attention_after"] = attention_after
-    engine = open_ephemeral_engine()
-    with engine.connect() as connection:
-        row = connection.execute(
-            select(
-                *(
-                    # A None column has no type to infer a literal from, and
-                    # the read boundary only cares that it arrives as NULL.
-                    (null() if value is None else literal(value)).label(name)
-                    for name, value in columns.items()
-                )
-            )
-        ).one()
+    action: Any = SimpleNamespace(**columns)
     with pytest.raises(
         AssertionError, match=f"invalid persisted thread {message}"
     ):
-        RoomStore._action_record(row)
+        RoomStore._action_record(action)

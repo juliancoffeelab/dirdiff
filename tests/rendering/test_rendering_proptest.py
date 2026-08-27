@@ -198,7 +198,7 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
             ),
         )
         display = enrich_rows_for_display(
-            rows=[dict(row) for row in rendered["rows"]],
+            rows=rendered["rows"],
             left_text=old_text,
             right_text=new_text,
             left_path_hint=str(old_path),
