@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from threading import Lock
-from typing import Literal, Optional, TypedDict
+from typing import Literal, NotRequired, Optional, TypedDict
 from uuid import UUID
 
 from tree_sitter import Language, Node, Parser
@@ -66,10 +66,12 @@ __all__ = [
     "ReviewBatchResult",
     "ReviewError",
     "ReviewErrorCode",
+    "ReviewOriginView",
     "ReviewTarget",
     "TextTarget",
     "Thread",
     "ThreadDiscussionView",
+    "ThreadPlacementView",
     "ThreadSummaryView",
     # Room-facade internals: implemented here, consumed only by room_lord's
     # Room methods; every other module goes through the Room facade.
@@ -319,6 +321,115 @@ class ReviewCommentView(TypedDict):
     updated_at: datetime
 
 
+class ReviewFilePairView(TypedDict):
+    """Identify one reviewed File by its complete nullable path pair."""
+
+    left_path: str | None
+    right_path: str | None
+
+
+class ReviewTextBayView(TypedDict):
+    """Identify one text bay within a reviewed File."""
+
+    bay_key: str
+
+
+class ReviewLineRangeView(TypedDict):
+    """Identify one inclusive one-based line range within a text bay."""
+
+    start_line: int
+    end_line: int
+
+
+class ReviewExcerptView(TypedDict):
+    """Return one bounded selected-side excerpt from the origin Snapshot."""
+
+    side: Literal["left", "right"]
+    start_line: int
+    selected_start_line: int
+    selected_end_line: int
+    lines: list[str]
+
+
+class TextReviewOriginView(TypedDict):
+    """Return the immutable text target a Thread was created against."""
+
+    kind: Literal["text"]
+    file: ReviewFilePairView
+    bay: ReviewTextBayView
+    side: Literal["left", "right"]
+    range: ReviewLineRangeView
+    excerpt: NotRequired[ReviewExcerptView]
+
+
+class FileStartReviewOriginView(TypedDict):
+    """Return one retained historical File-level Thread origin."""
+
+    kind: Literal["file-start"]
+    file: ReviewFilePairView
+    side: Literal["left", "right"]
+
+
+type ReviewOriginView = TextReviewOriginView | FileStartReviewOriginView
+"""Return the immutable creation target of one Thread."""
+
+
+class ThreadRegionPlacementView(TypedDict):
+    """Locate a Thread on a retained or changed text region."""
+
+    kind: Literal["region-kept", "region-changed"]
+    range: ReviewLineRangeView
+
+
+class ThreadRegionLostPlacementView(TypedDict):
+    """Locate a Thread at its origin bay after its region is lost."""
+
+    kind: Literal["region-lost"]
+
+
+class ThreadBayLostPlacementView(TypedDict):
+    """Locate a Thread at another bay after its origin bay is lost."""
+
+    kind: Literal["bay-lost"]
+    bay: ReviewTextBayView
+
+
+class ThreadSideLostPlacementView(TypedDict):
+    """Locate a Thread on its File after the selected side is lost."""
+
+    kind: Literal["side-lost"]
+
+
+class ThreadFileAbsentPlacementView(TypedDict):
+    """State that a Thread's File pair is absent from the Snapshot."""
+
+    kind: Literal["file-absent"]
+
+
+class ThreadFileUnreadablePlacementView(TypedDict):
+    """State that a Thread's File exists but could not be captured."""
+
+    kind: Literal["file-unreadable"]
+
+
+class ThreadWholeFilePlacementView(TypedDict):
+    """Locate one retained File-level Thread on its File."""
+
+    kind: Literal["whole-file"]
+
+
+type ThreadPlacementView = (
+    ThreadRegionPlacementView
+    | ThreadRegionLostPlacementView
+    | ThreadBayLostPlacementView
+    | ThreadSideLostPlacementView
+    | ThreadFileAbsentPlacementView
+    | ThreadFileUnreadablePlacementView
+    | ThreadWholeFilePlacementView
+)
+"""Return one complete public Thread placement outcome."""
+
+
 class ThreadDiscussionView(TypedDict):
     """Return bounded discussion and placement facts for one Snapshot."""
 
@@ -328,8 +439,8 @@ class ThreadDiscussionView(TypedDict):
     state: Literal["open", "resolved", "deleted"]
     attention: Literal["author", "reviewer", "both", "none"]
     discussion_revision: int
-    origin_target: dict[str, object]
-    placement: dict[str, object]
+    origin_target: ReviewOriginView
+    placement: ThreadPlacementView
     comments: list[ReviewCommentView]
 
 
@@ -347,8 +458,8 @@ class ThreadSummaryView(TypedDict):
     thread_id: str
     state: Literal["open", "resolved", "deleted"]
     attention: Literal["author", "reviewer", "both", "none"]
-    origin_target: dict[str, object]
-    placement: dict[str, object]
+    origin_target: ReviewOriginView
+    placement: ThreadPlacementView
     first_comment: ReviewCommentView
     latest_comment: ReviewCommentView
     comment_count: int
@@ -1342,10 +1453,10 @@ def _derive_record(
 def _origin_target_dict(
     origin: _RangePlacement | _FileStartPlacement,
     file: SnapshotFileRecord,
-) -> dict[str, object]:
+) -> ReviewOriginView:
     """Reconstruct the immutable public creation target from retained facts."""
     origin_pair = _file_pair(file)
-    pair = {
+    pair: ReviewFilePairView = {
         "left_path": origin_pair.left_path,
         "right_path": origin_pair.right_path,
     }
@@ -1478,7 +1589,7 @@ def _build_original_excerpt(
     origin: _RangePlacement,
     origin_file: SnapshotFileRecord,
     cache: _ReviewReadCache,
-) -> dict[str, object]:
+) -> ReviewExcerptView:
     """Return the selected origin lines with three surrounding lines.
 
     Creation calls this before persistence so every accepted text target can
@@ -1768,7 +1879,7 @@ class Thread:
             )
         return self._files
 
-    def _placement_view(self) -> dict[str, object]:
+    def _placement_view(self) -> ThreadPlacementView:
         """Fold placement facts into the public placement.
 
         The returned shape names one derivation outcome and states only what
@@ -1869,6 +1980,7 @@ class Thread:
             # Only a discussion read builds an excerpt, and it belongs to the
             # origin it is cut from. The summary path reads no captured text,
             # so the key is attached here rather than by the shared builder.
+            assert origin_target["kind"] == "text"
             origin_target["excerpt"] = _build_original_excerpt(
                 origin, files.origin_file, files.cache
             )

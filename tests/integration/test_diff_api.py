@@ -26,6 +26,7 @@ from dirdiff.db import (
 )
 from dirdiff.room_lord import RoomLord
 from dirdiff.server import create_app
+from dirdiff.util import JsonValue
 
 __all__: list[str] = []
 
@@ -1293,7 +1294,7 @@ def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     tmp_path: Path,
 ) -> None:
     """An agent names a cell bay on write and reads the same one back."""
-    cell: dict[str, object] = {
+    cell: dict[str, JsonValue] = {
         "cell_type": "code",
         "id": "stable-cell",
         "metadata": {},
@@ -1453,7 +1454,7 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
     bytes, emptied of cells, and finally removed — and each capture's stored
     placement must be exactly the shape derivation promised for that loss.
     """
-    cell_a: dict[str, object] = {
+    cell_a: dict[str, JsonValue] = {
         "cell_type": "code",
         "id": "cell-a",
         "metadata": {},
@@ -1461,7 +1462,7 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         "outputs": [],
         "source": ["x = 0\n"],
     }
-    cell_b: dict[str, object] = {
+    cell_b: dict[str, JsonValue] = {
         "cell_type": "code",
         "id": "cell-b",
         "metadata": {},
@@ -1469,7 +1470,7 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         "outputs": [],
         "source": ["def beta():\n", "    total = 1\n", "    return total\n"],
     }
-    notebook: dict[str, object] = {
+    notebook: dict[str, JsonValue] = {
         "cells": [cell_a, cell_b],
         "metadata": {},
         "nbformat": 4,
@@ -1551,7 +1552,7 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         tuple[
             str,
             bytes | None,
-            tuple[dict[str, object], dict[str, str] | None, str],
+            tuple[dict[str, JsonValue], dict[str, str] | None, str],
         ]
     ] = [
         # The origin's own bay is gone; the File's first right-carrying bay

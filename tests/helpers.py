@@ -42,9 +42,9 @@ from dirdiff.engines import (
 from dirdiff.rendering import (
     DiffRow,
     FoldHint,
-    default_expanded_for_payload,
     enrich_rows_for_display,
 )
+from dirdiff.util import JsonValue
 
 __all__ = [
     "GitDiffService",
@@ -109,8 +109,8 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
         serialized_data: str,
         snapshot_data: str,
     ) -> bool:
-        serialized_json: object = json.loads(serialized_data)
-        snapshot_json: object = json.loads(snapshot_data)
+        serialized_json: JsonValue = json.loads(serialized_data)
+        snapshot_json: JsonValue = json.loads(snapshot_data)
         return serialized_json == snapshot_json
 
     @classmethod
@@ -216,7 +216,7 @@ def build_loaded_diff(
     }
     if "fold_hints" in display:
         payload["fold_hints"] = display["fold_hints"]
-    payload["default_expanded"] = default_expanded_for_payload(payload)
+    payload["default_expanded"] = True
     return payload
 
 

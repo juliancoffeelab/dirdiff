@@ -1,8 +1,8 @@
 """Difftastic-backed structural renderer engine.
 
 This package is the public entrypoint for rendering already-loaded text sides
-with difftastic.  The public export surface is `DifftasticDiffEngine`,
-`DifftasticInlineToken`, `DifftasticRow`, and `build_difftastic_ast`.  Raw
+with difftastic. The public export surface is `DifftasticDiffEngine` and
+`build_difftastic_ast`. Raw
 subprocess execution, JSON parsing, fallback row construction, and payload
 projection stay inside the package implementation modules.
 
@@ -15,14 +15,10 @@ syntax/fold enrichment.
 
 from dirdiff.engines.difftastic.logic import (
     DifftasticDiffEngine,
-    DifftasticInlineToken,
-    DifftasticRow,
     build_difftastic_ast,
 )
 
 __all__ = [
     "DifftasticDiffEngine",
-    "DifftasticInlineToken",
-    "DifftasticRow",
     "build_difftastic_ast",
 ]

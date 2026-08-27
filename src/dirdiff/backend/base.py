@@ -23,6 +23,18 @@ BranchSource = Literal["local", "remote"]
 LazyReason = Literal[
     "too_big", "generated", "deleted", "untracked", "pure_renamed"
 ]
+
+
+class PresetGroup(TypedDict):
+    """Describe one selectable fixture group within a preset catalog."""
+
+    id: str
+    """Directory name sent back when the group is selected."""
+
+    display_name: str
+    """Human-readable group name shown by the preset picker."""
+
+
 type GitFileStatus = Literal[
     "modified", "added", "deleted", "renamed", "copied"
 ]
@@ -173,6 +185,7 @@ __all__ = [
     "LazyInfoFile",
     "LazyReason",
     "LocalBranchSelection",
+    "PresetGroup",
     "RefChoices",
     "RefMetadata",
     "RemoteBranchRef",

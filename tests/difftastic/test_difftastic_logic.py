@@ -9,12 +9,8 @@ it does not test subprocess execution or final API payload assembly.
 import re
 from pathlib import Path
 
-from dirdiff.engines import DiffSide
-from dirdiff.engines.difftastic import (
-    DifftasticDiffEngine,
-    DifftasticInlineToken,
-    DifftasticRow,
-)
+from dirdiff.engines import DiffEngineRow, DiffSide, InlineToken
+from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import (
     _difftastic_engine_warning,
     _difftastic_rows_from_json,
@@ -26,7 +22,7 @@ PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 __all__: list[str] = []
 
 
-def _preset_rows(preset_name: str) -> list[DifftasticRow]:
+def _preset_rows(preset_name: str) -> list[DiffEngineRow]:
     preset_dir = PRESETS_ROOT / preset_name
     old_path = next(preset_dir.glob("old.*"))
     new_path = next(preset_dir.glob("new.*"))
@@ -51,7 +47,7 @@ def _text_rows(
     left_text: str,
     right_text: str,
     extension: str = "ts",
-) -> list[DifftasticRow]:
+) -> list[DiffEngineRow]:
     service = DifftasticDiffEngine()
     diff_json = service._run_difftastic_json(
         left_text=left_text,
@@ -71,7 +67,7 @@ def _word_like_token_atoms(text: str) -> list[str]:
 
 
 def _pure_unchanged_one_sided_change_texts(
-    rows: list[DifftasticRow],
+    rows: list[DiffEngineRow],
 ) -> list[str]:
     broken_texts: list[str] = []
     for row in rows:
@@ -87,7 +83,7 @@ def _pure_unchanged_one_sided_change_texts(
         if side is None:
             continue
 
-        tokens: list[DifftasticInlineToken] | None
+        tokens: list[InlineToken] | None
         if side == "left":
             tokens = row.get("left_tokens")
         else:
@@ -95,7 +91,7 @@ def _pure_unchanged_one_sided_change_texts(
         if tokens is None:
             continue
 
-        meaningful_tokens: list[DifftasticInlineToken] = []
+        meaningful_tokens: list[InlineToken] = []
         for token in tokens:
             text = token.get("text")
             if _word_like_token_atoms(text) != []:
@@ -114,14 +110,14 @@ def _pure_unchanged_one_sided_change_texts(
 
 
 def _assert_no_pure_unchanged_one_sided_changes(
-    rows: list[DifftasticRow],
+    rows: list[DiffEngineRow],
 ) -> None:
     broken_texts = _pure_unchanged_one_sided_change_texts(rows)
     assert broken_texts == [], broken_texts
 
 
 def _changed_word_like_atoms_for_line(
-    rows: list[DifftasticRow],
+    rows: list[DiffEngineRow],
     *,
     side: str,
     line_no: int,

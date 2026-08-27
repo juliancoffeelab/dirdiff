@@ -12,7 +12,7 @@ import pytest
 from helpers import GoldenJsonSnapshotExtension, build_loaded_diff
 from syrupy.assertion import SnapshotAssertion
 
-from dirdiff.engines import engine_row_has_change
+from dirdiff.rendering import DiffRow
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "fold"
 GOLDEN_ROOT = Path(__file__).parents[1] / "golden" / "folds"
@@ -48,6 +48,15 @@ def test_fold_preset_hints_match_golden(
     preset_dir: Path,
     snapshot_json: SnapshotAssertion,
 ) -> None:
+    def display_row_has_change(row: DiffRow) -> bool:
+        """Classify change from an enriched row's display fields."""
+        if row["status"] != "equal":
+            return True
+        return any(
+            part["diff_status"] != "unchanged"
+            for part in (*row["left_parts"], *row["right_parts"])
+        )
+
     old_files = sorted(preset_dir.glob("old.*"))
     new_files = sorted(preset_dir.glob("new.*"))
     assert len(old_files) == 1, preset_dir
@@ -73,4 +82,4 @@ def test_fold_preset_hints_match_golden(
 
     for hint in diff.get("fold_hints", []):
         folded_rows = diff["rows"][hint["start_row"] : hint["end_row"]]
-        assert all(not engine_row_has_change(row) for row in folded_rows), hint
+        assert all(not display_row_has_change(row) for row in folded_rows), hint

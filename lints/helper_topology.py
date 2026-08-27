@@ -1,8 +1,8 @@
 """Flake8 checks for the lexical placement of module-local functions.
 
 HLP is a syntax-and-symbol-table lint with two diagnostics. HLP001 reports a
-module-local function with one non-recursive reference, which can be inlined at
-that use. HLP002 reports a module-local function with several references that
+module-local function with one non-recursive reference, which can be inlined or
+nested beside that use. HLP002 reports a module-local function with several references that
 all occur beneath one outermost named function, which can contain the helper
 lexically.
 
@@ -188,7 +188,7 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
                         function,
                         INLINE_CODE,
                         f"module-local function {name!r} has one external "
-                        "reference; inline it at that use",
+                        "reference; inline it or nest it beside that use",
                     )
                 )
                 continue

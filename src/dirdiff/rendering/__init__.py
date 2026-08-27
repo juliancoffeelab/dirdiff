@@ -18,12 +18,11 @@ from dirdiff.rendering.base import (
     EnrichedRows,
     SyntaxClass,
     SyntaxSpan,
-    default_expanded_for_payload,
     enrich_rows_for_display,
     highlight_lines_for_path,
     weave_decorated_parts,
 )
-from dirdiff.rendering.fold import FoldHint
+from dirdiff.rendering.fold import FoldHint, engine_row_has_change
 
 __all__ = [
     "DecoratedPart",
@@ -32,7 +31,7 @@ __all__ = [
     "FoldHint",
     "SyntaxClass",
     "SyntaxSpan",
-    "default_expanded_for_payload",
+    "engine_row_has_change",
     "enrich_rows_for_display",
     "highlight_lines_for_path",
     "weave_decorated_parts",

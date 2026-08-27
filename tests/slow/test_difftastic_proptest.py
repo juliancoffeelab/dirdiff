@@ -21,8 +21,8 @@ from _pytest.mark.structures import ParameterSet
 from tree_sitter import Language, Node, Parser
 
 from dirdiff.backend import GitBackend
-from dirdiff.engines import DiffSide, DirdiffError
-from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticRow
+from dirdiff.engines import DiffEngineRow, DiffSide, DirdiffError
+from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 from dirdiff.formats import TextRejection, try_decode_text
 
@@ -110,7 +110,7 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
 def _difftastic_rows_for_preset(
     old_path: Path,
     new_path: Path,
-) -> tuple[list[DifftasticRow], str, str]:
+) -> tuple[list[DiffEngineRow], str, str]:
     """
     Returns private-ish difftastic parser result, without handling
     bad cases like fallback to unified_diff, if difftastic fails
@@ -235,7 +235,7 @@ def test_difftastic_preset_tokens_stay_in_source_order(
     """
 
     def _side_rendered_text(
-        rows: list[DifftasticRow],
+        rows: list[DiffEngineRow],
         *,
         side: Side,
     ) -> str:

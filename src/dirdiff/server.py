@@ -117,8 +117,10 @@ from dirdiff.review import (
     ResolveThread,
     ReviewError,
     ReviewErrorCode,
+    ReviewOriginView,
     TextTarget,
     ThreadDiscussionView,
+    ThreadPlacementView,
     ThreadSummaryView,
 )
 from dirdiff.room_lord import (
@@ -1935,9 +1937,9 @@ def create_app(
                 f"Unknown snapshot id: {snapshot_id.hex}"
             ) from None
 
-    def agent_failure(status: HTTPStatus, detail: object) -> PlainTextResponse:
+    def agent_failure(status: HTTPStatus, detail: str) -> PlainTextResponse:
         """Return one concrete diagnostic for a rejected agent operation."""
-        return PlainTextResponse(str(detail), status_code=status)
+        return PlainTextResponse(detail, status_code=status)
 
     def agent_preview(body: str | None, deleted: bool) -> AgentCommentPreview:
         """Bound one Comment body to the shared 256-character preview rule."""
@@ -1954,7 +1956,7 @@ def create_app(
         )
 
     def placed_file_pair(
-        origin: dict[str, object], placement: dict[str, object]
+        origin: ReviewOriginView, placement: ThreadPlacementView
     ) -> tuple[str | None, str | None] | None:
         """Return the File pair a placement rests on, or `None` for no File.
 
@@ -1967,12 +1969,7 @@ def create_app(
         if placement["kind"] in ("file-absent", "file-unreadable"):
             return None
         pair = origin["file"]
-        assert isinstance(pair, dict)
-        left_value = pair.get("left_path")
-        right_value = pair.get("right_path")
-        assert left_value is None or isinstance(left_value, str)
-        assert right_value is None or isinstance(right_value, str)
-        return left_value, right_value
+        return pair["left_path"], pair["right_path"]
 
     def captured_files_for_placements(
         room: Room,
@@ -1996,8 +1993,8 @@ def create_app(
         captured_files: dict[
             tuple[str | None, str | None], tuple[Path | None, Path | None]
         ],
-        origin: dict[str, object],
-        placement: dict[str, object],
+        origin: ReviewOriginView,
+        placement: ThreadPlacementView,
     ) -> tuple[str | None, AgentBayRange | AgentBayStart | None]:
         """Translate one placement into its captured File path and bay.
 
@@ -2017,24 +2014,25 @@ def create_app(
             "a placement rests on a side this Snapshot did not capture"
         )
         bay: AgentBayRange | AgentBayStart | None = None
-        kind = placement["kind"]
-        if kind in ("region-kept", "region-changed", "region-lost"):
+        if placement["kind"] in (
+            "region-kept",
+            "region-changed",
+            "region-lost",
+        ):
+            assert origin["kind"] == "text"
             origin_bay = origin["bay"]
-            assert isinstance(origin_bay, dict)
-            if kind == "region-lost":
+            if placement["kind"] == "region-lost":
                 bay = AgentBayStart.model_validate(origin_bay)
             else:
                 landed = placement["range"]
-                assert isinstance(landed, dict)
                 bay = AgentBayRange.model_validate({**origin_bay, **landed})
-        elif kind == "bay-lost":
+        elif placement["kind"] == "bay-lost":
             landed_bay = placement["bay"]
-            assert isinstance(landed_bay, dict)
             bay = AgentBayStart.model_validate(landed_bay)
         return str(selected_file), bay
 
     def agent_outdated_reason(
-        placement: dict[str, object],
+        placement: ThreadPlacementView,
     ) -> AgentOutdatedReason | None:
         """Translate one placement into the agent boundary's outdated name.
 
@@ -2145,7 +2143,7 @@ def create_app(
         """Return framework failure detail at the agent API boundary."""
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
-            return agent_failure(HTTPStatus(exc.status_code), exc.detail)
+            return agent_failure(HTTPStatus(exc.status_code), str(exc.detail))
         return await http_exception_handler(request, exc)
 
     @app.get("/", response_class=HTMLResponse)
@@ -2542,7 +2540,7 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent new-review request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
+            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
     @app.get(
         "/api/agent/thread_summary",
@@ -2596,7 +2594,7 @@ def create_app(
             return agent_page(summaries, page, limit, total)
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Thread-summary request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
+            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
     @app.get("/api/agent/threads", response_model=AgentPage[AgentThread])
     def agent_threads(  # pyright: ignore[reportUnusedFunction]
@@ -2627,7 +2625,7 @@ def create_app(
             return agent_page(threads, page, limit, total, concrete_activity_id)
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Threads request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
+            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
     @app.get("/api/agent/thread/{thread_id}", response_model=AgentThreadPage)
     def agent_thread_by_id(  # pyright: ignore[reportUnusedFunction]
@@ -2656,7 +2654,7 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Thread request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
+            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
     @app.post(
         "/api/agent/continue_review",
@@ -2785,7 +2783,7 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent continue-review request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
+            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
     @app.post("/api/agent/actions", response_model=AgentActionsResponse)
     def apply_agent_actions(  # pyright: ignore[reportUnusedFunction]
@@ -2901,7 +2899,7 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent actions request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, exc)
+            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
     @app.get("/api/repo-defaults")
     def serve_repo_defaults(  # pyright: ignore[reportUnusedFunction]

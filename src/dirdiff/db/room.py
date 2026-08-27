@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Literal, Optional
+from typing import Literal, NotRequired, Optional, TypedDict
 
 from sqlalchemy import (
     Boolean,
@@ -865,6 +865,100 @@ class ReviewThreadsRecord:
     """Number of placements before page bounds are applied."""
 
 
+class _ReviewThreadInsertValues(TypedDict):
+    """Column values written for one persisted Thread placement."""
+
+    thread_id: str
+    """Stable discussion id shared by every placement of the Thread."""
+
+    snapshot_id: str
+    """Snapshot in which this placement was derived."""
+
+    snapshot_file_id: str | None
+    """Placed File id, absent only when no File carries the Thread."""
+
+    target_kind: Literal["range", "bay-start", "file-start"] | None
+    """Stored placement shape, absent only for an unlocated Thread."""
+
+    bay_key: str | None
+    """Placed bay key when the placement reaches a bay."""
+
+    side: Literal["left", "right"] | None
+    """Placed side when the placement reaches a captured File."""
+
+    start_line: int | None
+    """Inclusive range start for a range placement."""
+
+    end_line: int | None
+    """Inclusive range end for a range placement."""
+
+    outdated_reason: (
+        Literal[
+            "region_changed",
+            "region_not_found",
+            "bay_not_found",
+            "file_unreadable",
+            "file_missing",
+        ]
+        | None
+    )
+    """Why the origin no longer lands exactly, when it does not."""
+
+    private_locator: bytes | None
+    """Private origin coordinates retained only for a current range."""
+
+
+class _ReviewActionInsertValues(TypedDict):
+    """Column values written for one authored review action."""
+
+    operation_id: str
+    """Idempotency id of the authored operation."""
+
+    thread_id: str
+    """Discussion to which the action belongs."""
+
+    snapshot_id: str
+    """Snapshot against which the action was authored."""
+
+    sequence: int
+    """Zero-based action order within the Thread."""
+
+    kind: Literal[
+        "thread-created",
+        "comment-created",
+        "comment-edited",
+        "comment-deleted",
+        "thread-resolved",
+        "thread-reopened",
+        "thread-deleted",
+    ]
+    """Authored operation variant controlling the nullable fields."""
+
+    profile_id: int
+    """Relational Profile that authored the action."""
+
+    comment_id: str | None
+    """Comment affected or created by a Comment-carrying action."""
+
+    expected_revision: int | None
+    """Revision an edit or deletion requires before it may apply."""
+
+    body: str | None
+    """Authored Comment text when this action carries one."""
+
+    created_at: str
+    """Persisted UTC timestamp supplied for the authored action."""
+
+    status_after: Literal["open", "resolved", "deleted"]
+    """Thread lifecycle immediately after applying the action."""
+
+    attention_after: Literal["author", "reviewer", "both", "none"]
+    """Roles whose attention is required after applying the action."""
+
+    activity_id: NotRequired[int]
+    """Room-wide order, omitted until persistence assigns it."""
+
+
 class RoomStore:
     """Provide the complete relational interface for Room persistence.
 
@@ -883,7 +977,9 @@ class RoomStore:
         self.engine = engine
 
     @staticmethod
-    def _review_thread_values(record: ReviewThreadRecord) -> dict[str, object]:
+    def _review_thread_values(
+        record: ReviewThreadRecord,
+    ) -> _ReviewThreadInsertValues:
         """Translate one immutable Thread placement into insert values."""
         return {
             "thread_id": record.thread_id,
@@ -899,9 +995,11 @@ class RoomStore:
         }
 
     @staticmethod
-    def _review_action_values(record: ReviewActionRecord) -> dict[str, object]:
+    def _review_action_values(
+        record: ReviewActionRecord,
+    ) -> _ReviewActionInsertValues:
         """Translate one immutable authored action into insert values."""
-        values: dict[str, object] = {
+        values: _ReviewActionInsertValues = {
             "operation_id": record.operation_id,
             "thread_id": record.thread_id,
             "snapshot_id": record.snapshot_id,
@@ -1985,9 +2083,9 @@ class RoomStore:
                     last_action.attention_after.in_((attention, "both"))
                 )
 
-            def filtered[T: tuple[object, ...]](
-                query: Select[T],
-            ) -> Select[T]:
+            def filtered[*T](
+                query: Select[tuple[*T]],
+            ) -> Select[tuple[*T]]:
                 """Select from placements joined to their latest actions."""
                 return (
                     query.select_from(ReviewThreadPlacement)

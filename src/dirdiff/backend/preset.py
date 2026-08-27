@@ -22,6 +22,7 @@ from typing import TypeIs, override
 from dirdiff.backend.base import (
     BranchSelection,
     LazyReason,
+    PresetGroup,
     RepoDiff,
     RepoDiffPath,
     SideName,
@@ -192,7 +193,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             if self._fixture_pairs_for_group(group_dir.name)
         ]
 
-    def list_preset_groups(self) -> list[dict[str, object]]:
+    def list_preset_groups(self) -> list[PresetGroup]:
         """Build catalog entries for the preset picker."""
         return [
             {

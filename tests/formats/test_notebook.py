@@ -21,6 +21,7 @@ from dirdiff.formats import (
     Composer,
     FramePayload,
 )
+from dirdiff.util import JsonValue
 
 NOTEBOOKS = Path(__file__).resolve().parents[1] / "presets" / "notebook"
 
@@ -499,7 +500,7 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
     supply an unambiguous degraded coordinate and the source bay warns.
     """
 
-    def notebook(identifiers: list[object]) -> bytes:
+    def notebook(identifiers: list[JsonValue]) -> bytes:
         """Build a notebook whose cells differ only in the id each claims."""
         return json.dumps(
             {
@@ -527,7 +528,7 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
         right_label="new",
         renderer=engine("dirdiff"),
     )
-    malformed: list[list[object]] = [
+    malformed: list[list[JsonValue]] = [
         [None, "kept"],
         ["same", "same"],
         ["", "kept"],
@@ -572,7 +573,7 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
     a notebook with invented contents.
     """
 
-    def notebook(cell: dict[str, object]) -> bytes:
+    def notebook(cell: dict[str, JsonValue]) -> bytes:
         """Build a one-cell notebook around one pre-built cell mapping."""
         return json.dumps(
             {
@@ -583,7 +584,7 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
             }
         ).encode()
 
-    valid: dict[str, object] = {
+    valid: dict[str, JsonValue] = {
         "cell_type": "code",
         "id": "kept",
         "execution_count": None,
@@ -591,7 +592,7 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
         "source": ["value = 1\n"],
         "outputs": [],
     }
-    malformed: list[dict[str, object]] = [
+    malformed: list[dict[str, JsonValue]] = [
         {**valid, "id": " padded "},
         {**valid, "id": "x" * 65},
         {**valid, "cell_type": "headline"},
@@ -827,7 +828,7 @@ def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
     rows already show the edit and only `change` can say it moved.
     """
 
-    def code(key: str, count: int | None, source: str) -> dict[str, object]:
+    def code(key: str, count: int | None, source: str) -> dict[str, JsonValue]:
         """Build one code cell whose prompt and source are the variables."""
         return {
             "cell_type": "code",
@@ -838,7 +839,7 @@ def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
             "outputs": [],
         }
 
-    def notebook(cells: list[dict[str, object]]) -> bytes:
+    def notebook(cells: list[dict[str, JsonValue]]) -> bytes:
         """Wrap pre-built cells in an otherwise fixed notebook document."""
         return json.dumps(
             {
@@ -849,7 +850,7 @@ def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
             }
         ).encode()
 
-    markdown: dict[str, object] = {
+    markdown: dict[str, JsonValue] = {
         "cell_type": "markdown",
         "id": "B",
         "metadata": {},

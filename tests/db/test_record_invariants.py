@@ -137,7 +137,9 @@ _ACTION = {
         ),
     ],
 )
-def test_valid_placements_construct(changes: dict[str, object]) -> None:
+def test_valid_placements_construct(
+    changes: dict[str, str | int | None],
+) -> None:
     """Every placement review derivation emits must still be constructible.
 
     The four tagged-union variants and both outdated forms of a range are the
@@ -253,7 +255,9 @@ def test_valid_placements_construct(changes: dict[str, object]) -> None:
         ),
     ],
 )
-def test_invalid_placement_is_refused(changes: dict[str, object]) -> None:
+def test_invalid_placement_is_refused(
+    changes: dict[str, str | int | None],
+) -> None:
     """No placement outside the tagged union may be constructed.
 
     Each case is a row the dropped `ck_review_thread_location` or
@@ -299,7 +303,7 @@ def test_invalid_placement_is_refused(changes: dict[str, object]) -> None:
         ),
     ],
 )
-def test_valid_actions_construct(changes: dict[str, object]) -> None:
+def test_valid_actions_construct(changes: dict[str, str | int | None]) -> None:
     """Every action variant the review API writes must stay constructible."""
     record = ReviewActionRecord(
         **{**_ACTION, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
@@ -341,7 +345,9 @@ def test_valid_actions_construct(changes: dict[str, object]) -> None:
         pytest.param({"kind": "thread-deleted"}, id="deleted-carrying-a-body"),
     ],
 )
-def test_invalid_action_is_refused(changes: dict[str, object]) -> None:
+def test_invalid_action_is_refused(
+    changes: dict[str, str | int | None],
+) -> None:
     """No action whose fields contradict its kind may be constructed.
 
     Each case is a row `ck_review_action_variant` rejected, plus the Profile

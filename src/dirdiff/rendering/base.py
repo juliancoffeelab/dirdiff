@@ -11,7 +11,6 @@ from __future__ import annotations
 import importlib
 import re
 from bisect import bisect_right
-from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
@@ -24,9 +23,12 @@ from dirdiff.engines import (
     DiffEngineRow,
     InlineToken,
     InlineTokenStatus,
-    engine_row_has_change,
 )
-from dirdiff.rendering.fold import FoldHint, fold_hints_for_path
+from dirdiff.rendering.fold import (
+    FoldHint,
+    engine_row_has_change,
+    fold_hints_for_path,
+)
 
 __all__ = [
     "DecoratedPart",
@@ -34,7 +36,6 @@ __all__ = [
     "EnrichedRows",
     "SyntaxClass",
     "SyntaxSpan",
-    "default_expanded_for_payload",
     "enrich_rows_for_display",
     "highlight_lines_for_path",
     "weave_decorated_parts",
@@ -825,17 +826,6 @@ def _append_syntax_span(
     spans.append(_SyntaxSpan(start, end, classes))
 
 
-def default_expanded_for_payload(payload: Mapping[str, object]) -> bool:
-    """Return whether a file payload should start expanded in the UI.
-
-    The current rule is intentionally shared: lazy payloads start collapsed,
-    fully-rendered payloads start expanded.  Engines should not invent their
-    own expansion policy unless the API model grows a first-class setting for
-    it.
-    """
-    return not payload.get("lazy")
-
-
 def enrich_rows_for_display(
     *,
     rows: list[DiffEngineRow],
@@ -895,13 +885,13 @@ def enrich_rows_for_display(
                 "left_text": left_text_value,
                 "right_text": right_text_value,
                 "left_parts": weave_decorated_parts(
-                    "" if left_text_value is None else left_text_value,
-                    row["left_tokens"],
+                    left_text_value,
+                    row.get("left_tokens", []),
                     left_syntax,
                 ),
                 "right_parts": weave_decorated_parts(
-                    "" if right_text_value is None else right_text_value,
-                    row["right_tokens"],
+                    right_text_value,
+                    row.get("right_tokens", []),
                     right_syntax,
                 ),
                 "hunk_index": hunk_index,

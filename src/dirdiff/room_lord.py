@@ -61,6 +61,7 @@ from dirdiff.review import (
     get_thread,
     thread_objects,
 )
+from dirdiff.util import JsonValue
 
 __all__ = [
     "BranchReviewCaptureSelection",
@@ -773,25 +774,8 @@ class Room:
         Request continuation must supply the newly prepared complete commits;
         other Tabs reject them. The new Snapshot remains in this exact Room.
         """
-        identity = self._identity
-        if identity.mark_id is None or identity.tab == "preset":
-            raise DirdiffError("Agent review does not support preset Rooms.")
-        try:
-            correspondence = json.loads(identity.correspondence_key)
-        except (TypeError, ValueError) as exc:
-            raise AssertionError(
-                "invalid persisted Room correspondence"
-            ) from exc
-        assert isinstance(backend, GitBackend)
-        left_side: str
-        right_side: str
 
-        if identity.tab == "pull-request":
-            assert isinstance(correspondence, str) and correspondence != ""
-        else:
-            assert isinstance(correspondence, dict)
-
-        def persisted_branch(value: object) -> BranchSelection:
+        def persisted_branch(value: JsonValue) -> BranchSelection:
             """Validate one structured branch stored in correspondence JSON."""
             assert isinstance(value, dict)
             source = value.get("source")
@@ -808,8 +792,22 @@ class Room:
                 "branch": branch,
             }
 
+        identity = self._identity
+        if identity.mark_id is None or identity.tab == "preset":
+            raise DirdiffError("Agent review does not support preset Rooms.")
+        try:
+            correspondence: JsonValue = json.loads(identity.correspondence_key)
+        except (TypeError, ValueError) as exc:
+            raise AssertionError(
+                "invalid persisted Room correspondence"
+            ) from exc
+        assert isinstance(backend, GitBackend)
+        left_side: str
+        right_side: str
+
         if identity.tab == "head":
             assert pull_request_left is None and pull_request_right is None
+            assert isinstance(correspondence, dict)
             stored_commit = correspondence.get("commit")
             assert isinstance(stored_commit, str) and stored_commit != ""
             left_side = stored_commit
@@ -819,6 +817,7 @@ class Room:
             show_untracked = True
         elif identity.tab == "refs":
             assert pull_request_left is None and pull_request_right is None
+            assert isinstance(correspondence, dict)
             stored_left = correspondence.get("left")
             stored_right = correspondence.get("right")
             assert isinstance(stored_left, str) and stored_left != ""
@@ -830,6 +829,7 @@ class Room:
             show_untracked = False
         elif identity.tab == "branch-review":
             assert pull_request_left is None and pull_request_right is None
+            assert isinstance(correspondence, dict)
             base_value = correspondence.get("base")
             review_value = correspondence.get("review")
             resolved_base, left_side, review_side, right_side = (
@@ -843,6 +843,7 @@ class Room:
             show_untracked = False
         else:
             assert identity.tab == "pull-request"
+            assert isinstance(correspondence, str) and correspondence != ""
             if pull_request_left is None or pull_request_right is None:
                 raise DirdiffError(
                     "Pull Request continuation requires prepared commits."
@@ -980,7 +981,10 @@ class RoomLord:
             right_side = "new"
             left_label = "old"
             right_label = "new"
-            correspondence: object = {"catalog": catalog, "subset": subset}
+            correspondence: str | dict[str, str | BranchSelection] = {
+                "catalog": catalog,
+                "subset": subset,
+            }
         elif isinstance(selection, PullRequestCaptureSelection):
             tab = "pull-request"
             assert mark_id is not None, "Pull Request Rooms require a Mark"

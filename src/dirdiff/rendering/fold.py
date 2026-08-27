@@ -17,9 +17,20 @@ from typing import Literal, TypedDict
 
 from tree_sitter import Language, Node, Parser, Query, QueryCursor
 
-from dirdiff.engines import DiffEngineRow, engine_row_has_change
+from dirdiff.engines import DiffEngineRow
 
-__all__ = ["FoldHint", "fold_hints_for_path"]
+__all__ = ["FoldHint", "engine_row_has_change", "fold_hints_for_path"]
+
+
+def engine_row_has_change(row: DiffEngineRow) -> bool:
+    """Classify change from a neutral row's status and inline tokens."""
+    if row["status"] != "equal":
+        return True
+    return any(
+        token["status"] != "unchanged" for token in row.get("left_tokens", [])
+    ) or any(
+        token["status"] != "unchanged" for token in row.get("right_tokens", [])
+    )
 
 
 class FoldHint(TypedDict):

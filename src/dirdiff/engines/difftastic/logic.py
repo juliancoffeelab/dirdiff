@@ -60,10 +60,10 @@ Output contract
 ---------------
 `build_difftastic_ast` returns `DifftasticAst`:
 
-* `rows`: a list of `DifftasticRow` values.
+* `rows`: a list of complete public `DiffEngineRow` values.
 * `engine_warning`: optional metadata for known difftastic fallback modes.
 
-Each `DifftasticRow` is a display row. Its fields are:
+Each row is a neutral engine row. Its fields are:
 
 * `status`: one of `equal`, `replace`, `insert`, or `delete`.
 * `left_no` and `right_no`: one-based source line numbers, or `None` for
@@ -93,17 +93,17 @@ hints, and does not assemble the final HTTP/API payload.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import unified_diff
-from typing import Literal, NotRequired, TypedDict, final, override
+from typing import Literal, final, override
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
+    DiffEngineRow,
     DiffSide,
     EngineWarning,
-    strict_engine_rows,
+    InlineToken,
 )
 from dirdiff.engines.difftastic.difft import (
     DifftasticJson,
@@ -117,41 +117,8 @@ type DifftasticTokenStatus = Literal["unchanged", "replace", "insert", "delete"]
 __all__ = [
     "DifftasticAst",
     "DifftasticDiffEngine",
-    "DifftasticInlineToken",
-    "DifftasticRow",
     "build_difftastic_ast",
 ]
-
-
-class DifftasticInlineToken(TypedDict):
-    """One inline token of a rendered difftastic row.
-
-    `text` is an exact slice of the owning line, `status` is difftastic's
-    verdict for that slice, and `is_ws` marks a purely whitespace slice. A
-    token never represents text from another line or invented content.
-    """
-
-    text: str
-    status: DifftasticTokenStatus
-    is_ws: bool
-
-
-class DifftasticRow(TypedDict):
-    """Rendered row shape exported from difftastic logic to the service.
-
-    One row renders one aligned line pair. Absent sides carry `None` line
-    numbers, `""` text, and no token key; present sides carry the full source
-    line and a token list that is empty when difftastic reported no novel
-    span on the line.
-    """
-
-    status: DifftasticRowStatus
-    left_no: int | None
-    right_no: int | None
-    left_text: str
-    right_text: str
-    left_tokens: NotRequired[list[DifftasticInlineToken]]
-    right_tokens: NotRequired[list[DifftasticInlineToken]]
 
 
 @dataclass(frozen=True)
@@ -163,7 +130,7 @@ class DifftasticAst:
     `engine_warning` reports a known difftastic fallback mode, or `None`.
     """
 
-    rows: list[DifftasticRow]
+    rows: list[DiffEngineRow]
     engine_warning: EngineWarning | None
 
 
@@ -360,7 +327,7 @@ def _span_index(
     return index
 
 
-def _line_tokens(line: str, spans: list[_Span]) -> list[DifftasticInlineToken]:
+def _line_tokens(line: str, spans: list[_Span]) -> list[InlineToken]:
     """Partition one source line into tokens at difftastic's span boundaries.
 
     Each novel span becomes one changed token and each non-empty gap becomes
@@ -371,13 +338,11 @@ def _line_tokens(line: str, spans: list[_Span]) -> list[DifftasticInlineToken]:
     if spans == []:
         return []
 
-    def token(
-        text: str, status: DifftasticTokenStatus
-    ) -> DifftasticInlineToken:
+    def token(text: str, status: DifftasticTokenStatus) -> InlineToken:
         """Build one token; `is_ws` is derived from the exact slice."""
         return {"text": text, "status": status, "is_ws": text.isspace()}
 
-    tokens: list[DifftasticInlineToken] = []
+    tokens: list[InlineToken] = []
     cursor = 0
     for span in spans:
         if span.start > cursor:
@@ -395,8 +360,8 @@ def _row_status(
     right_no: int | None,
     left_text: str,
     right_text: str,
-    left_tokens: list[DifftasticInlineToken],
-    right_tokens: list[DifftasticInlineToken],
+    left_tokens: list[InlineToken],
+    right_tokens: list[InlineToken],
 ) -> DifftasticRowStatus:
     """Derive one row's status from its tokens.
 
@@ -442,7 +407,7 @@ def _difftastic_rows_from_json(
     *,
     left_text: str,
     right_text: str,
-) -> list[DifftasticRow]:
+) -> list[DiffEngineRow]:
     """Project one difftastic JSON payload into dirdiff display rows.
 
     One row is emitted per aligned pair whose line numbers exist in the
@@ -462,7 +427,7 @@ def _difftastic_rows_from_json(
         right_lines=right_lines,
     )
 
-    rows: list[DifftasticRow] = []
+    rows: list[DiffEngineRow] = []
     next_left = 0
     next_right = 0
     for pair in aligned:
@@ -512,7 +477,7 @@ def _difftastic_rows_from_json(
             if right_index is None
             else _line_tokens(right_line, spans.right.get(right_index, []))
         )
-        row: DifftasticRow = {
+        row: DiffEngineRow = {
             "status": _row_status(
                 left_no=None if left_index is None else left_index + 1,
                 right_no=None if right_index is None else right_index + 1,
@@ -577,13 +542,13 @@ def _plain_line_rows_for_side(
     *,
     text: str,
     side: Literal["left", "right"],
-) -> list[DifftasticRow]:
+) -> list[DiffEngineRow]:
     """Render one existing side of an added or deleted file as plain rows.
 
     Every line becomes one one-sided row with the side's whole-line status;
     no tokens are attached because there is nothing to pair against.
     """
-    rows: list[DifftasticRow] = []
+    rows: list[DiffEngineRow] = []
     for index, line in enumerate(text.splitlines(), start=1):
         if side == "left":
             rows.append(
@@ -614,12 +579,12 @@ def _unified_diff_rows(
     right_text: str,
     left_label: str,
     right_label: str,
-) -> list[DifftasticRow]:
+) -> list[DiffEngineRow]:
     """Return textual rows when Difftastic cannot produce structural rows.
 
     The caller supplies both complete text sides and their display labels.
     This operation parses Python's unified-diff output directly into the
-    neutral engine-row fields consumed by `strict_engine_rows()`.
+    complete neutral engine rows consumed directly by rendering.
     """
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
@@ -635,7 +600,7 @@ def _unified_diff_rows(
         r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
         r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
     )
-    rows: list[DifftasticRow] = []
+    rows: list[DiffEngineRow] = []
     left_no = 1
     right_no = 1
     in_hunk = False
@@ -750,7 +715,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
         left_text_value = "" if old.text is None else old.text
         right_text_value = "" if new.text is None else new.text
         engine_warning: EngineWarning | None = None
-        rows: Iterable[object]
+        rows: list[DiffEngineRow]
         if old.exists and new.exists:
             difftastic_ast = build_difftastic_ast(
                 left_text=left_text_value,
@@ -779,15 +744,10 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 side="right",
             )
 
-        engine_rows = strict_engine_rows(rows)
-        modified_lines = sum(
-            1 for row in engine_rows if row["status"] == "replace"
-        )
-        added_lines = sum(1 for row in engine_rows if row["status"] == "insert")
-        removed_lines = sum(
-            1 for row in engine_rows if row["status"] == "delete"
-        )
-        moved_lines = sum(1 for row in engine_rows if row["status"] == "move")
+        modified_lines = sum(1 for row in rows if row["status"] == "replace")
+        added_lines = sum(1 for row in rows if row["status"] == "insert")
+        removed_lines = sum(1 for row in rows if row["status"] == "delete")
+        moved_lines = sum(1 for row in rows if row["status"] == "move")
         payload: DiffEngineResult = {
             "summary": {
                 "changed_lines": (
@@ -798,7 +758,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 "removed_lines": removed_lines,
                 "moved_lines": moved_lines,
             },
-            "rows": engine_rows,
+            "rows": rows,
         }
         if engine_warning is not None:
             payload["engine_warning"] = engine_warning

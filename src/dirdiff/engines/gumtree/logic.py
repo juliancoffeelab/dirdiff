@@ -21,7 +21,6 @@ HTTP payload assembly happen outside this module.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import pairwise, zip_longest
 from pathlib import Path
@@ -30,11 +29,11 @@ from typing import Literal, final, override
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
+    DiffEngineRow,
     DiffSide,
     DiffSummary,
     InlineToken,
     InlineTokenStatus,
-    strict_engine_rows,
 )
 from dirdiff.engines.gumtree.gumtree import (
     GumTreeJson,
@@ -98,7 +97,7 @@ def build_gumtree_rows_from_json(
     diff_json: GumTreeJson,
     left_text: str,
     right_text: str,
-) -> list[dict[str, object]]:
+) -> list[DiffEngineRow]:
     """Return dirdiff rows whose token statuses come from GumTree JSON.
 
     `diff_json` must be the JSON emitted for `left_text` and `right_text`.
@@ -111,7 +110,7 @@ def build_gumtree_rows_from_json(
     left_ranges, right_ranges = _classified_ranges(diff_json)
     left_lines = _line_segments(left_text)
     right_lines = _line_segments(right_text)
-    rows: list[dict[str, object]] = []
+    rows: list[DiffEngineRow] = []
 
     for left_segment, right_segment in zip_longest(left_lines, right_lines):
         left_tokens = (
@@ -192,10 +191,9 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         else:
             rows = _whole_side_rows(text=right_text, side="right")
 
-        engine_rows = strict_engine_rows(rows)
         return {
-            "summary": _summary(engine_rows),
-            "rows": engine_rows,
+            "summary": _summary(rows),
+            "rows": rows,
         }
 
     def _run_gumtree_json(
@@ -436,12 +434,12 @@ def _token_row_status(
     return "replace"
 
 
-def _whole_side_rows(*, text: str, side: _Side) -> list[dict[str, object]]:
+def _whole_side_rows(*, text: str, side: _Side) -> list[DiffEngineRow]:
     """Render a missing-side diff as whole-line GumTree-compatible rows."""
 
-    rows: list[dict[str, object]] = []
+    rows: list[DiffEngineRow] = []
     for segment in _line_segments(text):
-        token_status: InlineTokenStatus = (
+        row_status: Literal["delete", "insert"] = (
             "delete" if side == "left" else "insert"
         )
         tokens: list[InlineToken] = (
@@ -451,13 +449,13 @@ def _whole_side_rows(*, text: str, side: _Side) -> list[dict[str, object]]:
                 {
                     "text": segment.text,
                     "is_ws": segment.text.isspace(),
-                    "status": token_status,
+                    "status": row_status,
                 }
             ]
         )
         rows.append(
             {
-                "status": token_status,
+                "status": row_status,
                 "left_no": segment.index + 1 if side == "left" else None,
                 "right_no": segment.index + 1 if side == "right" else None,
                 "left_text": segment.text if side == "left" else "",
@@ -469,7 +467,7 @@ def _whole_side_rows(*, text: str, side: _Side) -> list[dict[str, object]]:
     return rows
 
 
-def _summary(rows: Sequence[object]) -> DiffSummary:
+def _summary(rows: list[DiffEngineRow]) -> DiffSummary:
     """Count changed rows while keeping GumTree visual rows neutral."""
 
     modified_lines = 0
@@ -477,17 +475,9 @@ def _summary(rows: Sequence[object]) -> DiffSummary:
     removed_lines = 0
     moved_lines = 0
     for row in rows:
-        if not isinstance(row, dict):
-            raise TypeError("Engine row must be a mapping.")
         status = row["status"]
         if status == "equal":
-            left_tokens = row.get("left_tokens", [])
-            right_tokens = row.get("right_tokens", [])
-            if not isinstance(left_tokens, list) or not isinstance(
-                right_tokens, list
-            ):
-                raise TypeError("Engine row tokens must be lists.")
-            status = _token_row_status(left_tokens, right_tokens)
+            status = _token_row_status(row["left_tokens"], row["right_tokens"])
         if status == "replace":
             modified_lines += 1
         elif status == "insert":

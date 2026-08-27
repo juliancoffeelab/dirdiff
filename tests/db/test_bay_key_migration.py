@@ -227,7 +227,7 @@ def test_bay_key_migration_moves_stored_placements(tmp_path: Path) -> None:
     # ...and reject every shape the bay vocabulary forbids. The NULL reason is
     # the adversarial case: `outdated_reason IN (...)` alone evaluates to NULL
     # for it and would pass a SQLite CHECK.
-    forbidden_shapes: tuple[dict[str, object], ...] = (
+    forbidden_shapes: tuple[dict[str, str | int | None], ...] = (
         {"target_kind": "bay-start", "bay_key": "cell-a", "side": "right"},
         {
             "target_kind": "bay-start",
@@ -257,14 +257,14 @@ def test_bay_key_migration_moves_stored_placements(tmp_path: Path) -> None:
             "outdated_reason": "bay_not_found",
         },
     )
-    for values in forbidden_shapes:
+    for placement_values in forbidden_shapes:
         with pytest.raises(IntegrityError), bay_engine.begin() as connection:
             connection.execute(
                 placement.insert().values(
                     thread_id="8" * 32,
                     snapshot_id=snapshot_id,
                     snapshot_file_id=file_id,
-                    **values,
+                    **placement_values,
                 )
             )
     bay_engine.dispose()

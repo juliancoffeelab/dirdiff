@@ -57,6 +57,7 @@ from dirdiff.formats.base import (
     whole_file_change,
 )
 from dirdiff.formats.blob import blob_bays
+from dirdiff.util import JsonValue
 
 __all__ = [
     "NotebookDocument",
@@ -70,7 +71,7 @@ __all__ = [
 class StreamOutput:
     """A `stream` output: text a code cell wrote to a named stream."""
 
-    raw: object
+    raw: JsonValue
     """
     The output entry verbatim, compared whole to detect a change.
     """
@@ -86,7 +87,7 @@ class StreamOutput:
 class ErrorOutput:
     """An `error` output: the exception a code cell raised."""
 
-    raw: object
+    raw: JsonValue
     """
     The output entry verbatim, compared whole to detect a change.
     """
@@ -105,7 +106,7 @@ class ErrorOutput:
 class ExecuteResultOutput:
     """An `execute_result` output: the bundle a cell's result displays as."""
 
-    raw: object
+    raw: JsonValue
     """
     The output entry verbatim, compared whole to detect a change.
     """
@@ -122,7 +123,7 @@ class ExecuteResultOutput:
 class DisplayDataOutput:
     """A `display_data` output: a bundle displayed while the cell ran."""
 
-    raw: object
+    raw: JsonValue
     """
     The output entry verbatim, compared whole to detect a change.
     """
@@ -152,7 +153,7 @@ composition's choice, not a fact of the loaded data.
 class RejectedNotebookPart:
     """One cell or output preserved as raw JSON after shape rejection."""
 
-    raw: object
+    raw: JsonValue
     """The exact parsed JSON value at the rejected boundary."""
 
     warning: BayWarning
@@ -196,7 +197,7 @@ class NotebookCell:
     joined.
     """
 
-    metadata: object
+    metadata: JsonValue
     """
     The cell's metadata value verbatim.
 
@@ -239,7 +240,7 @@ class NotebookDocument:
     Every cell in the file, in document order.
     """
 
-    document: object
+    document: JsonValue
     """
     The top-level mapping minus `cells`, kept verbatim.
 
@@ -282,18 +283,18 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         return None
     try:
         # `json.loads` is annotated upstream as returning `Any`; pinning the
-        # result to `object` stops that `Any` from leaking, so every shape
-        # below is proved by `isinstance` rather than assumed.
-        parsed: object = json.loads(text)
+        # result to `JsonValue` stops that `Any` from leaking while preserving
+        # every value the JSON data model permits.
+        parsed: JsonValue = json.loads(text)
     except json.JSONDecodeError:
         return None
     if not isinstance(parsed, dict):
         return None
-    cell_values: object = parsed.get("cells")
+    cell_values: JsonValue = parsed.get("cells")
     if not isinstance(cell_values, list):
         return None
 
-    def try_multistring(value: object) -> str | None:
+    def try_multistring(value: JsonValue) -> str | None:
         """Join one `nbformat` multiline value into one string.
 
         If the `value` is a string, we return it as is.
@@ -311,7 +312,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
             parts.append(part)
         return "".join(parts)
 
-    def try_load_output(entry: object) -> NotebookOutputEntry:
+    def try_load_output(entry: JsonValue) -> NotebookOutputEntry:
         """Load one output entry or preserve its raw rejected value.
 
         The raw entry is kept verbatim beside the fields the entry's
@@ -334,14 +335,14 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
 
         if not isinstance(entry, dict):
             return rejected("output is not a mapping")
-        output_type: object = entry.get("output_type")
+        output_type: JsonValue = entry.get("output_type")
         if output_type == "stream":
             stream_text = try_multistring(entry.get("text"))
             if stream_text is None:
                 return rejected("stream text is not a string or string list")
             return StreamOutput(raw=entry, text=stream_text)
         if output_type == "error":
-            traceback: object = entry.get("traceback")
+            traceback: JsonValue = entry.get("traceback")
             if not isinstance(traceback, list):
                 return rejected("error traceback is not a list")
             frames: list[str] = []
@@ -352,7 +353,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
             return ErrorOutput(raw=entry, traceback=frames)
         if output_type not in ("execute_result", "display_data"):
             return rejected("output_type is missing or unsupported")
-        data: object = entry.get("data")
+        data: JsonValue = entry.get("data")
         if not isinstance(data, dict):
             return rejected("display data is not a mapping")
         if "text/plain" in data:
@@ -392,7 +393,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
                 )
             )
             continue
-        cell_type: object = cell.get("cell_type")
+        cell_type: JsonValue = cell.get("cell_type")
         source = try_multistring(cell.get("source"))
         if cell_type not in ("code", "markdown", "raw") or source is None:
             cells.append(
@@ -410,7 +411,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
             continue
         assert isinstance(cell_type, str)
         warnings: list[BayWarning] = []
-        identifier: object = cell.get("id")
+        identifier: JsonValue = cell.get("id")
         valid_identifier = (
             isinstance(identifier, str)
             and re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", identifier) is not None
@@ -442,7 +443,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         # `isinstance` counts it as an int.
         execution_count: int | None = None
         if cell_type == "code":
-            output_values: object = cell.get("outputs")
+            output_values: JsonValue = cell.get("outputs")
             if isinstance(output_values, list):
                 outputs.extend(
                     try_load_output(entry) for entry in output_values
@@ -460,7 +461,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
                         },
                     )
                 )
-            raw_count: object = cell.get("execution_count")
+            raw_count: JsonValue = cell.get("execution_count")
             if "execution_count" not in cell:
                 warnings.append(
                     {
@@ -626,7 +627,7 @@ def notebook_bays(
     was added or removed; no empty document is invented for it.
     """
 
-    def canonical_json(value: object) -> str:
+    def canonical_json(value: JsonValue) -> str:
         """Serialize one value composition treats whole in its stable form.
 
         Sorted keys and fixed indentation make equal values render equal

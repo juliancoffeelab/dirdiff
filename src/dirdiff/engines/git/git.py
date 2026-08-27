@@ -20,7 +20,6 @@ from dirdiff.engines.base import (
     DiffSide,
     DirdiffError,
     git_executable,
-    strict_engine_rows,
 )
 from dirdiff.engines.git.logic import (
     git_diff_rows_from_patch,
@@ -144,6 +143,6 @@ class GitDiffEngine(DiffEngineProtocol):
                 "removed_lines": removed_lines,
                 "moved_lines": moved_lines,
             },
-            "rows": strict_engine_rows(rows),
+            "rows": rows,
         }
         return payload
