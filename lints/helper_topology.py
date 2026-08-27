@@ -1,10 +1,11 @@
 """Flake8 checks for the lexical placement of module-local functions.
 
-HLP is a syntax-and-symbol-table lint with two diagnostics. HLP001 reports a
+HLP is a syntax-and-symbol-table lint with three diagnostics. HLP001 reports a
 module-local function with one non-recursive reference, which can be inlined or
 nested beside that use. HLP002 reports a module-local function with several references that
 all occur beneath one outermost named function, which can contain the helper
-lexically.
+lexically. HLP003 requires a ``TypeIs[T]`` predicate to immediately follow the
+module-local declaration of ``T`` when the narrowed type is a direct name.
 
 The plugin treats functions named by a literal module ``__all__`` as public and
 therefore outside its interface. It also excludes ``test_*``, ``main``,
@@ -25,6 +26,7 @@ from typing import override
 
 INLINE_CODE = "HLP001"
 NEST_CODE = "HLP002"
+COLOCATE_CODE = "HLP003"
 
 __all__ = ["HelperTopologyPlugin"]
 
@@ -34,7 +36,7 @@ class HelperTopologyPlugin:
 
     Flake8 supplies a parsed module and the path to the identical source. The
     plugin retains those inputs until ``run()`` reads the source for lexical
-    symbol resolution, then yields HLP001 and HLP002 diagnostics without
+    symbol resolution, then yields HLP001, HLP002, and HLP003 diagnostics without
     changing the source or retaining state between runs.
     """
 
@@ -88,7 +90,24 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
         traversal asserts when their lexical scopes cannot be paired.
         """
         public_names: set[str] = set()
+        type_is_names: set[str] = set()
+        typing_modules: set[str] = set()
         for statement in module.body:
+            if isinstance(statement, ast.ImportFrom) and statement.module in {
+                "typing",
+                "typing_extensions",
+            }:
+                type_is_names.update(
+                    alias.asname or alias.name
+                    for alias in statement.names
+                    if alias.name == "TypeIs"
+                )
+            elif isinstance(statement, ast.Import):
+                typing_modules.update(
+                    alias.asname or alias.name
+                    for alias in statement.names
+                    if alias.name in {"typing", "typing_extensions"}
+                )
             value: ast.expr | None = None
             if (
                 isinstance(statement, ast.Assign)
@@ -131,18 +150,10 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
                 or statement.name == "main"
                 or len(statement.decorator_list) > 0
                 or statement.end_lineno - statement.lineno + 1 > 10
-                or (
-                    isinstance(return_annotation, ast.Subscript)
-                    and (
-                        (
-                            isinstance(return_annotation.value, ast.Name)
-                            and return_annotation.value.id == "TypeIs"
-                        )
-                        or (
-                            isinstance(return_annotation.value, ast.Attribute)
-                            and return_annotation.value.attr == "TypeIs"
-                        )
-                    )
+                or _is_type_is_annotation(
+                    return_annotation,
+                    type_is_names=type_is_names,
+                    typing_modules=typing_modules,
                 )
             ):
                 continue
@@ -153,6 +164,48 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
                 candidates[statement.name] = statement
         for name in duplicate_names:
             candidates.pop(name)
+
+        local_types: dict[str, int] = {}
+        for index, statement in enumerate(module.body):
+            if isinstance(statement, ast.ClassDef):
+                local_types[statement.name] = index
+            elif isinstance(statement, ast.TypeAlias) and isinstance(
+                statement.name, ast.Name
+            ):
+                local_types[statement.name.id] = index
+
+        colocation_diagnostics: list[
+            tuple[ast.FunctionDef | ast.AsyncFunctionDef, str, str]
+        ] = []
+        for index, statement in enumerate(module.body):
+            if (
+                not isinstance(
+                    statement, ast.FunctionDef | ast.AsyncFunctionDef
+                )
+                or statement.name in public_names
+            ):
+                continue
+            target_name = _type_is_target_name(
+                statement.returns,
+                type_is_names=type_is_names,
+                typing_modules=typing_modules,
+            )
+            if target_name is None or target_name not in local_types:
+                continue
+            preceding_index = index - 1
+            while preceding_index >= 0 and _is_string_expression(
+                module.body[preceding_index]
+            ):
+                preceding_index -= 1
+            if preceding_index != local_types[target_name]:
+                colocation_diagnostics.append(
+                    (
+                        statement,
+                        COLOCATE_CODE,
+                        f"TypeIs function {statement.name!r} must sit directly "
+                        f"after local type {target_name!r}",
+                    )
+                )
 
         self._candidates = candidates
         self._references: dict[
@@ -172,7 +225,7 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
         self._inlined_comprehension_bindings: list[set[str]] = []
         self.diagnostics: list[
             tuple[ast.FunctionDef | ast.AsyncFunctionDef, str, str]
-        ] = []
+        ] = colocation_diagnostics
 
     @override
     def visit_Module(self, node: ast.Module) -> None:
@@ -449,3 +502,51 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
         table = candidates[0]
         self._used_tables.add(table)
         return table
+
+
+def _type_is_target_name(
+    annotation: ast.expr | None,
+    *,
+    type_is_names: set[str],
+    typing_modules: set[str],
+) -> str | None:
+    """Return the direct name in a resolved ``TypeIs[T]`` annotation."""
+    if not _is_type_is_annotation(
+        annotation,
+        type_is_names=type_is_names,
+        typing_modules=typing_modules,
+    ):
+        return None
+    assert isinstance(annotation, ast.Subscript)
+    return (
+        annotation.slice.id if isinstance(annotation.slice, ast.Name) else None
+    )
+
+
+def _is_type_is_annotation(
+    annotation: ast.expr | None,
+    *,
+    type_is_names: set[str],
+    typing_modules: set[str],
+) -> bool:
+    """Recognize ``TypeIs`` only when its constructor import resolves."""
+    if not isinstance(annotation, ast.Subscript):
+        return False
+    constructor = annotation.value
+    return (
+        isinstance(constructor, ast.Name) and constructor.id in type_is_names
+    ) or (
+        isinstance(constructor, ast.Attribute)
+        and constructor.attr == "TypeIs"
+        and isinstance(constructor.value, ast.Name)
+        and constructor.value.id in typing_modules
+    )
+
+
+def _is_string_expression(statement: ast.stmt) -> bool:
+    """Recognize a string expression documenting a preceding type alias."""
+    return (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Constant)
+        and isinstance(statement.value.value, str)
+    )

@@ -514,11 +514,11 @@ def test_difftastic_preset_diff_replays_both_directions(
                 if side == "left":
                     line_no = row["left_no"]
                     row_text = row["left_text"]
-                    tokens = row["left_tokens"]
+                    tokens = row.get("left_tokens", [])
                 else:
                     line_no = row["right_no"]
                     row_text = row["right_text"]
-                    tokens = row["right_tokens"]
+                    tokens = row.get("right_tokens", [])
                 if line_no is None:
                     continue
                 assert isinstance(row_text, str)

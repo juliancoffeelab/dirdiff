@@ -104,6 +104,16 @@ __all__ = [
 ]
 
 type DifftasticAlignedPairJson = list[int | None]
+
+
+def _is_aligned_pair(value: object) -> TypeIs[DifftasticAlignedPairJson]:
+    if not isinstance(value, list):
+        return False
+    return len(value) == 2 and all(
+        item is None or isinstance(item, int) for item in value
+    )
+
+
 type DifftasticJsonSideName = Literal["lhs", "rhs"]
 type DifftasticJsonFileStatus = Literal[
     "changed", "created", "deleted", "unchanged"
@@ -128,6 +138,20 @@ class DifftasticJsonChange(TypedDict):
     """
 
 
+def _is_change(value: object) -> TypeIs[DifftasticJsonChange]:
+    if not isinstance(value, dict):
+        return False
+
+    start = value.get("start")
+    end = value.get("end")
+    content = value.get("content")
+    return (
+        isinstance(start, int)
+        and isinstance(end, int)
+        and (content is None or isinstance(content, str))
+    )
+
+
 class DifftasticJsonSide(TypedDict):
     """Zero-based line number plus changed spans for one difftastic side."""
 
@@ -140,6 +164,15 @@ class DifftasticJsonSide(TypedDict):
     The Rust struct always serializes this list for a present side. It may be
     empty, but the key itself is not optional when `lhs` or `rhs` is present.
     """
+
+
+def _is_side(value: object) -> TypeIs[DifftasticJsonSide]:
+    if not isinstance(value, dict):
+        return False
+
+    line_number = value.get("line_number")
+    changes = value.get("changes")
+    return isinstance(line_number, int) and _is_changes(changes)
 
 
 class DifftasticJsonChunkEntry(TypedDict):
@@ -162,6 +195,18 @@ class DifftasticJsonChunkEntry(TypedDict):
     those spans syntactically; it is still not returning a rich replacement AST.
     As with `lhs`, absent sides are omitted rather than serialized as `null`.
     """
+
+
+def _is_chunk_entry(value: object) -> TypeIs[DifftasticJsonChunkEntry]:
+    if not isinstance(value, dict):
+        return False
+
+    lhs = value.get("lhs")
+    if lhs is not None and not _is_side(lhs):
+        return False
+
+    rhs = value.get("rhs")
+    return rhs is None or _is_side(rhs)
 
 
 class DifftasticJson(TypedDict):
@@ -199,6 +244,35 @@ class DifftasticJson(TypedDict):
     The engine summary is computed from projected rows, so this status is raw
     difftastic metadata rather than the source of dirdiff line counts.
     """
+
+
+def _is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
+    if not isinstance(value, dict):
+        return False
+
+    aligned_lines = value.get("aligned_lines")
+    if aligned_lines is not None and not _is_aligned_lines(aligned_lines):
+        return False
+
+    chunks = value.get("chunks")
+    if chunks is not None and not _is_chunks(chunks):
+        return False
+
+    language = value.get("language")
+    if language is not None and not isinstance(language, str):
+        return False
+
+    path = value.get("path")
+    if path is not None and not isinstance(path, str):
+        return False
+
+    status = value.get("status")
+    return status is None or status in {
+        "changed",
+        "created",
+        "deleted",
+        "unchanged",
+    }
 
 
 @dataclass(frozen=True)
@@ -279,49 +353,12 @@ def run_difftastic_json(
     raise DirdiffError("Difftastic returned an unexpected JSON payload.")
 
 
-def _is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
-    if not isinstance(value, dict):
-        return False
-
-    aligned_lines = value.get("aligned_lines")
-    if aligned_lines is not None and not _is_aligned_lines(aligned_lines):
-        return False
-
-    chunks = value.get("chunks")
-    if chunks is not None and not _is_chunks(chunks):
-        return False
-
-    language = value.get("language")
-    if language is not None and not isinstance(language, str):
-        return False
-
-    path = value.get("path")
-    if path is not None and not isinstance(path, str):
-        return False
-
-    status = value.get("status")
-    return status is None or status in {
-        "changed",
-        "created",
-        "deleted",
-        "unchanged",
-    }
-
-
 def _is_aligned_lines(
     value: object,
 ) -> TypeIs[list[DifftasticAlignedPairJson]]:
     if not isinstance(value, list):
         return False
     return all(_is_aligned_pair(pair) for pair in value)
-
-
-def _is_aligned_pair(value: object) -> TypeIs[DifftasticAlignedPairJson]:
-    if not isinstance(value, list):
-        return False
-    return len(value) == 2 and all(
-        item is None or isinstance(item, int) for item in value
-    )
 
 
 def _is_chunks(
@@ -338,42 +375,7 @@ def _is_chunk(value: object) -> TypeIs[list[DifftasticJsonChunkEntry]]:
     return all(_is_chunk_entry(entry) for entry in value)
 
 
-def _is_chunk_entry(value: object) -> TypeIs[DifftasticJsonChunkEntry]:
-    if not isinstance(value, dict):
-        return False
-
-    lhs = value.get("lhs")
-    if lhs is not None and not _is_side(lhs):
-        return False
-
-    rhs = value.get("rhs")
-    return rhs is None or _is_side(rhs)
-
-
-def _is_side(value: object) -> TypeIs[DifftasticJsonSide]:
-    if not isinstance(value, dict):
-        return False
-
-    line_number = value.get("line_number")
-    changes = value.get("changes")
-    return isinstance(line_number, int) and _is_changes(changes)
-
-
 def _is_changes(value: object) -> TypeIs[list[DifftasticJsonChange]]:
     if not isinstance(value, list):
         return False
     return all(_is_change(change) for change in value)
-
-
-def _is_change(value: object) -> TypeIs[DifftasticJsonChange]:
-    if not isinstance(value, dict):
-        return False
-
-    start = value.get("start")
-    end = value.get("end")
-    content = value.get("content")
-    return (
-        isinstance(start, int)
-        and isinstance(end, int)
-        and (content is None or isinstance(content, str))
-    )

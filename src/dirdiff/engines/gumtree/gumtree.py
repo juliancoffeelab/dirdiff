@@ -38,6 +38,14 @@ class GumTreeJsonMatch(TypedDict):
     dest: str
 
 
+def _is_gumtree_match(value: object) -> TypeIs[GumTreeJsonMatch]:
+    if not isinstance(value, dict):
+        return False
+    return isinstance(value.get("src"), str) and isinstance(
+        value.get("dest"), str
+    )
+
+
 class GumTreeJsonAction(TypedDict):
     action: Required[str]
     tree: Required[str]
@@ -46,9 +54,42 @@ class GumTreeJsonAction(TypedDict):
     label: NotRequired[str]
 
 
+def _is_gumtree_action(value: object) -> TypeIs[GumTreeJsonAction]:
+    if not isinstance(value, dict):
+        return False
+
+    if not isinstance(value.get("action"), str):
+        return False
+    if not isinstance(value.get("tree"), str):
+        return False
+
+    parent = value.get("parent")
+    if parent is not None and not isinstance(parent, str):
+        return False
+
+    at = value.get("at")
+    if at is not None and not isinstance(at, int):
+        return False
+
+    label = value.get("label")
+    return label is None or isinstance(label, str)
+
+
 class GumTreeJson(TypedDict):
     matches: NotRequired[list[GumTreeJsonMatch]]
     actions: NotRequired[list[GumTreeJsonAction]]
+
+
+def _is_gumtree_json(value: object) -> TypeIs[GumTreeJson]:
+    if not isinstance(value, dict):
+        return False
+
+    matches = value.get("matches")
+    if matches is not None and not _is_gumtree_matches(matches):
+        return False
+
+    actions = value.get("actions")
+    return actions is None or _is_gumtree_actions(actions)
 
 
 class GumTreeInvalidJsonError(DirdiffError):
@@ -160,54 +201,13 @@ def run_gumtree_json(
     )
 
 
-def _is_gumtree_json(value: object) -> TypeIs[GumTreeJson]:
-    if not isinstance(value, dict):
-        return False
-
-    matches = value.get("matches")
-    if matches is not None and not _is_gumtree_matches(matches):
-        return False
-
-    actions = value.get("actions")
-    return actions is None or _is_gumtree_actions(actions)
-
-
 def _is_gumtree_matches(value: object) -> TypeIs[list[GumTreeJsonMatch]]:
     if not isinstance(value, list):
         return False
     return all(_is_gumtree_match(match) for match in value)
 
 
-def _is_gumtree_match(value: object) -> TypeIs[GumTreeJsonMatch]:
-    if not isinstance(value, dict):
-        return False
-    return isinstance(value.get("src"), str) and isinstance(
-        value.get("dest"), str
-    )
-
-
 def _is_gumtree_actions(value: object) -> TypeIs[list[GumTreeJsonAction]]:
     if not isinstance(value, list):
         return False
     return all(_is_gumtree_action(action) for action in value)
-
-
-def _is_gumtree_action(value: object) -> TypeIs[GumTreeJsonAction]:
-    if not isinstance(value, dict):
-        return False
-
-    if not isinstance(value.get("action"), str):
-        return False
-    if not isinstance(value.get("tree"), str):
-        return False
-
-    parent = value.get("parent")
-    if parent is not None and not isinstance(parent, str):
-        return False
-
-    at = value.get("at")
-    if at is not None and not isinstance(at, int):
-        return False
-
-    label = value.get("label")
-    return label is None or isinstance(label, str)

@@ -23,13 +23,13 @@ basedpyright:
 	.venv/bin/basedpyright -p pyrightcheck.json
 
 flake-sbt:
-	uv --no-cache run flake8 --jobs 1 --select SBT001 src tests
+	uv --no-cache run flake8 --jobs 1 --select SBT001,SBT003 src tests
 
 flake-cst:
 	uv --no-cache run flake8 --jobs 1 --select CST001 src tests lints
 
 flake-hlp:
-	uv --no-cache run flake8 --jobs 1 --select HLP002 src tests lints
+	uv --no-cache run flake8 --jobs 1 --select HLP002,HLP003 src tests lints
 
 pyflake: flake-sbt flake-cst flake-hlp
 

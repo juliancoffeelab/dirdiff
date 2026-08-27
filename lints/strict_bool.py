@@ -1,11 +1,16 @@
-"""Flake8 plugin for dmypy-backed boolean-expression checks.
+"""Flake8 plugin for dmypy-backed strict typing checks.
 
 Flake8 supplies the invocation boundary while Python's AST supplies exact
-boolean-expression spans. A one-shot dmypy daemon consumes a library-produced
+relevant syntax spans. A one-shot dmypy daemon consumes a library-produced
 fine-grained cache, exports expression types, and answers span inspections.
 The daemon is always stopped before diagnostics return; this module must not
 leave background processes, maintain a separate SBT cache, or inspect types
 when no SBT code is selected.
+
+SBT001 rejects implicit truthiness and SBT002 rejects value fallback through
+``or``. SBT003 rejects annotations containing ``builtins.object`` except for
+the narrowed parameter of a ``TypeIs`` predicate. The semantic check means an
+alias cannot conceal ``object`` from the rule.
 """
 
 from __future__ import annotations
@@ -33,7 +38,9 @@ from mypy.errors import CompileError
 
 TRUTHY_CODE = "SBT001"
 OR_FALLBACK_CODE = "SBT002"
+OBJECT_ANNOTATION_CODE = "SBT003"
 BOOL_INSTANCE = "builtins.bool"
+OBJECT_INSTANCE = "builtins.object"
 SBT_CACHE_DIR = Path(".sbt") / "mypy_cache"
 
 __all__ = ["StrictBoolPlugin"]
@@ -78,7 +85,9 @@ class StrictBoolPlugin:
 
     name = "dirdiff-strict-bool"
     version = "0.2.0"
-    _enabled_codes = frozenset({TRUTHY_CODE, OR_FALLBACK_CODE})
+    _enabled_codes = frozenset(
+        {TRUTHY_CODE, OR_FALLBACK_CODE, OBJECT_ANNOTATION_CODE}
+    )
     _flake8_paths: Sequence[str] = ()
     _mypy_config = Path("pyproject.toml")
     _diagnostics_by_path: ClassVar[dict[str, list[Diagnostic]]] = {}
@@ -145,6 +154,7 @@ class StrictBoolVisitor(ast.NodeVisitor):
 
     def __init__(
         self,
+        tree: ast.Module,
         path: str,
         status_file: str,
         enabled_codes: frozenset[str],
@@ -158,6 +168,169 @@ class StrictBoolVisitor(ast.NodeVisitor):
         self._or_parent = 0
         self._condition_expr_ids: set[int] = set()
         self._type_by_span: dict[str, str | None] = {}
+        self._type_is_names: set[str] = set()
+        self._typing_modules: set[str] = set()
+        self._object_names = {"object"}
+        self._in_direct_class_body = 0
+        for statement in tree.body:
+            if isinstance(statement, ast.ImportFrom):
+                if statement.module in {"typing", "typing_extensions"}:
+                    self._type_is_names.update(
+                        alias.asname or alias.name
+                        for alias in statement.names
+                        if alias.name == "TypeIs"
+                    )
+                elif statement.module == "builtins":
+                    self._object_names.update(
+                        alias.asname or alias.name
+                        for alias in statement.names
+                        if alias.name == "object"
+                    )
+            elif isinstance(statement, ast.Import):
+                self._typing_modules.update(
+                    alias.asname or alias.name
+                    for alias in statement.names
+                    if alias.name in {"typing", "typing_extensions"}
+                )
+
+    @override
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Check a function's annotations, including its TypeIs exception."""
+        self._check_function_annotations(node)
+        self._check_type_parameters(node.type_params)
+        direct_class_body = self._in_direct_class_body
+        self._in_direct_class_body = 0
+        for statement in node.body:
+            self.visit(statement)
+        self._in_direct_class_body = direct_class_body
+
+    @override
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        """Check an async function's annotations like a synchronous function."""
+        self._check_function_annotations(node)
+        self._check_type_parameters(node.type_params)
+        direct_class_body = self._in_direct_class_body
+        self._in_direct_class_body = 0
+        for statement in node.body:
+            self.visit(statement)
+        self._in_direct_class_body = direct_class_body
+
+    @override
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        """Check class type parameters and visit its direct declarations."""
+        self._check_type_parameters(node.type_params)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+        self._in_direct_class_body += 1
+        for statement in node.body:
+            self.visit(statement)
+        self._in_direct_class_body -= 1
+
+    @override
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        """Reject object from a variable or attribute annotation."""
+        self._check_object_annotation(node.annotation)
+        if node.value is not None:
+            self.visit(node.value)
+
+    @override
+    def visit_TypeAlias(self, node: ast.TypeAlias) -> None:
+        """Reject object from a PEP 695 alias body."""
+        self._check_type_parameters(node.type_params)
+        self._check_object_annotation(node.value)
+
+    def _check_function_annotations(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
+        """Check one signature while permitting its narrowed input only."""
+        positional = (*node.args.posonlyargs, *node.args.args)
+        narrowed_index = 0
+        if (
+            self._in_direct_class_body > 0
+            and len(positional) > 0
+            and positional[0].arg in {"self", "cls"}
+        ):
+            narrowed_index = 1
+        narrowed_argument = (
+            positional[narrowed_index]
+            if len(positional) > narrowed_index
+            else None
+        )
+        is_type_is = _is_type_is_annotation(
+            node.returns,
+            type_is_names=self._type_is_names,
+            typing_modules=self._typing_modules,
+        )
+        for argument in (
+            *positional,
+            *node.args.kwonlyargs,
+            node.args.vararg,
+            node.args.kwarg,
+        ):
+            if argument is None or argument.annotation is None:
+                continue
+            if (
+                is_type_is
+                and argument is narrowed_argument
+                and (
+                    _is_object_name(
+                        argument.annotation, object_names=self._object_names
+                    )
+                    or self._annotation_type(argument.annotation)
+                    == OBJECT_INSTANCE
+                )
+            ):
+                continue
+            self._check_object_annotation(argument.annotation)
+        if node.returns is not None:
+            self._check_object_annotation(node.returns)
+        for default in (*node.args.defaults, *node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+
+    def _check_type_parameters(self, parameters: list[ast.type_param]) -> None:
+        """Reject object from PEP 695 parameter bounds and defaults."""
+        for parameter in parameters:
+            if (
+                isinstance(parameter, ast.TypeVar)
+                and parameter.bound is not None
+            ):
+                self._check_object_annotation(parameter.bound)
+            if (
+                isinstance(
+                    parameter, ast.TypeVar | ast.ParamSpec | ast.TypeVarTuple
+                )
+                and parameter.default_value is not None
+            ):
+                self._check_object_annotation(parameter.default_value)
+
+    def _check_object_annotation(self, annotation: ast.expr) -> None:
+        """Report an annotation whose resolved type expression contains object."""
+        if OBJECT_ANNOTATION_CODE not in self.enabled_codes:
+            return
+        type_text = self._annotation_type(annotation)
+        has_object_name = any(
+            _is_object_name(child, object_names=self._object_names)
+            for child in ast.walk(annotation)
+        )
+        if has_object_name or (
+            type_text is not None and OBJECT_INSTANCE in type_text
+        ):
+            self._add(
+                annotation,
+                OBJECT_ANNOTATION_CODE,
+                "builtins.object is forbidden outside a TypeIs parameter",
+            )
+
+    def _annotation_type(self, annotation: ast.expr) -> str | None:
+        """Inspect the semantic type represented by one annotation expression."""
+        return self._expression_type(annotation)
 
     @override
     def visit_If(self, node: ast.If) -> None:
@@ -248,6 +421,11 @@ class StrictBoolVisitor(ast.NodeVisitor):
 
     def _is_bool_type(self, expression: ast.expr) -> bool:
         """Classify one exact AST span from dmypy's formatted type result."""
+        type_text = self._expression_type(expression)
+        return type_text is not None and _is_bool_type_text(type_text)
+
+    def _expression_type(self, expression: ast.expr) -> str | None:
+        """Return dmypy's formatted type for one exact AST expression span."""
         # dmypy expects the AST's exact byte span with a one-based start column.
         assert expression.end_lineno is not None
         assert expression.end_col_offset is not None
@@ -260,8 +438,7 @@ class StrictBoolVisitor(ast.NodeVisitor):
                 status_file=self.status_file,
                 location=location,
             )
-        type_text = self._type_by_span[location]
-        return type_text is not None and _is_bool_type_text(type_text)
+        return self._type_by_span[location]
 
     def _add(self, expression: ast.expr, code: str, message: str) -> None:
         """Record one AST expression using Flake8's zero-based column."""
@@ -339,6 +516,7 @@ def _collect_diagnostics(
                 path = Path(raw_path).resolve()
                 tree = ast.parse(path.read_text(), filename=str(path))
                 visitor = StrictBoolVisitor(
+                    tree=tree,
                     path=str(path),
                     status_file=status_file,
                     enabled_codes=enabled_codes,
@@ -402,6 +580,38 @@ def _is_bool_type_text(type_text: str) -> bool:
     return all(is_bool_atom(item) for item in type_text.split(" | "))
 
 
+def _is_type_is_annotation(
+    annotation: ast.expr | None,
+    *,
+    type_is_names: set[str],
+    typing_modules: set[str],
+) -> bool:
+    """Recognize ``TypeIs`` only when its constructor import resolves."""
+    if not isinstance(annotation, ast.Subscript):
+        return False
+    constructor = annotation.value
+    return (
+        isinstance(constructor, ast.Name) and constructor.id in type_is_names
+    ) or (
+        isinstance(constructor, ast.Attribute)
+        and constructor.attr == "TypeIs"
+        and isinstance(constructor.value, ast.Name)
+        and constructor.value.id in typing_modules
+    )
+
+
+def _is_object_name(annotation: ast.AST, *, object_names: set[str]) -> bool:
+    """Recognize a direct spelling of the built-in object annotation."""
+    return (
+        isinstance(annotation, ast.Name) and annotation.id in object_names
+    ) or (
+        isinstance(annotation, ast.Attribute)
+        and annotation.attr == "object"
+        and isinstance(annotation.value, ast.Name)
+        and annotation.value.id == "builtins"
+    )
+
+
 def _enabled_codes_from_options(options: Namespace) -> frozenset[str]:
     """Resolve the SBT subset selected by Flake8's prefix configuration."""
 
@@ -426,7 +636,7 @@ def _enabled_codes_from_options(options: Namespace) -> frozenset[str]:
     ignored = _option_code_prefixes(
         options=options, names=("ignore", "extend_ignore")
     )
-    codes = {TRUTHY_CODE, OR_FALLBACK_CODE}
+    codes = {TRUTHY_CODE, OR_FALLBACK_CODE, OBJECT_ANNOTATION_CODE}
     if len(selected) > 0:
         codes = {
             code
