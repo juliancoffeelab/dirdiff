@@ -16,12 +16,13 @@ import sys
 import tempfile
 import time
 import tomllib
+from argparse import Namespace
 from collections.abc import Iterator, Sequence
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
-from typing import Any, ClassVar, override
+from typing import ClassVar, Protocol, override
 
 import mypy.build
 import mypy.dmypy.client
@@ -36,6 +37,20 @@ BOOL_INSTANCE = "builtins.bool"
 SBT_CACHE_DIR = Path(".sbt") / "mypy_cache"
 
 __all__ = ["StrictBoolPlugin"]
+
+
+class _OptionRegistrar(Protocol):
+    """Accept the one Flake8 option-registration call this plugin makes."""
+
+    def add_option(
+        self,
+        name: str,
+        *,
+        default: str,
+        parse_from_config: bool,
+        help: str,
+    ) -> None:
+        """Register one configuration-backed string option with Flake8."""
 
 
 @dataclass(frozen=True)
@@ -74,7 +89,7 @@ class StrictBoolPlugin:
         self.filename = filename
 
     @classmethod
-    def add_options(cls, parser: Any) -> None:
+    def add_options(cls, parser: _OptionRegistrar) -> None:
         """Register the Mypy configuration path used for the one-shot build."""
         parser.add_option(
             "--sbt-mypy-config",
@@ -84,7 +99,7 @@ class StrictBoolPlugin:
         )
 
     @classmethod
-    def parse_options(cls, options: Any) -> None:
+    def parse_options(cls, options: Namespace) -> None:
         """Capture Flake8 paths, selected SBT codes, and Mypy configuration."""
         filenames = getattr(options, "filenames", ())
         if isinstance(filenames, list | tuple):
@@ -387,10 +402,12 @@ def _is_bool_type_text(type_text: str) -> bool:
     return all(is_bool_atom(item) for item in type_text.split(" | "))
 
 
-def _enabled_codes_from_options(options: Any) -> frozenset[str]:
+def _enabled_codes_from_options(options: Namespace) -> frozenset[str]:
     """Resolve the SBT subset selected by Flake8's prefix configuration."""
 
-    def _option_code_prefixes(options: Any, names: Sequence[str]) -> set[str]:
+    def _option_code_prefixes(
+        options: Namespace, names: Sequence[str]
+    ) -> set[str]:
         """Collect string code prefixes from sequence or scalar options."""
         prefixes: set[str] = set()
         for name in names:
