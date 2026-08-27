@@ -8,11 +8,12 @@
  * They examine only bindings declared as top-level function declarations or
  * top-level variables initialized with a function. Exported bindings are public
  * interfaces and are outside the rules. PascalCase bindings, `test_*`, `main`,
- * decorated functions, and functions whose inclusive source span exceeds ten
- * lines are also outside the rules. For each remaining binding, the rules count
- * resolved read references, excluding references from inside the function
- * itself. One reference produces an inline diagnostic; several references
- * beneath the same outermost function produce a nesting diagnostic.
+ * decorated functions, functions whose inclusive source span exceeds ten
+ * lines, and type guards placed directly after their module-local type are also
+ * outside the rules. For each remaining binding, the rules count resolved read
+ * references, excluding references from inside the function itself. One
+ * reference produces an inline diagnostic; several references beneath the same
+ * outermost function produce a nesting diagnostic.
  *
  * The rule owns only per-file analysis state created by ESLint. It does not
  * estimate function size, infer whether a separate semantic contract is useful,
@@ -31,8 +32,10 @@ function helperTopologyRule(diagnosticKind) {
       schema: [],
       messages: {
         inline:
-          "Module-local function '{{name}}' has one external reference; inline it at that use.",
+          "Module-local function '{{name}}' has one external reference; inline it or nest it beside that use.",
         nest: "Module-local function '{{name}}' is referenced only beneath one function; nest it there.",
+        colocate:
+          "Type guard '{{name}}' must remain directly after its module-local type declaration.",
       },
     },
 
@@ -141,6 +144,75 @@ function helperTopologyRule(diagnosticKind) {
             return container;
           }
 
+          /**
+           * Read the simple type named by a genuine `is*` type predicate.
+           *
+           * @param {import("estree").Function} functionNode Candidate function.
+           * @param {string} functionName Candidate binding name.
+           * @returns {string | null} Guarded type name, or null when the
+           * function is not a supported type guard.
+           */
+          function guardedTypeName(functionNode, functionName) {
+            if (!functionName.startsWith("is")) {
+              return null;
+            }
+            const predicate = functionNode.returnType?.typeAnnotation;
+            const guardedType = predicate?.typeAnnotation?.typeAnnotation;
+            if (
+              predicate?.type !== "TSTypePredicate" ||
+              guardedType?.type !== "TSTypeReference" ||
+              guardedType.typeName.type !== "Identifier"
+            ) {
+              return null;
+            }
+
+            return guardedType.typeName.name;
+          }
+
+          /**
+           * Report whether a function immediately follows the named type.
+           *
+           * @param {import("estree").Function} functionNode Type guard.
+           * @param {string} guardedTypeName Module-local guarded type name.
+           * @returns {boolean} Whether the declarations are adjacent.
+           */
+          function followsType(functionNode, guardedTypeName) {
+            let statement = functionNode;
+            if (functionNode.parent.type === "VariableDeclarator") {
+              statement = functionNode.parent.parent;
+            }
+            const statementIndex = program.body.indexOf(statement);
+            if (statementIndex < 1) {
+              return false;
+            }
+            let preceding = program.body[statementIndex - 1];
+            if (
+              preceding.type === "ExportNamedDeclaration" &&
+              preceding.declaration !== null
+            ) {
+              preceding = preceding.declaration;
+            }
+            return (
+              (preceding.type === "TSTypeAliasDeclaration" ||
+                preceding.type === "TSInterfaceDeclaration") &&
+              preceding.id.name === guardedTypeName
+            );
+          }
+
+          const localTypeNames = new Set();
+          for (const statement of program.body) {
+            const declaration =
+              statement.type === "ExportNamedDeclaration"
+                ? statement.declaration
+                : statement;
+            if (
+              declaration?.type === "TSTypeAliasDeclaration" ||
+              declaration?.type === "TSInterfaceDeclaration"
+            ) {
+              localTypeNames.add(declaration.id.name);
+            }
+          }
+
           for (const variable of moduleScope.variables) {
             if (
               publicNames.has(variable.name) ||
@@ -179,6 +251,17 @@ function helperTopologyRule(diagnosticKind) {
               }
             }
             if (functionNode === null) {
+              continue;
+            }
+            const guardedType = guardedTypeName(functionNode, variable.name);
+            if (guardedType !== null && localTypeNames.has(guardedType)) {
+              if (!followsType(functionNode, guardedType)) {
+                context.report({
+                  node: variable.identifiers[0],
+                  messageId: "colocate",
+                  data: { name: variable.name },
+                });
+              }
               continue;
             }
             if (

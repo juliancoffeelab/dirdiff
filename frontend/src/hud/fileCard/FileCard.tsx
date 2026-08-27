@@ -692,17 +692,20 @@ function FullFileRenderer(
           result.state === "stopped"),
       "Bay line host returned an invalid preparation result.",
     );
-    assert(
-      result.state !== "ready" ||
-        ("row" in result && result.row instanceof HTMLElement),
-      "Ready line preparation omitted its rendered row.",
-    );
-    return result as PreparedLine;
+    if (result.state === "ready") {
+      assert(
+        "row" in result && result.row instanceof HTMLElement,
+        "Ready line preparation omitted its rendered row.",
+      );
+      return { state: "ready", row: result.row };
+    }
+    return { state: result.state };
   }
 
   onMount(() => {
-    const card = props.card() as PreparableFileCard;
-    card.prepareLine_impl = prepareLine_impl;
+    const card = Object.assign(props.card(), {
+      prepareLine_impl,
+    }) satisfies PreparableFileCard;
     onCleanup(() => {
       Reflect.deleteProperty(card, "prepareLine_impl");
     });

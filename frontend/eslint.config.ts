@@ -44,6 +44,11 @@ export default defineConfig(
           allowRuleToRunWithoutStrictNullChecksIKnowWhatIAmDoing: false,
         },
       ],
+      "@typescript-eslint/consistent-type-assertions": [
+        "error",
+        { assertionStyle: "never" },
+      ],
+      "@typescript-eslint/no-explicit-any": "error",
       "local/file-card-facade": "error",
       "local/nested-module-helper": "error",
       "local/show-when-boolean": "error",

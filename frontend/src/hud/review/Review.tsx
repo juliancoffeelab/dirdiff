@@ -615,10 +615,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     stickyBandObserver = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
+          assert(
+            entry.target instanceof HTMLElement,
+            "History header observer received a non-HTML target.",
+          );
           if (entry.isIntersecting && entry.target.isConnected) {
-            stickyBandHeaders.add(entry.target as HTMLElement);
+            stickyBandHeaders.add(entry.target);
           } else {
-            stickyBandHeaders.delete(entry.target as HTMLElement);
+            stickyBandHeaders.delete(entry.target);
           }
         }
         scheduleSplitHistoryGeometry();

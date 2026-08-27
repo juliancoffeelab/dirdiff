@@ -497,9 +497,10 @@ function TextBayView(props: {
   }
 
   onMount(() => {
-    const enrichableBay = wrapper as EnrichableBay;
-    enrichableBay.intersectsRichEntryZone = intersectsRichEntryZone;
-    enrichableBay.waitToEnrich_impl = waitToEnrich_impl;
+    Object.assign(wrapper, {
+      intersectsRichEntryZone,
+      waitToEnrich_impl,
+    }) satisfies EnrichableBay;
     const rowCount = props.content.rows.length;
     let enterObserver: IntersectionObserver | null = null;
     let exitObserver: IntersectionObserver | null = null;

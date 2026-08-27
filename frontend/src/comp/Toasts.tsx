@@ -130,6 +130,11 @@ type ErrorWithReason = {
   error_reason: unknown;
 };
 
+/** Narrows an object carrying the transport classification field. */
+function isErrorWithReason(error: object): error is ErrorWithReason {
+  return "error_reason" in error;
+}
+
 /**
  * Describes an arbitrary object that may expose validation issues.
  *
@@ -139,6 +144,11 @@ type ErrorWithReason = {
 type ErrorWithIssues = {
   issues: unknown;
 };
+
+/** Narrows an object carrying the validation-issues field. */
+function isErrorWithIssues(error: object): error is ErrorWithIssues {
+  return "issues" in error;
+}
 
 /**
  * Represents the complete result of attempting to parse one JSON document.
@@ -166,12 +176,11 @@ export function presentError(error: unknown): PresentedError {
    * other value remains persistent.
    */
   function errorReason(error: unknown): "timeout" | "other" {
-    if (!isObject(error) || !("error_reason" in error)) {
+    if (!isObject(error) || !isErrorWithReason(error)) {
       return "other";
     }
 
-    const candidate = error as ErrorWithReason;
-    return candidate.error_reason === "timeout" ? "timeout" : "other";
+    return error.error_reason === "timeout" ? "timeout" : "other";
   }
 
   try {
@@ -642,12 +651,11 @@ function primaryMessage(error: unknown): string {
    * Only an array-valued `issues` field participates in formatting precedence.
    */
   function errorIssues(error: unknown): unknown[] | null {
-    if (!isObject(error) || !("issues" in error)) {
+    if (!isObject(error) || !isErrorWithIssues(error)) {
       return null;
     }
 
-    const candidate = error as ErrorWithIssues;
-    return Array.isArray(candidate.issues) ? candidate.issues : null;
+    return Array.isArray(error.issues) ? error.issues : null;
   }
 
   /**

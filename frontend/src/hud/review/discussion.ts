@@ -29,6 +29,7 @@ import {
 } from "@tanstack/solid-query";
 import {
   api,
+  ReviewIdSchema,
   ReviewRequestError,
   type ReviewComment,
   type ReviewId,
@@ -141,21 +142,31 @@ export function createThreadDiscussion(
   // Pending probes read the shared mutation cache, not this instance's
   // observers, so concurrent discussion instances (the anchored host and
   // History) see one another's in-flight work and disable the same controls.
+  /** Read one required review identity from TanStack's untyped mutation state. */
+  function reviewIdVariable(
+    variables: unknown,
+    key: "commentId" | "threadId",
+  ): ReviewId {
+    assert(
+      typeof variables === "object" && variables !== null && key in variables,
+      `Pending review mutation omitted ${key}.`,
+    );
+    return ReviewIdSchema.parse(Reflect.get(variables, key));
+  }
+
   const pendingCommentDeletes = useMutationState(() => ({
     filters: {
       mutationKey: api.review.comment.delete().mutationKey,
       status: "pending",
     },
     select: (mutation) =>
-      (mutation.state.variables as { commentId: ReviewId } | undefined)
-        ?.commentId,
+      reviewIdVariable(mutation.state.variables, "commentId"),
   }));
   const pendingThreadStates = useMutationState(() => ({
     filters: { mutationKey: ["review", "thread"], status: "pending" },
     select: (mutation) => ({
       action: mutation.options.mutationKey?.[2],
-      threadId: (mutation.state.variables as { threadId: ReviewId } | undefined)
-        ?.threadId,
+      threadId: reviewIdVariable(mutation.state.variables, "threadId"),
     }),
   }));
 

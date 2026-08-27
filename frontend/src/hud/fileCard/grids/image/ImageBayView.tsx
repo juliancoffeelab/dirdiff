@@ -196,8 +196,10 @@ export function ImageBayView(props: {
   }
 
   onMount(() => {
-    (wrapper as EnrichableImageBay).waitToEnrich_impl = () => Promise.resolve();
-    (lines as PreparableImageLines).prepareLine_impl = prepareLine_impl;
+    Object.assign(wrapper, {
+      waitToEnrich_impl: () => Promise.resolve(),
+    }) satisfies EnrichableImageBay;
+    Object.assign(lines, { prepareLine_impl }) satisfies PreparableImageLines;
     // A pin already in the URL when this bay mounts belongs to it whenever it
     // names this bay and a captured side; painting it here is the same
     // restoration the text grid performs once it has rendered its rows.

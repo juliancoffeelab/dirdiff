@@ -161,6 +161,11 @@ type PreparableFileCard = HTMLElement & {
   ) => Promise<PreparedLine>;
 };
 
+/** Recognizes a mounted FullFile card exposing its line operation. */
+function isPreparableFileCard(card: HTMLElement): card is PreparableFileCard {
+  return typeof Reflect.get(card, "prepareLine_impl") === "function";
+}
+
 /**
  * Describes the navigation geometry and rich-materialization operations
  * attached by a mounted text bay to its wrapper element.
@@ -175,6 +180,14 @@ type EnrichableBay = HTMLElement & {
   intersectsRichEntryZone: (viewportTop: number) => boolean;
   waitToEnrich_impl: () => Promise<void>;
 };
+
+/** Recognizes a mounted bay exposing the complete enrichment interface. */
+function isEnrichableBay(bay: HTMLElement): bay is EnrichableBay {
+  return (
+    typeof Reflect.get(bay, "intersectsRichEntryZone") === "function" &&
+    typeof Reflect.get(bay, "waitToEnrich_impl") === "function"
+  );
+}
 
 const NavigationContext = createContext<Navigation>();
 
@@ -683,12 +696,8 @@ export function NavigationProvider(
    * silently skipping enrichment.
    */
   async function waitToEnrich(bay: HTMLElement): Promise<void> {
-    const enrichableBay = bay as Partial<EnrichableBay>;
-    assert(
-      typeof enrichableBay.waitToEnrich_impl === "function",
-      "Bay omitted waitToEnrich_impl.",
-    );
-    await enrichableBay.waitToEnrich_impl();
+    assert(isEnrichableBay(bay), "Bay omitted its enrichment operations.");
+    await bay.waitToEnrich_impl();
   }
 
   /**
@@ -888,7 +897,12 @@ export function NavigationProvider(
       let offsetElement: HTMLElement | null = currentTarget;
       while (offsetElement !== null) {
         targetDocumentTop += offsetElement.offsetTop;
-        offsetElement = offsetElement.offsetParent as HTMLElement | null;
+        const parent: Element | null = offsetElement.offsetParent;
+        assert(
+          parent === null || parent instanceof HTMLElement,
+          "Navigation target has a non-HTML offset parent.",
+        );
+        offsetElement = parent;
       }
       const targetHeight = currentTarget.offsetHeight;
       assert(
@@ -955,12 +969,11 @@ export function NavigationProvider(
         if (enrichedBays.has(candidate)) {
           continue;
         }
-        const enrichableBay = candidate as Partial<EnrichableBay>;
         assert(
-          typeof enrichableBay.intersectsRichEntryZone === "function",
-          "Virtual bay omitted rich-entry geometry.",
+          isEnrichableBay(candidate),
+          "Virtual bay omitted its enrichment operations.",
         );
-        if (enrichableBay.intersectsRichEntryZone(viewportTop)) {
+        if (candidate.intersectsRichEntryZone(viewportTop)) {
           intersectingVirtualBay = candidate;
           break;
         }
@@ -1018,12 +1031,9 @@ export function NavigationProvider(
       cards.length === 1,
       `Line navigation requires one FileCard at index ${fileIndex}.`,
     );
-    const card = expect(
-      cards.item(0),
-      "Line navigation FileCard disappeared.",
-    ) as Partial<PreparableFileCard>;
+    const card = expect(cards.item(0), "Line navigation FileCard disappeared.");
     assert(
-      typeof card.prepareLine_impl === "function",
+      isPreparableFileCard(card),
       "Line navigation requires FullFile preparation.",
     );
     const enrichedBays = new Set<HTMLElement>();
@@ -1041,7 +1051,12 @@ export function NavigationProvider(
       let offsetElement: HTMLElement | null = target;
       while (offsetElement !== null) {
         targetDocumentTop += offsetElement.offsetTop;
-        offsetElement = offsetElement.offsetParent as HTMLElement | null;
+        const parent: Element | null = offsetElement.offsetParent;
+        assert(
+          parent === null || parent instanceof HTMLElement,
+          "Line navigation target has a non-HTML offset parent.",
+        );
+        offsetElement = parent;
       }
       const targetHeight = target.offsetHeight;
       assert(
@@ -1078,12 +1093,11 @@ export function NavigationProvider(
         if (enrichedBays.has(candidate)) {
           continue;
         }
-        const enrichableBay = candidate as Partial<EnrichableBay>;
         assert(
-          typeof enrichableBay.intersectsRichEntryZone === "function",
-          "Virtual bay omitted rich-entry geometry.",
+          isEnrichableBay(candidate),
+          "Virtual bay omitted its enrichment operations.",
         );
-        if (enrichableBay.intersectsRichEntryZone(viewportTop)) {
+        if (candidate.intersectsRichEntryZone(viewportTop)) {
           intersectingVirtualBay = candidate;
           break;
         }
