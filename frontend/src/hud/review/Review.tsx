@@ -830,7 +830,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         `[data-review-marker-kind="${thread.state}"]`,
       );
       assert(
-        trigger instanceof HTMLButtonElement && !trigger.hidden,
+        trigger instanceof HTMLButtonElement && trigger.hidden === false,
         "Viewed Thread requires its visible state marker.",
       );
       setActiveCommentInput(null);

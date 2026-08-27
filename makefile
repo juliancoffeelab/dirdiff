@@ -73,10 +73,20 @@ resnapshot:
 		--snapshot-update \
 		--snapshot-warn-unused
 
-fullcode: checkFormatPython checkFormatJs ruff mypy tscheck eslint flake-sbt flake-cst flake-hlp
+# all python checks
+fullpycode: checkFormatPython ruff mypy pyflake
+fullpytest: pytest pytest-integration pytest-slow cram
+fullpycheck: fullpycode fullpytest
 
-fulltest: pytest pytest-integration pytest-slow cram
+# all frontend checks
+fulltscode: checkFormatJs tscheck eslint
+fulltscheck: fulltscode
 
+# combined ones
+fullcode: fullpycode fulltscode
+fulltest: fullpytest
+
+# *the* full check
 fullcheck: fullcode fulltest
 
 format:
