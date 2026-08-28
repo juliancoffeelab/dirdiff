@@ -1,6 +1,7 @@
 ---
 name: browser-verify
-description: Use when verifying, reproducing, profiling, or screenshotting HUD behavior in a real browser. tests/e2e_temp/ is the pre-provisioned playwright scratchpad.
+description: Verify, reproduce, profile, or screenshot HUD behavior in a real browser.
+disable-model-invocation: true
 ---
 
 # Verify in the browser

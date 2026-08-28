@@ -236,6 +236,8 @@ Names that commonly expose bad patterns require architectural scrutiny:
   Dont run it, use `make pytest`, which runs relatively fast tests.
   There is `make pytest-slow` and `make pytest-integration` which can take
   tens of minutes.
+- If you need to do scratch checks against the project, there's `tests/e2e_temp`
+  directory. Use it if it is reasonable.
 - When user asks, there's `make fullcheck` command. But it takes a long time,
   since it includes everything.
 
