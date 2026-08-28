@@ -7,6 +7,4 @@ through the owning package surfaces such as `dirdiff.backend`,
 silently bypasses the ownership boundaries documented by those packages.
 """
 
-# Intentionally empty: application imports should use the package roots that own
-# public contracts, or `dirdiff.server` for FastAPI wiring.
-__all__: list[str] = []
+# Note: do not add __all__ here, this will break `pdoc` discovery

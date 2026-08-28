@@ -60,6 +60,9 @@ pytest-slow:
 	# tests/slow scales with the current worktree diff; run deliberately.
 	uv --no-cache run pytest tests/slow
 
+docs:
+	uv --no-cache run pdoc dirdiff 
+
 snapshot:
 	uv --no-cache run pytest \
 		tests/difftastic/test_difftastic_golden.py \

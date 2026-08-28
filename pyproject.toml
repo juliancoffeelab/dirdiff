@@ -47,6 +47,7 @@ dev = [
     "matplotlib>=3.10.0",
     "mypy>=2.1.0",
     "nbclient>=0.10.0",
+    "pdoc>=16.0.0",
     "pyrefly>=1.0.0",
     "pytest>=8.0",
     "ruff>=0.15.17",
