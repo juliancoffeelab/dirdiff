@@ -687,7 +687,9 @@ def _unified_diff_rows(
 
     The caller supplies both complete text sides and their display labels.
     This operation parses Python's unified-diff output directly into the
-    complete neutral engine rows consumed directly by rendering.
+    complete neutral engine rows consumed directly by rendering. Identical
+    inputs produce no patch hunks, so they are emitted explicitly as equal
+    rows rather than mistaken for empty documents.
 
     # Parameters
 
@@ -698,6 +700,17 @@ def _unified_diff_rows(
     """
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
+    if left_lines == right_lines:
+        return [
+            {
+                "status": "equal",
+                "left_no": index,
+                "right_no": index,
+                "left_text": line,
+                "right_text": line,
+            }
+            for index, line in enumerate(left_lines, start=1)
+        ]
     patch_lines = unified_diff(
         left_lines,
         right_lines,

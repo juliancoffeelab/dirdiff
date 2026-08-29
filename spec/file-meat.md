@@ -83,9 +83,10 @@ invisible `kind: "skip"` target with the same file and hunk indexes.
 is one composed diff — File-level metadata plus an ordered list of frames, each
 holding an ordered list of bays — so there is no `render_kind` to switch on.
 `FrameView` walks the frames in backend order and dispatches each bay to the
-widget for its `kind`; the only kind today is `text`, whose widget delegates to
-`TextDiffGrid`. A flatfile is one heading-less frame holding one `flatfile`
-text bay, so its rendered DOM is one `TextDiffGrid`, unchanged.
+widget for its `kind`. A `text` bay delegates to `TextDiffGrid`; an `image` bay
+uses `ImageBayView`, whether its bytes are a whole image File or a notebook PNG
+output. A flatfile is one heading-less frame holding one `flatfile` text bay, so
+its rendered DOM is one `TextDiffGrid`, unchanged.
 
 This is a rendering boundary, not a loading boundary. `FrameView` receives one
 already validated composed diff, the diff engine, the current split/inline view,

@@ -1,10 +1,10 @@
 /**
- * Renders a composed `image` bay as its captured left and right pictures.
+ * Renders a composed `image` bay as its old and new pictures.
  *
- * The browser loads immutable Snapshot media URLs; byte facts such as type, size,
- * and digest arrive in a separate text bay rather than as image captions. Each
- * captured side exposes one pseudo-line so review and line-pin code can use the
- * same File, bay, side, and line coordinate as text content.
+ * The browser loads immutable Snapshot media URLs. A whole image File states its
+ * byte facts in a separate text bay, while a notebook output stays one image bay.
+ * Each present side exposes one pseudo-line so review and line-pin code can use
+ * the same File, bay, side, and line coordinate as text content.
  *
  * The widget retains only its rendered DOM and decode error for each mounted
  * side. It publishes the mounted line-preparation operations FileCard needs, but
@@ -12,8 +12,8 @@
  *
  * ## The review line host
  *
- * An image bay exposes exactly one pseudo-line, numbered 1, on each side it was
- * captured on. That is what makes a picture commentable without inventing a
+ * An image bay exposes exactly one pseudo-line, numbered 1, on each side with an
+ * image representation. That makes a picture commentable without inventing a
  * second review target shape, and it costs this widget the rendered-row DOM
  * contract the rest of the review machinery already reads:
  *
@@ -95,7 +95,7 @@ type PreparableImageLines = HTMLElement & {
    * Resolves one semantic line target against this mounted image bay.
    *
    * `target` must address this File and bay. The operation returns the single
-   * mounted pseudo-row only for line one on a captured side, reports `missing`
+   * mounted pseudo-row only for line one on a present side, reports `missing`
    * for absent coordinates, and reports `stopped` after cancellation or disposal.
    * It never scrolls, paints a pin, loads bytes, or selects a hunk. Cleanup removes
    * the operation with the line host.
@@ -110,13 +110,13 @@ type PreparableImageLines = HTMLElement & {
 };
 
 /**
- * Renders one `image` bay as its two captured pictures.
+ * Renders one `image` bay as its two picture representations.
  *
  * The sides sit beside each other in Split view and stack in Inline view, the
  * same arrangement the text grid uses, because the question a reviewer asks of
- * two pictures is the one they ask of two texts. A side the File was not
- * captured on renders as explicitly absent: an added image has no old picture,
- * and an empty pane would read as a blank one.
+ * two pictures is the one they ask of two texts. A missing representation is
+ * explicit: an added image has no old picture, and one side of a notebook
+ * output may have text but no PNG.
  */
 export function ImageBayView(props: {
   /**
@@ -134,7 +134,7 @@ export function ImageBayView(props: {
    */
   bay: BayPayload;
   /**
-   * Narrowed image content containing nullable captured references for both sides.
+   * Narrowed image content containing nullable references for both sides.
    *
    * A null side renders explicit absence and exposes no pseudo-line coordinate;
    * present references describe bytes fetched only through the media URL.
@@ -169,16 +169,16 @@ export function ImageBayView(props: {
   };
 
   /**
-   * Returns the current captured media reference for one exact side.
+   * Returns the current image reference for one exact side.
    *
    * The accessor reads the narrowed content reactively. `null` is genuine side
    * absence and controls whether that side receives review or pin coordinates.
    *
    * # Returns
    *
-   * - The captured media reference for the requested side.
-   * - `null`: That side is absent from the diff. Pin parsing and review marker
-   *   lookup must reject coordinates for it.
+   * - The composed media reference for the requested side.
+   * - `null`: That side has no image representation. Pin parsing and review
+   *   marker lookup must reject coordinates for it.
    */
   const sideRef = (side: "left" | "right"): MediaRef | null =>
     side === "left" ? props.content.left : props.content.right;
@@ -216,8 +216,8 @@ export function ImageBayView(props: {
    * Answers one exact pin or review target inside this bay.
    *
    * A target naming another File or another bay is a routing contradiction and
-   * throws. A line other than the pseudo-line, or a side this File was not
-   * captured on, names nothing here and is `missing`. The single row is mounted
+   * throws. A line other than the pseudo-line, or a side with no image
+   * representation, names nothing here and is `missing`. The single row is mounted
    * for this widget's whole lifetime, so the only `stopped` cause is
    * cancellation or disposal.
    *
@@ -256,7 +256,7 @@ export function ImageBayView(props: {
     }) satisfies EnrichableImageBay;
     Object.assign(lines, { prepareLine_impl }) satisfies PreparableImageLines;
     // A pin already in the URL when this bay mounts belongs to it whenever it
-    // names this bay and a captured side; painting it here is the same
+    // names this bay and a present side; painting it here is the same
     // restoration the text grid performs once it has rendered its rows.
     const parsed = props.linePins.parseUrl();
     if (
@@ -321,11 +321,12 @@ export function ImageBayView(props: {
 /**
  * Renders one side of an image bay, with its pseudo-line coordinate.
  *
- * A captured side carries the review coordinate. It contains the line-number
+ * A present image side carries the review coordinate. It contains the line-number
  * cell holding Comment triggers and the code cell where Comment input mounts. It
- * shows the picture itself. An absent side says so and carries no coordinate:
- * there is nothing there to comment on, and the backend rejects a target naming
- * it.
+ * shows the picture itself. An absent representation says so and carries no
+ * coordinate: there is nothing there to comment on, and the backend rejects a
+ * target naming it. For a notebook output, the File side may exist while its
+ * MIME bundle has no PNG.
  */
 function ImageSideView(props: {
   /**
@@ -356,7 +357,7 @@ function ImageSideView(props: {
    */
   binding: ReviewTextGridBinding;
   /**
-   * Handles direct activation of this captured side's pseudo-line number.
+   * Handles direct activation of this present side's pseudo-line number.
    *
    * `side` is this component's exact side. The callback runs only when media is
    * present and the click was not consumed by a Comment control; the parent
@@ -373,14 +374,14 @@ function ImageSideView(props: {
   let codeCell!: HTMLDivElement;
 
   /**
-   * Reads this component's current captured media reference.
+   * Reads this component's current composed media reference.
    *
    * Null drives explicit absence and removes pin and review coordinates rather
    * than producing a broken media URL.
    *
    * # Returns
    *
-   * - The captured media reference for this rendered side.
+   * - The composed media reference for this rendered side.
    * - `null`: This side has no media. The component renders its empty-side state
    *   without a pin coordinate, review coordinate, or media request.
    */
@@ -415,7 +416,7 @@ function ImageSideView(props: {
     >
       <div
         class="line-no media-line-no"
-        // The coordinate exists only where content does: an absent side has no
+        // The coordinate exists only where content does: an absent image has no
         // pseudo-line, so it is neither pinnable nor commentable.
         data-line-pin-side={mediaRef() === null ? undefined : props.side}
         data-line-pin-line={
@@ -474,7 +475,9 @@ function ImageSideView(props: {
         <Show
           when={mediaRef()}
           keyed
-          fallback={<p class="media-absent">Not captured on this side.</p>}
+          fallback={
+            <p class="media-absent">No image representation on this side.</p>
+          }
         >
           {(reference) => (
             <Show
@@ -488,6 +491,7 @@ function ImageSideView(props: {
                 src={fileMediaUrl(
                   props.binding.snapshot_id,
                   props.reviewFile,
+                  props.binding.bay.bay_key,
                   props.side,
                 )}
                 alt={`The ${sideName()} side of this image`}

@@ -243,6 +243,45 @@ def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
     assert difftastic_engine_warning({"language": "TypeScript"}) is None
 
 
+def test_difftastic_engine_keeps_identical_source_rows() -> None:
+    """Render identical source as readable context with no changed lines.
+
+    Difftastic reports no structural rows for equal inputs. The engine must
+    still return the complete source because composed notebook bays rely on
+    opening an unchanged cell to reveal its contents.
+    """
+    source = "value = 1\nprint(value)\n"
+
+    payload = DifftasticDiffEngine().render_diff(
+        old=DiffSide(exists=True, text=source, path_hint="cell.py"),
+        new=DiffSide(exists=True, text=source, path_hint="cell.py"),
+    )
+
+    assert payload["rows"] == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": 1,
+            "left_text": "value = 1",
+            "right_text": "value = 1",
+        },
+        {
+            "status": "equal",
+            "left_no": 2,
+            "right_no": 2,
+            "left_text": "print(value)",
+            "right_text": "print(value)",
+        },
+    ]
+    assert payload["summary"] == {
+        "changed_lines": 0,
+        "modified_lines": 0,
+        "added_lines": 0,
+        "removed_lines": 0,
+        "moved_lines": 0,
+    }
+
+
 def test_difftastic_summary_counts_makefile_target_suffix_insert() -> None:
     """Count a Make target suffix as inserted content, not unchanged context.
 

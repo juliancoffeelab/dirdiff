@@ -11,11 +11,14 @@ yields source, changed metadata, and changed output bays in document order.
 Notebook structure determines which content belongs together and which identity
 can survive across Snapshots. Invalid cells and outputs remain visible as
 canonical JSON with a warning instead of invalidating usable siblings. The
-module yields decoded text bays; engines and display rendering run later.
+module yields decoded text bays and image bays carrying decoded PNG bytes;
+engines and payload reduction run later.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import re
@@ -29,6 +32,8 @@ from dirdiff.formats.base import (
     BayContext,
     BayWarning,
     ChangeStatus,
+    ImageBay,
+    MediaSide,
     MovedChangeStatus,
     TextBay,
     TextRejection,
@@ -102,18 +107,17 @@ class ExecuteResultOutput:
     """Load a value displayed as the result of executing a code cell.
 
     Notebook loading creates this variant from `output_type="execute_result"`.
-    Composition compares `raw` and renders `text_plain` when the bundle has it.
-
-    Other media variants remain only in `raw`; this type does not choose a rich
-    renderer or treat absent plain text as an empty result.
+    It preserves the complete entry for semantic equality and exposes the
+    supported MIME representations to composition. Representation selection
+    remains a builder decision.
     """
 
     raw: JsonValue
     """Complete parsed execute-result mapping before plain-text extraction.
 
     Pairing compares it whole so execution metadata and rich media changes are
-    not hidden when `text_plain` stays equal or is absent. Composition may
-    render the text field but must preserve this value for semantic equality.
+    not hidden when the selected representation stays equal or is absent.
+    Composition must preserve this value for semantic equality.
     """
 
     text_plain: str | None
@@ -124,16 +128,24 @@ class ExecuteResultOutput:
     Composition renders only a present value while `raw` preserves other media.
     """
 
+    image_png: bytes | None = field(compare=False)
+    """Decoded `image/png` representation from the result's data bundle.
+
+    `None` means the bundle has no PNG entry. The bytes are the exact value
+    represented by valid base64 in the captured notebook; composition does not
+    inspect, transcode, or repair them. Equality already compares the complete
+    raw entry, so it does not compare the decoded bytes a second time.
+    """
+
 
 @dataclass(frozen=True)
 class DisplayDataOutput:
     """Load a display bundle emitted while a code cell ran.
 
     Notebook loading creates this variant from `output_type="display_data"`.
-    Composition compares `raw` and renders `text_plain` when present.
-
-    The value does not select among rich media variants or equate missing plain
-    text with an empty string.
+    It preserves the complete entry for semantic equality and exposes the
+    supported MIME representations to composition. A missing representation
+    remains distinct from an empty one.
     """
 
     raw: JsonValue
@@ -152,6 +164,14 @@ class DisplayDataOutput:
     so changes to rich media remain reviewable.
     """
 
+    image_png: bytes | None = field(compare=False)
+    """Decoded `image/png` representation from the display bundle.
+
+    `None` means no PNG representation was supplied. A present value contains
+    the exact decoded bytes and is never inferred from another MIME entry.
+    Equality uses the complete raw entry and skips this duplicate form.
+    """
+
 
 NotebookOutput = (
     StreamOutput | ErrorOutput | ExecuteResultOutput | DisplayDataOutput
@@ -160,13 +180,13 @@ NotebookOutput = (
 
 - `StreamOutput` carries stream text.
 - `ErrorOutput` carries traceback entries.
-- `ExecuteResultOutput` and `DisplayDataOutput` carry optional plain text from
-  their display bundles.
+- `ExecuteResultOutput` and `DisplayDataOutput` carry optional plain text and
+  decoded PNG bytes from their display bundles.
 
-Every variant retains raw JSON for change identity. Two outputs whose displayed
-text agrees can still differ in raw content, and that difference must remain
-visible. Composition chooses what to show; the loaded value does not claim
-visible plain text is the complete output.
+Every variant retains raw JSON for change identity. Two outputs whose selected
+representation agrees can still differ in raw content, and that difference must
+remain visible. Composition chooses what to show; the loaded value does not
+claim that representation is the complete output.
 """
 
 
@@ -266,7 +286,7 @@ class NotebookCell:
 
     Non-code cells require an empty list. Pairing preserves position and variant
     identity, while rejected entries retain their raw mapping and warning;
-    callers must not discard outputs whose supported text representation is absent.
+    callers must not discard outputs whose supported representation is absent.
     """
 
     execution_count: int | None = field(compare=False)
@@ -428,9 +448,9 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         The raw entry is kept verbatim beside the fields the entry's
         `output_type` says to read: a `stream` requires its `text`, an
         `error` its `traceback` of strings, and an `execute_result` or
-        `display_data` its `data` bundle, whose `text/plain` entry is
-        optional. Any other `output_type` is not an `nbformat` output, so
-        the entry is rejected.
+        `display_data` its `data` bundle, whose `text/plain` and `image/png`
+        entries are optional. Any other `output_type` is not an `nbformat`
+        output, so the entry is rejected.
 
         # Usage
 
@@ -483,9 +503,27 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
                 return rejected("text/plain is not a string or string list")
         else:
             text_plain = None
+        if "image/png" in data:
+            encoded_png = try_multistring(data["image/png"])
+            if encoded_png is None:
+                return rejected("image/png is not a string or string list")
+            try:
+                image_png = base64.b64decode(encoded_png, validate=True)
+            except binascii.Error, ValueError:
+                return rejected("image/png is not valid base64")
+        else:
+            image_png = None
         if output_type == "execute_result":
-            return ExecuteResultOutput(raw=entry, text_plain=text_plain)
-        return DisplayDataOutput(raw=entry, text_plain=text_plain)
+            return ExecuteResultOutput(
+                raw=entry,
+                text_plain=text_plain,
+                image_png=image_png,
+            )
+        return DisplayDataOutput(
+            raw=entry,
+            text_plain=text_plain,
+            image_png=image_png,
+        )
 
     identifier_counts: dict[str, int] = {}
     for cell in cell_values:
@@ -758,7 +796,7 @@ def notebook_bays(
     left_bytes: bytes | None,
     right_bytes: bytes | None,
     context: BayContext,
-) -> Iterator[TextBay]:
+) -> Iterator[TextBay | ImageBay]:
     """Parse notebook bytes and yield their bays in document order.
 
     A change to the notebook's own top-level fields comes first, in its own
@@ -990,6 +1028,27 @@ def notebook_bays(
             case ExecuteResultOutput() | DisplayDataOutput():
                 return "" if out.text_plain is None else out.text_plain
 
+    def rendered_png(out: NotebookOutputEntry | None) -> MediaSide | None:
+        """Return one output side's selected PNG representation when present.
+
+        Only display bundles can carry PNG data. A missing entry, a text output,
+        and an absent output side all return `None`; the caller retains the
+        output entry and distinguishes those cases when it assigns change.
+
+        # Returns
+
+        - `MediaSide`: Exact decoded PNG representation supplied by this output.
+        - `None`: The output is absent, is not a display bundle, or supplies no
+          PNG representation.
+        """
+        match out:
+            case ExecuteResultOutput() | DisplayDataOutput() if (
+                out.image_png is not None
+            ):
+                return MediaSide(media_type="image/png", data=out.image_png)
+            case _:
+                return None
+
     for key, left_index, right_index, moved in _paired_cells(
         left.cells if left is not None else [],
         right.cells if right is not None else [],
@@ -1103,11 +1162,9 @@ def notebook_bays(
                     "there is nothing to show as a line difference."
                 )
             ),
-            # The cell's source is the frame's body only when the source is
-            # what changed. A cell whose outputs or metadata moved on without
-            # it has nothing to read in its rows, and folds cannot hide a bay
-            # that is unchanged end to end, so it may close like an untouched
-            # cell and the bay that did change carries the hunk.
+            # An unchanged source still carries every readable row when opened.
+            # It starts closed when only an output or metadata changed, leaving
+            # the changed attachment prominent without discarding cell context.
             collapsible=not source_changed,
             default_expanded=source_changed,
             change=change,
@@ -1193,6 +1250,52 @@ def notebook_bays(
             )
             output_equal = left_out == right_out
             if output_equal and not isinstance(left_out, RejectedNotebookPart):
+                continue
+            left_png = rendered_png(left_out)
+            right_png = rendered_png(right_out)
+            rejected = isinstance(left_out, RejectedNotebookPart) or isinstance(
+                right_out, RejectedNotebookPart
+            )
+            if not rejected and (left_png is not None or right_png is not None):
+                image_identical = (
+                    not output_equal
+                    and left_png is not None
+                    and right_png is not None
+                    and left_png.data == right_png.data
+                )
+                yield ImageBay(
+                    frame_key=key,
+                    heading=frame_heading,
+                    bay_key=f"{key}:output:{index}",
+                    label=(
+                        f"Output {index + 1} - changed beyond its PNG"
+                        if image_identical
+                        else f"Output {index + 1}"
+                    ),
+                    detail=(
+                        (
+                            "This output changed, but its PNG did not. Another "
+                            "representation or output field carries the change."
+                        )
+                        if image_identical
+                        else None
+                    ),
+                    collapsible=True,
+                    default_expanded=False,
+                    change=ChangeStatus(
+                        kind=(
+                            "added"
+                            if left_out is None
+                            else "removed"
+                            if right_out is None
+                            else "unchanged"
+                            if output_equal
+                            else "changed"
+                        )
+                    ),
+                    left=left_png,
+                    right=right_png,
+                )
                 continue
             left_text = rendered_text(left_out)
             right_text = rendered_text(right_out)

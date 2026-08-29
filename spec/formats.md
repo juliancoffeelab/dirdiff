@@ -222,11 +222,10 @@ raw cell, or a cell that is nothing but a loop yields no hints at all. "This
 whole bay is unchanged" is a fact composition already holds once it has
 rendered the bay, and it belongs in the payload rather than in a parser.
 
-`image` bays carry no bytes. `MediaRef` describes the captured side; the widget
-requests the bytes from the media endpoint below. Which Files are images is not
-this document's decision: `image_media_type()` in `formats/image.py` names the
-media type a path is an image of, or nothing, and composition asks it. A File it
-names nothing for reaches a later step, and the blob terminal at the end.
+Serialized `image` bays carry no bytes. `MediaRef` describes a composed image
+side; the widget requests the bytes from the media endpoint below. Whole image
+Files are classified by `image_media_type()` in `formats/image.py`. Notebook
+outputs use the same bay kind when their MIME bundle offers `image/png`.
 
 An image File composes three bays: the `image` bay holding the picture, an
 `image-metadata` text bay holding dimensions and EXIF exposed while Pillow opens
@@ -335,18 +334,19 @@ Bay = TextBay | ImageBay
 - a **`TextBay`** carries its identity, its label, its expansion state, and its
   two decoded sides — whether those sides are a file's own text, a notebook
   cell's source, or facts composition stated about bytes;
-- an **`ImageBay`** carries the same identity fields plus its two captured
-  sides, each holding exact bytes and the media type composition concluded.
+- an **`ImageBay`** carries the same identity fields plus its two image
+  representations, each holding exact bytes and the media type composition
+  concluded.
 
 There is no base class and no `kind` field distinguishing cases inside one type:
 the type *is* the distinction, so a consumer that must act differently on a
 picture writes two branches the type checker enforces, and one that must not
 act differently writes none.
 
-Review reconstructs an excerpt from either, the media endpoint serves the
-captured sides of the second, and `compose()` renders the first through the
-engine and reduces the second to `MediaRef` sides. The union splits on content
-because content is what the callers need.
+Review reconstructs an excerpt from either, the media endpoint serves the image
+sides of the second, and `compose()` renders the first through the engine and
+reduces the second to `MediaRef` sides. The union splits on content because
+content is what the callers need.
 
 Identity includes the frame. Frames are contiguous in document order, so a
 consumer that wants frames groups consecutive items by their frame key and
@@ -472,15 +472,17 @@ weaker than an `nbformat` id, so the source bay warns, but preserving readable
 cells is more useful than reducing the whole notebook to raw JSON.
 
 Shape is part of loading the same way. The loader checks every field composition
-reads — `cell_type`, `source`, a code cell's `outputs`, and the output fields it
-reads text from — and is silent about every field it does not, keeping document
-fields, cell metadata, and each raw output entry verbatim. A malformed cell or
-output is preserved as canonical raw JSON in its own warned bay; valid siblings
-remain structured. Missing or invalid execution count merely removes the prompt
-number and warns. Only invalid UTF-8, invalid JSON, a non-object document, or a
-missing/non-list `cells` value prevents a usable cell list: that whole notebook
-side is then shown as one warned raw-text bay, or as warned byte facts when it
-cannot decode. Nothing is coerced or silently dropped.
+reads, including `cell_type`, `source`, a code cell's `outputs`, text output
+fields, and an offered `image/png` value. PNG data must be a string or string
+list containing valid base64. The loader is silent about every field it does not
+read and keeps document fields, cell metadata, and each raw output entry
+verbatim. A malformed cell or output is preserved as canonical raw JSON in its
+own warned bay; valid siblings remain structured. Missing or invalid execution
+count merely removes the prompt number and warns. Only invalid UTF-8, invalid
+JSON, a non-object document, or a missing/non-list `cells` value prevents a
+usable cell list: that whole notebook side is then shown as one warned raw-text
+bay, or as warned byte facts when it cannot decode. Nothing is coerced or
+silently dropped.
 
 ### Notebook outputs
 
@@ -636,21 +638,23 @@ which capture does not carry today.
 
 ## Media transport
 
-One endpoint serves captured bytes:
+One endpoint serves composed image bytes:
 
 ```text
-GET /api/file-media?snapshot_id=...&side=left|right&left_path=...&right_path=...
+GET /api/file-media?snapshot_id=...&bay_key=...&side=left|right&left_path=...&right_path=...
 ```
 
-It is addressed by Snapshot id, side, and the same nullable File-path pair
-`/api/file-diff` uses, because a File is identified by that pair and not by one
-path: a renamed image has a different name on each side, and an added or removed
-one has a name on only one. Either path parameter is omitted for a side the File
-was not captured on. The response is the exact captured Snapshot bytes under the
-media type composition concluded, so no second opinion about the media type is
-formed at the boundary and no engine runs to serve a picture. Snapshot ids are
-never reused, so the response is declared immutable and cached outright:
-`Cache-Control: private, max-age=31536000, immutable`.
+The Snapshot id and nullable File-path pair identify the same composed File as
+`/api/file-diff`. The required bay key selects one image bay inside that File,
+and the side selects its old or new representation. A renamed File needs both
+paths, and a notebook needs the bay key because several outputs can carry PNGs.
+The response is exactly the selected `MediaSide.data` under the media type
+composition concluded. For an image File those are the captured File bytes. For
+a notebook they are the bytes strictly decoded from the captured output's
+base64. No second opinion about media type is formed at the boundary and no
+engine runs to serve a picture. Snapshot ids are never reused, so the response
+is declared immutable and cached outright: `Cache-Control: private,
+max-age=31536000, immutable`.
 
 The endpoint reads through the existing Room interface over the capture store
 that already holds exact bytes on disk, then asks `bays()` which `ImageBay` the
@@ -660,29 +664,21 @@ described in [`rooms.md`](rooms.md). No copy, materialized directory, or second
 content store is introduced.
 
 It serves `image` bays and nothing else, because they are the only bays that
-carry bytes. Its one caller is the `<img src>` in the image widget. A blob File
+carry bytes. Its caller is the `<img src>` in the image widget. A blob File
 composes no bay it can be asked about, which is the cost recorded under
 [Blob is a classification, not a kind](#blob-is-a-classification-not-a-kind).
 
-A File that composes no `image` bay, and a side that was never captured, are
-both refused. Neither is answered with empty bytes: an empty response would be a
-believable picture of nothing, and there is no such thing.
+A missing bay, a bay that is not an image, and a side with no image
+representation are refused. None is answered with empty bytes: an empty response
+would be a believable picture of nothing, and there is no such thing.
 
 Bay payloads never inline bytes. A `MediaRef` digest identifies the content the
 endpoint will serve for that side.
 
-This addressing has a known gap, and it is a stage 3 problem rather than a stage
-2 one. Everything a File pair can name is the whole content of one captured
-side, and today a File composes at most one bay carrying bytes, so the pair and
-the side pick them without ambiguity. An image File's facts bay does not disturb
-that: it is a `text` bay and carries none.
-
-Under the hybrid-notebook shape it stops holding. A cell's frame may hold an
-image bay beside its source bay, and several cells' outputs share one File pair,
-so the pair and the side no longer pick one side's bytes. Serving
-notebook-embedded bytes therefore needs a bay key in the endpoint, selecting
-among the bays the same `bays()` call already yields. The widened endpoint shape
-belongs to stage 3, the first stage that must serve such bytes.
+The bay key closes the ambiguity that existed before hybrid notebooks. A cell's
+frame may hold an image bay beside its source bay, and several cells' outputs
+share one File pair. The endpoint selects among the same `bays()` enumeration
+that produced the diff payload; it does not parse notebook outputs a second way.
 
 ## Frontend representation
 
@@ -859,8 +855,9 @@ A new package `dirdiff.formats`, following the project's package rules:
   `image.py`. `ImageBay` is an arm of the `Bay` union `base.py` defines, and the
   facts text and the `MediaRef` reduction both take a `MediaSide`; putting the
   types in `image.py` would make `base.py` import a sibling, which the rule
-  above forbids. `image.py` is the only builder that constructs them, and the
-  media endpoint reaches them through the facade.
+  above forbids. `image.py` constructs whole-File pictures and `notebook.py`
+  constructs PNG output bays; the media endpoint reaches both through the
+  facade.
 - the facts text — media type, size, digest, one per line — is built in
   `base.py`. `image.py` uses it for the facts bay beside its picture and
   `blob.py` for its only bay, which is two callers in sibling modules and
@@ -881,9 +878,7 @@ The `frontend/src/hud/fileCard/` directory, behind its `FileCard.tsx` facade:
 - one widget per bay kind, in `hud/fileCard/grids/<kind>/`: `TextDiffGrid` in
   `grids/text/` and `ImageBayView` in `grids/image/`. One directory per kind and
   none shared by two, under
-  [Frontend representation](#frontend-representation). The running code instead
-  has `grids/media/MediaBayView.tsx` serving both `image` and `blob`, which that
-  section marks as the part not yet implemented.
+  [Frontend representation](#frontend-representation).
 
 `FileBody` stopped switching on `render_kind` and mounts the frame renderer.
 `NotebookFile.tsx` dissolved into it.
@@ -923,8 +918,8 @@ proposed, the vendoring question is decided before the kind is, not after.
 - Damage boundaries are unchanged: `FileRendererBoundary` still contains one
   File body, and an unexpected widget failure is terminal local damage for that
   File, not a backend File error.
-- The media endpoint serves captured Snapshot bytes only. It creates no store,
-  copy, or mutable path.
+- The media endpoint serves only bytes carried by the selected composed image
+  bay. It creates no store, copy, or mutable path.
 
 ## Implementation stages
 
@@ -980,16 +975,15 @@ listing under the presets root rather than a closed set spelled in code.
 
 ### Stage 3 — hybrid notebooks
 
-The notebook builder prefers `image/png` for the outputs that offer it. If stage
-1 chose output representations as described and stage 2's `image` bay exists,
-that part is one changed rule and adds no bay kind and no widget.
+Landed. The notebook loader strictly decodes `image/png` MIME entries and the
+builder prefers those bytes over `text/plain`. When only one output side offers
+a PNG, the shared image bay keeps the other side explicitly absent rather than
+substituting text or the opposite picture.
 
-This stage also settles the media addressing gap recorded above, because a
-notebook-embedded plot is the first captured content that is not a file at a
-path. That work is expected and is not evidence of an earlier shortcut. Anything
-beyond those two
-— a new bay kind, a new widget, a second endpoint, a change to frames or hunk
-allocation — is such evidence, and should be investigated rather than absorbed.
+`/api/file-media` now requires the image bay key in addition to Snapshot, File
+pair, and side. This selects among several notebook outputs through the same
+`bays()` enumeration used for composition. Stage 3 added no bay kind, widget,
+endpoint, frame rule, or hunk-allocation path.
 
 ### Stage 4 — symlinks
 
@@ -1044,11 +1038,14 @@ that a human would write in a jupyter notebook.
 No procedurally generated nonsense.
 
 **Notebooks are multi-cell.** A case is a realistic notebook — prose, imports,
-data, computation, a plot, notes — with one targeted change, not a minimal pair
-holding the single cell under test. A one-cell fixture cannot show that frames
-follow document order, that only changed cells compose a frame, or that an
-untouched cell stays out of the way, which is most of what the notebook shape
-has to get right. The unchanged cells are the point.
+data, computation, a plot, notes — not a minimal pair holding the single cell
+under test. Most cases edit real code and carry the outputs produced by that
+edit. A few clearly named edge cases isolate metadata, malformed content, or
+execution state when a code edit would obscure the behavior under review. A
+one-cell fixture cannot show that frames follow document order, that only
+changed cells compose a frame, or that an untouched cell stays out of the way,
+which is most of what the notebook shape has to get right. The unchanged cells
+are the point.
 
 **Notebooks are executed.** The cells hold real code doing something small and
 real — a bit of arithmetic, a plot, a table, a deliberate exception — and the
@@ -1062,7 +1059,19 @@ What must be real is the result. The fixture's outputs are the ones the kernel
 produced: its execution counts, its base64 PNG, its traceback with the escape
 codes still in it, its mimebundles carrying whatever media types the libraries
 actually emitted. Whatever is needed to run a notebook goes in the `dev`
-dependency group when the set is built; nothing there covers it today.
+dependency group.
+
+`uv --no-cache run tests/presets/notebook/execute.py` is the ordinary way to
+refresh the set. The script discovers the notebook pairs, executes each included
+file once with `nbclient`, omits execution timing metadata, and writes the result
+in place. Its short `EXCLUDED_NOTEBOOKS` table names every fixture whose intended
+state forbids execution: malformed or invalid content, and the deliberately
+unexecuted side of an output-presence case. The expected-error fixture executes
+with only its deliberate `IndexError` admitted; every other execution error
+stops the script. Notebook code seeds its own random inputs. Ordinary plot cells
+use pyplot imports and end with `plt.show()`; backend magics remain only where a
+hand-edited history recorded one. The script does not generate cells, normalize
+results, retry failures, or hide kernel errors.
 
 **Images are downloaded, and their licence permits redistribution.** Public
 domain or CC0, with the source and licence recorded beside the fixture. The same
@@ -1086,19 +1095,30 @@ this subsystem was written to make usable.
 | --- | --- | --- |
 | `basic` | a code cell's source edited | an ordinary text diff, folded and highlighted like any Python |
 | `basic` | a markdown cell's prose edited | the same, for a cell with no heading to fold on |
-| `basic` | a raw cell edited | the same, with no language to highlight |
+| `basic` | a raw cell and nearby code edited | both ordinary diffs, plus the code's changed output |
 | `basic` | a cell added, a cell removed | one frame each, in document order, with correct hunk indexes |
-| `basic` | cells reordered | frames follow the notebook, and cell keys stay put |
+| `basic` | cells reordered and a plot adjusted | frames follow the notebook, cell keys stay put, and the code-driven PNG changes |
 | `basic` | an untouched cell beside a changed one | present, collapsed, carrying no hunk, and still openable |
 | `basic` | stream output changed | a text bay holding the changed output |
 | `basic` | an error traceback appears | the traceback as text, its escape codes not interpreted |
-| `basic` | a plot re-rendered (AS TEXT), source untouched | source collapsed, the output bay reachable with Next hunk |
-| `basic` | cell metadata changed | a collapsed canonical-JSON bay |
+| `basic` | cell metadata changed | a collapsed canonical-JSON bay without claiming source changed |
+| `rich` | plot type changed | the code diff and its bar-to-line PNG change |
+| `rich` | wettest day highlighted | data-driven colors and the resulting PNG change |
+| `rich` | rolling average added | a second plotted series, legend, and the resulting PNG change |
+| `unchanged` | plot outputs added, plot outputs removed | source-identical execution-state changes with the present PNG on the correct side and an explicit absent representation opposite it |
+| `invalid` | missing cell ids and malformed output | readable degraded frames instead of losing valid source |
 | `invalid` | `.ipynb` that is not valid notebook JSON | an ordinary text diff of the file, because that is what the bytes are |
 
-The plot case is the one that changes shape across stages: a text bay in
-stage 1, an `image` bay from stage 3. Both are correct for their stage, and
-the preset outlives the change.
+The `rich` group contains only code-driven image changes, separate from the
+source, metadata, and text-output cases in `basic`. Each plot's image difference
+has a visible source difference beside it. These cases changed shape across
+stages: text bays in stage 1 and `image` bays from stage 3.
+
+The `unchanged` group holds source-identical execution-state edge cases. Its
+added and removed cases pair the same deterministic cell before and after
+execution, so they exercise a missing image representation without fabricating
+substitute content. Malformed notebook structure belongs in `invalid`, whether
+the loader can preserve readable cells or must show the whole file as text.
 
 ### `formats/`
 
@@ -1146,9 +1166,10 @@ assembly moved into composition. The two attached fields stay until the TODO in
 `dirdiff.server.diff` is resolved, so the handler is minimal rather than empty.
 
 The same standard applies to the route this design added. `/api/file-media`
-resolves a Snapshot, calls `bays()`, and writes one side's bytes with the media
-type composition concluded. Review validation asks `bays()` whether a key exists
-and what kind it is. Neither grew a second notion of what a file is.
+resolves a Snapshot, calls `bays()`, selects the required key, and writes one
+side's bytes with the media type composition concluded. Review validation asks
+`bays()` whether a key exists and what kind it is. Neither grew a second notion
+of what a file is.
 
 ### What none of these may require
 

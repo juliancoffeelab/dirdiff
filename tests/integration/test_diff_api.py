@@ -6,6 +6,7 @@ to use local Git subprocesses and disposable SQLite files, but they should not
 mock backend loading or bypass request/response contracts.
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -1961,6 +1962,7 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
             "/api/file-media",
             params={
                 "snapshot_id": snapshot_id,
+                "bay_key": "image",
                 "side": side,
                 "left_path": "logo.png",
                 "right_path": "logo.png",
@@ -1981,6 +1983,7 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-media",
         params={
             "snapshot_id": snapshot_id,
+            "bay_key": "image",
             "side": "left",
             "left_path": "gone.png",
         },
@@ -1993,12 +1996,13 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-media",
         params={
             "snapshot_id": snapshot_id,
+            "bay_key": "image",
             "side": "right",
             "left_path": "gone.png",
         },
     )
     assert absent.status_code == 400
-    assert "was not captured on the right side" in absent.text
+    assert "has no image on the right side" in absent.text
 
     # A blob File composes its facts as rows and no bay carrying bytes, so
     # there is nothing here to serve: the endpoint refuses rather than
@@ -2007,12 +2011,13 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-media",
         params={
             "snapshot_id": snapshot_id,
+            "bay_key": "blob",
             "side": "left",
             "left_path": "clip.ogg",
         },
     )
     assert blob.status_code == 400
-    assert "composes no media content" in blob.text
+    assert "does not carry media content" in blob.text
 
     # A text File composes a text bay, which holds no bytes to serve. The
     # endpoint says so rather than returning the source as a download.
@@ -2020,13 +2025,14 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-media",
         params={
             "snapshot_id": snapshot_id,
+            "bay_key": "flatfile",
             "side": "left",
             "left_path": "alpha.txt",
             "right_path": "alpha.txt",
         },
     )
     assert textual.status_code == 400
-    assert "composes no media content" in textual.text
+    assert "does not carry media content" in textual.text
 
     # An image the Snapshot never captured is not readable through it, even
     # though it sits in the repository and would have composed a media bay.
@@ -2034,6 +2040,7 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-media",
         params={
             "snapshot_id": snapshot_id,
+            "bay_key": "image",
             "side": "left",
             "left_path": "untouched.png",
             "right_path": "untouched.png",
@@ -2046,6 +2053,7 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-media",
         params={
             "snapshot_id": "0" * 32,
+            "bay_key": "image",
             "side": "left",
             "left_path": "logo.png",
             "right_path": "logo.png",
@@ -2060,6 +2068,7 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-media",
         params={
             "snapshot_id": snapshot_id,
+            "bay_key": "image",
             "side": "left",
             "left_path": "../escape.png",
             "right_path": "../escape.png",
@@ -2067,6 +2076,168 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
     )
     assert outside.status_code == 400
     assert "must be normalized relative names" in outside.text
+
+
+def test_file_media_selects_a_notebook_image_by_bay_key(
+    tmp_path: Path,
+) -> None:
+    """Serve each embedded PNG from the exact output bay that named it.
+
+    One notebook contains two image outputs whose bytes swap across sides. The
+    File pair and side are therefore insufficient by construction: only the bay
+    key distinguishes the correct response. The route also refuses a missing or
+    unknown key instead of choosing the first image.
+    """
+    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "basic"
+    first_png = (fixtures / "image-changed" / "old.png").read_bytes()
+    second_png = (fixtures / "image-changed" / "new.png").read_bytes()
+    encoded_first = base64.b64encode(first_png).decode("ascii")
+    encoded_second = base64.b64encode(second_png).decode("ascii")
+    old_notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "id": "plot",
+                "execution_count": 1,
+                "metadata": {},
+                "source": ["draw()\n"],
+                "outputs": [
+                    {
+                        "output_type": "display_data",
+                        "data": {
+                            "image/png": encoded_first,
+                            "text/plain": ["<first>"],
+                        },
+                        "metadata": {},
+                    },
+                    {
+                        "output_type": "display_data",
+                        "data": {
+                            "image/png": encoded_second,
+                            "text/plain": ["<second>"],
+                        },
+                        "metadata": {},
+                    },
+                ],
+            }
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    new_notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "id": "plot",
+                "execution_count": 1,
+                "metadata": {},
+                "source": ["draw()\n"],
+                "outputs": [
+                    {
+                        "output_type": "display_data",
+                        "data": {
+                            "image/png": encoded_second,
+                            "text/plain": ["<first>"],
+                        },
+                        "metadata": {},
+                    },
+                    {
+                        "output_type": "display_data",
+                        "data": {
+                            "image/png": encoded_first,
+                            "text/plain": ["<second>"],
+                        },
+                        "metadata": {},
+                    },
+                ],
+            }
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+
+    create_committed_repo(tmp_path, branch="main")
+    notebook_path = tmp_path / "plots.ipynb"
+    notebook_path.write_text(json.dumps(old_notebook), encoding="utf-8")
+    run_git(tmp_path, "add", "plots.ipynb")
+    run_git(tmp_path, "commit", "-m", "notebook plots")
+    notebook_path.write_text(json.dumps(new_notebook), encoding="utf-8")
+
+    client, project_id = create_repo_client(tmp_path)
+    manifest = client.get(
+        "/api/manifest",
+        params={
+            "project_id": str(project_id),
+            "tab": "refs",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
+    assert manifest.status_code == 200
+    snapshot_id = manifest.json()["snapshot_id"]
+    diff = client.get(
+        "/api/file-diff",
+        params={
+            "snapshot_id": snapshot_id,
+            "engine": "dirdiff",
+            "left_path": "plots.ipynb",
+            "right_path": "plots.ipynb",
+        },
+    )
+    assert diff.status_code == 200
+    image_bays = {
+        bay["bay_key"]: bay
+        for frame in diff.json()["frames"]
+        for bay in frame["bays"]
+        if bay["kind_data"]["kind"] == "image"
+    }
+    assert set(image_bays) == {"plot:output:0", "plot:output:1"}
+
+    expected = {
+        ("plot:output:0", "left"): first_png,
+        ("plot:output:0", "right"): second_png,
+        ("plot:output:1", "left"): second_png,
+        ("plot:output:1", "right"): first_png,
+    }
+    for (bay_key, side), png in expected.items():
+        served = client.get(
+            "/api/file-media",
+            params={
+                "snapshot_id": snapshot_id,
+                "bay_key": bay_key,
+                "side": side,
+                "left_path": "plots.ipynb",
+                "right_path": "plots.ipynb",
+            },
+        )
+        assert served.status_code == 200, (bay_key, side)
+        assert served.content == png, (bay_key, side)
+        assert served.headers["content-type"] == "image/png"
+
+    unknown = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "bay_key": "plot:output:missing",
+            "side": "right",
+            "left_path": "plots.ipynb",
+            "right_path": "plots.ipynb",
+        },
+    )
+    assert unknown.status_code == 400
+    assert "has no bay named" in unknown.text
+    missing_key = client.get(
+        "/api/file-media",
+        params={
+            "snapshot_id": snapshot_id,
+            "side": "right",
+            "left_path": "plots.ipynb",
+            "right_path": "plots.ipynb",
+        },
+    )
+    assert missing_key.status_code == 422
 
 
 def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(

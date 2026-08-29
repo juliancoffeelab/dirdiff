@@ -1256,41 +1256,41 @@ const TextKindPayloadSchema = z.strictObject({
 export type TextKindPayload = z.infer<typeof TextKindPayloadSchema>;
 
 /**
- * Validates captured image-side facts used to construct media presentation.
+ * Validates image-side facts used to construct media presentation.
  *
  * The reference describes bytes but neither contains nor fetches them. The
  * media endpoint remains the only byte source.
  */
 const MediaRefSchema = z.strictObject({
-  /** Non-empty captured media type used for presentation, not content negotiation. */
+  /** Non-empty composed media type used for presentation, not negotiation. */
   media_type: z.string().min(1),
-  /** Exact non-negative captured byte count. */
+  /** Exact non-negative composed byte count. */
   byte_size: z.number().int().nonnegative(),
-  /** Non-empty backend digest identifying the captured bytes. */
+  /** Non-empty backend digest identifying the composed bytes. */
   digest: z.string().min(1),
 });
 
 /**
- * Describes one captured media side without carrying its bytes.
+ * Describes one composed image side without carrying its bytes.
  *
- * The record proves that a captured side exists without carrying its bytes.
- * Media content comes from `/api/file-media`, addressed by Snapshot, side, and
- * File pair, never inline in this payload.
+ * The record proves that an image representation exists without carrying bytes.
+ * Media content comes from `/api/file-media`, addressed by Snapshot, File pair,
+ * bay key, and side, never inline in this payload.
  */
 export type MediaRef = z.infer<typeof MediaRefSchema>;
 
 /**
  * Validates the image arm with one explicit nullable reference per side.
  *
- * Null means that captured side does not exist; it never triggers a substitute
- * URL or byte source in the widget.
+ * Null means no image representation exists there; it never triggers a
+ * substitute URL or byte source in the widget.
  */
 const ImageKindPayloadSchema = z.strictObject({
   /** Discriminant selecting the browser image widget. */
   kind: z.literal("image"),
-  /** Captured old-side media facts, or null when that side is absent. */
+  /** Old-side media facts, or null when no image exists there. */
   left: MediaRefSchema.nullable(),
-  /** Captured new-side media facts, or null when that side is absent. */
+  /** New-side media facts, or null when no image exists there. */
   right: MediaRefSchema.nullable(),
 });
 
@@ -1578,25 +1578,27 @@ export const IMAGE_FACTS_BAY_KEY = "image-facts";
 export const BLOB_BAY_KEY = "blob";
 
 /**
- * Builds the URL serving one captured side of one File as its exact bytes.
+ * Builds the URL serving one side of one image bay as its exact media bytes.
  *
- * Callers supply the Snapshot the composed diff came from, the same nullable
- * File pair every review and pin coordinate uses, and which side they want.
- * The pair is the address because a renamed File has two different paths and
- * neither identifies it alone. The result is a plain URL for `src` or `href`:
- * the bytes are the browser's to fetch, decode, and cache, and no validated
- * transport wraps a picture.
+ * Callers supply the Snapshot and File pair the composed diff came from, the
+ * exact bay key from that payload, and which side they want. The bay key is
+ * required because one notebook can compose several image outputs. The result
+ * is a plain URL for `src` or `href`; the browser fetches, decodes, and caches
+ * the bytes without a second transport wrapper.
  *
  * @param snapshotId Opaque Snapshot that captured the requested bytes.
  * @param file Complete nullable File pair used by all sub-file coordinates.
- * @param side Captured side whose original bytes the browser should fetch.
+ * @param bayKey Exact File-local key of the image bay to serve.
+ * @param side Image-bay side whose composed bytes the browser should fetch.
  */
 export function fileMediaUrl(
   snapshotId: string,
   file: ReviewFilePair,
+  bayKey: string,
   side: "left" | "right",
 ): string {
   const search = snapshotSearchParams(snapshotId);
+  search.set("bay_key", bayKey);
   search.set("side", side);
   if (file.left_path !== null) {
     search.set("left_path", file.left_path);

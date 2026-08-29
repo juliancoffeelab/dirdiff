@@ -117,10 +117,11 @@ text contract composes as blob facts with a warning.
 Notebook loading preserves valid cells and outputs when a sibling is malformed.
 The rejected part becomes canonical JSON in its own text bay with a warning;
 damage before a usable cell list exists produces one raw notebook bay. Missing
-or duplicate cell ids use source-derived pseudo-cell keys. An image composes a
-picture bay, a Pillow-derived metadata text bay for dimensions and EXIF, and a
-byte-facts text bay. Blob Files compose one text bay keyed `blob` containing
-their byte facts.
+or duplicate cell ids use source-derived pseudo-cell keys. A display bundle's
+valid base64 `image/png` representation is preferred over `text/plain` and
+becomes an image bay. An image File composes a picture bay, a Pillow-derived
+metadata text bay for dimensions and EXIF, and a byte-facts text bay. Blob Files
+compose one text bay keyed `blob` containing their byte facts.
 
 The facts are the same three lines in both builders — `type:`, `size:`, and
 `sha256:`, one per line — and the ordinary engine diffs them, so a reviewer
@@ -128,12 +129,13 @@ reads the type, size, and lowercase-hex digest changing line by line and can
 comment on any of them. Those lines are real lines: they count toward the File
 summary the way any other bay's do.
 
-`image.py` produces an `ImageBay`, which holds two optional sides of exact
-captured bytes. `compose()` never serializes those bytes: each present side
-becomes a `MediaRef` of media type, byte size, and lowercase-hex SHA-256, and
-the bytes themselves are served only by `/api/file-media`. An image bay's
-`change` is read from the bytes, so two byte-identical sides are `unchanged`
-and take no navigation stop.
+`image.py` and `notebook.py` produce `ImageBay` values, which hold two optional
+sides of exact media bytes. Whole-File images carry captured bytes; notebook
+outputs carry the bytes strictly decoded from their base64 MIME entry.
+`compose()` never serializes them: each present side becomes a `MediaRef` of
+media type, byte size, and lowercase-hex SHA-256, and the bytes themselves are
+served only by `/api/file-media`. Whole-File image change is read from the bytes;
+notebook output change remains the raw output entry's semantic change.
 
 `dirdiff.formats.notebook` owns everything notebook-shaped: parsing, cell
 pairing, public cell keys, and each bay's content. A valid distinct `nbformat`
@@ -255,17 +257,17 @@ Profile routes explicitly select an existing exact username, create a unique
 username, or rename one Profile to another unique username.
 Unexpected HTTP failures are logged with their method, path, and traceback at
 the application boundary before the generic internal-error response is sent.
-`/api/file-media` serves one captured image side as the exact Snapshot bytes,
-addressed by Snapshot id, side, and the same nullable File-path pair
-`/api/file-diff` uses, because a renamed image is unaddressable by one path
-alone. It recovers the File through the Room, asks `bays()` which image bay the
-File composes into, and writes that side's bytes under the media type composition
-concluded — so no engine runs to serve a picture and no second opinion about
-the media type is formed at the boundary. A File that composes no image bay —
-a blob among them, since its bytes are stated as facts rather than shown — and
-a side that was never captured are both refused rather than answered with empty
-bytes. Snapshot ids are never reused, so the response is declared immutable and
-cacheable outright.
+`/api/file-media` serves one composed image-bay side, addressed by Snapshot id,
+the same nullable File-path pair `/api/file-diff` uses, the required bay key,
+and side. The File pair handles renames; the bay key distinguishes several image
+outputs inside one notebook. It recovers the File through the Room, asks
+`bays()` for that exact image bay, and writes the selected `MediaSide.data` under
+the media type composition concluded. Whole-File images return their captured
+bytes; notebook images return the bytes strictly decoded from the captured MIME
+entry. No engine runs and the boundary forms no second opinion about media type.
+A missing bay, non-image bay, or absent image side is refused rather than
+answered with empty bytes. Snapshot ids are never reused, so the response is
+declared immutable and cacheable outright.
 `/api/manifest` receives the
 complete selected Tab parameters, shows that state, and provides Snapshot/File
 keys; it performs no Pull Request preparation. `/api/pull-request/prepare` is the

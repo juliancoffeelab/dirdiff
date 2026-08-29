@@ -438,27 +438,31 @@ class TextBay:
 
 @dataclass(frozen=True)
 class MediaSide:
-    """One captured side of a File's bytes: the bytes and their media type.
+    """One side of an image representation: its bytes and media type.
 
-    The bytes are exactly what capture retained. No transcoding, re-encoding,
-    or thumbnailing takes place anywhere in composition because
-    the media endpoint must serve exactly what the Snapshot holds. The media
-    type is what the frontend needs to decide how to display it and what the
-    endpoint writes as its `Content-Type`.
+    A standalone image carries the exact captured File bytes. A notebook image
+    carries the exact bytes represented by one captured base64 MIME entry. No
+    image transcoding or thumbnailing takes place. The media endpoint returns
+    this value unchanged under the declared media type.
 
-    There is no `exists` flag, unlike `DiffSide`: a side that was not captured is
-    represented by `None` wherever a side of bytes is held, because there is no
-    such thing as bytes that are present but absent.
+    There is no `exists` flag, unlike `DiffSide`. `None` means this image
+    representation does not exist on that side, whether the File side itself is
+    absent or a notebook MIME bundle has no PNG.
     """
 
     media_type: str
-    """The IANA media type of these bytes, decided by the format builder that
-    classified the File. It describes what the builder concluded, not what the
-    bytes were sniffed to be."""
+    """The IANA media type of these bytes, decided by the format builder.
+
+    A whole image File gets it from path classification; a notebook image gets
+    it from the selected MIME key. It is not re-detected from the bytes.
+    """
 
     data: bytes
-    """The exact captured bytes. Never serialized: `image_kind_payload` reduces
-    this to a `MediaRef` before the payload crosses the wire."""
+    """The exact composed media bytes.
+
+    They are never serialized in the diff payload: `image_kind_payload` reduces
+    them to a `MediaRef` before the payload crosses the wire.
+    """
 
 
 @dataclass(frozen=True)
@@ -479,8 +483,11 @@ class ImageBay:
 
     frame_key: str
     """Groups contiguous bays into one frame, under `TextBay.frame_key`'s
-    contract. An image File composes one frame, holding this bay and the text
-    bay stating what its bytes are."""
+    contract.
+
+    An image File groups its picture with metadata and facts. A notebook output
+    groups its picture with the source and other bays of the same cell.
+    """
 
     heading: str | None
     """Shared frame heading displayed above this image and its related bays.
@@ -492,10 +499,9 @@ class ImageBay:
     bay_key: str
     """Public File-local coordinate of the image widget.
 
-    The image builder keeps this key across Snapshots while the File remains an image. It is
-    distinct from its facts and metadata bay keys. Review placement uses that
-    distinction to report a File classification change rather than land on
-    unrelated text.
+    A whole image File uses its image-specific key, distinct from metadata and
+    facts. A notebook output uses its cell key and output index, unchanged when
+    representation selection moves between text and PNG.
     """
 
     label: str
@@ -534,14 +540,17 @@ class ImageBay:
     and the only thing that tells the frontend how to tint it."""
 
     left: MediaSide | None
-    """The left side's captured bytes, or `None` when the File was not captured
-    on the left. `None` is how an added File is expressed."""
+    """The old-side image representation, or `None` when none exists.
+
+    For an image File this matches capture absence. For a notebook output it can
+    also mean that the old-side MIME bundle offers no PNG representation.
+    """
 
     right: MediaSide | None
-    """Exact new-side captured bytes, or `None` when that side is absent.
+    """The new-side image representation, or `None` when none exists.
 
-    The value is paired with `left` in one File frame and reaches media serving
-    unchanged. `None` must render as an absent side, not an empty byte stream.
+    The value reaches media serving unchanged. `None` must render as an absent
+    representation, not an empty byte stream.
     """
 
     warnings: tuple[BayWarning, ...] = ()
@@ -592,17 +601,16 @@ class BayWarning(TypedDict):
 class MediaRef(TypedDict):
     """What one side of an image bay looks like once the bytes are left behind.
 
-    This is the whole of what the frontend learns about a captured picture
-    without asking for it: enough for the widget to know the side exists and to
-    request it. The bytes themselves come from `/api/file-media`, addressed by
-    Snapshot, side, and the File's path pair. They never come from this value.
+    This is the whole of what the frontend learns about a composed picture
+    without asking for it. The bytes come from `/api/file-media`, addressed by
+    Snapshot, File pair, bay key, and side. They never come from this value.
 
-    The same three facts, written one per line by `media_facts`, are what the
-    reviewer reads as rows in the facts bay beside the picture.
+    A whole image File repeats these facts as text rows beside the picture. A
+    notebook output carries only this reference and does not invent a facts bay.
     """
 
     media_type: str
-    """IANA media type concluded for this exact captured side.
+    """IANA media type concluded for this exact image representation.
 
     The media endpoint writes it as `Content-Type`, while the HUD may use it to
     choose presentation. It describes builder classification and is paired with
@@ -610,11 +618,14 @@ class MediaRef(TypedDict):
     """
 
     byte_size: int
-    """The exact captured size in bytes. Shown to the reviewer, and the one
-    number that makes a binary change legible at all."""
+    """The exact composed media size in bytes.
+
+    It describes the value the endpoint returns, whether it came from a whole
+    image File or a decoded notebook MIME entry.
+    """
 
     digest: str
-    """Lowercase hex SHA-256 of the captured bytes. It identifies the content
+    """Lowercase hex SHA-256 of the composed bytes. It identifies the content
     the endpoint will serve for this side, and comparing the two sides' digests
     is what tells a reviewer whether the content actually changed."""
 
@@ -680,19 +691,22 @@ class ImageKindPayload(TypedDict):
     kind: Literal["image"]
     """Discriminator selecting the HUD image widget.
 
-    This variant carries media references only. Dimensions and byte facts are
-    separate text bays rather than hidden fields on the image widget.
+    This variant carries media references only. A whole image File states
+    dimensions and byte facts in separate text bays; a notebook output does not
+    invent them.
     """
 
     left: MediaRef | None
-    """The left side's captured image, or `None` when the File was not captured
-    on the left. `None` is an absent side, which the widget must show as absent
-    rather than as an empty frame."""
+    """The old-side image reference, or `None` when none was composed.
+
+    `None` is an absent representation, which the widget must state rather than
+    show as an empty frame.
+    """
 
     right: MediaRef | None
-    """New-side media address, or `None` when the File has no right side.
+    """New-side media address, or `None` when no image was composed there.
 
-    The reference identifies captured bytes served by the media endpoint. The
+    The reference identifies composed bytes served by the media endpoint. The
     HUD must show absence for `None` and must not substitute the left reference.
     """
 
@@ -945,7 +959,7 @@ def try_decode_text(data: bytes) -> str | TextRejection:
 
 
 def media_ref(side: MediaSide) -> MediaRef:
-    """Describe one captured media side without carrying its bytes.
+    """Describe one composed media side without carrying its bytes.
 
     This is the single place a media side's digest is computed, so the frontend
     and review context reconstruction receive the same lowercase SHA-256 value.
@@ -1011,10 +1025,9 @@ def media_facts(side: MediaSide | None) -> str | None:
 def image_kind_payload(bay: ImageBay) -> ImageKindPayload:
     """Reduce one `ImageBay`'s content to its serialized wire form.
 
-    No engine takes part and no bytes survive: each present side becomes the
-    `MediaRef` describing it, and an absent side stays `None`. This is the point
-    at which the payload stops being able to leak captured content, which is why
-    it is the only path from an `ImageBay` to a response.
+    No engine takes part and no bytes survive: each present representation
+    becomes the `MediaRef` describing it, and an absent one stays `None`. This is
+    the only path from an `ImageBay` to a response payload.
 
     # Usage
 

@@ -133,7 +133,7 @@ Main exported type groups:
 - composed file diffs: frames, the bay envelope they hold, and the `text` and
   `image` arms of its `kind_data`;
 - decorated row parts, folds, and bay warnings from engines or format parsing;
-- image references, and `fileMediaUrl` addressing one captured side's bytes;
+- image references, and `fileMediaUrl` addressing one image bay side's bytes;
 - review authors, targets, Threads, Comments, and structured review
   failure codes.
 
@@ -845,22 +845,23 @@ Inputs:
 - view mode;
 - `LinePins`.
 
-`ImageBayView` renders one bay whose content is a captured picture: for each
-side, the side's name and the picture itself. A side the File was not captured
-on says so in words rather than showing an empty pane. Bytes never arrive in
-the payload — a side's picture is an `<img>` whose source is the
-`/api/file-media` address for that Snapshot, File pair, and side — and a
-picture the browser refuses to decode raises a Toast rather than failing
-silently. The facts about those bytes are not this widget's business: an image
-File composes a second, collapsible `image-facts` text bay, and the ordinary
-text grid diffs the type, size, and digest there.
+`ImageBayView` renders one bay whose content is a picture representation: for
+each side, the side's name and the picture itself. A side with no image says so
+in words rather than showing an empty pane. This covers both a missing File side
+and a notebook MIME bundle that offers no PNG there. Bytes never arrive in the
+payload. A side's picture is an `<img>` whose source is the `/api/file-media`
+address for that Snapshot, File pair, bay key, and side; a picture the browser
+refuses to decode raises a Toast rather than failing silently. The facts about a
+whole image File's bytes are not this widget's business: that File composes a
+collapsible `image-facts` text bay, and the ordinary text grid diffs the type,
+size, and digest there.
 
 The widget mounts no rich/virtual representation. It has no rows to virtualize,
 its two sides are one row, and it is always mounted, which is what lets the bay
 chrome carry its single hunk stop.
 
-It hosts exactly one review line, numbered 1, on each captured side, matching
-the single pseudo-line the backend exposes for a non-text bay. That line is the
+It hosts exactly one review line, numbered 1, on each side with an image,
+matching the single pseudo-line the backend exposes for a non-text bay. That line is the
 host `FileCard` resolves for line pins and `navigation.tsx` line preparation, so
 the widget writes the same line-host DOM contract `TextDiffGrid` does: a
 `data-bay-key` wrapper carrying the enrichment operation, a `data-review-bay`

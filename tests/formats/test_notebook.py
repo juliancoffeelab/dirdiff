@@ -1,9 +1,9 @@
 """Check notebook composition against executed notebook fixtures.
 
 The tests pin one frame per cell, the notebook-metadata frame, source-bay
-expansion, closed metadata attachments, and output text with escape codes left
-uninterpreted. Focused cases also cover durable IDs, source-derived keys,
-movement, one-sided cells, and local degradation of malformed notebook parts.
+expansion, closed metadata attachments, text and PNG output selection, durable
+IDs, source-derived keys, movement, one-sided cells, and local degradation of
+malformed notebook parts.
 """
 
 from __future__ import annotations
@@ -503,14 +503,14 @@ def test_cell_reorder_keeps_one_unique_key_per_cell() -> None:
     )
 
 
-def test_output_changed_beyond_its_text_stays_reachable() -> None:
-    """A re-rendered plot is reachable even though its text is unchanged.
+def test_plot_output_prefers_png_and_stays_reachable() -> None:
+    """A re-rendered plot composes as a changed image bay.
 
-    The `text/plain` line of a figure is identical across re-renders while the
-    image bytes change completely. Such a bay produces no changed row, so it
-    consumes one hunk index at the bay root and says so in its label.
+    The plot output offers an unchanged `text/plain` summary beside changed PNG
+    bytes. Stage 3 selects the PNG, retains the output coordinate, and reports
+    the semantic change so the frontend gives the rowless bay one stop.
     """
-    directory = NOTEBOOKS / "basic" / "plot-rerendered"
+    directory = NOTEBOOKS / "rich" / "plot-wettest-highlighted"
     context = ComposeContext.build(
         left_path="p.ipynb",
         right_path="p.ipynb",
@@ -523,25 +523,114 @@ def test_output_changed_beyond_its_text_stays_reachable() -> None:
         (directory / "new.ipynb").read_bytes(),
         context,
     )
-    # The bay says it changed while every one of its rows is equal, which is
-    # exactly the case the frontend gives a separate stop.
-    carried_by_bay = [
+    plot_bays = [
         bay
         for frame in composed["frames"]
         for bay in frame["bays"]
-        if bay["kind_data"]["kind"] == "text"
-        and bay["change"]["kind"] != "unchanged"
-        and all(row["hunk_index"] is None for row in bay["kind_data"]["rows"])
+        if bay["kind_data"]["kind"] == "image"
     ]
-    assert carried_by_bay != [], (
-        "a change with no changed row needs a stop of its own"
-    )
-    for bay in carried_by_bay:
+    assert [bay["bay_key"] for bay in plot_bays] == ["d30a8ad3:output:0"]
+    for bay in plot_bays:
         content = bay["kind_data"]
-        assert content["kind"] == "text"
+        assert content["kind"] == "image"
         assert bay["change"] == {"kind": "changed"}
-        assert "changed beyond its text" in bay["label"]
-        assert content["stats"]["changed_lines"] == 0
+        assert content["left"] is not None
+        assert content["right"] is not None
+        assert content["left"]["media_type"] == "image/png"
+        assert content["right"]["media_type"] == "image/png"
+        assert content["left"]["digest"] != content["right"]["digest"]
+
+
+def test_png_on_only_one_output_side_stays_an_image_bay() -> None:
+    """An asymmetric MIME bundle shows the PNG only where it exists.
+
+    The old output still exists and offers `text/plain`, but the pair selects
+    the richer PNG representation supplied on the new side. Its missing old PNG
+    remains explicit instead of borrowing text or the new image.
+    """
+    directory = NOTEBOOKS / "rich" / "plot-wettest-highlighted"
+    old_document: JsonValue = json.loads(
+        (directory / "old.ipynb").read_text(encoding="utf-8")
+    )
+    new_document: JsonValue = json.loads(
+        (directory / "new.ipynb").read_text(encoding="utf-8")
+    )
+    assert isinstance(old_document, dict)
+    old_cells = old_document["cells"]
+    assert isinstance(old_cells, list)
+    old_plot = old_cells[5]
+    assert isinstance(old_plot, dict)
+    old_outputs = old_plot["outputs"]
+    assert isinstance(old_outputs, list)
+    old_output = old_outputs[0]
+    assert isinstance(old_output, dict)
+    old_data = old_output["data"]
+    assert isinstance(old_data, dict)
+    del old_data["image/png"]
+
+    composed = Composer().compose(
+        json.dumps(old_document).encode(),
+        json.dumps(new_document).encode(),
+        ComposeContext.build(
+            left_path="p.ipynb",
+            right_path="p.ipynb",
+            left_label="old",
+            right_label="new",
+            renderer=engine("dirdiff"),
+        ),
+    )
+    bay = next(
+        bay
+        for frame in composed["frames"]
+        for bay in frame["bays"]
+        if bay["bay_key"] == "d30a8ad3:output:0"
+    )
+    content = bay["kind_data"]
+    assert content["kind"] == "image"
+    assert content["left"] is None
+    assert content["right"] is not None
+    assert content["right"]["media_type"] == "image/png"
+    assert bay["change"] == {"kind": "changed"}
+
+
+def test_unchanged_presets_cover_added_and_removed_plot_outputs() -> None:
+    """Keep one-sided embedded PNGs as explicit image representations.
+
+    The unchanged fixtures pair an executed plot cell with the same unexecuted
+    cell. Its emitted figure output must remain an image bay, with only the
+    captured representation present and the semantic output change stated
+    directly.
+    """
+    for case, change, left_present in (
+        ("plot-output-added", "added", False),
+        ("plot-output-removed", "removed", True),
+    ):
+        directory = NOTEBOOKS / "unchanged" / case
+        composed = Composer().compose(
+            (directory / "old.ipynb").read_bytes(),
+            (directory / "new.ipynb").read_bytes(),
+            ComposeContext.build(
+                left_path="p.ipynb",
+                right_path="p.ipynb",
+                left_label="old",
+                right_label="new",
+                renderer=engine("dirdiff"),
+            ),
+        )
+        image_bays = [
+            bay
+            for frame in composed["frames"]
+            for bay in frame["bays"]
+            if bay["kind_data"]["kind"] == "image"
+        ]
+
+        assert len(image_bays) == 1
+        assert all(bay["change"] == {"kind": change} for bay in image_bays)
+        for bay in image_bays:
+            content = bay["kind_data"]
+            assert content["kind"] == "image"
+            assert (content["left"] is not None) is left_present
+            assert (content["right"] is not None) is (not left_present)
 
 
 def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
@@ -659,6 +748,24 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
         {**valid, "cell_type": "headline"},
         {**valid, "outputs": [{"output_type": "widget", "data": {}}]},
         {**valid, "outputs": [{"output_type": "execute_result"}]},
+        {
+            **valid,
+            "outputs": [
+                {
+                    "output_type": "display_data",
+                    "data": {"image/png": "not base64!"},
+                }
+            ],
+        },
+        {
+            **valid,
+            "outputs": [
+                {
+                    "output_type": "display_data",
+                    "data": {"image/png": "not ascii: ☃"},
+                }
+            ],
+        },
         {
             key: value
             for key, value in valid.items()

@@ -752,31 +752,32 @@ class TextKindResponse(ApiModel):
 
 
 class MediaRefResponse(ApiModel):
-    """One captured media side, described without its bytes.
+    """One composed image side, described without its bytes.
 
-    Image-kind conversion sends this value to the HUD so its widget can show
-    byte facts and request the exact side from `/api/file-media`.
+    Image-kind conversion sends this value to the HUD so its widget can request
+    the exact side from `/api/file-media`.
 
     The reference contains no bytes, dimensions, captured path, or authorization
-    to read a local file. Snapshot, side, and File path address the media route.
+    to read a local file. Snapshot, File pair, bay key, and side address the
+    media route.
     """
 
     media_type: str = Field(min_length=1)
-    """Detected non-empty media type of the captured picture bytes.
+    """Non-empty media type of the composed picture bytes.
 
     `/api/file-media` returns the same value as `Content-Type` for this side.
     Consumers must not redetect the format from path extension.
     """
 
     byte_size: int = Field(ge=0)
-    """Length of the immutable captured media payload.
+    """Length of the immutable composed media payload.
 
     Zero is valid if the format builder produced such a reference. The value is
     a byte count, not decoded dimensions or transfer size.
     """
 
     digest: str = Field(min_length=1)
-    """SHA-256 digest computed from the exact captured bytes.
+    """SHA-256 digest computed from the exact media bytes.
 
     The non-empty lowercase hexadecimal value changes with content and lets the
     HUD compare side facts. It is not an HTTP address by itself.
@@ -784,11 +785,12 @@ class MediaRefResponse(ApiModel):
 
 
 class ImageKindResponse(ApiModel):
-    """What an `image` bay holds: two optional references to captured pictures.
+    """What an `image` bay holds: two optional picture references.
 
-    The `image` discriminator sends this variant to the HUD image widget. Either
-    reference may be absent for an added or removed File; the widget requests
-    present sides from `/api/file-media`.
+    The `image` discriminator sends this variant to the HUD image widget. A
+    reference may be absent because the File side is absent or because a
+    notebook output has no PNG there. The widget requests present sides from
+    `/api/file-media`.
 
     It contains no bytes or dimensions and must not turn an absent side into an
     empty picture.
@@ -802,17 +804,18 @@ class ImageKindResponse(ApiModel):
     """
 
     left: MediaRefResponse | None = None
-    """Facts describing the captured left picture side, if present.
+    """Facts describing the old picture side, if present.
 
-    `None` means the File has no left media side, not an empty or failed image.
-    A present reference addresses bytes only with Snapshot and File context.
+    `None` means no old image representation exists, not an empty or failed
+    image. A present reference needs Snapshot, File, and bay context to address
+    its bytes.
     """
 
     right: MediaRefResponse | None = None
-    """Facts describing the captured right picture side, if present.
+    """Facts describing the new picture side, if present.
 
-    `None` means the File has no right media side. At least one side is present
-    for a valid image bay, and callers must preserve the absent-side state.
+    `None` means no new image representation exists. At least one side is
+    present for a valid image bay, and callers must preserve the absent state.
     """
 
 
@@ -2076,7 +2079,7 @@ class DiffRoutes:
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
             HTTPStatus.INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
         },
-        summary="Serve one captured media side",
+        summary="Serve one composed image-bay side",
         response_class=Response,
     )
     def serve_file_media(
@@ -2084,8 +2087,11 @@ class DiffRoutes:
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
+        bay_key: str = Query(
+            description="Exact File-local image bay key from /api/file-diff.",
+        ),
         side: Literal["left", "right"] = Query(
-            description="Which captured side of the File pair to serve.",
+            description="Which composed side of the image bay to serve.",
         ),
         left_path: str | None = Query(
             default=None, description="Repo-relative path on the left side."
@@ -2094,16 +2100,16 @@ class DiffRoutes:
             default=None, description="Repo-relative path on the right side."
         ),
     ) -> Response:
-        """Serve one side of one File as the exact bytes the Snapshot captured.
+        """Serve one side of one image bay as its exact composed media bytes.
 
-        Addressed by Snapshot, side, and File pair -- the same addressing
-        `/api/file-diff` uses, and for the same reason: a File is identified by
-        its pair of nullable paths, so a renamed image is unaddressable by one
-        path alone. The composed diff the caller already holds carries both.
+        The Snapshot and File pair identify the composed File. `bay_key` selects
+        one image bay inside it, which is required once a notebook can carry
+        several image outputs. The selected side then identifies the exact
+        media bytes.
 
         The route does HTTP work only: it recovers the Room, reads the two
-        captured byte sides, asks `bays()` which image bay the File composes
-        into, and writes that side's bytes under its media type. `bays()` runs
+        captured byte sides, asks `bays()` for the named image bay, and writes
+        that side's bytes under its media type. `bays()` runs
         no engine, so this never renders a diff to serve a picture, and the
         media type is the one composition concluded rather than a second
         opinion formed here.
@@ -2115,7 +2121,8 @@ class DiffRoutes:
         # Parameters
 
         - `snapshot_id`: Opaque immutable Snapshot key returned by manifest.
-        - `side`: Present captured side whose exact bytes are returned.
+        - `bay_key`: Exact image bay key from the composed diff.
+        - `side`: Present image representation whose exact bytes are returned.
         - `left_path`: Exact left repository path, or absent for an added File.
         - `right_path`: Exact right repository path, or absent for a deleted
           File.
@@ -2123,8 +2130,8 @@ class DiffRoutes:
         # Failures
 
         - Raises `HTTPException` with status 400 for an invalid Snapshot id or
-          File pair, missing or failed capture, non-image File, or absent selected
-          side.
+          File pair, missing or failed capture, missing or non-image bay, or an
+          absent selected representation.
         - Logs unexpected I/O, persistence, or composition failures and raises
           status 500.
         """
@@ -2158,17 +2165,22 @@ class DiffRoutes:
                     right_label=snapshot_meta["right_label"],
                 ),
             ):
-                if isinstance(bay, ImageBay):
-                    media_bay = bay
-                    break
+                if bay.bay_key != bay_key:
+                    continue
+                if not isinstance(bay, ImageBay):
+                    raise DirdiffError(
+                        f"Bay {bay_key!r} does not carry media content."
+                    )
+                media_bay = bay
+                break
             else:
                 raise DirdiffError(
-                    "The selected file composes no media content."
+                    f"The selected file has no bay named {bay_key!r}."
                 )
             media_side = media_bay.left if side == "left" else media_bay.right
             if media_side is None:
                 raise DirdiffError(
-                    f"The selected file was not captured on the {side} side."
+                    f"Bay {bay_key!r} has no image on the {side} side."
                 )
         except DirdiffError as exc:
             raise HTTPException(
