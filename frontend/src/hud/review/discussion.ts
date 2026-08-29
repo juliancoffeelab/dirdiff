@@ -1,24 +1,15 @@
 /**
- * Implements Thread discussion operations against their shared authorities.
+ * Applies Thread and Comment operations to shared draft and query data.
  *
- * `createThreadDiscussion` is the public interface. Every operation here
- * works on exactly three application-level authorities — the persisted
- * review-draft document, the canonical Snapshot query cache, and the TanStack
- * mutation cache — so any review surface (the anchored panel host and History
- * alike) creates its own instance instead of receiving a pile of callbacks.
- * Concurrent instances stay consistent because none of them owns state: draft
- * reads and writes go through the application draft document, Thread updates
- * publish into the one canonical query entry, and pending probes read the
- * shared mutation cache rather than per-instance observer copies.
+ * Each `createThreadDiscussion` instance observes one Snapshot's canonical Thread
+ * query, uses the application draft document, and reads shared mutation state.
+ * Accepted backend writes update the canonical query without letting an older
+ * in-flight refetch replace them. Submission settlement notifies the host before
+ * a successful draft is removed in the same Solid batch.
  *
- * The factory owns its mutation observers, its canonical-query observer (the
- * cache deduplicates it against every other observer of the same Snapshot),
- * and the publication protocol that keeps an in-flight refetch from reverting
- * a committed write. It must not own presentation: no DOM, no anchored-UI
- * state, no History layout. Its single outward call is the required
- * `onSubmitted` construction behavior, batched with submission settlement so
- * a host can close UI that references the settled draft before the draft
- * document drops it.
+ * Anchored review and History may create separate instances because neither keeps
+ * a private copy of Threads, drafts, or pending state. DOM and presentation state
+ * remain with those callers.
  */
 import { batch, createMemo, type Accessor } from "solid-js";
 import {
@@ -42,54 +33,207 @@ import type { StoredProfile } from "../Profile";
 import { newReviewId, useReviewDrafts, type ReviewDraft } from "./drafts";
 
 /**
- * Supplies one discussion instance's identity and its single host reaction.
+ * Supplies the live authorities and settlement behavior for one discussion instance.
  *
- * `snapshotId` scopes every operation to one exact Snapshot. `profile` is the
- * live selected Profile. `onSubmitted` runs batched with submission
- * settlement for every submitted draft, before the draft document drops a
- * succeeded draft; hosts without settlement UI pass an explicitly empty
- * reaction.
+ * The factory reads Snapshot identity and Profile selection from these values. It
+ * reports every begun draft submission through `onSubmitted` before the shared
+ * draft document applies the matching settlement.
  */
 export type ThreadDiscussionArgs = {
+  /**
+   * Immutable Snapshot whose canonical query and HTTP routes this instance uses.
+   * New-Thread submissions must carry the same identity; other draft kinds inherit it.
+   */
   snapshotId: ReviewId;
+  /**
+   * Reads the currently selected Profile whenever an action needs authorship.
+   * The accessor may return null, in which case write actions stop and present
+   * the Profile control; selection changes feed back through the next read.
+   */
   profile: Accessor<StoredProfile | null>;
+  /**
+   * Runs once for every begun draft submission when it settles, including a Profile
+   * conflict detected before any HTTP action. The host receives the persisted draft
+   * identity and whether the backend accepted the write. For accepted writes, this
+   * runs after the local query update was attempted, even when that attempt raised
+   * and was reported. The host may synchronously close UI referring to the draft;
+   * then, in the same Solid batch, accepted settlement removes it while rejection
+   * restores ordinary editing. It is not called when submission never begins, or
+   * for Thread state and Comment-delete actions.
+   *
+   * @param draftId Persisted draft whose begun submission attempt settled.
+   * @param succeeded Whether the backend accepted the draft's write action.
+   */
   onSubmitted(draftId: ReviewId, succeeded: boolean): void;
 };
 
 /**
- * Exposes the complete discussion operation surface for one Snapshot.
+ * Exposes the complete discussion interface for one Snapshot.
  *
  * Draft accessors read the selected Profile's persisted work; write
- * operations validate availability and authorship, perform their single HTTP
- * action, and publish the result into the canonical query. Pending probes
- * report in-flight work from the shared mutation cache and the draft
- * document, so every surface sees the same in-flight state. The value stores
- * no Thread data and must not be kept beyond its reactive owner.
+ * operations validate availability and authorship, perform at most one HTTP
+ * action after validation, and attempt to publish an accepted result into the
+ * canonical query. Pending probes report in-flight work from the shared mutation
+ * cache and the draft document, so Review and History see the same in-flight state.
+ * The value stores no Thread data and must not be kept beyond its reactive owner.
  */
 export type ThreadDiscussion = {
+  /**
+   * True only while the canonical Thread list is loaded and neither failing nor
+   * refetching. Write controls must not treat stale visible data as available.
+   */
   reviewAvailable: Accessor<boolean>;
+  /**
+   * Reads the selected Profile identity, or null when no Profile is selected.
+   * Consumers use the returned identity only for presentation and draft matching;
+   * a later Profile selection appears on the next call.
+   *
+   * # Returns
+   *
+   * - `number`: The live selected Profile identity used for authorship and draft
+   *   filtering.
+   * - `null`: No Profile is selected. Consumers keep discussions readable but
+   *   expose no Profile-specific drafts or editing rights.
+   */
   profileId(): number | null;
+  /**
+   * Reads the selected Profile for an immediate write. When absent, presents the
+   * required-Profile notice and returns null, so callers must stop the action;
+   * it does not select or create a Profile.
+   *
+   * # Returns
+   *
+   * - `StoredProfile`: The Profile whose identity must author this write.
+   * - `null`: No Profile is selected. The requirement Toast has been presented,
+   *   and the caller must stop before creating a draft or starting a mutation.
+   */
   profileForWrite(): StoredProfile | null;
+  /**
+   * Draft identities disabled from submission start through settlement. The set
+   * is shared by anchored and History surfaces through the draft authority.
+   */
   submittingDraftIds: Accessor<ReadonlySet<ReviewId>>;
+  /**
+   * Reports whether deletion of `commentId` is in the shared mutation cache.
+   * Presentation calls it during rendering; completion returns false through a
+   * later reactive render, and this probe never starts or cancels deletion.
+   */
   commentDeletePending(commentId: ReviewId): boolean;
+  /**
+   * Reports whether the exact lifecycle `action` for `threadId` is in flight.
+   * It observes actions started by every discussion instance and becomes false
+   * after settlement; it does not infer pending state from the loaded Thread.
+   *
+   * @param threadId Thread identity carried by the shared mutation entry.
+   * @param action Exact transition represented by the querying control.
+   */
   threadStatePending(
     threadId: ReviewId,
     action: "resolve" | "reopen" | "delete",
   ): boolean;
+  /**
+   * Returns the selected Profile's sole persisted reply for `threadId`, or null.
+   * Draft-document changes are visible on the next reactive call; no draft is
+   * created merely by reading the permanent reply input.
+   *
+   * # Returns
+   *
+   * - The selected Profile's persisted reply draft for this Thread.
+   * - `null`: No selected Profile has such a reply. The permanent reply input
+   *   remains blank and no submission is available.
+   */
   replyDraftForThread(threadId: ReviewId): ReviewDraft | null;
+  /**
+   * Returns the selected Profile's sole edit for `commentId`, asserting that it
+   * belongs to `threadId`, or null. The lookup never opens an editor or changes
+   * which Comment is being edited.
+   *
+   * @param threadId Current Thread expected to contain the Comment.
+   * @param commentId Comment whose persisted replacement is requested.
+   *
+   * # Returns
+   *
+   * - The selected Profile's persisted edit draft for this Comment, already
+   *   checked against `threadId`.
+   * - `null`: No selected Profile has such an edit. The Comment renders in
+   *   ordinary read mode instead of opening an editor.
+   */
   editDraftForComment(
     threadId: ReviewId,
     commentId: ReviewId,
   ): ReviewDraft | null;
+  /**
+   * Accepts the complete text currently typed for `thread`; meaningful text is
+   * added or replaces its reply draft and blank text removes it. Returns whether
+   * persistence accepted the change, after which the updated accessor value feeds
+   * the input; on false the input must restore its previously supplied body.
+   *
+   * @param thread Loaded Thread receiving the reply input.
+   * @param body Complete current textarea value, including blank removal input.
+   */
   updateReplyDraft(thread: ReviewThread, body: string): boolean;
+  /**
+   * Persists the complete replacement draft and returns whether it was accepted.
+   * Callers feed the next draft-document value back to their editor and restore
+   * the old value on false; this operation does not submit the draft.
+   */
   replaceDraft(replacement: ReviewDraft): boolean;
+  /**
+   * Removes the persisted `draftId` and returns whether storage accepted removal.
+   * Callers close or clear their editor only on true; in-flight drafts remain the
+   * caller's responsibility and are not implicitly cancelled.
+   */
   removeDraft(draftId: ReviewId): boolean;
+  /**
+   * Begins submission of the persisted `draftId` and performs its kind-specific
+   * HTTP action only after availability, Profile, and draft validation. Returns true
+   * when the backend accepts the write, after the local query update has been
+   * attempted and successful settlement removes the draft. A query-update failure
+   * is reported but does not turn an accepted write into failure. Returns false and
+   * retains the draft for a rejected HTTP action or Profile conflict; unavailable
+   * review data or Profile selection prevents a start. Concurrent calls for the same
+   * draft are invalid. If a conflict-triggered corrective refetch itself fails, that
+   * error propagates before submission settlement and the draft remains in flight.
+   */
   submitDraft(draftId: ReviewId): Promise<boolean>;
+  /**
+   * Starts `action` for the loaded `thread` after optional delete confirmation.
+   * It does nothing when review data or a writing Profile is unavailable, or
+   * deletion is cancelled. An accepted update is published to the canonical
+   * query before resolution; ordinary mutation failure is presented by the
+   * query layer and resolves without a result.
+   *
+   * A typed conflict first refetches the authoritative review query. Failure of
+   * that corrective refetch rejects this operation instead of being treated as
+   * a handled mutation failure.
+   *
+   * @param thread Loaded canonical Thread receiving the transition.
+   * @param action Exact lifecycle transition selected by the user.
+   */
   changeThreadState(
     thread: ReviewThread,
     action: "resolve" | "reopen" | "delete",
   ): Promise<void>;
+  /**
+   * Opens editing for `comment` in `thread` by persisting its current body as an
+   * edit draft. It does nothing when one already exists or prerequisites fail;
+   * the editor appears only when that draft returns through the draft document.
+   *
+   * @param thread Loaded Thread containing the current Comment.
+   * @param comment Authored nondeleted Comment whose body seeds the editor.
+   */
   openEditDraft(thread: ReviewThread, comment: ReviewComment): void;
+  /**
+   * After explicit confirmation, deletes `comment` from `thread` as the selected
+   * Profile and publishes the tombstone to the canonical query. It returns before
+   * the HTTP action settles and does nothing when confirmation or prerequisites
+   * fail. Typed conflicts start a corrective query refetch. Because this
+   * callable deliberately does not expose the detached task, a failure of that
+   * refetch occurs after return and cannot be awaited by its caller.
+   *
+   * @param thread Loaded Thread containing the target Comment.
+   * @param comment Current Comment identity offered for deletion.
+   */
   tombstoneComment(thread: ReviewThread, comment: ReviewComment): void;
 };
 
@@ -124,9 +268,36 @@ export function createThreadDiscussion(
   const reviewAvailable = createMemo(
     () => review.data !== undefined && !review.isRefetching && !review.isError,
   );
+  /**
+   * Reads the live selected Profile identity without presenting a requirement.
+   *
+   * # Returns
+   *
+   * - `number`: The selected Profile identity used to filter persisted drafts
+   *   and compare Comment authorship.
+   * - `null`: No Profile is selected. Reactive draft indexing returns empty and
+   *   discussions remain read-only.
+   */
   const profileId = (): number | null => args.profile()?.id ?? null;
 
-  /** Returns the selected Profile or verbally directs the user to its control. */
+  /**
+   * Return the selected Profile required for a browser-authored review write.
+   *
+   * # Usage
+   *
+   * Every write gate calls this before constructing mutation input. When no
+   * Profile is selected, the function appends one five-second transient Toast
+   * directing the user to the existing Profile control and returns null. It
+   * never opens that control, selects a Profile, or starts a mutation.
+   *
+   * # Returns
+   *
+   * - `StoredProfile`: The live selected Profile that must author the pending
+   *   browser write.
+   * - `null`: No Profile is selected. The function has shown the requirement
+   *   Toast, and the write gate must return without changing drafts or backend
+   *   state.
+   */
   function profileForWrite(): StoredProfile | null {
     const profile = args.profile();
     if (profile === null) {
@@ -142,7 +313,22 @@ export function createThreadDiscussion(
   // Pending probes read the shared mutation cache, not this instance's
   // observers, so concurrent discussion instances (the anchored host and
   // History) see one another's in-flight work and disable the same controls.
-  /** Read one required review identity from TanStack's untyped mutation state. */
+  /**
+   * Reads one required review identity from TanStack's untyped mutation state.
+   *
+   * This is the validation boundary between TanStack's `unknown` variables and
+   * pending-state selectors. It returns only an identity accepted by
+   * `ReviewIdSchema`.
+   *
+   * @param variables Mutation variables whose shape was established by the API action.
+   * @param key Identity field required by the pending-state probe.
+   *
+   * # Failures
+   *
+   * A non-object value or missing requested key fails the mutation-variable
+   * invariant. A present value with an invalid review identity throws from
+   * schema parsing.
+   */
   function reviewIdVariable(
     variables: unknown,
     key: "commentId" | "threadId",
@@ -175,7 +361,12 @@ export function createThreadDiscussion(
     return pendingCommentDeletes().includes(commentId);
   }
 
-  /** Report whether the exact Thread lifecycle action is crossing the wire. */
+  /**
+   * Reports whether the exact Thread lifecycle action is crossing the wire.
+   *
+   * @param threadId Thread identity carried by the HTTP mutation variables.
+   * @param action Specific state transition whose control should be disabled.
+   */
   function threadStatePending(
     threadId: ReviewId,
     action: "resolve" | "reopen" | "delete",
@@ -185,7 +376,12 @@ export function createThreadDiscussion(
     );
   }
 
-  /** Settles one submission and lets the host react before the draft drops. */
+  /**
+   * Settles one submission and lets the host react before the draft drops.
+   *
+   * @param draftId Persisted input whose submission just settled.
+   * @param succeeded Whether the backend accepted the draft's write action.
+   */
   function settleSubmission(draftId: ReviewId, succeeded: boolean): void {
     batch(() => {
       args.onSubmitted(draftId, succeeded);
@@ -217,12 +413,32 @@ export function createThreadDiscussion(
     return { replies, edits };
   });
 
-  /** Returns the selected Profile's sole reply draft for one current Thread. */
+  /**
+   * Returns the selected Profile's sole reply draft for one current Thread.
+   *
+   * # Returns
+   *
+   * - The indexed reply draft for `threadId` under the selected Profile.
+   * - `null`: No Profile is selected or that Profile has no reply for the
+   *   Thread. The caller keeps the permanent reply input blank.
+   */
   function replyDraftForThread(threadId: ReviewId): ReviewDraft | null {
     return profileDrafts().replies.get(threadId) ?? null;
   }
 
-  /** Returns the selected Profile's sole edit draft for one current Comment. */
+  /**
+   * Returns the selected Profile's sole edit draft for one current Comment.
+   *
+   * @param threadId Current Thread expected to contain the Comment.
+   * @param commentId Comment whose replacement input is requested.
+   *
+   * # Returns
+   *
+   * - The indexed edit draft for `commentId`, validated to belong to
+   *   `threadId`.
+   * - `null`: No Profile is selected or that Profile has no edit for the
+   *   Comment. The caller renders the Comment outside edit mode.
+   */
   function editDraftForComment(
     threadId: ReviewId,
     commentId: ReviewId,
@@ -235,7 +451,19 @@ export function createThreadDiscussion(
     return draft;
   }
 
-  /** Persists meaningful text from one Thread's permanent reply input. */
+  /**
+   * Persists meaningful text from one Thread's permanent reply input.
+   *
+   * A selected Profile is required; if absent, the shared Profile Toast is
+   * shown and the function returns false without changing storage. Blank input
+   * removes an existing reply draft and otherwise needs no write. Meaningful
+   * input replaces the selected Profile's existing draft or creates a fresh
+   * one. The result reports whether the required storage transition was
+   * accepted, so the input caller can retain its prior value after failure.
+   *
+   * @param thread Loaded Thread receiving the reply.
+   * @param body Complete current input text, where blank text removes the draft.
+   */
   function updateReplyDraft(thread: ReviewThread, body: string): boolean {
     const profile = profileForWrite();
     if (profile === null) return false;
@@ -258,7 +486,23 @@ export function createThreadDiscussion(
     });
   }
 
-  /** Publish one newly created Thread into the canonical Snapshot query. */
+  /**
+   * Publish one committed Thread without letting an older refetch erase it.
+   *
+   * @param thread Complete Thread returned by the successful create mutation.
+   *
+   * # Usage
+   *
+   * `submitDraft` calls this after the create mutation succeeds. It cancels the
+   * Snapshot query before writing. If the cache already contains the Thread,
+   * the equal-or-newer discussion revision wins; a disposed cache remains
+   * absent instead of being reconstructed here.
+   *
+   * # Failures
+   *
+   * Query cancellation errors propagate. Duplicate cached identities violate
+   * the canonical-query contract and throw.
+   */
   async function acceptCreatedThread(thread: ReviewThread): Promise<void> {
     const key = api.review.snapshot(thread.snapshot_id).queryKey;
     // A refetch begun before the backend committed could resolve after this
@@ -287,7 +531,27 @@ export function createThreadDiscussion(
     });
   }
 
-  /** Applies one contiguous action result to its authoritative loaded Thread. */
+  /**
+   * Apply one contiguous action result to its authoritative loaded Thread.
+   *
+   * @param update Accepted backend action result for one loaded Thread.
+   *
+   * # Usage
+   *
+   * Existing-Thread mutations call this only with the backend's accepted
+   * update. It cancels an older refetch first. A missing Thread or skipped
+   * discussion revision triggers a complete query refetch instead of publishing
+   * a partial history. A changed existing Comment must match one loaded identity.
+   *
+   * If disposal removed the query data, the function returns without creating
+   * another cache entry.
+   *
+   * # Failures
+   *
+   * Query cancellation or corrective refetch errors propagate. Duplicate
+   * Thread or Comment identities throw because the loaded query is not
+   * authoritative enough to update safely.
+   */
   async function acceptThreadUpdate(update: ReviewThreadUpdate): Promise<void> {
     const key = api.review.snapshot(update.snapshot_id).queryKey;
     // Same publication ordering as acceptCreatedThread: a refetch begun
@@ -350,7 +614,22 @@ export function createThreadDiscussion(
     );
   }
 
-  /** Refreshes stale Thread state before a rejected command gate reopens. */
+  /**
+   * Refresh stale Thread state after a conflict invalidates the loaded query.
+   *
+   * @param error Typed backend rejection from one review mutation.
+   *
+   * # Usage
+   *
+   * Mutation failure handlers pass only a parsed `ReviewRequestError`. Revision
+   * and state conflicts, or missing Thread and Comment identities, refetch the
+   * complete Snapshot query before the caller settles. Other typed failures do
+   * not imply stale query state and require no read.
+   *
+   * # Failures
+   *
+   * A corrective refetch failure propagates to the mutation handler.
+   */
   async function refreshReviewAfterConflict(
     error: ReviewRequestError,
   ): Promise<void> {
@@ -364,7 +643,33 @@ export function createThreadDiscussion(
     }
   }
 
-  /** Submits one persisted draft through its single operation-specific action. */
+  /**
+   * Submit one persisted draft through its operation-specific HTTP action.
+   *
+   * @param draftId Persisted draft identity selected by the review UI.
+   *
+   * # Usage
+   *
+   * Review surfaces pass an identity from the shared draft document. Submission
+   * starts only when the Snapshot query and selected Profile are available.
+   * `beginSubmission` freezes that exact draft until this function settles it.
+   *
+   * A backend rejection retains the editable draft and returns false. Backend
+   * acceptance returns true and removes the draft even if local query
+   * publication fails; that later failure is shown as a Toast because the
+   * server write cannot be undone. Settlement calls `onSubmitted` and updates
+   * the draft document in one Solid batch.
+   *
+   * # Failures
+   *
+   * Missing, duplicate, or already-submitting draft state throws before a start.
+   * A cross-Snapshot new-Thread draft throws after the start and remains in
+   * flight. HTTP failures are presented by the shared query boundary and return
+   * false. A corrective refetch failure also propagates before settlement,
+   * leaving the draft marked in flight. Result-shape and query-publication
+   * failures after backend acceptance show a Toast, settle success, and return
+   * true.
+   */
   async function submitDraft(draftId: ReviewId): Promise<boolean> {
     if (draftContext.error() !== null || !reviewAvailable()) return false;
     const profile = profileForWrite();
@@ -437,7 +742,25 @@ export function createThreadDiscussion(
     return true;
   }
 
-  /** Apply one explicit Thread state action. */
+  /**
+   * Applies one explicit Thread state action to the canonical review query.
+   *
+   * Unavailable review data shows a Toast; a missing Profile shows the shared
+   * Profile Toast; cancelling delete leaves both backend and query unchanged.
+   * An accepted mutation publishes the returned Thread update before this
+   * promise resolves. Ordinary mutation failure is already presented by the
+   * query layer and resolves without changing local state.
+   *
+   * @param thread Loaded canonical Thread receiving the transition.
+   * @param action Exact transition selected by the user.
+   *
+   * # Failures
+   *
+   * A typed conflict triggers a corrective refetch. If that refetch fails, its
+   * error propagates from this promise rather than being handled as the original
+   * mutation failure. Canonical-query invariant failures during publication
+   * also propagate.
+   */
   async function changeThreadState(
     thread: ReviewThread,
     action: "resolve" | "reopen" | "delete",
@@ -482,7 +805,24 @@ export function createThreadDiscussion(
     }
   }
 
-  /** Activates the one persisted replacement draft for an authored Comment. */
+  /**
+   * Activates one persisted replacement draft for an authored current Comment.
+   *
+   * Unavailable review data or Profile selection presents the corresponding
+   * Toast and performs no storage write. The Comment must belong to the selected
+   * Profile and retain a body. An existing edit draft is a no-op; otherwise the
+   * current body seeds a fresh draft, and the editor appears only if storage
+   * accepts it and publishes it through the shared document.
+   *
+   * @param thread Loaded Thread that contains the Comment.
+   * @param comment Current authored Comment whose body seeds the draft.
+   *
+   * # Failures
+   *
+   * Wrong authorship or a deleted Comment throws. Storage rejection returns
+   * from this void action without opening an editor and records the storage
+   * failure in the shared draft document.
+   */
   function openEditDraft(thread: ReviewThread, comment: ReviewComment): void {
     if (!reviewAvailable()) {
       toast.showError(
@@ -510,7 +850,24 @@ export function createThreadDiscussion(
     draftContext.add(draft);
   }
 
-  /** Tombstone one current Comment as the selected acting Profile. */
+  /**
+   * Tombstones one current Comment as the selected acting Profile.
+   *
+   * Unavailable review data, a missing Profile, or cancelled confirmation is a
+   * no-op after presenting any applicable Toast. An accepted action starts a
+   * detached mutation, returns immediately, and later publishes the returned
+   * Thread update. Ordinary mutation failure is presented by the query layer.
+   *
+   * @param thread Loaded Thread containing the target Comment.
+   * @param comment Current Comment identity to delete after confirmation.
+   *
+   * # Failures
+   *
+   * Typed conflicts start a corrective refetch. If that refetch rejects, the
+   * detached task rejects after this function has returned; callers cannot
+   * await or contain that failure through this void interface. Canonical-query
+   * invariant failures have the same detached lifetime.
+   */
   function tombstoneComment(
     thread: ReviewThread,
     comment: ReviewComment,

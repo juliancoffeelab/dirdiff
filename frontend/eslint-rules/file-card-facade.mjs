@@ -33,12 +33,10 @@ export const fileCardFacadeRule = {
   },
 
   /**
-   * Analyze one parsed module against the facade boundary.
+   * Build visitors that analyze one module against the facade boundary.
    *
    * @param {import("eslint").Rule.RuleContext} context ESLint's per-file rule
    * context.
-   * @returns {import("eslint").Rule.RuleListener} Visitors that report every
-   * relative import or re-export resolving past the facade.
    */
   create(context) {
     const facadeDir = path.join("src", "hud", "fileCard");

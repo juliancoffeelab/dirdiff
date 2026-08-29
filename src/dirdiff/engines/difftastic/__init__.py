@@ -1,16 +1,16 @@
-"""Difftastic-backed structural renderer engine.
+"""Structural diff rendering through Difftastic.
 
-This package is the public entrypoint for rendering already-loaded text sides
-with difftastic. The public export surface is `DifftasticDiffEngine` and
-`build_difftastic_ast`. Raw
-subprocess execution, JSON parsing, fallback row construction, and payload
-projection stay inside the package implementation modules.
+`DifftasticDiffEngine` compares two already-loaded text sides through
+Difftastic and returns the common engine result. `build_difftastic_ast` exposes
+the validated structural rows and recognized warning for callers that need the
+Difftastic-stage result itself.
 
-Difftastic is used only at the renderer boundary: callers supply text, existence
-flags, labels, and path hints, and the engine returns dirdiff row payloads plus
-an optional engine warning.  The package must not load files, resolve refs,
-build manifests, inspect notebooks, own API modes, or attach display-only
-syntax/fold enrichment.
+## Purpose and boundaries
+
+This package converts Difftastic alignment facts into rows whose text still
+comes exactly from the supplied sides. Path hints may select a parser but are
+never loaded as files. Known structural failures produce the documented engine
+warning and textual comparison; display folds and syntax are added later.
 """
 
 from dirdiff.engines.difftastic.logic import (

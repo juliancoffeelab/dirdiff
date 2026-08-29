@@ -1,9 +1,8 @@
-"""Golden fold-hint tests for fold preset fixtures.
+"""Snapshot fold hints for the supported-language preset corpus.
 
-This module snapshots the fold hints produced by display enrichment for every
-non-borked fold preset.  Presets provide compact source examples; the custom
-syrupy extension stores one JSON snapshot per preset path.  Focused behavioral
-cases that are easier to read inline belong in `test_fold_logic`.
+Every non-borked fold preset produces one JSON snapshot named by its relative
+path. These snapshots cover parser/query output across languages; focused
+policy cases that are clearer inline remain in `test_fold_logic`.
 """
 
 from pathlib import Path
@@ -15,15 +14,37 @@ from syrupy.assertion import SnapshotAssertion
 from dirdiff.rendering import DiffRow
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "fold"
+"""Source-pair catalog used to exercise fold discovery by language.
+
+File suffixes select real Tree-sitter policies, and each relative case path
+becomes the snapshot identity.
+"""
 GOLDEN_ROOT = Path(__file__).parents[1] / "golden" / "folds"
+"""Stored fold-hint lists keyed by preset-relative path.
+
+Only display-enrichment fold output belongs here; source fixtures remain under
+`PRESETS_ROOT`.
+"""
 BROKEN_PRESETS = {
     "borked",
 }
+"""Known invalid fold fixtures excluded from parser-backed snapshots.
+
+Approving their incidental failure output would hide that they do not satisfy
+the source-pair contract.
+"""
 
 __all__: list[str] = []
 
 
 class FoldGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
+    """Bind each eligible source preset to its checked-in enriched fold hints.
+
+    The shared golden harness uses this class's roots and assertion name to
+    compare renderer output. Snapshots cover path-selected structural regions
+    after row enrichment, not frontend folded state.
+    """
+
     preset_root = PRESETS_ROOT
     golden_root = GOLDEN_ROOT
     snapshot_function_name = "test_fold_preset_hints_match_golden"
@@ -31,6 +52,11 @@ class FoldGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
 
 @pytest.fixture
 def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
+    """Bind Syrupy to the fold preset and golden directory contract.
+
+    The configured assertion derives approval paths from preset-relative names,
+    so tests cannot accidentally write beside their source inputs.
+    """
     return snapshot.with_defaults(extension_class=FoldGoldenSnapshotExtension)
 
 
@@ -48,8 +74,21 @@ def test_fold_preset_hints_match_golden(
     preset_dir: Path,
     snapshot_json: SnapshotAssertion,
 ) -> None:
+    """Freeze fold hints for every valid source-pair fixture.
+
+    # Parameters
+
+    - `preset_dir`: Parametrized old/new source pair for one language case.
+    - `snapshot_json`: Fold-configured snapshot assertion.
+    """
+
     def display_row_has_change(row: DiffRow) -> bool:
-        """Classify change from an enriched row's display fields."""
+        """Return whether one enriched row must interrupt a foldable region.
+
+        A non-equal row changes directly. Equal rows still interrupt when any
+        decorated part carries changed diff status, matching the production
+        neutral-row classifier after token and syntax weaving.
+        """
         if row["status"] != "equal":
             return True
         return any(

@@ -1,10 +1,12 @@
 /**
- * Transforms validated backend fold hints into nested render rows.
+ * Validates backend fold hints and applies them to immutable diff rows.
  *
- * The module exports the pure fold-row contracts and construction operations used
- * by TextDiffGrid. Callers provide immutable rows, backend hint ranges, and the
- * selected aggressive-fold policy. It validates range structure and must not own
- * expanded-fold UI state, mutate backend rows, touch the DOM, or navigate hunks.
+ * The pure builders reject invalid, crossing, or hunk-containing ranges before
+ * returning nested `FoldRow` values in source order. The aggressive policy only
+ * decides which valid hints begin folded.
+ *
+ * Mutable fold disclosure belongs to TextDiffGrid. This module neither changes
+ * backend rows nor touches DOM or navigation state.
  */
 import type { DiffRow, FoldHint } from "../../../../api/api";
 import { assert, expect } from "../../../../utils";
@@ -17,26 +19,87 @@ import { assert, expect } from "../../../../utils";
  * returned and the shape never represents UI expansion state.
  */
 type NormalizedFoldHint = {
+  /**
+   * Zero-based inclusive index of the first source row in this fold.
+   *
+   * It is validated against the complete row count before nesting and remains the
+   * original backend coordinate after child ranges are attached.
+   */
   startRow: number;
+  /**
+   * Zero-based exclusive index immediately after this fold's last source row.
+   *
+   * It is strictly greater than `startRow`, no greater than the source row count,
+   * and wholly contains every child interval.
+   */
   endRow: number;
+  /**
+   * Backend structural classification controlling fold presentation policy.
+   *
+   * Aggressive-fold filtering happens before this normalized node is returned;
+   * the value itself remains unchanged for TextDiffGrid labels and classes.
+   */
   kind: FoldHint["kind"];
+  /**
+   * Backend-authored text describing the folded source construct.
+   *
+   * The parser validates that a string exists but does not derive or rewrite it.
+   */
   label: string;
+  /**
+   * Direct wholly contained child folds in source order.
+   *
+   * Nesting mutates this private array during construction; returned trees have
+   * no crossing or sibling overlap and contain no UI expansion state.
+   */
   children: NormalizedFoldHint[];
 };
 
 /**
  * Replaces one contiguous group of backend rows in TextDiffGrid's render input.
  *
- * `foldedRows` retains the complete nested content, `startRow` preserves its
- * original row identity, and `count` is the number of source rows represented.
- * The value is immutable fold-row data, not a mutable fold controller.
+ * It retains the complete nested content and source position needed to replace
+ * the edge with its ordinary rows. The value is immutable render input, not a
+ * mutable fold controller.
  */
 export type FoldRow<TRow extends DiffRow = DiffRow> = {
+  /**
+   * Discriminant separating a synthetic fold edge from backend DiffRows.
+   *
+   * Rendering and `isFoldRow` rely on this exact literal; backend row statuses
+   * never use it.
+   */
   status: "fold";
+  /**
+   * Original zero-based source-row index at which the fold edge is inserted.
+   *
+   * Expanding the edge restores rows beginning at this exact position.
+   */
   startRow: number;
+  /**
+   * Number of original source rows represented by this fold edge.
+   *
+   * It equals the validated half-open range length, including rows inside nested
+   * child folds.
+   */
   count: number;
+  /**
+   * Complete ordered render sequence hidden behind this fold edge.
+   *
+   * It may contain nested FoldRows but never drops or reorders backend rows.
+   */
   foldedRows: RenderRow<TRow>[];
+  /**
+   * Backend structural classification retained for fold presentation.
+   *
+   * The frontend does not reclassify the hidden source from row contents.
+   */
   kind: FoldHint["kind"];
+  /**
+   * Backend-authored description shown on the fold edge.
+   *
+   * It is carried through unchanged from the validated hint.
+   */
   label: string;
 };
 
@@ -54,6 +117,10 @@ export type RenderRow<TRow extends DiffRow = DiffRow> = TRow | FoldRow<TRow>;
  * Callers must supply the required array from FileDiff, the exact source row
  * count, and the active aggressive-fold policy. Invalid or crossing ranges
  * throw; an empty or fully filtered list returns an empty result.
+ *
+ * @param foldHints Complete backend hint list for one text bay.
+ * @param rowCount Exact number of backend rows those hint coordinates address.
+ * @param aggressiveFolds Whether class-like and top-level hints remain eligible.
  */
 export function parseFoldHints(
   foldHints: FoldHint[],
@@ -83,8 +150,12 @@ export function parseFoldHints(
  * Converts one backend hint into a validated half-open source-row range.
  *
  * The caller supplies the hint's original list index for precise contract
- * errors. The returned node has no children; `normalizeFoldHints` passes all
+ * errors. The returned node has no children; `parseFoldHints` passes all
  * validated nodes to `nestFoldHints` before exposing the result.
+ *
+ * @param hint Backend hint whose bounds and label are validated.
+ * @param index Original hint-list position used in contract diagnostics.
+ * @param rowCount Exact source-row count limiting the half-open range.
  */
 function parseFoldHint(
   hint: FoldHint,
@@ -164,6 +235,18 @@ function nestFoldHints(hints: NormalizedFoldHint[]): NormalizedFoldHint[] {
  * Callers provide the required backend hint list and active fold policy. The
  * source rows and hints are not mutated; no applicable hints returns the exact
  * original row array.
+ *
+ * @param rows Complete validated backend rows in authoritative order.
+ * @param foldHints Complete backend hints addressing that row array.
+ * @param aggressiveFolds Whether broad structural hints remain eligible.
+ *
+ * # Returns
+ *
+ * - Ordinary `DiffRow` entries retain their source identity and relative order
+ *   wherever no applicable hint folds them.
+ * - Each applicable interval becomes one `FoldRow` at the position of its first
+ *   source row. Nested transformed rows remain inside that entry. With no
+ *   applicable hints, the result is the original `rows` array by identity.
  */
 export function addFoldRows<TRow extends DiffRow>(
   rows: TRow[],
@@ -185,6 +268,19 @@ export function addFoldRows<TRow extends DiffRow>(
  * exactly once and untouched rows retain their original order. A folded range
  * containing a backend hunk boundary violates the folded-context contract and
  * throws instead of hiding or manufacturing a hunk target.
+ *
+ * @param rows Complete source rows from which this interval is emitted.
+ * @param foldHints Direct child hints wholly contained by the interval.
+ * @param startRow Inclusive source-row bound for this recursive call.
+ * @param endRow Exclusive source-row bound for this recursive call.
+ *
+ * # Returns
+ *
+ * - Ordinary `DiffRow` entries cover the parts of `[startRow, endRow)` outside
+ *   direct folded intervals, preserving source identity and order.
+ * - Each direct hint produces one `FoldRow` at the hint's start. Its
+ *   `foldedRows` recursively represent that hint's complete interval, so no
+ *   source row appears beside and inside the same fold.
  */
 function addFoldRowsInRange<TRow extends DiffRow>(
   rows: TRow[],

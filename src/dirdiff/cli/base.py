@@ -1,15 +1,19 @@
-"""Console command module for the local dirdiff application.
+"""Define the `dirdiff` terminal commands.
 
-The installed `dirdiff` console script and `python -m dirdiff` both call
-`main`, which hands execution to the Typer application defined here.  The
-decorated command functions (`start`, `mark`, `refs`, and `branch`) parse
-terminal options, build `RuntimeConfig` for server startup, and delegate repo
-mark operations to `dirdiff.cli.marker_utils`.
+## Public interface
 
-This module is allowed to own command-line spelling and terminal feedback.  It
-must not own FastAPI routes, repository loading, diff rendering, or frontend
-behavior.  `main` is the only exported symbol; the decorated command functions
-are Typer wiring, not importable application API.
+`main` invokes the Typer application used by both the installed console script
+and `python -m dirdiff`. The root command opens a Head Tab. The `refs` and
+`branch` subcommands select other initial Tabs, while `mark` edits the local
+repository registry.
+
+## Purpose and boundaries
+
+This module defines command spelling, parses terminal input, and builds
+`RuntimeConfig`. Repository-mark operations live in
+`dirdiff.cli.marker_utils`; server and browser process lifetime lives in
+`dirdiff.cli.server_launch`. The command layer must not define HTTP routes,
+workspace loading, diff rendering, or frontend behavior.
 """
 
 from __future__ import annotations
@@ -34,6 +38,12 @@ cli_app = typer.Typer(
     rich_markup_mode=None,
     help="Open the dirdiff browser UI.",
 )
+"""Process-lifetime Typer application used by both console entrypoints.
+
+Decorators below register the root startup callback and subcommands on this
+exact instance during import. `main` invokes it once; importing the module does
+not parse arguments or start the app.
+"""
 
 
 def configure_logging() -> None:
@@ -42,6 +52,12 @@ def configure_logging() -> None:
     Normal CLI runs keep framework logs quiet.  `DIRDIFF_DEBUG_PERF=1` opts
     into more verbose application logging without introducing another command
     line flag.
+
+    # Usage
+
+    Each command handler calls this immediately before doing command work.
+    `logging.basicConfig` leaves an already-configured root handler intact; the
+    uvicorn logger levels are set on every call.
     """
 
     logging.basicConfig(
@@ -105,6 +121,34 @@ def start(
     Typer invokes this callback before subcommands as well, so it stores shared
     options on `ctx.obj` and only launches the app when no subcommand was
     selected.
+
+    # Parameters
+
+    - `ctx`: Current Typer invocation used to share options with a subcommand.
+    - `db_path`: Registry database path, or the configured user-level default.
+    - `store_path`: Snapshot directory, or `None` for the database sibling.
+    - `presets_root`: Optional preset-catalog root passed unchanged to the server.
+    - `port`: Requested backend loopback port.
+    - `headless`: Whether startup must skip opening a browser.
+    - `frontend_port`: Requested Vite loopback port.
+    - `no_frontend_dev`: Whether startup omits the Vite process.
+
+    The callback configures logging and blocks in app startup only when Typer
+    selected no subcommand.
+
+    # Usage
+
+    Typer invokes this as the root command. Use `dirdiff` for the default
+    working-tree comparison or put the shared options before a subcommand, for
+    example `dirdiff --headless refs HEAD worktree`. Application code should
+    construct `RuntimeConfig` or call `dirdiff.server.create_app` instead of
+    calling this callback directly.
+
+    # Failures
+
+    Unavailable ports, missing repository marks, database errors, and process
+    startup failures propagate through the CLI boundary and terminate the
+    command.
     """
 
     resolved_db_path = marker_utils.db_path_or_default(db_path)
@@ -156,6 +200,26 @@ def refs(
     This subcommand keeps the same local app startup behavior as the default
     command, but seeds the frontend URL with the Refs Tab and the two side
     names the user supplied.
+
+    # Parameters
+
+    - `ctx`: Typer context containing `AppOptions` from the root callback.
+    - `left`: Left Git ref or built-in side placed in startup state.
+    - `right`: Right Git ref or built-in side placed in startup state.
+
+    Side existence is validated later by the selected workspace backend.
+
+    # Usage
+
+    Run `dirdiff refs <left> <right>`. The root callback supplies `ctx.obj`, so
+    direct Python callers must not invoke this function without the matching
+    Typer context.
+
+    # Failures
+
+    A missing `AppOptions` context is a programming error. Port selection,
+    repository-mark, and startup failures propagate from `run_app`; invalid Git
+    sides are reported later when the backend captures the selection.
     """
 
     configure_logging()
@@ -195,6 +259,26 @@ def branch(
     The server still exposes the same API once it is running.  The branch names
     here are only startup state passed to the frontend so the review view opens
     on the requested base/review pair.
+
+    # Parameters
+
+    - `ctx`: Typer context containing `AppOptions` from the root callback.
+    - `base_branch`: Local branch name seeded into the base selector.
+    - `review_branch`: Local branch name seeded into the review selector.
+
+    Branch resolution happens during capture, not in this command.
+
+    # Usage
+
+    Run `dirdiff branch <base-branch> <review-branch>`. The root callback must
+    have populated `ctx.obj`; this function is Typer wiring rather than a Python
+    API for resolving branches.
+
+    # Failures
+
+    A missing `AppOptions` context is a programming error. App startup failures
+    propagate from `run_app`, while nonexistent or otherwise invalid branches
+    fail later at the backend capture boundary.
     """
 
     configure_logging()
@@ -250,11 +334,31 @@ def mark(
         ),
     ] = None,
 ) -> None:
-    """Add or list repositories in the local dirdiff registry.
+    """Add, list, or deactivate repositories in the local dirdiff registry.
 
     Repository marks are CLI-managed state.  The browser server reads the same
     database later to build the repo picker, but path normalization and duplicate
     handling belong to this command path.
+
+    # Parameters
+
+    - `path`: Repository path used when creating a mark.
+    - `name`: Display name, or `None` to derive it from the path.
+    - `db_path`: Registry database path, or the configured default.
+    - `list_marks`: Whether to print marks instead of creating one.
+    - `remove_id`: Mark id to deactivate instead of creating one.
+
+    # Usage
+
+    Use `dirdiff mark --path <repository>` to add a mark, `dirdiff mark --list`
+    to list active marks, or `dirdiff mark --remove <id>` to deactivate one.
+    These modes update or inspect the registry and never start the browser app.
+
+    # Failures
+
+    Listing and removal together raise `typer.BadParameter`. Duplicate active
+    paths, unknown removal ids, missing `PWD` for relative paths, and database
+    failures terminate the command through the selected marker helper.
     """
 
     configure_logging()
@@ -274,6 +378,17 @@ def main() -> None:
 
     `pyproject.toml` points the `dirdiff` script at this function.  Keeping
     the wrapper tiny makes the package importable without launching anything.
+
+    # Usage
+
+    The installed `dirdiff` script and `python -m dirdiff` call this function.
+    Importers should use the package interfaces for application work rather
+    than invoking the command parser in-process.
+
+    # Failures
+
+    Typer parameter errors and every selected command failure propagate through
+    this boundary using Typer's normal command-line exit behavior.
     """
 
     cli_app()

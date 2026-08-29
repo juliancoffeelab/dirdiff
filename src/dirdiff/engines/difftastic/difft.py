@@ -1,77 +1,19 @@
-"""Raw difftastic execution and JSON contract.
+"""Run Difftastic and validate the JSON facts dirdiff consumes.
 
-This module is the only place in the difftastic service package that should
-know how to invoke the external `difft` executable. It owns the contract between
-our Python code and `difft --display json`.
+## Public interface
 
-The important boundary: this module parses difftastic JSON as-is and does no
-post-processing. It does not normalize side names, infer replacements, rebuild
-ASTs, recover line fragments, syntax-highlight source text, create dirdiff rows,
-or assemble frontend payloads. Difftastic JSON is deliberately tiny; downstream
-code must take this compact alignment/change-span data and decide how to render
-it.
+`run_difftastic_json` compares two supplied strings and returns
+`DifftasticJson`. `DifftasticTunings` exposes the subprocess limits used by
+integration tests and production defaults. The remaining exported types spell
+the validated JSON records.
 
-Input contract
---------------
-`run_difftastic_json` takes two complete text documents:
+## Purpose and boundaries
 
-* `left_text`: the old/left document contents.
-* `right_text`: the new/right document contents.
-
-The optional `left_path_hint` and `right_path_hint` values are used only to give
-difftastic filenames with useful suffixes. They are not opened. The text
-arguments are always written to fresh temporary files, because difftastic
-chooses parsers from paths and reads files from disk.
-
-`DifftasticTunings` contains execution-level knobs:
-
-* `graph_limit` becomes the `DFT_GRAPH_LIMIT` environment variable.
-* `context_lines` is passed to `--context`.
-* `unstable=True` sets `DFT_UNSTABLE=yes`.
-
-These tunings must stay on this side of the package boundary. Downstream logic
-should consume the returned JSON shape, not know which environment variables or
-CLI flags were used to obtain it.
-
-Output contract
----------------
-`run_difftastic_json` returns `DifftasticJson`, a TypedDict describing the subset
-of difftastic JSON currently consumed by dirdiff:
-
-* `aligned_lines`: pairs of zero-based line indices, where either side may be
-  `None` for one-sided rows.
-* `chunks`: nested change entries keyed by difftastic side names (`lhs` and
-  `rhs`), with per-line changed ranges. These are the only real line-level
-  actions difftastic exposes here: `lhs` entries describe old-side/deleted spans,
-  `rhs` entries describe new-side/inserted spans, and an entry containing both
-  sides means difftastic paired those spans syntactically. Missing sides are
-  omitted by serde, not serialized as `null`. It is still not a rich before/after
-  AST. `DifftasticJsonChange.content` is used when present; otherwise row
-  projection slices the original source line with `start` and `end`.
-* `language`: a free-form language/fallback label from difftastic.
-* `path`: the path difftastic reports for the compared file.
-* `status`: the file-level action (`changed`, `created`, `deleted`, or
-  `unchanged`).
-
-The return value is intentionally still difftastic-shaped. If a consumer needs a
-row model, token pairing, fallback warnings, or frontend-friendly fields, that
-work belongs after this module.
-
-Validation constraints
-----------------------
-The external JSON is only validated at the top-level container boundary. A
-non-empty list returns its first object, an object returns as-is, and an empty
-list becomes a synthetic empty diff payload with `aligned_lines` and `chunks`.
-That synthetic empty payload is not a serde `File`; real difftastic file objects
-always include `language`, `path`, and `status`. Nested validation is left to the
-consumer because difftastic output is an external format that may grow fields we
-do not care about.
-
-Failure contract
-----------------
-This module raises `DirdiffError` when difftastic cannot be executed, exits
-non-zero, returns invalid JSON, or returns a top-level JSON shape that cannot be
-treated as one difftastic file diff.
+Difftastic requires file paths, so this module writes the supplied text to
+temporary files and uses path hints only for their suffixes. It preserves the
+external alignment and changed-span facts without building dirdiff rows.
+`dirdiff.engines.difftastic.logic` interprets those facts against the original
+text.
 """
 
 from __future__ import annotations
@@ -87,7 +29,17 @@ from typing import Literal, NotRequired, TypedDict, TypeIs
 from dirdiff.engines.base import DirdiffError
 
 DFT_GRAPH_LIMIT = "10000000"
+"""Maximum Difftastic graph size used for one comparison.
+
+This deliberately high value lets ordinary reviews use structural comparison.
+Difftastic reports a graph-limit result when a comparison exceeds it.
+"""
 DFT_CONTEXT_LINES = "100000000"
+"""Context limit that asks Difftastic to return whole-file alignment.
+
+Row building requires every source line in order, rather than a patch with
+unchanged gaps omitted. The subprocess receives this value through `--context`.
+"""
 
 __all__ = [
     "DFT_CONTEXT_LINES",
@@ -104,9 +56,22 @@ __all__ = [
 ]
 
 type DifftasticAlignedPairJson = list[int | None]
+"""Two zero-based line indexes in left/right order.
+
+Row building reads index zero as the left line and index one as the right line.
+Either is `None` when the row exists only on the other side.
+
+This is raw JSON shape. Values must contain exactly two entries and use
+zero-based indexes; they are not dirdiff row numbers.
+"""
 
 
 def _is_aligned_pair(value: object) -> TypeIs[DifftasticAlignedPairJson]:
+    """Narrow an unknown JSON value to one two-sided line alignment.
+
+    This is structural validation only. Source-bound checks happen later when
+    row building has the original text.
+    """
     if not isinstance(value, list):
         return False
     return len(value) == 2 and all(
@@ -115,30 +80,68 @@ def _is_aligned_pair(value: object) -> TypeIs[DifftasticAlignedPairJson]:
 
 
 type DifftasticJsonSideName = Literal["lhs", "rhs"]
+"""Identify a changed-line side in Difftastic JSON.
+
+- `lhs` is the old side.
+- `rhs` is the new side.
+
+Use these keys only while parsing Difftastic chunks. Dirdiff's public contracts
+use left/right terminology instead.
+"""
 type DifftasticJsonFileStatus = Literal[
     "changed", "created", "deleted", "unchanged"
 ]
+"""File-level status reported by Difftastic.
+
+- `changed` has content changes on both sides.
+- `created` and `deleted` are one-sided.
+- `unchanged` reports no structural change.
+
+Keep this as raw integration metadata. Dirdiff derives row status and summary
+from projected rows rather than trusting this value as its result.
+"""
 
 
 class DifftasticJsonChange(TypedDict):
-    """Changed span inside one line on one side of the diff."""
+    """Describe one changed byte span inside a Difftastic source line.
+
+    Raw JSON validation produces this shape; row building checks the offsets
+    against the supplied source and uses optional `content` as a consistency
+    check.
+
+    Offsets are Difftastic byte columns, not Python character offsets or public
+    review coordinates.
+    """
 
     start: int
-    """Start column for the changed span, as emitted by difftastic."""
+    """Inclusive UTF-8 byte column in the addressed source line.
+
+    Row building must convert it at a character boundary before slicing Python
+    text; values outside the supplied line are invalid engine data.
+    """
 
     end: int
-    """End column for the changed span, as emitted by difftastic."""
+    """Exclusive UTF-8 byte column in the same source line.
+
+    A value equal to `start` is a zero-width external fact and contributes no
+    visible token. It may not exceed the source line's encoded length.
+    """
 
     content: NotRequired[str]
     """Exact source text for this span when difftastic provides it.
 
-    Row projection uses this value when it is present.  Sparse facts can omit it
+    Row building uses this value when it is present. Sparse facts can omit it
     because the original source line is also supplied to the projector, which can
     recover the span text from `start` and `end`.
     """
 
 
 def _is_change(value: object) -> TypeIs[DifftasticJsonChange]:
+    """Narrow an unknown JSON value to a changed-span record.
+
+    The check rejects absent offsets and non-string content. It leaves byte
+    bounds and content agreement for comparison against the source line.
+    """
     if not isinstance(value, dict):
         return False
 
@@ -153,20 +156,36 @@ def _is_change(value: object) -> TypeIs[DifftasticJsonChange]:
 
 
 class DifftasticJsonSide(TypedDict):
-    """Zero-based line number plus changed spans for one difftastic side."""
+    """Group the changed spans Difftastic reports for one source line.
+
+    Chunk entries carry this value under `lhs` or `rhs`. Row building locates the
+    source line by `line_number` and converts every changed span before building
+    tokens.
+
+    The value has no full line text, dirdiff line number, or row status.
+    """
 
     line_number: int
-    """Zero-based line number for this side."""
+    """Zero-based source line addressed by every span in this record.
+
+    Validation accepts the integer shape; row building rejects negative or
+    out-of-range values against the supplied document.
+    """
 
     changes: list[DifftasticJsonChange]
     """Changed spans on this line.
 
-    The Rust struct always serializes this list for a present side. It may be
+    The Rust struct always serializes this sequence for a present side. It may be
     empty, but the key itself is not optional when `lhs` or `rhs` is present.
     """
 
 
 def _is_side(value: object) -> TypeIs[DifftasticJsonSide]:
+    """Narrow an unknown JSON value to one changed source-line side.
+
+    Both the zero-based line number and the complete changed-span list are
+    required. Source bounds remain unchecked until row building has the text.
+    """
     if not isinstance(value, dict):
         return False
 
@@ -176,7 +195,11 @@ def _is_side(value: object) -> TypeIs[DifftasticJsonSide]:
 
 
 class DifftasticJsonChunkEntry(TypedDict):
-    """One changed line entry."""
+    """Describe one Difftastic changed-line entry across both sides.
+
+    Missing sides are omitted from JSON. This is not a complete replacement AST
+    and does not carry unchanged source text.
+    """
 
     lhs: NotRequired[DifftasticJsonSide]
     """Old-side changed spans.
@@ -198,6 +221,11 @@ class DifftasticJsonChunkEntry(TypedDict):
 
 
 def _is_chunk_entry(value: object) -> TypeIs[DifftasticJsonChunkEntry]:
+    """Narrow an unknown JSON value to an optional left/right chunk entry.
+
+    Difftastic omits an absent side rather than serializing `null`. Each present
+    side must satisfy the full changed-line record contract.
+    """
     if not isinstance(value, dict):
         return False
 
@@ -210,18 +238,35 @@ def _is_chunk_entry(value: object) -> TypeIs[DifftasticJsonChunkEntry]:
 
 
 class DifftasticJson(TypedDict):
-    """Subset of `difft --display json` consumed by this package."""
+    """Hold the validated Difftastic JSON facts used to build rows.
+
+    `run_difftastic_json` returns this raw shape. `build_difftastic_ast` combines
+    it with the original text to build complete dirdiff rows.
+
+    Every field is optional because Difftastic omits empty values and dirdiff
+    accepts its empty top-level result. This type is not a public engine result
+    and must not be sent to the HUD.
+    """
 
     aligned_lines: NotRequired[list[DifftasticAlignedPairJson]]
-    """Line alignment pairs.
+    """Complete old/new line alignment in Difftastic output order.
 
-    The Rust serializer omits this field when the vector is empty.
+    Each pair contains zero-based left and right indexes with `None` for a
+    one-sided row. Row building requires the sequence to cover each supplied
+    source line exactly once and monotonically, except for Difftastic's
+    trailing-newline phantom pair, which it validates and drops. The Rust
+    serializer omits the field when no pairs exist; consumers treat omission as
+    an empty alignment, not as an unknown partial result.
     """
 
     chunks: NotRequired[list[list[DifftasticJsonChunkEntry]]]
-    """Changed line chunks.
+    """Changed-span entries grouped by Difftastic's external chunks.
 
-    The Rust serializer omits this field when the vector is empty.
+    Row building walks chunks and entries in order to index each side's spans by
+    zero-based source line. Repeated identical line facts are allowed because
+    whole-file context may repeat them; contradictory repeats, invalid bounds,
+    and overlapping spans fail instead of being merged. The serializer omits
+    an empty vector, which consumers interpret as no reported inline novelty.
     """
 
     language: NotRequired[str]
@@ -235,7 +280,8 @@ class DifftasticJson(TypedDict):
     """Path string reported by difftastic for the compared file.
 
     Dirdiff does not trust this as the repository path; backend code already
-    owns source paths.  It is retained as raw difftastic metadata.
+    supplies the authoritative source paths. It is retained as raw difftastic
+    metadata.
     """
 
     status: NotRequired[DifftasticJsonFileStatus]
@@ -247,6 +293,11 @@ class DifftasticJson(TypedDict):
 
 
 def _is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
+    """Validate the subset of Difftastic's top-level JSON that dirdiff reads.
+
+    Unknown keys remain harmless integration metadata. Every known key must
+    have the shape row building relies on.
+    """
     if not isinstance(value, dict):
         return False
 
@@ -277,9 +328,35 @@ def _is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
 
 @dataclass(frozen=True)
 class DifftasticTunings:
+    """Execution settings passed to one Difftastic subprocess.
+
+    Pass this immutable value to `run_difftastic_json` when tests or integration
+    policy need non-default subprocess settings.
+
+    These values control Difftastic resource and output behavior only. They do
+    not select a parser, supply content, or change dirdiff's row contract.
+    """
+
     graph_limit: str = DFT_GRAPH_LIMIT
+    """Decimal limit supplied through Difftastic's `DFT_GRAPH_LIMIT` environment.
+
+    Difftastic performs parsing and enforcement. Tests may lower it to exercise the
+    explicit graph-limit warning without changing process-global state.
+    """
+
     context_lines: str = DFT_CONTEXT_LINES
+    """Decimal line count supplied to Difftastic's `--context` option.
+
+    Production uses a value large enough to obtain complete alignment because
+    row building does not fill source gaps omitted by the external result.
+    """
+
     unstable: bool = True
+    """Whether this subprocess receives `DFT_UNSTABLE=yes`.
+
+    The JSON fields consumed by row building currently require that mode. Setting
+    it false is an explicit integration test choice, not silent compatibility.
+    """
 
 
 def run_difftastic_json(
@@ -290,6 +367,32 @@ def run_difftastic_json(
     right_path_hint: str | None = None,
     tunings: DifftasticTunings = DifftasticTunings(),
 ) -> DifftasticJson:
+    """Compare two supplied texts with Difftastic and validate its JSON.
+
+    The function creates temporary files because Difftastic accepts paths, but
+    their contents come only from the supplied strings. Path hints contribute
+    suffixes for parser selection and are never opened.
+
+    # Parameters
+
+    - `left_text`: Complete old-side text written to Difftastic's left input.
+    - `right_text`: Complete new-side text written to Difftastic's right input.
+    - `left_path_hint`: Optional old-side name used only for its suffix.
+    - `right_path_hint`: Optional new-side name used only for its suffix. When
+      absent, the left suffix keeps parser selection symmetric.
+    - `tunings`: Subprocess limits and unstable-output choice for this run.
+
+    # Usage
+
+    `DifftasticDiffEngine` calls this for a two-sided text bay. Tests may pass
+    explicit `DifftasticTunings`; ordinary callers should keep the production
+    defaults so the JSON includes the complete alignment this parser expects.
+
+    # Failures
+
+    Raises `DirdiffError` when the executable is missing, Difftastic exits with
+    an error, or its output is not valid supported JSON.
+    """
     left_suffix = (
         ".txt" if left_path_hint is None else Path(left_path_hint).suffix
     )
@@ -356,6 +459,11 @@ def run_difftastic_json(
 def _is_aligned_lines(
     value: object,
 ) -> TypeIs[list[DifftasticAlignedPairJson]]:
+    """Validate a JSON array of line-alignment pairs.
+
+    This checks every member rather than trusting one representative pair;
+    coverage and monotonicity remain source invariants checked while building rows.
+    """
     if not isinstance(value, list):
         return False
     return all(_is_aligned_pair(pair) for pair in value)
@@ -364,18 +472,33 @@ def _is_aligned_lines(
 def _is_chunks(
     value: object,
 ) -> TypeIs[list[list[DifftasticJsonChunkEntry]]]:
+    """Validate Difftastic's outer array of changed chunks.
+
+    Empty chunks are accepted because they are valid external structure. Every
+    present entry must still satisfy the supported schema.
+    """
     if not isinstance(value, list):
         return False
     return all(_is_chunk(chunk) for chunk in value)
 
 
 def _is_chunk(value: object) -> TypeIs[list[DifftasticJsonChunkEntry]]:
+    """Validate every changed-line entry in one Difftastic chunk.
+
+    The helper performs shape narrowing only; duplicate or contradictory lines
+    are rejected later while building the span index.
+    """
     if not isinstance(value, list):
         return False
     return all(_is_chunk_entry(entry) for entry in value)
 
 
 def _is_changes(value: object) -> TypeIs[list[DifftasticJsonChange]]:
+    """Validate one source side's complete changed-span array.
+
+    Byte ordering, overlap, and agreement with source content require the
+    original line and therefore remain checks performed while building rows.
+    """
     if not isinstance(value, list):
         return False
     return all(_is_change(change) for change in value)

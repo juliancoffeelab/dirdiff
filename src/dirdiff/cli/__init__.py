@@ -1,15 +1,15 @@
-"""Console-command entrypoint for the local dirdiff application.
+"""Command-line entrypoint for dirdiff.
 
-The installed `dirdiff` script and `python -m dirdiff` both enter through
-`main`, the only public item exported by this package.  The CLI package owns
-terminal command spelling, Typer option parsing, local app launch configuration,
-and repo-mark commands that write the local repository registry.
+The package exports `main`, the entrypoint used by both the installed `dirdiff`
+command and `python -m dirdiff`. It accepts terminal choices for opening a Tab
+or changing the local repository registry.
 
-The command implementation may assemble `RuntimeConfig`, choose ports, open the
-browser, and print terminal feedback.  It must not own FastAPI routes,
-repository loading semantics, diff rendering, frontend behavior, or database
-schema.  Those responsibilities belong to `dirdiff.server`, `dirdiff.backend`,
-`dirdiff.engines`, `dirdiff.rendering`, and `dirdiff.db`.
+## Purpose and boundaries
+
+The CLI turns validated terminal input into a registry operation or complete
+`dirdiff.server.RuntimeConfig`, then manages local server and browser process
+lifetime. HTTP routes, workspace loading, diff rendering, frontend behavior,
+and database schemas remain behind the interfaces the command invokes.
 """
 
 from dirdiff.cli.base import main

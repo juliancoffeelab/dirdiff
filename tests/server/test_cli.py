@@ -1,7 +1,7 @@
 """CLI and local-app startup tests.
 
 These tests cover the command-layer contract around port selection, root-page
-fallback behavior, OpenAPI availability, and request validation for the local
+diagnostic behavior, OpenAPI availability, and request validation for the local
 FastAPI app.  They use ephemeral stores and TestClient; they do not launch the
 Vite frontend or exercise browser workflows.
 
@@ -30,6 +30,11 @@ __all__: list[str] = []
 
 
 def repo_mark_store() -> RepoMarkStore:
+    """Return an ephemeral registry containing one active absolute-path Mark.
+
+    Local-app tests use it when repository contents are irrelevant but app
+    construction still requires the ordinary registry boundary.
+    """
     engine = open_ephemeral_engine()
     store = RepoMarkStore(engine)
     store.new_mark(path=Path("/tmp"), name="repo")
@@ -37,6 +42,11 @@ def repo_mark_store() -> RepoMarkStore:
 
 
 def test_require_bindable_port_rejects_busy_port() -> None:
+    """An explicitly requested busy backend port fails before server startup.
+
+    The diagnostic must identify both the role and exact occupied port so the
+    terminal user can act on it.
+    """
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     occupied.bind(("127.0.0.1", 0))
@@ -55,6 +65,11 @@ def test_require_bindable_port_rejects_busy_port() -> None:
 
 
 def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
+    """Automatic selection advances both development ports by one equal offset.
+
+    Occupying each requested port must not split the backend/frontend pair or
+    return either unavailable socket.
+    """
     occupied_backend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied_frontend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied_backend.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -83,6 +98,11 @@ def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
 
 
 def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
+    """The headless API root reports a missing development HUD as unavailable.
+
+    Its HTML points to the Vite launch mode instead of pretending that the API
+    process contains a generated frontend bundle.
+    """
     store = repo_mark_store()
     client = TestClient(
         create_app(
@@ -99,6 +119,11 @@ def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
 
 
 def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
+    """The local application keeps FastAPI's interactive API documentation.
+
+    Startup configuration must not disable the `/docs` route used to inspect
+    and exercise the development server's current HTTP contract.
+    """
     store = repo_mark_store()
     client = TestClient(
         create_app(
@@ -114,6 +139,10 @@ def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
 
 
 def test_repo_list_is_sorted_by_name_and_path(tmp_path: Path) -> None:
+    """Repository picker results follow registry name and path ordering.
+
+    Insertion order must not leak through the HTTP response.
+    """
     engine = open_ephemeral_engine()
     store = RepoMarkStore(engine)
     zeta_path = tmp_path / "zeta"
@@ -136,6 +165,11 @@ def test_repo_list_is_sorted_by_name_and_path(tmp_path: Path) -> None:
 
 
 def test_repo_mark_delete_deactivates_registry_state(tmp_path: Path) -> None:
+    """Deleting a Mark hides it and its defaults without erasing identity rows.
+
+    The endpoint returns no content and subsequent active-registry reads no
+    longer expose the repository or saved branch selection.
+    """
     engine = open_ephemeral_engine()
     store = RepoMarkStore(engine)
     repo_path = tmp_path / "repo"
@@ -163,6 +197,11 @@ def test_repo_mark_delete_deactivates_registry_state(tmp_path: Path) -> None:
 
 
 def test_repo_mark_delete_reports_missing_id(tmp_path: Path) -> None:
+    """Deleting an unknown active Mark returns one concrete not-found response.
+
+    The route distinguishes absent registry state from successful deactivation
+    and includes the requested id in its diagnostic.
+    """
     store = repo_mark_store()
     client = TestClient(
         create_app(
@@ -178,6 +217,11 @@ def test_repo_mark_delete_reports_missing_id(tmp_path: Path) -> None:
 
 
 def test_file_diff_response_schema_rejects_unknown_fields() -> None:
+    """The File diff wire model refuses backend fields outside its contract.
+
+    This prevents accidental internal data from passing validation merely
+    because required composed fields are otherwise present.
+    """
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ComposedDiffResponse.model_validate(
             {

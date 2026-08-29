@@ -1,9 +1,15 @@
-"""Domain-independent foundational types shared across dirdiff.
+"""Domain-independent value types shared across dirdiff.
 
-This module is the Python prelude for types that describe general programming
-values rather than dirdiff entities. It owns no application data or resources,
-performs no I/O, and must not collect feature helpers merely because several
-callers could share them.
+## Public interface
+
+`JsonValue` describes parsed JSON whose feature-specific meaning is unknown or
+intentionally left uninterpreted.
+
+## Purpose and boundaries
+
+This module gives unrelated packages one definition of JSON-compatible values.
+It stores no application data, performs no I/O, and must not collect feature
+helpers merely because several callers could share them.
 """
 
 from __future__ import annotations
@@ -15,6 +21,13 @@ type JsonValue = (
 )
 """A value representable by the standard JSON data model.
 
-Object keys are strings, arrays and objects recursively contain JSON values,
-and no arbitrary Python instance belongs to this type.
+Use this alias where code retains arbitrary parsed JSON without interpreting a
+feature-specific schema, such as rejected notebook content.
+
+- Scalars are strings, numbers, booleans, and null.
+- Arrays recursively contain `JsonValue` elements.
+- Objects have string keys and recursively contain `JsonValue` values.
+
+The type excludes arbitrary Python instances, bytes, datetimes, and
+NaN-specific semantics.
 """

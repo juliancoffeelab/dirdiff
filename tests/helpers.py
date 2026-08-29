@@ -56,23 +56,87 @@ __all__ = [
 
 
 class _LoadedDiffSummary(DiffSummary):
-    """Add side-presence facts to an engine's line-count summary."""
+    """Add source-side presence to an engine's line-count summary.
+
+    Rendering tests need to distinguish an absent side from an existing empty
+    side; production `DiffSummary` counts alone cannot represent that boundary.
+    """
 
     left_exists: bool
+    """Whether the test supplied a left source side.
+
+    False means absence, not an existing empty string, and lets adapters retain
+    the production side-presence contract.
+    """
+
     right_exists: bool
+    """Whether the test supplied a right source side.
+
+    Tests consume it separately from added-line counts because an empty present
+    side and no side render differently.
+    """
 
 
 class _LoadedDiff(TypedDict):
-    """Describe the legacy single-text-bay payload used by rendering tests."""
+    """Describe the legacy single-text-bay payload used by rendering tests.
+
+    The adapter preserves the old assertion shape while all derived rows, folds,
+    and counts still come from current production engines and enrichment.
+    """
 
     display_name: str
+    """Caller-supplied File heading retained in the test payload.
+
+    It is presentation input only and carries no repository path or File identity.
+    """
+
     left_label: str
+    """Caller-supplied left-side heading.
+
+    Tests assert it unchanged; the adapter does not infer it from source presence.
+    """
+
     right_label: str
+    """Caller-supplied right-side heading.
+
+    It remains independent of engine rows so labeling assertions do not hide
+    rendering behavior.
+    """
+
     summary: _LoadedDiffSummary
+    """Engine line counts plus explicit source-side presence.
+
+    The adapter enriches the production summary only with facts required to
+    distinguish absent and empty test inputs.
+    """
+
     rows: list[DiffRow]
+    """Engine rows after ordinary display enrichment.
+
+    Calling tests receive the same hunk assignment and row shaping as production,
+    not hand-built expected rows.
+    """
+
     hunk_count: int
+    """Number of changed runs assigned by display enrichment.
+
+    It is derived from the returned rows and lets legacy assertions check the
+    production hunk boundary without rerunning enrichment.
+    """
+
     default_expanded: bool
+    """Legacy test field fixed to `True` in the completed payload.
+
+    It preserves snapshot compatibility only and must not be interpreted as a
+    current File-lane expansion decision.
+    """
+
     fold_hints: NotRequired[list[FoldHint]]
+    """Structural fold hints, omitted when enrichment produced none.
+
+    Absence preserves the legacy payload shape; a present list contains the
+    production-derived hints without test-specific synthesis.
+    """
 
 
 class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
@@ -88,8 +152,24 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     _write_mode = WriteMode.TEXT
     file_extension = "json"
     preset_root: ClassVar[Path]
+    """Fixture root against which string snapshot keys are interpreted.
+
+    Test extensions set it before use; relative keys outside this root are invalid
+    inputs rather than alternate snapshot locations.
+    """
+
     golden_root: ClassVar[Path]
+    """Root holding one JSON snapshot below each fixture-relative key.
+
+    The extension derives paths beneath it and never uses it as fixture input.
+    """
+
     snapshot_function_name: ClassVar[str]
+    """Pytest function name reconstructed while scanning stored snapshots.
+
+    Syrupy uses it to associate on-disk JSON with the originating parametrized
+    assertion during unused-snapshot reporting.
+    """
 
     @override
     def serialize(
@@ -100,6 +180,17 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
         include: PropertyFilter | None = None,
         matcher: PropertyMatcher | None = None,
     ) -> str:
+        """Serialize one assertion value as deterministic readable JSON.
+
+        # Parameters
+
+        - `data`: JSON-compatible assertion value to store.
+        - `exclude`: Syrupy property filter; accepted for the override contract
+          but not applied by this whole-value JSON serializer.
+        - `include`: Syrupy inclusion filter, likewise unused here.
+        - `matcher`: Syrupy matcher, which snapshot assertion applies before
+          this extension receives the final value.
+        """
         return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
     @override
@@ -109,6 +200,16 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
         serialized_data: str,
         snapshot_data: str,
     ) -> bool:
+        """Compare stored and current snapshots as parsed JSON values.
+
+        # Parameters
+
+        - `serialized_data`: Current JSON emitted by `serialize`.
+        - `snapshot_data`: Existing golden file contents read by Syrupy.
+
+        Formatting and object-key order do not affect the match. Invalid JSON
+        propagates because a corrupt golden or serializer result is not equal.
+        """
         serialized_json: JsonValue = json.loads(serialized_data)
         snapshot_json: JsonValue = json.loads(snapshot_data)
         return serialized_json == snapshot_json
@@ -116,6 +217,12 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     @classmethod
     @override
     def dirname(cls, *, test_location: PyTestLocation) -> str:
+        """Direct every assertion in the subclass to its configured golden root.
+
+        `test_location` is intentionally irrelevant because preset-relative
+        placement is handled by `get_location`; no per-module directory is
+        created here.
+        """
         return str(cls.golden_root)
 
     @classmethod
@@ -123,6 +230,14 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     def get_snapshot_name(
         cls, *, test_location: PyTestLocation, index: SnapshotIndex = 0
     ) -> str:
+        """Reconstruct the parametrized pytest identity for one preset key.
+
+        # Parameters
+
+        - `test_location`: Current test module and function identity.
+        - `index`: Preset-root-relative string key used by these tests, or a
+          standard Syrupy index delegated to the base extension.
+        """
         if isinstance(index, str):
             preset_path = cls.preset_root / index
             return f"{test_location.methodname}[{preset_path}]"
@@ -136,6 +251,14 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     def get_location(
         cls, *, test_location: PyTestLocation, index: SnapshotIndex
     ) -> str:
+        """Map a preset key to its one JSON golden file.
+
+        # Parameters
+
+        - `test_location`: Test module supplying the golden filename.
+        - `index`: Preset-root-relative string key, or a standard Syrupy index
+          delegated unchanged.
+        """
         if isinstance(index, str):
             return str(
                 cls.golden_root
@@ -148,6 +271,13 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     def read_snapshot_collection(
         self, *, snapshot_location: str
     ) -> SnapshotCollection:
+        """Recover the pytest snapshot name represented by one golden file.
+
+        `snapshot_location` must lie below `golden_root` in the layout produced
+        by `get_location`. Syrupy uses the returned collection for unused-file
+        reporting, so the reconstructed preset path must match collection-time
+        parametrization exactly.
+        """
         snapshot_path = Path(snapshot_location)
         preset_key = snapshot_path.parent.relative_to(self.golden_root)
         preset_path = self.preset_root / preset_key
@@ -177,6 +307,18 @@ def build_loaded_diff(
     the old production service surface, so this helper wires the new public
     pieces together locally. Composed formats are exercised through
     `dirdiff.formats` directly, not here.
+
+    # Parameters
+
+    - `display_name`: File heading retained only in the assembled test payload.
+    - `left_label`: Human label for the old side.
+    - `right_label`: Human label for the new side.
+    - `left_exists`: Whether the engine treats the old side as present.
+    - `right_exists`: Whether the engine treats the new side as present.
+    - `left_text`: Complete old-side text, or `None` with an absent side.
+    - `right_text`: Complete new-side text, or `None` with an absent side.
+    - `left_path_hint`: Optional old-side suffix hint for syntax processing.
+    - `right_path_hint`: Optional new-side suffix hint for syntax processing.
     """
 
     renderer = TextDiffEngine()
@@ -221,11 +363,30 @@ def build_loaded_diff(
 
 
 class WorkspaceDiffServiceAdapter:
+    """Preserve the former service-shaped test API over current public pieces.
+
+    Older backend integration tests construct this adapter and exercise
+    manifest, path, ref, and branch behavior through one object. It delegates
+    each operation directly to the supplied backend and keeps a renderer only
+    for subclasses matching the historical construction shape.
+
+    This is test compatibility, not a production abstraction. It must not add
+    behavior, retain workspace results, or hide assertions from calling tests.
+    """
+
     def __init__(
         self,
         backend: WorkspaceBackendProtocol,
         renderer: DiffEngineProtocol,
     ) -> None:
+        """Bind the adapter to one backend and historical renderer slot.
+
+        # Parameters
+
+        - `backend`: Public workspace implementation delegated to on every call.
+        - `renderer`: Renderer retained only for subclasses matching the former
+          service construction shape; adapter methods do not invoke it.
+        """
         self.backend = backend
         self.renderer = renderer
 
@@ -236,6 +397,15 @@ class WorkspaceDiffServiceAdapter:
         right: str,
         show_untracked: bool = False,
     ) -> RepoManifest:
+        """Build a manifest through the production backend adapter.
+
+        # Parameters
+
+        - `left`: Backend side handle for the old state.
+        - `right`: Backend side handle for the new state.
+        - `show_untracked`: Whether backend discovery includes worktree-only
+          Files.
+        """
         return build_repo_manifest_for_backend(
             self.backend,
             left=left,
@@ -246,9 +416,28 @@ class WorkspaceDiffServiceAdapter:
     def list_repo_diff_paths(
         self, *, left: str, right: str
     ) -> tuple[RepoDiffPath, ...]:
+        """Return backend path facts without building a manifest tree.
+
+        # Parameters
+
+        - `left`: Backend side handle for the old state.
+        - `right`: Backend side handle for the new state.
+
+        # Returns
+
+        - `Members`: The backend's path records without manifest-tree nodes or
+          captured content.
+        - `Order`: Records retain backend discovery order; an empty tuple means
+          the selected sides have no File-local differences.
+        """
         return self.backend.repo_diff(left=left, right=right).paths
 
     def list_ref_choices(self) -> RefChoices:
+        """Derive branch controls from one current Git metadata read.
+
+        Only Git-backed tests may call this method. It asserts that boundary
+        instead of inventing ref choices for another backend.
+        """
         # Branch-control derivations are Git-specific; only Git-backed tests
         # exercise this adapter method.
         assert isinstance(self.backend, GitBackend)
@@ -260,20 +449,64 @@ class WorkspaceDiffServiceAdapter:
         base_selection: BranchSelection,
         review_selection: BranchSelection,
     ) -> tuple[str, str, str, str]:
+        """Resolve structured Branch Review choices through the backend.
+
+        # Parameters
+
+        - `base_selection`: Explicit local or remote symbolic base branch.
+        - `review_selection`: Explicit local or remote symbolic review branch.
+
+        # Returns
+
+        - First, the base display label.
+        - Second, the immutable merge-base commit used for capture's left side.
+        - Third, the review display label.
+        - Fourth, the immutable review-head commit used for capture's right side.
+        """
         return self.backend.resolve_branch_diff_sides(
             base_selection=base_selection,
             review_selection=review_selection,
         )
 
     def normalize_side(self, raw_side: str) -> str:
+        """Delegate one user-facing side spelling to backend normalization.
+
+        `raw_side` is passed unchanged, so backend validation failures remain
+        visible to the calling test.
+        """
         return self.backend.normalize_side(raw_side)
 
 
 class TextDiffService(WorkspaceDiffServiceAdapter):
+    """Retain the native text renderer in the legacy adapter slot.
+
+    Repository operations remain delegated to the supplied production backend.
+    Adapter methods do not render, but older tests still inspect or expect this
+    historical construction shape.
+    """
+
     def __init__(self, backend: WorkspaceBackendProtocol) -> None:
+        """Bind the legacy adapter to a workspace and native text rendering.
+
+        `backend` remains the sole source for manifest and branch operations.
+        The engine value only preserves the construction shape expected by old
+        integration tests.
+        """
         super().__init__(backend, TextDiffEngine())
 
 
 class GitDiffService(WorkspaceDiffServiceAdapter):
+    """Retain the Git no-index renderer in the legacy adapter slot.
+
+    Adapter methods do not render. Repository discovery and branch resolution
+    remain direct backend operations.
+    """
+
     def __init__(self, backend: WorkspaceBackendProtocol) -> None:
+        """Bind the legacy adapter to a workspace and Git no-index rendering.
+
+        `backend` remains the sole source for manifest and branch operations.
+        The engine value only preserves the construction shape expected by old
+        integration tests.
+        """
         super().__init__(backend, GitDiffEngine())

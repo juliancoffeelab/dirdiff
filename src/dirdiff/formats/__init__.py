@@ -1,38 +1,17 @@
-"""The formats subsystem: every `/api/file-diff` response is one composed diff.
+"""Composition of captured Files into frames and bays.
 
-A composed diff is File-level metadata plus an ordered list of frames, each
-holding an ordered list of bays. Bay kinds, not file formats, are the
-extension axis: adding a format adds a classification step and a bay builder;
-adding a kind of thing a reviewer can look at adds a bay kind and its widget.
+Import `Composer`, its contexts and results, bay types, and media/text helpers
+from `dirdiff.formats`. `Composer.bays()` exposes the exact ordered bay stream
+without running an engine; `Composer.compose()` renders that same stream and
+groups it into frames.
 
-Code outside this package imports its public items from here, never from a
-submodule:
+## Purpose and boundaries
 
-- `Composer` composes two captured byte sides into a composed diff. It has two
-  entry points — `bays()` for the engine-free lookups (review validation and
-  the media endpoint) and `compose()` for `/api/file-diff` — so "this consumer
-  runs no engine" is a type-level fact rather than a convention.
-- `ComposeContext` is the input `compose()` reads, built by its named
-  constructor from plain facts (both paths, both side labels, the renderer).
-- `ComposedFilePayload` is everything `compose()` produces: the composed-diff
-  envelope minus the `display_name` and `file_kind` the HTTP boundary attaches.
-- `Bay`, `TextBay`, and `ImageBay` are what `bays()` yields, split by what a bay
-  is made of. Its two consumers act on that split: review reconstructs an
-  excerpt from decoded text or from an image's own facts, and the media endpoint
-  serves only an `ImageBay`'s bytes.
-- `MediaRef` and `media_ref()` describe one captured media side without its
-  bytes, so the digest on the wire and the digest review reads are one
-  computation.
-- `try_decode_text()` is the definition of what this project calls text. It
-  returns decoded text or a typed rejection, so format builders can preserve
-  rejected bytes as facts and explain the degradation.
-
-Package-internal contracts (`ComposeContext`'s renderer, the two shared kind
-renderers, the facts text both media classifications state, and the serialized
-frame/bay shapes) live in `base.py`; sibling modules import them from there.
-`composer.py` is the one module that owns path classification;
-`flatfile.py`, `notebook.py`, `image.py`, and `blob.py` own the bays each
-format composes into.
+This package turns supplied path hints and bytes into the common semantic File
+shape used by rendering and review coordinates. It classifies text, notebooks,
+images, and unreadable blobs in one place so callers agree on bay identity. It
+does not load workspace content, persist review state, or attach HTTP-only
+fields.
 """
 
 from dirdiff.formats.base import (

@@ -1,16 +1,15 @@
 /**
- * Provides explicit DOM-backed hunk navigation for one mounted ChangeSet.
+ * Performs explicit DOM-backed movement inside one mounted ChangeSet.
  *
- * The module exports hunk identity contracts, the closed navigation operation
- * union, one ChangeSet-scoped Provider, and its checked context accessor.
- * Renderers write identity fields directly into their own DOM; this module
- * reads those attributes only while handling an explicit operation or recognized
- * user scrolling. Exactly four callers may call the private `selectHunk`
- * operation: `nextHunk`, `prevHunk`, `scrollFollow`, and — as the one
- * initialization exception — the exported `writeInitialHunkSelection` that a
- * freshly mounted snapshot invokes. The module must not retain selected identity,
- * build a hunk registry, calculate counters, change FileTree expansion, parse
- * or retain line-pin identity, or fetch files.
+ * Renderers write stable hunk coordinates directly into their DOM. Navigation
+ * resolves those attributes only during an explicit command or recognized user
+ * scroll and retains no parallel selection registry. File and exact-line movement
+ * scroll without selecting.
+ *
+ * `selectHunk()` has exactly four direct callers: `nextHunk()`, `prevHunk()`,
+ * `scrollFollow()`, and the snapshot initialization operation
+ * `writeInitialHunkSelection()`. This module does not calculate display counters,
+ * change FileTree expansion, parse line pins, or fetch Files.
  */
 import {
   createContext,
@@ -24,6 +23,13 @@ import { useToasts } from "../comp/Toasts";
 import { assert, expect } from "../utils";
 import type { LinePinTarget, PreparedLine } from "./linePins";
 
+/**
+ * Selects the targets Next, Previous, and File navigation may traverse.
+ *
+ * Renderers preserve hidden coordinates as `.skip` targets, so excluding
+ * that class keeps traversal separate from the broader set used to resolve a
+ * stored selection. Every match must still satisfy the hunk DOM contract.
+ */
 const PARTICIPATING_HUNK_SELECTOR = "[data-hunk-target]:not(.skip)";
 
 /**
@@ -31,14 +37,18 @@ const PARTICIPATING_HUNK_SELECTOR = "[data-hunk-target]:not(.skip)";
  *
  * The coordinate is compound: `bay` is the composed bay key and
  * `hunkIndex` is the bay-local index composition published, written
- * verbatim — no renderer renumbers hunks into a file-wide sequence. Renderers
+ * verbatim. No renderer renumbers hunks into a file-wide sequence. Renderers
  * construct this value locally and write its fields directly into DOM
  * attributes. The value itself is never stored after rendering.
  */
 export type RealHunkIdentity = {
+  /** Immutable manifest position of the FileCard carrying this target. */
   fileIndex: number;
+  /** Marks a backend-composed stop that participates in traversal. */
   kind: "real";
+  /** Non-empty public key of the bay that numbers this hunk. */
   bay: string;
+  /** Zero-based index within `bay`, preserved verbatim from composition. */
   hunkIndex: number;
 };
 
@@ -50,8 +60,11 @@ export type RealHunkIdentity = {
  * directly into DOM attributes; `kind` never replaces a coordinate.
  */
 export type FileStateHunkIdentity = {
+  /** Immutable manifest position represented while rich hunk DOM is absent. */
   fileIndex: number;
+  /** Exact file state whose single stop this target stands in for. */
   kind: "husk" | "lazy" | "zero";
+  /** File-state stops are bayless and always use the sole index zero. */
   hunkIndex: 0;
 };
 
@@ -63,9 +76,13 @@ export type FileStateHunkIdentity = {
  * traverses past it while the coordinates keep selected identity stable.
  */
 export type SkippedHunkIdentity = {
+  /** Immutable manifest position of the collapsed FileCard. */
   fileIndex: number;
+  /** Excludes the target from traversal while retaining its coordinate. */
   kind: "skip";
+  /** Non-empty bay key copied from the real target this replaces. */
   bay: string;
+  /** Bay-local index copied from the real target this replaces. */
   hunkIndex: number;
 };
 
@@ -91,21 +108,40 @@ export type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
  *
  * Relative operations use current selected DOM identity. File navigation scrolls
  * to one manifest file's first current DOM target without selecting. Line
- * navigation requires one manifest index, one complete `LinePinTarget` — the
- * File pair, the composed bay key, a side, and a backend line — and the
- * caller's AbortSignal lifetime; it never selects a hunk. Top scrolls the page.
+ * navigation requires one manifest index and one complete `LinePinTarget`.
+ * The target contains the File pair, composed bay key, side, and backend line.
+ * The caller also supplies the AbortSignal lifetime. Line navigation never
+ * selects a hunk. Top scrolls the page.
  */
 export type NavigationCommand =
-  | { kind: "next-hunk" }
-  | { kind: "previous-hunk" }
-  | { kind: "file"; fileIndex: number }
   | {
-      kind: "line";
+      /** Advance from current selected DOM identity, or return it to view. */
+      kind: "next-hunk";
+    }
+  | {
+      /** Move backward from current selected DOM identity, or return it to view. */
+      kind: "previous-hunk";
+    }
+  | {
+      /** Scroll to a FileCard's first current target without selecting it. */
+      kind: "file";
+      /** Manifest position supplied by FileTree or another snapshot consumer. */
       fileIndex: number;
+    }
+  | {
+      /** Prepare and center one exact backend line without selecting a hunk. */
+      kind: "line";
+      /** Manifest position already loaded as a FullFile. */
+      fileIndex: number;
+      /** Complete File, bay, side, and backend-line coordinate to prepare. */
       target: LinePinTarget;
+      /** Caller lifetime checked before preparation and the final scroll. */
       abortSignal: AbortSignal;
     }
-  | { kind: "top" };
+  | {
+      /** Stop scroll-follow and move the document to its top. */
+      kind: "top";
+    };
 
 /**
  * Describes whether one explicit Navigation operation reached its destination.
@@ -116,9 +152,18 @@ export type NavigationCommand =
  * hides an exception or treats cancellation as a missing coordinate.
  */
 export type NavigationResult =
-  | { state: "complete" }
-  | { state: "missing" }
-  | { state: "stopped" };
+  | {
+      /** The command finished, including a valid relative-navigation no-op. */
+      state: "complete";
+    }
+  | {
+      /** Exact line preparation proved the coordinate absent from the FullFile. */
+      state: "missing";
+    }
+  | {
+      /** Caller or Provider disposal prevented the command's final action. */
+      state: "stopped";
+    };
 
 /**
  * Exposes the complete explicit navigation API for one mounted ChangeSet.
@@ -131,7 +176,23 @@ export type NavigationResult =
  * same root the navigation itself used, in every view.
  */
 export type Navigation = {
+  /**
+   * Executes one closed navigation command against the current mounted DOM.
+   *
+   * `command` supplies all coordinates and, for a line, the caller's lifetime.
+   * The Promise settles after required enrichment, selection for relative hunk
+   * commands, and final scrolling. Callers may react to `missing` or `stopped`;
+   * structural contract failures reject. Calls after Provider disposal return
+   * `stopped`, and no accepted command changes file loading or expansion.
+   */
   navigate(command: NavigationCommand): Promise<NavigationResult>;
+  /**
+   * Returns the mounted ChangeSet root served by this instance.
+   *
+   * Consumers call it after navigation when they need the resulting DOM. The
+   * element remains stable for the Provider lifetime and must not be retained
+   * past disposal or used to query another mounted ChangeSet.
+   */
   root: Accessor<HTMLElement>;
 };
 
@@ -143,7 +204,17 @@ export type Navigation = {
  * hit-testing. Children must remain inside the root.
  */
 export type NavigationProviderProps = {
+  /**
+   * Returns the connected ChangeSet root whose DOM carries navigation identity.
+   * The Provider reads it at operation time so snapshot replacement beneath the
+   * stable shell does not require a new Navigation instance.
+   */
   root: Accessor<HTMLElement>;
+  /**
+   * Mounted ChangeSet body and consumers served by this Navigation instance.
+   * The caller places them inside the same root returned by `root`; the Provider
+   * keeps them mounted in their original order and adds no alternate target DOM.
+   */
   children: JSX.Element;
 };
 
@@ -155,13 +226,32 @@ export type NavigationProviderProps = {
  * selected identity, counters, or scroll position.
  */
 type PreparableFileCard = HTMLElement & {
+  /**
+   * Prepares one line target within this exact FullFile card.
+   *
+   * `target` supplies the File pair, bay, side, and positive backend line;
+   * `abortSignal` is checked across asynchronous expansion and enrichment. The
+   * method may expand this file, its bay, and containing folds, then returns the
+   * connected row or a precise missing/stopped state. Navigation measures that
+   * row only after the Promise settles. The method never scrolls or selects.
+   *
+   * @param target Complete semantic line coordinate within this FullFile.
+   * @param abortSignal Navigation lifetime spanning expansion and enrichment.
+   */
   prepareLine_impl: (
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ) => Promise<PreparedLine>;
 };
 
-/** Recognizes a mounted FullFile card exposing its line operation. */
+/**
+ * Narrow a mounted FileCard only when its imperative line operation is callable.
+ *
+ * Navigation uses this check at the FullFile boundary before invoking the DOM
+ * method. False is not a missing-line result: the caller treats it as a
+ * renderer/lane contract violation because only admitted FullFiles may receive
+ * line commands.
+ */
 function isPreparableFileCard(card: HTMLElement): card is PreparableFileCard {
   return typeof Reflect.get(card, "prepareLine_impl") === "function";
 }
@@ -177,11 +267,28 @@ function isPreparableFileCard(card: HTMLElement): card is PreparableFileCard {
  * scrolls.
  */
 type EnrichableBay = HTMLElement & {
+  /**
+   * Tests this virtual bay's rich-entry zone against a hypothetical viewport.
+   * `viewportTop` is the document scrollTop produced by centering Navigation's
+   * current destination. The call is synchronous and must not change render mode.
+   */
   intersectsRichEntryZone: (viewportTop: number) => boolean;
+  /**
+   * Materializes this bay's rich grid and resolves once its geometry is real.
+   * Navigation invokes it only while the wrapper is mounted and virtual. The bay
+   * may replace its own DOM; after completion Navigation re-resolves all targets
+   * rather than retaining descendants from before the call.
+   */
   waitToEnrich_impl: () => Promise<void>;
 };
 
-/** Recognizes a mounted bay exposing the complete enrichment interface. */
+/**
+ * Narrow a bay wrapper only when both geometry operations are callable.
+ *
+ * A partial interface is invalid because Navigation tests virtual entry and
+ * later awaits materialization as one contract. Callers assert false rather
+ * than skipping the bay and measuring estimated geometry.
+ */
 function isEnrichableBay(bay: HTMLElement): bay is EnrichableBay {
   return (
     typeof Reflect.get(bay, "intersectsRichEntryZone") === "function" &&
@@ -189,6 +296,12 @@ function isEnrichableBay(bay: HTMLElement): bay is EnrichableBay {
   );
 }
 
+/**
+ * Carries the single Navigation instance belonging to the nearest ChangeSet shell.
+ *
+ * It has no default because consumers outside a Provider violate the mounted
+ * DOM boundary; `useNavigation` turns that absence into an explicit error.
+ */
 const NavigationContext = createContext<Navigation>();
 
 /**
@@ -210,6 +323,9 @@ export function useNavigation(): Navigation {
  * `writeInitialHunkSelection` is the explicit initialization exception for a
  * freshly mounted snapshot. Existing FileCard identity and visible decoration
  * are removed before the target fields are copied onto its stable FileCard.
+ *
+ * @param root Mounted ChangeSet root containing both old and new selection DOM.
+ * @param target Exact hunk target within `root` that becomes authoritative.
  */
 function selectHunk(root: HTMLElement, target: HTMLElement): void {
   assert(
@@ -297,19 +413,22 @@ function selectHunk(root: HTMLElement, target: HTMLElement): void {
 /**
  * Resolves one FileCard's stored selected identity to its current hunk target.
  *
- * selectHunk() writes the data-selected-hunk-* attributes, so this module
- * also owns reading them back; navigation and the hunk display observer both
+ * selectHunk() writes the data-selected-hunk-* attributes, so this operation
+ * is their single reader; navigation and the hunk display observer both
  * resolve through this one operation. The declared kind picks the resolution
  * strategy: a file-state selection (husk, lazy, zero) names the File's own
- * stop — the first of `targets` in DOM order, which is how a Husk-time
- * selection survives admission into composed DOM — while a hunk selection
+ * stop, the first of `targets` in DOM order. That is how a Husk-time
+ * selection survives admission into composed DOM. A hunk selection
  * (real, skip) matches strictly on bay key and bay-local hunk index,
  * with the kind excluded from that match because collapse and expansion
  * interconvert real and skip targets at the same coordinates.
  *
- * `targets` must be the card's hunk targets in DOM order. Every identity
- * defect — a missing or invalid attribute, a contradictory kind/bay/index
- * combination, zero or duplicate matches, a file-index mismatch — throws.
+ * `targets` must be the card's hunk targets in DOM order. Every identity defect
+ * throws, including a missing or invalid attribute, a contradictory
+ * kind/bay/index combination, zero or duplicate matches, or a file-index mismatch.
+ *
+ * @param card FileCard carrying the stored selected kind, bay, and index.
+ * @param targets That card's current hunk targets in exact DOM order.
  */
 export function storedHunkTarget(
   card: HTMLElement,
@@ -370,9 +489,9 @@ export function storedHunkTarget(
  * Writes the initial hunk selection directly into one mounted snapshot root.
  *
  * ChangeSetSnapshot calls this once after its FileCards mount, so every
- * snapshot replacement — including an engine switch under a surviving
- * NavigationProvider — starts with the first FileCard's required first hunk
+ * snapshot replacement starts with the first FileCard's required first hunk
  * selected. An empty snapshot and terminal renderer damage stay unselected.
+ * This also applies to an engine switch under a surviving NavigationProvider.
  * Initial selection is part of mounting the authoritative DOM; it is the one
  * sanctioned initialization caller of `selectHunk`, and the fresh snapshot is
  * asserted unselected before that single write.
@@ -424,7 +543,7 @@ export function writeInitialHunkSelection(root: HTMLElement): void {
 /**
  * Provides one disposable explicit-navigation instance for one ChangeSet root.
  *
- * The mounted snapshot owns initial selection through
+ * Initial selection belongs to the mounted snapshot through
  * `writeInitialHunkSelection`; this provider's operations read current DOM
  * identity and retain no selected-hunk state. Recognized browser scrolling
  * selects rich real hunks at the reading line, while cleanup prevents pending
@@ -448,6 +567,11 @@ export function NavigationProvider(
 
     /**
      * Cancels an expiry shared by replacement input and resulting document scroll.
+     *
+     * A newer input sequence and the first document scroll both supersede the
+     * wheel or touch animation-frame expiry. Clearing its handle immediately keeps
+     * that old callback from resetting the newer guard state. With no scheduled
+     * expiry this function has no effect, and it never changes guard state itself.
      */
     function cancelPendingExpiry(): void {
       if (pendingExpiryHandle === null) {
@@ -464,6 +588,8 @@ export function NavigationProvider(
        *
        * Wheel and touch permission expires before the next repaint when no scroll
        * occurs. Keyboard permission remains until `stop()`.
+       *
+       * @param input Recognized input family whose lifetime selects the expiry rule.
        */
       input(input: "wheel" | "touch" | "keyboard"): void {
         cancelPendingExpiry();
@@ -485,6 +611,8 @@ export function NavigationProvider(
        * A nested scroll rejects input before document scrolling starts. Once the
        * document is scrolling, nested FileTree movement may follow selection
        * without ending the document sequence.
+       *
+       * @param scroller Whether the event came from the document or nested content.
        */
       scrolled(scroller: "document" | "nested"): void {
         if (scroller === "nested") {
@@ -523,6 +651,11 @@ export function NavigationProvider(
 
     /**
      * Extracts the required primary touch position from a touch event.
+     *
+     * Touch start and move handlers call this only while one active touch exists.
+     * A missing primary touch is an event-sequencing violation and throws.
+     *
+     * @param event Native touch event whose first active touch supplies the position.
      */
     function primaryTouchY(event: TouchEvent): number {
       const touch = expect(
@@ -535,6 +668,8 @@ export function NavigationProvider(
     return {
       /**
        * Records the initial vertical position for a touch sequence.
+       *
+       * @param event Touch-start event that begins the tracked sequence.
        */
       set(event: TouchEvent): void {
         previousTouchY = primaryTouchY(event);
@@ -544,6 +679,10 @@ export function NavigationProvider(
        * Compares the current touch with the preceding position and advances it.
        *
        * `null` means that the touch moved without changing its vertical position.
+       * Calling before `set` or without a primary touch throws instead of inventing
+       * a direction.
+       *
+       * @param event Touch-move event carrying the next primary position.
        */
       comparedDirection(event: TouchEvent): "up" | "down" | null {
         const previousY = expect(
@@ -615,7 +754,7 @@ export function NavigationProvider(
     // rect queries then force that chunk's layout and return real geometry
     // (measured ~0.1ms per probe), which this search depends on. A zero rect
     // would break monotonicity silently, so the chunk style must stay
-    // `auto`, never `hidden` — see the .diff-row-chunk rule in styles.css.
+    // `auto`, never `hidden`. See the .diff-row-chunk rule in styles.css.
     let low = 0;
     let high = targets.length - 1;
     let precedingIndex = -1;
@@ -665,9 +804,18 @@ export function NavigationProvider(
    *
    * Missing, contradictory, or duplicate coordinates are application errors;
    * this operation never substitutes a FileCard header or another target.
+   *
+   * # Returns
+   *
+   * - `card` is the sole FileCard that stores the current selected identity.
+   * - `target` is the exact descendant named by that identity. It belongs to
+   *   `card`, and both elements come from the same mounted ChangeSet and are
+   *   resolved in one read.
    */
   function selectedLocation(root: HTMLElement): {
+    /** Sole FileCard carrying the current selected identity. */
     card: HTMLElement;
+    /** Current DOM target resolved from that stable FileCard identity. */
     target: HTMLElement;
   } {
     const cards = root.querySelectorAll<HTMLElement>(
@@ -703,9 +851,20 @@ export function NavigationProvider(
   /**
    * Resolves one participating destination after optional rich materialization.
    *
-   * Virtual targets are identified by their primitive attributes, the owning
-   * bay alone is enriched directly, and the replacement target is resolved
-   * again before returning it. This operation never selects or scrolls.
+   * A virtual target keeps one compound DOM identity across materialization:
+   * `data-hunk-kind`, `data-file-index`, `data-hunk-bay`, and
+   * `data-hunk-index`. The operation enriches only its containing bay and then
+   * resolves that identity again before returning. It never selects or scrolls.
+   *
+   * @param root Mounted ChangeSet boundary used to validate and re-query the target.
+   * @param initialTarget Participating target chosen from the current DOM order.
+   *
+   * # Returns
+   *
+   * - The original target when already rich, or the sole rich replacement with
+   *   the same compound identity after materialization.
+   * - `null`: Navigation was disposed before the target could be returned. The
+   *   caller must stop without selecting or scrolling a detached destination.
    */
   async function enrichTarget(
     root: HTMLElement,
@@ -1006,6 +1165,10 @@ export function NavigationProvider(
    * coordinates, enriches virtual bays intersecting the hypothetical centered
    * viewport one at a time, and centers the destination, re-running the
    * centering until nearby chunk rendering stops moving it.
+   *
+   * @param fileIndex Manifest position already represented by one mounted FullFile.
+   * @param target Exact semantic line coordinate within that file.
+   * @param abortSignal Caller lifetime checked before the final centered scroll.
    */
   async function navigateToLine(
     fileIndex: number,
@@ -1040,6 +1203,19 @@ export function NavigationProvider(
 
     /**
      * Calculates the document viewport produced by centering the current row.
+     *
+     * Line navigation uses the clamped document scroll coordinate to decide which
+     * virtual bays would enter their rich zone before it performs the final scroll.
+     * The calculation reads the target's complete HTML offset chain and current
+     * document extent, but it does not change scroll position or DOM.
+     *
+     * @param target Connected prepared row whose center defines the landing viewport.
+     *
+     * # Failures
+     *
+     * A nonpositive viewport, a non-HTML offset parent, missing document scroll
+     * element, non-finite document coordinates, or nonpositive target height
+     * throws. These are DOM contract violations, not a missing line result.
      */
     function centeredViewportTop(target: HTMLElement): number {
       const viewportHeight = window.innerHeight;
@@ -1123,6 +1299,14 @@ export function NavigationProvider(
    * Otherwise the operation advances through current participating DOM order,
    * wraps, and enriches a virtual destination when required. The caller alone
    * selects and scrolls the returned target.
+   *
+   * # Returns
+   *
+   * - The participating next or previous target in current DOM order, rich
+   *   enough for the caller to select and center.
+   * - `null`: The ChangeSet has no target, the selected target was off-screen
+   *   and was centered in place, or navigation was disposed during enrichment.
+   *   Next and Previous must perform no selection for this result.
    */
   async function relativeDestination(
     direction: "next" | "previous",
@@ -1279,6 +1463,12 @@ export function NavigationProvider(
     },
   };
 
+  // Scroll-follow needs native document listeners because the scroll source can
+  // be wheel, touch, keyboard, or a nested FileTree outside this component's
+  // JSX event path. They read the mounted root plus transient guard/controller
+  // state for this Provider lifetime. One AbortController removes every listener
+  // on cleanup, while the cleanup also cancels permission for a queued frame;
+  // that frame rechecks both the guard and root connection before selecting.
   onMount(() => {
     const root = props.root();
     if (root.querySelector("[data-file-render-error]") !== null) {
@@ -1286,9 +1476,9 @@ export function NavigationProvider(
       // must not synthesize a target, repair selection, or escalate the error.
       return;
     }
-    // The mounted snapshot has already written its own initial selection
-    // (`writeInitialHunkSelection`); a shell without navigable DOM — the
-    // loading and error fallbacks — installs no scroll listeners.
+    // The mounted snapshot has already written its initial selection with
+    // `writeInitialHunkSelection`. Loading and error shells have no navigable
+    // DOM, so they install no scroll listeners.
     if (root.querySelectorAll("[data-file-card]").length === 0) {
       return;
     }

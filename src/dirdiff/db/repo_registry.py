@@ -1,13 +1,20 @@
 """Persistence for repositories that dirdiff can open by id.
 
-`RepoMarkStore` is used by `dirdiff mark`, `dirdiff refs`, and FastAPI repo
-routes in `dirdiff.server`.  It maps a stable integer project id to a filesystem
-path, a user-facing repo name, the mark timestamp, and an optional main-branch
-selection.  The exported records are read models for those concepts:
-`RepoMarkRecord` and `RepoMainBranchRecord`.
+## Classes
 
-This module is only the registry.  It does not inspect the Git worktree, resolve
-refs, build manifests, load file contents, or cache diff follow-up data.
+`RepoMarkStore` creates, lists, finds, and deactivates repository marks. It also
+stores the optional symbolic base branch used to seed Branch Review. The
+exported records carry those values to CLI and server callers.
+
+## Purpose and boundaries
+
+A mark gives later commands and HTTP parameters a stable integer identity even
+when repository paths or display order differ. Deactivation preserves the row
+so retained Rooms and review data can continue to refer to it.
+
+The registry treats repository paths and branch selections as stored values. It
+does not inspect worktrees, resolve refs, read File contents, or construct Tabs;
+those operations belong to backend and server code.
 """
 
 from __future__ import annotations
@@ -40,30 +47,50 @@ __all__ = [
 
 
 class RepoMark(TableBase):
-    """
-    Operational repository mark table.
+    """Persist the stable identity and lifecycle of one repository mark.
 
-    Stores the synthetic project id, filesystem path, and whether the mark is
-    available to ordinary registry operations.  Inactive rows preserve the id
-    referenced by Rooms and Snapshots.
+    `RepoMarkStore` creates or reactivates rows and filters ordinary reads to
+    `active=True`.
+
+    Display metadata and main-branch selection live in separate relations.
+    Callers never receive this ORM object directly.
     """
 
     __tablename__ = "repo_mark"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    """Synthetic repository identity referenced by Rooms and HTTP entities.
+
+    Reactivating the same path preserves this value, so callers may retain it
+    across mark lifecycle changes.
+    """
+
     path: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    """Globally unique absolute workspace path.
+
+    Registration uses its string form as the durable correspondence key; the row
+    does not guarantee the directory remains readable after insertion.
+    """
+
     active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         server_default="1",
     )
+    """Whether ordinary registry reads expose this mark.
+
+    Deactivation preserves the row and its referenced identity.
+    """
 
 
 class RepoMarkMeta(TableBase):
-    """
-    Display metadata for a marked repository.
+    """Persist display metadata for one repository mark.
 
-    Stores the name and timestamp shown by the repo picker.
+    `RepoMarkStore` writes this one-to-one row with `RepoMark` and joins it when
+    producing `RepoMarkRecord` values.
+
+    It contains the picker name and mark timestamp only. Repository identity,
+    path, lifecycle, and Git state stay outside this relation.
     """
 
     __tablename__ = "repo_mark_meta"
@@ -72,18 +99,38 @@ class RepoMarkMeta(TableBase):
         ForeignKey("repo_mark.id"),
         primary_key=True,
     )
+    """Repository mark whose one-to-one display metadata this row stores.
+
+    As the primary and foreign key, it prevents metadata from outliving or
+    multiplying for one registry identity.
+    """
+
     name: Mapped[str] = mapped_column(String, nullable=False)
+    """User-facing repository name shown by CLI and HUD pickers.
+
+    Remarking may replace it without changing project identity or the registered
+    filesystem path.
+    """
+
     marked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )
+    """UTC time when the repository was most recently marked or reactivated.
+
+    It describes registry activity for presentation, not repository history or
+    filesystem modification time.
+    """
 
 
 class RepoMainBranch(TableBase):
-    """
-    Persisted main branch selection for one marked repository.
+    """Persist one symbolic main-branch selection for a marked repository.
 
-    This is the repo-level main branch used to seed branch-review base controls.
+    `RepoMarkStore` replaces this one-to-one row when the user changes the
+    default Branch Review base, then returns `RepoMainBranchRecord` to callers.
+
+    Remote and branch names remain separate. This table stores no commit id and
+    does not assert that the symbolic branch currently resolves.
     """
 
     __tablename__ = "repo_main_branch"
@@ -92,50 +139,127 @@ class RepoMainBranch(TableBase):
         ForeignKey("repo_mark.id"),
         primary_key=True,
     )
+    """Repository mark whose default base this row configures.
+
+    Its one-to-one key makes replacement the complete saved selection for that
+    project rather than an append-only history.
+    """
+
     source: Mapped[str] = mapped_column(String, nullable=False)
+    """Branch-source discriminator, either `local` or `remote`.
+
+    Callers interpret the remaining fields according to this value; persistence
+    keeps the symbolic choice and does not resolve it to a commit.
+    """
+
     remote: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Remote name for a remote selection, otherwise `None`.
+
+    A non-null value is meaningful only with the remote source; local selections
+    must not invent a remote name.
+    """
+
     branch: Mapped[str] = mapped_column(String, nullable=False)
+    """Symbolic branch name relative to its selected source.
+
+    It is stored without ref prefixes and may later fail Git resolution if the
+    repository changes.
+    """
 
 
 @dataclass(frozen=True)
 class RepoMarkRecord:
-    """Registered repository shown in repo lists and used by repo routes."""
+    """Expose one active repository mark to CLI and HTTP callers.
+
+    `RepoMarkStore.new_mark`, `get`, and `list` return this immutable record.
+    Use `id` in later operations, `path` to open the workspace backend, and the
+    remaining fields for presentation.
+
+    The record does not include Git refs, branch defaults, Room state, or an
+    assertion that the path remains readable after the registry query.
+    """
 
     id: int
-    """Stable database id used by FastAPI requests for this repository."""
+    """Stable database id used by FastAPI requests for this repository.
+
+    Follow-up calls use it instead of trusting a browser-supplied workspace path;
+    only active marks are exposed through ordinary reads.
+    """
 
     path: str
-    """Filesystem path string stored for repo-backed diff requests."""
+    """Filesystem path string stored for repo-backed diff requests.
+
+    Backend construction may validate current accessibility later; this record
+    reports registration state only.
+    """
 
     name: str
-    """Display name shown by CLI listings and the repo picker."""
+    """Display name shown by CLI listings and the repo picker.
+
+    It is mutable presentation metadata and must not be used as repository
+    identity or a filesystem path.
+    """
 
     marked_at: datetime
-    """UTC timestamp for when the repository was registered."""
+    """UTC timestamp for the most recent mark or reactivation.
+
+    Consumers may display or order it, but it carries no Git commit or workspace
+    freshness guarantee.
+    """
 
 
 @dataclass(frozen=True)
 class RepoMainBranchRecord:
-    """Persisted default branch-review base for one registered repository."""
+    """Expose the saved default Branch Review base for one repository.
+
+    The store returns this record to default-selection routes. Convert its
+    source, remote, and branch fields into a structured branch selection before
+    asking a backend to resolve it.
+
+    It is symbolic configuration, not a commit, Git ref string, or repository
+    identity beyond `project_id`.
+    """
 
     project_id: int
-    """Repository id this branch selection belongs to."""
+    """Repository id this branch selection belongs to.
+
+    It binds the symbolic default to one mark; callers must use that same mark
+    when asking a backend to resolve the selection.
+    """
 
     source: str
-    """Ref source, such as a local branch or a remote branch selection."""
+    """Ref source distinguishing local from remote branch selection.
+
+    It determines whether `remote` must be absent or present and how callers
+    construct the structured backend input.
+    """
 
     remote: str | None
-    """Remote name when `source` identifies a remote branch; otherwise `None`."""
+    """Remote name when `source` identifies a remote branch; otherwise `None`.
+
+    It is symbolic configuration and does not assert that the remote still exists.
+    """
 
     branch: str
-    """Branch name to use as the default branch-review base."""
+    """Branch name to use as the default Branch Review base.
+
+    Callers combine it with `source` and `remote`; it is not a resolved ref or
+    immutable commit identity by itself.
+    """
 
 
 class RepoMarkStore:
-    """
-    SQLite-backed repository registry.
+    """Provide the SQLite repository registry used by CLI and server code.
 
-    Maps synthetic integer project ids to filesystem paths and display metadata.
+    # Usage
+    Construct one store from the application engine. Use `new_mark` to register
+    or reactivate a path, `list` and `get` for active marks, and the main-branch
+    methods for saved Branch Review defaults.
+
+    # Boundaries
+    Operations own short-lived sessions and return immutable records. The store
+    does not inspect Git, resolve refs, load workspace content, create Rooms, or
+    decide whether a saved path is currently usable.
     """
 
     def __init__(self, engine: Engine) -> None:
@@ -154,6 +278,25 @@ class RepoMarkStore:
         The database assigns the synthetic project id for a new path.  A path
         that was previously deactivated keeps its original id and registry
         state while receiving the supplied display name and a new mark time.
+
+        # Parameters
+
+        - `path`: Existing absolute repository directory. Its string form is
+          the stable registry key.
+        - `name`: Display name; surrounding whitespace is removed and the
+          remaining value must not be empty.
+
+        # Usage
+
+        Resolve and validate the repository directory before calling. Keep the
+        returned id as the value used by later CLI commands and repository HTTP
+        parameters.
+
+        # Failures
+
+        - Asserts when `path` is not an existing absolute directory or `name`
+          becomes empty after trimming.
+        - The database rejects a second mark of an already active path.
         """
 
         assert path.is_absolute(), f"repo path must be absolute: {path}"
@@ -207,6 +350,19 @@ class RepoMarkStore:
         Return all active marked repositories for selection.
 
         Results are ordered by display name, path, and stable id.
+
+        # Usage
+
+        Use the returned order directly for repository selection. Inactive marks
+        are deliberately absent even though their retained data still exists.
+
+        # Returns
+
+        - Each item is one active Mark's stable id, path, display name, and
+          marking time; inactive retained Marks are absent.
+        - Items are ordered by display name, then path, then id. An empty
+          sequence means the registry has no active Marks.
+
         """
 
         with Session(self.engine) as session:
@@ -248,6 +404,19 @@ class RepoMarkStore:
         Return one marked repository by synthetic id.
 
         Returns `None` when the id is absent or inactive.
+
+        # Usage
+
+        Use this at the boundary of an operation that requires an active mark.
+        Treat `None` as an unknown project rather than trying to open a path from
+        retained Room data.
+
+        # Returns
+
+        - The active mark record for the exact id.
+        - `None`: No active mark has that id. The caller must handle it as an
+          unknown repository, not reconstruct a mark from retained Room data.
+
         """
 
         with Session(self.engine) as session:
@@ -288,6 +457,11 @@ class RepoMarkStore:
         Returns `True` when an active mark became inactive, or `False` when the
         id was absent or already inactive.  Registry metadata, Rooms,
         Snapshots, and repository files on disk are never touched.
+
+        # Usage
+
+        Call this for the registry's remove-mark operation. The boolean tells a
+        CLI or route whether this call changed active state.
         """
 
         with Session(self.engine) as session, session.begin():
@@ -303,8 +477,28 @@ class RepoMarkStore:
             return deactivated_id is not None
 
     def get_main_branch(self, project_id: int) -> RepoMainBranchRecord | None:
-        """
-        Return the persisted main branch for one active marked repository.
+        """Read the saved symbolic Branch Review base for one active Mark.
+
+        The result keeps source, optional remote, and branch separate. `None`
+        means the Mark is missing, inactive, or has no saved selection; this
+        lookup neither discovers Git defaults nor creates registry state.
+
+        # Parameters
+
+        - `project_id`: Stable active Mark identity whose optional default is read.
+
+        # Usage
+
+        Use this only after selecting a repository id. When it returns `None`,
+        ask backend discovery for a suggested base rather than inventing stored
+        configuration.
+
+        # Returns
+
+        - The saved structured base selection for the active Mark.
+        - `None`: The Mark is unavailable or has no persisted choice. The caller
+          may ask the backend for a suggestion but must not claim it was saved.
+
         """
 
         with Session(self.engine) as session:
@@ -342,8 +536,27 @@ class RepoMarkStore:
         remote: str | None,
         branch: str,
     ) -> RepoMainBranchRecord:
-        """
-        Persist the main branch for one marked repository.
+        """Persist the symbolic Branch Review base for an active mark.
+
+        # Parameters
+
+        - `project_id`: Active repository mark whose default is replaced.
+        - `source`: Branch namespace, validated by the HTTP boundary as local
+          or remote.
+        - `remote`: Remote name for a remote source, otherwise `None`.
+        - `branch`: Symbolic branch name within the selected source.
+
+        # Usage
+
+        Convert and validate the client's structured branch selection first.
+        Store the symbolic names, not a resolved ref or commit, so later review
+        startup can re-evaluate the branch.
+
+        # Failures
+
+        - Asserts when `project_id` does not name an active mark.
+        - Propagates database constraints if the source, remote, and branch
+          relationship is invalid.
         """
 
         mark = self.get(project_id)

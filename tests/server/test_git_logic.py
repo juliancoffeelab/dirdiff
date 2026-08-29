@@ -14,6 +14,11 @@ __all__: list[str] = []
 
 
 def test_git_engine_keeps_equal_source_outside_patch_hunks() -> None:
+    """Sparse unified-patch context expands back to every source line.
+
+    Equal prefixes, inter-hunk gaps, and tails must survive in engine rows on
+    both sides, preserving complete File rendering and virtualization.
+    """
     old_lines = [
         "pre 1",
         "pre 2",

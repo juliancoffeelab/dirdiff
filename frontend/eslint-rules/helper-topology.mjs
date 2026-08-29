@@ -40,12 +40,10 @@ function helperTopologyRule(diagnosticKind) {
     },
 
     /**
-     * Analyze one parsed module after ESLint has resolved its lexical bindings.
+     * Build visitors that analyze resolved lexical bindings in one module.
      *
      * @param {import("eslint").Rule.RuleContext} context ESLint's per-file rule
      * context.
-     * @returns {import("eslint").Rule.RuleListener} Visitors that report helper
-     * topology after the complete module has been parsed.
      */
     create(context) {
       const sourceCode = context.sourceCode;
@@ -122,8 +120,10 @@ function helperTopologyRule(diagnosticKind) {
            * component, which is the scope into which a shared helper can move.
            *
            * @param {import("estree").Identifier} identifier Resolved reference.
-           * @returns {import("estree").Function | null} Outermost containing
-           * function, or null for module-level syntax.
+           * # Returns
+           *
+           * - `Function`: the outermost containing function.
+           * - `null`: the reference appears in module-level syntax.
            */
           function outermostFunction(identifier) {
             let container = null;
@@ -149,8 +149,10 @@ function helperTopologyRule(diagnosticKind) {
            *
            * @param {import("estree").Function} functionNode Candidate function.
            * @param {string} functionName Candidate binding name.
-           * @returns {string | null} Guarded type name, or null when the
-           * function is not a supported type guard.
+           * # Returns
+           *
+           * - `string`: the guarded type name.
+           * - `null`: the function is not a supported type guard.
            */
           function guardedTypeName(functionNode, functionName) {
             if (!functionName.startsWith("is")) {
@@ -174,7 +176,6 @@ function helperTopologyRule(diagnosticKind) {
            *
            * @param {import("estree").Function} functionNode Type guard.
            * @param {string} guardedTypeName Module-local guarded type name.
-           * @returns {boolean} Whether the declarations are adjacent.
            */
           function followsType(functionNode, guardedTypeName) {
             let statement = functionNode;

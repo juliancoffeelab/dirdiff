@@ -1,33 +1,20 @@
 /**
- * Implements the file lane: the canonical data lifecycle of one mounted
- * ChangeSet snapshot.
+ * Runs the canonical file-data lifecycle for one mounted ChangeSet snapshot.
  *
- * `createFileLane` is the public interface. It is born once per immutable
- * snapshot with plain data (engine, snapshot id, the validated manifest-order
- * file list and its canonical response names) and returns one `FileLane`
- * whose accessors are the sole canonical file states, admission answers, and
- * progress values the host presents. The module exists because this lifecycle
- * — ordered fetching with bounded prefetch, strictly sequential render
- * admission, one shared queue for automatic, explicit, and line-target work,
- * and idempotent cancellation — is a self-contained machine that must not be
- * interleaved with presentation concerns.
+ * `createFileLane` receives one immutable manifest order and starts automatic,
+ * explicit, and line-target work through a single queue. Measured light engines
+ * may overlap a bounded number of fetches, but render admission remains strictly
+ * sequential. Each manifest entry has one canonical query and one replaceable
+ * Solid view; immutable payloads stay outside reactive state until admitted.
  *
- * The lane owns its per-index `FileQueryView` signals, the settled payload
- * slots, the admission set, the lazy-info observer, and the scheduling loop;
- * all of it dies with the reactive owner that created the lane. It must not
- * own or touch presentation: no DOM, no toasts, no URL or line-pin identity,
- * no file expansion, no navigation. The two host behaviors it accepts — a
- * line-target's `restore` gate and the explicit-load notification — are the
- * complete extent of its outward calls.
+ * The lane retains those views, settled payload slots, admission state, and its
+ * scheduler until the creating reactive owner is disposed. `stop()` is
+ * idempotent and prevents later writes, admissions, and host callbacks. An
+ * ordinary File failure remains local and never stops later manifest entries.
  *
- * Guarantees: automatic admissions are sequential in manifest order; fetches
- * overlap only within one fixed bound; one canonical query represents one
- * manifest entry; one file failure never stops later files; a stopped lane
- * performs no further view writes, admissions, or callbacks.
- *
- * The module also exports the canonical manifest identity and order helpers —
- * `manifestEntryKey`, `fileDisplayName`, and `manifestFilesInOrder` — shared
- * by every consumer that addresses files by manifest position.
+ * DOM, Toasts, URL identity, file expansion, and Navigation stay with the host.
+ * The lane calls outward only to apply explicit-load expansion policy and to
+ * await a line target's post-admission restoration gate.
  */
 import {
   createMemo,
@@ -51,6 +38,12 @@ import {
 } from "../../api/api";
 import { assert, expect } from "../../utils";
 
+/**
+ * Delay before the active file becomes visibly slow in AppHeader status.
+ *
+ * The per-attempt timer is cleared at settlement, so this threshold changes
+ * presentation only and never a query timeout or lane scheduling decision.
+ */
 const SLOW_FILE_THRESHOLD_MS = 8_000;
 // Automatic loading overlaps this many upcoming file fetches with the active
 // one, so backend latency stops serializing with render admission. Admission
@@ -59,6 +52,13 @@ const SLOW_FILE_THRESHOLD_MS = 8_000;
 // engines measured to tolerate concurrent backend renders (dirdiff 23% and
 // git 14% faster total load at this width); heavy engines never prefetch
 // (see `isHeavyEngine`).
+/**
+ * Maximum upcoming automatic queries overlapped with the active file.
+ *
+ * The bound applies only to measured non-heavy engines and limits both backend
+ * concurrency and payloads waiting for ordered admission. It never permits
+ * render admission to pass the automatic cursor.
+ */
 const AUTOMATIC_PREFETCH_WIDTH = 2;
 
 /**
@@ -68,7 +68,9 @@ const AUTOMATIC_PREFETCH_WIDTH = 2;
  * names or mutable query state. It is used only for expansion and calculations.
  */
 export function manifestEntryKey(entry: {
+  /** Old-side manifest path, null for a newly added file. */
   left_path: string | null;
+  /** New-side manifest path, null for a deleted file. */
   right_path: string | null;
 }): string {
   return `${entry.left_path ?? ""}\u0000${entry.right_path ?? ""}`;
@@ -82,7 +84,9 @@ export function manifestEntryKey(entry: {
  * non-empty; a handle with neither path violates the file identity contract.
  */
 export function fileDisplayName(entry: {
+  /** Old-side canonical path, used alone for deletions and unchanged names. */
   left_path: string | null;
+  /** New-side canonical path, used alone for additions and paired for renames. */
   right_path: string | null;
 }): string {
   const leftPath = entry.left_path;
@@ -108,7 +112,7 @@ export function fileDisplayName(entry: {
  * The QueryClient cache owns transport; the file lane is this view's only
  * writer and records exactly the transitions it causes: fetch or prefetch
  * start ("fetching") and settlement ("success"/"error"). Each view lives in
- * its own replaceable signal so a write swaps the whole value — a Solid
+ * its own replaceable signal so a write swaps the whole value. A Solid
  * store write would merge fields and let a stale `error` survive a later
  * success. Payloads stay out of reactive state so propagation never walks
  * row data (TanStack's own `createQueries` store deep-unwraps every query's
@@ -116,10 +120,24 @@ export function fileDisplayName(entry: {
  * failure exactly as the fetch rejected with it.
  */
 type FileQueryView =
-  | { phase: "idle" }
-  | { phase: "fetching" }
-  | { phase: "success" }
-  | { phase: "error"; error: unknown };
+  | {
+      /** This lane has not started or joined the canonical query. */
+      phase: "idle";
+    }
+  | {
+      /** A lane fetch or automatic prefetch for this index is in flight. */
+      phase: "fetching";
+    }
+  | {
+      /** The matching immutable payload was written before this phase became visible. */
+      phase: "success";
+    }
+  | {
+      /** The one attempted query settled as an ordinary file-local failure. */
+      phase: "error";
+      /** Original rejection retained for LazyFile presentation and Retry. */
+      error: unknown;
+    };
 
 /**
  * Describes the ordinary pre-result presentation of one manifest file.
@@ -128,10 +146,15 @@ type FileQueryView =
  * It must not pretend that per-file statistics or rendered rows are available.
  */
 export type HuskFileState = {
+  /** Distinguishes queued or fetching presentation from usable file content. */
   state: "husk";
+  /** Stable manifest position shared with FileTree, FileCard, and Navigation. */
   fileIndex: number;
+  /** Manifest leaf name used by lightweight queued presentation. */
   name: string;
+  /** Complete display path used for activity and failure context. */
   path: string;
+  /** Whether the query is waiting in lane order or currently in flight. */
   activity: "queued" | "fetching";
 };
 
@@ -142,8 +165,11 @@ export type HuskFileState = {
  * FileBody. Manifest or lazy metadata must not be merged into it.
  */
 export type FullFileState = {
+  /** Marks the only branch whose complete backend FileDiff is available. */
   state: "full";
+  /** Stable manifest position whose response name the lane already validated. */
   fileIndex: number;
+  /** Immutable canonical payload consumed directly by FileCard renderers. */
   backend_data: FileDiff;
 };
 
@@ -154,8 +180,22 @@ export type FullFileState = {
  * thrown Error and stable manifest path so complete local damage remains visible.
  */
 export type LazyFile =
-  | { kind: "deferred"; info: LazyInfoFile }
-  | { kind: "error"; name: string; path: string; error: Error };
+  | {
+      /** Intentional manifest deferral that may be loaded explicitly. */
+      kind: "deferred";
+      /** Validated lazy-info metadata, including reason and available statistics. */
+      info: LazyInfoFile;
+    }
+  | {
+      /** Ordinary file or lazy-info failure that remains local and retryable. */
+      kind: "error";
+      /** Manifest leaf name retained when no FileDiff exists. */
+      name: string;
+      /** Complete display path used in the visible failure. */
+      path: string;
+      /** Original Error presented by FileCard and reused until the next attempt. */
+      error: Error;
+    };
 
 /**
  * Describes a file whose content starts only through explicit user activation.
@@ -165,8 +205,11 @@ export type LazyFile =
  * timeout policy, or copied loading flag.
  */
 export type LazyFileState = {
+  /** Marks content that requires explicit activation or Retry. */
   state: "lazy";
+  /** Stable manifest position enqueued by the plank or Retry action. */
   fileIndex: number;
+  /** Deferred metadata or the exact ordinary failure presented at this index. */
   file: LazyFile;
 };
 
@@ -187,9 +230,13 @@ export type FileState = HuskFileState | FullFileState | LazyFileState;
  * one-shot threshold flag rather than elapsed-time state.
  */
 export type FileLaneActivity = {
+  /** Scheduling source used to label progress and choose restoration ordering. */
   kind: "sequence" | "selected" | "line-target";
+  /** Manifest position of the sole active lane attempt. */
   fileIndex: number;
+  /** Stable display path shown if the attempt crosses the slow threshold. */
   path: string;
+  /** False until the per-attempt presentation timer fires; never elapsed time. */
   slow: boolean;
 };
 
@@ -200,67 +247,117 @@ export type FileLaneActivity = {
  * reach and load (even when the manifest marked it lazy). `restore` is the
  * host's post-admission gate: the lane awaits it once the target file is
  * fetched and admitted, and blocks later file loading until it settles. The
- * lane never interprets its result — cancellation arrives through the given
- * AbortSignal and lane stop — but a thrown restoration failure is terminal:
+ * lane never interprets its result. Cancellation arrives through the given
+ * AbortSignal and lane stop. A thrown restoration failure is terminal:
  * the lane stops itself and rethrows. URL identity, parsing, and toasts stay
  * with the host.
  */
 export type FileLaneLineTarget = {
+  /**
+   * Exact resolved manifest position that takes priority through restoration.
+   * The host validates URL identity and uniqueness before constructing the lane.
+   */
   fileIndex: number;
+  /**
+   * Restores the admitted target before later file loading resumes.
+   *
+   * The lane invokes it only after `fileIndex` has fetched and been admitted.
+   * `signal` is aborted when this lane stops. The host may prepare DOM, navigate,
+   * Toast, or update the still-current URL and may return any value because the
+   * lane uses settlement only as an ordering gate. A rejection is terminal:
+   * the lane stops before propagating it to the snapshot boundary.
+   */
   restore(signal: AbortSignal): Promise<unknown>;
 };
 
 /**
- * Defines every input of one file lane; all fields are immutable for its life.
+ * Defines the immutable construction boundary of one file lane.
  *
- * `files` is the flattened manifest-order list, already validated unique by
- * the host at the manifest boundary. `canonicalNames[i]` is the exact FileDiff
- * `display_name` the backend must return for `files[i]`; the lane asserts
- * every successful response against it. `onExplicitLoad` fires after an
- * explicit selection or line-target fetch succeeds, before admission, so the
- * host can apply its expansion policy; it must not re-enter the lane.
+ * Positional arrays share the same manifest indexing for the lane's whole life.
  */
 export type FileLaneArgs = {
+  /** File-rendering engine included in every canonical file-query key. */
   engine: DiffEngine;
+  /** Opaque manifest Snapshot identity used unchanged for lazy-info and files. */
   snapshotId: string;
+  /** Flattened, unique manifest leaves in exact backend order. */
   files: readonly ManifestFile[];
+  /**
+   * Expected FileDiff display name at each corresponding `files` index.
+   * Every successful response is asserted against this value before becoming Full.
+   */
   canonicalNames: readonly string[];
+  /** Shared TanStack client that deduplicates unobserved canonical file queries. */
   queryClient: QueryClient;
+  /** Prevalidated line goal, or null when ordinary and explicit scheduling suffice. */
   lineTarget: FileLaneLineTarget | null;
+  /**
+   * Notifies the host after an explicit or line-target query becomes Full and
+   * before its body is admitted.
+   *
+   * `fileIndex` is the exact successful manifest position. The host may apply
+   * its expansion policy synchronously, and the admitted render sees that
+   * accepted state after the callback returns. Automatic files do not invoke
+   * it. The callback must not enqueue or stop the lane while it is running.
+   */
   onExplicitLoad(fileIndex: number): void;
 };
 
 /**
- * Exposes one snapshot's complete canonical file lifecycle to its host.
+ * Exposes the host-facing lifecycle of one immutable snapshot lane.
  *
- * `fileState`/`fileStates` are the sole canonical per-file states; `admitted`
- * reports render admission; `processed`, `automaticTotal`, and `activity`
- * describe automatic progress; `error` carries the one unexpected lane
- * failure for the host to rethrow into its boundary. `enqueue` is the only
- * way to request an explicit load or retry, and `stop` is the idempotent
- * shutdown shared by disposal and explicit reload. The object adds no other
- * control surface: hosts must not reach canonical queries, views, or
- * payloads behind it.
+ * The interface is the only supported path to file presentation and explicit
+ * work. Canonical queries, view signals, and payload slots remain private.
  */
 export type FileLane = {
-  /** Count of automatic (non-lazy) manifest entries; immutable. */
+  /**
+   * Immutable count of manifest entries eligible for automatic attempts.
+   * Deferred entries are excluded even if the user later loads them explicitly.
+   */
   automaticTotal: number;
-  /** Reads one exact manifest index's canonical state; unknown indexes throw. */
+  /**
+   * Reads one manifest index's current canonical presentation branch.
+   *
+   * `fileIndex` must come from this lane's immutable file order. The accessor
+   * participates in Solid tracking and throws for an unknown index rather than
+   * returning a placeholder.
+   */
   fileState(fileIndex: number): FileState;
-  /** Reads every canonical state in manifest order. */
+  /**
+   * Returns all current canonical states in immutable manifest order.
+   * Consumers may derive presentation but must not mutate or cache the array as
+   * another backend authority.
+   */
   fileStates: Accessor<readonly FileState[]>;
-  /** Reports whether one manifest index is admitted for expensive rendering. */
+  /**
+   * Reports whether the successful payload at `fileIndex` may mount FileBody.
+   * False may coexist with a Full state during the deliberate yield before
+   * ordered admission; unknown indexes simply have no admission entry.
+   */
   admitted(fileIndex: number): boolean;
-  /** Count of completed automatic attempts, including local failures. */
+  /**
+   * Returns completed automatic attempts, including ordinary local failures.
+   * Explicit loads and line-target retries never increment it.
+   */
   processed: Accessor<number>;
-  /** The lane's current work, or null when it is idle or finished. */
+  /**
+   * Returns the sole active attempt and its slow marker, or null while idle.
+   * Queued selections are not reported until the scheduler activates them.
+   */
   activity: Accessor<FileLaneActivity | null>;
-  /** One unexpected lane failure; ordinary file failures never appear here. */
+  /**
+   * Returns the first unexpected orchestration failure for the host to throw.
+   * Ordinary query failures remain error LazyFiles and never enter this signal.
+   */
   error: Accessor<Error | null>;
   /**
    * Submits one LazyFile or failed file to the lane with an explicit timeout
-   * policy. Successful and currently-active files are ignored; duplicates
-   * collapse. It never bypasses sequencing or alters canonical query identity.
+   * policy. Successful and currently-active files are ignored; duplicate queue
+   * entries coalesce. It never bypasses sequencing or alters canonical query
+   * identity.
+   *
+   * @param fileIndex Manifest position of the LazyFile or failed file.
+   * @param timeout Bounded ordinary-load or unbounded Retry policy for this attempt.
    */
   enqueue(fileIndex: number, timeout: FileDiffTimeout): void;
   /**
@@ -318,7 +415,13 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     ),
   );
 
-  /** Reads one exact manifest index's view; unknown indexes throw. */
+  /**
+   * Read the lifecycle view signal for one immutable manifest position.
+   *
+   * The returned branch participates in Solid tracking but never exposes the
+   * settled payload. Unknown indexes throw because sparse view state would make
+   * the parallel manifest and payload arrays disagree.
+   */
   function fileView(fileIndex: number): FileQueryView {
     return expect(
       fileViewSignals[fileIndex],
@@ -326,7 +429,15 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     )[0]();
   }
 
-  /** Replaces one exact manifest index's view wholesale; unknown indexes throw. */
+  /**
+   * Replaces one exact manifest index's view wholesale.
+   *
+   * The writer must place a successful payload in `fileDiffs` before publishing
+   * `success`. Unknown indexes throw instead of creating sparse lane state.
+   *
+   * @param fileIndex Immutable manifest position whose signal is replaced.
+   * @param view Complete next lifecycle branch caused by this lane.
+   */
   function setFileView(fileIndex: number, view: FileQueryView): void {
     expect(
       fileViewSignals[fileIndex],
@@ -479,14 +590,19 @@ export function createFileLane(args: FileLaneArgs): FileLane {
   );
 
   const selectedQueue: Array<{
+    /** Manifest position awaiting an explicit lane attempt. */
     fileIndex: number;
+    /** Attempt-specific HTTP timeout chosen by ordinary Load or Retry. */
     timeout: FileDiffTimeout;
   }> = [];
   const selectedSet = new Set<number>();
   const laneAbortController = new AbortController();
   let lineTarget: {
+    /** Prevalidated target and post-admission restoration gate. */
     goal: FileLaneLineTarget;
+    /** Pending participates in scheduling; dormant waits for explicit Retry. */
     state: "pending" | "dormant";
+    /** Whether this snapshot's single lazy-info observer must settle first. */
     needsLazyInfo: boolean;
   } | null =
     args.lineTarget === null
@@ -738,6 +854,11 @@ export function createFileLane(args: FileLaneArgs): FileLane {
         activeIndex = fileIndex;
         activeKey = options.queryKey;
         setLaneActivity(activity);
+        // Each active attempt gets one presentation-only timer. Its callback
+        // reads the immutable attempt index and marks activity slow only if that
+        // same attempt is still active. The `finally` block clears the timer on
+        // success, failure, or cancellation, so settled files cannot later
+        // rewrite lane activity.
         const slowTimer = window.setTimeout(() => {
           if (!stopped && activeIndex === fileIndex) {
             setLaneActivity({ ...activity, slow: true });
@@ -848,8 +969,20 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     return stopPromise;
   }
 
+  /**
+   * Queues one explicit load or Retry on the lane's single scheduler.
+   *
+   * Successful and currently active indexes need no new work; repeated queued
+   * indexes coalesce without replacing the first timeout policy. A stopped lane
+   * rejects new work because disposal cannot accept an operation it will not run.
+   * After insertion, `runLane` preserves line-target priority and executes this
+   * entry between automatic files.
+   *
+   * @param fileIndex Manifest position selected through LazyFile or Retry UI.
+   * @param timeout Bounded ordinary-load or unbounded Retry policy for this attempt.
+   */
   function enqueue(fileIndex: number, timeout: FileDiffTimeout): void {
-    // A stopped lane is being disposed or replaced; accepting the request
+    // A stopped lane is being disposed or replaced; accepting the operation
     // would silently drop it, so the broken expectation stays visible.
     assert(!stopped, "Cannot load a file after its lane stopped.");
     const file = expect(
@@ -870,6 +1003,10 @@ export function createFileLane(args: FileLaneArgs): FileLane {
   // so the target already constrains the lane before its first query begins.
   void runLane().catch(reportLaneFailure);
 
+  // The reactive owner and lane have identical lifetimes. Cleanup calls the
+  // idempotent stop operation so active and prefetched queries are cancelled,
+  // the restoration AbortSignal aborts, and every later view write is suppressed.
+  // Any unexpected cancellation failure still reaches the lane error signal.
   onCleanup(() => {
     void stopLane().catch(reportLaneFailure);
   });

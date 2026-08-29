@@ -1,20 +1,15 @@
 /**
- * Implements one selected ChangeSet's backend observation and presentation.
+ * Presents one retained Tab selection as replaceable ChangeSet snapshots.
  *
- * The module exports ChangeSet. The lightweight outer ChangeSet stores file
- * expansion, local Help state, and local History visibility while receiving
- * workspace-wide FileTree and DebugHud visibility. Active ChangeSetContent
- * observes the manifest, while ChangeSetSnapshot owns the profile-preference
- * observer, resolves the URL line pin, and creates its one file lane
- * (`fileLane.ts`), which owns the lazy-info and file queries and every
- * canonical file state. The mounted frame — root DOM, hotkeys, display
- * mirror, and overlays — is `Shell.tsx`'s ChangeSetShell; the sidebar is
- * `FileTree.tsx`. This module renders Portals, title, and FileCards inside
- * that frame. It must not copy backend results into Solid state, start
- * file-diff requests outside the lane, store workspace or Tab selections, or
- * follow user scrolling.
- * Line-pin URL identity and decoration remain in LinePins; the file lane
- * accepts only its resolved target index and restoration gate.
+ * The outer `ChangeSet` retains file expansion, Help, and History state while
+ * inactive. Active content observes one manifest and replaces the whole mounted
+ * snapshot on reload. Each successful snapshot creates exactly one file lane,
+ * resolves any URL line target, and mounts FileCards before writing initial hunk
+ * selection.
+ *
+ * Backend results remain in TanStack Query and the lane's canonical views.
+ * Workspace and Tab selection stay above this boundary; scrolling, line-pin
+ * identity, and FileTree presentation stay in their dedicated modules.
  */
 import {
   For,
@@ -76,25 +71,53 @@ import {
 import { ChangeSetShell, type HunkDisplay } from "./Shell";
 
 /**
- * Defines every complete input needed to identify and activate one ChangeSet.
+ * Defines the complete inputs and workspace callbacks of one ChangeSet.
  *
- * `params` is one immutable selected Tab value. `engine` selects file rendering
- * without participating in manifest identity. View, FileTree visibility, and
- * DebugHud visibility are global reactive workspace inputs; `profile` is genuine
- * nullable profile identity; and `active` controls expensive observation. Required
- * callbacks report direct workspace actions. No field represents live control input.
+ * Tabs supplies the selected diff parameters, engine, and Profile together
+ * with workspace display state passed down from App. The callbacks write that
+ * display state at its source. This object never represents partially edited
+ * controls or backend query state.
  */
 type ChangeSetProps = {
+  /** False keeps local expansion, Help, and History state but mounts no queries or files. */
   active: boolean;
+  /** Complete selected Tab value sent unchanged to the manifest operation. */
   params: DiffParams;
+  /** File-rendering choice, deliberately excluded from manifest and Room identity. */
   engine: DiffEngine;
+  /** Workspace display mode applied reactively without replacing the manifest. */
   view: DiffViewMode;
+  /** Workspace-wide sidebar visibility retained across Tabs and snapshots. */
   fileTreeOpen: boolean;
+  /** Workspace-wide developer HUD visibility retained across Tabs and snapshots. */
   debugHudOpen: boolean;
+  /** Selected review author, or null when review actions have no signed-in Profile. */
   profile: StoredProfile | null;
+  /** Stable AppHeader destinations that receive this active snapshot's status Portals. */
   appHeaderOutlets: AppHeaderOutlets;
+  /**
+   * Performs the workspace's inline/split toggle after a shell action.
+   *
+   * The shell invokes it for `i` and the corresponding UI action, with no
+   * argument because the caller already stores the current mode. ChangeSet
+   * reads the accepted `view` value back through props on the next render.
+   */
   onToggleView: () => void;
+  /**
+   * Replaces workspace FileTree visibility with `open`.
+   *
+   * ChangeSet calls it after tree toggles with the complete desired boolean;
+   * the caller stores that value and returns it through `fileTreeOpen`. It is
+   * not called for private FileTree scrolling or file expansion.
+   */
   onFileTreeOpenChange: (open: boolean) => void;
+  /**
+   * Replaces workspace DebugHud visibility with `open`.
+   *
+   * The shell calls it only for the explicit Debug action. The caller stores
+   * the accepted value and returns it through `debugHudOpen`; metric sampling
+   * neither invokes this callback nor changes workspace state.
+   */
   onDebugHudOpenChange: (open: boolean) => void;
 };
 
@@ -106,6 +129,13 @@ type ChangeSetProps = {
  * rows are deliberately excluded from this store.
  */
 type ChangeSetState = {
+  /**
+   * Explicit per-file expansion keyed by the manifest path pair.
+   *
+   * `undefined` delegates to the current file state's initial policy. Boolean
+   * entries survive Tab inactivity and engine replacement, but reload clears
+   * the whole map before constructing the replacement snapshot.
+   */
   fileExpansion: Record<string, boolean | undefined>;
 };
 
@@ -118,16 +148,25 @@ type ChangeSetState = {
  */
 type FileSequenceState =
   | {
+      /** Work is active, so `active` identifies the one lane operation in flight. */
       state: "loading";
+      /** Completed automatic attempts, including files that failed locally. */
       processed: number;
+      /** Immutable count of non-lazy manifest entries attempted automatically. */
       automaticTotal: number;
+      /** Current error LazyFiles; a successful explicit retry removes one. */
       failed: number;
+      /** Current automatic, selected, or line-target lane operation. */
       active: FileLaneActivity;
     }
   | {
+      /** No file operation is active, though explicit work may be queued later. */
       state: "ready";
+      /** Completed automatic attempts at the moment the lane became idle. */
       processed: number;
+      /** Immutable denominator for automatic progress. */
       automaticTotal: number;
+      /** Current error LazyFiles that remain available for Retry. */
       failed: number;
     };
 
@@ -185,21 +224,58 @@ export function ChangeSet(props: ChangeSetProps): JSX.Element {
  * client and HUD state remain in the outer ChangeSet.
  */
 type ChangeSetContentProps = {
+  /** Immutable selection that keys this active manifest observer. */
   params: DiffParams;
+  /** Current renderer choice forwarded to a successful keyed snapshot. */
   engine: DiffEngine;
+  /** Reactive workspace layout forwarded without refetching the manifest. */
   view: DiffViewMode;
+  /** Current workspace sidebar value used by both loading/error and snapshot shells. */
   fileTreeOpen: boolean;
+  /** Current workspace DebugHud value used by both loading/error and snapshot shells. */
   debugHudOpen: boolean;
+  /** Current review author forwarded only after manifest success. */
   profile: StoredProfile | null;
+  /** Stable AppHeader Portal destinations used by a successful snapshot. */
   appHeaderOutlets: AppHeaderOutlets;
+  /**
+   * Runs the workspace view toggle for the shell's explicit action.
+   * The outer caller returns the accepted mode through `view` afterwards.
+   */
   onToggleView: () => void;
+  /** Current ChangeSet-local History visibility retained by the outer boundary. */
   historyOpen: boolean;
+  /**
+   * Replaces local History visibility with `open` after a hotkey or review action.
+   * The outer ChangeSet stores the value and returns it through `historyOpen`.
+   */
   onHistoryOpenChange: (open: boolean) => void;
+  /** Current ChangeSet-local Help visibility retained while content unmounts. */
   helpOpen: boolean;
+  /**
+   * Replaces local Help visibility with `open` after hotkey, button, or backdrop.
+   * The outer ChangeSet stores the value and returns it through `helpOpen`.
+   */
   onHelpOpenChange: (open: boolean) => void;
+  /**
+   * Replaces workspace FileTree visibility with the shell's desired value.
+   * The workspace returns the accepted value through `fileTreeOpen`.
+   */
   onFileTreeOpenChange: (open: boolean) => void;
+  /**
+   * Replaces workspace DebugHud visibility with the shell's desired value.
+   * The workspace returns the accepted value through `debugHudOpen`.
+   */
   onDebugHudOpenChange: (open: boolean) => void;
+  /** ChangeSet-local expansion state retained outside this active query lifetime. */
   state: ChangeSetState;
+  /**
+   * Solid store writer for the retained state.
+   *
+   * Content uses it to clear all expansion before reload; mounted descendants
+   * write only exact file keys. Accepted writes are visible through `state`
+   * before later expansion calculations run.
+   */
   setState: SetStoreFunction<ChangeSetState>;
 };
 
@@ -352,24 +428,57 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
 }
 
 /**
- * Defines every immutable backend input and reactive presentation input for one snapshot.
+ * Defines the host boundary for one immutable manifest snapshot.
  *
- * Params and manifest never change during this component lifetime. View, profile,
- * and workspace presentation state remain reactive without retargeting backend work.
- * The callbacks expose only the two lifecycle actions performed by ChangeSetContent.
+ * Backend identity is fixed for the component lifetime. Presentation values may
+ * change without retargeting its lane or query definitions.
  */
 type ChangeSetSnapshotProps = {
+  /** Complete selected Tab value used to interpret snapshot-specific naming. */
   params: DiffParams;
+  /** Renderer identity that keys the nested file-lane lifetime. */
   engine: DiffEngine;
+  /** Immutable successful manifest and opaque Snapshot identity for this boundary. */
   manifest: Manifest;
+  /** Reactive layout mode consumed by mounted files and review presentation. */
   view: DiffViewMode;
+  /** Reactive workspace sidebar visibility; file expansion remains separate. */
   fileTreeOpen: boolean;
+  /** Selected review author, or null for signed-out Snapshot presentation. */
   profile: StoredProfile | null;
+  /** Stable AppHeader elements receiving snapshot status and summary Portals. */
   appHeaderOutlets: AppHeaderOutlets;
+  /**
+   * Reads the latest complete display mirror derived from mounted FileCard DOM.
+   *
+   * Snapshot presentation calls it reactively for counters and FileTree
+   * highlighting. Null means the observer has not published a trustworthy
+   * calculation yet. Consumers must not turn the value back into navigation or
+   * retain it as selected-hunk state.
+   */
   hunkDisplay: Accessor<HunkDisplay | null>;
+  /** Retained ChangeSet expansion values shared by FileTree and FileCards. */
   state: ChangeSetState;
+  /**
+   * Writes exact keys in the outer ChangeSet's retained expansion store.
+   *
+   * Snapshot descendants call it synchronously after file or directory actions.
+   * The accepted values return through `state` before dependent expansion memos
+   * rerun. It must not write backend state, selection, or workspace visibility.
+   */
   setState: SetStoreFunction<ChangeSetState>;
+  /**
+   * Replaces workspace FileTree visibility after an explicit shell or tree action.
+   * The workspace returns the accepted value through `fileTreeOpen`.
+   */
   onFileTreeOpenChange(open: boolean): void;
+  /**
+   * Publishes the current lane's idempotent stop operation to ChangeSetContent.
+   *
+   * A mounted snapshot sends its exact `stop`; disposal sends null. The host
+   * stores the value only so Reload can synchronously stop and then await the
+   * old lane before refetching. The host must not call it for ordinary hiding.
+   */
   onFileSequenceChange(stop: (() => Promise<void>) | null): void;
 };
 
@@ -381,7 +490,13 @@ type ChangeSetSnapshotProps = {
  * performs review transport, navigation, or File-lane work.
  */
 type ReviewSnapshotBoundaryProps = ChangeSetSnapshotProps & {
+  /** ChangeSet-local History visibility shared across engine replacements. */
   historyOpen: boolean;
+  /**
+   * Replaces History visibility with `open` after review or hotkey actions.
+   * The outer ChangeSet stores it and supplies the accepted value back through
+   * `historyOpen`; it is not a review transport or navigation callback.
+   */
   onHistoryOpenChange(open: boolean): void;
 };
 
@@ -394,7 +509,23 @@ type ReviewSnapshotBoundaryProps = ChangeSetSnapshotProps & {
  * publishes only the concrete third grid child mounted beside the File lane.
  */
 type ChangeSetFileLaneProps = ChangeSetSnapshotProps & {
+  /**
+   * Publishes the complete set of manifest indexes currently backed by FullFiles.
+   *
+   * The snapshot invokes it after lane state changes and once with an empty set
+   * on cleanup. Review retains the replacement set for go-to enablement only.
+   * Neither side mutates a published set, and the callback must not load,
+   * expand, or navigate a File.
+   */
   onFileNavigabilityChange(indexes: ReadonlySet<number>): void;
+  /**
+   * Receives the concrete inline History slot after that element mounts.
+   *
+   * Solid invokes it with the third grid child in inline view; Review uses the
+   * element as its Portal target after the callback returns. It is not invoked
+   * in split view, whose History ignores the retained accessor value; returning
+   * to inline view publishes the newly mounted slot before its Portal renders.
+   */
   onInlineHistoryTargetChange(target: HTMLElement): void;
 };
 
@@ -431,7 +562,13 @@ function ReviewSnapshotBoundary(
   const [inlineHistoryTarget, setInlineHistoryTarget] =
     createSignal<HTMLElement | null>(null);
 
-  /** Returns the unique immutable manifest index one code point addresses. */
+  /**
+   * Return the unique immutable manifest index addressed by one Thread point.
+   *
+   * The File pair was indexed at boundary construction. A missing pair is a
+   * review/Snapshot contradiction and throws rather than disabling navigation
+   * as though the Thread were merely unlocated.
+   */
   function reviewFileIndex(point: ThreadCodePoint): number {
     return expect(
       reviewFileIndexes.get(
@@ -441,12 +578,32 @@ function ReviewSnapshotBoundary(
     );
   }
 
-  /** Reports whether exact line navigation currently accepts the code point. */
+  /**
+   * Report whether the current engine-bound lane exposes the Thread's FullFile.
+   *
+   * Review calls this to enable its go-to action. It reads the replacement set
+   * published by the lane and never loads, expands, or navigates the File.
+   */
   function canViewReviewThread(point: ThreadCodePoint): boolean {
     return navigableFileIndexes().has(reviewFileIndex(point));
   }
 
-  /** Navigates to one loaded Thread line and returns its mounted review anchor. */
+  /**
+   * Navigate to one loaded Thread line and return its mounted review anchor.
+   *
+   * The point supplies the exact File pair, bay, side, and line. Navigation
+   * prepares and centers it without selecting a hunk; after completion this
+   * function queries the same stable shell root for the unique code cell and
+   * marker. Disposal returns null, while missing or contradictory DOM remains an
+   * exception for the review boundary.
+   *
+   * # Returns
+   *
+   * - A connected code cell and its visible review marker after navigation
+   *   completes.
+   * - `null`: Navigation stopped because this ChangeSet was disposed. Review
+   *   must leave anchored Thread UI closed.
+   */
   async function viewReviewThread(
     point: ThreadCodePoint,
   ): Promise<ReviewCodeAnchor | null> {
@@ -657,13 +814,16 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
       }
     },
   });
+  // The surrounding ChangeSet uses this exact stop operation to await the lane
+  // before manifest reload. Clear the publication when the snapshot unmounts so
+  // a later reload cannot stop an already disposed lane.
   props.onFileSequenceChange(lane.stop);
   onCleanup(() => props.onFileSequenceChange(null));
 
-  // The snapshot owns its initial hunk selection: FileCards have mounted by
-  // the time this runs, and the surrounding NavigationProvider survives
-  // engine-keyed snapshot replacement, so the provider cannot initialize a
-  // replacement snapshot's fresh DOM.
+  // Initial hunk selection belongs to this mounted snapshot. FileCards have
+  // mounted by the time this runs, and the surrounding NavigationProvider
+  // survives engine-keyed snapshot replacement, so the provider cannot
+  // initialize a replacement snapshot's fresh DOM.
   onMount(() => writeInitialHunkSelection(changeSetRoot));
 
   const preferenceQueries = createQueries<
@@ -680,6 +840,12 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
     return query.data.aggressive_folds;
   });
 
+  // ReviewProvider must react when lane queries replace Husk or Lazy states
+  // with FullFiles, but the lane deliberately knows nothing about review. This
+  // effect derives a fresh immutable set from `lane.fileStates()` after each
+  // canonical state transition and hands it across that boundary. It lives for
+  // this engine-keyed snapshot; cleanup publishes the empty set so the longer
+  // lived review boundary cannot keep enabling destinations from a disposed lane.
   createEffect(() => {
     const navigable = new Set<number>();
     for (const [fileIndex, state] of lane.fileStates().entries()) {
@@ -893,7 +1059,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
  * automatic work succeeds with no failures it renders nothing and relinquishes
  * its physical space.
  */
-function AppHeaderFileStatus(props: { state: FileSequenceState }): JSX.Element {
+function AppHeaderFileStatus(props: {
+  /** Current compact lane progress derived from canonical activity and file states. */
+  state: FileSequenceState;
+}): JSX.Element {
   /**
    * Reports whether compact file-lane status currently has visible information.
    *
@@ -964,7 +1133,10 @@ function AppHeaderFileStatus(props: { state: FileSequenceState }): JSX.Element {
  * The component reads only ManifestSummary. It never accumulates loaded
  * FullFile summaries or announces itself as changing sequence progress.
  */
-function ManifestStatistics(props: { summary: ManifestSummary }): JSX.Element {
+function ManifestStatistics(props: {
+  /** Immutable backend aggregate for the manifest, never reconstructed from loaded files. */
+  summary: ManifestSummary;
+}): JSX.Element {
   /**
    * Returns one required cell aggregate when the cell summary is present.
    *
@@ -1017,6 +1189,9 @@ function ManifestStatistics(props: { summary: ManifestSummary }): JSX.Element {
  *
  * Complete selected DiffParams choose product wording while manifest labels
  * provide authoritative ref display. The function never mutates URL or requests.
+ *
+ * @param params Complete selected Tab value that determines the title form.
+ * @param manifest Immutable result supplying authoritative ref labels.
  */
 function changeSetTitle(params: DiffParams, manifest: Manifest): string {
   switch (params.tab) {

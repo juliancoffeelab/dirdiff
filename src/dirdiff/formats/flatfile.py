@@ -1,29 +1,17 @@
-"""The flatfile format: a File with no internal structure to decompose.
+"""Composition of a File with no internal frame structure.
 
-A flatfile is a File that no other format claims and that decodes as text —
-source code, configuration, prose, anything dirdiff renders as its own text
-rather than interpreting. By volume it is the ordinary case: most Files in most
-reviews are flatfiles. It is not the terminal of `composer.py`'s ordered
-classification; `blob.py` is, and it takes the content that does not decode.
+## Public interface
 
-The name states a fact about the File rather than a judgement about it. A
-flatfile has no parts, so composition has nothing to split: it produces one
-heading-less frame holding one bay whose text is the whole File. That single
-bay is what makes `bay_key` a total coordinate — every File composes at
-least one bay, so a review target or line pin always names one, and no
-consumer needs a "this file has no bays" branch.
+`flatfile_bays` decodes the supplied sides as project text and yields one
+heading-less frame with one text bay. If either present side violates the text
+contract, the complete File is represented by blob facts with a visible
+warning instead of partial text.
 
-Public interface: `flatfile_bays()`, which yields that one bay.
+## Purpose and boundaries
 
-`FLATFILE_BAY_KEY` lives in `base.py` rather than here, because consumers far
-outside this package — review targets, line pins, the agent API — compare
-against it, and they must not import a format module to do so.
-
-What this module does not own: classification. It receives bytes only after
-`composer.py` has selected presumed text, decodes each side once, and degrades
-the whole File to blob facts with a warning when either side is not project
-text. It owns no engine: rendering decoded sides is
-`text_kind_payload()`'s job.
+A File without format-specific structure still enters the same frame-and-bay
+pipeline as notebooks and images. `Composer` selects this builder after path
+classification; the shared text-bay operation renders its decoded sides later.
 """
 
 from __future__ import annotations
@@ -57,12 +45,36 @@ def flatfile_bays(
     This builder decodes each once. If either present side rejects the text
     contract, it yields blob facts for both sides with the rejection warning.
 
-    `None` on a side means the File was not captured there — that is how an
+    `None` on a side means the File was not captured there. That is how an
     added or removed File is expressed. A captured empty File decodes to `""`
     and is a present side, not an absent one.
 
     The bay is never collapsible, and its `change` follows the whole-File rule:
     a flatfile has no fact beyond its own text and no positions to move within.
+
+    # Parameters
+
+    - `left`: Captured old bytes, or `None` when the File is new.
+    - `right`: Captured new bytes, or `None` when the File was removed.
+    - `context`: File paths and side labels copied into the resulting bay.
+
+    # Usage
+
+    `Composer.bays` calls this after path classification chooses presumed text.
+    Iterate the result once; a decode rejection yields a blob-facts bay instead
+    of a partial text bay.
+
+    # Returns
+
+    - `Accepted text`: One decoded whole-File bay with `FLATFILE_BAY_KEY` and no
+      format warning.
+    - `Rejected text`: One byte-facts bay containing warnings for every present
+      side that violated the text boundary.
+
+    # Failures
+
+    Asserts if rejection narrowing leaves a `TextRejection` on the text path;
+    input decode rejection itself yields blob facts and warnings.
     """
     left_text = None if left is None else try_decode_text(left)
     right_text = None if right is None else try_decode_text(right)

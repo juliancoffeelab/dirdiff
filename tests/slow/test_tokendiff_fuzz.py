@@ -1,8 +1,8 @@
 """Seeded splice fuzzing for the tokendiff engine over the preset corpus.
 
 Each difftastic preset side is mutated by deterministic random slice
-deletions, duplications, swaps, and cross-file insertions — the shapes real
-edits and merge accidents take — and every mutant pair must keep the
+deletions, duplications, swaps, and cross-file insertions. These are shapes real
+edits and merge accidents take, and every mutant pair must keep the
 engine's core guarantees: exact source reproduction, ordered line coverage,
 token partitioning, cross-side unchanged agreement, and status derivation.
 The generator is seeded per case, so a failure reproduces exactly.
@@ -24,14 +24,43 @@ from dirdiff.engines import (
 )
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
+"""Human-readable source corpus from which deterministic mutants are derived.
+
+Every old and new side becomes an independent fuzz subject, preserving its
+fixture-derived id for reproducible failures.
+"""
 MUTANTS_PER_SOURCE = 20
+"""Number of independently seeded mutation pairs checked per corpus side.
+
+The bound keeps this deliberately slow suite finite while sampling different
+splice shapes from every source.
+"""
 Side = Literal["left", "right"]
+"""Original or mutated source side reconstructed from engine rows.
+
+Fuzz assertions use it to select line numbers, texts, and inline tokens from
+one result. It does not encode mutation direction or row status.
+"""
 
 __all__: list[str] = []
 
 
 def _preset_sources() -> list[ParameterSet]:
-    """Collect every preset side as one seed-named fuzz subject."""
+    """Collect each readable preset side as an independent mutation seed.
+
+    Old and new contents receive side-qualified pytest IDs, so identical text
+    from different real files remains separate corpus coverage. Binary or
+    absent sides never enter the text mutator.
+
+    # Usage
+
+    Use as the seed corpus for deterministic mutation cases. Each parameter id
+    already identifies its preset and side.
+
+    # Failures
+
+    Raises `AssertionError` when a collected preset side has no source suffix.
+    """
     sources: list[ParameterSet] = []
     for preset in sorted(PRESETS_ROOT.glob("*/*")):
         if not preset.is_dir():
@@ -48,10 +77,30 @@ def _preset_sources() -> list[ParameterSet]:
 
 
 SOURCES = _preset_sources()
+"""Stable collection-time parametrization of every old and new preset side.
+
+Each id retains its fixture origin so a failed deterministic seed is easy to
+locate and rerun.
+"""
 
 
 def _mutant(source: str, rng: random.Random) -> str:
-    """Apply a few random slice edits to one document."""
+    """Apply a bounded sequence of slice edits to one document.
+
+    The supplied generator decides deletion, duplication, copied replacement,
+    or whitespace/word insertion. Given the same state, output is exact and
+    reproducible.
+
+    # Parameters
+
+    - `source`: Original fixture text to mutate without modifying the fixture.
+    - `rng`: Case-seeded generator used for every edit choice.
+
+    # Usage
+
+    Seed `rng` from the case identity and call repeatedly to reproduce the same
+    sequence of generated documents.
+    """
     text = source
     for _ in range(rng.randint(1, 4)):
         if text == "":
@@ -74,22 +123,75 @@ def _mutant(source: str, rng: random.Random) -> str:
 
 
 def _check_invariants(left: str, right: str) -> None:
-    """Assert every core row guarantee for one rendered pair."""
+    """Assert every core row guarantee for one rendered pair.
+
+    # Parameters
+
+    - `left`: Complete generated old document.
+    - `right`: Complete generated new document.
+
+    # Usage
+
+    Call for every generated source pair after mutation. This helper uses the
+    public `TokenDiffEngine` result rather than internal edit steps.
+
+    # Failures
+
+    Raises `AssertionError` when source replay, line numbering, token
+    partitioning, shared text, row status, or summary counts violate the engine
+    contract.
+    """
 
     def _side_no(row: DiffEngineRow, side: Side) -> int | None:
-        """Read one side's line number with narrowing."""
+        """Read and narrow one side's line coordinate.
+
+        # Parameters
+
+        - `row`: Engine row containing side-local coordinates.
+        - `side`: Side whose coordinate is selected.
+
+        # Returns
+
+        - `int`: The selected side's one-based line number.
+        - `None`: This row has no content on the selected side. The invariant
+          checks must treat it as a one-sided row.
+
+        # Failures
+
+        Raises `AssertionError` when a present coordinate is not an integer.
+        """
         number = row.get(f"{side}_no")
         assert number is None or isinstance(number, int)
         return number
 
     def _side_text(row: DiffEngineRow, side: Side) -> str:
-        """Read one side's line text with narrowing."""
+        """Read and narrow one side's exact row text.
+
+        # Parameters
+
+        - `row`: Engine row containing source text.
+        - `side`: Side whose text is selected.
+
+        # Failures
+
+        Raises `AssertionError` when the selected row text is not a string.
+        """
         text = row.get(f"{side}_text")
         assert isinstance(text, str)
         return text
 
     def _side_tokens(row: DiffEngineRow, side: Side) -> list[InlineToken]:
-        """Read one side's token list with narrowing."""
+        """Read and narrow one side's token partition.
+
+        # Parameters
+
+        - `row`: Engine row containing both token lists.
+        - `side`: Side whose partition is selected.
+
+        # Failures
+
+        Raises `AssertionError` when the selected token value is not a list.
+        """
         tokens = row.get(f"{side}_tokens")
         assert isinstance(tokens, list)
         return tokens
@@ -157,7 +259,12 @@ def _check_invariants(left: str, right: str) -> None:
 
 @pytest.mark.parametrize("source", SOURCES)
 def test_tokendiff_fuzzed_mutants_keep_invariants(source: str) -> None:
-    """Random splice mutants never break the engine's row guarantees."""
+    """Exercise deterministic splice mutations against every row invariant.
+
+    Each preset source seeds a stable random stream. Every mutant must replay
+    both inputs exactly, retain valid consecutive line numbers, and keep token
+    text/status consistent; the loop tests more than mere engine completion.
+    """
     # zlib.crc32 keeps the seed stable across processes, unlike hash().
     rng = random.Random(f"tokendiff:{zlib.crc32(source.encode('utf-8'))}")
     for _ in range(MUTANTS_PER_SOURCE):

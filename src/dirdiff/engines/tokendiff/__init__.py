@@ -1,15 +1,15 @@
-"""Token-first dirdiff text engine.
+"""Dirdiff's token-first text engine.
 
-This package renders already-loaded ordinary text files by diffing whole
-token streams instead of lines first, so content moving across line
-boundaries — comment reflow, line joins and splits — diffs at word
-granularity. Code outside the package imports `TokenDiffEngine` from this
-package root. The implementation in `logic.py` owns tokenization, the token
-edit script, line pairing, and row emission.
+`TokenDiffEngine` compares the complete token streams of two already-loaded
+text sides, allowing matching content to cross line boundaries before it
+returns common engine rows.
 
-The engine has no subprocess integration and no repository knowledge. It
-must not load files, resolve refs, choose API modes, handle notebooks, or
-attach display-only syntax/fold enrichment.
+## Purpose and boundaries
+
+This package supplies a token-first comparison strategy behind the shared
+engine contract. It receives text rather than workspace handles and does not
+choose the File format. Display folds and syntax are added only after its rows
+have been arranged.
 """
 
 from dirdiff.engines.tokendiff.logic import TokenDiffEngine

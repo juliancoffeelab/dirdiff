@@ -1,23 +1,17 @@
-"""Diff rendering engines for already-loaded file sides.
+"""Diff engines for already-loaded text.
 
-Code outside `dirdiff.engines` imports engine contracts, row payload types, and
-the concrete engine classes from this package root.  Callers are expected to
-arrive with `DiffSide` values whose text, existence flags, labels, and path
-hints were prepared by the backend or notebook layer; engines render those sides
-into neutral row payloads and summary counts.
+Import the common input, row, warning, and result contracts from
+`dirdiff.engines`. `engine()` selects the implementation named by an
+`EngineKind`; concrete engine classes are also available when the caller has
+already made that choice.
 
-The engines package owns the shared failure and row contracts in `base.py`, the
-concrete renderers for difftastic, Git no-index, GumTree, native text, and
-token-first text diffs, and the mapping from an engine name to its renderer.
-It must not load repositories, resolve refs, build manifests, classify file
-formats, serialize HTTP responses, or attach display-only syntax/fold
-enrichment.  Those steps belong to `dirdiff.backend`, `dirdiff.formats`,
-`dirdiff.server`, and `dirdiff.rendering` respectively.
+## Purpose and boundaries
 
-`engine()` is the authorized exception to this package's re-exports-only facade
-rule.  Selection has to reach the concrete engine classes, and the sibling
-modules holding those classes import their contracts from `base.py`, so
-defining it there would make the import graph circular.
+Every engine compares the text in two supplied `DiffSide` values and returns
+the same neutral row representation. This lets composition change comparison
+strategy without changing its downstream flow. Engines never load workspace
+content or decide its format, and display enrichment adds folds and syntax only
+after comparison.
 """
 
 from typing import assert_never
@@ -46,8 +40,14 @@ def engine(name: EngineKind) -> DiffEngineProtocol:
     """Return the renderer that `name` selects.
 
     Every engine name maps to a renderer, so this always returns one. The
-    returned renderer owns no workspace state and no request state: callers
+    returned renderer holds no workspace or HTTP state. Callers
     construct one per use and hand it already-loaded `DiffSide` values.
+
+    # Usage
+
+    Select the renderer after validating an `EngineKind`, then pass it to
+    `dirdiff.formats.ComposeContext.build`. Composition invokes
+    `DiffEngineProtocol.render_diff` for each text bay.
     """
     if name == "dirdiff":
         return TextDiffEngine()

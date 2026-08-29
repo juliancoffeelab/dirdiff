@@ -1,10 +1,8 @@
-"""Behavior tests for GumTree-backed structural diff rendering.
+"""Check GumTree action ranges and their rendered token status.
 
-This module uses the checked-in GumTree presets to verify action matching,
-token mapping, and rendered payload shape.  It may call GumTree engine internals
-only where the public payload cannot expose the tree-action detail under test;
-ordinary UI payload behavior goes through composition, the way the file-diff
-endpoint produces it.
+Checked-in presets verify action matching, token mapping, and neutral row shape.
+Tests call engine internals only when the public payload cannot expose the tree
+fact under test. User-visible payload cases go through ordinary composition.
 """
 
 from dataclasses import dataclass
@@ -25,34 +23,138 @@ from dirdiff.rendering import DiffRow
 __all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
+"""GumTree behavior fixture catalog for structural range-mapping tests.
+
+This module selects one readable real change from the catalog rather than
+duplicating its source strings in assertions.
+"""
 FIXTURE_ROOT = PRESETS_ROOT / "python" / "extract-python-helper-function"
+"""Real helper-extraction pair used to inspect update, insert, and move ranges.
+
+Its GumTree result contains every action family this module maps to rendered
+token intervals.
+"""
 LEFT_PATH = "python/extract-python-helper-function/old.py"
+"""Old parser hint for the helper-extraction fixture.
+
+The `.py` suffix selects GumTree's Python generator; the string is never used to
+load source content.
+"""
 RIGHT_PATH = "python/extract-python-helper-function/new.py"
+"""New parser hint for the helper-extraction fixture.
+
+It mirrors `LEFT_PATH` so both temporary inputs use the same Python parser.
+"""
 
 
 @dataclass(frozen=True)
 class ExpectedTokenStatus:
+    """Describe one expected GumTree token derived from an action tree range.
+
+    Tests expand one GumTree tree string across intersected source lines into
+    these values, then compare them with token decorations in composed rows.
+    """
+
     side: Literal["left", "right"]
+    """Source document whose absolute GumTree offsets address text.
+
+    The value also selects the composed row and decorated-part fields used for
+    comparison; it never changes the expected status.
+    """
+
     status: str
+    """Dirdiff inline classification required over the expected source slice.
+
+    The action kind determines it before syntax weaving may split the slice into
+    several adjacent decorated parts.
+    """
+
     line_no: int
+    """One-based source line containing this visible range intersection.
+
+    Multi-line GumTree trees produce one expectation per intersected display
+    line, each addressed independently in the composed payload.
+    """
+
     start: int
+    """Zero-based inclusive character offset within the displayed line.
+
+    It is derived from GumTree's absolute offset after intersecting the line's
+    visible content, excluding its terminator.
+    """
+
     end: int
+    """Zero-based exclusive character offset within the same display line.
+
+    The interval is always non-empty and may be covered by several adjacent
+    actual parts when syntax decoration introduces extra boundaries.
+    """
+
     text: str
+    """Exact source slice covered by this line-local expectation.
+
+    Failure diagnostics show it so a range mismatch is readable without
+    translating offsets by hand.
+    """
+
     tree: str
+    """Raw GumTree tree spelling from which this expectation originated.
+
+    It is diagnostic provenance only. Actual payload lookup uses `side` and
+    `line_no`, never this external string.
+    """
 
 
 @dataclass(frozen=True)
 class ActualTokenStatus:
+    """Record one rendered changed part in line-local expectation coordinates.
+
+    The extraction helper derives these values from composed decorated parts,
+    then compares them with ranges parsed independently from GumTree actions.
+    The record omits syntax classes and row status because neither determines
+    action-range coverage.
+    """
+
     start: int
+    """Inclusive line-local offset accumulated from preceding decorated parts.
+
+    It refers to rendered source characters, not bytes or GumTree tree text.
+    """
+
     end: int
+    """Exclusive line-local offset after this complete decorated part.
+
+    Neighboring intervals may touch and jointly cover one GumTree expectation.
+    """
+
     text: str
+    """Exact rendered part text occupying this interval.
+
+    Joining all parts for the row reproduces source; this test retains only
+    parts carrying the status under inspection.
+    """
 
 
 def _extract_helper_engine() -> GumTreeDiffEngine:
+    """Construct the stateless engine used by the helper-extraction fixture.
+
+    Payload composition and raw JSON inspection call this same constructor so
+    neither path carries hidden engine configuration.
+    """
     return GumTreeDiffEngine()
 
 
 def _extract_helper_payload() -> ComposedFilePayload:
+    """Compose the helper-extraction fixture through the ordinary File path.
+
+    Assertions consume the same enriched payload the endpoint would return,
+    rather than a test-only copy of token weaving.
+
+    # Usage
+
+    Range-coverage tests use this payload together with raw JSON from
+    `_extract_helper_engine` so expected and rendered ranges share one fixture.
+    """
     return Composer().compose(
         (FIXTURE_ROOT / "old.py").read_bytes(),
         (FIXTURE_ROOT / "new.py").read_bytes(),
@@ -67,6 +169,11 @@ def _extract_helper_payload() -> ComposedFilePayload:
 
 
 def _source_text(side: str) -> str:
+    """Load one exact side of the helper-extraction source pair.
+
+    `left` selects `old.py`; every other test-internal value selects `new.py`.
+    Callers pass only the closed side values used by this module.
+    """
     file_name = "old.py" if side == "left" else "new.py"
     return (FIXTURE_ROOT / file_name).read_text()
 
@@ -77,6 +184,19 @@ def _expected_for_tree(
     status: str,
     tree: str,
 ) -> list[ExpectedTokenStatus]:
+    """Expand one absolute GumTree range into line-local expectations.
+
+    # Parameters
+
+    - `side`: Source document whose offsets the tree addresses.
+    - `status`: Inline classification expected over every visible intersection.
+    - `tree`: Raw GumTree tree description carrying an absolute range.
+
+    # Usage
+
+    `_expected_action_statuses` calls this after selecting one required GumTree
+    tree range and its side-specific status.
+    """
     text = _source_text(side)
     source_range = _range_from_tree(tree)
     expected: list[ExpectedTokenStatus] = []
@@ -110,8 +230,36 @@ def _expected_for_tree(
 def _expected_action_statuses(
     diff_json: GumTreeJson,
 ) -> list[ExpectedTokenStatus]:
+    """Build fixture expectations directly from its required GumTree actions.
+
+    The helper names the actions whose semantics the test covers and follows
+    GumTree matches for update and move destination ranges. Missing facts fail
+    immediately rather than weakening the expected coverage.
+
+    # Usage
+
+    Pass raw JSON from the helper-extraction fixture, then compare each returned
+    interval against `_actual_status_intervals` from the composed payload.
+
+    # Failures
+
+    Raises `AssertionError` when any required action or destination match is
+    absent from the fixture result.
+    """
+
     def _action_tree(diff_json: GumTreeJson, action: str, tree: str) -> str:
-        """Return the exact GumTree action tree required by this fixture."""
+        """Return the exact GumTree action tree required by this fixture.
+
+        # Parameters
+
+        - `diff_json`: Raw result whose actions are searched.
+        - `action`: Exact operation name expected in the fixture.
+        - `tree`: Exact source-tree description expected for that operation.
+
+        # Failures
+
+        Raises `AssertionError` when the fixture JSON lacks the exact action.
+        """
         actions = diff_json.get("actions", [])
         for candidate in actions:
             if candidate["action"] == action and candidate["tree"] == tree:
@@ -119,7 +267,17 @@ def _expected_action_statuses(
         raise AssertionError(f"GumTree action is missing: {action} {tree}")
 
     def _matched_dest_tree(diff_json: GumTreeJson, src_tree: str) -> str:
-        """Return the destination tree required by this fixture's match."""
+        """Return the destination paired with one required source tree.
+
+        # Parameters
+
+        - `diff_json`: Raw result whose match table is searched.
+        - `src_tree`: Exact update or move source tree requiring a destination.
+
+        # Failures
+
+        Raises `AssertionError` when the fixture JSON lacks the source match.
+        """
         matches = diff_json.get("matches", [])
         for match in matches:
             if match["src"] == src_tree:
@@ -188,6 +346,24 @@ def _row_for_line(
     side: Literal["left", "right"],
     line_no: int,
 ) -> DiffRow:
+    """Find the enriched row addressing one exact source line.
+
+    # Parameters
+
+    - `payload`: Flatfile composition expected to contain one text bay.
+    - `side`: Side whose line-number field is matched.
+    - `line_no`: One-based source line that must exist in the payload.
+
+    # Usage
+
+    `_actual_status_intervals` calls this for the exact side and line addressed
+    by one expected GumTree range.
+
+    # Failures
+
+    Raises `AssertionError` when the payload is not one flatfile text bay or the
+    addressed line is absent.
+    """
     # A flat Python file composes into exactly one text bay, and its rows are
     # the rows this module asserts against.
     (frame,) = payload["frames"]
@@ -208,6 +384,20 @@ def _actual_status_intervals(
     status: str,
     line_no: int,
 ) -> list[ActualTokenStatus]:
+    """Return line-local intervals carrying one visible diff status.
+
+    # Parameters
+
+    - `payload`: Composed helper-extraction diff.
+    - `side`: Source side whose decorated parts are scanned.
+    - `status`: Diff classification selected from those parts.
+    - `line_no`: One-based source line addressed by the expectation.
+
+    # Usage
+
+    Call for one expected line and status, then use `_is_covered` to compare the
+    returned adjacent decorated intervals with the expected range.
+    """
     row = _row_for_line(payload, side=side, line_no=line_no)
     cursor = 0
     intervals: list[ActualTokenStatus] = []
@@ -233,6 +423,18 @@ def _is_covered(
     expected: ExpectedTokenStatus,
     actual_intervals: list[ActualTokenStatus],
 ) -> bool:
+    """Report whether adjacent actual intervals cover an expected source span.
+
+    # Parameters
+
+    - `expected`: Required line-local range and status from GumTree.
+    - `actual_intervals`: Ordered rendered intervals carrying that status.
+
+    # Usage
+
+    Pass intervals returned by `_actual_status_intervals` for the same side,
+    line, and status as `expected`.
+    """
     covered_until = expected.start
     for actual in actual_intervals:
         if actual.end <= covered_until:
@@ -246,6 +448,11 @@ def _is_covered(
 
 
 def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
+    """Cover every required GumTree action range with matching rendered tokens.
+
+    The assertion permits adjacent parts because syntax weaving may split one
+    diff token, but it permits no gaps in the source range.
+    """
     payload = _extract_helper_payload()
     engine = _extract_helper_engine()
     diff_json = engine._run_gumtree_json(
@@ -280,6 +487,11 @@ def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
 
 
 def test_gumtree_keeps_rows_neutral_and_summarizes_token_ranges() -> None:
+    """Keep GumTree's visual rows neutral while summaries follow token ranges.
+
+    GumTree decorates independent source lines rather than line-aligning them;
+    row status stays equal and the File summary derives changes from tokens.
+    """
     payload = _extract_helper_payload()
 
     assert _row_for_line(payload, side="right", line_no=2)["status"] == "equal"

@@ -1,9 +1,9 @@
-"""Property checks for diff and syntax display enrichment.
+"""Check lossless display-enrichment properties over generated partitions.
 
-These tests exercise broad invariants rather than individual examples. Generated
-partitions verify that decoration weaving preserves both independent inputs,
-while the preset corpus verifies that native engine rows and real syntax
-highlighters remain compatible at the rendering boundary.
+Generated diff-token and syntax-span partitions must reproduce the source while
+retaining both classifications. The preset corpus checks that native engine
+rows remain compatible with real syntax highlighters and that summary-only
+counts match full rendering.
 """
 
 from pathlib import Path
@@ -37,7 +37,16 @@ def test_decorated_parts_preserve_diff_and_syntax_per_character(
     data: st.DataObject,
     text: str,
 ) -> None:
-    """Recover either input decoration after discarding the other one."""
+    """Recover either input decoration after discarding the other one.
+
+    Random independent partitions force weaving to split at every combined
+    boundary while preserving exact text and both classifications.
+
+    # Parameters
+
+    - `data`: Hypothesis draw context used for text-dependent partitions.
+    - `text`: Non-empty generated source shared by diff and syntax decoration.
+    """
     token_cut_points = (
         data.draw(
             st.lists(
@@ -165,7 +174,12 @@ def test_decorated_parts_preserve_diff_and_syntax_per_character(
 
 
 def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
-    """Weave native diff tokens and syntax for every real preset pair."""
+    """Exercise token/syntax intersection across every readable preset pair.
+
+    For each real source pair, decorated parts must replay the engine text and
+    retain the exact syntax coverage produced independently for that side. This
+    checks the weaving boundary rather than merely running both subsystems.
+    """
     preset_root = Path(__file__).parents[1] / "presets"
     old_paths = sorted(preset_root.glob("**/old.*"))
     assert old_paths != []
@@ -229,7 +243,12 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
 
 
 def test_text_diff_summary_matches_render_diff_counts() -> None:
-    """The token-free summary path must count exactly as render_diff does."""
+    """Keep the lightweight text summary identical to full rendered counting.
+
+    Cases include whitespace-only paired changes and mixed replacement,
+    insertion, and deletion rows. The shortcut may avoid token construction but
+    must report the same line totals as the public engine result.
+    """
     cases = [
         # whitespace-only change: equal-status paired row that still counts
         ("    indented\nsame\n", "  indented\nsame\n"),

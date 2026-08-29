@@ -1,29 +1,18 @@
-"""The image format: a File the browser can display but nobody can read.
+"""Composition of browser-displayable image Files.
 
-An image File composes one heading-less frame holding three bays. The `image` bay
-is the picture, and it is the frame's body: a reviewer who opened an image came
-to look at it, so it is always shown. Beside it, open by default and
-collapsible, is a `text` metadata bay containing Pillow's dimensions and EXIF,
-followed by a `text` bay stating what is known about the bytes — media type,
-size, digest. A decode failure damages only the metadata bay and is shown as
-its warning; the exact picture bytes and byte facts remain available.
+## Public interface
 
-Neither bay answers the other's question. The picture answers "does it look
-different", and a re-encode that rewrites every byte can look identical. The
-facts answer "did it actually change, and to what", and two renderings that
-differ visibly have different digests for a reason worth reading. So both are
-composed, always, and the reviewer decides which one to read.
+`image_media_type` recognizes the supported path extensions. `image_bays`
+yields the picture bytes, parsed dimensions and EXIF as text, and the shared
+byte facts in a stable order. A metadata decode failure is contained to the
+metadata bay and reported there.
 
-Public interface: `image_media_type()`, which is both the classification test
-and the answer classification needs, and `image_bays()`, which yields those three
-bays in that order.
+## Purpose and boundaries
 
-What this module does not own: rendering or scaling. It never produces a
-thumbnail: the image bay retains captured bytes, and the browser turns them
-into a picture. Pillow reads metadata only. It does not own the wording of the
-facts either; `base.py` writes those, because a blob File states the same three
-facts the same way. It also does not own classification order; `composer.py`
-decides when to ask, and calls `image_bays()` once the answer is final.
+The picture, its parsed metadata, and its byte identity answer different review
+questions, so the builder emits separate bays for them. Pillow reads metadata
+only. The exact captured image bytes remain unchanged for browser display, and
+`Composer` reduces them to references before serialization.
 """
 
 from __future__ import annotations
@@ -73,7 +62,7 @@ Deliberately a closed list of what browsers display natively without a decoder
 of ours. `image/svg+xml` is absent and stays absent: an SVG is
 author-controlled markup that the frontend would have to execute to display,
 which is the security question `formats.md` records for HTML outputs, and it
-is also perfectly readable as text — a flatfile diff of an SVG tells a reviewer
+is also perfectly readable as text. A flatfile diff of an SVG tells a reviewer
 more than a picture of it does.
 """
 
@@ -88,6 +77,17 @@ def image_media_type(path: str | None) -> str | None:
 
     An absent path is not an image, which is how a side the File does not have
     answers.
+
+    # Usage
+
+    `Composer.bays` calls this for each present path. Pass a returned media type
+    to `image_bays`; `None` leaves the path available to later classifiers.
+
+    # Returns
+
+    - `str`: The browser-native media type declared by the path's image suffix.
+    - `None`: The path is absent or has no supported image suffix. The caller
+      must continue format classification.
     """
     # TODO: extension matching is the simple answer and it is wrong for a file
     # with no extension, a file whose extension lies, and every format not on
@@ -112,7 +112,7 @@ def image_bays(
     left_media_type: str | None,
     right_media_type: str | None,
 ) -> Iterator[Bay]:
-    """Yield the picture bay and the facts bay an image File composes into.
+    """Yield the picture, parsed metadata, and byte-facts bays for an image File.
 
     The two media types are the ones classification already derived from the two
     paths, passed in rather than derived again, so what was classified and what
@@ -120,20 +120,75 @@ def image_bays(
     whose path did not name an image is not an image File, and classification
     must not have called this.
 
-    Both bays follow the whole-File rule for `change`, and read it from
+    All three bays follow the whole-File rule for `change`, and read it from
     different content on purpose. The picture's is read from the exact bytes, so
     two byte-identical sides are `unchanged` and the bay takes no navigation
-    stop. The facts bay's is read from the facts text, which is equivalent
-    whenever content changed — the digest is total — and strictly better for a
-    rename that only changes the declared media type: the type row honestly
-    reads as changed while the picture reads unchanged.
+    stop. The facts bay derives its change from the facts text, which changes
+    whenever the content changes. The digest is total. This result is also more
+    accurate for a rename that changes only the declared media type. The type
+    row reads as changed while the picture reads unchanged.
+
+    # Parameters
+
+    - `left`: Captured old image bytes, or `None` for an absent side.
+    - `right`: Captured new image bytes under the same convention.
+    - `context`: Paths and labels for the resulting image and text bays.
+    - `left_media_type`: Type already concluded from the old path. Required
+      whenever `left` is present.
+    - `right_media_type`: Type already concluded from the new path. Required
+      whenever `right` is present.
+
+    # Usage
+
+    `Composer.bays` calls this only after every present path has an image media
+    type. Iterate all three bays in order; media serving uses the first bay's
+    exact bytes, while composition renders the two text attachments.
+
+    # Returns
+
+    - `Yielded bays`: The picture bay, metadata text bay, and byte-facts text bay
+      all describe the same two captured sides.
+    - `Order`: Picture comes first for media serving, followed by metadata and
+      byte facts for ordinary text rendering.
+
+    # Failures
+
+    Raises `AssertionError` when a present byte side lacks its classified media
+    type. Expected Pillow and EXIF damage is returned as bay warnings rather
+    than raised.
     """
 
     def metadata(
         side: MediaSide | None,
         side_label: str,
     ) -> tuple[str | None, tuple[BayWarning, ...]]:
-        """Read stable dimensions and EXIF text for one captured image side."""
+        """Read bounded dimensions and EXIF text for one captured image side.
+
+        Failure to open or read the image returns an empty text side with a
+        visible warning, damaging this attachment only. An individual EXIF
+        value that cannot be rendered is omitted with a warning scoped to that
+        value. Oversized EXIF values become their length and digest rather than
+        entering the diff verbatim.
+
+        # Parameters
+
+        - `side`: Captured bytes and declared type, or `None` when absent.
+        - `side_label`: Reviewer-facing side name used in warning messages.
+
+        # Usage
+
+        `image_bays` calls this once per side before constructing the metadata
+        text bay. Preserve returned warnings beside the text from that side.
+
+        # Returns
+
+        - `First`: Dimension and EXIF rows for a readable side; an unreadable
+          present image returns `""` and a warning.
+        - `None`: The first item is absent when the File has no side here, so the
+          metadata bay must preserve side absence.
+        - `Second`: Warnings for unreadable metadata or omitted EXIF values, in
+          discovery order.
+        """
         if side is None:
             return None, ()
         try:

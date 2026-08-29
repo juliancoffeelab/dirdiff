@@ -1,38 +1,17 @@
-"""Notebook bay builder: compose a `.ipynb` into per-cell frames.
+"""Loading and composition of Jupyter notebooks into cell frames.
 
-A notebook composes into one frame per cell, in document order — every cell,
-not only the changed ones. A notebook is shown whole for the same reason a text
-File is: a reviewer reads a change in the context that surrounds it, and a cell
-that is missing from the diff cannot be read at all. An untouched cell composes
-a collapsed source bay carrying no hunk, so it costs the reviewer nothing to
-skip and is still there to open.
+## Public interface
 
-Each frame holds, in order:
+`try_load_notebook_document` validates the notebook subset composition needs.
+`notebook_bays` pairs cells, assigns validated-ID or source-derived keys, and
+yields source, changed metadata, and changed output bays in document order.
 
-- one `text` bay for the cell source, keyed by the cell's public key. It is
-  expanded when the source changed and collapsed when only the cell's metadata
-  or outputs changed, so a reviewer never expands unchanged source to find the
-  change.
-- one `text` bay for the cell's metadata as canonical JSON, emitted only when
-  the metadata changed, collapsed by default.
-- one `text` bay per changed output, carrying the text this builder
-  chooses for the output's variant, collapsed by default.
+## Purpose and boundaries
 
-## Cell keys
-
-A valid distinct `nbformat` id is the cell's public key. A cell without one
-uses a pseudo-cell frame key derived from its source hash and its occurrence
-among identical source, with explicit source, metadata, and output suffixes.
-Source is the pseudo-cell identity: unchanged source remains findable, while an
-edit changes the key and takes normal `bay_not_found` placement. This is a
-visible degradation, but it preserves the notebook's readable structure rather
-than replacing every cell with raw JSON.
-
-This module owns everything notebook-shaped: parsing the notebook subset dirdiff
-renders, pairing cells across the two sides, minting public keys, and choosing
-each bay's content. Loading is the one boundary that checks shapes; past it,
-composition reads typed fields and chooses the text shown for each output's
-variant. It touches no diff engine — composition renders the bays it yields.
+Notebook structure determines which content belongs together and which identity
+can survive across Snapshots. Invalid cells and outputs remain visible as
+canonical JSON with a warning instead of invalidating usable siblings. The
+module yields decoded text bays; engines and display rendering run later.
 """
 
 from __future__ import annotations
@@ -69,27 +48,46 @@ __all__ = [
 
 @dataclass(frozen=True)
 class StreamOutput:
-    """A `stream` output: text a code cell wrote to a named stream."""
+    """Load text written by a code cell to a named stream.
+
+    Notebook loading creates this variant from `output_type="stream"`.
+    Composition compares `raw` for change identity and renders `text` for the
+    reviewer.
+
+    The value does not interpret ANSI escapes, stream names, or line structure.
+    """
 
     raw: JsonValue
-    """
-    The output entry verbatim, compared whole to detect a change.
+    """Complete parsed stream-output mapping before typed extraction.
+
+    Pairing compares this value as one JSON unit, so changes to `name`, unknown
+    fields, or the original multiline representation remain visible even when
+    rendered `text` is unchanged. Composition must not mutate or discard it.
     """
 
     text: str
     """
-    The stream's `text` as one string, with a multiline list of parts
+    The stream's `text` as one string, with a multiline sequence of parts
     already joined. An empty string is a real, empty stream.
     """
 
 
 @dataclass(frozen=True)
 class ErrorOutput:
-    """An `error` output: the exception a code cell raised."""
+    """Load the traceback of an exception raised by a code cell.
+
+    Notebook loading creates this variant from `output_type="error"`.
+    Composition compares `raw` and chooses how to render the traceback entries.
+
+    The value does not parse traceback frames, ANSI escapes, or exception types.
+    """
 
     raw: JsonValue
-    """
-    The output entry verbatim, compared whole to detect a change.
+    """Complete parsed error-output mapping before traceback extraction.
+
+    Pairing compares it whole, preserving changes to exception name, value, and
+    unknown fields that rendered traceback lines may not show. Composition reads
+    the typed traceback separately and must retain this value unchanged.
     """
 
     traceback: list[str]
@@ -104,35 +102,57 @@ class ErrorOutput:
 
 @dataclass(frozen=True)
 class ExecuteResultOutput:
-    """An `execute_result` output: the bundle a cell's result displays as."""
+    """Load a value displayed as the result of executing a code cell.
+
+    Notebook loading creates this variant from `output_type="execute_result"`.
+    Composition compares `raw` and renders `text_plain` when the bundle has it.
+
+    Other media variants remain only in `raw`; this type does not choose a rich
+    renderer or treat absent plain text as an empty result.
+    """
 
     raw: JsonValue
-    """
-    The output entry verbatim, compared whole to detect a change.
+    """Complete parsed execute-result mapping before plain-text extraction.
+
+    Pairing compares it whole so execution metadata and rich media changes are
+    not hidden when `text_plain` stays equal or is absent. Composition may
+    render the text field but must preserve this value for semantic equality.
     """
 
     text_plain: str | None
-    """
-    The `data` bundle's `text/plain` entry as one string, or `None` when
-    the bundle carries none — such as an image-only result — which the
-    empty string must not stand in for.
+    """Joined `text/plain` representation from the result's data bundle.
+
+    `None` means the bundle has no plain-text entry, as with an image-only
+    result; `""` is a present empty representation and must remain distinct.
+    Composition renders only a present value while `raw` preserves other media.
     """
 
 
 @dataclass(frozen=True)
 class DisplayDataOutput:
-    """A `display_data` output: a bundle displayed while the cell ran."""
+    """Load a display bundle emitted while a code cell ran.
+
+    Notebook loading creates this variant from `output_type="display_data"`.
+    Composition compares `raw` and renders `text_plain` when present.
+
+    The value does not select among rich media variants or equate missing plain
+    text with an empty string.
+    """
 
     raw: JsonValue
-    """
-    The output entry verbatim, compared whole to detect a change.
+    """Complete parsed display-data mapping before plain-text extraction.
+
+    Pairing compares the full bundle so MIME entries, transient metadata, and
+    unknown fields participate in change identity even when rendered plain text
+    does not. Composition must not reduce equality to `text_plain`.
     """
 
     text_plain: str | None
-    """
-    The `data` bundle's `text/plain` entry as one string, or `None` when
-    the bundle carries none — such as an image-only display — which the
-    empty string must not stand in for.
+    """Joined `text/plain` representation from the display data bundle.
+
+    `None` means no plain-text entry exists, while `""` is present empty text.
+    Composition may render a present value, but equality continues to use `raw`
+    so changes to rich media remain reviewable.
     """
 
 
@@ -141,35 +161,67 @@ NotebookOutput = (
 )
 """One code-cell output, loaded as the variant its `output_type` declares.
 
-Every variant keeps its raw entry beside the fields composition reads from
-it. Raw equality is what "this output changed" means — two outputs whose
-shown text agrees can still differ, and that difference must stay visible.
-The variant records what the output is; the text shown for it is
-composition's choice, not a fact of the loaded data.
+- `StreamOutput` carries stream text.
+- `ErrorOutput` carries traceback entries.
+- `ExecuteResultOutput` and `DisplayDataOutput` carry optional plain text from
+  their display bundles.
+
+Every variant retains raw JSON for change identity. Two outputs whose displayed
+text agrees can still differ in raw content, and that difference must remain
+visible. Composition chooses what to show; the loaded value does not claim
+visible plain text is the complete output.
 """
 
 
 @dataclass(frozen=True)
 class RejectedNotebookPart:
-    """One cell or output preserved as raw JSON after shape rejection."""
+    """Preserve one malformed cell or output without hiding its content.
+
+    Notebook loading creates this value when the document boundary is valid but
+    one nested value violates the supported shape. Composition renders `raw` as
+    canonical JSON and shows `warning` beside it.
+
+    It does not repair the value or pretend it belongs to a structured variant.
+    """
 
     raw: JsonValue
-    """The exact parsed JSON value at the rejected boundary."""
+    """Unmodified JSON subtree that failed the supported cell/output shape.
+
+    Composition serializes this value canonically so no user content disappears.
+    It must not be repaired or reinterpreted as a structured notebook variant.
+    """
 
     warning: BayWarning
-    """Why normal structured composition was impossible for this value."""
+    """Stable visible explanation attached to the raw replacement bay.
+
+    The warning is scoped to this rejected cell or output. It preserves damage
+    without turning the otherwise valid notebook document into a flat blob.
+    """
 
 
 NotebookOutputEntry = NotebookOutput | RejectedNotebookPart
-"""One valid notebook output or its honestly preserved raw value."""
+"""Hold one code-cell output after notebook boundary validation.
+
+- `NotebookOutput` is a supported structured output variant.
+- `RejectedNotebookPart` preserves malformed output as raw JSON with a warning.
+
+Composition handles both without dropping content. The union does not repair a
+rejected output or treat it as structured data.
+"""
 
 
 @dataclass(frozen=True)
 class NotebookCell:
-    """One loaded cell, reduced to the fields composition reads.
+    """Provide one validated notebook cell to composition.
 
-    The format follows the Jupyter Notebook schema, at least the parts
-    that we care about.
+    Notebook loading constructs this value after normalizing source text,
+    assigning a distinct public bay key, and validating or preserving each
+    output. Composition uses it to build the cell's source, metadata, and output
+    bays in document order.
+
+    The record retains only notebook facts composition needs. It does not establish
+    document ordering, align cells across sides, or interpret arbitrary metadata
+    and rich output payloads.
     """
 
     id: str
@@ -182,7 +234,12 @@ class NotebookCell:
     """
 
     source_bay_key: str
-    """The source bay's public key; pseudo-cells add the explicit `:src`."""
+    """Public coordinate reserved for this cell's source bay.
+
+    Valid cell IDs use their established source coordinate. Derived pseudo-cell
+    IDs add `:src` explicitly so source never collides with raw rejected content
+    or the cell's metadata and output bays.
+    """
 
     cell_type: str
     """
@@ -192,9 +249,11 @@ class NotebookCell:
     """
 
     source: str
-    """
-    The cell's source as one string, with a multiline list of parts already
-    joined.
+    """Complete cell source after joining the notebook multiline representation.
+
+    The join preserves part order and exact characters. Composition renders this
+    value in the source bay and compares it as reviewed content; it never
+    re-reads or reconstructs source from the retained raw cell mapping.
     """
 
     metadata: JsonValue
@@ -206,10 +265,11 @@ class NotebookCell:
     """
 
     outputs: list[NotebookOutputEntry]
-    """
-    One entry per output of a code cell, in output order.
+    """Every accepted or rejected code-cell output in notebook order.
 
-    A non-code cell has none.
+    Non-code cells require an empty list. Pairing preserves position and variant
+    identity, while rejected entries retain their raw mapping and warning;
+    callers must not discard outputs whose supported text representation is absent.
     """
 
     execution_count: int | None = field(compare=False)
@@ -224,20 +284,43 @@ class NotebookCell:
     """
 
     warnings: tuple[BayWarning, ...] = field(compare=False)
-    """Non-fatal identity or heading damage shown on the source bay."""
+    """Ordered cell-level damage displayed beside the source bay.
+
+    Warnings cover derived identity and prompt-heading defects. They are excluded
+    from equality so warning prose cannot make unchanged notebook content differ.
+    """
 
 
 NotebookCellEntry = NotebookCell | RejectedNotebookPart
-"""One structured cell or the raw JSON value rejected at that boundary."""
+"""Hold one notebook cell after document boundary validation.
+
+- `NotebookCell` exposes the supported cell fields composition reads.
+- `RejectedNotebookPart` preserves a malformed cell as raw JSON with a warning.
+
+Cell pairing and rendering consume this union. Rejected values never masquerade
+as valid cells.
+"""
 
 
 @dataclass(frozen=True)
 class NotebookDocument:
-    """One side's loaded notebook: cells plus everything else in the file."""
+    """Hold one loaded notebook side in the shape composition consumes.
+
+    `try_load_notebook_document` returns this value after accepting the document
+    boundary. `notebook_bays` pairs its cells and compares the remaining
+    top-level document value.
+
+    The value does not pair sides, render outputs, or discard fields the loader
+    does not understand.
+    """
 
     cells: list[NotebookCellEntry]
-    """
-    Every cell in the file, in document order.
+    """Every accepted or locally rejected cell in original document order.
+
+    Valid entries carry stable or derived cell identities; rejected entries
+    retain their raw JSON and warning instead of disappearing. Cross-side
+    pairing consumes this order and identity, so callers must not filter,
+    reorder, or coerce entries before `notebook_bays` runs.
     """
 
     document: JsonValue
@@ -270,12 +353,31 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
     that is a string or a list of string parts. A code cell must carry a list
     of outputs, each a mapping declaring one of the four `nbformat` output
     types: a `stream` carries its `text`, an `error` its `traceback`, and an
-    `execute_result` or `display_data` its required `data` bundle. Values
-    composition treats whole — the document mapping, cell metadata, each raw
-    output entry — are kept verbatim, whatever shape they have.
+    `execute_result` or `display_data` its required `data` bundle. Composition
+    keeps the document mapping, cell metadata, and each raw output entry
+    verbatim, whatever shape they have.
 
     A unique schema-valid cell id remains its key. Missing, invalid, or
     duplicate ids receive source-derived pseudo-cell keys and a warning.
+
+    # Usage
+
+    `notebook_bays` calls this independently for each captured side. A returned
+    document is ready for cell pairing; callers must preserve rejected entries
+    and their order.
+
+    # Returns
+
+    - `NotebookDocument`: The accepted top-level document, with cells kept in
+      source order and invalid individual parts preserved as rejections.
+    - `None`: The bytes fail the notebook document boundary. The caller must
+      show the complete File as raw text or byte facts instead.
+
+    # Failures
+
+    Returns `None` when bytes are not UTF-8 JSON or the top-level value is not a
+    mapping with a cell list. Invalid individual cells and outputs remain in a
+    returned document as `RejectedNotebookPart` values.
     """
     try:
         text = data.decode("utf-8-sig")
@@ -297,9 +399,20 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
     def try_multistring(value: JsonValue) -> str | None:
         """Join one `nbformat` multiline value into one string.
 
-        If the `value` is a string, we return it as is.
-        If the `value` is list of strings, we join them and return.
-        Else, we return failure as None.
+        A string is returned unchanged. A list must contain only strings and is
+        joined in order. Every other shape returns `None`.
+
+        # Usage
+
+        The cell and output loaders use this for `nbformat` fields that permit
+        either spelling. `None` means that local notebook part must be rejected.
+
+        # Returns
+
+        - `str`: The original string or all string-list elements joined in
+          their source order.
+        - `None`: The value is neither a string nor a list containing only
+          strings. The caller must reject that local notebook part.
         """
         if isinstance(value, str):
             return value
@@ -321,10 +434,21 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         `display_data` its `data` bundle, whose `text/plain` entry is
         optional. Any other `output_type` is not an `nbformat` output, so
         the entry is rejected.
+
+        # Usage
+
+        Code-cell loading calls this for every output entry. Keep a returned
+        `RejectedNotebookPart` in the output list so damage stays visible and
+        neighboring outputs remain usable.
         """
 
         def rejected(reason: str) -> RejectedNotebookPart:
-            """Preserve this output with one stable warning."""
+            """Wrap the untouched output JSON with a scoped validation warning.
+
+            The nested loader calls this for every unsupported output shape.
+            `reason` becomes explanatory prose only; the raw entry remains the
+            content composition later renders and compares.
+            """
             return RejectedNotebookPart(
                 raw=entry,
                 warning={
@@ -513,18 +637,44 @@ def _paired_cells(
     """Pair cells across the two sides by public key, in document order.
 
     Keys are durable, so a key present on both sides always names one cell and
-    must produce exactly one pair. Sequence alignment supplies the order — it
-    keeps added and removed cells where the notebook puts them — but alignment
+    must produce exactly one pair. Sequence alignment supplies the order. It
+    keeps added and removed cells where the notebook puts them, but alignment
     alone reports a moved cell as a deletion and an unrelated insertion, which
     would emit that cell's key twice. Bay keys are unique within one composed
     diff, so the two halves of a move are rejoined here into the single pair the
     key already says they are. Such a pair is reported as moved: alignment broke
     for it precisely because the cell changed position, and a move is a change
     the reviewer must be able to reach even when the cell's contents are equal.
+
+    # Parameters
+
+    - `left_cells`: Old notebook cells in document order.
+    - `right_cells`: New notebook cells in document order.
+
+    # Returns
+
+    - `First in each pair`: The cell's public key, emitted once.
+    - `Second in each pair`: Its old document index.
+    - `Third in each pair`: Its new document index.
+    - `Fourth in each pair`: Whether alignment identified a move.
+    - `None`: The second or third item is absent when the cell exists only on
+      the other side. At least one index is present in every pair.
+    - `Order`: Pairs follow composed document order. A moved pair occupies its
+      new-side position; one-sided pairs remain at their surviving position.
     """
 
     def entry_keys(entries: list[NotebookCellEntry]) -> list[str]:
-        """Return unique keys for structured and raw rejected cells."""
+        """Return one collision-free pairing key per entry in document order.
+
+        Structured cells retain their validated or derived ID. Rejected values
+        use a digest plus occurrence count, so identical malformed cells remain
+        distinct while the two notebook sides can still align equal raw content.
+
+        # Usage
+
+        `_paired_cells` computes both side sequences with this helper before
+        alignment. The returned order must remain the input document order.
+        """
         occurrences: dict[str, int] = {}
         keys: list[str] = []
         for entry in entries:
@@ -625,6 +775,31 @@ def notebook_bays(
     facts with a warning. Inside a usable cell list, loading preserves rejected
     cells and outputs at their own boundary. A `None` byte side means the File
     was added or removed; no empty document is invented for it.
+
+    # Parameters
+
+    - `left_bytes`: Captured old notebook bytes, or `None` when absent.
+    - `right_bytes`: Captured new notebook bytes under the same convention.
+    - `context`: File paths and labels copied or narrowed for yielded bays.
+
+    # Usage
+
+    `Composer.bays` calls this after both present paths classify as notebooks.
+    Iterate the result in order; later composition groups adjacent bays by the
+    frame key and heading supplied here.
+
+    # Returns
+
+    - `Yielded bays`: Changed notebook metadata and cell content represented as
+      text bays with stable public bay and frame keys.
+    - `Order`: Notebook metadata comes first, followed by each cell's source,
+      metadata, and output bays under that cell's frame.
+
+    # Failures
+
+    Iteration raises `AssertionError` when both byte sides are absent. Invalid
+    document boundaries, cells, and outputs become raw text or byte-facts bays
+    with warnings rather than exceptions.
     """
 
     def canonical_json(value: JsonValue) -> str:
@@ -753,11 +928,17 @@ def notebook_bays(
     def cell_heading(cell: NotebookCell) -> str | None:
         """Name one cell, or report that it has no name.
 
-        A cell's only name is its Jupyter prompt — the one a notebook user
-        ever sees — so an executed code cell is named `In [4]` and one never
-        executed is named `In [ ]`. Prose carries no prompt, so markdown and
-        raw cells have no name at all, and a caller with nothing to name says
-        only what happened to the cell.
+        A cell's only name is the Jupyter prompt shown to its user. An executed
+        code cell is named `In [4]`, and one that never ran is `In [ ]`.
+        Prose carries no prompt, so markdown and raw cells have no name at all.
+        A caller with nothing to name says only what happened to the cell.
+
+        # Returns
+
+        - `str`: The code cell's Jupyter input prompt, including an empty prompt
+          for a code cell that has never executed.
+        - `None`: Markdown and raw cells have no prompt. Callers must describe
+          the cell without adding a heading name.
         """
         if cell.cell_type != "code":
             return None
@@ -765,7 +946,12 @@ def notebook_bays(
         return "In [ ]" if count is None else f"In [{count}]"
 
     def source_hint(cell: NotebookCell) -> str:
-        """The syntax path hint for one cell type's source."""
+        """Choose the renderer-only syntax path for a supported cell type.
+
+        Code, markdown, and raw cells map to Python, Markdown, and plain-text
+        suffixes respectively. The synthetic path selects highlighting only and
+        never becomes the cell's public key or notebook path.
+        """
         if cell.cell_type == "code":
             return "cell.py"
         if cell.cell_type == "markdown":
@@ -776,12 +962,24 @@ def notebook_bays(
         """Choose the text shown for one side of an output bay.
 
         This is the builder's representation choice: a stream shows its
-        text, an error shows its traceback strings joined as lines —
-        escape codes still uninterpreted — and a bundle shows its
+        text. An error shows its traceback strings joined as lines while
+        leaving escape codes uninterpreted. A bundle shows its
         `text/plain`. A `DiffSide` reserves `text=None` for a missing
         side, so an output that exists without a text representation
         renders as empty text here, at the widget boundary; the model
         keeps the two apart.
+
+        # Usage
+
+        `notebook_bays` calls this for paired output entries before deciding
+        whether their text or raw JSON change requires a bay.
+
+        # Returns
+
+        - `str`: The output's text representation. A present rich output with
+          no `text/plain` value returns `""` so it remains distinct from absence.
+        - `None`: This side has no output entry. The caller must construct a
+          missing `DiffSide`, not an empty present output.
         """
         match out:
             case None:
@@ -876,8 +1074,8 @@ def notebook_bays(
         # Only this builder can tell these apart. A moved cell and an edited
         # one differ in a fact about the notebook, not in their rows: a cell
         # that only moved has rows identical on both sides. A move outranks
-        # an edit — where the cell went says more than which line changed —
-        # and the rows still show the edit when there is one.
+        # an edit. Where the cell went says more than which line changed, and
+        # the rows still show the edit when there is one.
         change: BayChange
         if left_cell is None:
             change = ChangeStatus(kind="added")
@@ -911,7 +1109,7 @@ def notebook_bays(
             # The cell's source is the frame's body only when the source is
             # what changed. A cell whose outputs or metadata moved on without
             # it has nothing to read in its rows, and folds cannot hide a bay
-            # that is unchanged end to end, so it collapses like an untouched
+            # that is unchanged end to end, so it may close like an untouched
             # cell and the bay that did change carries the hunk.
             collapsible=not source_changed,
             default_expanded=source_changed,
@@ -1037,7 +1235,7 @@ def notebook_bays(
                 # One output is one bay with its own two sides: an output the
                 # run produced for the first time is added and one it stopped
                 # producing is removed, which is what the reviewer needs the
-                # collapsed label to say before opening it.
+                # closed label to say before opening it.
                 change=ChangeStatus(
                     kind=(
                         "added"

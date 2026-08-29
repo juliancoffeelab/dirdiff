@@ -11,7 +11,17 @@ import subprocess
 from pathlib import Path
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets"
+"""Fixture catalog root whose two-sided cases this module validates.
+
+All discovery stays below this checked-in tree; temporary or golden output is
+not fixture input.
+"""
 REPO_ROOT = Path(__file__).parents[2]
+"""Project root used to load the installed frontend TypeScript parser.
+
+The parser check runs Node here so the module path matches the frontend's actual
+dependency rather than a separate global compiler.
+"""
 EXPECTED_PRESET_MAKEFILE = """OLD := $(firstword $(wildcard old.*))
 NEW := $(firstword $(wildcard new.*))
 
@@ -40,11 +50,21 @@ json:
 show:
 \tbat $(OLD) $(NEW)
 """
+"""Exact human-facing helper commands every two-sided preset provides.
+
+Keeping one checked value prevents fixture-local command drift; the Makefile is
+for manual inspection and snapshot generation, not part of diff behavior.
+"""
 
 __all__: list[str] = []
 
 
 def _preset_dirs() -> list[Path]:
+    """Return two-sided fixture cases in stable catalog/group/case order.
+
+    Addition and deletion fixtures intentionally have one side and are outside
+    these paired-file and Makefile checks.
+    """
     return sorted(
         path
         for path in PRESETS_ROOT.glob("*/*/*")
@@ -55,6 +75,11 @@ def _preset_dirs() -> list[Path]:
 
 
 def test_presets_have_old_and_new_files() -> None:
+    """Every two-sided fixture has one old/new pair of the same format.
+
+    Extra matches or mixed extensions would make format and golden selection
+    ambiguous.
+    """
     preset_dirs = _preset_dirs()
     assert preset_dirs != []
     for preset_dir in preset_dirs:
@@ -67,6 +92,11 @@ def test_presets_have_old_and_new_files() -> None:
 
 
 def test_presets_have_standard_makefiles() -> None:
+    """Every two-sided fixture exposes the same manual inspection commands.
+
+    Exact equality keeps snapshot, external-engine, and display helpers aligned
+    across catalogs instead of letting copied fixtures drift.
+    """
     preset_dirs = _preset_dirs()
     assert preset_dirs != []
     for preset_dir in preset_dirs:
@@ -76,11 +106,21 @@ def test_presets_have_standard_makefiles() -> None:
 
 
 def test_python_presets_compile() -> None:
+    """Python fixture sources remain parseable inputs rather than syntax damage.
+
+    Compilation reads every fixture but executes none of it, keeping this a
+    source-validity check rather than a behavioral test.
+    """
     for path in sorted(PRESETS_ROOT.glob("**/*.py")):
         compile(path.read_text(), str(path), "exec")
 
 
 def test_typescript_presets_parse() -> None:
+    """TypeScript and TSX fixtures parse with the frontend compiler version.
+
+    The check reports every diagnostic in one run so malformed fixture source
+    cannot masquerade as a renderer failure.
+    """
     files = sorted(
         [
             *PRESETS_ROOT.glob("**/*.ts"),

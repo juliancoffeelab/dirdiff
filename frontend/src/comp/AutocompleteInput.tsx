@@ -19,13 +19,37 @@ import {
 /**
  * Describes one immutable autocomplete choice.
  *
- * `value` is returned on confirmation, `label` is visible, `description` is null
- * when no secondary copy exists, and `group` provides the visible section label.
+ * Each choice has one stable submitted value and the text needed to place it in
+ * the suggestions popup.
  */
 type AutocompleteChoice = {
+  /**
+   * Stable value submitted when the user confirms this choice.
+   *
+   * The value may differ from the visible label, as it does for structured Git
+   * refs. Callers must not depend on it being unique across different groups.
+   */
   value: string;
+  /**
+   * Primary text rendered for the choice and searched case-insensitively.
+   *
+   * Filtering uses only this label. Hidden domain identifiers belong in `value`,
+   * not in special behavior inside AutocompleteInput.
+   */
   label: string;
+  /**
+   * Secondary explanation rendered below the label.
+   *
+   * `null` omits the description element; an empty string is still explicit
+   * visible content and should not be used as a substitute for absence.
+   */
   description: string | null;
+  /**
+   * User-visible section label used to group suggestions.
+   *
+   * Choices sharing the exact string appear together in first-seen group order,
+   * while their order inside the group remains the caller's order.
+   */
   group: string;
 };
 
@@ -38,16 +62,89 @@ type AutocompleteChoice = {
  * private; null notification means this caller needs no edit notification.
  */
 type AutocompleteInputProps = {
+  /**
+   * Complete modifier class appended to the field root.
+   *
+   * The base field and autocomplete classes are always present. An empty string
+   * requests no caller-specific modifier.
+   */
   class: string;
+  /**
+   * User-visible caption for the input.
+   *
+   * It is rendered inside the enclosing label and must name the value the caller
+   * expects from `onDone`.
+   */
   label: string;
+  /**
+   * Realtime text displayed until the user directly edits this mounted input.
+   *
+   * Later seed changes replace untouched text but never overwrite local edited
+   * text. Remounting starts a new untouched lifetime.
+   */
   seed: string;
+  /**
+   * Hint rendered by the native input when its current text is empty.
+   *
+   * It is presentation only and is never submitted through `onDone`.
+   */
   placeholder: string;
+  /**
+   * Realtime immutable suggestions searched by their visible labels.
+   *
+   * The component reads the latest array whenever filtering runs and stores no
+   * copy. Replacing choices does not replace the current text.
+   */
   choices: readonly AutocompleteChoice[];
+  /**
+   * Whether the editable input is present.
+   *
+   * A false value supports controls whose prefix performs the current mode's
+   * interaction. Confirming a popup choice then does not attempt to focus the
+   * absent input.
+   */
   inputVisible: boolean;
+  /**
+   * Caller element rendered before the editable input.
+   *
+   * `null` selects the plain-input layout. The component renders the supplied
+   * element unchanged and assigns it no completion behavior.
+   */
   inputPrefix: JSX.Element | null;
+  /**
+   * Caller action rendered beside the field caption.
+   *
+   * AutocompleteInput does not invoke or disable it. `null` leaves that slot
+   * absent instead of rendering an empty action container.
+   */
   fieldAction: JSX.Element | null;
+  /**
+   * Caller action rendered after the grouped suggestions.
+   *
+   * Pointer interaction with popup content cancels delayed blur dismissal so the
+   * supplied action may run before the panel closes. `null` omits the slot.
+   */
   panelAction: JSX.Element | null;
+  /**
+   * Reports each direct text edit before any later completion.
+   *
+   * The callback receives no value because callers use it only to warm realtime
+   * metadata; completed text arrives through `onDone`. It does not run for seed
+   * changes or choice activation, and `null` disables the notification.
+   */
   onEditNotification: (() => void) | null;
+  /**
+   * Accepts the complete value when the user confirms a choice, presses Enter,
+   * or leaves the input.
+   *
+   * Choice confirmation passes the exact choice value; free-form completion
+   * passes current text. Choice or Enter confirmation first stores the accepted
+   * text and closes the popup, then invokes the callback before restoring input
+   * focus. Blur invokes it synchronously before scheduling delayed dismissal, so
+   * a subsequently clicked caller action can observe accepted state. The input
+   * owns its accepted text for this mount; the caller need not feed the value
+   * back through `seed`.
+   */
   onDone: (value: string) => void;
 };
 
@@ -87,7 +184,17 @@ export function AutocompleteInput(props: AutocompleteInputProps): JSX.Element {
 
   const groupedChoices = createMemo(() => {
     const groups: Array<{
+      /**
+       * Exact group label rendered once above these choices.
+       *
+       * Its first occurrence fixes this group's position for the current filter.
+       */
       label: string;
+      /**
+       * Matching choices collected for this label in caller-supplied order.
+       *
+       * The array is built fresh inside the memo and never escapes as state.
+       */
       choices: AutocompleteChoice[];
     }> = [];
     for (const choice of filteredChoices()) {
@@ -101,6 +208,8 @@ export function AutocompleteInput(props: AutocompleteInputProps): JSX.Element {
     return groups;
   });
 
+  // Blur dismissal may still be waiting when a caller removes the field. Clear
+  // that one component-local timer so disposed input state is never updated.
   onCleanup(() => {
     if (blurTimer !== null) {
       window.clearTimeout(blurTimer);

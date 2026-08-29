@@ -1,4 +1,16 @@
-"""Module execution entrypoint for `python -m dirdiff`."""
+"""Execution entrypoint for `python -m dirdiff`.
+
+## Public interface
+
+Executing this module invokes `dirdiff.cli.main`, the same callable used by the
+installed `dirdiff` command.
+
+## Purpose and boundaries
+
+This module makes the package executable without defining another set of
+commands. Argument parsing, command behavior, and process lifetime remain in the
+CLI package.
+"""
 
 from dirdiff.cli import main
 

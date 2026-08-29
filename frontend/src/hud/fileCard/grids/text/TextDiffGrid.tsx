@@ -1,17 +1,14 @@
 /**
- * Renders immutable text-diff rows as the established split or inline grid.
+ * Keeps one text bay's reactive inputs synchronized with imperative row DOM.
  *
- * The module exports the TextDiffGrid component. TextDiffGrid owns the reactive half
- * of text-file rendering: the render driver that replaces its owned row
- * subtree when inputs change, the delegated line-activation listener that
- * routes clicks to line pins and review Comment inputs, review marker
- * decoration, and the line-preparation operation FileCard invokes. The row
- * DOM itself — split/inline/fold construction, syntax decoration, hunk
- * anchor attributes, and chunked lazy rendering — is built by the pure
- * `rowDom.ts` kernel beside this file. Callers provide fully validated
- * backend rows and complete presentation inputs. It must not fetch data, own
- * ChangeSet state, navigate hunks, virtualize files, or render notebook
- * framing.
+ * Reactive changes rebuild the grid's exclusive row subtree through `rowDom.ts`.
+ * A delegated listener routes line activation to the shared pin and review
+ * interfaces, marker refreshes track canonical review revisions, and the root
+ * exposes the line-preparation operation used by FileCard.
+ *
+ * The grid retains local expanded-fold state and renderer DOM only. It does not
+ * fetch File data, retain ChangeSet state, navigate hunks, or decide whether its
+ * containing bay is rich or virtual.
  */
 import {
   ErrorBoundary,
@@ -53,17 +50,76 @@ import { renderInlineRowsDom, renderSplitRowsDom, type Side } from "./rowDom";
  * row DOM.
  */
 export function TextDiffGrid(props: {
+  /**
+   * Identifies the exact captured file pair used by review and line pins.
+   * Both paths remain part of the identity even when one captured side is null.
+   */
   reviewFile: ReviewFilePair;
+
+  /**
+   * Supplies the file's stable coordinate in the mounted ChangeSet manifest.
+   * The grid writes it only to real hunk anchors for navigation enrichment.
+   */
   fileIndex: number;
+
+  /**
+   * Names the file represented by these rows for renderer identity.
+   * A changed name resets renderer-local fold expansion with the other inputs.
+   */
   displayName: string;
+
+  /**
+   * Identifies the exact physical bay whose rows are rendered here.
+   * It composes with file and line coordinates for review and navigation.
+   */
   bayKey: string;
+
+  /**
+   * Provides the backend's display name for this bay's inline content column.
+   * Callers must not substitute a generic code label for non-code bays.
+   */
   contentLabel: string;
+
+  /**
+   * Provides the complete old-side label for split display and inline tooltip.
+   * It is presentation text, not file or bay identity.
+   */
   leftLabel: string;
+
+  /**
+   * Provides the complete new-side label for split display and inline tooltip.
+   * It is presentation text, not file or bay identity.
+   */
   rightLabel: string;
+
+  /**
+   * Contains validated backend diff rows in source order for this bay.
+   * The component treats the array as immutable and replaces its DOM on change.
+   */
   rows: DiffRow[];
+
+  /**
+   * Contains backend fold candidates whose coordinates refer to `rows`.
+   * Invalid overlaps are rejected by the fold builder rather than repaired.
+   */
   foldHints: FoldHint[];
+
+  /**
+   * Selects the current Tab-wide split or inline text presentation.
+   * Changing it rebuilds the row DOM and clears local fold expansion.
+   */
   viewMode: DiffViewMode;
+
+  /**
+   * Selects whether every valid fold hint initially becomes a folded range.
+   * False retains context-sensitive folding; a change resets local expansion.
+   */
   aggressiveFolds: boolean;
+
+  /**
+   * Supplies Snapshot-scoped URL line identity and pin activation behavior.
+   * The grid paints only rows that this service reports as currently pinned.
+   */
   linePins: LinePins;
 }) {
   return (
@@ -109,7 +165,18 @@ export function TextDiffGrid(props: {
  * Both labels are complete backend display strings and remain visible for the
  * lifetime of this header; the component owns no row or view state.
  */
-function SplitHeader(props: { leftLabel: string; rightLabel: string }) {
+function SplitHeader(props: {
+  /**
+   * Provides the complete visible label for the left diff side.
+   * The header presents it unchanged for the lifetime of this render.
+   */
+  leftLabel: string;
+  /**
+   * Provides the complete visible label for the right diff side.
+   * The header presents it unchanged for the lifetime of this render.
+   */
+  rightLabel: string;
+}) {
   return (
     <div class="diff-header-row">
       <div class="diff-pane-header diff-side-header">{props.leftLabel}</div>
@@ -128,8 +195,20 @@ function SplitHeader(props: { leftLabel: string; rightLabel: string }) {
  * reinterpret them elsewhere.
  */
 function InlineHeader(props: {
+  /**
+   * Provides the complete old-side text exposed by the old-column tooltip.
+   * The visible column heading remains the established abbreviated `old`.
+   */
   leftLabel: string;
+  /**
+   * Provides the complete new-side text exposed by the new-column tooltip.
+   * The visible column heading remains the established abbreviated `new`.
+   */
   rightLabel: string;
+  /**
+   * Provides the backend name displayed over the shared content column.
+   * It distinguishes code from other frame bays without local reinterpretation.
+   */
   contentLabel: string;
 }) {
   return (
@@ -153,6 +232,18 @@ function InlineHeader(props: {
  * painting, URL mutation, file expansion, or file materialization.
  */
 type PreparableDiffLines = HTMLDivElement & {
+  /**
+   * Prepares one exact line target within this mounted text grid.
+   *
+   * `target` must carry this grid's file and bay identity. The operation may
+   * expand a local folded range, but it does not scroll, paint, or update URL
+   * state. It returns `stopped` if `abortSignal` is already aborted or becomes
+   * aborted before the newly rendered row is available; callers must not use a
+   * returned row after aborting their navigation operation.
+   *
+   * @param target Complete snapshot file, bay, side, and line coordinates.
+   * @param abortSignal Lifetime of the caller's current line preparation.
+   */
   prepareLine_impl(
     target: LinePinTarget,
     abortSignal: AbortSignal,
@@ -172,16 +263,60 @@ type PreparableDiffLines = HTMLDivElement & {
  * operation are removed on cleanup.
  */
 function ImperativeDiffLines(props: {
+  /**
+   * Identifies the exact captured file pair for review and line-pin validation.
+   * Both paths must match every target routed into this row root.
+   */
   reviewFile: ReviewFilePair;
+  /**
+   * Supplies the file's stable coordinate in the mounted ChangeSet manifest.
+   * It is written to real hunk anchors but does not select any hunk.
+   */
   fileIndex: number;
+  /**
+   * Names the file represented by this renderer instance.
+   * A changed name invalidates its local expanded-fold set with other inputs.
+   */
   displayName: string;
+  /**
+   * Identifies the exact physical bay represented by this row root.
+   * Review, hunk, and line identities written below must retain this key.
+   */
   bayKey: string;
+  /**
+   * Contains validated backend rows in source order for this one bay.
+   * The renderer treats the array as immutable and replaces all DOM on change.
+   */
   rows: DiffRow[];
+  /**
+   * Contains backend fold candidates whose coordinates refer to `rows`.
+   * The fold builder validates their ordering before imperative rendering.
+   */
   foldHints: FoldHint[];
+  /**
+   * Provides the complete left-side label to split rows and fold bars.
+   * Inline row content does not use this as identity.
+   */
   leftLabel: string;
+  /**
+   * Provides the complete right-side label to split rows and fold bars.
+   * Inline row content does not use this as identity.
+   */
   rightLabel: string;
+  /**
+   * Selects the current Tab-wide split or inline text presentation.
+   * A change rebuilds the complete row subtree and clears expanded folds.
+   */
   viewMode: DiffViewMode;
+  /**
+   * Selects whether every valid hint begins as a folded range.
+   * A change rebuilds rows and clears the renderer-local expansion set.
+   */
   aggressiveFolds: boolean;
+  /**
+   * Supplies Snapshot-scoped parsing and updates for URL line identity.
+   * This row root uses it only after validating the target belongs here.
+   */
   linePins: LinePins;
 }) {
   let root!: PreparableDiffLines;
@@ -202,7 +337,13 @@ function ImperativeDiffLines(props: {
   let previousViewMode: DiffViewMode | undefined;
   let previousAggressiveFolds: boolean | undefined;
 
-  /** Reads the required marker discriminator from one rendered Comment control. */
+  /**
+   * Reads the required marker discriminator from one rendered Comment control.
+   *
+   * Marker buttons are created only by this grid. A missing or unknown dataset
+   * value therefore indicates corrupted renderer-owned DOM and throws rather
+   * than being treated as an undecorated marker.
+   */
   function reviewMarkerKind(trigger: HTMLButtonElement): ReviewMarkerKind {
     const markerKind = trigger.dataset.reviewMarkerKind;
     assert(
@@ -216,9 +357,21 @@ function ImperativeDiffLines(props: {
     return markerKind;
   }
 
-  /** Refreshes only review decorations and disables them if this owner fails. */
+  /**
+   * Refreshes review decorations without making complete row rendering reactive.
+   *
+   * The child subscribes to review marker revisions and the row revision
+   * published after imperative replacements. It either refreshes all mounted
+   * lines or the exact changed marker keys. Any failure disables every marker
+   * in this grid before reaching the nearest marker-only ErrorBoundary.
+   */
   function ReviewMarkerRefresh(): JSX.Element {
     let appliedRowRevision = -1;
+    // Keep marker buttons synchronized with review facts and imperative row
+    // replacements for this child's mounted lifetime. The effect reads the
+    // review revision, changed-key set, and rowRevision signal; Solid disposes
+    // the subscription on unmount, while onCleanup removes marker behavior from
+    // DOM that may outlive a failed refresh.
     createEffect(() => {
       review.markerRevision();
       const rows = rowRevision();
@@ -252,6 +405,12 @@ function ImperativeDiffLines(props: {
    * identity. `null` means only that the exact side and line are not currently
    * rendered. A target from another bay, duplicate coordinate, or line
    * detached from a valid row is a structural contradiction and throws.
+   *
+   * # Returns
+   *
+   * - The unique rendered row containing the exact line-pin coordinate.
+   * - `null`: The exact side and line are not currently rendered. Pin operations
+   *   must avoid painting or scrolling to a substitute row.
    */
   function renderedRow(target: LinePinTarget): HTMLElement | null {
     assert(
@@ -397,6 +556,9 @@ function ImperativeDiffLines(props: {
    * FileCard has already expanded and materialized the owning FullFile. Missing
    * complete-file coordinates return `missing`; cancellation returns `stopped`;
    * duplicate or malformed renderer identity throws visibly.
+   *
+   * @param target Exact file, bay, side, and line coordinates to reveal.
+   * @param abortSignal Lifetime of the FileCard navigation operation.
    */
   async function prepareLine_impl(
     target: LinePinTarget,
@@ -474,7 +636,16 @@ function ImperativeDiffLines(props: {
    * change folds, line pins, or hunk selection.
    */
   function applyMarkerState(lineNumber: HTMLElement): void {
-    /** Stamps one trigger's marker kind: identity dataset plus state classes. */
+    /**
+     * Applies one exact marker kind to an existing Comment trigger.
+     *
+     * The button retains its identity so an active anchored Comment input is not
+     * disconnected. This operation updates only kind classes and the dataset;
+     * labels, counts, warning state, and disabled state remain the caller's job.
+     *
+     * @param trigger Renderer-owned button whose identity must be preserved.
+     * @param markerKind Current review-derived state for that trigger.
+     */
     function decorateTriggerKind(
       trigger: HTMLButtonElement,
       markerKind: ReviewMarkerKind,
@@ -504,7 +675,17 @@ function ImperativeDiffLines(props: {
       );
     }
 
-    /** Creates one control for one state actually represented at this line. */
+    /**
+     * Creates one Comment control for a marker represented on this exact line.
+     *
+     * The returned button has marker identity and stable child elements, but no
+     * listener: the grid's delegated root listener handles activation. The
+     * caller must finish its visible label, title, warning, and disabled state.
+     *
+     * @param markerKind Review-derived state initially applied to the button.
+     * @param side Exact backend side exposed in its accessible label.
+     * @param line Validated positive backend line identity as decimal text.
+     */
     function createTrigger(
       markerKind: ReviewMarkerKind,
       side: Side,
@@ -645,7 +826,13 @@ function ImperativeDiffLines(props: {
     }
   }
 
-  /** Removes possibly partial review decoration while preserving every row. */
+  /**
+   * Disables possibly partial review decoration while preserving every row.
+   *
+   * This is the local damage boundary for marker failures. It removes all
+   * review-state classes and disables existing Comment triggers, but leaves
+   * their stable DOM identities and line-pin behavior intact.
+   */
   function disableReviewMarkers(): void {
     for (const trigger of root.querySelectorAll<HTMLButtonElement>(
       ".line-comment-trigger",
@@ -745,6 +932,10 @@ function ImperativeDiffLines(props: {
     afterRowsChanged();
   };
 
+  // Rebuild the exclusively owned row subtree when the renderer inputs read by
+  // render() change. The effect lives with this component, owns no asynchronous
+  // work, and needs no cleanup because each run replaces the prior DOM after
+  // closing anchored review UI; component disposal removes the root itself.
   createEffect(render);
   onMount(() => {
     root.prepareLine_impl = prepareLine_impl;

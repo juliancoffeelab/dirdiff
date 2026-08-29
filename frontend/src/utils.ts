@@ -13,6 +13,10 @@
  *
  * Callers provide the condition they require and may provide a boundary-specific
  * error message. A false condition always throws; a true condition returns no value.
+ *
+ * @param condition Runtime invariant that must hold.
+ * @param message Error text for this boundary, or `null` for the generic assertion
+ * message.
  */
 export function assert(
   condition: boolean,
@@ -29,6 +33,10 @@ export function assert(
  * Null and undefined are the only missing values. Callers may provide a
  * boundary-specific error message and receive the original value type without a
  * non-null type assumption.
+ *
+ * @param value Value whose presence the caller requires.
+ * @param message Error text for this boundary, or `null` for the generic missing
+ * value message.
  */
 export function expect<T>(
   value: T | null | undefined,
@@ -45,6 +53,10 @@ export function expect<T>(
  *
  * All three arguments must be finite and `min` must not exceed `max`. Invalid
  * bounds throw immediately rather than silently returning a misleading value.
+ *
+ * @param value Number to restrict.
+ * @param min Inclusive lower bound.
+ * @param max Inclusive upper bound.
  */
 export function clamp(value: number, min: number, max: number): number {
   assert(

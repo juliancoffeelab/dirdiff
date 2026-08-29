@@ -1,7 +1,7 @@
-"""Property-style checks for difftastic preset projections.
+"""Property checks for Difftastic rows over the complete preset corpus.
 
 The tests in this module run every difftastic preset, including `borked`
-fixtures, through the same row projector and assert broad invariants: source
+fixtures, through the same row builder and assert broad invariants: source
 text is preserved, one-sided rows are not pure unchanged context, and
 replacement tokens stay paired sensibly.  Golden snapshots cover exact output
 for non-borked presets; this file guards shape and token consistency across
@@ -27,15 +27,45 @@ from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
 from dirdiff.formats import TextRejection, try_decode_text
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
+"""Complete Difftastic source-pair corpus, including intentionally hard cases.
+
+Unlike golden tests, these invariants include the `borked` group because exact
+appearance is irrelevant to source preservation and token consistency.
+"""
 REPO_ROOT = Path(__file__).resolve().parents[2]
+"""Current checkout used to replay the worktree patch through preset invariants.
+
+The dynamic corpus is additional coverage for code under active development;
+it does not replace stable checked-in fixtures.
+"""
 Side = Literal["left", "right"]
+"""Difftastic source side inspected by replay and span-order assertions.
+
+The value selects coordinated row and token fields only. It does not describe
+which side changed or whether a row is paired.
+"""
 
 
 __all__: list[str] = []
 
 
 def _preset_cases() -> list[ParameterSet]:
-    """Return the sole old/new file pair from each diff preset."""
+    """Return text preset pairs whose directory has one unambiguous side pair.
+
+    The collector rejects ambiguous multiple files and skips non-text presets.
+    Stable relative-directory IDs tie a property failure back to the checked-in
+    corpus instead of to generated temporary paths.
+
+    # Usage
+
+    Use as the parameter list for properties that need every readable preset
+    pair, including fixtures Difftastic cannot compare structurally.
+
+    # Failures
+
+    Raises `AssertionError` when a preset contains an ambiguous number of old or
+    new files.
+    """
     cases: list[ParameterSet] = []
     for preset_dir in sorted(PRESETS_ROOT.glob("*/*")):
         if not preset_dir.is_dir():
@@ -55,8 +85,28 @@ def _preset_cases() -> list[ParameterSet]:
 
 
 def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
-    """
-    Used as pytest parametrizer to run tests over current diff
+    """Build replay cases from changed text Files in the current worktree.
+
+    The helper compares HEAD with worktree including untracked Files, loads an
+    absent side as empty bytes, and skips capture failures, non-text content,
+    and equal pairs such as pure renames. Each result contains display name,
+    left and right parser names, then decoded left and right text, in backend
+    manifest order. An empty current diff returns an empty parameter list.
+
+    # Usage
+
+    Use as an additional property-test parameter source when local changed Files
+    should be checked without replacing the stable preset corpus.
+
+    # Returns
+
+    - `First in each case`: The display name used as the pytest case identity.
+    - `Second in each case`: The old parser path.
+    - `Third in each case`: The new parser path.
+    - `Fourth in each case`: The complete old text.
+    - `Fifth in each case`: The complete new text.
+    - `Selection and order`: Cases retain backend manifest order; equal,
+      non-text, capture-failed, and unreadable pairs are absent.
     """
     backend = GitBackend.discover(cwd=REPO_ROOT)
     cases: list[tuple[str, str, str, str, str]] = []
@@ -86,7 +136,7 @@ def _current_diff_cases() -> list[tuple[str, str, str, str, str]]:
 
         left_text = try_decode_text(left_content)
         right_text = try_decode_text(right_content)
-        # Content this project does not call text has no row projection to
+        # Content this project does not call text has no engine rows to
         # replay, exactly as composition classifies it away from a text bay.
         if isinstance(left_text, TextRejection) or isinstance(
             right_text, TextRejection
@@ -111,9 +161,27 @@ def _difftastic_rows_for_preset(
     old_path: Path,
     new_path: Path,
 ) -> tuple[list[DiffEngineRow], str, str]:
-    """
-    Returns private-ish difftastic parser result, without handling
-    bad cases like fallback to unified_diff, if difftastic fails
+    """Build one fixture through raw Difftastic without textual degradation.
+
+    Empty or degraded structural output remains visible to the property test;
+    this helper deliberately does not substitute unified text rows.
+
+    # Parameters
+
+    - `old_path`: Old fixture file read as Difftastic's left source.
+    - `new_path`: New fixture file read as its right source.
+
+    # Usage
+
+    Property tests call this when they need to distinguish Difftastic's raw
+    structural result from the engine's textual degraded result.
+
+    # Returns
+
+    - `First`: Raw Difftastic rows before the engine substitutes a textual
+      degraded result.
+    - `Second`: Exact old fixture text supplied to Difftastic.
+    - `Third`: Exact new fixture text supplied to Difftastic.
     """
     old_text = old_path.read_text()
     new_text = new_path.read_text()
@@ -143,6 +211,21 @@ def _text_without_difftastic_ignored_trailing_commas(
     remaining status stream can reconstruct the target.
 
     Sad but true.
+
+    # Parameters
+
+    - `source_path`: Parser-selecting fixture path for language-specific rules.
+    - `source_text`: Exact text from which ignored comma bytes are removed.
+
+    # Usage
+
+    Replay checks apply this to the exact source before comparing it with
+    Difftastic token text for languages whose parser omits trailing commas.
+
+    # Failures
+
+    Raises `AssertionError` when a Difftastic-reported byte position does not
+    address the comma expected in the supplied source.
     """
     match source_path.suffix:
         case ".py":
@@ -232,6 +315,11 @@ def test_difftastic_preset_tokens_stay_in_source_order(
     """This test verifies that for both old source and new source, the output
     on the left and on the right has all tokens in full, and in the same order
     as they were in the original sources.
+
+    # Parameters
+
+    - `old_path`: Parametrized old fixture file.
+    - `new_path`: Parametrized new fixture file.
     """
 
     def _side_rendered_text(
@@ -239,6 +327,18 @@ def test_difftastic_preset_tokens_stay_in_source_order(
         *,
         side: Side,
     ) -> str:
+        """Join source-side row text in rendered order.
+
+        # Parameters
+
+        - `rows`: Complete projected row sequence.
+        - `side`: Source side whose present rows are joined.
+
+        # Usage
+
+        The enclosing property test calls this for each side before comparing
+        the rendered line sequence with the original source.
+        """
         if side == "left":
             return "\n".join(
                 row["left_text"] for row in rows if row["left_no"] is not None
@@ -248,6 +348,12 @@ def test_difftastic_preset_tokens_stay_in_source_order(
         )
 
     def _token_atoms(text: str) -> list[str]:
+        """Reduce exact token text to atoms safe for subsequence comparison.
+
+        Whitespace is deliberately absent because Difftastic may partition it
+        differently. Identifier, numeric, and punctuation order must still be a
+        subsequence of the corresponding original source.
+        """
         return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S", text)
 
     rows, old_text, new_text = _difftastic_rows_for_preset(old_path, new_path)
@@ -286,6 +392,16 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
     old_path: Path,
     new_path: Path,
 ) -> None:
+    """Match every projected changed character to Difftastic's byte ranges.
+
+    The original source converts external byte columns to character offsets;
+    diagnostics identify any missing or extra changed character by line.
+
+    # Parameters
+
+    - `old_path`: Parametrized old source and parser hint.
+    - `new_path`: Parametrized new source and parser hint.
+    """
     old_text = old_path.read_text()
     new_text = new_path.read_text()
     service = DifftasticDiffEngine()
@@ -391,6 +507,13 @@ def test_difftastic_preset_line_status_matches_token_statuses(
     old_path: Path,
     new_path: Path,
 ) -> None:
+    """Derive each projected row status from its actual token classifications.
+
+    # Parameters
+
+    - `old_path`: Parametrized old fixture file.
+    - `new_path`: Parametrized new fixture file.
+    """
     rows, _, _ = _difftastic_rows_for_preset(old_path, new_path)
 
     diagnostics: list[tuple[int, str, str, list[str]]] = []
@@ -443,6 +566,13 @@ def test_difftastic_preset_line_alignment_matches_difftastic(
     old_path: Path,
     new_path: Path,
 ) -> None:
+    """Preserve Difftastic's complete line alignment after phantom removal.
+
+    # Parameters
+
+    - `old_path`: Old source defining valid left line coordinates.
+    - `new_path`: New source defining valid right line coordinates.
+    """
     old_text = old_path.read_text()
     new_text = new_path.read_text()
     service = DifftasticDiffEngine()
@@ -480,7 +610,13 @@ def test_difftastic_preset_diff_replays_both_directions(
     old_path: Path,
     new_path: Path,
 ) -> None:
-    """Token statuses must replay either source file into the other."""
+    """Token statuses must replay either source file into the other.
+
+    # Parameters
+
+    - `old_path`: Old source used for forward and reverse replay.
+    - `new_path`: New source used for both directions.
+    """
 
     def replay(
         source_side: Side,
@@ -490,7 +626,26 @@ def test_difftastic_preset_diff_replays_both_directions(
         target_changed: set[str],
         direction: str,
     ) -> None:
-        """Run the complete replay invariant in one direction."""
+        """Run the complete replay invariant in one direction.
+
+        # Parameters
+
+        - `source_side`: Side providing shared token text.
+        - `target_side`: Side reconstructed by the edit script.
+        - `source_changed`: Statuses discarded from the source during replay.
+        - `target_changed`: Statuses copied from the target during replay.
+        - `direction`: Human-readable direction included in failures.
+
+        # Usage
+
+        The bidirectional property calls this once per direction with the
+        corresponding changed-status vocabulary.
+
+        # Failures
+
+        Raises `AssertionError` when token status cannot replay the target or
+        when shared text disagrees between sides.
+        """
         rows = DifftasticDiffEngine().render_diff(
             old=DiffSide(
                 exists=True,
@@ -659,6 +814,16 @@ def test_difftastic_current_diff_matches_preset_invariants(
     case: tuple[str, str, str, str, str],
     tmp_path: Path,
 ) -> None:
+    """Run every preset invariant against each readable current File change.
+
+    The test materializes temporary old/new files so existing helpers exercise
+    their real path-based parser selection without altering the checkout.
+
+    # Parameters
+
+    - `case`: Display name, side names, and decoded source texts from Git.
+    - `tmp_path`: Pytest directory used for the materialized source pair.
+    """
     display_name, left_name, right_name, left_text, right_text = case
     suffix = Path(right_name).suffix or Path(left_name).suffix or ".txt"
     current_case = tmp_path / display_name.replace("/", "__")

@@ -30,7 +30,11 @@ __all__ = ["test_bay_key_migration_moves_stored_placements"]
 
 
 def test_bay_key_migration_moves_stored_placements(tmp_path: Path) -> None:
-    """Upgrade re-keys and splits in place; downgrade refuses, then restores."""
+    """Upgrade re-keys and splits in place; downgrade refuses, then restores.
+
+    The migration must preserve valid rows atomically and never guess how to
+    merge an incompatible post-upgrade bay identity.
+    """
     database_path = tmp_path / "prebay.sqlite"
     config = Config(Path(__file__).parents[2] / "alembic.ini")
     config.attributes["db_path"] = database_path

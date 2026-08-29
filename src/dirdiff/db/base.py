@@ -1,11 +1,24 @@
-"""SQLAlchemy engine and table-base boundary for dirdiff persistence.
+"""Construct dirdiff database engines and define shared persistence contracts.
 
-Database modules define their tables against `TableBase` and callers obtain
-ready-to-use engines through this module. It also defines the User Profile
-table and record shared by profile and Room persistence. It owns table
-bootstrapping for both persistent user databases and in-memory test databases.
-It does not expose query helpers; those live in the feature-specific store
-modules under `dirdiff.db`.
+## Functions and types
+
+`open_sqlite_engine` opens a persistent database and brings its schema to the
+current declared form. `open_ephemeral_engine` provides the same schema in an
+in-memory database. `bootstrap_tables` performs that schema work for callers
+that already have an engine.
+
+`TableBase` is the common SQLAlchemy metadata root. The exported
+`UserProfileRecord` is the Profile identity shared by Profile and review
+persistence.
+
+## Purpose and boundaries
+
+All dirdiff table modules must use this metadata root so foreign keys and schema
+creation see one complete model. Engine construction enables SQLite foreign
+keys before stores can open sessions.
+
+This module does not provide feature queries. Add those to the store responsible
+for the affected data rather than building a generic SQL helper here.
 """
 
 from __future__ import annotations
@@ -35,8 +48,14 @@ __all__ = [
 
 
 class TableBase(DeclarativeBase):
-    """
-    Shared SQLAlchemy declarative base for dirdiff tables.
+    """Register every dirdiff table in one SQLAlchemy metadata collection.
+
+    Database table classes subclass this base. `bootstrap_tables` uses its
+    metadata when creating an ephemeral database or a database without an
+    Alembic migration path.
+
+    Application code must use feature stores rather than querying `TableBase`
+    or its mapped subclasses directly.
     """
 
     pass
@@ -45,10 +64,11 @@ class TableBase(DeclarativeBase):
 class UserProfile(TableBase):
     """Persist one durable identity used by review data.
 
-    The generated positive id is the stable relational identity. The username
-    is globally unique current display data and may change without changing
-    authored actions. Agent registration refers to this same identity through
-    its separate one-to-one relation.
+    Profile and Room stores share this table so authored review actions point to
+    the same identity used by human and agent Profiles.
+
+    Callers do not receive this mutable ORM object. Store operations return
+    `UserProfileRecord`, and agent registration remains a separate relation.
     """
 
     __tablename__ = "user_profile"
@@ -57,25 +77,68 @@ class UserProfile(TableBase):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    """Generated positive identity referenced by authored review actions.
+
+    The value remains stable when the Profile is renamed and is the only Profile
+    fact foreign keys retain.
+    """
+
     username: Mapped[str] = mapped_column(String, nullable=False)
+    """Globally unique display name, mutable without rewriting actions.
+
+    Readers join the current value for presentation; it is not an immutable copy
+    of the name shown when an action was authored.
+    """
 
 
 @dataclass(frozen=True)
 class UserProfileRecord:
-    """Expose one durable review Profile without exposing its table row."""
+    """Expose one durable review Profile without exposing its table row.
+
+    Profile stores return this immutable record to HTTP and review code. Use
+    `id` for attribution and persistence joins; show `username` as current
+    display data.
+
+    The record carries no agent registration, preferences, role, or permission.
+    """
 
     id: int
-    """Stable positive database id used by Profile-authored review actions."""
+    """Stable positive database id used by Profile-authored review actions.
+
+    Callers persist and compare this value for attribution rather than treating
+    the current username as identity.
+    """
 
     username: str
-    """Current display name shown by Profile controls or Comments."""
+    """Current display name shown by Profile controls or Comments.
+
+    It may change while `id` and every relation referencing the Profile remain
+    unchanged.
+    """
 
 
 def profile_record(
     profile_id: int,
     username: str,
 ) -> UserProfileRecord:
-    """Validate persisted Profile fields before exposing the shared record."""
+    """Validate persisted Profile fields before exposing the shared record.
+
+    # Parameters
+
+    - `profile_id`: Positive identity loaded from the shared Profile table.
+    - `username`: Non-empty current display name loaded with that identity.
+
+    # Usage
+
+    Profile stores call this after selecting or inserting the two database
+    columns. Pass values read from the shared Profile table, not unvalidated
+    HTTP input.
+
+    # Failures
+
+    - Asserts when the id is not positive or the stored username is empty.
+      Either condition means persisted data has violated the Profile schema.
+    """
     assert profile_id > 0, "persisted Profile id must be positive"
     assert username != "", "persisted Profile name must not be empty"
     return UserProfileRecord(
@@ -98,6 +161,20 @@ def enable_sqlite_foreign_keys(
     NORMAL synchronous is the documented safe pairing with WAL. The enlarged
     page cache and mmap window fit the whole database of a busy Room so
     repeated review scans read hot pages without I/O.
+
+    # Parameters
+
+    - `dbapi_connection`: Newly opened SQLite connection to configure before
+      SQLAlchemy gives it to application code.
+    - `connection_record`: SQLAlchemy pool callback context. Dirdiff does not
+      retain or inspect it.
+
+    # Usage
+
+    Register this function as SQLAlchemy's `connect` listener before opening
+    application sessions. Application code must not call it for an engine that
+    is already serving work.
+
     """
     del connection_record
     cursor = dbapi_connection.cursor()
@@ -110,10 +187,29 @@ def enable_sqlite_foreign_keys(
 
 
 def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
-    """
-    Ensure all declared tables exist on the provided engine.
+    """Bring a database to the complete schema declared by dirdiff.
 
-    Migrate takes a path to db you want to run migrations on.
+    Persistent databases follow the Alembic history and skip the upgrade when
+    already at its head. Ephemeral databases have no migration lifetime, so
+    SQLAlchemy creates the current metadata directly.
+
+    # Parameters
+
+    - `engine`: Engine connected to the database whose schema must be ready
+      when this call returns.
+    - `migrate`: Persistent SQLite path governed by Alembic, or `None` for a
+      new ephemeral database.
+
+    # Usage
+
+    Engine factories call this after installing the SQLite connection listener
+    and before constructing any feature store. Pass the persistent database path
+    when its schema must follow Alembic history.
+
+    # Failures
+
+    - Propagates connection, migration, and schema-creation failures. A caller
+      must not use the engine when bootstrapping does not complete.
     """
 
     db_path = migrate
@@ -135,8 +231,26 @@ def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
 
 
 def open_sqlite_engine(db_path: Path) -> Engine:
-    """
-    Open a persistent SQLite engine and create all known tables.
+    """Open and bootstrap the persistent dirdiff SQLite database.
+
+    The path is expanded, its parent directories are created, SQLite connection
+    invariants are installed, and Alembic upgrades the database to the current
+    schema before return. The caller owns the returned engine's disposal.
+
+    # Parameters
+
+    - `db_path`: User-expandable database path; it need not already exist.
+
+    # Usage
+
+    Use this for a user database whose contents must survive process exit. Keep
+    the returned engine for the lifetime of the stores built from it, then call
+    `Engine.dispose` during application shutdown.
+
+    # Failures
+
+    - Propagates directory creation, SQLite connection, and Alembic migration
+      failures. No usable engine is returned unless the current schema exists.
     """
 
     expanded_path = db_path.expanduser()
@@ -148,8 +262,22 @@ def open_sqlite_engine(db_path: Path) -> Engine:
 
 
 def open_ephemeral_engine() -> Engine:
-    """
-    Open an in-memory SQLite engine and create all known tables.
+    """Open one process-local in-memory database with the complete current schema.
+
+    A `StaticPool` makes every session share the same SQLite connection and
+    disables the driver's thread check for test/application access. Tables are
+    created directly rather than migrated; the caller owns engine disposal and
+    all data disappears with that engine.
+
+    # Usage
+
+    Use this when the database lifetime must match one process, primarily for
+    tests. Share the returned engine among all stores that need to observe the
+    same in-memory rows, then dispose it when the scenario ends.
+
+    # Failures
+
+    - Propagates SQLite connection or table-creation failures.
     """
 
     engine = create_engine(

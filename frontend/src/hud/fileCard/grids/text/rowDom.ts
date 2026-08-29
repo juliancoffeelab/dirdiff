@@ -1,29 +1,28 @@
 /**
- * Builds the imperative row DOM for one TextDiffGrid render.
+ * Builds and locally updates the imperative row DOM used by TextDiffGrid.
  *
- * The module exports the two complete-fragment builders —
- * renderSplitRowsDom and renderInlineRowsDom —
- * plus the Side type shared with their caller. Every function here is a pure
- * DOM constructor: given validated backend rows, fold state, and the two
- * caller behaviors (closing anchored review UI before a fold replacement and
- * the after-rows-changed notification), it returns detached DOM and touches
- * no Solid reactivity, no component state, no queries, and no globals beyond
- * the chunk-warming pass below.
+ * Split and inline builders consume validated rows and return detached fragments.
+ * Fold controls update the caller's expansion set, close anchored review UI before
+ * replacement, replace only that fold's DOM, and report the completed change.
  *
- * The module also owns row chunking: large renders stream rows through
- * fixed-size content-visibility containers, and one idle-paced module-level
- * warm-up pass renders each new chunk once so the browser records its real
- * height. That warming handle is the module's only mutable state; it is
- * re-armed whenever a chunk is created and dies with the last unwarmed chunk.
+ * Large runs use content-visibility chunks. One module-lifetime idle task warms
+ * newly connected chunks once so the browser records their real height; it stops
+ * when no unwarmed connected chunk remains.
  *
- * It must not listen to events, own review markers or line pins, decide view
- * modes, or fetch anything; those belong to the TextDiffGrid component.
+ * Delegated pin and review activation, reactive lifetimes, and File loading stay
+ * in TextDiffGrid and its callers.
  */
 import type { DecoratedPart, DiffRow, RowStatus } from "../../../../api/api";
 import { isFoldRow, type FoldRow, type RenderRow } from "./folds";
 import type { RealHunkIdentity } from "../../../navigation";
 import { assert } from "../../../../utils";
 
+/**
+ * Lists syntax-class families whose diff-theme treatment adds no useful distinction.
+ *
+ * Decoration suppresses an exact entry and its hyphenated descendants. The
+ * list is immutable module policy; callers cannot extend it per render.
+ */
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
   "ts-operator",
@@ -64,7 +63,15 @@ type InlineRowStatus = "equal" | "delete" | "insert" | "replace" | "move";
  * numbers created when a backend row expands into multiple inline rows.
  */
 type InlineLineNumberState = {
+  /**
+   * Remembers the last non-null left number emitted by this fragment render.
+   * Null means no numbered left line has yet been emitted since the last fold.
+   */
   leftNo: number | null;
+  /**
+   * Remembers the last non-null right number emitted by this fragment render.
+   * Null means no numbered right line has yet been emitted since the last fold.
+   */
   rightNo: number | null;
 };
 
@@ -75,26 +82,53 @@ type InlineLineNumberState = {
 // lazy-render cost: chunking every file traded large-file freezes for
 // visible render pop-in on files that previously scrolled at a solid 60fps
 // (reported as a regression), so smaller renders keep the exact pre-chunk
-// monolithic DOM. The threshold counts renderer rows, where a collapsed
-// fold contributes one visible bar — expanding a fold larger than the
-// threshold re-enters the renderer with the folded range and deliberately
-// chunks it, so a small file's zero-chunk guarantee holds until such an
-// expansion. The chunk size counts emitted row ELEMENTS (an inline replace
+// monolithic DOM. The threshold counts renderer rows, where a folded range
+// contributes one visible bar. Expanding a fold larger than the threshold
+// re-enters the renderer with the folded range and deliberately chunks it, so
+// a small file's zero-chunk guarantee holds until such an expansion. The chunk
+// size counts emitted row ELEMENTS (an inline replace
 // row emits two), so 50 elements ≈ 1100px ≈ one viewport and each chunk
 // entering view renders within a frame budget.
+/**
+ * Sets the emitted-row target at which the next append starts a new chunk.
+ *
+ * This counts DOM rows rather than backend rows because an inline replacement
+ * can emit two elements. Such a fragment stays intact and may take a chunk one
+ * row past the target; the value still keeps each chunk near one viewport.
+ */
 const ROW_CHUNK_SIZE = 50;
+
+/**
+ * Marks the largest source-row count that keeps monolithic row DOM.
+ *
+ * Chunking begins only when a render exceeds this value. The decision uses
+ * source renderer rows, so smaller files remain monolithic until expanding a
+ * large fold crosses the threshold.
+ */
 const ROW_CHUNK_THRESHOLD = 600;
 
-// One idle-paced warm-up pass owns these; see requestChunkWarming.
+/**
+ * Identifies the one scheduled idle callback for module-wide chunk warming.
+ *
+ * Null means no pass is scheduled. The callback clears this handle before it
+ * inspects the DOM, allowing the final pass to end without cancellation.
+ */
 let chunkWarmHandle: number | null = null;
+
+/**
+ * Holds the chunk kept visible until the next idle callback supplies a frame.
+ *
+ * Only the warming pass mutates this reference. Null means no chunk currently
+ * relies on the temporary `.diff-row-chunk-warming` class.
+ */
 let warmingChunk: Element | null = null;
 
 /**
  * Warms every mounted `.diff-row-chunk` once so its real height is known.
  *
- * A skipped chunk's height is the 1100px estimate until its first render,
- * and every estimate-to-real replacement moves document geometry — felt as
- * scroll-time pop-in and as navigation landing short. Warming renders one
+ * A skipped chunk's height is the 1100px estimate until its first render.
+ * Replacing an estimate with real geometry causes scroll-time pop-in and makes
+ * navigation land short. Warming renders one
  * pending chunk per idle callback by holding `.diff-row-chunk-warming`
  * (content-visibility: visible) on it for one rendered frame, which records
  * the chunk's real height as the browser's last remembered size; the chunk
@@ -143,6 +177,8 @@ function requestChunkWarming(): void {
  * the chunks' fate: pass them to `finishForcedChunkLayout` after a rendered
  * frame to keep the body mounted with remembered sizes, or discard them
  * when the body unmounts immediately. Returns the affected chunks.
+ *
+ * @param container Mounted row container whose geometry the caller will read.
  */
 export function forceChunkLayout(
   container: HTMLElement,
@@ -168,6 +204,8 @@ export function forceChunkLayout(
  * The caller must have kept the chunks visible across one rendered frame so
  * the browser recorded their real heights as the remembered sizes that
  * `contain-intrinsic-height: auto` serves afterwards.
+ *
+ * @param chunks Exact elements returned by `forceChunkLayout` for this frame.
  */
 export function finishForcedChunkLayout(chunks: readonly HTMLElement[]): void {
   for (const chunk of chunks) {
@@ -181,17 +219,47 @@ export function finishForcedChunkLayout(chunks: readonly HTMLElement[]): void {
  *
  * With `chunked` false every append lands directly on the fragment,
  * reproducing the monolithic pre-chunk DOM. Otherwise consecutive non-fold
- * rows land in chunks of at most `ROW_CHUNK_SIZE` emitted elements; a fold
- * wrapper closes the current chunk and stays top-level because it replaces
- * its own subtree on expansion. The appender owns only the supplied
- * fragment for the duration of one build and guarantees document order is
- * exactly the append order.
+ * rows start a new chunk after the current chunk reaches `ROW_CHUNK_SIZE`
+ * emitted elements. An inline fragment remains intact and can take its chunk
+ * one element past the target. A fold wrapper closes the current chunk and
+ * stays top-level because it replaces its own subtree on expansion. The
+ * appender mutates only the supplied fragment for the duration of one build
+ * and guarantees document order is exactly the append order.
+ *
+ * @param fragment Detached result fragment that receives every appended row.
+ * @param chunked Whether ordinary rows must be grouped into lazy containers.
+ *
+ * # Returns
+ *
+ * - `appendRow` transfers ordinary rows in order. With `chunked` false it writes
+ *   directly to `fragment`; otherwise it creates or reuses the shared current
+ *   chunk and counts every transferred element toward that chunk's limit.
+ * - `appendFold` closes that shared chunk and transfers the fold at top level.
+ *   Calls across both callbacks preserve their exact order in `fragment`.
  */
 function createRowChunkAppender(
   fragment: DocumentFragment,
   chunked: boolean,
 ): {
+  /**
+   * Appends ordinary rendered row elements in source order.
+   *
+   * A fragment may contain multiple inline rows; they are counted individually
+   * for chunk capacity. The callback does not close the current chunk unless it
+   * reaches `ROW_CHUNK_SIZE`.
+   *
+   * @param element Detached ordinary row or rows to transfer into this result.
+   */
   appendRow(element: DocumentFragment | HTMLElement): void;
+
+  /**
+   * Appends a self-replacing fold wrapper outside lazy row containers.
+   *
+   * Calling this closes the current ordinary-row chunk so later rows begin a
+   * new chunk. The wrapper is transferred into the result fragment unchanged.
+   *
+   * @param element Detached fold wrapper to transfer into this result.
+   */
   appendFold(element: HTMLElement): void;
 } {
   let chunk: HTMLElement | null = null;
@@ -231,6 +299,21 @@ function createRowChunkAppender(
  *
  * `startRow` is the required source-row offset for stable row identity. Folded
  * ranges advance by their represented count while ordinary rows advance once.
+ * `beforeRowsReplaced` runs immediately before an expanded fold's mounted rows
+ * are discarded, giving TextDiffGrid a chance to close UI anchored within
+ * them. After replacement, `onRowsChanged` runs once so the caller can refresh
+ * geometry derived from the row DOM. Neither callback runs during the initial
+ * detached render.
+ *
+ * @param rows Validated rows in backend source order.
+ * @param leftLabel Accessible name for each left fold-bar side.
+ * @param rightLabel Accessible name for each right fold-bar side.
+ * @param expandedFolds Mutable source-row keys for folds expanded in this grid.
+ * @param fileIndex Stable ChangeSet file coordinate written to hunk rows.
+ * @param bayKey Stable bay coordinate written to hunk rows.
+ * @param startRow Source-row coordinate represented by `rows[0]`.
+ * @param beforeRowsReplaced Called with a fold wrapper before its rows change.
+ * @param onRowsChanged Called after an interactive fold replacement completes.
  */
 export function renderSplitRowsDom(
   rows: RenderRow[],
@@ -281,6 +364,17 @@ export function renderSplitRowsDom(
  *
  * `startRow` is the required source-row offset. One backend row may emit two
  * visible rows, while shared line-number state suppresses duplicate numbers.
+ * `beforeRowsReplaced` runs immediately before an expanded fold's mounted rows
+ * are discarded, and `onRowsChanged` runs after their replacement. Neither
+ * callback runs while the initial detached fragment is being constructed.
+ *
+ * @param rows Validated rows in backend source order.
+ * @param expandedFolds Mutable source-row keys for folds expanded in this grid.
+ * @param fileIndex Stable ChangeSet file coordinate written to hunk rows.
+ * @param bayKey Stable bay coordinate written to hunk rows.
+ * @param startRow Source-row coordinate represented by `rows[0]`.
+ * @param beforeRowsReplaced Called with a fold wrapper before its rows change.
+ * @param onRowsChanged Called after an interactive fold replacement completes.
  */
 export function renderInlineRowsDom(
   rows: RenderRow[],
@@ -339,6 +433,18 @@ export function renderInlineRowsDom(
  *
  * Expansion lives only in the owning TextDiffGrid set. Toggling replaces this
  * wrapper's children; validated folded context contains no hunk boundaries.
+ * Before replacement the callback receives the mounted wrapper; after the new
+ * rows are installed the change callback runs exactly once.
+ *
+ * @param row Validated folded range and its complete hidden rows.
+ * @param rowIndex Stable source-row key for this fold.
+ * @param leftLabel Accessible name for the left fold-bar side.
+ * @param rightLabel Accessible name for the right fold-bar side.
+ * @param expandedFolds Mutable fold keys shared by this TextDiffGrid render.
+ * @param fileIndex Stable ChangeSet file coordinate for expanded hunk rows.
+ * @param bayKey Stable bay coordinate for expanded hunk rows.
+ * @param beforeRowsReplaced Called with the wrapper before children are lost.
+ * @param onRowsChanged Called after the replacement DOM has been installed.
  */
 function renderSplitFoldDom(
   row: FoldRow,
@@ -417,6 +523,16 @@ function renderSplitFoldDom(
  * Creates one stateful inline-view fold subtree around an immutable FoldRow.
  *
  * The wrapper owns only its current DOM children and local toggle listeners.
+ * Before replacement the callback receives the mounted wrapper; after the new
+ * rows are installed the change callback runs exactly once.
+ *
+ * @param row Validated folded range and its complete hidden rows.
+ * @param rowIndex Stable source-row key for this fold.
+ * @param expandedFolds Mutable fold keys shared by this TextDiffGrid render.
+ * @param fileIndex Stable ChangeSet file coordinate for expanded hunk rows.
+ * @param bayKey Stable bay coordinate for expanded hunk rows.
+ * @param beforeRowsReplaced Called with the wrapper before children are lost.
+ * @param onRowsChanged Called after the replacement DOM has been installed.
  */
 function renderInlineFoldDom(
   row: FoldRow,
@@ -499,7 +615,24 @@ function renderInlineFoldDom(
  * `expanded` determines visual treatment and `onToggle` mutates only the owning
  * TextDiffGrid's local fold set; it is not file-expansion or application state.
  */
-type FoldToggle = { expanded: boolean; onToggle: () => void };
+type FoldToggle = {
+  /**
+   * Determines the disclosure label and icon rendered by the control.
+   *
+   * The value describes the bound folded range at construction time; the
+   * enclosing renderer replaces the control after a state change.
+   */
+  expanded: boolean;
+
+  /**
+   * Handles activation of this fold disclosure control.
+   *
+   * The callback receives no value because its closure identifies the exact
+   * folded range. It must synchronously update that range and its mounted DOM;
+   * the button stops click propagation before invoking it.
+   */
+  onToggle: () => void;
+};
 
 /**
  * Attaches the fold affordance to the first visible row of an expanded fold.
@@ -508,6 +641,12 @@ type FoldToggle = { expanded: boolean; onToggle: () => void };
  * owned by the supplied fragment and disappears when its DOM is replaced. The
  * complete first row is the expanded fold edge, so its activation never reaches
  * delegated line-pin handling even though it displays backend line numbers.
+ * `onToggle` runs for clicks on the row or disclosure button, except clicks in
+ * a line-comment trigger. The callback receives no argument because the caller
+ * binds the exact fold; it must synchronously replace that fold's presentation.
+ *
+ * @param fragment Detached expanded-fold rows receiving the disclosure control.
+ * @param onToggle Handles activation of the fold edge after propagation stops.
  */
 function attachExpandedFoldToggle(
   fragment: DocumentFragment,
@@ -543,6 +682,11 @@ function attachExpandedFoldToggle(
  *
  * The required source index and file index become stable DOM identity. Fold
  * disclosure is attached separately to the first expanded row.
+ *
+ * @param row Validated ordinary backend row to render.
+ * @param rowIndex Source-row coordinate written to the result.
+ * @param fileIndex Stable ChangeSet file coordinate written to hunk rows.
+ * @param bayKey Stable bay coordinate written to hunk rows.
  */
 function renderSplitDiffRowDom(
   row: DiffRow,
@@ -581,6 +725,20 @@ function renderSplitDiffRowDom(
  * Replace rows satisfying the insert-only combination predicate emit one
  * element retaining both backend line numbers and hunk identity.
  * Unsupported backend statuses throw exhaustively.
+ *
+ * @param row Validated ordinary backend row to render.
+ * @param rowIndex Source-row coordinate shared by all emitted elements.
+ * @param fileIndex Stable ChangeSet file coordinate written to hunk rows.
+ * @param bayKey Stable bay coordinate written to hunk rows.
+ * @param lineNumberState Per-fragment state used to suppress repeated numbers.
+ *
+ * # Returns
+ *
+ * - `HTMLElement` for equal, insert, delete, and combinable replace rows. It is
+ *   the sole rendered row and carries the source hunk identity when present.
+ * - `DocumentFragment` for other replace and move rows. It contains their
+ *   present sides in left-then-right order, with hunk identity on only the
+ *   first emitted side.
  */
 function renderInlineDiffRowsDom(
   row: DiffRow,
@@ -594,6 +752,9 @@ function renderInlineDiffRowsDom(
    *
    * Null plus empty text is the only absent-side representation; zero and an
    * empty line with a number remain present.
+   *
+   * @param lineNo Backend number for the selected side, or null if absent.
+   * @param text Normalized text for the same selected side.
    */
   function inlineSideExists(lineNo: number | null, text: string): boolean {
     return lineNo !== null || text.length > 0;
@@ -771,6 +932,8 @@ function renderInlineDiffRowsDom(
  *
  * The predicate is deliberately strict: any changed old-side token or any
  * non-insert new-side token preserves the ordinary two-line representation.
+ *
+ * @param row Backend row being considered for the combined representation.
  */
 function canCombineInsertOnlyReplaceRow(row: DiffRow): boolean {
   if (row.status !== "replace") {
@@ -795,19 +958,81 @@ function canCombineInsertOnlyReplaceRow(row: DiffRow): boolean {
  * Callers provide both line numbers, decorated text inputs, stable source-row
  * identity, and explicit token-row override state. Missing sides and absent
  * overrides use null, never undefined; only the new DOM element is mutated.
+ *
+ * @param props Complete presentation and navigation identity for one element.
  */
 function renderInlineDiffRowDom(props: {
+  /**
+   * Controls the row's visible status class and default token treatment.
+   * It may describe one emitted side rather than `sourceRow.status`.
+   */
   status: InlineRowStatus;
+
+  /**
+   * Provides the visible prefix identifying this emitted inline side.
+   * The marker is excluded from accessibility text because row classes and
+   * labels carry the same meaning.
+   */
   marker: InlineMarker;
+
+  /**
+   * Supplies the left backend number for this emitted element.
+   * Null means this inline element must expose no left line interaction.
+   */
   leftNo: number | null;
+
+  /**
+   * Supplies the right backend number for this emitted element.
+   * Null means this inline element must expose no right line interaction.
+   */
   rightNo: number | null;
+
+  /**
+   * Contains the complete visible code text for the emitted side.
+   * Its value must equal the concatenated text of `parts` exactly.
+   */
   text: string;
+
+  /**
+   * Carries ordered backend syntax and token-change decoration for `text`.
+   * The renderer validates their exact reconstruction before appending spans.
+   */
   parts: DecoratedPart[];
+
+  /**
+   * Identifies the backend source row represented by this element.
+   * Both elements produced by one inline replacement share this coordinate.
+   */
   rowIndex: number;
+
+  /**
+   * Supplies stable ChangeSet file identity when `sourceRow` starts a hunk.
+   * Rows without hunk identity do not expose this value in their DOM.
+   */
   fileIndex: number;
+
+  /**
+   * Supplies stable bay identity when `sourceRow` starts a hunk.
+   * It composes with `fileIndex` and the backend hunk index.
+   */
   bayKey: string;
+
+  /**
+   * Preserves original backend identity and token facts for this emitted side.
+   * Its status may differ from `status` when a replacement becomes two rows.
+   */
   sourceRow: DiffRow;
+
+  /**
+   * Shares line-number history across all elements in one fragment render.
+   * Rendering this element mutates the relevant entries for non-null numbers.
+   */
   lineNumberState: InlineLineNumberState;
+
+  /**
+   * Selects token-change semantics independently of the visible row status.
+   * Null uses `status`; replacement halves pass `replace` to retain token diffs.
+   */
   tokenRowStatus: InlineRowStatus | null;
 }): HTMLElement {
   const element = document.createElement("div");
@@ -858,6 +1083,17 @@ function renderInlineDiffRowDom(props: {
  *
  * A missing local state intentionally disables suppression. Null is a real
  * absent-side value and never changes the remembered number.
+ *
+ * @param lineNo Candidate backend number for this emitted element.
+ * @param side Side whose previously displayed number is compared and updated.
+ * @param state Mutable per-fragment number history.
+ *
+ * # Returns
+ *
+ * - `number`: The side's line number when it is present and differs from the
+ *   number most recently displayed for that side.
+ * - `null`: The source side has no line number, or the same number was already
+ *   displayed. The caller renders no number for this emitted row.
  */
 function inlineDisplayLineNo(
   lineNo: number | null,
@@ -881,6 +1117,10 @@ function inlineDisplayLineNo(
  *
  * The required extra class may be empty and affects presentation only;
  * whitespace and hunk classes derive from validated row data.
+ *
+ * @param status Presentation status placed on the row element.
+ * @param row Backend row supplying hunk and token-whitespace facts.
+ * @param extraClass Additional established class, or an empty string for none.
  */
 function diffRowClass(
   status: string,
@@ -914,6 +1154,9 @@ function diffRowClass(
  *
  * Callers supply a validated backend row and exact side. Null line numbers and
  * empty text produce the established empty-side treatment rather than a husk.
+ *
+ * @param row Backend row supplying side content and decoration.
+ * @param side Exact side to extract and identify in the returned element.
  */
 function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
   const lineNo = side === "left" ? row.left_no : row.right_no;
@@ -935,6 +1178,9 @@ function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
  *
  * Backend null means that side is absent and becomes the empty string; no other
  * text normalization or whitespace trimming is performed.
+ *
+ * @param row Backend row containing nullable text for both sides.
+ * @param side Exact side whose text the caller will render.
  */
 function sideText(row: DiffRow, side: Side): string {
   const text = side === "left" ? row.left_text : row.right_text;
@@ -949,6 +1195,10 @@ function sideText(row: DiffRow, side: Side): string {
  *
  * The count must be the positive size of the represented FoldRow. The returned
  * element owns no toggle listener; its parent fold bar handles activation.
+ *
+ * @param count Positive number of source rows represented by the fold.
+ * @param label Optional backend context label shown after the line count.
+ * @param sideLabel Accessible side name stored for split-grid presentation.
  */
 function createFoldSideDom(
   count: number,
@@ -989,6 +1239,9 @@ function foldLineText(count: number): string {
  * comment activation. Its nested comment button has no listener of its own and
  * is routed by the grid's delegated listener. An absent or duplicate-suppressed
  * number is null and therefore neither pinnable nor commentable.
+ *
+ * @param lineNo Exact backend line coordinate, or null for no interaction.
+ * @param side Backend side paired with a non-null line coordinate.
  */
 function createLineNumberDom(lineNo: number | null, side: Side): HTMLElement {
   const element = document.createElement("div");
@@ -1019,6 +1272,8 @@ function createPlainLineNumberDom(text: string): HTMLElement {
  *
  * Activation stops row propagation and invokes exactly the supplied local
  * toggle callback; it does not mutate ChangeSet or browser state.
+ *
+ * @param foldToggle Current disclosure state and its bound activation behavior.
  */
 function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
   const button = document.createElement("button");
@@ -1038,6 +1293,11 @@ function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
  *
  * The marker is aria-hidden, while all supplied text remains native searchable
  * content. Token decoration uses the inline status mapped to backend semantics.
+ *
+ * @param marker Visible change prefix for this emitted inline side.
+ * @param text Complete code text that `parts` must reconstruct.
+ * @param parts Ordered backend decoration spans for `text`.
+ * @param rowStatus Status controlling token-change suppression and classes.
  */
 function createInlineLineCodeDom(
   marker: InlineMarker,
@@ -1063,6 +1323,11 @@ function createInlineLineCodeDom(
  *
  * The parts must reconstruct `text` exactly. The function suppresses redundant
  * diff coloring already expressed by the row and mutates only `element`.
+ *
+ * @param element Newly created code element that receives text and spans.
+ * @param text Complete backend text expected from all `parts`.
+ * @param parts Ordered backend decoration spans to append.
+ * @param rowStatus Row treatment used to avoid redundant token coloring.
  */
 function appendDecoratedText(
   element: HTMLElement,
@@ -1137,6 +1402,19 @@ function appendDecoratedText(
  *
  * The tag must be a standard HTMLElement tag. The returned element has no
  * event listeners, data attributes, or retained application state.
+ *
+ * @param tagName Standard HTML tag determining the precise return type.
+ * @param className Complete class string assigned without normalization.
+ * @param text Complete text content assigned without markup parsing.
+ *
+ * # Returns
+ *
+ * - The element kind is exactly the `HTMLElementTagNameMap` entry selected by
+ *   `tagName`. It is newly created and detached, and the caller receives the
+ *   identity it will later attach.
+ * - Its complete class string and text content are already set from
+ *   `className` and `text`. It has no listeners, data attributes, or retained
+ *   application state, so the caller may add role-specific state.
  */
 function createElementWithClass<K extends keyof HTMLElementTagNameMap>(
   tagName: K,

@@ -1,20 +1,27 @@
-"""Expose Rooms while keeping Snapshot capture and persistence private.
+"""Rooms and immutable Snapshots of workspace state.
 
-`RoomLord.corresponding_room` applies the active Tab's law for an explicit
-capture and returns a `Room` plus the current Snapshot key.
-`RoomLord.find_room` recovers the containing Room from an existing key for
-follow-up operations; RoomLord does nothing else. A Room contains Snapshots
-and Threads. It exposes Snapshot metadata, repository-relative filepath pairs,
-direct lookup of the absolute captured files, Thread access, and continuation
-of its own persisted Tab (`capture_context`, `recapture`, `path_for_snapshot`)
-under a caller-supplied Snapshot key; it never retains a selected key itself.
-A bound Thread performs Comment and lifecycle operations and privately
-interprets its placement.
+## Public interface
 
-The private store captures affected files, hashes their contents, publishes
-immutable directories, and delegates relational work to `RoomStore`. Neither
-the store nor its capture operations are part of this module's public surface.
-This module does not build HTTP responses, select diff engines, or render files.
+Callers use `RoomLord.corresponding_room` for an explicit Tab capture. It returns
+the corresponding `Room` and the opaque Snapshot key produced or reused by that
+capture. Follow-up operations use `RoomLord.find_room` to recover the containing
+Room from an existing Snapshot key without reading live workspace state.
+
+A `Room` provides Snapshot metadata, captured File lookup, review Threads, and
+continuation of its persisted Tab. It contains multiple Snapshots but retains no
+selected Snapshot, so every Snapshot-scoped operation requires the exact key.
+
+## Purpose and boundaries
+
+This module joins workspace backends to `dirdiff.db.RoomStore`: it captures the
+Files reported by a backend, publishes immutable Snapshot contents, and returns
+Room handles limited by the selected correspondence identity. Callers receive
+repository-relative File pairs and validated paths to captured contents;
+they never receive staging paths or mutable publication state.
+
+Rendering and HTTP serialization happen after this boundary. A returned
+`dirdiff.review.Thread`, rather than `Room`, performs Comment and Thread-lifecycle
+writes. `spec/rooms.md` describes the complete Room and Snapshot lifecycle.
 """
 
 from __future__ import annotations
@@ -85,62 +92,153 @@ RoomTab = Literal[
 ]
 """One supported Tab identity used by the law of correspondence.
 
-Values outside these five categories are invalid at `RoomLord`'s boundary and
-must never reach capture or persistence.
+- `head` and `refs` compare revision-like sides.
+- `branch-review` compares a base branch with a review branch.
+- `pull-request` compares the commits prepared for a forge review.
+- `preset` compares one fixture group without a Mark.
+
+`RoomLord` uses the value to select correspondence, capture, and persisted Room
+identity. It is not a frontend view state or a diff-engine selection.
 """
 
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
+"""Backend classification of how one captured File pair changed.
+
+- `modify` keeps the same path on both sides.
+- `add` and `delete` are one-sided.
+- `rename` relates different paths for one File identity.
+- `copy` relates a new path to retained source content.
+
+Snapshot publication stores this value with the File pair. It does not describe
+line changes produced later by a diff engine.
+"""
 
 
 @dataclass(frozen=True)
 class RevisionsCaptureSelection:
     """Select the head or refs Tab: two explicit side names of one Mark.
 
-    `tab` distinguishes the HEAD/worktree contract (which may include
-    untracked worktree Files) from arbitrary refs. Sides are the raw caller
-    spellings; correspondence normalizes and freezes them.
+    Manifest conversion constructs this value for `head` and `refs`, then
+    RoomLord applies the matching correspondence and capture law.
+
+    The value has no Mark, resolved content, or Snapshot id.
     """
 
     tab: Literal["head", "refs"]
+    """Repository revision Tab whose correspondence law this selection uses.
+
+    `head` requires the canonical HEAD/worktree pair; `refs` accepts two
+    explicit revision-like sides. Callers must construct the matching value
+    before Room selection rather than reinterpret it later.
+    """
+
     left: str
+    """Caller-supplied left revision handle for the selected Tab.
+
+    Head capture requires it to normalize to `HEAD`. Refs capture requires a
+    nonblank value and resolves commits while preserving `index` or `worktree`.
+    """
+
     right: str
+    """Caller-supplied right revision handle for the selected Tab.
+
+    Head capture requires it to normalize to `worktree`; Refs accepts a
+    nonblank revision, index, or worktree handle under the same resolution law.
+    """
+
     show_untracked: bool
+    """Whether backend discovery includes untracked worktree Files.
+
+    The option affects capture identity through the resulting File set. Callers
+    use it only where the selected revision pair includes supported worktree
+    content; it does not alter tracked-file classification.
+    """
 
 
 @dataclass(frozen=True)
 class BranchReviewCaptureSelection:
-    """Select the Branch Review Tab: symbolic base and review branches."""
+    """Select the Branch Review Tab through symbolic base and review branches.
+
+    Manifest conversion constructs this value from validated base and review
+    controls, then RoomLord uses it for correspondence and commit resolution.
+
+    Local and remote branches remain structured. The value has no resolved
+    commits, Mark identity, or Snapshot state.
+    """
 
     base: BranchSelection
+    """Symbolic local or remote branch chosen as review ancestry.
+
+    Room correspondence persists this structure so recapture can resolve a new
+    merge base from the same branch choice rather than freeze its old commit.
+    """
+
     review: BranchSelection
+    """Symbolic local or remote branch whose changes form the review side.
+
+    It is resolved together with `base`; callers must keep the structured source
+    and remote information instead of reducing it to a display label.
+    """
 
 
 @dataclass(frozen=True)
 class PullRequestCaptureSelection:
     """Select the Pull Request Tab: prepared URL and frozen commit ids.
 
-    Preparation already resolved the forge URL and froze both commits;
-    correspondence only re-validates that the ids are complete commits.
+    Manifest conversion builds this only from `PreparedPullRequest` output, then
+    RoomLord uses the canonical URL for correspondence and the commits for
+    capture.
+
+    Preparation has already fetched forge state. This value cannot contain
+    symbolic branches or trigger preparation itself.
     """
 
     url: str
+    """Canonical nonblank forge URL identifying the logical Pull Request Room.
+
+    It selects correspondence across recaptures. The prepared commits may
+    advance independently while this URL remains the Room identity.
+    """
+
     left_commit: str
+    """Complete prepared merge-base commit id used for this capture's left side.
+
+    RoomLord verifies that backend normalization returns the identical full id;
+    abbreviated or symbolic revisions are rejected.
+    """
+
     right_commit: str
+    """Complete prepared Pull Request head commit id for the right side.
+
+    It must already have been fetched and normalized by preparation. Capture
+    never resolves a branch or contacts the forge through this value.
+    """
 
 
 @dataclass(frozen=True)
 class PresetCaptureSelection:
     """Select the Preset Tab: one validated catalog and fixture group.
 
-    `catalog` is a preset catalog id — the name of a directory under the
-    presets root. The set of them is not enumerated here: it is whatever
-    `preset_catalogs()` finds, and the HTTP boundary rejects an id no catalog
-    directory answers to before a selection is built. Each catalog/subset pair
-    backs one Mark-less Room.
+    Manifest conversion builds this after validating the catalog directory and
+    fixture group. RoomLord uses the pair as correspondence for a Mark-less
+    Room.
+
+    The value does not support repository-backed Tabs.
     """
 
     catalog: str
+    """Nonblank validated preset catalog identity.
+
+    It selects the `PresetBackend` and participates in Room correspondence; the
+    value is not opened as a caller-supplied filesystem path.
+    """
+
     subset: str
+    """Nonblank fixture-group identity within the selected catalog.
+
+    It selects the old/new preset pair and joins `catalog` in correspondence.
+    The actual fixture bytes remain the backend's responsibility.
+    """
 
 
 # One concrete Tab selection: each variant carries exactly the fields its
@@ -152,81 +250,201 @@ CaptureSelection = (
     | PullRequestCaptureSelection
     | PresetCaptureSelection
 )
-"""Stable backend classification for one captured filepath pair.
+"""Complete capture inputs for one supported Tab.
 
-The value records path-level repository state. It must not represent renderer
-output, line alignment, or lazy-loading policy.
+- `RevisionsCaptureSelection` supplies sides for Head or Refs.
+- `BranchReviewCaptureSelection` supplies symbolic branch selections.
+- `PullRequestCaptureSelection` supplies a canonical URL and prepared commits.
+- `PresetCaptureSelection` supplies a catalog and fixture group.
+
+Manifest conversion constructs the matching variant before asking `RoomLord`
+for a Room. No variant contains Snapshot identity, renderer selection, or HTTP
+presentation state.
 """
 
 _SNAPSHOT_HASH_DOMAIN = b"dirdiff-snapshot-v6"
+"""Versioned prefix that keeps Snapshot equality tied to its token format.
+
+Changing which capture facts participate in identity requires a new value so
+old digests cannot be mistaken for the new definition.
+"""
 _CAPTURE_ERROR_PREAMBLE = (
     "MACHINE-GENERATED BY DIRDIFF\nThe original file could not be captured."
 )
+"""Stable marker placed before captured backend failure details.
+
+Render and review boundaries use the persisted failure reason, while this text
+makes the substituted side unmistakably generated if inspected on disk.
+"""
 
 
 class SnapshotMeta(TypedDict):
     """Metadata captured for a complete Snapshot.
 
-    `tab` exposes the containing Room's persisted identity for HTTP
-    presentation without storing it again on the Snapshot. Labels identify the
-    two captured sides. Aggregate line counts come directly from the workspace
-    backend; both are `None` when that backend cannot state them authoritatively.
+    `Room.meta` combines persisted Room and Snapshot facts for the HTTP
+    boundary. This record contains no File metadata or rendered content.
     """
 
     tab: RoomTab
+    """Persisted Tab of the Room containing this Snapshot.
+
+    It governs presentation and continuation rules. The value comes from Room
+    identity rather than mutable frontend state or Snapshot metadata.
+    """
+
     left_label: str
+    """Human-facing label frozen with the captured left backend state.
+
+    Callers may present it but must not use it as repository identity or assume
+    it follows a branch name after capture.
+    """
+
     right_label: str
+    """Human-facing label frozen with the captured right backend state.
+
+    It remains paired with this immutable Snapshot even if live refs or
+    worktree state later change.
+    """
+
     added_lines: Optional[int]
+    """Backend-wide added-line total, or `None` when unavailable.
+
+    This field and `removed_lines` always have equal presence.
+    """
+
     removed_lines: Optional[int]
+    """Backend-wide removed-line total, or `None` when unavailable.
+
+    This field and `added_lines` always have equal presence.
+    """
 
 
 class RoomCaptureContext(TypedDict):
     """Expose only the persisted facts needed to continue one agent review.
 
-    Agent review supports repository-backed Tabs. The Mark identifies the
-    already registered workspace, while a Pull Request additionally exposes
-    its canonical URL so the HTTP boundary can prepare its current commits.
+    `Room.capture_context` returns this to agent continuation so it can build a
+    backend and capture the Room's current repository state. Preset Rooms are
+    outside that operation.
     """
 
     tab: Literal["head", "refs", "branch-review", "pull-request"]
+    """Repository-backed Tab whose persisted law continuation must replay.
+
+    It tells the HTTP boundary whether to reuse stored revisions or branches or
+    prepare fresh Pull Request commits before calling `Room.recapture`.
+    """
+
     mark_id: int
+    """Positive persisted Mark id naming the repository used by this Room.
+
+    The continuation boundary resolves the current registered path from it and
+    constructs a fresh backend; Room never stores or returns a live backend.
+    """
+
     pull_request_url: Optional[str]
+    """Canonical URL to prepare again for a Pull Request Room.
+
+    It is `None` for every other supported Tab.
+    """
 
 
 class FileMeta(TypedDict):
-    """Stable backend facts accompanying one captured filepath pair.
+    """Facts that go with capture file pair
 
-    The metadata preserves tracked provenance, Git/preset change
-    classification, an explicit backend lazy override, and the exact capture
-    failure when publication could not retain the File contents. It contains
-    no renderer output or per-File line counts.
+    Provided by the workspace backends, and then snapshot machinery and used by
+    callers mainly to display information to the user, or to pick which files
+    to produce.
     """
 
     tracked: bool
+    """
+    Whether a particular change is tracked in VCS or not.
+
+    *Implementation detail: presets always has it as True, since for them it is
+    irrelevant.*
+    """
     change_type: ChangeType
+    """
+    What kind of change the file has.
+    """
+    # TODO: should this be an *override* over *derived* values?
+    # Can't backend report lazy reason on its own?
+    #
+    # At the very least, maybe pick a better name.
     lazy_reason_override: Optional[LazyReason]
+    """
+    WorkspaceBackend reason to make a file lazy that can't be derived.
+
+    Callers expected to combine it with `tracked`, `change_type` and other
+    strategies (like filtering for generated files) to produce a final
+    `lazy_reason`.
+    """
     capture_error: Optional[str]
+    """
+    Reported and persisted when snapshot capture couldn't load a file side.
+
+    *Implementation detail: Set by snapshot machinery to avoid aborting entire
+    snapshot, while still signaling the error.*
+    """
 
 
 class SnapshotFileDelta(TypedDict):
-    """List captured File sides added, changed, and removed between Snapshots."""
+    """Describe captured side paths changed between two Snapshots.
+
+    `Room.file_delta` returns this to agent continuation. Paths are absolute,
+    read-only captured sides rather than repository names or writable workspace
+    files.
+    """
 
     added: tuple[Path, ...]
+    """Absolute captured side paths whose side/path identity is newly present.
+
+    Every path points into the later immutable Snapshot. The tuple is sorted and
+    may include either side of a newly introduced File identity.
+    """
+
     changed: tuple[Path, ...]
+    """Absolute later-Snapshot side paths with a changed captured digest.
+
+    The side and repository path exist in both Snapshots; only their immutable
+    byte identity differs. Returned paths always name the newer capture.
+    """
+
     removed: tuple[Path, ...]
+    """Absolute captured side paths whose side/path identity is no longer present.
+
+    Every path points into the earlier immutable Snapshot so callers can still
+    inspect the removed bytes. The tuple is sorted and never names live files.
+    """
 
 
 class Room:
-    """Own one correspondence-selected Room's Snapshots and hand out Threads.
+    """Own one correspondence-selected Room's snapshots and hand out `Thread`s.
 
-    Snapshot reads (`meta`, `manifested`, `get`, `file_delta`, the captured-file
-    lookups) and Thread access (`threads`, `get_thread`, `thread_for_comment`,
-    `create_thread`, `apply_review_batch`, the activity reads) require the exact
-    Snapshot key on every call. Comment and lifecycle writes are the returned
-    bound Threads' responsibility; Room only locates and constructs them.
-    `capture_context`, `recapture`, and `path_for_snapshot` continue this Room's
-    persisted Tab with new captures. The class never stores a selected Snapshot
-    id or exposes its private publication store.
+    Room represents a chunk of continuous work in the workspace.
+
+    Since it owns multiple snapshots, most methods here will require
+    `snapshot_id` key, as `Room` doesn't store any of them, and must not store
+    any of them.
+    *Implementation note: it does store its own hidden identity to ensure
+    validity of operations, to avoid handing access to unrelated information.*
+
+    # Thread boundary
+    Room is not and must not be responsible for creating or managing comments
+    on `Thread`s, that is the responsibility of `Thread` class, `Room`
+    only locates and creates threads.
+    Exception to this rule is `apply_review_batch`, because it spans multiple
+    threads, and is a forced performance optimization.
+
+    # Entrypoints
+
+    The most basic usage is to get a `Room` from `RoomLord.corresponding_room`,
+    then call `Room.manifested` to get list of files this room governs,
+    and when needed `Room.get` to get exact physical handles for filepaths.
+
+    If you need to create or get a thread, use `get_thread` or `create_thread`.
+
+    For more, read the documentation for individual methods.
     """
 
     def __init__(
@@ -241,10 +459,24 @@ class Room:
     ) -> None:
         """Create a Room over one correspondence identity.
 
+        # Parameters
+
+        - `database`: Persistence interface for this Room's Snapshot and review
+          records.
+        - `identity`: Exact correspondence identity that bounds every Room read.
+        - `staging_path`: Root for incomplete process-private captures.
+        - `snapshots_path`: Root for complete published Snapshot directories.
+        - `lock_path`: Cross-process lock file shared by publication and review
+          writes.
+        - `thread_lock`: In-process lock shared by publication and review writes.
+
+        # Usage note
         Only `RoomLord` constructs this object. The supplied identity limits
         every relational read to this Room but does not select a Snapshot;
         callers must pass the exact key to every public read. The store paths
         locate this Room's durable Snapshot directories and staging area.
+
+        @private
         """
         self._database = database
         self._identity = identity
@@ -260,6 +492,16 @@ class Room:
         cross-Room keys are rejected instead of producing substitute metadata.
         The Tab comes from the Room identity and is not duplicated in Snapshot
         persistence.
+
+        # Usage
+
+        Call this when a Snapshot-scoped response needs labels, Tab identity, or
+        backend totals without loading the manifest.
+
+        # Failures
+
+        - Raises `DirdiffError` when the key does not belong to this Room.
+        - Raises `AssertionError` when persisted Room data names an unknown Tab.
         """
         record = self._database.snapshot_meta(self._identity, snapshot_id.hex)
         if record is None:
@@ -289,9 +531,38 @@ class Room:
             FileMeta,
         ]
     ]:
-        """Yield manifested files and their metadata.
+        """Yield every captured File pair and policy record in Snapshot order.
 
-        The Paths are repository-relative paths, includes even errored files.
+        `snapshot_id` must belong to this Room. Each nullable `Path` is a
+        repository-relative identity, not a physical capture handle, and at
+        least one side is present. Files with capture failures remain in the
+        iteration with the exact error in `FileMeta` so callers can present the
+        complete manifest without treating generated error bytes as source.
+
+        Lazy overrides are loaded once for the Snapshot and must reference its
+        Files. The iterator performs no live backend access and does not read
+        captured contents.
+
+        # Usage
+
+        Iterate this after capture to build a manifest or delayed-File response.
+        Keep each nullable path pair together; that pair is the address required
+        by `get`.
+
+        # Returns
+
+        - The iterator yields items in persisted Snapshot File order.
+        - Each item's first value is its optional left repository path.
+        - Each item's second value is its optional right repository path. At
+          least one path is present; neither is a capture path.
+        - Each item's third value is the `FileMeta` for that exact path pair,
+          including its capture error and loading policy when present.
+
+        # Failures
+
+        - Raises `DirdiffError` when the Snapshot does not belong to this Room.
+        - Raises `AssertionError` when persisted File metadata or lazy reasons
+          violate the declared value sets.
         """
         record = self._database.snapshot(self._identity, snapshot_id.hex)
         if record is None:
@@ -357,6 +628,33 @@ class Room:
 
         A captured File failure is returned in `FileMeta.capture_error`; callers
         decide whether their boundary presents or classifies that exact reason.
+
+        # Parameters
+
+        - `snapshot_id`: Exact Snapshot containing the manifested pair.
+        - `left`: Repository-relative left path, or `None` for an added File.
+        - `right`: Repository-relative right path, or `None` for a deleted File.
+
+        # Usage
+
+        Pass one exact pair obtained from `manifested` or a retained review
+        placement. Read returned paths only; they point to immutable captured
+        contents, never the live workspace.
+
+        # Returns
+
+        - First, the absolute immutable left capture path, or `None` when the
+          manifested pair has no left side.
+        - Second, the absolute immutable right capture path, or `None` when the
+          pair has no right side. Each present path has passed a digest check.
+        - Third, the matched File's metadata, including any capture failure.
+
+        # Failures
+
+        - Raises `DirdiffError` for an unknown Snapshot, an absent pair, two
+          missing sides, or an absolute or parent-traversing repository path.
+        - Raises `AssertionError` when persisted metadata is invalid or a
+          captured side no longer matches its digest.
         """
         if left is None and right is None:
             raise DirdiffError("left or right filepath is required.")
@@ -432,7 +730,25 @@ class Room:
     def file_delta(
         self, previous_snapshot_id: UUID, snapshot_id: UUID
     ) -> SnapshotFileDelta:
-        """Compare persisted File-side hashes without rereading captured bytes."""
+        """Compare persisted File-side hashes without rereading captured bytes.
+
+        # Parameters
+
+        - `previous_snapshot_id`: Earlier Snapshot whose removed side paths are
+          reported from its immutable directory.
+        - `snapshot_id`: Later Snapshot whose added and changed paths are
+          reported.
+
+        # Usage
+
+        Agent continuation calls this after recapture. Use returned absolute
+        paths as handles into the two immutable Snapshot directories; do not
+        reinterpret them as repository paths.
+
+        # Failures
+
+        - Raises `DirdiffError` unless both keys belong to this Room.
+        """
         snapshots = []
         for captured_id in (previous_snapshot_id, snapshot_id):
             snapshot = self._database.snapshot(self._identity, captured_id.hex)
@@ -443,7 +759,20 @@ class Room:
         def sides(
             snapshot: SnapshotRecord,
         ) -> dict[tuple[str, str], tuple[Path, bytes]]:
-            """Index one retained Snapshot's present sides by stable path."""
+            """Index present captured sides by side name and repository path.
+
+            Each value carries the immutable capture path and persisted digest.
+            The helper is called once for each already-validated Snapshot
+            and never reads the side's bytes.
+
+            # Returns
+
+            - Each key's first item is the `left` or `right` side name. Both
+              present sides of one File receive separate entries.
+            - Each key's second item is that side's repository path.
+            - Each value's first item is the absolute immutable capture path.
+            - Each value's second item is the persisted content digest.
+            """
             indexed: dict[tuple[str, str], tuple[Path, bytes]] = {}
             for file in snapshot.files:
                 for side, record in (
@@ -494,6 +823,30 @@ class Room:
         caller input; an unknown Snapshot raises. One read and transaction
         serves every pair; contents are never read, and only the returned
         Files are stat-checked.
+
+        # Parameters
+
+        - `snapshot_id`: Exact Snapshot holding all requested placements.
+        - `pairs`: Repository-path pairs taken from those placements.
+
+        # Usage
+
+        Build `pairs` from already validated Thread placements, then use the
+        returned paths to translate review locations for the agent boundary.
+
+        # Returns
+
+        - Each key is one distinct requested repository path pair. Its first item
+          is the nullable left path and its second is the nullable right path.
+        - Each value's first item is the optional absolute left capture path.
+        - Each value's second item is the optional absolute right capture path.
+          A side is `None` only when the corresponding key item is absent.
+
+        # Failures
+
+        - Raises `DirdiffError` for an unknown Snapshot.
+        - Raises `AssertionError` when a placement pair or captured side is
+          missing from the immutable Snapshot.
         """
         snapshot_exists, found = self._database.snapshot_files_by_pairs(
             self._identity,
@@ -537,10 +890,47 @@ class Room:
         persisted record's own directory must equal the supplied parent, so a
         lookalike path outside the Snapshot store never matches. One read
         serves every path; no side content is touched.
+
+        # Parameters
+
+        - `snapshot_id`: Exact Snapshot against which paths are validated.
+        - `captured`: Absolute paths supplied at the agent action boundary.
+
+        # Usage
+
+        Pass agent-supplied captured paths here before converting them to review
+        targets. A `None` result is an unauthenticated path and must be rejected
+        by the caller.
+
+        # Returns
+
+        - Each key is one distinct absolute input path, whether valid or not.
+        - A valid value's first item is the File's optional left repository path.
+        - Its second item is the optional right repository path.
+        - Its third item is the matched `left` or `right` side name.
+        - `None`: The key does not identify a present side of this exact
+          Snapshot. The caller must reject it as an untrusted captured handle.
+
+        # Failures
+
+        - Invalid or unrelated paths are returned as `None`; this method does
+          not raise merely because an input fails validation.
         """
 
         def parsed_file_id(path: Path) -> Optional[str]:
-            """Extract the candidate File id when the path shape allows one."""
+            """Extract an untrusted candidate File id from a capture-side path.
+
+            The helper accepts only `<hex-id>/left` or `<hex-id>/right` shape and
+            returns `None` for every other input. A candidate is not trusted
+            until the focused database read proves its exact persisted parent.
+
+            # Returns
+
+            - The 32-character lowercase hexadecimal directory name when the
+              path has the expected captured-side shape.
+            - `None`: The basename is not a side name or its parent is not a
+              syntactically valid File id. The caller excludes it from lookup.
+            """
             if path.name != "left" and path.name != "right":
                 return None
             file_id = path.parent.name
@@ -610,6 +1000,35 @@ class Room:
         `None` selects the latest Room activity in the same persistence read.
         Passing a returned concrete pivot makes later pages observe the same
         Thread existence, lifecycle state, ordering, count, and actions.
+
+        # Parameters
+
+        - `snapshot_id`: Exact Snapshot whose placements are selected.
+        - `page`: One-based page number.
+        - `limit`: Positive maximum number of Threads in this page.
+        - `state`: Lifecycle filter for all Threads or only open Threads.
+        - `through_activity_id`: Inclusive pivot from page one, or `None` to
+          choose it with this read.
+        - `attention`: Optional open-Thread role filter used by agent inboxes.
+
+        # Usage
+
+        Start with `through_activity_id=None`, retain the concrete pivot from the
+        result, and pass it to each later page. Use the returned total to stop
+        paging rather than selecting a new pivot.
+
+        # Returns
+
+        - First, the selected page of `Thread` handles in review order.
+        - Second, the total number of Threads matching the filters before page
+          slicing.
+        - Third, the concrete inclusive activity pivot used to build this page;
+          callers reuse it for every later page of the same listing.
+
+        # Failures
+
+        - Asserts when `page` or `limit` is less than one.
+        - Raises `DirdiffError` when the Snapshot does not belong to this Room.
         """
         assert page >= 1 and limit >= 1
         return thread_objects(
@@ -626,7 +1045,23 @@ class Room:
         )
 
     def get_thread(self, snapshot_id: UUID, thread_id: UUID) -> Thread:
-        """Return one Thread bound to the exact Snapshot and Thread IDs."""
+        """Return one Thread bound to the exact Snapshot and Thread IDs.
+
+        # Parameters
+
+        - `snapshot_id`: Exact code universe in which the Thread must be placed.
+        - `thread_id`: Stable discussion identity to bind.
+
+        # Usage
+
+        Use this when the caller already has a Thread id. The returned handle
+        performs reads and writes only through this Snapshot placement.
+
+        # Failures
+
+        - Raises `ReviewError` when the Snapshot or Thread placement does not
+          exist in this Room.
+        """
         return get_thread(
             database=self._database,
             identity=self._identity,
@@ -642,6 +1077,21 @@ class Room:
         Comment-addressed HTTP writes know only the Comment key; this lookup
         locates its placed Thread in the exact Snapshot and returns it bound,
         or rejects an unknown Comment.
+
+        # Parameters
+
+        - `snapshot_id`: Exact Snapshot containing the Thread placement.
+        - `comment_id`: Comment whose stable identity addresses the discussion.
+
+        # Usage
+
+        Comment edit and delete routes use this when their HTTP address carries
+        a Comment id but no Thread id.
+
+        # Failures
+
+        - Raises `ReviewError` when no Thread placed in this Snapshot contains
+          the Comment.
         """
         thread_id = self._database.review_thread_for_comment(
             snapshot_id.hex, comment_id.hex
@@ -657,7 +1107,24 @@ class Room:
         snapshot_id: UUID,
         command: CreateThread,
     ) -> Thread:
-        """Create one Thread in the exact Snapshot and return it bound."""
+        """Create one Thread in the exact Snapshot and return it bound.
+
+        # Parameters
+
+        - `snapshot_id`: Origin Snapshot whose captured range was selected.
+        - `command`: Valid target, author, and first Comment supplied by the
+          caller.
+
+        # Usage
+
+        Construct `CreateThread` from one validated code target and author, then
+        use the returned bound Thread for the response or later operations.
+
+        # Failures
+
+        - Raises `ReviewError` when the Snapshot, author, target, or supplied
+          identities are invalid or already used.
+        """
         return create_thread(
             database=self._database,
             identity=self._identity,
@@ -672,6 +1139,15 @@ class Room:
 
         The Snapshot must belong to this Room; the boundary is 0 for a Room
         with no review actions yet.
+
+        # Usage
+
+        Record this cursor with an agent capture when later continuation should
+        return only review actions authored afterward.
+
+        # Failures
+
+        - Raises `DirdiffError` when the Snapshot does not belong to this Room.
         """
         self.meta(snapshot_id)
         return self._database.review_latest_activity_id(self._identity)
@@ -692,6 +1168,29 @@ class Room:
         The page, has-more marker, open-Thread count, and acting Profiles are
         read consistently in one persistence read; the count holds at the
         page's inclusive end boundary.
+
+        # Parameters
+
+        - `snapshot_id`: Snapshot used to prove this Room is the intended one.
+        - `activity_id`: Exclusive lower boundary retained by the agent.
+        - `limit`: Positive maximum number of later actions.
+
+        # Usage
+
+        Begin with the cursor retained from capture or the prior page. Continue
+        using the last returned action id until the has-more value is false.
+
+        # Returns
+
+        - First, at most `limit` later actions in activity order.
+        - Second, whether another action exists after this page.
+        - Third, the open logical Thread count at the page's inclusive end.
+        - Fourth, current Profile records for every author in the returned page.
+
+        # Failures
+
+        - Raises `DirdiffError` for a Snapshot outside this Room.
+        - Asserts when the activity id is negative or `limit` is not positive.
         """
         self.meta(snapshot_id)
         return self._database.review_continuation(
@@ -703,7 +1202,28 @@ class Room:
     def review_attention_counts(
         self, snapshot_id: UUID, through_activity_id: int
     ) -> dict[Literal["author", "reviewer", "both"], int]:
-        """Return actionable open-Thread counts at one activity boundary."""
+        """Return actionable open-Thread counts at one activity boundary.
+
+        # Parameters
+
+        - `snapshot_id`: Snapshot used to validate access to this Room.
+        - `through_activity_id`: Inclusive outcome boundary for every count.
+
+        # Usage
+
+        Use the same inclusive activity id as the Thread page or continuation
+        state these counts accompany.
+
+        # Returns
+
+        - The keys are exactly `author`, `reviewer`, and `both`.
+        - Each value is the number of open Threads assigned that outcome at the
+          inclusive boundary. Categories without Threads remain present as zero.
+
+        # Failures
+
+        - Raises `DirdiffError` for a Snapshot outside this Room.
+        """
         self.meta(snapshot_id)
         return self._database.review_attention_counts(
             self._identity, through_activity_id
@@ -714,7 +1234,30 @@ class Room:
         snapshot_id: UUID,
         batch: tuple[ReviewBatchAction, ...],
     ) -> tuple[ReviewBatchResult, ...]:
-        """Apply one validated agent batch in a single database transaction."""
+        """Apply one validated agent batch in a single database transaction.
+
+        # Parameters
+
+        - `snapshot_id`: Exact Snapshot against which every action is validated.
+        - `batch`: Ordered, non-empty agent actions sharing one author Profile.
+
+        # Usage
+
+        Preserve the agent's submitted order and pass the complete non-empty
+        batch once. Use the returned results in the same order as the commands.
+
+        # Returns
+
+        - Each item is the canonical persisted action outcome for one command,
+          including its Thread state and any created Comment identity.
+        - Results preserve the non-empty batch's submission order, so callers
+          may zip both tuples without another ordering key.
+
+        # Failures
+
+        - Raises `ReviewError` when any command is invalid for the bound
+          Snapshot or current Thread state. No command is persisted on failure.
+        """
         return apply_review_batch(
             database=self._database,
             identity=self._identity,
@@ -730,6 +1273,18 @@ class Room:
         The HTTP boundary needs the Mark and any Pull Request URL to construct
         the concrete backend and prepared commits before `recapture` runs.
         Preset Rooms have no repository to continue and are rejected.
+
+        # Usage
+
+        Read this before agent continuation. Use `mark_id` to reconstruct the
+        backend, and prepare the returned Pull Request URL before calling
+        `recapture` when the Tab is `pull-request`.
+
+        # Failures
+
+        - Raises `DirdiffError` for a Preset Room, which cannot be continued by
+          the agent API.
+        - Raises `AssertionError` when persisted correspondence is malformed.
         """
         identity = self._identity
         if identity.mark_id is None or identity.tab == "preset":
@@ -773,10 +1328,36 @@ class Room:
         The concrete backend comes from the HTTP boundary's active Mark. A Pull
         Request continuation must supply the newly prepared complete commits;
         other Tabs reject them. The new Snapshot remains in this exact Room.
+
+        # Parameters
+
+        - `backend`: Workspace backend constructed from this Room's active Mark.
+        - `pull_request_left`: Newly prepared merge-base commit for a Pull
+          Request Room, otherwise `None`.
+        - `pull_request_right`: Newly prepared head commit for a Pull Request
+          Room, otherwise `None`.
+
+        # Usage
+
+        Obtain the Mark and Tab from `capture_context`, construct the matching
+        `GitBackend`, and prepare fresh Pull Request commits only when that
+        context names a Pull Request.
+
+        # Failures
+
+        - Raises `DirdiffError` for Preset Rooms, missing Pull Request commits,
+          or commits that are not complete ids.
+        - Raises `AssertionError` when the backend kind, extra parameters, or
+          persisted Tab correspondence contradict this Room.
         """
 
         def persisted_branch(value: JsonValue) -> BranchSelection:
-            """Validate one structured branch stored in correspondence JSON."""
+            """Decode one persisted symbolic branch into the backend contract.
+
+            The value is read only during branch-review recapture. It must carry
+            a nonblank branch and either local source or a nonblank remote;
+            malformed persisted correspondence is an invariant failure.
+            """
             assert isinstance(value, dict)
             source = value.get("source")
             branch = value.get("branch")
@@ -885,6 +1466,17 @@ class Room:
         exposes the directory already published by ordinary Snapshot capture
         and creates no file, directory, link, row, or alternative
         representation.
+
+        # Usage
+
+        Use this only when a caller needs the published Snapshot root, such as
+        the agent filesystem contract. Treat the returned directory as read-only.
+
+        # Failures
+
+        - Raises `DirdiffError` when the Snapshot does not belong to this Room.
+        - Raises `AssertionError` when persistence names a Snapshot whose
+          published directory is missing.
         """
         self.meta(snapshot_id)
         path = self._snapshots_path / snapshot_id.hex
@@ -897,9 +1489,10 @@ class RoomLord:
 
     `corresponding_room` applies the law for one explicit capture and returns
     both the Room and the captured Snapshot key. `find_room` uses an existing
-    Snapshot key to recover its Room for follow-up operations. Neither method
-    exposes the private Snapshot store; every other Room operation belongs to
-    the returned Room.
+    Snapshot key to recover its Room for follow-up operations.
+
+    The returned `Room` is the entrypoint for Snapshot reads and review work.
+    `RoomLord` does not retain a selected Room or Snapshot between calls.
     """
 
     def __init__(self, database: RoomStore, store_path: Path) -> None:
@@ -908,6 +1501,18 @@ class RoomLord:
         The paths are normalized but not created here. This keeps construction
         harmless; the first valid manifest capture creates storage only after
         repository-placement checks succeed.
+
+        # Parameters
+
+        - `database`: Application Room persistence interface.
+        - `store_path`: Root reserved for staging and published Snapshot data.
+
+        # Usage
+
+        Construct one `RoomLord` for the application database and one dedicated
+        Snapshot root outside every reviewed repository. Reuse it for manifest
+        capture and Snapshot-keyed follow-up operations.
+
         """
         self._database = database
         self._store_path = store_path.expanduser().resolve()
@@ -939,6 +1544,35 @@ class RoomLord:
         correspondence selects only the Room. The independently derived sides
         are supplied to Snapshot capture after that Room identity is
         complete.
+
+        # Parameters
+
+        - `mark_id`: Active repository mark, or `None` only for presets.
+        - `backend`: Concrete source of paths, bytes, and backend line totals.
+        - `selection`: Complete discriminated Tab inputs governing both
+          correspondence and capture.
+
+        # Usage
+
+        Construct exactly one `CaptureSelection` variant from the active Tab and
+        pair it with the matching backend. Retain both returned values: the Room
+        bounds follow-up operations, while the Snapshot id selects captured
+        state inside it.
+
+        # Returns
+
+        - First, the selected or newly created `Room` under the Tab's
+          correspondence law.
+        - Second, the current immutable Snapshot id captured inside that Room.
+          The Room does not retain it, so callers must preserve both values.
+
+        # Failures
+
+        - Raises `DirdiffError` for incomplete or contradictory Tab values,
+          unresolved refs, or a database or Snapshot store placed inside the
+          reviewed repository.
+        - Asserts when a selection is paired with the wrong backend or Mark
+          presence.
         """
         repo_root = backend.repo_root
         if mark_id is not None and repo_root is not None:
@@ -1106,6 +1740,16 @@ class RoomLord:
         The Snapshot id is globally unique in this database. Missing keys are
         rejected; this lookup neither executes a Tab law nor reads live backend
         state.
+
+        # Usage
+
+        Use this for follow-up endpoints that receive only the opaque Snapshot
+        key returned by capture. Pass the same key to the returned Room method.
+
+        # Failures
+
+        - Raises `DirdiffError` when no Snapshot has the supplied key.
+        - Raises `AssertionError` when its persisted Room names an unknown Tab.
         """
         identity = self._database.room_identity(snapshot_id.hex)
         if identity is None:
@@ -1153,6 +1797,16 @@ class _SnapshotStore:
         `RoomLord` supplies shared paths and locking, while `identity` limits
         every relational lookup. Constructing the store performs no filesystem
         or database work.
+
+        # Parameters
+
+        - `database`: Persistence interface used for retained checks and
+          publication.
+        - `staging_path`: Root for incomplete process-private captures.
+        - `snapshots_path`: Root for complete published Snapshot directories.
+        - `lock_path`: Cross-process publication lock file.
+        - `thread_lock`: In-process publication lock.
+        - `identity`: Exact Room correspondence receiving the capture.
         """
         assert identity.correspondence_key != b"", (
             "Room correspondence key cannot be empty"
@@ -1181,6 +1835,27 @@ class _SnapshotStore:
         Backend order, human labels, and aggregate line counts do not affect
         identity. Every Thread contained by the Room is placed in the captured
         Snapshot before it becomes visible.
+
+        # Parameters
+
+        - `backend`: Workspace source used for manifest facts and side bytes.
+        - `left_side`: Backend handle for the captured left state.
+        - `right_side`: Backend handle for the captured right state.
+        - `left_label`: Human label retained for the left state.
+        - `right_label`: Human label retained for the right state.
+        - `show_untracked`: Whether backend discovery includes untracked Files.
+
+        # Usage
+
+        `RoomLord.corresponding_room` or `Room.recapture` calls this once after
+        selecting complete backend sides and labels for one Room identity.
+
+        # Failures
+
+        - Raises `DirdiffError` for backend capture failures that cannot produce
+          an immutable side.
+        - Raises `AssertionError` when backend output, retained contents, or
+          publication records violate Snapshot invariants.
         """
         self._staging_path.mkdir(parents=True, exist_ok=True)
         self._snapshots_path.mkdir(parents=True, exist_ok=True)
@@ -1289,7 +1964,16 @@ class _SnapshotStore:
             side_label: str,
             errors: list[str],
         ) -> bytes:
-            """Return one loaded side, substituting the established error text."""
+            """Return one loaded side, substituting established error text.
+
+            # Parameters
+
+            - `loaded`: Exact bytes or the expected backend loading failure.
+            - `side_path`: Repository path used in the persisted failure.
+            - `side_name`: Capture slot, `left` or `right`.
+            - `side_label`: Backend state label paired with the path.
+            - `errors`: File-local failure list updated on substitution.
+            """
             if isinstance(loaded, DirdiffError):
                 failure = (
                     f"Could not capture {side_name} side "
@@ -1397,7 +2081,23 @@ class _SnapshotStore:
             def side_token(
                 content: Optional[bytes], object_id: Optional[str]
             ) -> Optional[bytes]:
-                """Encode one side's identity token, or None for an absent side."""
+                """Encode one side's identity token, or `None` when absent.
+
+                # Parameters
+
+                - `content`: Eager captured bytes for an object-id-less side.
+                - `object_id`: Backend content identity for a deferred side.
+
+                Exactly one value is present for an existing side.
+
+                # Returns
+
+                - A tagged byte token. `O` prefixes a backend object id and `C`
+                  prefixes eager captured contents, keeping the two identity
+                  sources distinct in the Snapshot digest.
+                - `None`: Both inputs are absent, so this Snapshot File has no
+                  side in this position and contributes the absent marker.
+                """
                 if object_id is not None:
                     return b"O" + object_id.encode("ascii")
                 if content is not None:
@@ -1425,7 +2125,19 @@ class _SnapshotStore:
         snapshot_hash = digest.digest()
 
         def verified_retained_snapshot(snapshot_id: str) -> UUID:
-            """Return one retained Snapshot after verifying every stored side."""
+            """Authenticate all physical sides before reusing an equal Snapshot.
+
+            It is invoked when the Room already contains the computed capture
+            digest, both before and inside the publication lock. Every persisted
+            side is reread and checked against its stored SHA-256; missing or
+            changed bytes fail instead of returning a poisoned Snapshot key.
+
+            # Failures
+
+            - Raises `AssertionError` when the equal Snapshot disappeared or a
+              retained side no longer matches its digest. Reads propagate I/O
+              failures.
+            """
             visible_snapshot = self._database.snapshot(
                 self._identity,
                 snapshot_id,
@@ -1503,6 +2215,18 @@ class _SnapshotStore:
             state would reuse the poisoned Snapshot without re-reading the
             backend. The id-addressed object is immutable, so the failure is
             infrastructural and a retry captures cleanly.
+
+            # Parameters
+
+            - `loaded`: Exact immutable-object bytes or its loading failure.
+            - `side_path`: Repository path included in a failure message.
+            - `side_name`: Capture slot, `left` or `right`.
+            - `side_label`: Backend state label paired with the path.
+
+            # Failures
+
+            - Raises `DirdiffError` when the backend could not load the immutable
+              object. The complete capture stops.
             """
             if isinstance(loaded, DirdiffError):
                 raise DirdiffError(
@@ -1617,6 +2341,9 @@ class _SnapshotStore:
                 if lazy_reason is not None:
                     lazy_reasons[file_id] = lazy_reason, metadata_content
 
+            # TODO: Unify this lock protocol with `_room_write_lock` in
+            # review.py so Snapshot publication and all review writes use one
+            # shared context manager.
             with self._thread_lock, self._lock_path.open("a+b") as lock_file:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
                 try:

@@ -7,5 +7,6 @@ extension =
     SBT = strict_bool:StrictBoolPlugin
     CST = no_casts:NoCastsPlugin
     HLP = helper_topology:HelperTopologyPlugin
+    DDD = dirdiffdoc:DirdiffDocPlugin
 paths =
     ./lints

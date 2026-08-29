@@ -1,10 +1,9 @@
-"""Adversarial tests for `dirdiff.formats.Composer`.
+"""Check `Composer` with ordinary text and rejected text bytes.
 
-These pin the composed-diff shape a plain text File must produce: one
-heading-less frame, one bay keyed `flatfile`, bay-local hunk indexes that are
-gap-free and only mark changed-run starts, existence flags that follow the
-captured byte sides, the blob terminal that keeps classification total, and
-the two engine-free guarantees `bays()` owes review validation. They exercise the real engine and enrichment pipeline, not a stub.
+The tests pin the flatfile frame and bay shape, bay-local hunk indexes, captured
+side existence, and blob termination after decoding rejection. Engine-free
+cases verify that `bays()` exposes identity and decoded content without running
+a renderer. Full composition uses the real text engine and enrichment path.
 """
 
 from __future__ import annotations
@@ -21,7 +20,12 @@ from dirdiff.formats import (
 
 
 def test_plain_modification_is_one_frame_one_flatfile_bay() -> None:
-    """A modified text File composes to one frame holding one `text` bay."""
+    """Keep a plain text modification in the total flatfile composition shape.
+
+    The result must have one heading-less frame and the stable flatfile bay key,
+    with both paths and text kind intact. It must not acquire notebook/image
+    chrome merely because its contents differ.
+    """
     context = ComposeContext.build(
         left_path="m.py",
         right_path="m.py",
@@ -52,7 +56,12 @@ def test_plain_modification_is_one_frame_one_flatfile_bay() -> None:
 
 
 def test_hunk_indexes_are_gapless_and_mark_only_run_starts() -> None:
-    """Bay-local hunk indexes are consecutive from zero on run starts only."""
+    """Assign navigation identity once per separated changed-row run.
+
+    The two edits in the fixture must produce indexes zero and one on their
+    first rows only. Equal continuation rows and later rows in the same run
+    carry `None`; no File-wide renumbering is allowed.
+    """
     context = ComposeContext.build(
         left_path="m.txt",
         right_path="m.txt",
@@ -74,7 +83,12 @@ def test_hunk_indexes_are_gapless_and_mark_only_run_starts() -> None:
 
 
 def test_identical_content_has_no_hunks() -> None:
-    """Byte-identical sides compose to a File with zero hunks."""
+    """Keep byte-identical flatfile rows outside the hunk sequence.
+
+    The composed text bay still exists and replays both sides, but its hunk
+    count is zero and every row omits hunk identity. Equality must not create a
+    synthetic navigation stop.
+    """
     context = ComposeContext.build(
         left_path="s.txt",
         right_path="s.txt",
@@ -92,7 +106,12 @@ def test_identical_content_has_no_hunks() -> None:
 
 
 def test_added_file_has_left_absent_and_right_present() -> None:
-    """A right-only File reports existence from the byte sides it was given."""
+    """Derive added-File side existence from captured inputs, not rendered rows.
+
+    A missing left byte side must remain absent in the composed summary while
+    the right side exists. The text builder may render insertion rows but those
+    rows are not the authority for File existence.
+    """
     context = ComposeContext.build(
         left_path=None,
         right_path="n.txt",
@@ -106,7 +125,12 @@ def test_added_file_has_left_absent_and_right_present() -> None:
 
 
 def test_deleted_file_has_right_absent() -> None:
-    """A left-only File reports the right side absent."""
+    """Derive deleted-File side existence directly from captured inputs.
+
+    The left side remains present and the missing right side remains false in
+    the summary. Composition must not infer presence from labels, paths, or
+    deletion rows.
+    """
     context = ComposeContext.build(
         left_path="g.txt",
         right_path=None,
@@ -120,7 +144,12 @@ def test_deleted_file_has_right_absent() -> None:
 
 
 def test_summary_aggregates_bay_stats_for_single_bay() -> None:
-    """The File summary equals the one bay's engine stats for line counts."""
+    """Forward one flatfile bay's exact engine line totals to the File summary.
+
+    Modified, added, removed, and moved counts must agree with the rendered bay
+    without recounting display rows differently. Side-existence facts remain a
+    separate captured-input calculation.
+    """
     context = ComposeContext.build(
         left_path="a.txt",
         right_path="a.txt",

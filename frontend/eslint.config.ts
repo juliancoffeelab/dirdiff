@@ -1,12 +1,14 @@
 import { defineConfig } from "eslint/config";
 import type { Rule } from "eslint";
 import tseslint from "typescript-eslint";
+import { dirdiffDocRule } from "./eslint-rules/dirdiff-doc.mjs";
 import { fileCardFacadeRule } from "./eslint-rules/file-card-facade.mjs";
 import { nestedModuleHelperRule } from "./eslint-rules/helper-topology.mjs";
 import showWhenBooleanRule from "./eslint-rules/show-when-boolean.mjs";
 
 const configRootDir = new URL(".", import.meta.url).pathname;
 const localRules = {
+  "dirdiff-doc": dirdiffDocRule as Rule.RuleModule,
   "file-card-facade": fileCardFacadeRule as Rule.RuleModule,
   "nested-module-helper": nestedModuleHelperRule as Rule.RuleModule,
   "show-when-boolean": showWhenBooleanRule as Rule.RuleModule,
@@ -49,6 +51,7 @@ export default defineConfig(
         { assertionStyle: "never" },
       ],
       "@typescript-eslint/no-explicit-any": "error",
+      "local/dirdiff-doc": "error",
       "local/file-card-facade": "error",
       "local/nested-module-helper": "error",
       "local/show-when-boolean": "error",

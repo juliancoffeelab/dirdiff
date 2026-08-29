@@ -1,10 +1,10 @@
-"""Golden row-output tests for difftastic preset fixtures.
+"""Snapshot exact Difftastic rows for the preset corpus.
 
-This module is the snapshot boundary for exact difftastic row projection.  Each
-non-borked preset directory supplies old/new source files, and the snapshot name
-is the preset path relative to `tests/presets/diff`.  It tests
-projection output only; subprocess invocation details belong to the engine, and
-broad token and row-shape invariants live in `test_difftastic_proptest`.
+Each non-borked preset supplies one old/new source pair and one snapshot named
+by its relative preset path. These tests pin exact row and token placement after
+Difftastic's JSON is converted to engine rows. Broad replay and consistency
+properties remain in `test_difftastic_proptest`; subprocess failures belong to
+the engine integration boundary.
 """
 
 from pathlib import Path
@@ -19,15 +19,37 @@ from dirdiff.engines.difftastic.logic import (
 )
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
+"""Shared source-pair catalog exercised by Difftastic snapshots.
+
+Every eligible child directory must contain exactly one old and one new file;
+the relative directory path becomes the stable snapshot key.
+"""
 GOLDEN_ROOT = Path(__file__).parents[1] / "golden" / "difftastic"
+"""Stored Difftastic row payloads keyed by preset-relative path.
+
+`DifftasticGoldenSnapshotExtension` writes only beneath this directory and
+keeps fixture inputs separate from approved renderer output.
+"""
 BROKEN_PRESET_GROUPS: set[str] = {
     "borked",
 }
+"""Preset groups intentionally excluded because they do not form valid input.
+
+Their cases still participate in broad property checks where exact approved
+rows are not the contract.
+"""
 
 __all__: list[str] = []
 
 
 class DifftasticGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
+    """Bind each real diff preset to its checked-in Difftastic row JSON.
+
+    The inherited collector supplies source pairs and this class fixes the
+    preset root, golden root, and assertion function name. Snapshots record the
+    validated neutral engine rows, not rendered syntax or File payloads.
+    """
+
     preset_root = PRESETS_ROOT
     golden_root = GOLDEN_ROOT
     snapshot_function_name = "test_difftastic_preset_rows_match_golden"
@@ -35,6 +57,11 @@ class DifftasticGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
 
 @pytest.fixture
 def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
+    """Bind Syrupy to the Difftastic preset and golden directory contract.
+
+    Tests receive the configured assertion and supply only the stable preset
+    key plus projected rows.
+    """
     return snapshot.with_defaults(
         extension_class=DifftasticGoldenSnapshotExtension
     )
@@ -54,6 +81,17 @@ def test_difftastic_preset_rows_match_golden(
     preset_dir: Path,
     snapshot_json: SnapshotAssertion,
 ) -> None:
+    """Freeze exact projected rows for every valid two-sided diff preset.
+
+    Each fixture must contain one old and one new file. The test runs real
+    Difftastic JSON generation, projects it against those sources, and keys the
+    snapshot by the human-readable preset path.
+
+    # Parameters
+
+    - `preset_dir`: One parametrized source-pair directory from `PRESETS_ROOT`.
+    - `snapshot_json`: Difftastic-configured snapshot assertion.
+    """
     old_files = sorted(preset_dir.glob("old.*"))
     new_files = sorted(preset_dir.glob("new.*"))
     assert len(old_files) == 1, preset_dir

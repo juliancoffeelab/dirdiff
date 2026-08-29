@@ -1,28 +1,19 @@
-"""Composition: the one class that turns two byte sides into a composed diff.
+"""Classification and composition of one captured File pair.
 
-`Composer` is not a protocol with an implementation per format. The
-format-specific part is only *which bays get built*, and that lives in the
-path-only classification below and the sibling builders it calls. Composition
-itself is one class with two entry points, because two of its three consumers
-must not touch a diff engine:
+## Public interface
 
-- `bays()` yields every bay a File composes into, in document order, with
-  nothing an engine produces. Review validation and the media endpoint call it:
-  both are lookups that must answer about one bay without rendering every bay,
-  and neither may reach an engine.
-- `compose()` consumes that stream, renders each text bay through the shared
-  text-bay renderer and reduces each image bay to its references, wraps each
-  result in the bay envelope, aggregates the summary, and returns the
-  composed-diff envelope, with row hunk boundaries left bay-local for the
-  frontend to number. `/api/file-diff` calls it.
+`Composer.bays` classifies the supplied paths and yields the ordered bays built
+by the flatfile, notebook, image, or blob module. `Composer.compose` renders
+that same stream, groups bays into frames, aggregates their summary, and
+returns the composed-diff envelope.
 
-Neither method has a "not my format" outcome. Classification always reaches an
-answer, because the blob step is terminal: whatever the two byte sides are, some
-bay holds them, and no File reaches the frontend as an error where a diff was
-expected.
+## Purpose and boundaries
 
-Purity: the same two byte sides and the same context produce the same bays,
-keys, and order. Composition reads no clock, database, Room, or outside file.
+Classification is total and depends only on supplied paths and bytes. The
+same bay enumeration serves full rendering, review-coordinate validation, and
+media lookup, so those consumers cannot disagree about which bays a File has.
+File loading and the HTTP-only display name and File kind remain outside this
+module.
 """
 
 from __future__ import annotations
@@ -53,7 +44,16 @@ __all__ = ["Composer"]
 
 
 FileFormat = Literal["notebook", "image", "blob", "text"]
-"""The path-declared format one File pair composes through."""
+"""Select the format builder for one captured File pair.
+
+- `notebook` uses notebook structure.
+- `image` produces picture, metadata, and facts bays.
+- `text` produces one decoded flatfile bay.
+- `blob` is the terminal for content dirdiff cannot read as text.
+
+Composer derives this value from paths and bytes. It is not a bay kind, File
+provenance, or caller-selectable rendering option.
+"""
 
 
 class Composer:
@@ -63,6 +63,11 @@ class Composer:
     share `bays()` as the single enumeration of a File's bays, so the
     bay identity review replay recomputes and the identity `compose()` renders
     can never disagree.
+
+    # Usage
+
+    Construct directly. Use `bays` for engine-free bay lookup and `compose` for
+    the serialized diff. The object keeps no state between calls.
     """
 
     def bays(
@@ -85,13 +90,80 @@ class Composer:
         never retries another format arm. Notebook damage is preserved as raw
         text or byte facts, and presumed text that cannot decode is stated as
         blob facts. Both attach visible warnings.
+
+        # Parameters
+
+        - `left`: Captured old bytes, or `None` when that side is absent.
+        - `right`: Captured new bytes under the same convention.
+        - `context`: Paths and labels used for classification and bay content.
+
+        # Usage
+
+        Review validation and media serving iterate this method when they need
+        bay identity or content without rendering. Full rendering should call
+        `compose`, which consumes the same iterator.
+
+        # Returns
+
+        - `Yielded bays`: Engine-free bay identity and exact side content later
+          consumed by `compose` or review lookup.
+        - `Order`: Format builders define document order; an iterator may contain
+          one whole-File bay or several format-specific bays.
+
+        # Failures
+
+        Iteration raises `AssertionError` when neither path identifies a File or
+        when a format builder receives side facts that contradict its path
+        classification. Unexpected parser failures propagate.
         """
 
         def file_format() -> tuple[FileFormat, str | None, str | None]:
-            """Classify the path pair and retain its declared media types."""
+            """Choose one format for the complete File pair.
+
+            Each present path is claimed independently, then the pair policy
+            selects the builder and retains side media types for image/blob
+            facts. Conflicting strong claims fail rather than trying builders in
+            sequence or silently treating the bytes as text.
+
+            # Usage
+
+            `bays` calls this once before dispatch. The returned media types
+            must travel with their corresponding sides into image or blob
+            builders.
+
+            # Returns
+
+            - `First`: The one format builder selected for the complete File pair.
+            - `Second`: The old path's declared image or blob media type.
+            - `Third`: The new path's declared image or blob media type.
+            - `None`: The second or third item is absent when that File side is
+              absent or the selected format carries no declared media type.
+
+            # Failures
+
+            Raises `AssertionError` when neither context path is present.
+            """
 
             def path_claim(path: str) -> tuple[FileFormat, str | None]:
-                """Classify one present repository path."""
+                """Return the strongest suffix claim and its declared media type.
+
+                Notebook and image claims take precedence over the opaque blob
+                table. A path with no explicit claim remains presumed text; this
+                function never inspects bytes or retries after decoding damage.
+
+                # Usage
+
+                `file_format` calls this independently for each present side,
+                then applies the two-sided agreement policy.
+
+                # Returns
+
+                - `First`: The strongest suffix claim, with notebook and image
+                  taking precedence over blob and presumed text.
+                - `Second`: The image or blob media type declared by the suffix.
+                - `None`: The second item is absent for notebook and
+                  presumed-text claims; `file_format` must preserve that absence.
+                """
                 if path.lower().endswith(".ipynb"):
                     return "notebook", None
                 image_type = image_media_type(path)
@@ -172,12 +244,30 @@ class Composer:
     ) -> ComposedFilePayload:
         """Compose the whole envelope except its two attached fields.
 
-        Renders each bay `bays()` yields — a text bay through the engine, an
-        image bay by reducing its sides to references — wraps each in the bay
-        envelope, groups the rendered bays into contiguous frames, aggregates
-        the summary, and re-emits the paths and labels the context carried. Row
-        hunk boundaries stay bay-local; the frontend numbers them.
+        Renders each bay yielded by `bays()`. It sends text bays through the
+        engine and reduces image bay sides to references. It wraps each result
+        in the bay envelope, groups rendered bays into contiguous frames,
+        aggregates the summary, and re-emits the paths and labels carried by the
+        context. Row hunk boundaries stay bay-local; the frontend numbers them.
         `display_name` and `file_kind` are attached by the HTTP boundary.
+
+        # Parameters
+
+        - `left`: Captured old bytes, or `None` when absent.
+        - `right`: Captured new bytes under the same convention.
+        - `context`: Bay inputs plus the selected text renderer.
+
+        # Usage
+
+        Call after loading one captured File pair and constructing its context
+        with `ComposeContext.build`. Attach manifest `display_name` and
+        `file_kind` to the returned value at the HTTP boundary.
+
+        # Failures
+
+        Propagates classification and builder invariant errors from `bays`,
+        plus any engine or display-enrichment failure from a text bay. No
+        partial envelope is returned.
         """
         frames: list[FramePayload] = []
         for bay in self.bays(left, right, context.bays):

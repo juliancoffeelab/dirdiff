@@ -1,10 +1,17 @@
-"""CLI-side launch orchestration for the local browser app.
+"""Launch the local servers and browser selected by the CLI.
 
-This module owns process startup concerns: port probing, Vite startup by
-default, the backend-only opt-out path, browser opening, repo-mark preflight
-checks, and the uvicorn factory handoff.  It does not define REST endpoints or
-diff behavior; those remain in `dirdiff.server` and the engine/rendering
-modules.
+## Public interface
+
+`run_app` is the entrypoint used by the Typer commands. `AppOptions` carries
+their shared launch options. The remaining public functions expose individual
+port, URL, Vite, browser, and uvicorn operations for the launch sequence.
+
+## Purpose and boundaries
+
+This module keeps process lifetime and port selection outside command parsing.
+It starts Vite by default, runs uvicorn until shutdown, and terminates the Vite
+child afterward. It does not define HTTP routes or diff behavior. Those belong
+to `dirdiff.server`, the selected backend, and the rendering packages.
 """
 
 from __future__ import annotations
@@ -26,10 +33,35 @@ from dirdiff.db import RepoMarkStore, open_sqlite_engine
 from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
 
 DEFAULT_PORT = 5052
+"""Initial backend loopback port requested by the root CLI command.
+
+Vite mode may shift it together with `DEFAULT_FRONTEND_PORT` when occupied.
+Backend-only mode requires this exact port unless the user supplies another.
+"""
 DEFAULT_FRONTEND_PORT = 5173
+"""Initial Vite loopback port requested by the root CLI command.
+
+It is irrelevant in backend-only mode. In Vite mode, port-pair selection may
+shift it by the same offset as the backend port.
+"""
 PORT_FALLBACK_ATTEMPTS = 20
+"""Number of equal backend/frontend port offsets tried before startup stops.
+
+`choose_port_pair` tests offsets starting at zero, so the last candidate adds
+19 to each requested port. This bound prevents an unbounded search.
+"""
 FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
+"""Vite project directory passed as the frontend process working directory.
+
+The path is derived from the installed source layout once at import time.
+`start_frontend_dev_server` does not search for another frontend directory.
+"""
 BACKEND_RELOAD_DIR = Path(__file__).resolve().parents[1]
+"""Python package directory watched by uvicorn reload.
+
+`run_uvicorn` passes this exact directory with a Python-only include pattern,
+so frontend files do not trigger backend process reloads.
+"""
 
 __all__ = [
     "BACKEND_RELOAD_DIR",
@@ -56,44 +88,61 @@ __all__ = [
 class AppOptions:
     """CLI options shared between the root callback and subcommands.
 
-    Typer stores this value on `ctx.obj` so commands such as `refs` and
-    `branch` can reuse the database, port, preset, and browser-launch options
-    parsed by the root callback.
+    The root callback constructs this value and stores it on `ctx.obj`; `refs`
+    and `branch` read it when building `RuntimeConfig`. The `mark` command has
+    its own options and does not consume this record.
+
+    It contains parsed CLI configuration only. The value owns no process,
+    database connection, server state, or browser lifetime.
+
+    # Usage
+
+    The root Typer callback stores one instance on `typer.Context.obj` before
+    dispatching a subcommand. Command handlers read the same value and pass its
+    fields to `run_app`; callers do not mutate it after construction.
     """
 
     db_path: Path
-    """
-    Repo registry database path selected by the CLI.
+    """Registry path after command-option and environment/default selection.
+
+    Command handlers use this same path for mark checks and server config.
     """
 
     store_path: Path | None
-    """
-    Explicit Snapshot store path, or `None` for the database-sibling default.
+    """User-selected Snapshot directory after tilde expansion.
+
+    `None` tells each command handler to use `db_path.parent / "store"`.
     """
 
     presets_root: str | None
-    """
-    Directory of preset catalogs passed through to the server startup config.
+    """Preset-catalog root spelling forwarded to `RuntimeConfig`.
+
+    This CLI layer neither resolves nor validates it. `None` lets the server use
+    its configured default.
     """
 
     port: int
-    """
-    Requested backend port.
+    """Requested backend loopback port before availability checks.
+
+    Vite mode may move it by a bounded offset; backend-only mode keeps it exact.
     """
 
     frontend_port: int
-    """
-    Requested Vite frontend port.
+    """Requested Vite loopback port before paired availability checks.
+
+    The value is retained but unused when `no_frontend_dev` is true.
     """
 
     headless: bool
-    """
-    Whether the CLI should skip opening a browser window.
+    """Whether app startup skips scheduling the browser-open timer.
+
+    This does not suppress either server or the printed URL.
     """
 
     no_frontend_dev: bool
-    """
-    Whether to serve only the backend diagnostic/static route.
+    """Whether startup omits Vite and selects the backend URL directly.
+
+    Uvicorn still runs with reload enabled in this mode.
     """
 
 
@@ -108,6 +157,12 @@ def _add_branch_selection_query(
     `build_url` uses this for CLI-provided Branch Review state. It mirrors the
     canonical browser fields: source and branch are always present, while
     remote exists only on the remote variant.
+
+    # Parameters
+
+    - `query`: Mutable URL parameter map receiving this selection's fields.
+    - `prefix`: `base` or `review`, used in every inserted key.
+    - `selection`: Structured local or remote branch selection to encode.
     """
     query[f"{prefix}_source"] = selection["source"]
     query[f"{prefix}_branch"] = selection["branch"]
@@ -118,9 +173,27 @@ def _add_branch_selection_query(
 def build_url(port: int, config: RuntimeConfig) -> str:
     """Build the canonical browser URL for the requested startup state.
 
-    The default Head launch uses the genuinely empty URL whose defaults belong
-    to the frontend. Explicit CLI workflows use browser Tab fields rather than
-    backend API parameters.
+    A Head launch returns the root URL without query parameters, leaving its
+    defaults to the frontend. Explicit CLI workflows use browser Tab fields
+    rather than backend API parameters.
+
+    # Parameters
+
+    - `port`: Loopback port of the server whose page the browser should open.
+    - `config`: Startup Tab state encoded into query parameters when non-default.
+
+    Branch Review config must contain both structured branch selections.
+
+    # Usage
+
+    `run_app` calls this after port selection, once for the backend and once for
+    Vite. Head startup returns the bare root URL. Refs and Branch Review startup
+    encode the initial Tab in the query string.
+
+    # Failures
+
+    A Branch Review config without either branch selection violates the
+    `RuntimeConfig` contract and raises `AssertionError`.
     """
 
     root = f"http://127.0.0.1:{port}/"
@@ -165,6 +238,31 @@ def start_frontend_dev_server(
     The backend and frontend ports are selected together before this function
     runs.  Vite is launched with `--strictPort` so the browser URL printed by
     the CLI cannot silently point at a different process.
+
+    # Parameters
+
+    - `backend_port`: Selected backend port exported to Vite as its API origin.
+    - `frontend_port`: Selected exact port passed to Vite.
+
+    # Usage
+
+    `start_frontend` calls this only after `choose_runtime_ports` has selected
+    an exact free pair. The caller must retain the returned process and
+    terminate it when the backend server stops.
+
+    # Returns
+
+    - The handle refers to the newly started Vite child and has not been waited
+      on; startup may poll it for early exit.
+    - The `bytes` parameter denotes subprocess byte mode. This launch inherits
+      the parent's standard streams instead of exposing output pipes.
+    - The caller owns the returned process lifetime and must terminate it when
+      uvicorn exits.
+
+    # Failures
+
+    `subprocess.Popen` errors propagate. In particular, missing `bun` raises
+    `FileNotFoundError`; `start_frontend` handles that one case.
     """
 
     env = os.environ.copy()
@@ -192,6 +290,12 @@ def can_bind_port(port: int) -> bool:
     The check opens and immediately closes a loopback socket.  It is only a
     launch-time probe; another process can still race us before uvicorn or Vite
     binds the selected port.
+
+    # Usage
+
+    Port-selection functions use this as a non-reserving probe. A false result
+    means the candidate cannot be used, not that another process necessarily
+    owns it; invalid port numbers and other bind errors also return false.
     """
 
     try:
@@ -209,6 +313,25 @@ def require_bindable_port(port: int, *, label: str) -> None:
     Backend-only mode does not have a frontend port to shift in tandem, so the
     requested backend port must be available exactly or the CLI should stop with
     a clear command-line error.
+
+    # Parameters
+
+    - `port`: Exact loopback port to probe once.
+    - `label`: User-facing server name included in the failure message.
+
+    A successful probe does not reserve the port. An occupied port raises
+    `SystemExit`.
+
+    # Usage
+
+    `choose_runtime_ports` calls this for backend-only startup, where there is
+    no Vite port to shift alongside the backend. Tests may call it directly to
+    verify the terminal diagnostic.
+
+    # Failures
+
+    Any bind-probe failure terminates startup with `SystemExit` naming `label`
+    and `port`. The successful probe remains subject to a later bind race.
     """
 
     if can_bind_port(port):
@@ -223,8 +346,33 @@ def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
     """Find a backend/frontend port pair for dev-server mode.
 
     The two servers must use distinct ports.  When either requested port is in
-    use, both ports advance by the same offset so the chosen pair stays easy to
-    understand in logs and browser URLs.
+    use, both ports advance by the same offset. The printed ports therefore
+    preserve the relationship requested on the command line.
+
+    # Parameters
+
+    - `backend_port`: First backend candidate in the bounded search.
+    - `frontend_port`: First frontend candidate shifted by the same offsets.
+
+    The probes do not reserve either port. Equal or unavailable pairs are
+    skipped; exhausting the configured attempts raises `SystemExit`.
+
+    # Usage
+
+    Call this for Vite mode before starting either server. Use both returned
+    ports together; the function preserves their requested offset while
+    searching and never returns an equal pair.
+
+    # Returns
+
+    - First, an available backend port at the selected offset.
+    - Second, the available, distinct frontend port at the same offset. Neither
+      probe reserves its port after this function returns.
+
+    # Failures
+
+    Raises `SystemExit` if none of the `PORT_FALLBACK_ATTEMPTS` pairs can be
+    bound at probe time. A later process may still win either port.
     """
 
     for offset in range(PORT_FALLBACK_ATTEMPTS):
@@ -249,6 +397,17 @@ def require_marked_repos(db_path: Path) -> None:
     The browser UI needs a repo catalog immediately.  Failing here gives the
     user the exact `dirdiff mark` command instead of starting a mostly-empty
     server that would fail later through API calls.
+
+    # Usage
+
+    `run_app` calls this before selecting ports or starting child processes.
+    Pass the same database path stored in `RuntimeConfig` so the preflight and
+    the server read one repository registry.
+
+    # Failures
+
+    Raises `SystemExit` when the registry contains no active marks. Database
+    open and query errors propagate unchanged.
     """
 
     engine = open_sqlite_engine(db_path)
@@ -273,6 +432,34 @@ def choose_runtime_ports(
     Vite mode can shift both ports to a free pair.  Backend-only mode keeps the
     requested backend port exact because there is no second local server whose
     URL needs to be coordinated.
+
+    # Parameters
+
+    - `backend_port`: Backend port requested by the command.
+    - `frontend_port`: Vite port requested by the command.
+    - `use_frontend_dev`: Whether both servers need a free coordinated pair.
+
+    The function prints only when Vite mode shifts the pair. Port failures
+    terminate the command through `SystemExit`.
+
+    # Usage
+
+    `run_app` calls this once before building either browser URL. Vite mode must
+    use both returned values; backend-only mode may ignore the unchanged
+    frontend value.
+
+    # Returns
+
+    - First, the backend port. Vite mode may shift it; backend-only mode returns
+      the requested value after proving it can bind.
+    - Second, the frontend port. Vite mode shifts it by the same offset as the
+      backend; backend-only mode returns it unchanged without probing it.
+
+    # Failures
+
+    Backend-only mode propagates `require_bindable_port` failure. Vite mode
+    propagates `choose_port_pair` exhaustion. Neither successful path reserves
+    a socket.
     """
 
     if use_frontend_dev:
@@ -296,6 +483,19 @@ def open_browser(url: str) -> None:
 
     The timer gives uvicorn and, when enabled, Vite a moment to bind their
     sockets before the user's browser tries to load the app.
+
+    # Usage
+
+    `run_app` calls this after printing the selected URL and before entering
+    uvicorn. Headless startup skips the call. The function schedules one timer
+    that waits one second, invokes the system browser, and exits. The caller
+    cannot cancel it.
+
+    # Failures
+
+    Browser-launch refusal or an exception happens on the timer thread and is
+    not reported to the caller. The printed URL remains available for manual
+    opening.
     """
 
     threading.Timer(1.0, lambda: webbrowser.open(url)).start()
@@ -311,9 +511,36 @@ def start_frontend(
 ) -> tuple[subprocess.Popen[bytes] | None, str]:
     """Start the default Vite frontend process and return the URL to show.
 
-    Backend-only mode is the explicit opt-out.  If Vite is disabled or cannot
-    be started, the CLI falls back to the backend URL.  The returned process is
-    owned by `run_app` and terminated when uvicorn exits.
+    Backend-only mode is the explicit opt-out. If Vite is disabled or its
+    executable is missing, the result contains no process and selects the
+    backend URL. The returned process is owned by `run_app` and terminated when
+    uvicorn exits.
+
+    # Parameters
+
+    - `use_frontend_dev`: Whether to attempt starting Vite.
+    - `backend_port`: Selected backend port exported to Vite.
+    - `frontend_port`: Selected exact Vite port.
+    - `backend_url`: URL returned when Vite is disabled or unavailable.
+    - `frontend_url`: URL returned after the Vite child starts.
+
+    # Usage
+
+    `run_app` calls this after choosing ports and building both URLs. If the
+    returned process is present, the caller must terminate it after uvicorn
+    exits. The returned URL always matches the process path selected here.
+
+    # Returns
+
+    - First, the running Vite child when startup succeeded.
+    - `None`: Vite was disabled or `bun` was unavailable, so no child needs
+      later termination.
+    - Second, `frontend_url` when the child is present, otherwise `backend_url`.
+
+    # Failures
+
+    Missing `bun` is handled by printing a diagnostic and selecting the backend
+    URL. Other process-launch errors propagate and abort startup.
     """
 
     if not use_frontend_dev:
@@ -339,6 +566,25 @@ def run_uvicorn(*, config: RuntimeConfig, port: int) -> None:
     imports `dirdiff.server:uvicorn_entrypoint` independently of the Typer
     command invocation.  Keeping that handoff here avoids global mutable server
     state while preserving reload support.
+
+    # Parameters
+
+    - `config`: Complete runtime config serialized for the factory process.
+    - `port`: Selected backend loopback port uvicorn must bind.
+
+    The call blocks until uvicorn exits and leaves the serialized config in the
+    process environment for reload children.
+
+    # Usage
+
+    `run_app` calls this after mark validation, port selection, URL printing,
+    and optional Vite startup. No launch work follows until uvicorn returns.
+
+    # Failures
+
+    Import, configuration serialization, port binding, and uvicorn startup
+    errors propagate to `run_app`. The caller remains responsible for cleaning
+    up resources started before this call.
     """
 
     # Keep uvicorn out of normal CLI import cost; this path is only reached
@@ -371,6 +617,29 @@ def run_app(
     start Vite unless backend-only mode was requested, print the browser URL,
     open the browser unless headless, and finally run uvicorn until the process
     exits.
+
+    # Parameters
+
+    - `config`: Complete backend and initial Tab configuration.
+    - `port`: Requested backend loopback port.
+    - `frontend_port`: Requested Vite loopback port.
+    - `headless`: Whether to skip scheduling browser opening.
+    - `no_frontend_dev`: Whether to omit Vite and use the backend URL.
+
+    At least one repository mark is required. If a Vite child starts, this
+    function terminates it when uvicorn returns or raises.
+
+    # Usage
+
+    The Typer handlers construct a complete `RuntimeConfig` and call this once
+    per CLI invocation. `config.db_path` must name the same registry selected by
+    the command. The function blocks in uvicorn until the app shuts down.
+
+    # Failures
+
+    Missing marks, unavailable ports, Vite launch errors other than missing
+    `bun`, and uvicorn startup failures propagate. A started Vite child is still
+    terminated in the `finally` block.
     """
 
     use_frontend_dev = not no_frontend_dev

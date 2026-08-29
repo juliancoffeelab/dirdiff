@@ -38,9 +38,6 @@ __all__ = [
     "test_valid_placements_construct",
 ]
 
-# One live range placement, the richest shape, as review derivation emits it.
-# Every placement case below states itself as a deviation from this row, so a
-# case reads as the single fact it exercises.
 _RANGE = {
     "thread_id": "a" * 32,
     "snapshot_id": "b" * 32,
@@ -54,8 +51,13 @@ _RANGE = {
     "outdated_reason": None,
     "private_locator": b"\x01\x02",
 }
+"""Valid live range origin varied by every placement invariant case.
 
-# One authored Comment action, likewise the baseline for the action cases.
+Each parametrized case changes only the fields involved in its claim, so a
+failure identifies one tagged-placement relationship rather than rebuilding a
+large unrelated record per case.
+"""
+
 _ACTION = {
     "operation_id": "d" * 32,
     "thread_id": "a" * 32,
@@ -71,6 +73,11 @@ _ACTION = {
     "attention_after": "author",
     "activity_id": 12,
 }
+"""Valid authored Comment action varied by every action invariant case.
+
+The baseline supplies complete persisted context. Each case changes the one
+variant or lifecycle relationship it intends to accept or reject.
+"""
 
 
 @pytest.mark.parametrize(
@@ -304,7 +311,11 @@ def test_invalid_placement_is_refused(
     ],
 )
 def test_valid_actions_construct(changes: dict[str, str | int | None]) -> None:
-    """Every action variant the review API writes must stay constructible."""
+    """Every action variant the review API writes must stay constructible.
+
+    The cases exercise discriminator-specific nullable fields so record validation
+    cannot accidentally reject a server-supported operation shape.
+    """
     record = ReviewActionRecord(
         **{**_ACTION, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     )
@@ -381,6 +392,12 @@ def test_persisted_action_enums_are_validated_on_read(
 
     Mapped string columns cannot express the record's narrower lifecycle
     vocabulary, so the read boundary must still reject values outside it.
+
+    # Parameters
+
+    - `status_after`: Persisted lifecycle value substituted into the test row.
+    - `attention_after`: Persisted attention value substituted into that row.
+    - `message`: Expected invalid-field fragment proving which boundary failed.
     """
     columns = {**_ACTION, "status_after": status_after}
     columns["attention_after"] = attention_after

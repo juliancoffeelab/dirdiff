@@ -22,16 +22,17 @@ from dirdiff.db import TableBase
 
 __all__ = ["test_migrated_schema_matches_declared_model"]
 
-# SQLite rebuilds and different SQLAlchemy emit paths reorder table clauses
-# and change quoting, but nothing semantic. Normalization therefore collapses
-# quotes and whitespace, splits each CREATE statement into its top-level
-# clauses (column definitions and constraints), and sorts them; everything
-# else — names, types, check expressions, referenced columns, index column
-# order including DESC — must match verbatim.
 _CLAUSE_BOUNDARY = re.compile(
     r",\s*(?=CONSTRAINT |PRIMARY KEY|FOREIGN KEY|UNIQUE |CHECK "
     r"|[a-z_]+ (?:VARCHAR|INTEGER|BOOLEAN|BLOB|DATETIME))"
 )
+"""Split normalized SQLite CREATE statements at top-level schema clauses.
+
+Migration rebuilds and SQLAlchemy metadata creation may reorder clauses and
+change quoting without changing the schema. The parity test sorts only these
+recognized clause boundaries; names, types, expressions, referenced columns,
+and index order must still match verbatim.
+"""
 
 
 def test_migrated_schema_matches_declared_model(tmp_path: Path) -> None:

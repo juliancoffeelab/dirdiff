@@ -1,12 +1,13 @@
 /**
- * Defines application-wide notifications and local error presentation.
+ * Presents application notifications and contained component failures.
  *
- * The module exports ToastProvider, its notification commands,
- * deterministic error formatting, reusable local error components, and
- * unexpected-error containment. ToastProvider owns the single Toast queue
- * and the global browser listener resources that expose failures not handled
- * elsewhere. ToastProvider does not store domain error state, choose retry behavior,
- * or recover without an explicit caller-provided action.
+ * `ToastProvider` keeps the one application queue and installs the browser error
+ * listeners for failures that have no smaller valid boundary. Local error panels
+ * preserve the caller's original failure and invoke only the retry operation the
+ * caller supplies. `presentError` gives every thrown value a renderable form.
+ *
+ * This module does not turn failures into domain state, choose a recovery action,
+ * or clear the state that caused a local panel to remain mounted.
  */
 import {
   ErrorBoundary,
@@ -23,7 +24,20 @@ import {
 } from "solid-js";
 import { assert, expect } from "../utils";
 
+/**
+ * Lifetime of a timeout error Toast before its card requests dismissal.
+ *
+ * Timeout failures are the only error Toasts that expire. `ToastCard` owns the
+ * timer for its mounted lifetime and clears it if the card leaves first.
+ */
 const TIMEOUT_TOAST_TTL_MS = 10_000;
+
+/**
+ * Stable text shown when an arbitrary thrown value cannot be inspected safely.
+ *
+ * Error formatting uses this instead of throwing a second error or inventing a
+ * representation for cyclic, proxied, or otherwise hostile values.
+ */
 const UNDISPLAYABLE_THROWN_VALUE_MESSAGE =
   "Unable to display the thrown value.";
 
@@ -35,10 +49,40 @@ const UNDISPLAYABLE_THROWN_VALUE_MESSAGE =
  * but must not manufacture records or use them for non-error notifications.
  */
 export type ErrorToast = {
+  /**
+   * Monotonic identity assigned by the provider that created this Toast.
+   *
+   * Rendering uses it as the list key and dismissal uses it to remove only this
+   * record. Producers never choose or reuse an ID.
+   */
   id: number;
+  /**
+   * Short context supplied by the code reporting the failure.
+   *
+   * The viewport renders it separately from the formatted thrown value, so it
+   * should name the failed operation rather than repeat the error message.
+   */
   title: string;
+  /**
+   * Primary display-safe text produced by `presentError`.
+   *
+   * It is always renderable, even when the original thrown value was not an
+   * `Error`, and remains distinct from the caller's title.
+   */
   message: string;
+  /**
+   * Stack text that adds information beyond `message`.
+   *
+   * `null` means the viewport must omit the details control. It does not mean
+   * formatting failed.
+   */
   details: string | null;
+  /**
+   * Error lifetime selected from the thrown value's transport classification.
+   *
+   * `timeout` starts the fixed expiration timer. `other` remains visible until
+   * the user dismisses it.
+   */
   reason: "timeout" | "other";
 };
 
@@ -50,11 +94,45 @@ export type ErrorToast = {
  * transport classification and must not be used to hide an application failure.
  */
 export type TransientToast = {
+  /**
+   * Monotonic identity assigned by the provider that created this Toast.
+   *
+   * It has the same exact-dismissal role as an error Toast ID; callers never
+   * supply it through `showTransient`.
+   */
   id: number;
+  /**
+   * Short caller-supplied context rendered above the notice.
+   *
+   * The provider requires visible text and does not derive this from `message`.
+   */
   title: string;
+  /**
+   * Complete user-visible informational text.
+   *
+   * This is not error prose and carries no hidden thrown value or retry action.
+   */
   message: string;
+  /**
+   * Fixed absence of error stack details.
+   *
+   * The explicit `null` keeps Toast rendering uniform without pretending an
+   * informational notice may have a traceback.
+   */
   details: null;
+  /**
+   * Discriminant selecting informational presentation and caller-chosen expiry.
+   *
+   * It must remain `transient`; transport error classifications belong to
+   * `ErrorToast`.
+   */
   reason: "transient";
+  /**
+   * Positive finite display lifetime chosen by the producer, in milliseconds.
+   *
+   * `ToastCard` samples it at mount and requests dismissal when it elapses. The
+   * provider rejects zero, negative, or non-finite durations.
+   */
   durationMs: number;
 };
 
@@ -70,13 +148,30 @@ export type Toast = ErrorToast | TransientToast;
 /**
  * Contains the display-safe representation of one arbitrary thrown value.
  *
- * `message` is always renderable, `details` contains only distinct stack text,
- * and `reason` controls Toast lifetime. The type carries no retry action,
- * notification identity, or provider state.
+ * It contains the safe copy needed to present a failure and choose its Toast
+ * lifetime. It carries no retry action, notification identity, or provider state.
  */
 export type PresentedError = {
+  /**
+   * Primary text safe to render for every thrown JavaScript value.
+   *
+   * JSON-shaped messages may be formatted for readability, while ordinary text
+   * remains verbatim. Formatting failure produces the stable undisplayable text.
+   */
   message: string;
+  /**
+   * Distinct stack text retained from an `Error`, if it adds information.
+   *
+   * `null` covers non-Errors, missing or empty stacks, and stacks identical to
+   * the primary message.
+   */
   details: string | null;
+  /**
+   * Stable lifetime classification consumed by Toast presentation.
+   *
+   * Only an exact structural `error_reason: "timeout"` becomes `timeout`; every
+   * other thrown value is `other`.
+   */
   reason: "timeout" | "other";
 };
 
@@ -88,7 +183,29 @@ export type PresentedError = {
  * or mutate the provider-owned queue through this contract.
  */
 export type ToastCommands = {
+  /**
+   * Presents one arbitrary thrown value as a global error Toast.
+   *
+   * `title` names the failed operation and `error` is passed unchanged to
+   * `presentError`. The provider appends the resulting Toast synchronously.
+   * Timeout-classified failures expire; every other failure waits for explicit
+   * dismissal. Callers keep retry and local error state outside this command.
+   *
+   * @param title Short context for the failed operation.
+   * @param error Original thrown value to format and present.
+   */
   showError(title: string, error: unknown): void;
+  /**
+   * Presents complete non-error text for an explicit finite lifetime.
+   *
+   * `title` and `message` must both be non-empty. `durationMs` must be positive
+   * and finite. The provider appends the notice synchronously and its mounted
+   * card later requests dismissal; callers must use `showError` for failures.
+   *
+   * @param title Short context for the notice.
+   * @param message Complete user-visible informational text.
+   * @param durationMs Positive finite display lifetime in milliseconds.
+   */
   showTransient(title: string, message: string, durationMs: number): void;
 };
 
@@ -100,11 +217,48 @@ export type ToastCommands = {
  * top-layer presentation and never changes caller-owned failure state.
  */
 export type ErrorPopoverProps = {
+  /**
+   * Context rendered above the formatted failure inside the popover.
+   *
+   * It should name the failed local operation and remains separate from the
+   * compact trigger's accessible label.
+   */
   title: string;
+  /**
+   * Original thrown value formatted whenever the popover panel renders.
+   *
+   * The component stores no copy and does not report the value to the global
+   * Toast queue.
+   */
   error: unknown;
+  /**
+   * Performs the caller's explicit recovery attempt.
+   *
+   * The callback runs only when the user activates the Retry button inside the
+   * open popover. ErrorPopover neither closes the popover nor clears caller state
+   * on its behalf; the caller's accepted state controls what remains mounted.
+   */
   onRetry: () => void;
+  /**
+   * Compact caller-chosen content rendered unchanged inside the trigger button.
+   *
+   * It may be an icon or short status. Accessible naming comes from
+   * `triggerLabel`, not from assumptions about this element.
+   */
   trigger: JSX.Element;
+  /**
+   * Complete class string applied to the popover trigger button.
+   *
+   * The caller uses it to fit the compact failure control into local geometry;
+   * the component adds no substitute modifier class.
+   */
   triggerClass: string;
+  /**
+   * Accessible name and native hover text for the compact trigger.
+   *
+   * It must explain that activating the trigger reveals failure details; the
+   * visible `trigger` content need not contain equivalent text.
+   */
   triggerLabel: string;
 };
 
@@ -115,7 +269,19 @@ export type ErrorPopoverProps = {
  * operation. This contract must not expose the queue setter or ID allocation.
  */
 type ToastViewportProps = {
+  /**
+   * Read-only accessor for the provider's live Toast queue.
+   *
+   * The viewport calls it reactively and renders records in array order. It must
+   * return the authoritative queue rather than a copied local store.
+   */
   toasts: Accessor<Toast[]>;
+  /**
+   * Handles dismissal of one exact provider-assigned Toast identity.
+   *
+   * `id` comes from the rendered record. The callback may safely receive the
+   * same ID more than once and must leave every other Toast unchanged.
+   */
   onDismiss(id: number): void;
 };
 
@@ -127,10 +293,21 @@ type ToastViewportProps = {
  * reason or that other reason values receive special behavior.
  */
 type ErrorWithReason = {
+  /**
+   * Unvalidated value exposed under the transport error classification name.
+   *
+   * Callers may compare it with the exact supported timeout string only. Its
+   * presence does not establish a broader error interface.
+   */
   error_reason: unknown;
 };
 
-/** Narrows an object carrying the transport classification field. */
+/**
+ * Narrows an arbitrary object to one exposing transport classification data.
+ *
+ * The check proves property presence only. Callers must still compare the unknown
+ * value with the exact supported reason before changing presentation lifetime.
+ */
 function isErrorWithReason(error: object): error is ErrorWithReason {
   return "error_reason" in error;
 }
@@ -142,10 +319,21 @@ function isErrorWithReason(error: object): error is ErrorWithReason {
  * This structural view must not be used as a complete validation-error model.
  */
 type ErrorWithIssues = {
+  /**
+   * Unvalidated value exposed under the validation issue collection name.
+   *
+   * Formatting gives it issue precedence only after `Array.isArray` succeeds;
+   * no element shape is assumed.
+   */
   issues: unknown;
 };
 
-/** Narrows an object carrying the validation-issues field. */
+/**
+ * Narrows an arbitrary object to one exposing possible validation issues.
+ *
+ * The check proves property presence only. Callers separately require an array
+ * before giving issue formatting precedence.
+ */
 function isErrorWithIssues(error: object): error is ErrorWithIssues {
   return "issues" in error;
 }
@@ -156,8 +344,38 @@ function isErrorWithIssues(error: object): error is ErrorWithIssues {
  * The discriminant separates parse failure from every valid JSON value,
  * including `null`. Callers may read `value` only from the successful variant.
  */
-type ParsedJson = { parsed: false } | { parsed: true; value: unknown };
+type ParsedJson =
+  | {
+      /**
+       * Marks text that was not a complete JSON document.
+       *
+       * This arm deliberately has no value field, so parse failure cannot be
+       * confused with successfully parsing JSON `null`.
+       */
+      parsed: false;
+    }
+  | {
+      /**
+       * Marks a successful parse of the complete input text.
+       *
+       * The true arm remains distinct even when `value` is `null`.
+       */
+      parsed: true;
+      /**
+       * Exact value returned by `JSON.parse` for the input text.
+       *
+       * Callers may read it only from the successful discriminant arm and pass
+       * it to display-safe serialization without narrowing its JSON shape.
+       */
+      value: unknown;
+    };
 
+/**
+ * Command-only notification channel provided at application lifetime.
+ *
+ * Consumers obtain it through `useToasts`. An absent value is a broken provider
+ * invariant, not a state in which failures may be silently ignored.
+ */
 const ToastContext = createContext<ToastCommands>();
 
 /**
@@ -174,6 +392,12 @@ export function presentError(error: unknown): PresentedError {
    *
    * Only the structural `error_reason: "timeout"` contract expires; every
    * other value remains persistent.
+   *
+   * # Returns
+   *
+   * - `"timeout"`: The value carries the recognized transport timeout marker,
+   *   so the caller gives its Toast an expiration.
+   * - `"other"`: Every other thrown value, for persistent presentation.
    */
   function errorReason(error: unknown): "timeout" | "other" {
     if (!isObject(error) || !isErrorWithReason(error)) {
@@ -208,7 +432,16 @@ export function presentError(error: unknown): PresentedError {
  * listeners remain private to this boundary. The provider also renders the
  * viewport so notifications survive failures inside application boundaries.
  */
-export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
+export function ToastProvider(props: {
+  /**
+   * Application subtree receiving this provider's command channel.
+   *
+   * The provider renders the subtree before its Toast viewport, so contained
+   * failures cannot replace notification presentation. Mount one provider around
+   * the application rather than nesting independent queues.
+   */
+  children: JSX.Element;
+}): JSX.Element {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   let nextToastId = 1;
 
@@ -218,6 +451,9 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
    * Internal producers supply the user-visible title and original failure. The
    * function assigns the next monotonic ID and preserves every existing Toast;
    * expiration and dismissal remain responsibilities of rendered Toast cards.
+   *
+   * @param title Short context for the failed operation.
+   * @param error Original thrown value to format and retain as a failure.
    */
   function showError(title: string, error: unknown): void {
     const presented = presentError(error);
@@ -236,6 +472,10 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
    * Internal producers must provide non-empty visible text and a positive finite
    * duration. The notice owns no failure data and expires after exactly that
    * duration unless the user dismisses it first.
+   *
+   * @param title Short context for the notice.
+   * @param message Complete user-visible notice text.
+   * @param durationMs Positive finite display lifetime in milliseconds.
    */
   function showTransient(
     title: string,
@@ -339,8 +579,26 @@ export function useToasts(): ToastCommands {
  * dismisses itself, or invokes an action.
  */
 export function ErrorPanel(props: {
+  /**
+   * Visible context rendered above the formatted failure.
+   *
+   * It should name the failed local operation. The panel keeps it distinct from
+   * the error's own message and stack.
+   */
   title: string;
+  /**
+   * Original thrown value formatted reactively by `presentError`.
+   *
+   * ErrorPanel owns no failure state and does not queue this value globally.
+   * Replacing the prop replaces the presented local failure.
+   */
   error: unknown;
+  /**
+   * Caller-supplied explicit actions rendered below the complete failure text.
+   *
+   * The panel invokes none of them itself. Callers may compose RetryButton or
+   * another boundary-specific action without changing error presentation.
+   */
   children: JSX.Element;
 }): JSX.Element {
   /**
@@ -373,7 +631,16 @@ export function ErrorPanel(props: {
  * The caller must provide the complete retry operation. The callback runs only
  * in response to user activation and has no default or automatic behavior.
  */
-export function RetryButton(props: { onRetry: () => void }): JSX.Element {
+export function RetryButton(props: {
+  /**
+   * Performs the caller's explicit recovery attempt.
+   *
+   * The callback runs only from native button activation. RetryButton does not
+   * catch failures, clear caller state, disable itself, or repeat the operation;
+   * the caller's accepted state determines what renders next.
+   */
+  onRetry: () => void;
+}): JSX.Element {
   return (
     <button type="button" onClick={props.onRetry}>
       Try again
@@ -422,8 +689,26 @@ export function ErrorPopover(props: ErrorPopoverProps): JSX.Element {
  * keyboard handler; it must remain false when another mounted handler survives.
  */
 export function UnexpectedErrorBoundary(props: {
+  /**
+   * Stable context used by both local and global failure presentation.
+   *
+   * It should identify the contained subtree rather than repeat a thrown error's
+   * message, and remains unchanged across boundary reset attempts.
+   */
   title: string;
+  /**
+   * Whether failure presentation may claim unmodified `r` for retry.
+   *
+   * Set it only when this boundary replaced the subtree that normally handles
+   * the key. The panel still ignores modified keys and editable targets.
+   */
   retryOnR: boolean;
+  /**
+   * Trusted subtree whose rendering and reactive failures share one boundary.
+   *
+   * A thrown failure replaces these children with the local error panel until
+   * the user invokes Solid's reset operation.
+   */
   children: JSX.Element;
 }): JSX.Element {
   return (
@@ -450,7 +735,19 @@ export function UnexpectedErrorBoundary(props: {
  * with complete full-page damage, and exposes reset only through RetryButton.
  */
 export function ApplicationErrorPanel(props: {
+  /**
+   * Original failure caught by the application-root ErrorBoundary.
+   *
+   * The mounted panel reports it once through Toasts and also renders it as the
+   * complete page failure. It stores no second error value.
+   */
   error: unknown;
+  /**
+   * Solid ErrorBoundary reset operation exposed as the only recovery action.
+   *
+   * It runs only from the visible Retry button. The panel does not reload the
+   * page or clear application state independently.
+   */
   onRetry: () => void;
 }): JSX.Element {
   const toast = useToasts();
@@ -507,7 +804,21 @@ function ToastViewport(props: ToastViewportProps): JSX.Element {
  * their exact positive duration, and other errors remain until dismissal.
  */
 function ToastCard(props: {
+  /**
+   * Immutable notification whose variant selects presentation and lifetime.
+   *
+   * The card samples its reason and duration at mount for timer setup and renders
+   * the remaining fields directly. Producers replace the record rather than
+   * mutating it in place.
+   */
   toast: Toast;
+  /**
+   * Requests removal of this exact mounted Toast.
+   *
+   * The callback may run from the dismiss button or the card's optional timer.
+   * It receives no argument because ToastViewport already binds the record ID;
+   * repeated calls must remain harmless at the provider boundary.
+   */
   onDismiss: () => void;
 }): JSX.Element {
   /**
@@ -572,9 +883,33 @@ function ToastCard(props: {
  * key to the same reset operation as its visible RetryButton.
  */
 function UnexpectedErrorPanel(props: {
+  /**
+   * Stable context shown locally and in the queued global Toast.
+   *
+   * It identifies the failed subtree and must not be derived by parsing the
+   * thrown value.
+   */
   title: string;
+  /**
+   * Original failure caught by the containing ErrorBoundary.
+   *
+   * The panel reports it once at mount and passes it unchanged to ErrorPanel for
+   * local formatting.
+   */
   error: unknown;
+  /**
+   * Solid boundary reset operation shared by the Retry button and optional key.
+   *
+   * The callback runs only from those explicit user actions. The panel performs
+   * no automatic reset after reporting the Toast.
+   */
   onRetry: () => void;
+  /**
+   * Whether this failed subtree may temporarily claim unmodified `r`.
+   *
+   * False installs no document listener. True installs one for the panel's
+   * mounted lifetime and cleanup removes it before a replacement attempt.
+   */
   retryOnR: boolean;
 }): JSX.Element {
   const toast = useToasts();
@@ -649,6 +984,12 @@ function primaryMessage(error: unknown): string {
    * Extracts validation issues when a thrown value exposes the required shape.
    *
    * Only an array-valued `issues` field participates in formatting precedence.
+   *
+   * # Returns
+   *
+   * - An array containing the exact validation issues exposed by the value.
+   * - `null`: The value has no array-valued issues. The caller then formats the
+   *   Error, string, or arbitrary value instead.
    */
   function errorIssues(error: unknown): unknown[] | null {
     if (!isObject(error) || !isErrorWithIssues(error)) {
@@ -722,6 +1063,14 @@ function primaryMessage(error: unknown): string {
  * Callers provide the original thrown value and its already-formatted primary
  * message. Non-Error values, absent stacks, empty stacks, and duplicate stacks
  * produce `null` so presentation does not render an empty details control.
+ *
+ * @param error Original thrown value.
+ * @param message Primary text already selected for that value.
+ * # Returns
+ *
+ * - A nonempty Error stack distinct from `message`.
+ * - `null`: No separate details control should render because the value is not
+ *   an Error, has no useful stack, or the stack duplicates `message`.
  */
 function errorDetails(error: unknown, message: string): string | null {
   if (!(error instanceof Error)) {

@@ -1,21 +1,19 @@
-"""Project GumTree JSON ranges into dirdiff rows.
+"""Build dirdiff engine rows from GumTree source ranges.
 
-This module is the GumTree engine's row-building boundary.  It accepts raw
-`gumtree textdiff -f JSON` output plus the two complete source texts, then
-returns dirdiff engine rows whose visible decorations come from GumTree source
-ranges.  The source texts remain the authority for displayed characters and
-line breaks; GumTree ranges are the authority for changed spans and statuses.
+## Public interface
 
-The module intentionally does not perform text-diff alignment or line-level
-change painting.  GumTree's browser view renders both files from their own
-source text and applies GumTree-classified ranges over those files.  Dirdiff's
-row grid needs rows, so this module pairs source lines by ordinal position
-only and keeps those rows visually neutral; it does not use similarity matching
-or reconstruct changed tokens from text differences.
+`build_gumtree_rows_from_json` maps validated GumTree actions onto the supplied
+source strings. `GumTreeDiffEngine` implements the common engine protocol and
+handles one-sided Files without invoking GumTree.
 
-`dirdiff.engines.gumtree.gumtree` owns subprocess execution and JSON schema
-validation.  Server-side display enrichment, syntax highlighting, folds, and
-HTTP payload assembly happen outside this module.
+## Purpose and boundaries
+
+The source strings decide displayed characters and line breaks; GumTree ranges
+decide token status. Because GumTree does not supply dirdiff row alignment, this
+module pairs lines by ordinal position and keeps row status neutral. It does not
+invent similarity matches or derive changed tokens from textual resemblance.
+Executable discovery and JSON validation happen before this boundary, and
+display decoration happens after it.
 """
 
 from __future__ import annotations
@@ -47,49 +45,128 @@ __all__ = [
 ]
 
 type _Side = Literal["left", "right"]
+"""Select the source document for private GumTree range processing.
+
+- `left` addresses the old text.
+- `right` addresses the new text.
+
+Helpers use this value only to choose source ranges and token status. It never
+crosses into public engine or HTTP contracts.
+"""
 
 
 @dataclass(frozen=True)
 class _SourceRange:
     """Half-open source range reported by GumTree.
 
-    GumTree ranges are absolute offsets into one source document.  Callers must
-    pass only ranges where `start <= end`; empty ranges are ignored by token
-    projection because no visible character can carry a decoration.
+    GumTree parsing creates these values before row building. `start` is
+    inclusive and `end` is exclusive in one complete source document.
+
+    Empty ranges carry no visible decoration and are ignored. The offsets are
+    not line numbers, byte spans, or public review coordinates.
     """
 
     start: int
+    """Inclusive Python-string offset in the complete addressed document.
+
+    Construction accepts zero and ignores a range only when this equals `end`;
+    token mapping later intersects it with line segments without rebasing it.
+    """
+
     end: int
+    """Exclusive document offset parsed from GumTree's terminal range.
+
+    Reversed values are rejected at the JSON-to-range boundary. The value may
+    equal `start`, producing an empty range that carries no visible token.
+    """
 
 
 @dataclass(frozen=True)
 class _LineSegment:
     """One displayed source line plus its absolute source offsets.
 
-    `start` and `content_end` delimit the text displayed for the line.
-    `segment_end` also includes the line break when the original source had
-    one, allowing range iteration to skip efficiently across newline offsets.
+    `_line_segments` constructs these in source order. Token mapping uses
+    the absolute offsets to intersect GumTree ranges with the displayed line.
+
+    `content_end` excludes the line break; `segment_end` includes it when
+    present. This private value is not an engine row.
     """
 
     index: int
+    """Zero-based position in the ordered displayed-line sequence.
+
+    Row building adds one when producing public line numbers; the absolute
+    offsets below remain independent of this display coordinate.
+    """
+
     start: int
+    """Inclusive document offset of this line including any empty content.
+
+    It equals the preceding segment's `segment_end`, preserving total source
+    coverage across LF, CRLF, and unterminated final lines.
+    """
+
     content_end: int
+    """Exclusive document offset after visible text but before its terminator.
+
+    Decoration slices stop here so newline bytes never become inline tokens.
+    Empty displayed lines legitimately have `content_end == start`.
+    """
+
     segment_end: int
+    """Exclusive document offset after this line's complete terminator.
+
+    It advances the next segment's start while keeping CRLF together. For an
+    unterminated final line it equals `content_end`.
+    """
+
     text: str
+    """Exact source slice rendered for this line, excluding CR/LF characters.
+
+    Token concatenation must reproduce this value. Public row numbering comes
+    from `index`, not from content inspection.
+    """
 
 
 @dataclass(frozen=True)
 class _DecorationRange:
     """Single GumTree decoration range after action classification.
 
-    The status uses dirdiff's public inline-token vocabulary.  `ordinal` keeps
-    range selection stable when two GumTree ranges have identical spans.
+    Action classification creates these values before token mapping. The
+    status already uses dirdiff's inline vocabulary; `ordinal` makes selection
+    deterministic when GumTree emits identical spans.
+
+    The range remains absolute to one source document and never becomes a
+    public review region.
     """
 
     start: int
+    """Inclusive document offset where this classified action begins.
+
+    It stays absolute until intersection with `_LineSegment`; callers never use
+    it as a byte, row, or review coordinate.
+    """
+
     end: int
+    """Exclusive document offset after this action range.
+
+    Empty GumTree ranges are discarded before decoration. Overlap remains valid
+    because the narrowest covering classified range wins for each token slice.
+    """
+
     status: InlineTokenStatus
+    """Public token classification derived from the action kind and side.
+
+    Inserts, deletes, updates, and moves map before row building. The value
+    decorates tokens only; GumTree rows retain neutral visual row status.
+    """
+
     ordinal: int
+    """Zero-based GumTree action order retained for deterministic precedence.
+
+    When equally narrow ranges cover the same slice, the earlier action wins.
+    This tie-breaker is private and never reaches public engine rows.
+    """
 
 
 def build_gumtree_rows_from_json(
@@ -101,10 +178,26 @@ def build_gumtree_rows_from_json(
     """Return dirdiff rows whose token statuses come from GumTree JSON.
 
     `diff_json` must be the JSON emitted for `left_text` and `right_text`.
-    GumTree action tree ranges are projected directly to token ranges.  For
+    GumTree action tree ranges map directly to token ranges. For
     update and move actions, the source tree must have a matching destination
     tree in `diff_json.matches`; missing mappings are treated as invalid engine
     data because dirdiff cannot invent the destination range.
+
+    # Parameters
+
+    - `diff_json`: Validated GumTree matches and actions for this source pair.
+    - `left_text`: Complete old source addressed by source-tree ranges.
+    - `right_text`: Complete new source addressed by destination ranges.
+
+    # Usage
+
+    Pass the validated JSON and the exact source strings used for that GumTree
+    invocation. `GumTreeDiffEngine.render_diff` is the application entrypoint.
+
+    # Failures
+
+    Raises `ValueError` when an action range is malformed, outside its source,
+    or lacks a required destination mapping.
     """
 
     left_ranges, right_ranges = _classified_ranges(diff_json)
@@ -154,7 +247,7 @@ class GumTreeDiffEngine(DiffEngineProtocol):
     deletions because GumTree requires both source documents.
 
     The engine holds no state.  It locates the GumTree executable itself when a
-    render needs one, so callers neither supply nor own that discovery.
+    render needs one, so callers do not supply an executable path.
     """
 
     @override
@@ -169,6 +262,21 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         When both sides exist, GumTree JSON ranges drive the row decorations.
         When one side is absent, every displayed line on the present side is a
         whole-line insertion or deletion.
+
+        # Parameters
+
+        - `old`: Already-loaded old source and its optional parser hint.
+        - `new`: Already-loaded new source under the same contract.
+
+        # Usage
+
+        Obtain this renderer through `dirdiff.engines.engine` and normally let
+        `dirdiff.formats.Composer` call it for a text bay.
+
+        # Failures
+
+        Propagates `DirdiffError` for executable and parser failures and
+        `ValueError` for GumTree ranges that contradict the supplied source.
         """
 
         left_text = "" if old.text is None else old.text
@@ -208,6 +316,13 @@ class GumTreeDiffEngine(DiffEngineProtocol):
 
         The method exists so behavior tests can inspect the same raw JSON that
         powers rendering without duplicating executable discovery.
+
+        # Parameters
+
+        - `left_text`: Complete old source for GumTree.
+        - `right_text`: Complete new source for GumTree.
+        - `left_path_hint`: Old source name used for parser selection.
+        - `right_path_hint`: New source name used for parser selection.
         """
 
         return run_gumtree_json(
@@ -220,10 +335,25 @@ class GumTreeDiffEngine(DiffEngineProtocol):
 
 
 _TREE_RANGE_RE = re.compile(r"\[(?P<start>\d+),(?P<end>\d+)\]\s*$")
+"""Extract GumTree's terminal half-open source range from a tree description.
+
+Node labels may contain other punctuation, so the expression only accepts the
+final bracketed integer pair. `_range_from_tree` validates its ordering.
+"""
 
 
 def _range_from_tree(tree: str) -> _SourceRange:
-    """Extract the absolute half-open range from a GumTree tree string."""
+    """Parse and validate GumTree's terminal absolute source range.
+
+    Only the final bracketed integer pair counts; punctuation inside a node
+    label is ignored. Missing or reversed ranges raise `ValueError` because an
+    action without exact source identity cannot be mapped to source safely.
+
+    # Failures
+
+    Raises `ValueError` when the tree has no terminal source range or its start
+    is after its end.
+    """
 
     match = _TREE_RANGE_RE.search(tree)
     if match is None:
@@ -239,7 +369,12 @@ def _range_from_tree(tree: str) -> _SourceRange:
 
 
 def _line_segments(text: str) -> list[_LineSegment]:
-    """Split source text into displayed lines with absolute offsets."""
+    """Partition source into ordered display lines and total document offsets.
+
+    Terminators contribute to `segment_end` but are absent from `text` and
+    `content_end`. The segments preserve enough geometry to intersect absolute
+    GumTree ranges without placing line breaks in inline tokens.
+    """
 
     segments: list[_LineSegment] = []
     cursor = 0
@@ -263,10 +398,38 @@ def _line_segments(text: str) -> list[_LineSegment]:
 def _classified_ranges(
     diff_json: GumTreeJson,
 ) -> tuple[list[_DecorationRange], list[_DecorationRange]]:
-    """Return left and right GumTree decoration ranges from JSON actions."""
+    """Classify validated GumTree actions into old- and new-side ranges.
+
+    Insert/delete actions address one side directly; update and move actions use
+    the validated match mapping for their destination. Returned lists preserve
+    deterministic action ordinals and contain no empty ranges.
+
+    # Returns
+
+    - `First`: Nonempty old-side action ranges ordered by action ordinal.
+    - `Second`: Nonempty new-side ranges in the same deterministic action order,
+      including mapped destinations for updates and moves.
+
+    # Failures
+
+    Raises `ValueError` when an action's tree lacks a valid terminal source
+    range, or when an update or move has no destination in GumTree's match
+    mapping. `_gumtree_rows_from_json` propagates the error because it cannot
+    place that action against either supplied source.
+    """
 
     def _required_dest(dest_by_src: dict[str, str], src_tree: str) -> str:
-        """Return the destination tree paired with one source tree."""
+        """Return the destination tree paired with one source tree.
+
+        # Parameters
+
+        - `dest_by_src`: Exact GumTree match mapping for this comparison.
+        - `src_tree`: Source tree named by an update or move action.
+
+        # Failures
+
+        Raises `ValueError` when an update or move has no destination match.
+        """
         dest_tree = dest_by_src.get(src_tree)
         if dest_tree is None:
             raise ValueError(
@@ -320,7 +483,15 @@ def _append_range(
     status: InlineTokenStatus,
     ordinal: int,
 ) -> None:
-    """Append one non-empty GumTree range to a side's decoration list."""
+    """Append one non-empty GumTree range to a side's decoration list.
+
+    # Parameters
+
+    - `ranges`: Side-specific decoration list to extend.
+    - `tree`: GumTree tree description containing the source range.
+    - `status`: Visible classification assigned to the range.
+    - `ordinal`: Source action order used to break equal-range ties.
+    """
 
     source_range = _range_from_tree(tree)
     if source_range.start == source_range.end:
@@ -340,7 +511,13 @@ def _tokens_for_line(
     segment: _LineSegment,
     ranges: list[_DecorationRange],
 ) -> list[InlineToken]:
-    """Return one line's tokens split exactly at GumTree range boundaries."""
+    """Return one line's tokens split exactly at GumTree range boundaries.
+
+    # Parameters
+
+    - `segment`: Display line and its absolute source offsets.
+    - `ranges`: Ordered decorations for the complete source side.
+    """
 
     boundaries = {segment.start, segment.content_end}
     relevant: list[_DecorationRange] = []
@@ -381,8 +558,14 @@ def _visible_status(
 
     Monaco receives overlapping GumTree decorations and uses z-index to show
     deeper tree decorations above wider ancestors.  GumTree JSON does not carry
-    the tree depth used by the original web view, so this projection chooses the
+    the tree depth used by the original web view, so this mapping chooses the
     narrowest covering range as the closest available representation.
+
+    # Parameters
+
+    - `start`: Inclusive absolute start of the source slice.
+    - `end`: Exclusive absolute end of the same slice.
+    - `ranges`: Decorations intersecting the containing display line.
     """
 
     covering = [
@@ -397,7 +580,12 @@ def _visible_status(
 
 
 def _merge_adjacent_tokens(tokens: list[InlineToken]) -> list[InlineToken]:
-    """Merge neighboring tokens that share the same visible status."""
+    """Coalesce consecutive projected slices with identical token status.
+
+    Text concatenation and whitespace truth are preserved, so the result
+    replays the same line while avoiding presentation-only token fragmentation.
+    Non-neighboring or differently classified slices remain separate.
+    """
 
     merged: list[InlineToken] = []
     for token in tokens:
@@ -416,7 +604,13 @@ def _token_row_status(
     left_tokens: list[InlineToken],
     right_tokens: list[InlineToken],
 ) -> Literal["equal", "replace", "insert", "delete", "move"]:
-    """Summarize GumTree token classes for non-visual summary counts."""
+    """Summarize GumTree token classes for non-visual summary counts.
+
+    # Parameters
+
+    - `left_tokens`: Old-side decorations for one paired row.
+    - `right_tokens`: New-side decorations for that row.
+    """
 
     statuses = {
         token["status"]
@@ -435,7 +629,13 @@ def _token_row_status(
 
 
 def _whole_side_rows(*, text: str, side: _Side) -> list[DiffEngineRow]:
-    """Render a missing-side diff as whole-line GumTree-compatible rows."""
+    """Render a missing-side diff as whole-line GumTree-compatible rows.
+
+    # Parameters
+
+    - `text`: Complete source of the only existing side.
+    - `side`: Whether that source is old or new.
+    """
 
     rows: list[DiffEngineRow] = []
     for segment in _line_segments(text):
@@ -468,7 +668,12 @@ def _whole_side_rows(*, text: str, side: _Side) -> list[DiffEngineRow]:
 
 
 def _summary(rows: list[DiffEngineRow]) -> DiffSummary:
-    """Count changed rows while keeping GumTree visual rows neutral."""
+    """Derive line totals from neutral GumTree rows and their inline tokens.
+
+    Equal row status is reclassified only for counting, so updates and moves
+    remain visually neutral rows while still contributing to modified or moved
+    totals. The function never rewrites the supplied rows.
+    """
 
     modified_lines = 0
     added_lines = 0

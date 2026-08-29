@@ -1,11 +1,17 @@
-"""Projection logic for Git unified patches.
+"""Convert Git unified patches into complete engine rows.
 
-`git_diff_rows_from_patch` parses unified patch text produced by Git and
-returns dirdiff engine rows for the complete source pair, using the original
-left/right text to fill the unchanged lines that Git omits outside hunk
-context.  `plain_line_rows_for_side` builds the same row shape when there is no
-opposite-side file to compare.  This module deliberately does not run Git and
-does not attach syntax highlighting, fold rows, labels, or API metadata.
+## Public interface
+
+`git_diff_rows_from_patch` combines one patch with the exact source pair that
+produced it. `plain_line_rows_for_side` produces the same row shape for an added
+or removed File.
+
+## Purpose and boundaries
+
+A unified patch omits unchanged text outside its hunks, while dirdiff rows must
+cover both complete sources. This module restores those gaps from the supplied
+strings and rejects a patch that contradicts them. It does not invoke Git or
+add display decoration.
 """
 
 from __future__ import annotations
@@ -19,6 +25,11 @@ GIT_HUNK_HEADER_PATTERN = re.compile(
     r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
     r"\+(?P<right_start>\d+)(?:,(?P<right_count>\d+))? @@"
 )
+"""Recognize Git unified-hunk starts and capture both source coordinates.
+
+The optional counts do not affect row placement. Row building uses the two start
+coordinates to restore unchanged gaps from the supplied source texts.
+"""
 
 __all__ = [
     "git_diff_rows_from_patch",
@@ -36,6 +47,16 @@ def plain_line_rows_for_side(
     There is no old/new pair to ask Git to compare for an added or deleted
     file.  The engine still returns the same strict row shape, with every source
     line mapped to either an insert or delete row.
+
+    # Parameters
+
+    - `text`: Complete text of the only existing side.
+    - `side`: Whether the text belongs to the old or new side.
+
+    # Usage
+
+    Git and Difftastic engines use this shape when exactly one side exists.
+    Pass the complete present-side text; do not call Git for the absent side.
     """
     rows: list[DiffEngineRow] = []
     for index, line in enumerate(text.splitlines(), start=1):
@@ -79,10 +100,31 @@ def _append_equal_rows(
     """Append source-backed equal rows until the next patch hunk starts.
 
     Git patches omit unchanged file regions outside hunk context.  Those gaps
-    are still part of the rendered source surface, so callers provide the
+    are still part of the rendered source, so callers provide the
     original left/right lines and the next hunk's line numbers.  The two gaps
     must have the same length and text because Git only omits unchanged
     regions; a mismatch means the patch no longer matches its source inputs.
+
+    # Parameters
+
+    - `rows`: Output list that receives restored unchanged rows.
+    - `left_lines`: Complete old source split into display lines.
+    - `right_lines`: Complete new source split into display lines.
+    - `left_no`: Next one-based old line number not yet emitted.
+    - `right_no`: Next one-based new line number not yet emitted.
+    - `target_left_no`: Old line number at the next hunk boundary.
+    - `target_right_no`: New line number at the next hunk boundary.
+
+    # Returns
+
+    - `First`: The next one-based old line number after the restored gap.
+    - `Second`: The corresponding next new line number; callers use both values
+      as cursors for the following patch hunk.
+
+    # Failures
+
+    Asserts when Git's omitted old and new gaps have different lengths or text,
+    because the patch would no longer describe the supplied sources.
     """
     assert (target_left_no - left_no) == (target_right_no - right_no)
     while left_no < target_left_no:
@@ -118,6 +160,23 @@ def git_diff_rows_from_patch(
     between, and after hunks are emitted as equal rows from those source texts.
     Git's `\\ No newline at end of file` marker is metadata about the preceding
     content line, not a row, so it is skipped.
+
+    # Parameters
+
+    - `patch`: Unified patch produced for the two supplied source texts.
+    - `left_text`: Complete old text used to restore omitted equal lines.
+    - `right_text`: Complete new text used to restore omitted equal lines.
+
+    # Usage
+
+    Call this with the patch and the exact source strings used by
+    `run_git_no_index_diff`. The returned rows cover both sources completely,
+    including unchanged text omitted from the patch.
+
+    # Failures
+
+    Raises `AssertionError` when hunk coordinates or omitted equal text do not
+    agree with the supplied source pair.
     """
     rows: list[DiffEngineRow] = []
     left_lines = left_text.splitlines()

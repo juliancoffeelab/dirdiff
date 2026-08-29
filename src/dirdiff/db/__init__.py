@@ -1,12 +1,16 @@
-"""Package facade for dirdiff's database persistence interfaces.
+"""SQLite persistence for dirdiff application state.
 
-Import this package when application code needs the supported SQLite table
-bootstrap helpers, typed stores, or Room and Snapshot records. The package
-re-exports public records and constructors only; table definitions stay in
-their modules and application logic lives outside this package. RoomStore also
-persists Profile-authored review actions and placements without interpreting
-discussion state. These are
-persistence interfaces for backend modules, not HTTP or rendering contracts.
+Import database construction, immutable records, and the Profile, preference,
+repository-mark, and Room stores from `dirdiff.db`. Each store exposes complete
+domain operations and records rather than sessions or table models.
+
+## Purpose and boundaries
+
+This package keeps relational invariants and transaction boundaries inside the
+operation that needs them. Callers choose the domain action and consume its
+record; they do not assemble generic database queries through this facade.
+Workspace capture, review behavior, and HTTP representation remain decisions of
+their callers.
 """
 
 from dirdiff.db.base import (

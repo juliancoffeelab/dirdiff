@@ -1,11 +1,13 @@
 /**
- * Defines the persistent application header and its repository selector.
+ * Renders persistent workspace controls and ChangeSet Portal destinations.
  *
- * The module exports AppHeader and the repository/query presentation contract
- * shared with RepoGate. AppHeader renders the brand, Profile, global repo, engine
- * and view controls, metadata status, and stable ChangeSet outlet targets. It
- * observes canonical repository data and performs repository removal commands.
- * It does not own workspace selection or ChangeSet status and summary data.
+ * `AppHeader` observes the canonical repository list, performs explicit mark
+ * removal, and reports validated repository, engine, view, and Profile choices
+ * to the workspace. Its status, summary, and metadata elements remain mounted so
+ * the active Tab and ChangeSet can render into stable physical targets.
+ *
+ * Workspace selection remains controlled by `App`. Portal contributors retain
+ * their own data, and the header never reconstructs ChangeSet status or summary.
  */
 import { Show, createMemo, createSignal, type JSX } from "solid-js";
 import {
@@ -26,6 +28,12 @@ import { assert, expect } from "../utils";
 import { Profile, type StoredProfile } from "./Profile";
 import type { DiffViewMode } from "./App";
 
+/**
+ * Exhaustive user-visible labels for every backend diff engine.
+ *
+ * The Record type makes a new engine fail compilation until header selection can
+ * present it; values remain presentation and never enter API parameters.
+ */
 const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   git: "Git",
@@ -34,6 +42,11 @@ const engineLabels: Record<DiffEngine, string> = {
   tokendiff: "Tokendiff",
 };
 
+/**
+ * Exhaustive user-visible labels for the client text presentation modes.
+ *
+ * Select displays these labels while reporting the exact `DiffViewMode` value.
+ */
 const viewLabels: Record<DiffViewMode, string> = {
   split: "Split",
   inline: "Inline",
@@ -46,18 +59,95 @@ const viewLabels: Record<DiffViewMode, string> = {
  * AppHeader cannot mutate workspace state generically or construct DiffParams.
  */
 type AppHeaderProps = {
+  /**
+   * Confirmed Profile shown and used by the Profile control, or genuine absence.
+   *
+   * AppHeader forwards it without storing identity or preferences.
+   */
   selectedProfile: StoredProfile | null;
+  /**
+   * Global repository identity selected by the workspace, or genuine absence.
+   *
+   * Its display name is always resolved from current canonical repository data.
+   */
   selectedRepoId: ProjectId | null;
+  /**
+   * Backend file renderer currently selected across every Tab.
+   *
+   * AppHeader presents the exhaustive label and reports changes, but it never
+   * places the engine inside manifest or Room identity.
+   */
   engine: DiffEngine;
+  /**
+   * Client split or inline presentation currently selected across every Tab.
+   *
+   * It controls rendered text layout only and never changes backend parameters.
+   */
   view: DiffViewMode;
+  /**
+   * Accepts a Profile after a confirmed Profile operation.
+   *
+   * `profile` is the complete identity returned by the backend. The caller stores
+   * and passes it back through `selectedProfile`; AppHeader keeps no local copy.
+   */
   onProfileSelected: (profile: StoredProfile) => void;
+  /**
+   * Clears the confirmed Profile after explicit logout.
+   *
+   * It runs only from Profile controls. The caller returns `null` through
+   * `selectedProfile` without changing repository or Tab state.
+   */
   onProfileForgotten: () => void;
+  /**
+   * Accepts activation of a repository available in the canonical list.
+   *
+   * `projectId` is parsed from the exact Select option and validated against the
+   * current list. The callback does not run when the existing selection is chosen;
+   * the caller updates workspace state and passes the accepted ID back.
+   */
   onRepoSelected: (projectId: ProjectId) => void;
+  /**
+   * Reports backend-confirmed removal of one repository mark.
+   *
+   * `projectId` is the exact removed identity. The callback runs after mutation
+   * success so the caller may clear a matching workspace selection; AppHeader
+   * separately invalidates canonical repository data.
+   */
   onRepoRemoved: (projectId: ProjectId) => void;
+  /**
+   * Accepts a validated engine option different from the current engine.
+   *
+   * The caller stores it and returns it through `engine`; AppHeader performs no
+   * manifest or File request merely because selection changed.
+   */
   onEngineSelected: (engine: DiffEngine) => void;
+  /**
+   * Accepts a validated presentation option different from the current view.
+   *
+   * The caller returns the accepted value through `view`. The callback changes no
+   * backend identity or query data.
+   */
   onViewSelected: (view: DiffViewMode) => void;
+  /**
+   * Receives the mounted stable outlet for active ChangeSet loading status.
+   *
+   * The ref callback runs when Solid mounts the element. The caller stores the
+   * element for Portals and must not append competing content directly.
+   */
   onChangeSetStatusTarget: (element: HTMLDivElement) => void;
+  /**
+   * Receives the mounted stable outlet for the active ChangeSet summary.
+   *
+   * The ref callback hands over the exact header element once mounted; active
+   * ChangeSet presentation reaches it through the caller's outlet accessor.
+   */
   onChangeSetSummaryTarget: (element: HTMLDivElement) => void;
+  /**
+   * Receives the mounted stable outlet for repository, Tab, and Profile metadata.
+   *
+   * The ref callback establishes the shared Portal destination. AppHeader does
+   * not render domain metadata into it itself.
+   */
   onMetadataStatusTarget: (element: HTMLElement) => void;
 };
 
@@ -68,7 +158,19 @@ type AppHeaderProps = {
  * registered it. The contract carries no ChangeSet data or status setters.
  */
 export type AppHeaderOutlets = {
+  /**
+   * Returns the mounted header element receiving active ChangeSet status.
+   *
+   * Calling before AppHeader registers the ref is a lifecycle error; consumers
+   * use the stable element only as a Portal target.
+   */
   status: () => HTMLDivElement;
+  /**
+   * Returns the mounted header element receiving active ChangeSet statistics.
+   *
+   * Calling before registration is a lifecycle error. The accessor owns no
+   * summary data and never creates an element.
+   */
   summary: () => HTMLDivElement;
 };
 
@@ -81,9 +183,43 @@ export type AppHeaderOutlets = {
  * its array may be genuinely empty after a successful backend response.
  */
 export type RepositoryState =
-  | { state: "pending" }
-  | { state: "failed"; error: Error }
-  | { state: "available"; repos: readonly RepoMark[] };
+  | {
+      /**
+       * Marks the initial canonical repository read as unsettled.
+       *
+       * Consumers render a disabled selector and must not reuse retained choices.
+       */
+      state: "pending";
+    }
+  | {
+      /**
+       * Marks the canonical repository read as failed.
+       *
+       * This arm contains no choices, so selectors cannot operate on stale data.
+       */
+      state: "failed";
+      /**
+       * Exact query failure exposed for local details and explicit retry.
+       *
+       * Presentation must not convert it into an empty available collection.
+       */
+      error: Error;
+    }
+  | {
+      /**
+       * Marks the canonical repository response as successfully available.
+       *
+       * Only this arm permits repository resolution, selection, or removal.
+       */
+      state: "available";
+      /**
+       * Complete validated repository collection in backend order.
+       *
+       * The array may be empty after success and remains authoritative for
+       * resolving any selected ID.
+       */
+      repos: readonly RepoMark[];
+    };
 
 /**
  * Defines the complete inputs for the private Header repository selector.
@@ -92,10 +228,43 @@ export type RepositoryState =
  * and explicit selection/removal commands are supplied by App.
  */
 type RepoSelectProps = {
+  /**
+   * Current canonical repository query state.
+   *
+   * The selector is interactive only for the available arm and never retains an
+   * older collection across pending or failure.
+   */
   repositories: RepositoryState;
+  /**
+   * Caller-controlled selected repository identity, or genuine absence.
+   *
+   * A present ID must occur in an available collection; otherwise rendering
+   * throws instead of showing a substitute label.
+   */
   selectedRepoId: ProjectId | null;
+  /**
+   * Handles a closed-to-open transition of the available repository Select.
+   *
+   * The callback runs after local popup state opens and may prefetch the canonical
+   * list under TanStack freshness rules. It does not run for disabled states,
+   * closing, or option activation.
+   */
   onOpen: () => void;
+  /**
+   * Accepts activation of an available repository different from the current ID.
+   *
+   * `projectId` is parsed from the exact option and checked against the current
+   * available collection. The caller stores it and returns it through
+   * `selectedRepoId`; choosing the current value emits no callback.
+   */
   onSelect: (projectId: ProjectId) => void;
+  /**
+   * Invokes the caller's removal operation for the exact option action activated.
+   *
+   * `projectId` comes from that option's validated value. RepoSelect neither
+   * confirms nor mutates data itself; the caller may confirm and execute the
+   * mutation while the ordinary Select choice remains unchanged.
+   */
   onRemove: (projectId: ProjectId) => void;
 };
 
@@ -339,6 +508,9 @@ function RepoSelect(props: RepoSelectProps): JSX.Element {
    *
    * Invalid or unknown values throw. Selecting the current value produces no
    * redundant Workspace command, and unavailable query states never call this path.
+   *
+   * @param repos Complete current available repository collection.
+   * @param value Exact string value reported by the activated Select option.
    */
   function selectRepo(repos: readonly RepoMark[], value: string): void {
     const projectId = Number(value);

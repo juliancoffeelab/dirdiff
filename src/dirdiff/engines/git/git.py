@@ -1,10 +1,17 @@
-"""Raw `git diff --no-index` execution for the Git diff engine.
+"""Run `git diff --no-index` over supplied text.
 
-This module is the subprocess boundary for Git-backed rendering.  It receives
-already-loaded old/new text, writes that text to temporary files, invokes Git's
-diff algorithm in no-index mode, and returns the unified patch text.  It does
-not know about repository refs, manifests, lazy loading, or API response
-metadata.
+## Public interface
+
+`run_git_no_index_diff` returns a unified patch for two strings.
+`GitDiffEngine` implements the shared engine protocol and converts that patch
+into complete neutral rows.
+
+## Purpose and boundaries
+
+No-index mode gives any loaded text pair Git's diff algorithm without tying the
+engine to a repository. Path hints name temporary files but never authorize a
+filesystem read. Repository refs and File loading therefore remain in
+`dirdiff.backend`.
 """
 
 from __future__ import annotations
@@ -45,10 +52,34 @@ def run_git_no_index_diff(
     diff exists, so both are successful engine outcomes.  Other exit codes are
     surfaced as `DirdiffError` because they mean Git failed to produce a
     trustworthy patch.
+
+    # Parameters
+
+    - `left_text`: Complete old text written to Git's left temporary file.
+    - `right_text`: Complete new text written to Git's right temporary file.
+    - `left_path_hint`: Optional old path used only to choose a useful suffix.
+    - `right_path_hint`: Optional new path used only to choose a useful suffix.
+
+    # Usage
+
+    `GitDiffEngine.render_diff` calls this only when both text sides exist.
+    Pass already-loaded text and optional names used solely for temporary-file
+    suffixes.
+
+    # Failures
+
+    Raises `DirdiffError` if Git cannot start or exits without producing a
+    trustworthy no-index result.
     """
 
     def _temp_file_name(label: str, path_hint: str | None) -> str:
-        """Return a temp filename with a useful suffix for Git headers."""
+        """Return a temp filename with a useful suffix for Git headers.
+
+        # Parameters
+
+        - `label`: Internal side name used as the filename stem.
+        - `path_hint`: Optional source name from which to copy the suffix.
+        """
         if path_hint is None:
             return f"{label}.txt"
         suffix = Path(path_hint).suffix
@@ -98,7 +129,15 @@ def run_git_no_index_diff(
 
 @final
 class GitDiffEngine(DiffEngineProtocol):
-    """Renderer for already-loaded text using `git diff --no-index`."""
+    """Compare supplied text with `git diff --no-index`.
+
+    Path hints give temporary files useful names but are never loaded. Git's
+    patch is projected into the common engine rows. If one side is absent, the
+    engine emits complete insertion or deletion rows without invoking Git.
+
+    The engine holds no repository or HTTP state and works with text loaded
+    by any workspace backend.
+    """
 
     @override
     def render_diff(
@@ -107,7 +146,24 @@ class GitDiffEngine(DiffEngineProtocol):
         old: DiffSide,
         new: DiffSide,
     ) -> DiffEngineResult:
-        """Render already-loaded text with Git's no-index diff algorithm."""
+        """Render already-loaded text with Git's no-index diff algorithm.
+
+        # Parameters
+
+        - `old`: Old text side and its optional temporary-file naming hint.
+        - `new`: New text side under the same contract.
+
+        # Usage
+
+        Obtain this renderer through `dirdiff.engines.engine` and normally let
+        `dirdiff.formats.Composer` call it for a text bay.
+
+        # Failures
+
+        Propagates `DirdiffError` when Git cannot produce a patch. A patch that
+        contradicts the supplied source violates an invariant and raises
+        `AssertionError` while rows are reconstructed.
+        """
         left_text_value = "" if old.text is None else old.text
         right_text_value = "" if new.text is None else new.text
         if old.exists and new.exists:

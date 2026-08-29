@@ -1,16 +1,15 @@
-"""GumTree-backed move renderer engine.
+"""Structural diff rendering through GumTree.
 
-This package renders already-loaded ordinary source files with GumTree so
-dirdiff can represent moved code as move rows and tokens.  Application code
-outside the package imports only `GumTreeDiffEngine` and the `GumTreeJson`
-contract from this package root.  GumTree subprocess integration and raw JSON
-types live in `gumtree.py`; move projection and row assembly live in `logic.py`.
+`GumTreeDiffEngine` compares two already-loaded text sides and returns the
+common engine result. `GumTreeJson` is the validated shape accepted from the
+external GumTree process.
 
-The package intentionally knows nothing about repository selection, file
-formats, API request modes, or frontend display enrichment.  It renders the two
-text sides it is handed; which sides those are, and whether they came from a
-whole file or one notebook cell, was settled by `dirdiff.formats` before any
-renderer was selected.
+## Purpose and boundaries
+
+This package maps GumTree's classified source ranges back onto the exact text
+supplied by the caller. It rejects unusable process output instead of treating
+it as a valid comparison. Workspace loading and format choice happen before the
+engine runs; display folds and syntax happen after it returns.
 """
 
 from dirdiff.engines.gumtree.gumtree import GumTreeJson

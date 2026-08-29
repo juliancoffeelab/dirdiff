@@ -715,16 +715,21 @@ Side
 ```
 
 The kernel builds one complete detached row fragment per call from validated
-backend rows and fold state; every function is a pure DOM constructor with no
-Solid reactivity, component state, or queries. It owns row chunking: large
-renders stream rows through fixed-size content-visibility containers, and one
-idle-paced module-level warm-up pass renders each new chunk once so the
-browser records its real height, and `forceChunkLayout` /
-`finishForcedChunkLayout` let off-screen geometry reads (navigation
-enrichment, rich-to-virtual height capture) lay unwarmed chunks out
-immediately instead of measuring the intrinsic estimate. It must not listen
-to events, own review markers or line pins, decide view modes, or fetch
-anything.
+backend rows and caller-supplied fold state. It has no Solid reactivity,
+component state, or queries. Fold disclosure is the local exception to its
+detached-construction role: the kernel installs click listeners on the fold
+controls it creates, replaces only that fold's DOM, and calls TextDiffGrid's
+before/after hooks around the replacement. The caller retains the expansion
+set.
+
+The kernel also implements row chunking. Large renders stream rows through
+fixed-size content-visibility containers, and one idle-paced module-level
+warm-up pass renders each new chunk once so the browser records its real
+height. `forceChunkLayout` / `finishForcedChunkLayout` let off-screen geometry
+reads (navigation enrichment and rich-to-virtual height capture) lay unwarmed
+chunks out immediately instead of measuring the intrinsic estimate. The module
+must not install review or line-pin listeners, retain review markers or line
+pins, decide view modes, or fetch anything.
 
 ### `hud/fileCard/FrameView.tsx`
 

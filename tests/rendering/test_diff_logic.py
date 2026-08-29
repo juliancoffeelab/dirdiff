@@ -1,9 +1,9 @@
-"""Native text-rendering behavior tests.
+"""Check native text rows after display enrichment.
 
-These tests exercise `helpers.build_loaded_diff` as the public test boundary
-for rendered text payloads.  They assert user-visible row statuses, token
-boundaries, summaries, and syntax/fold metadata without going through HTTP or a
-browser session.
+The tests use `helpers.build_loaded_diff` to assert row status, inline token
+boundaries, summaries, syntax classes, fold hints, and bay-local hunk indexes.
+They stop at the composed payload rather than exercising HTTP or browser
+interaction.
 """
 
 from helpers import build_loaded_diff
@@ -12,6 +12,11 @@ __all__: list[str] = []
 
 
 def test_counts_whitespace_only_changes_as_modified() -> None:
+    """Count changed indentation even when the row remains visually equal.
+
+    Inline whitespace tokens carry the change, so summaries must not rely on
+    row status alone.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -36,6 +41,11 @@ def test_counts_whitespace_only_changes_as_modified() -> None:
 
 
 def test_file_diff_assigns_ordered_file_local_hunk_indices() -> None:
+    """Start one hunk at each changed run and number them in File order.
+
+    Equal context separates hunks; continuation rows in a changed run do not
+    receive another start index.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -53,6 +63,11 @@ def test_file_diff_assigns_ordered_file_local_hunk_indices() -> None:
 
 
 def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
+    """Decorate CamelCase replacements at identifier-part boundaries.
+
+    Stable name parts remain whole and unchanged instead of fragmenting into a
+    character-level diff.
+    """
     diff = build_loaded_diff(
         display_name="demo.js",
         left_label="left",
@@ -90,6 +105,11 @@ def test_inline_diff_keeps_camel_case_boundaries_intact() -> None:
 
 
 def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
+    """Keep shared method-name parts intact through a targeted rename.
+
+    The inline partition isolates the changed identifier part while replaying
+    both complete method calls.
+    """
     diff = build_loaded_diff(
         display_name="demo.js",
         left_label="left",
@@ -129,6 +149,10 @@ def test_inline_diff_keeps_identifier_parts_whole_in_method_renames() -> None:
 
 
 def test_tree_sitter_highlights_multiline_python_strings() -> None:
+    """Split one multiline Python capture into valid line-local syntax spans.
+
+    Tree-sitter byte ranges may cross newlines; the HUD contract may not.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -157,6 +181,10 @@ def test_tree_sitter_highlights_multiline_python_strings() -> None:
 
 
 def test_tree_sitter_highlights_clojure_strings() -> None:
+    """Load the Clojure grammar and map strings to declared syntax classes.
+
+    This guards the real language module and query-resource path.
+    """
     diff = build_loaded_diff(
         display_name="demo.clj",
         left_label="left",
@@ -179,6 +207,10 @@ def test_tree_sitter_highlights_clojure_strings() -> None:
 
 
 def test_large_tree_sitter_diff_preserves_rows_and_syntax() -> None:
+    """Preserve every row and syntax span on a large parsed source pair.
+
+    The optimized capture path must not drop middle rows or decoration.
+    """
     repeated_line = "value = 1234567890\n"
     left_text = repeated_line * 1101
     right_text = left_text.replace("1234567890", "1234567891", 1)
@@ -223,6 +255,10 @@ def test_large_tree_sitter_diff_preserves_rows_and_syntax() -> None:
 
 
 def test_large_plaintext_diff_preserves_middle_rows_and_hunks() -> None:
+    """Preserve middle rows and hunk boundaries without syntax support.
+
+    Large plaintext remains lossless and keeps changed-run navigation intact.
+    """
     left_text = "".join(f"line {index:04d}\n" for index in range(1101))
     right_text = "".join(
         f"{'changed' if index % 10 == 0 else 'line'} {index:04d}\n"
@@ -265,6 +301,11 @@ def test_large_plaintext_diff_preserves_middle_rows_and_hunks() -> None:
 def test_build_loaded_diff_falls_back_to_text_for_invalid_notebook_json() -> (
     None
 ):
+    """Represent invalid notebook structure through the raw-text damage path.
+
+    Captured text remains reviewable and the result must not claim a valid
+    notebook payload.
+    """
     diff = build_loaded_diff(
         display_name="broken.ipynb",
         left_label="left",

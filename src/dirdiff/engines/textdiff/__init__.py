@@ -1,14 +1,15 @@
-"""Native dirdiff text engine.
+"""Dirdiff's native line-first text engine.
 
-This package is the built-in renderer for already-loaded ordinary text files
-when no external structural engine is needed.  Code outside the package imports
-`TextDiffEngine` and the token-free `text_diff_summary` from this package
-root.  The implementation in `logic.py` owns native Python line alignment,
-inline tokenization, and summary assembly.
+`TextDiffEngine` aligns already-loaded text by line and marks inline changes
+without an external executable. `text_diff_summary` calculates the common
+summary for callers that already hold engine rows.
 
-The text engine has no subprocess integration and no repository knowledge.  It
-must not load files, resolve refs, choose API modes, handle notebooks, or attach
-display-only syntax/fold enrichment.
+## Purpose and boundaries
+
+This package provides dirdiff's native comparison strategy while preserving the
+same inputs and results as every other engine. It compares supplied text only.
+Workspace loading and format choice happen before comparison; display folds and
+syntax happen after it returns.
 """
 
 from dirdiff.engines.textdiff.logic import (

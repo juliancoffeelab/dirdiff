@@ -1,11 +1,14 @@
 /**
- * Defines the application-wide TanStack Query provider boundary.
+ * Provides the application-lifetime TanStack Query cache boundary.
  *
- * The module exports QueryProvider and defines the metadata shape required to
- * give every query and mutation failure a specific user-visible title. Each
- * mounted provider owns exactly one QueryClient, QueryCache, and MutationCache.
- * It does not define backend operations, export cache instances, or depend on
- * presentation components.
+ * Each `QueryProvider` mount creates one QueryClient and its query and mutation
+ * caches. Descendants share canonical backend values through that client. Failed
+ * operations must carry an application-specific title, which the caches pass to
+ * the caller's error callback exactly once; intentional query cancellation stays
+ * silent.
+ *
+ * Backend operations define their own keys and transport in `api.ts`. This module
+ * neither exports cache instances nor chooses how failures are presented.
  */
 import {
   MutationCache,
@@ -27,6 +30,15 @@ import { assert } from "../utils";
  * because TanStack's metadata field remains optional. It must not carry query data.
  */
 type ErrorMeta = Record<string, unknown> & {
+  /**
+   * Supplies the complete Toast title for one failed operation.
+   *
+   * A string gives every failure of the definition the same title. A resolver
+   * receives the exact error from the failed attempt and returns its title when
+   * distinct domain failures need distinct wording. QueryProvider calls the
+   * resolver only after a non-cancellation failure and does not catch resolver
+   * errors, so definitions must keep it total for their possible error values.
+   */
   errorTitle: string | ((error: unknown) => string);
 };
 
@@ -47,7 +59,19 @@ declare module "@tanstack/query-core" {
    * ErrorMeta field shape.
    */
   interface Register {
+    /**
+     * Application metadata shape accepted by TanStack query definitions.
+     *
+     * This merge checks present metadata at compile time. TanStack still permits
+     * omission, which QueryProvider rejects when an ordinary query fails.
+     */
     queryMeta: ErrorMeta;
+    /**
+     * Application metadata shape accepted by TanStack mutation definitions.
+     *
+     * This merge does not make TanStack's field required. QueryProvider asserts
+     * the application requirement at the failed-mutation cache boundary.
+     */
     mutationMeta: ErrorMeta;
   }
 }
@@ -63,7 +87,25 @@ declare module "@tanstack/query-core" {
  * `useQueryClient()`.
  */
 export function QueryProvider(props: {
+  /**
+   * Application subtree sharing this provider's single QueryClient.
+   *
+   * Descendants observe and mutate canonical backend data through TanStack
+   * hooks. Replacing the provider replaces their cache lifetime.
+   */
   children: JSX.Element;
+  /**
+   * Presents one non-cancellation query or mutation failure.
+   *
+   * `title` is the complete value supplied or derived by the failed operation's
+   * metadata, and `error` is TanStack's exact failure value. QueryProvider calls
+   * it once from the relevant cache callback and retains no error state. The
+   * caller decides how to present it and must leave intentional cancellation
+   * handling to this provider.
+   *
+   * @param title Complete user-visible context for the failed operation.
+   * @param error Exact error reported by TanStack for that attempt.
+   */
   onError(title: string, error: unknown): void;
 }): JSX.Element {
   const queryClient = new QueryClient({

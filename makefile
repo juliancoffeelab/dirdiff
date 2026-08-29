@@ -31,7 +31,10 @@ flake-cst:
 flake-hlp:
 	uv --no-cache run flake8 --jobs 1 --select HLP002,HLP003 src tests lints
 
-pyflake: flake-sbt flake-cst flake-hlp
+flake-ddd:
+	uv --no-cache run flake8 --jobs 1 --select DDD src tests lints
+
+pyflake: flake-sbt flake-cst flake-hlp flake-ddd
 
 flake-human:
 	uv --no-cache run flake8 --jobs 1 --select SBT002 src tests
@@ -60,7 +63,7 @@ pytest-slow:
 	# tests/slow scales with the current worktree diff; run deliberately.
 	uv --no-cache run pytest tests/slow
 
-docs:
+pdoc:
 	uv --no-cache run pdoc dirdiff 
 
 snapshot:

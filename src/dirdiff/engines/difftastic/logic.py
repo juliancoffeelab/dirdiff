@@ -1,93 +1,18 @@
-"""Difftastic JSON to dirdiff row AST contract.
+"""Build dirdiff engine rows from Difftastic alignment facts.
 
-This module defines the boundary between raw difftastic output and the rendered
-row AST used by the difftastic service. It accepts difftastic-shaped JSON plus
-the original source text and returns dirdiff-shaped rows.
+## Public interface
 
-This module must not own raw difftastic execution or final API payload assembly:
+`build_difftastic_ast` runs the external comparison and returns structural rows
+plus any recognized degraded-mode warning. `DifftasticDiffEngine` implements
+the common engine protocol, including one-sided Files and textual rows when a
+known Difftastic limit produces no structural rows.
 
-* `dirdiff.engines.difftastic.difft` owns invoking `difft` and parsing its JSON.
-* the service/textdiff layer owns syntax highlighting, fold hints, and frontend
-  payload assembly.
+## Purpose and boundaries
 
-Projection model
-----------------
-Difftastic (with dirdiff's whole-file context tuning) emits one complete
-alignment of both documents plus, per aligned line, the exact spans it
-considers novel. The projection is a direct transcription of those facts:
-
-* one output row per in-range aligned pair, in alignment order;
-* row text is the exact full source line on each present side (`""` marks an
-  absent side);
-* tokens on a present side partition its line at difftastic's span boundaries:
-  each novel span becomes one changed token and each gap becomes one unchanged
-  token; a line without novel spans has no tokens;
-* row status is a pure function of the row's tokens (see `_row_status`).
-
-There is deliberately no repair, reflow, fragment, or similarity machinery
-here. Difftastic's alignment covers each source line exactly once and in
-order; the projection asserts that contract instead of compensating for its
-absence, so an upstream misbehavior surfaces as a visible failure rather than
-a silent local workaround.
-
-Input contract
---------------
-The main entrypoint is `build_difftastic_ast`:
-
-* `left_text` and `right_text` are the complete source documents. They are the
-  authority for line text, line counts, and user-visible content.
-* `left_path_hint` and `right_path_hint` are file-name hints for difftastic
-  parser selection.
-
-Accepted difftastic facts
--------------------------
-`DifftasticJson.aligned_lines` contains zero-based line index pairs. `None`
-means there is no line on that side. Pairs addressing the phantom line created
-by a trailing newline are dropped.
-
-`DifftasticJson.chunks` contains one entry per aligned pair, keyed by
-difftastic side names: `lhs` for the left/old document and `rhs` for the
-right/new document. Each present side lists that line's novel spans. The span
-offsets are UTF-8 byte positions; the projection converts them to Python
-string offsets once, at ingestion. With whole-file context every hunk repeats
-the complete pair list, so identical repeated facts are accepted and
-contradictory repeated facts are rejected.
-
-The `language` field is opaque except for known difftastic fallback labels
-that may be exposed through `DifftasticAst.engine_warning`.
-
-Output contract
----------------
-`build_difftastic_ast` returns `DifftasticAst`:
-
-* `rows`: a list of complete public `DiffEngineRow` values.
-* `engine_warning`: optional metadata for known difftastic fallback modes.
-
-Each row is a neutral engine row. Its fields are:
-
-* `status`: one of `equal`, `replace`, `insert`, or `delete`.
-* `left_no` and `right_no`: one-based source line numbers, or `None` for
-  one-sided rows.
-* `left_text` and `right_text`: the exact source line shown on each side, or
-  `""` for an absent side.
-* `left_tokens` and `right_tokens`: inline token lists, present exactly for
-  the sides that exist. The concatenated token text of a non-empty list is
-  that side's complete line text.
-
-Required invariants
--------------------
-* row source text is the supplied source text, one full line per present side;
-* every source line appears exactly once per side, in source order;
-* changed tokens cover exactly the spans difftastic reported as novel;
-* row status is derived from token statuses and never contradicts them;
-* empty `aligned_lines` returns an empty row list so the service can choose a
-  fallback renderer.
-
-Non-goals
----------
-This module does not validate the full difftastic JSON schema, does not shell
-out to difftastic, does not perform syntax highlighting, does not build fold
-hints, and does not assemble the final HTTP/API payload.
+The supplied source strings decide every displayed character. Difftastic JSON
+decides alignment and changed spans only after this module validates those
+facts against the text. The result remains neutral engine output; syntax,
+folds, and hunk indexes are added later by `dirdiff.rendering`.
 """
 
 from __future__ import annotations
@@ -112,7 +37,25 @@ from dirdiff.engines.difftastic.difft import (
 )
 
 type DifftasticRowStatus = Literal["equal", "replace", "insert", "delete"]
+"""Row statuses that Difftastic row building can produce.
+
+- `equal` pairs lines without changed spans.
+- `replace` pairs lines carrying changed spans.
+- `insert` and `delete` are one-sided.
+
+Row building uses these values when producing public engine rows. Difftastic does
+not produce dirdiff's separate `move` row classification.
+"""
 type DifftasticTokenStatus = Literal["unchanged", "replace", "insert", "delete"]
+"""Classify one exact text span while building Difftastic rows.
+
+- `unchanged` fills gaps around reported spans.
+- `replace` pairs changed spans across sides.
+- `insert` and `delete` classify one-sided changed spans.
+
+These values become `InlineToken.status`; they do not classify complete rows or
+represent Difftastic syntax nodes.
+"""
 
 __all__ = [
     "DifftasticAst",
@@ -123,29 +66,60 @@ __all__ = [
 
 @dataclass(frozen=True)
 class DifftasticAst:
-    """Complete projection result for one difftastic run.
+    """Complete structural result for one Difftastic run.
 
-    `rows` is the exported row AST; an empty list means difftastic produced
-    no structural rows and the service chooses a fallback renderer.
-    `engine_warning` reports a known difftastic fallback mode, or `None`.
+    `build_difftastic_ast` returns this value after validating Difftastic's
+    reported positions against the supplied text. `DifftasticDiffEngine` uses
+    it directly or chooses textual alignment when no structural rows exist.
+
+    `engine_warning` explains a recognized degraded mode. This type does not
+    contain textual degraded rows, summary counts, or display metadata.
     """
 
     rows: list[DiffEngineRow]
+    """Validated neutral rows in Difftastic's source alignment order.
+
+    The engine returns these directly when non-empty. They contain no display
+    syntax, folds, hunk numbering, summary, or textual substitute rows.
+    """
+
     engine_warning: EngineWarning | None
+    """Visible explanation of a recognized Difftastic degraded mode.
+
+    `None` means the JSON did not declare graph-limit or contradictory unchanged
+    output. The warning accompanies whichever rows the engine ultimately returns
+    and never authorizes swallowing an invocation or validation failure.
+    """
 
 
 @dataclass(frozen=True)
 class _Span:
     """One novel span on one source line, in Python string offsets.
 
-    `start`/`end` address the owning line's characters and satisfy
-    `start < end`. `status` is the token status every character of the span
-    renders with. The span never crosses a line boundary.
+    Each instance addresses a non-empty character slice and applies one token
+    classification to that complete slice. It never crosses a line boundary.
     """
 
     start: int
+    """Inclusive Python-string offset where this novel token begins.
+
+    The value is line-local, non-negative, and interpreted against the original
+    side text rather than Difftastic's byte coordinates after conversion.
+    """
+
     end: int
+    """Exclusive Python-string offset after the novel token.
+
+    Construction rejects empty, reversed, overlapping, and out-of-line ranges,
+    so row building may slice source text without clipping or repair.
+    """
+
     status: DifftasticTokenStatus
+    """Side-appropriate inline novelty assigned to the complete range.
+
+    Row building converts it to public token status without subdividing the span;
+    unchanged source between spans is emitted separately.
+    """
 
 
 def _difftastic_engine_warning(
@@ -154,11 +128,26 @@ def _difftastic_engine_warning(
     left_text: str | None = None,
     right_text: str | None = None,
 ) -> EngineWarning | None:
-    """Interpret known difftastic fallback labels as an engine warning.
+    """Interpret known Difftastic degraded-mode labels as an engine warning.
 
     The graph-limit label means difftastic abandoned structural diffing; a
     reported `unchanged` status for texts that differ means it produced no
     usable rows. Everything else is opaque metadata and returns `None`.
+
+    # Parameters
+
+    - `diff_json`: Validated integration result whose status and language may
+      describe a known degraded mode.
+    - `left_text`: Optional old text used to detect a false unchanged result.
+    - `right_text`: Optional new text used with `left_text`; both must be
+      present for that consistency check.
+
+    # Returns
+
+    - `EngineWarning`: A graph-limit or false unchanged result that requires
+      textual alignment instead of structural rows.
+    - `None`: Difftastic reported neither known degraded mode. The caller may
+      use its rows without attaching an engine warning.
     """
     language = diff_json.get("language")
     if isinstance(language, str) and "exceeded DFT_GRAPH_LIMIT" in language:
@@ -184,7 +173,7 @@ def _source_lines(text: str) -> list[str]:
 
     Difftastic splits on `\\n` only; the empty element after a trailing
     newline is its phantom final line and is not a source line, so it is
-    dropped here and phantom aligned pairs are dropped during projection.
+    dropped here and phantom aligned pairs are dropped while building rows.
     """
     lines = text.split("\n")
     if lines != [] and lines[-1] == "":
@@ -204,6 +193,18 @@ def _line_spans(
     boundaries of the addressed source line, and a `content` field must equal
     the addressed slice. Violations are contract errors and throw. Zero-width
     spans carry no text and are dropped.
+
+    # Parameters
+
+    - `side`: One Difftastic line record containing byte-column changes.
+    - `source_lines`: Original document lines addressed by the record.
+    - `status`: Classification assigned to every non-empty converted span.
+
+    # Failures
+
+    Raises `ValueError` when a line number or byte span falls outside the
+    supplied source, splits a UTF-8 character, or disagrees with reported
+    `content`.
     """
     changes = side["changes"]
     if changes == []:
@@ -249,13 +250,26 @@ def _line_spans(
 class _SpanIndex:
     """Novel spans for both documents, keyed by zero-based line number.
 
-    Each list is ordered by span start and non-overlapping; lines without
-    novel spans are absent. The index is derived once from `chunks` and read
-    by row projection.
+    `_span_index` derives this once from Difftastic chunks, then row building
+    looks up left and right spans by source line number.
+
+    Spans for one line are ordered by start and do not overlap. Lines without
+    novel spans are absent. The index never leaves this module.
     """
 
     left: dict[int, list[_Span]]
+    """Validated old-side novel spans keyed by zero-based source line.
+
+    Lines absent from the mapping have no old-side novelty. Each value remains
+    ordered and non-overlapping for direct row-token construction.
+    """
+
     right: dict[int, list[_Span]]
+    """Validated new-side novel spans keyed by zero-based source line.
+
+    It is independent of `left`: paired status is chosen only when Difftastic
+    reports equal span counts for the two sides of one aligned chunk entry.
+    """
 
 
 def _span_index(
@@ -272,6 +286,19 @@ def _span_index(
     whole-file context every hunk repeats the complete entry list, so an
     already-indexed identical line is accepted and a contradictory repeat is
     rejected.
+
+    # Parameters
+
+    - `diff_json`: Validated Difftastic chunks to index.
+    - `left_lines`: Original old-side lines addressed by `lhs` records.
+    - `right_lines`: Original new-side lines addressed by `rhs` records.
+
+    # Failures
+
+    Raises `ValueError` when a span addresses a missing line, splits a UTF-8
+    character, exceeds or contradicts the supplied source, overlaps another
+    span, or repeats a line with different span facts. Row building propagates
+    the error because no source-faithful token index can be produced.
     """
     index = _SpanIndex(left={}, right={})
 
@@ -282,7 +309,25 @@ def _span_index(
         source_lines: list[str],
         status: DifftasticTokenStatus,
     ) -> None:
-        """Store one line's converted spans, rejecting contradictions."""
+        """Store one line's converted spans, rejecting contradictions.
+
+        # Parameters
+
+        - `target`: Side-specific mapping to update.
+        - `side`: Changed-line record to convert and store.
+        - `source_lines`: Original lines used to validate byte offsets.
+        - `status`: Token classification for every converted span.
+
+        # Usage
+
+        `_span_index` calls this for each present side of every changed chunk
+        entry. Repeated whole-file context may repeat the same spans exactly.
+
+        # Failures
+
+        Raises `ValueError` when spans overlap or a repeated line reports a
+        different span set.
+        """
         spans = _line_spans(side, source_lines=source_lines, status=status)
         line_number = side["line_number"]
         previous = target.get(line_number)
@@ -334,12 +379,24 @@ def _line_tokens(line: str, spans: list[_Span]) -> list[InlineToken]:
     one unchanged token, so concatenated token text reproduces the line
     exactly. A line without novel spans returns no tokens: absent decoration
     is represented by the empty list, not by one synthetic unchanged token.
+
+    # Parameters
+
+    - `line`: Exact source line whose text the tokens must partition.
+    - `spans`: Ordered non-overlapping novel spans within `line`.
     """
+
     if spans == []:
         return []
 
     def token(text: str, status: DifftasticTokenStatus) -> InlineToken:
-        """Build one token; `is_ws` is derived from the exact slice."""
+        """Build one token and derive whitespace from its exact slice.
+
+        # Parameters
+
+        - `text`: Non-empty source slice represented by the token.
+        - `status`: Difftastic classification for that slice.
+        """
         return {"text": text, "status": status, "is_ws": text.isspace()}
 
     tokens: list[InlineToken] = []
@@ -368,10 +425,19 @@ def _row_status(
     Rows with tokens classify purely by token statuses: no changed non-white
     space means `equal`; only deletions or only insertions without unchanged
     non-whitespace context keep their one-sided status; every other mix is
-    `replace`. A row without any tokens is unchanged context — except a
+    `replace`. A row without any tokens is unchanged context, except a
     one-sided line with no non-whitespace content, which difftastic cannot
     mark with spans at all and whose very presence is the change, so it
     renders as its side's insertion or deletion.
+
+    # Parameters
+
+    - `left_no`: Old-side line number, or `None` for a new-only row.
+    - `right_no`: New-side line number, or `None` for an old-only row.
+    - `left_text`: Exact old-side row text, empty when absent.
+    - `right_text`: Exact new-side row text, empty when absent.
+    - `left_tokens`: Old-side token partition, if Difftastic reported spans.
+    - `right_tokens`: New-side token partition, if Difftastic reported spans.
     """
     tokens = left_tokens + right_tokens
     if tokens == []:
@@ -412,9 +478,21 @@ def _difftastic_rows_from_json(
 
     One row is emitted per aligned pair whose line numbers exist in the
     sources; pairs addressing the trailing-newline phantom line are dropped.
-    The alignment must cover each side's lines exactly once and in order —
-    a violation means difftastic broke its alignment contract and throws
+    The alignment must cover each side's lines exactly once and in order. A
+    violation means difftastic broke its alignment contract and throws
     instead of being repaired locally.
+
+    # Parameters
+
+    - `diff_json`: Validated Difftastic alignment and changed-span facts.
+    - `left_text`: Complete old text that the alignment must cover.
+    - `right_text`: Complete new text that the alignment must cover.
+
+    # Failures
+
+    Raises `ValueError` when Difftastic's alignment omits, repeats, reorders, or
+    addresses lines outside the supplied sources, or when its span facts are
+    invalid for those sources.
     """
     left_lines = _source_lines(left_text)
     right_lines = _source_lines(right_text)
@@ -511,11 +589,31 @@ def build_difftastic_ast(
     left_path_hint: str | None,
     right_path_hint: str | None,
 ) -> DifftasticAst:
-    """Run difftastic on two documents and project its rows and warning.
+    """Run Difftastic on two documents and build its rows and warning.
 
     The texts are the content authority; path hints only steer difftastic's
-    parser selection. An empty row list means the caller must pick a fallback
-    renderer, with `engine_warning` explaining a known fallback mode.
+    parser selection. An empty row list means Difftastic reported a known
+    degraded mode. `DifftasticDiffEngine` then builds textual rows and carries
+    `engine_warning` into the result.
+
+    # Parameters
+
+    - `left_text`: Complete old document supplied to Difftastic and row building.
+    - `right_text`: Complete new document supplied likewise.
+    - `left_path_hint`: Optional old filename used for parser selection.
+    - `right_path_hint`: Optional new filename used for parser selection.
+
+    # Usage
+
+    Use this lower-level entrypoint when both sides exist and the caller needs
+    Difftastic's structural result before textual degraded rows are built.
+    Application composition should use `DifftasticDiffEngine.render_diff`.
+
+    # Failures
+
+    Raises `DirdiffError` when Difftastic cannot run or return supported JSON.
+    Raises `ValueError` when its alignment or changed spans contradict the
+    supplied source text.
     """
     diff_json = run_difftastic_json(
         left_text=left_text,
@@ -547,6 +645,11 @@ def _plain_line_rows_for_side(
 
     Every line becomes one one-sided row with the side's whole-line status;
     no tokens are attached because there is nothing to pair against.
+
+    # Parameters
+
+    - `text`: Complete text of the only existing side.
+    - `side`: Whether that text belongs to the old or new side.
     """
     rows: list[DiffEngineRow] = []
     for index, line in enumerate(text.splitlines(), start=1):
@@ -585,6 +688,13 @@ def _unified_diff_rows(
     The caller supplies both complete text sides and their display labels.
     This operation parses Python's unified-diff output directly into the
     complete neutral engine rows consumed directly by rendering.
+
+    # Parameters
+
+    - `left_text`: Complete old text passed to `unified_diff`.
+    - `right_text`: Complete new text passed to `unified_diff`.
+    - `left_label`: Old-side header label for the temporary patch.
+    - `right_label`: New-side header label for the temporary patch.
     """
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
@@ -662,14 +772,17 @@ def _unified_diff_rows(
 
 @final
 class DifftasticDiffEngine(DiffEngineProtocol):
-    """Structural renderer backed by difftastic.
+    """Compare text structurally using Difftastic.
 
-    The renderer entrypoint runs difftastic on already-loaded text and projects
-    its structural output into the row model shared by the rest of dirdiff.
+    Uses `DiffSide.path_hint` to pick a right language parser for difftastic.
+    When Difftastic cannot produce structural rows, the
+    `DiffEngineResult.engine_warning` contains a specific warning, while the
+    difftastic engine itself falls back to different kinds of textual alignment.
+    Callers still receive a valid `DiffEngineResult` without mistaking it for a
+    successful structural comparison.
 
-    Difftastic can fail or decline to produce rows for some inputs.  That is
-    represented as an engine warning plus a textual fallback, keeping the REST
-    response renderable while still being honest about the engine result.
+    The engine has no workspace or request state. Obtain it through `engine()`
+    when selecting an engine by name.
     """
 
     def _run_difftastic_json(
@@ -684,7 +797,14 @@ class DifftasticDiffEngine(DiffEngineProtocol):
 
         This wrapper is intentionally small so tests or subclasses cannot
         redefine service behavior.  It isolates the subprocess integration from
-        the payload projection while keeping the public service class final.
+        row building while keeping the public engine class final.
+
+        # Parameters
+
+        - `left_text`: Complete old text for the subprocess.
+        - `right_text`: Complete new text for the subprocess.
+        - `left_path_hint`: Optional old filename used for parser selection.
+        - `right_path_hint`: Optional new filename used for parser selection.
         """
         return run_difftastic_json(
             left_text=left_text,
@@ -700,18 +820,22 @@ class DifftasticDiffEngine(DiffEngineProtocol):
         old: DiffSide,
         new: DiffSide,
     ) -> DiffEngineResult:
-        """Render an already-loaded pair with difftastic.
+        """Render the supplied sides with Difftastic's structural comparison.
 
-        The only inputs this method trusts are the text strings, existence
-        flags, labels, and path hints supplied by the caller.  Path hints are
-        passed to difftastic for language/parser selection, but this method does
-        not load those paths.
+        Path hints select the parser but are never read as files. If Difftastic
+        cannot produce structural rows, return textual rows with an
+        `engine_warning` that explains the degraded result.
 
-        If difftastic cannot produce usable rows, the renderer falls back to a
-        Git-style textual alignment so the API still returns a renderable file
-        diff.  Notebook detection is intentionally outside this method and
-        happens in server orchestration before an engine is selected.
+        If one side doesn't exist, produces a trivial result of all
+        insert/delete rows.
+
+        # Parameters
+
+        - `old`: Already-loaded old text and path hint used for parser selection.
+        - `new`: Already-loaded new text and path hint used for parser selection.
         """
+        # TODO: figure out if `DiffSide.exist` should exist and whether the
+        # engine should be called on unpaired files in the first place.
         left_text_value = "" if old.text is None else old.text
         right_text_value = "" if new.text is None else new.text
         engine_warning: EngineWarning | None = None

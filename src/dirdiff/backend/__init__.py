@@ -1,16 +1,16 @@
-"""Repository and preset access boundary for dirdiff.
+"""Workspace access through Git repositories and preset catalogs.
 
-Code outside `dirdiff.backend` imports backend contracts and concrete workspace
-backends from this package root.  The package owns branch/ref selection types,
-repository path discovery, manifest construction, file-side loading, text diff
-preset loading, and pull-request preparation.
+Import workspace contracts, `GitBackend`, `PresetBackend`, manifest builders,
+and Pull Request preparation from `dirdiff.backend`. Together they normalize a
+workspace selection, enumerate its affected paths, and load exact File sides as
+bytes.
 
-Backend implementations may read Git repositories and preset directories, but
-they must not publish Snapshots, render rich diff rows, choose HTTP request
-modes, build FastAPI responses, or know about frontend state. Core backend
-side/path/text contracts live in `base.py`. Sibling backend modules import
-shared internals from their owning implementation modules, while external
-callers use the exports here.
+## Purpose and boundaries
+
+This package gives Room capture one interface for repository-backed and preset
+workspaces. It reports source facts needed to build a manifest but does not
+publish Snapshots or interpret loaded bytes as a format. Composition and diff
+rendering begin only after a backend has supplied those bytes.
 """
 
 from dirdiff.backend.base import (

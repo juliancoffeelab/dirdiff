@@ -1,9 +1,18 @@
-"""Git-backed implementation of `WorkspaceBackendProtocol`.
+"""Read Git workspaces through the backend contract.
 
-`GitBackend` is responsible for talking to Git: discovering the repository,
-listing refs, resolving branch-review sides, listing changed paths, and loading
-file versions. It returns backend metadata and exact file contents; rendering,
-text decoding, and API response shaping happen outside this module.
+## Public interface
+
+`GitBackend` discovers a worktree, resolves sides, lists changed Files, and
+loads exact bytes. `ref_choices` and `preferred_review_selection` turn one ref
+metadata read into the values used by the Branch Review controls.
+
+## Purpose and boundaries
+
+This is the only backend module that runs ordinary Git workspace commands.
+It returns repository paths, ref facts, and bytes through
+`WorkspaceBackendProtocol`; Snapshot capture decides when to retain those
+facts. Content decoding, format selection, rendering, and HTTP validation
+happen after this boundary.
 """
 
 from __future__ import annotations
@@ -37,16 +46,30 @@ __all__ = [
 ]
 
 _LARGE_CHANGED_LINES_LAZY_THRESHOLD = 5000
+"""Changed-line count above which Git-backed Files start lazy.
+
+`repo_diff` compares each tracked File's numstat additions plus removals against
+this strict threshold. Binary Files have no numeric count and are unaffected.
+"""
 
 
 def _is_branch_selection(
     selection: DefaultBaseSelection,
 ) -> TypeIs[BranchSelection]:
+    """Narrow a successful default-base result to a branch selection.
+
+    Default failures have a `kind` discriminator, while both usable branch
+    variants have `source`. Callers use this check before reading branch fields.
+    """
     return "source" in selection
 
 
 def _local_default_base_branch_name(metadata: RefMetadata) -> str:
-    """Return local main/master for local-only default-base selection."""
+    """Choose a conventional local base when no remotes are configured.
+
+    `main` takes precedence over `master`. An empty result means neither branch
+    appears in the supplied metadata snapshot.
+    """
     if "main" in metadata["local_branches"]:
         return "main"
     if "master" in metadata["local_branches"]:
@@ -55,7 +78,12 @@ def _local_default_base_branch_name(metadata: RefMetadata) -> str:
 
 
 def _default_branch_review_remote_name(metadata: RefMetadata) -> str:
-    """Pick the default-base remote, or empty when the choice is ambiguous."""
+    """Choose the remote used to derive the initial Branch Review base.
+
+    The current branch's upstream wins, then `origin`, then the sole configured
+    remote. Multiple remaining choices produce an empty result for the HUD to
+    reject instead of inventing a remote.
+    """
     upstream = metadata["upstreams"].get(metadata["current_branch"], "")
     for remote_name in sorted(metadata["remote_names"], key=len, reverse=True):
         if upstream.startswith(f"{remote_name}/"):
@@ -70,8 +98,16 @@ def _default_branch_review_remote_name(metadata: RefMetadata) -> str:
 def ref_choices(metadata: RefMetadata) -> RefChoices:
     """Shape one metadata snapshot into `/api/repo-refs` control choices.
 
-    Pure derivation: callers read the snapshot once and may share it with
-    other derivations so every response reflects the same repository state.
+    # Usage
+
+    Pass the value from `GitBackend.read_ref_metadata`. The server shares that
+    same value with default-selection derivation so both controls describe one
+    caller operation.
+
+    # Failures
+
+    This function performs no I/O and raises no expected domain failure. The
+    typed record must contain every `RefMetadata` field.
     """
     return {
         "builtins": ["HEAD", "index", "worktree"],
@@ -95,6 +131,21 @@ def preferred_review_selection(
     Pure derivation from one metadata snapshot. Callers pass the base
     actually shown to the user (the saved main branch or the derived
     default) so the review choice never defaults to the base itself.
+
+    # Parameters
+
+    - `metadata`: One repository observation shared with base selection.
+    - `base_selection`: The usable or failed base result shown by the HUD.
+
+    # Usage
+
+    Pass the same metadata used to choose `base_selection`. The server publishes
+    the result as the initial review-side control value.
+
+    # Failures
+
+    Empty branch metadata produces an empty local selection rather than an
+    exception. If every branch matches the base, the result may name that branch.
     """
     branch_names = metadata["local_branches"]
     if branch_names == []:
@@ -117,12 +168,40 @@ def preferred_review_selection(
 
 
 class GitBackend(WorkspaceBackendProtocol):
-    """Load refs, paths, and file contents from one Git repository."""
+    """Expose one Git repository through `WorkspaceBackendProtocol`.
+
+    # Usage
+
+    Construct it with `discover`, normalize user input with `normalize_side`,
+    then pass those sides to `repo_diff`. Load the returned path sides with
+    `load_version` or `load_versions`. Branch Review uses
+    `read_ref_metadata`, `default_base_selection`, and
+    `resolve_branch_diff_sides` before that comparison flow.
+
+    The instance stores its repository and command directories. It does not
+    cache Git state, change refs, publish Snapshots, or interpret loaded bytes.
+    """
 
     def __init__(
         self, repo_root: Path | None, *, cwd: Path | None = None
     ) -> None:
-        """Bind the backend to a discovered repo root and caller working directory."""
+        """Bind the backend to a repository location and command directory.
+
+        # Parameters
+
+        - `repo_root`: Repository root, or `None` when discovery found no Git repo.
+        - `cwd`: Stable command directory, defaulting to the process directory.
+
+        # Usage
+
+        Prefer `discover` so implicit repository lookup follows one path. Direct
+        construction is useful when the caller already has an exact root.
+
+        # Failures
+
+        Construction normalizes paths but does not inspect repository state.
+        Filesystem resolution failures propagate.
+        """
         self._repo_root = repo_root.resolve() if repo_root is not None else None
         selected_cwd = cwd if cwd is not None else Path.cwd()
         self._cwd = selected_cwd.resolve()
@@ -130,13 +209,41 @@ class GitBackend(WorkspaceBackendProtocol):
     @property
     @override
     def repo_root(self) -> Path | None:
-        """Expose the repository root used for path normalization."""
+        """The Git worktree root supplied to this backend, if any.
+
+        Uses a stored variable, never changes and never does any work.
+
+        # Usage
+        You will want to construct `GitBackend` using `GitBackend.discover`
+        class method. It uses explicit `repo_root` when provided, or calls git
+        to infer a repository root when omitted.
+
+        Then you can just access the field.
+
+        # Returns
+        - An absolute path to the repository root.
+        - `None` if we we failed to find repository root.
+        """
+        # TODO: probably extremely unsafe.
+        # We must ensure that `GitBackend.discover` returns a real root we
+        # expect, and asserts invalid combinations.
+        # TODO: we should not accept None in `GitBackend.discover`.
         return self._repo_root
 
     @property
     @override
     def cwd(self) -> Path:
-        """Expose the command working directory for renderers."""
+        """Return the stored absolute command directory without filesystem work.
+
+        The value is fixed at construction and may sit outside `repo_root`.
+        Renderers use it when launching tools whose behavior follows the user's
+        original working directory.
+
+        # Usage
+
+        Read this after construction when an external renderer needs the same
+        command directory. Access performs no I/O and has no expected failure.
+        """
         return self._cwd
 
     @classmethod
@@ -146,7 +253,24 @@ class GitBackend(WorkspaceBackendProtocol):
         *,
         repo_root: Path | None = None,
     ) -> GitBackend:
-        """Discover a Git repository from explicit root or current directory."""
+        """Discover a Git repository from an explicit root or working directory.
+
+        # Parameters
+
+        - `cwd`: Directory used for discovery and later renderer commands.
+        - `repo_root`: Explicit repository root that skips Git discovery.
+
+        # Usage
+
+        Server and test setup normally pass `cwd` and let Git find the worktree.
+        Pass `repo_root` only when the caller already selected the repository.
+
+        # Failures
+
+        A failed implicit discovery returns a backend whose `repo_root` is
+        `None`; it is not an exception. Filesystem resolution or process-launch
+        failures propagate from `Path.resolve` or `subprocess.run`.
+        """
         working_dir = (cwd or Path.cwd()).resolve()
         if repo_root is not None:
             return cls(Path(repo_root).expanduser().resolve(), cwd=working_dir)
@@ -171,7 +295,22 @@ class GitBackend(WorkspaceBackendProtocol):
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[bytes]:
-        """Run Git inside this backend's repository root and return bytes."""
+        """Run Git inside this backend's repository root and return bytes.
+
+        # Parameters
+
+        - `args`: Git arguments after the executable name.
+        - `check`: Whether a nonzero exit raises `subprocess.CalledProcessError`.
+
+        # Returns
+
+        - `stdout` and `stderr` contain the process's complete captured byte
+          streams without decoding.
+        - `returncode` is zero after a checked invocation succeeds. With
+          `check=False`, it retains Git's nonzero status for the caller to test.
+
+        A missing repository raises `DirdiffError` before starting a process.
+        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
@@ -187,7 +326,23 @@ class GitBackend(WorkspaceBackendProtocol):
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        """Run Git inside this backend's repository root and return text."""
+        """Run Git inside this backend's repository root and return decoded text.
+
+        # Parameters
+
+        - `args`: Git arguments after the executable name.
+        - `check`: Whether a nonzero exit raises `subprocess.CalledProcessError`.
+
+        # Returns
+
+        - `stdout` and `stderr` contain the complete streams decoded through
+          Python's text-mode subprocess handling.
+        - `returncode` is zero after a checked invocation succeeds. With
+          `check=False`, it retains Git's nonzero status for the caller to test.
+
+        The subprocess uses Python's text decoding. A missing repository raises
+        `DirdiffError` before starting it.
+        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
@@ -200,7 +355,21 @@ class GitBackend(WorkspaceBackendProtocol):
 
     @override
     def normalize_side(self, raw_side: str) -> SideName:
-        """Normalize built-in diff sides while validating explicit Git refs."""
+        """Normalize a built-in side or verify an explicit commit-like Git ref.
+
+        Whitespace is stripped. Built-in sides need no repository, while custom
+        refs require one and must resolve through `rev-parse`.
+
+        # Usage
+
+        Normalize each user-facing side once, then pass the result back to this
+        backend's comparison and loading methods.
+
+        # Failures
+
+        Blank input, a custom ref without a repository, or an unknown ref raises
+        `DirdiffError`.
+        """
         side = raw_side.strip()
         if side == "":
             raise DirdiffError("Diff side is required.")
@@ -223,9 +392,15 @@ class GitBackend(WorkspaceBackendProtocol):
     def commit_id(self, side: SideName) -> str:
         """Return the immutable commit id named by one Git side.
 
-        The caller may supply `HEAD`, a branch, a tag, or a commit expression.
-        Mutable `index` and `worktree` sides and unknown refs are rejected with
-        `DirdiffError`; the result is always a Git commit id.
+        # Usage
+
+        Snapshot capture uses this after side normalization when it must replace
+        a symbolic commit-like side with immutable identity.
+
+        # Failures
+
+        Blank input, mutable `index` or `worktree`, a missing repository, and
+        unknown or non-commit refs raise `DirdiffError`.
         """
         normalized = side.strip()
         if normalized == "":
@@ -245,7 +420,19 @@ class GitBackend(WorkspaceBackendProtocol):
 
     @override
     def discover_default_path(self) -> str:
-        """Find a path suitable for single-file startup mode."""
+        """Choose the first modified File, or otherwise the first tracked File.
+
+        # Usage
+
+        Single-File startup calls this when the user supplied no path. The
+        returned repository-relative File can be passed to `normalize_repo_path`.
+
+        # Failures
+
+        Missing repository state and repositories with no modified or tracked
+        File raise `DirdiffError`. Git command failures can appear as an empty
+        candidate set because these discovery probes do not require zero exit.
+        """
         if self.repo_root is None:
             raise DirdiffError(
                 "No Git repo found for automatic path discovery."
@@ -284,16 +471,26 @@ class GitBackend(WorkspaceBackendProtocol):
         raise DirdiffError("No files found in the current Git repo.")
 
     def read_ref_metadata(self) -> RefMetadata:
-        """Read one consistent branch/remote metadata snapshot.
+        """Read the branch and remote metadata used by one caller operation.
 
         Two Git reads (`remote` and one `for-each-ref` across `refs/heads`
         and `refs/remotes`, whose `%(HEAD)` marker also identifies the
         current branch) produce every value the branch-control derivations
-        need, so `/api/repo-defaults` and `/api/repo-refs` are computed from
-        a single repository observation instead of many repeated Git
-        commands. Without a repository the snapshot is empty rather than an
-        error, preserving the empty-control behavior of the former per-item
-        readers.
+        need. Callers share the returned value between default and choice
+        derivation instead of repeating those reads. Repository state can change
+        between the two Git commands; this method does not lock the repository.
+
+        # Usage
+
+        Read once per defaults or choices operation, then pass the returned
+        record to `default_base_selection`, `preferred_review_selection`, and
+        `ref_choices` as needed.
+
+        # Failures
+
+        Without a repository, or when either non-checking Git probe fails, the
+        affected fields are empty rather than exceptional. Process-launch and
+        decoding failures still propagate.
         """
         if self.repo_root is None:
             return {
@@ -391,12 +588,19 @@ class GitBackend(WorkspaceBackendProtocol):
     ) -> DefaultBaseSelection:
         """Choose the initial branch-review base from one metadata snapshot.
 
-        The choice itself is pure; the only Git access is the
-        `git remote show` fallback for a remote whose local
-        `refs/remotes/<remote>/HEAD` symref is absent. That fallback may
-        contact the network and cost seconds, exactly as before this
-        consolidation; replacing it with a local guess is a user-visible
-        behavior change that needs explicit approval first.
+        # Usage
+
+        Pass a fresh `read_ref_metadata` result. The server stores or publishes
+        the returned selection before deriving the preferred review side.
+
+        # Failures
+
+        If metadata cannot identify one safe base, return
+        `{"kind": "error", "error": "heuristic_fail"}`. When a remote lacks a
+        local HEAD symbolic ref, `git remote show` may contact the network;
+        command failure also produces the error result. A caller-supplied
+        metadata record naming remotes on a backend without a repository raises
+        `DirdiffError` when that remote lookup is needed.
         """
         if metadata["remote_names"] != []:
             default_remote = _default_branch_review_remote_name(metadata)
@@ -421,7 +625,11 @@ class GitBackend(WorkspaceBackendProtocol):
         return {"source": "local", "branch": base_branch}
 
     def _remote_show_head_branch_name(self, remote_name: str) -> str:
-        """Read `git remote show` when local refs/remotes/<remote>/HEAD is absent."""
+        """Ask a remote for its HEAD branch when no local symbolic ref exists.
+
+        `git remote show` may contact the network. Command failure, absent output,
+        and Git's `(unknown)` marker all produce an empty result.
+        """
         result = self._run_git_text(
             ["remote", "show", remote_name],
             check=False,
@@ -443,7 +651,31 @@ class GitBackend(WorkspaceBackendProtocol):
         base_selection: BranchSelection,
         review_selection: BranchSelection,
     ) -> tuple[str, str, str, str]:
-        """Resolve branch labels once into immutable capture commits."""
+        """Resolve branch labels once into immutable capture commits.
+
+        # Parameters
+
+        - `base_selection`: Local or remote base branch selected by the caller.
+        - `review_selection`: Local or remote branch whose changes are reviewed.
+
+        # Usage
+
+        Branch Review capture calls this after the HUD supplies two structured
+        selections. Use the returned labels for presentation and the two commit
+        ids for immutable capture.
+
+        # Returns
+
+        - First, the base display label preserving its local or remote spelling.
+        - Second, the immutable merge-base commit used as capture's left side.
+        - Third, the review display label preserving its selected spelling.
+        - Fourth, the immutable review-head commit used as capture's right side.
+
+        # Failures
+
+        Missing repositories, unresolved refs, non-commit targets, and branches
+        without a merge base raise `DirdiffError`.
+        """
         base_name = base_selection["branch"]
         base_branch = (
             base_name
@@ -506,7 +738,14 @@ class GitBackend(WorkspaceBackendProtocol):
         return base_branch, merge_base.stdout.strip(), branch, branch_commit
 
     def _parse_name_status_output(self, output: bytes) -> list[RepoDiffPath]:
-        """Parse NUL-delimited `git diff --name-status` output."""
+        """Parse Git's NUL-delimited status records into File path pairs.
+
+        Rename and copy records consume two UTF-8 paths; ordinary records consume
+        one. The returned order matches Git output, and pure renames carry their
+        backend lazy override. A truncated final record stops parsing and returns
+        the complete entries read before it; invalid UTF-8 raises
+        `UnicodeDecodeError`.
+        """
         tokens = output.split(b"\0")
         if tokens != [] and tokens[-1] == b"":
             tokens = tokens[:-1]
@@ -581,7 +820,19 @@ class GitBackend(WorkspaceBackendProtocol):
 
         Rename records use an empty path in the count token followed by old and
         new paths; the result is keyed by the new path used by manifest. Binary
-        and malformed records are absent because they provide no line counts.
+        records are absent from the mapping and make both aggregate totals
+        unavailable. Malformed records raise `DirdiffError`; invalid UTF-8 paths
+        raise `UnicodeDecodeError`.
+
+        # Returns
+
+        - First, per-path counts keyed by the manifest's current path. In each
+          mapping value, the first item is added lines and the second is removed
+          lines; binary paths are absent.
+        - Second, total additions over all records, or `None` when any binary
+          record prevents Git from supplying complete line totals.
+        - Third, total removals over all records, or `None` under that same
+          binary condition. Both totals always have equal presence.
         """
         tokens = output.split(b"\0")
         if tokens != [] and tokens[-1] == b"":
@@ -631,7 +882,11 @@ class GitBackend(WorkspaceBackendProtocol):
         )
 
     def _list_untracked_worktree_paths(self) -> list[RepoDiffPath]:
-        """List untracked worktree files as one-sided repo diff paths."""
+        """List untracked, non-ignored worktree Files as right-only additions.
+
+        Git's NUL-delimited path order is preserved. A missing repository or Git
+        command failure propagates instead of returning an incomplete list.
+        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
 
@@ -673,6 +928,23 @@ class GitBackend(WorkspaceBackendProtocol):
         side may already be a frozen commit id supplied by Snapshot capture;
         callers must not need to retain the symbolic `HEAD` spelling merely to
         include untracked worktree files.
+
+        # Parameters
+
+        - `left`: Normalized Git side used as the left input.
+        - `right`: Normalized Git side used as the right input.
+        - `show_untracked`: Whether a right-side worktree adds untracked Files.
+
+        # Usage
+
+        Pass sides normalized by this instance. Snapshot capture walks the
+        returned paths in order and may reuse their object ids while loading.
+
+        # Failures
+
+        A missing repository, failed Git command, malformed raw or numstat
+        output, or invalid UTF-8 path raises. Aggregate counts cover the tracked
+        diff; one binary record makes both totals unavailable.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -703,7 +975,17 @@ class GitBackend(WorkspaceBackendProtocol):
         # existing name-status grammar so the established path parser remains
         # the single authority for rename/copy and one-sided File identity.
         def object_id_or_none(raw: bytes) -> str | None:
-            """Read one raw-record object id; all-zero ids mean no identity."""
+            """Decode a raw Git object id when that File side has an object.
+
+            Git writes an all-zero field for an absent or worktree-only object;
+            that sentinel becomes `None`. Other fields must be ASCII object ids.
+
+            # Returns
+
+            - The decoded object id for a stored Git object.
+            - `None`: Git supplied its all-zero sentinel, so this absent or
+              worktree-only side has no stored object id for capture to retain.
+            """
             text = raw.decode("ascii")
             return None if set(text) <= {"0"} else text
 
@@ -786,7 +1068,27 @@ class GitBackend(WorkspaceBackendProtocol):
 
     @override
     def normalize_repo_path(self, raw_path: str) -> str:
-        """Normalize and validate a repo-relative path without escaping root."""
+        """Normalize the relative POSIX spelling used by Git File operations.
+
+        Blank, directory-shaped, absolute, `..`, and paths beginning with `../`
+        raise `DirdiffError`. Other relative spellings are returned unchanged
+        after `PurePosixPath` conversion.
+
+        # Usage
+
+        Pass paths returned by this backend's Git listing. This method is not a
+        safe boundary for arbitrary user input.
+
+        # Failures
+
+        Missing repository state and the rejected shapes above raise
+        `DirdiffError`. This implementation does not reject an inner parent segment:
+        `dir/../../escape` currently passes validation. It therefore does not
+        satisfy `WorkspaceBackendProtocol.normalize_repo_path` as a general
+        containment boundary. Callers must pass paths produced by this backend's
+        Git manifest rather than treating this method as validation for arbitrary
+        user input.
+        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         if raw_path.strip() == "":
@@ -807,10 +1109,25 @@ class GitBackend(WorkspaceBackendProtocol):
     def load_version(self, path: str, side: SideName) -> bytes:
         """Return exact contents from the worktree, index, or a Git tree.
 
-        The path must identify a file reported by this backend. A symlink
-        loads as Git records it — a blob holding the raw link target — on
-        every side. Missing or unreadable content raises `DirdiffError` with
-        the underlying reason.
+        On every side, a symlink loads as Git records it, a blob holding the raw
+        link target.
+
+        # Parameters
+
+        - `path`: Normalized repository-relative path reported by `repo_diff`.
+        - `side`: Worktree, index, or Git tree/ref to read from.
+
+        # Usage
+
+        Load only a present side from a `RepoDiffPath` returned by this instance.
+        Capture may use `load_versions` instead when several sides are needed.
+
+        # Failures
+
+        Missing repository state, missing or directory-shaped ordinary worktree
+        content, unreadable regular-file bytes, and non-blob or absent Git
+        objects raise `DirdiffError`. Reading a worktree symlink may propagate
+        `OSError` directly.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -862,7 +1179,25 @@ class GitBackend(WorkspaceBackendProtocol):
         Worktree bytes are read directly. Immutable tree and index paths are
         sent as NUL-terminated object expressions to one `cat-file --batch`
         invocation, so exact File names never become pathspecs or argv entries.
-        Missing sides remain individual `DirdiffError` results in request order.
+
+        # Usage
+
+        Snapshot capture supplies normalized `(path, side)` pairs and zips the
+        returned tuple to them by position.
+
+        # Returns
+
+        - Each item corresponds to one input pair, preserving input order so
+          capture can attach each result without another identity key.
+        - A `bytes` item is the exact content loaded for that File side.
+        - A `DirdiffError` item describes only that unavailable side;
+          successful sibling results remain available.
+
+        # Failures
+
+        Missing individual sides become `DirdiffError` values in input order.
+        Missing repository state, batch-process failure, or malformed batch
+        output raises `DirdiffError` for the complete operation.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")

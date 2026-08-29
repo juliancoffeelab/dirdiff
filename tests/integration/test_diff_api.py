@@ -32,6 +32,18 @@ __all__: list[str] = []
 
 
 def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
+    """Create a real API client and active Mark for one disposable repository.
+
+    `repo_path` is the reviewed worktree. Database and Snapshot storage are
+    placed beside it, preserving the production rule that dirdiff state cannot
+    become worktree input. The caller receives the Mark id for manifest calls.
+
+    # Returns
+
+    - `First`: A client bound to the real application and disposable Room storage
+      beside the repository.
+    - `Second`: The active repository Mark id accepted by manifest endpoints.
+    """
     # Persistent dirdiff state is not valid worktree input. Keep this API
     # fixture outside the reviewed repository, as production configuration must.
     engine = open_sqlite_engine(
@@ -57,7 +69,16 @@ def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
 
 
 def run_git(cwd: Path, *args: str) -> None:
-    """Run one Git command while building integration-test repositories."""
+    """Run one Git command while building integration-test repositories.
+
+    # Parameters
+
+    - `cwd`: Disposable repository or parent directory in which Git runs.
+    - `args`: Exact Git arguments after the executable name.
+
+    Nonzero exit fails the test and captured output remains attached to the
+    exception.
+    """
     subprocess.run(
         ["git", *args],
         cwd=cwd,
@@ -67,7 +88,13 @@ def run_git(cwd: Path, *args: str) -> None:
 
 
 def create_committed_repo(repo_path: Path, *, branch: str) -> None:
-    """Create a one-commit Git repo used as a local or remote test source."""
+    """Create a one-commit Git repo used as a local or remote test source.
+
+    # Parameters
+
+    - `repo_path`: Existing empty directory to initialize and mutate.
+    - `branch`: Exact initial branch name needed by the scenario.
+    """
     run_git(repo_path, "init", "-b", branch)
     run_git(repo_path, "config", "user.name", "Test User")
     run_git(repo_path, "config", "user.email", "test@example.com")
@@ -85,7 +112,16 @@ def clone_test_remote(
     worktree_name: str = "worktree",
     branch: str = "master",
 ) -> Path:
-    """Create a bare remote from a source repo and return a normal clone."""
+    """Create a bare remote from a source repo and return a normal clone.
+
+    # Parameters
+
+    - `tmp_path`: Empty test root receiving all three repositories.
+    - `source_name`: Directory for the committed source repository.
+    - `bare_name`: Directory for the bare remote clone.
+    - `worktree_name`: Directory for the ordinary returned clone.
+    - `branch`: Initial source branch advertised by the remote.
+    """
     source_repo = tmp_path / source_name
     source_repo.mkdir()
     create_committed_repo(source_repo, branch=branch)
@@ -95,7 +131,10 @@ def clone_test_remote(
 
 
 def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
-    """Create a clone whose remote cannot report a default branch."""
+    """Create a clone whose remote cannot report a default branch.
+
+    The fixture isolates default-discovery failure without substituting a guessed ref.
+    """
     source_repo = tmp_path / "remote-source"
     source_repo.mkdir()
     create_committed_repo(source_repo, branch="main")
@@ -115,7 +154,10 @@ def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
 def test_historical_file_review_migration_never_reads_captured_text(
     tmp_path: Path,
 ) -> None:
-    """Retain empty, binary, and non-UTF8 File origins without fabrication."""
+    """Retain empty, binary, and non-UTF8 File origins without fabrication.
+
+    Review reads must preserve each valid File-level origin and never invent text coordinates.
+    """
     database_path = tmp_path / "legacy.sqlite"
     config = Config(Path(__file__).parents[2] / "alembic.ini")
     config.attributes["db_path"] = database_path
@@ -331,7 +373,10 @@ def test_historical_file_review_migration_never_reads_captured_text(
 def test_repo_defaults_base_to_remote_and_review_to_local(
     tmp_path: Path,
 ) -> None:
-    """Repo defaults expose structured branch-review defaults without legacy refs."""
+    """Repository defaults expose structured Branch Review choices without legacy refs.
+
+    The HTTP contract keeps source, remote, and branch separate for frontend controls.
+    """
     repo_path = clone_test_remote(tmp_path)
     run_git(repo_path, "config", "user.name", "Test User")
     run_git(repo_path, "config", "user.email", "test@example.com")
@@ -364,7 +409,10 @@ def test_repo_defaults_base_to_remote_and_review_to_local(
 def test_repo_main_branch_save_overrides_repo_defaults(
     tmp_path: Path,
 ) -> None:
-    """Saved repo main branch controls future branch-review base defaults."""
+    """A saved repository main branch controls future Branch Review base defaults.
+
+    Persistence must win over rediscovery while remaining a symbolic structured choice.
+    """
     repo_path = clone_test_remote(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -391,7 +439,10 @@ def test_repo_main_branch_save_overrides_repo_defaults(
 
 
 def test_repo_refs_returns_ref_choices_without_defaults(tmp_path: Path) -> None:
-    """Repo refs expose autocomplete metadata separately from repo defaults."""
+    """Repository refs expose autocomplete metadata separately from defaults.
+
+    Listing available choices must not silently change the saved Branch Review base.
+    """
     repo_path = clone_test_remote(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -412,7 +463,10 @@ def test_repo_refs_returns_ref_choices_without_defaults(tmp_path: Path) -> None:
 def test_repo_main_branch_save_rejects_remote_without_remote_name(
     tmp_path: Path,
 ) -> None:
-    """Remote main branch saves require both remote and branch fields."""
+    """Remote main-branch saves require both remote and branch fields.
+
+    Partial symbolic configuration is rejected rather than repaired with an invented value.
+    """
     repo_path = clone_test_remote(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -434,7 +488,10 @@ def test_repo_main_branch_save_rejects_remote_without_remote_name(
 
 
 def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
-    """User preferences are keyed by user profile id, not first row."""
+    """User preferences are keyed by Profile identity, not table position.
+
+    Reads and writes for one Profile must leave every other Profile's complete row unchanged.
+    """
     create_committed_repo(tmp_path, branch="main")
     client, _project_id = create_repo_client(tmp_path)
 
@@ -486,7 +543,10 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
 def test_repo_defaults_reports_unresolved_base_when_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
-    """Remote defaults fail when local and remote HEAD discovery both fail."""
+    """Remote defaults fail when local and remote HEAD discovery both fail.
+
+    The endpoint must expose the missing contract instead of choosing an unrelated branch.
+    """
     repo_path = clone_test_remote_with_unknown_head(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -505,7 +565,10 @@ def test_repo_defaults_reports_unresolved_base_when_remote_head_is_missing(
 def test_repo_defaults_uses_remote_show_when_local_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
-    """Remote defaults fall back to `git remote show` for missing origin/HEAD."""
+    """Remote defaults use `git remote show` when origin/HEAD is absent.
+
+    The discovered symbolic branch remains paired with its remote in the structured result.
+    """
     repo_path = clone_test_remote(tmp_path, branch="main")
     run_git(repo_path, "remote", "set-head", "origin", "-d")
     client, project_id = create_repo_client(repo_path)
@@ -526,7 +589,10 @@ def test_repo_defaults_uses_remote_show_when_local_remote_head_is_missing(
 def test_repo_defaults_prefers_current_branch_upstream_remote(
     tmp_path: Path,
 ) -> None:
-    """Default remote follows current branch upstream before origin."""
+    """Default remote follows the current branch upstream before origin.
+
+    This preserves repository-specific tracking configuration rather than privileging a name.
+    """
     origin_worktree = clone_test_remote(
         tmp_path,
         source_name="origin-source",
@@ -572,7 +638,10 @@ def test_repo_defaults_prefers_current_branch_upstream_remote(
 def test_repo_defaults_local_only_repo_to_main(
     tmp_path: Path,
 ) -> None:
-    """Local-only defaults use main/master policy, not current HEAD guessing."""
+    """Local-only defaults use main/master policy, not current HEAD guessing.
+
+    An arbitrary checked-out feature branch must not become the implicit review base.
+    """
     create_committed_repo(tmp_path, branch="main")
     run_git(tmp_path, "checkout", "-b", "feature")
     client, project_id = create_repo_client(tmp_path)
@@ -592,7 +661,10 @@ def test_repo_defaults_local_only_repo_to_main(
 def test_branch_review_query_validation_returns_bad_request(
     tmp_path: Path,
 ) -> None:
-    """Branch-review dependency validation returns 400, not an uncaught 500."""
+    """Branch Review dependency validation returns 400, not an uncaught 500.
+
+    Invalid structured choices are caller errors and must not escape the HTTP boundary.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -621,6 +693,12 @@ def test_branch_review_query_validation_returns_bad_request(
 def test_file_diff_endpoint_returns_full_generated_file_rows(
     tmp_path: Path,
 ) -> None:
+    """A generated-file policy delays loading without truncating later rows.
+
+    The manifest marks a changed lockfile lazy. An explicit File diff then
+    renders its complete captured contents, proving laziness is presentation
+    policy rather than content loss.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -751,7 +829,10 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
 def test_preset_manifest_and_file_diff_do_not_require_a_mark(
     tmp_path: Path,
 ) -> None:
-    """Preset mode is a checked-in fixture workflow, not a marked-repo workflow."""
+    """Preset mode is a checked-in fixture workflow, not a marked-repository workflow.
+
+    Its endpoint must not require or expose a repository registration identity.
+    """
     engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
@@ -841,7 +922,10 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
 
 
 def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
-    """Every preset catalog is repo-less, even though catalogs use different roots."""
+    """Every preset catalog is repository-less despite using different fixture roots.
+
+    Catalog selection changes fixture discovery only, never repository registry state.
+    """
     engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
@@ -878,7 +962,10 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
 
 
 def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
-    """Preset metadata should model lazy placement without giant fixture files."""
+    """Preset metadata models lazy placement without giant fixture Files.
+
+    Explicit fixture metadata must drive the same manifest contract as size-based deferral.
+    """
     engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
     client = TestClient(
         create_app(
@@ -923,7 +1010,10 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
 def test_preset_manifest_validates_required_preset_fields(
     tmp_path: Path,
 ) -> None:
-    """Repo-less preset loading still validates the preset-specific inputs."""
+    """Repository-less preset loading still validates preset-specific inputs.
+
+    Removing repository dependencies must not weaken catalog or fixture identity checks.
+    """
     engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
@@ -973,6 +1063,11 @@ def test_preset_manifest_validates_required_preset_fields(
 def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
     tmp_path: Path,
 ) -> None:
+    """A deleted File keeps only its left identity and deferred-load reason.
+
+    This guards the HTTP tree shape for a genuinely absent worktree side; the
+    manifest must not invent a right path or require content rendering.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -1036,7 +1131,10 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
 
 
 def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
-    """One agent batch addressing several Threads folds and persists atomically."""
+    """One agent batch addressing several Threads folds and persists atomically.
+
+    Every accepted action must observe prior actions in order, with no partial publication.
+    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
@@ -1161,7 +1259,10 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
 
 
 def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
-    """A batch with one invalid action must leave zero review rows behind."""
+    """A batch with one invalid action leaves zero review rows behind.
+
+    Validation and persistence share one transaction so earlier valid actions cannot leak.
+    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
@@ -1213,7 +1314,10 @@ def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
 def test_agent_batch_reports_first_invalid_action_in_batch_order(
     tmp_path: Path,
 ) -> None:
-    """Mixed-problem batches report the earliest action's exact failure."""
+    """Mixed-problem batches report the earliest action's exact failure.
+
+    Ordered validation must not mask it with a later error or a generic batch response.
+    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
@@ -1293,7 +1397,11 @@ def test_agent_batch_reports_first_invalid_action_in_batch_order(
 def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     tmp_path: Path,
 ) -> None:
-    """An agent names a cell bay on write and reads the same one back."""
+    """An agent names a cell bay on write and reads the same one back.
+
+    Public bay identity must survive persistence without being reduced to a
+    File-level target.
+    """
     cell: dict[str, JsonValue] = {
         "cell_type": "code",
         "id": "stable-cell",

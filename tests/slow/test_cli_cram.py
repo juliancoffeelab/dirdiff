@@ -16,6 +16,12 @@ __all__: list[str] = []
 
 
 def test_cli_cram_transcripts() -> None:
+    """Run the Mark CLI transcript with the current environment's executables.
+
+    Prepending the active Python executable directory makes Cram invoke the same
+    editable dirdiff installation as pytest. Any command failure or output drift
+    fails the transcript directly.
+    """
     env = os.environ.copy()
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]
     subprocess.run(

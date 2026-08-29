@@ -1,16 +1,23 @@
 """Relational persistence for Rooms, Snapshots, Files, and review discussions.
 
-`RoomStore` is the public database interface. A `SnapshotFile` row represents
-one affected File and records the absolute path of its capture directory.
-Separate left and right relations record whichever captured sides exist,
-without nullable side columns or a discriminator.
+## Classes
 
-Review relations retain represented Thread/Snapshot pairs and append-only
-actions authored by an existing Profile. This
-module owns SQLAlchemy tables, queries, and transactions only. It does not
-apply Tab rules, call workspace backends, hash or load contents, manage
-directories or locks, derive manifest output, or change repository-mark
-deletion behavior. Those responsibilities remain outside `dirdiff.db`.
+`RoomStore` is the module's database interface. Its immutable record types carry
+complete Snapshot publication input, captured File facts, and review rows
+between the store and `dirdiff.room_lord` or `dirdiff.review`.
+
+## Purpose and boundaries
+
+The store keeps each Snapshot tied to one Room, each File side tied to one
+published File, and each review action tied to an existing Profile and Thread
+placement. Operations that span several rows expose one transaction when the
+caller needs atomic publication or an atomic review batch.
+
+This module stores identities, paths, digests, metadata, and review actions. It
+does not choose a Room from a Tab, capture or read File contents, acquire the
+filesystem publication lock, derive Thread placement, or render a diff. Those
+decisions belong to `dirdiff.room_lord`, `dirdiff.review`, and the rendering
+flow.
 """
 
 from __future__ import annotations
@@ -67,8 +74,10 @@ __all__ = [
 class Room(TableBase):
     """Persist one Room identity selected by a Tab's correspondence law.
 
-    Repository Rooms reference a Mark; preset Rooms omit it. `backend_key` is
-    opaque to SQLite and is used only for exact equality inside a Tab.
+    `RoomStore` creates or finds this row from a `RoomIdentity` after RoomLord
+    has applied the active Tab's correspondence law.
+
+    This table does not store a selected Snapshot or interpret the key.
     """
 
     __tablename__ = "room"
@@ -84,12 +93,31 @@ class Room(TableBase):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    """Generated relational identity referenced by this Room's Snapshots.
+
+    It remains stable across recaptures while correspondence selects the Room.
+    """
+
     mark_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("repo_mark.id"),
         nullable=True,
     )
+    """Repository mark for a repository Room, or `None` for a preset Room.
+
+    Its nullability must agree with the persisted Tab and correspondence law.
+    """
+
     tab: Mapped[str] = mapped_column(String, nullable=False)
+    """Persisted Tab whose correspondence law produced this Room.
+
+    Callers use it to decode the opaque key and choose recapture inputs.
+    """
+
     backend_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    """Opaque, non-empty correspondence key compared only for equality.
+
+    Its internal bytes belong to the Tab-specific law and are never a display value.
+    """
 
 
 Index(
@@ -112,9 +140,12 @@ Index(
 class Snapshot(TableBase):
     """Persist one immutable content state inside a Room.
 
-    The id addresses follow-up reads globally. `content_hash` deduplicates
-    equal captures inside the Room. File contents, repository paths, and
-    Snapshot-wide metadata live in their own dependent relations.
+    Snapshot publication inserts or reuses this row after capture has computed
+    the complete content hash. Follow-up routes use `id`; recapture uses
+    `content_hash` to reuse equal state inside the Room.
+
+    File contents, repository paths, and Snapshot-wide metadata live in
+    dependent relations. The row has no mutable current-state flag.
     """
 
     __tablename__ = "snapshot"
@@ -136,18 +167,35 @@ class Snapshot(TableBase):
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    """Globally unique 32-character lowercase hexadecimal Snapshot key.
+
+    HTTP follow-up operations retain it as the opaque identity of captured content.
+    """
+
     room_id: Mapped[int] = mapped_column(
         ForeignKey("room.id"),
         nullable=False,
     )
+    """Room containing this immutable content state.
+
+    Content reuse and sequence comparisons are meaningful only within this relation.
+    """
+
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    """SHA-256 identity used to reuse equal captured state within the Room.
+
+    Equal hashes suppress duplicate Snapshots only inside the same Room.
+    """
 
 
 class SnapshotMeta(TableBase):
     """Persist presentation labels and backend totals for one Snapshot.
 
-    Labels are always present. Added and removed line counts are either both
-    nonnegative or both absent when the backend cannot state them.
+    Publication writes this one-to-one row with its Snapshot. Reads return the
+    labels and backend totals through `SnapshotMetaRecord`.
+
+    Added and removed line counts are either both nonnegative or both absent.
+    They are backend facts, not totals derived from rendered bays.
     """
 
     __tablename__ = "snapshot_meta"
@@ -176,19 +224,46 @@ class SnapshotMeta(TableBase):
         ForeignKey("snapshot.id"),
         primary_key=True,
     )
+    """Snapshot whose one-to-one metadata this row stores.
+
+    The shared primary key prevents labels or totals from multiplying per capture.
+    """
+
     left_label: Mapped[str] = mapped_column(String, nullable=False)
+    """Non-empty human-readable label retained for the captured left side.
+
+    It describes the capture and is not recomputed from later repository state.
+    """
+
     right_label: Mapped[str] = mapped_column(String, nullable=False)
+    """Non-empty human-readable label retained for the captured right side.
+
+    Readers present it with this Snapshot even after its source ref changes.
+    """
+
     added_lines: Mapped[Optional[int]] = mapped_column(nullable=True)
+    """Nonnegative backend-wide added-line total, or `None` when unavailable.
+
+    This field and `removed_lines` always have equal presence.
+    """
+
     removed_lines: Mapped[Optional[int]] = mapped_column(nullable=True)
+    """Nonnegative backend-wide removed-line total, or `None` when unavailable.
+
+    This field and `added_lines` always have equal presence.
+    """
 
 
 class SnapshotFile(TableBase):
     """Persist one affected File and its absolute capture-directory path.
 
-    Side presence and side-specific repository paths and digests live in
-    `SnapshotFileLeft` and `SnapshotFileRight`. This row retains tracked and
-    change classification and any capture failure, but no manifest ordering,
-    display name, line count, or loading-policy output.
+    Publication creates one row for every affected File and stores its absolute
+    capture-directory path. File lookup joins it to the optional side rows and
+    returns `SnapshotFileRecord`.
+
+    Side presence, repository paths, and digests live in `SnapshotFileLeft` and
+    `SnapshotFileRight`. This row has no manifest order, display name, line
+    count, or final loading policy.
     """
 
     __tablename__ = "snapshot_file"
@@ -215,14 +290,43 @@ class SnapshotFile(TableBase):
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    """Globally unique 32-character lowercase hexadecimal captured-File key.
+
+    Side rows, overrides, and placements reference it rather than repository path.
+    """
+
     snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"),
         nullable=False,
     )
+    """Snapshot containing this affected File.
+
+    File lookup and placement joins must remain inside this captured code universe.
+    """
+
     path: Mapped[str] = mapped_column(String, nullable=False)
+    """Unique absolute path of the File's immutable capture directory.
+
+    Persistence uses it to recover bytes; it is not the repository-relative identity.
+    """
+
     tracked: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    """Whether the backend reported this File as tracked input.
+
+    The value is retained from capture and is not inferred from later Git state.
+    """
+
     change_type: Mapped[str] = mapped_column(String, nullable=False)
+    """Backend classification of the captured side-path relationship.
+
+    Consumers interpret it with nullable side rows rather than deriving it anew.
+    """
+
     error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    """Exact non-empty capture failure, or `None` for valid captured bytes.
+
+    A failure forbids treating side digests or renderer content as available.
+    """
 
 
 Index("ix_snapshot_file_snapshot_id", SnapshotFile.snapshot_id)
@@ -236,6 +340,13 @@ def _captured_side_constraints(side: str) -> tuple[CheckConstraint, ...]:
     free of `..` traversal) and a 32-byte content digest; only the constraint
     names differ by side. One builder keeps the two tables' contracts from
     drifting apart.
+
+    # Returns
+
+    - First, a named constraint requiring a non-empty relative repository path
+      without `..` traversal.
+    - Second, a named constraint requiring the content digest to be 32 bytes.
+      Both side tables install the constraints under side-specific names.
     """
     return (
         CheckConstraint(
@@ -258,8 +369,11 @@ def _captured_side_constraints(side: str) -> tuple[CheckConstraint, ...]:
 class SnapshotFileLeft(TableBase):
     """Persist a captured File's left repository path and content digest.
 
-    Absence of this row means the File has no left side; the relation never
-    represents that absence with nullable columns.
+    Publication inserts this row when the captured File has a left side. Reads
+    expose it as `SnapshotFileSideRecord`.
+
+    Absence of the row means the side is absent. The relation never uses
+    nullable path or digest columns to represent that state.
     """
 
     __tablename__ = "snapshot_file_left"
@@ -269,15 +383,32 @@ class SnapshotFileLeft(TableBase):
         ForeignKey("snapshot_file.id"),
         primary_key=True,
     )
+    """Captured File whose left side this one-to-one row describes.
+
+    Its primary key enforces at most one left source per captured File.
+    """
+
     repository_path: Mapped[str] = mapped_column(String, nullable=False)
+    """Non-empty repository-relative path of the captured left side.
+
+    It is the public File-side identity and is never replaced by the capture path.
+    """
+
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    """SHA-256 digest of the captured left-side bytes.
+
+    Snapshot comparison uses it without reopening mutable repository content.
+    """
 
 
 class SnapshotFileRight(TableBase):
     """Persist a captured File's right repository path and content digest.
 
-    Absence of this row means the File has no right side; the relation never
-    represents that absence with nullable columns.
+    Publication inserts this row when the captured File has a right side. Reads
+    expose it as `SnapshotFileSideRecord`.
+
+    Absence of the row means the side is absent. The relation never uses
+    nullable path or digest columns to represent that state.
     """
 
     __tablename__ = "snapshot_file_right"
@@ -287,15 +418,32 @@ class SnapshotFileRight(TableBase):
         ForeignKey("snapshot_file.id"),
         primary_key=True,
     )
+    """Captured File whose right side this one-to-one row describes.
+
+    Its primary key enforces at most one right source per captured File.
+    """
+
     repository_path: Mapped[str] = mapped_column(String, nullable=False)
+    """Non-empty repository-relative path of the captured right side.
+
+    It remains nullable only through absence of the whole side row.
+    """
+
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    """SHA-256 digest of the captured right-side bytes.
+
+    It identifies immutable captured bytes rather than current worktree contents.
+    """
 
 
 class SnapshotFileLazyReason(TableBase):
     """Persist an explicit loading-policy override captured for one File.
 
-    The row exists only when the backend supplied a reason. It stores neither
-    rendered output nor the optional source metadata content.
+    Publication inserts this row only when the backend supplied a reason.
+    Manifest and File lookup read it as an override to combine with derived
+    loading policy.
+
+    It stores neither rendered output nor the optional source metadata content.
     """
 
     __tablename__ = "snapshot_file_lazy_reason"
@@ -304,15 +452,26 @@ class SnapshotFileLazyReason(TableBase):
         ForeignKey("snapshot_file.id"),
         primary_key=True,
     )
+    """Captured File whose explicit lazy override this row stores.
+
+    One-to-one identity means absence of the row, not an empty reason, is ordinary loading.
+    """
+
     reason: Mapped[str] = mapped_column(String, nullable=False)
+    """Backend-supplied reason to defer File rendering.
+
+    The server presents it as capture metadata and does not reinterpret the text.
+    """
 
 
 class SnapshotFileLazyReasonContent(TableBase):
     """Persist complete source metadata supplied with a lazy override.
 
-    The row exists for preset metadata whose content participates in Snapshot
-    identity. Backend overrides without source content have no row rather than
-    a nullable content column.
+    Preset capture inserts this row when the metadata text itself participates
+    in Snapshot identity. Recapture reads it while comparing retained state.
+
+    Backend overrides without source content have no row. This relation does
+    not store the lazy reason or any File bytes.
     """
 
     __tablename__ = "snapshot_file_lazy_reason_content"
@@ -327,11 +486,27 @@ class SnapshotFileLazyReasonContent(TableBase):
         ForeignKey("snapshot_file_lazy_reason.file_id"),
         primary_key=True,
     )
+    """Lazy-override row whose source metadata participates in identity.
+
+    The foreign-key primary key permits at most one complete metadata value per override.
+    """
+
     content: Mapped[str] = mapped_column(String, nullable=False)
+    """Complete non-empty metadata text retained from the preset fixture.
+
+    Preset reads return it unchanged; it is not parsed into implicit loading behavior.
+    """
 
 
 class ReviewThread(TableBase):
-    """Persist one logical Thread and the Snapshot where it originated."""
+    """Persist one logical Thread and the Snapshot where it originated.
+
+    Thread creation inserts this identity before its origin placement and first
+    action. Later Snapshots add placements that reuse the same `thread_id`.
+
+    `origin_snapshot_id` never changes. The row does not hold current placement,
+    lifecycle, attention, or Comments; those come from placements and actions.
+    """
 
     __tablename__ = "review_thread"
     __table_args__ = (
@@ -343,16 +518,34 @@ class ReviewThread(TableBase):
     )
 
     thread_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    """Globally unique logical discussion id shared by all its placements.
+
+    Recapture adds placement rows while every authored action keeps this identity.
+    """
+
     origin_snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"), nullable=False
     )
+    """Immutable Snapshot in which the Thread was created.
+
+    It fixes origin code even when later selected-Snapshot placement moves or disappears.
+    """
 
 
 Index("ix_review_thread_origin_snapshot", ReviewThread.origin_snapshot_id)
 
 
 class ReviewThreadPlacement(TableBase):
-    """Persist one immutable code placement for a Thread in one Snapshot."""
+    """Persist one immutable code placement for a Thread in one Snapshot.
+
+    Review derivation writes one row for each Thread represented in a Snapshot;
+    reads reconstruct `ReviewThreadRecord` and validate its tagged shape.
+
+    The target discriminator and outdated reason define a closed set of valid
+    placement shapes, which `ReviewThreadRecord` validates at both read and
+    write boundaries. Private coordinates never cross the persistence/review
+    boundary.
+    """
 
     __tablename__ = "review_thread_placement"
     __table_args__ = (
@@ -375,21 +568,63 @@ class ReviewThreadPlacement(TableBase):
         ),
         primary_key=True,
     )
+    """Logical Thread id, paired with `snapshot_id` as placement identity.
+
+    The pair permits one current landing for each Thread in each captured state.
+    """
+
     snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"), primary_key=True
     )
+    """Exact captured code universe in which this placement applies.
+
+    Every File, bay, side, and range coordinate must belong to this Snapshot.
+    """
+
     snapshot_file_id: Mapped[Optional[str]] = mapped_column(
         String(32), nullable=True
     )
+    """File containing the landing, or `None` when absent or unreadable.
+
+    The composite foreign key guarantees that a referenced File belongs to
+    `snapshot_id`.
+    """
+
     target_kind: Mapped[
         Optional[Literal["range", "bay-start", "file-start"]]
     ] = mapped_column(String, nullable=True)
+    """Shape of a located target, or `None` for an unlocated Thread.
+
+    A `range` carries a bay, side, and inclusive line span; `bay-start` omits
+    the span; `file-start` carries only the side.
+    """
+
     bay_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    """Public bay identity for range and bay-start placements.
+
+    It is absent for File-start or unlocated shapes and meaningful with File and side.
+    """
+
     side: Mapped[Optional[Literal["left", "right"]]] = mapped_column(
         String, nullable=True
     )
+    """Captured side for every placement that still reaches a File.
+
+    It must be absent only when the placement has no File coordinate at all.
+    """
+
     start_line: Mapped[Optional[int]] = mapped_column(nullable=True)
+    """Positive one-based inclusive start of a range placement.
+
+    Non-range placement shapes must leave it null rather than inventing a line.
+    """
+
     end_line: Mapped[Optional[int]] = mapped_column(nullable=True)
+    """One-based inclusive range end, no earlier than `start_line`.
+
+    It arrives and disappears with the start as one range-coordinate invariant.
+    """
+
     outdated_reason: Mapped[
         Optional[
             Literal[
@@ -401,16 +636,33 @@ class ReviewThreadPlacement(TableBase):
             ]
         ]
     ] = mapped_column(String, nullable=True)
+    """Why the origin did not land unchanged, or `None` when current.
+
+    The reason also distinguishes the two unlocated shapes: `file_missing`
+    means the path pair is absent, while `file_unreadable` means capture failed.
+    """
+
     private_locator: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True
     )
+    """Opaque structural coordinates retained only for a current text range.
+
+    Review code interprets these bytes; persistence and public responses do not.
+    """
 
 
 Index("ix_review_thread_placement_snapshot", ReviewThreadPlacement.snapshot_id)
 
 
 class ReviewAction(TableBase):
-    """Persist one authored operation in global Room activity order."""
+    """Persist one append-only authored operation and its resulting state.
+
+    Review writes append these rows through `RoomStore`; discussion reads
+    reduce them in `sequence` order to recover current state.
+
+    `kind` controls the nullable Comment fields. Each row records lifecycle and
+    attention after the operation, so no mutable current-state row exists.
+    """
 
     __tablename__ = "review_action"
     __table_args__ = (
@@ -471,10 +723,36 @@ class ReviewAction(TableBase):
     )
 
     operation_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    """Globally unique internal id of this accepted operation.
+
+    Every authored operation must supply a fresh value. Reuse conflicts with the
+    primary key and never means retry, replay, or successful deduplication.
+    """
+
     activity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Durable increasing order of authored activity across the database.
+
+    Room feeds use it as a cursor independently of per-Thread sequence.
+    """
+
     thread_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    """Logical Thread changed by this operation.
+
+    Together with `snapshot_id`, it selects the placement against which validation ran.
+    """
+
     snapshot_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    """Thread placement against which the operation was accepted.
+
+    It records the exact code universe seen by the author, not the latest recapture.
+    """
+
     sequence: Mapped[int] = mapped_column(nullable=False)
+    """Zero-based append order within `thread_id`.
+
+    It is contiguous and determines discussion revision independently of global activity.
+    """
+
     kind: Mapped[
         Literal[
             "comment-created",
@@ -486,19 +764,58 @@ class ReviewAction(TableBase):
             "thread-deleted",
         ]
     ] = mapped_column(String, nullable=False)
+    """Operation variant that determines the nullable Comment fields.
+
+    Validation uses it to require or forbid comment id, revision, and body as one shape.
+    """
+
     profile_id: Mapped[int] = mapped_column(
         ForeignKey("user_profile.id"), nullable=False
     )
+    """Durable Profile attributed as the operation's author.
+
+    Reads join its current display name while preserving this stable identity.
+    """
+
     comment_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    """Created or changed Comment id when this operation addresses one.
+
+    Bare lifecycle actions leave it null rather than manufacturing a Comment.
+    """
+
     expected_revision: Mapped[Optional[int]] = mapped_column(nullable=True)
+    """Comment revision required by edit and deletion operations.
+
+    It is an optimistic concurrency gate and is null for creation or lifecycle-only actions.
+    """
+
     body: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    """Non-empty authored Comment body when the operation carries one.
+
+    Deletion and bare lifecycle variants leave it null; whitespace-only input is invalid.
+    """
+
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+    """Non-empty authored-action timestamp in the public serialized form.
+
+    Persistence retains the accepted event time rather than recomputing it on reads.
+    """
+
     status_after: Mapped[Literal["open", "resolved", "deleted"]] = (
         mapped_column(String, nullable=False)
     )
+    """Authoritative Thread lifecycle state after this operation.
+
+    Folding actions through this value reconstructs state at any inclusive activity boundary.
+    """
+
     attention_after: Mapped[Literal["author", "reviewer", "both", "none"]] = (
         mapped_column(String, nullable=False)
     )
+    """Authoritative attention state after this operation.
+
+    It records the resulting role demand, not merely the acting Profile's role.
+    """
 
 
 Index(
@@ -530,140 +847,280 @@ Index(
 class RoomIdentity:
     """Database address produced after a Tab law has selected one Room.
 
-    Application logic constructs this value. `RoomStore` treats the key as an
-    opaque equality value and never interprets correspondence rules.
+    RoomLord constructs this value after applying one Tab's correspondence law,
+    then passes it to `RoomStore` for exact Room lookup and creation.
+
+    `correspondence_key` stays opaque to persistence. The value does not address
+    a Snapshot or expose the logical inputs from which the key was derived.
     """
 
     mark_id: Optional[int]
-    """Mark id for repository Rooms, or `None` for preset Rooms."""
+    """Mark id for repository Rooms, or `None` for preset Rooms.
+
+    Consumers interpret absence with `tab`; it never means an unknown repository Room.
+    """
 
     tab: str
-    """Persisted HUD Tab category."""
+    """Persisted HUD Tab category.
+
+    It selects the correspondence-key law and the recapture inputs retained by the Room.
+    """
 
     correspondence_key: bytes
-    """Opaque Room key compared for equality by SQLite."""
+    """Opaque Room key compared for equality by SQLite.
+
+    Callers must not decode it without the corresponding Tab contract.
+    """
 
 
 @dataclass(frozen=True)
 class SnapshotFileSideRecord:
-    """Non-null repository identity and digest for one captured File side."""
+    """Expose the repository identity and digest of one present File side.
+
+    `RoomStore` creates this record while reading a `SnapshotFileRecord`.
+    Callers use the repository path for exact File identity and the digest for
+    Snapshot comparison.
+
+    Absence is represented by an absent side record on the File, never by
+    nullable fields here. This value does not contain the captured bytes.
+    """
 
     repository_path: str
-    """Repository-relative path used to address this side."""
+    """Repository-relative path used to address this side.
+
+    It is the public File identity; physical capture lookup uses the enclosing File path.
+    """
 
     content_hash: bytes
-    """SHA-256 digest of this side's captured contents."""
+    """SHA-256 digest of this side's captured contents.
+
+    Comparisons use it as immutable byte identity without reopening the repository.
+    """
 
 
 @dataclass(frozen=True)
 class SnapshotFileRecord:
     """Immutable relational facts for one affected File.
 
-    `path` is the absolute capture-directory path. At least one of `left` and
-    `right` is present in a valid record; absence is represented by the absence
-    of a row in the corresponding side table, not by a nullable database field.
+    `RoomStore` returns this immutable record to Room for manifest, File lookup,
+    delta, and review operations.
+
+    At least one captured side is present. The record has no display name,
+    rendered bays, or final lazy reason.
     """
 
     id: str
-    """Opaque File id."""
+    """Opaque File id.
+
+    Placements and loading overrides use it instead of either nullable side path.
+    """
 
     snapshot_id: str
-    """Snapshot containing this File."""
+    """Snapshot containing this File.
+
+    Callers must not combine its side records with another Snapshot's placement.
+    """
 
     path: str
-    """Absolute filesystem path of this File's capture directory."""
+    """Absolute filesystem path of this File's capture directory.
+
+    It locates immutable captured bytes and is never returned as repository identity.
+    """
 
     tracked: bool
-    """Whether this File belongs to the backend's tracked input."""
+    """Whether this File belongs to the backend's tracked input.
+
+    The record preserves the capture-time backend fact without inspecting Git again.
+    """
 
     change_type: str
-    """Backend classification retained without deriving renderer output."""
+    """Backend classification retained without deriving renderer output.
+
+    Consumers combine it with side presence and errors when building presentation.
+    """
 
     error: Optional[str]
-    """Persisted capture failure, or `None` when physical contents are valid."""
+    """Persisted capture failure, or `None` when physical contents are valid.
+
+    A non-null value makes the File unreadable even if side path metadata is retained.
+    """
 
     left: Optional[SnapshotFileSideRecord]
-    """Captured left side, when it exists."""
+    """Captured left side, when it exists.
+
+    `None` means that side is absent, which differs from present empty captured bytes.
+    """
 
     right: Optional[SnapshotFileSideRecord]
-    """Captured right side, when it exists."""
+    """Captured right side, when it exists.
+
+    Consumers preserve absence instead of substituting the other side or an empty file.
+    """
 
 
 @dataclass(frozen=True)
 class SnapshotRecord:
     """Complete relational input required to publish one Snapshot.
 
-    The record contains Snapshot-wide metadata and the complete unordered set
-    of Files. `RoomStore` validates membership before inserting any row.
+    Snapshot capture constructs this value after publishing the immutable
+    directory and passes it once to `RoomStore.publish_snapshot`.
+
+    It contains Snapshot metadata and the complete unordered File set. It does
+    not select the Snapshot for any caller or expose staging state.
     """
 
     id: str
-    """Opaque Snapshot id."""
+    """Opaque Snapshot id.
+
+    Follow-up reads use it to address this exact immutable capture.
+    """
 
     content_hash: bytes
-    """Digest identifying equal captured content inside one Room."""
+    """Digest identifying equal captured content inside one Room.
+
+    It supports recapture reuse but is not a globally addressable Snapshot key.
+    """
 
     meta: SnapshotMetaRecord
-    """Labels and aggregate line counts captured with this Snapshot."""
+    """Labels and aggregate line counts captured with this Snapshot.
+
+    Metadata shares the Snapshot lifetime and is not recalculated from `files` on reads.
+    """
 
     files: tuple[SnapshotFileRecord, ...]
-    """Complete set of captured Files, with no implied order."""
+    """Complete set of captured Files, with no implied order.
+
+    Callers that need backend or manifest order must establish it outside persistence.
+    """
 
 
 @dataclass(frozen=True)
 class SnapshotMetaRecord:
     """One Snapshot's labels and backend-supplied aggregate line counts.
 
+    Capture constructs this record from backend labels and totals; Room returns
+    it from Snapshot metadata reads.
+
     Both counts are present together or absent together. They describe the
-    selected Snapshot as a whole and never encode renderer-derived alignment.
+    Snapshot as a whole and never encode renderer-derived alignment.
     """
 
     left_label: str
-    """Human-facing left label captured with the Snapshot."""
+    """Human-facing left label captured with the Snapshot.
+
+    It remains paired with the immutable capture rather than following a later ref name.
+    """
 
     right_label: str
-    """Human-facing right label captured with the Snapshot."""
+    """Human-facing right label captured with the Snapshot.
+
+    Consumers present it verbatim and do not treat it as repository identity.
+    """
 
     added_lines: Optional[int]
-    """Aggregate added lines supplied by the backend, when authoritative."""
+    """Aggregate added lines supplied by the backend, when authoritative.
+
+    `None` means the backend did not provide a total, not that no lines were added.
+    """
 
     removed_lines: Optional[int]
-    """Aggregate removed lines supplied by the backend, when authoritative."""
+    """Aggregate removed lines supplied by the backend, when authoritative.
+
+    Consumers preserve `None` rather than substituting zero for an unknown total.
+    """
 
 
 @dataclass(frozen=True)
 class SnapshotFileLoadRecord:
     """One exact File lookup with its explicit lazy override.
 
-    The record is returned only when both the Snapshot and repository filepath
-    pair belong to the supplied Room identity.
+    `RoomStore.snapshot_file_for_repo_paths` returns this after validating the
+    Room, Snapshot, and exact nullable path pair. Room uses it to expose physical
+    handles and metadata.
+
+    It does not load bytes, derive a final lazy reason, or soften a failed
+    capture into usable content.
     """
 
     file: SnapshotFileRecord
-    """The repository-path-addressed File returned by lookup."""
+    """The repository-path-addressed File returned by lookup.
+
+    Its matching side contains the exact queried path; the record may still be unreadable.
+    """
 
     lazy_reason: Optional[str]
-    """Explicit loading override for this File, when one was captured."""
+    """Explicit loading override for this File, when one was captured.
+
+    `None` means ordinary loading policy rather than an empty or inferred reason.
+    """
 
 
 @dataclass(frozen=True)
 class ReviewThreadRecord:
     """Immutable placement facts for one Thread and Snapshot pair.
 
-    A missing `snapshot_file_id` is valid only for the two unlocated reasons,
-    `file_missing` and `file_unreadable`.  Private locator fields occur only on
-    a text Thread's unique origin record.
+    Review derivation passes this value to `RoomStore`, and persistence reads
+    return the same validated shape to `dirdiff.review`.
+
+    Private locator bytes occur only on a current text range and never leave the
+    persistence/review boundary.
     """
 
     thread_id: str
+    """Stable logical discussion id shared by all Snapshot placements.
+
+    Actions use it to preserve one discussion while selected-Snapshot coordinates change.
+    """
+
     snapshot_id: str
+    """Exact captured code universe in which this placement applies.
+
+    File and range fields are invalid when combined with records from another Snapshot.
+    """
+
     snapshot_file_id: Optional[str]
+    """File containing the landing, or `None` when absent or unreadable.
+
+    Its absence requires all bay, side, and range coordinates to be absent as well.
+    """
+
     is_origin: bool
+    """Whether this record is the Thread's immutable creation placement.
+
+    This is a query label supplied by the store, not a persisted column.
+    """
+
     target_kind: Optional[Literal["range", "bay-start", "file-start"]]
+    """Shape of a located target, or `None` for an unlocated Thread.
+
+    A `range` carries bay, side, and lines; `bay-start` omits the lines; and
+    `file-start` carries only the side.
+    """
+
     bay_key: Optional[str]
+    """Public bay identity for range and bay-start placements.
+
+    It is meaningful only with the placed File and side; File-start shapes leave it null.
+    """
+
     side: Optional[Literal["left", "right"]]
+    """Captured side for every placement that still reaches a File.
+
+    Unlocated records leave it null rather than preserving a coordinate with no File.
+    """
+
     start_line: Optional[int]
+    """Positive one-based inclusive start of a range placement.
+
+    Bay-start and File-start placements have no selected range and leave it null.
+    """
+
     end_line: Optional[int]
+    """One-based inclusive range end, no earlier than `start_line`.
+
+    It must be present exactly when the start is present.
+    """
+
     outdated_reason: Optional[
         Literal[
             "region_changed",
@@ -673,13 +1130,23 @@ class ReviewThreadRecord:
             "file_missing",
         ]
     ]
+    """Why the origin did not land unchanged, or `None` when current.
+
+    `file_missing` and `file_unreadable` distinguish the unlocated shapes;
+    the remaining reasons qualify range, bay-start, or File-start landings.
+    """
+
     private_locator: Optional[bytes]
+    """Opaque structural coordinates retained only for a current text range.
+
+    Reattachment code may decode it; HTTP and ordinary persistence callers must not.
+    """
 
     def __post_init__(self) -> None:
         """Reject any placement shape review derivation cannot produce.
 
-        Placement is a tagged union in `dirdiff.review` — a range, a bay start,
-        a File start, a missing File, an unreadable File — and one flat row
+        Placement is a tagged union in `dirdiff.review`: a range, bay start,
+        File start, missing File, or unreadable File. One flat row
         holds all five, so the tag and the fields it implies are checked here
         to agree. Both directions of persistence build this record:
         `_record_of` before an insert and `_thread_record` after a select. One
@@ -689,6 +1156,16 @@ class ReviewThreadRecord:
         It raises instead of asserting because it is the only guard this
         invariant has. `assert` disappears under `-O`, and a stripped check
         would admit a row every later reader then fails on.
+
+        # Failures
+
+        - Raises `AssertionError` when an unlocated placement carries fields
+          other than a missing or unreadable reason; a range lacks its bay,
+          side, ordered line span, or valid changed-region reason; a bay-start
+          or File-start carries fields outside its shape; or a placement on a
+          File has no recognized target kind.
+        - Raises `AssertionError` when private locator bytes appear on anything
+          except a current range placement.
         """
         where = f"thread {self.thread_id} in Snapshot {self.snapshot_id}"
         if self.snapshot_file_id is None:
@@ -764,12 +1241,41 @@ class ReviewThreadRecord:
 
 @dataclass(frozen=True)
 class ReviewActionRecord:
-    """One immutable authored operation in a live Thread discussion."""
+    """Carry one authored Thread operation across the persistence boundary.
+
+    Thread methods construct this record before append; `RoomStore` assigns its
+    activity id on insertion, and later reads return records for discussion
+    materialization.
+
+    `status_after` and `attention_after` are authoritative after this operation.
+    The record does not represent mutable current Thread state by itself.
+    """
 
     operation_id: str
+    """Globally unique internal id of this accepted operation.
+
+    Callers create it once for a new action and must not reuse it for retry or
+    replay; persistence treats any duplicate as a conflict.
+    """
+
     thread_id: str
+    """Logical Thread changed by this operation.
+
+    It binds every variant to one durable discussion across placements.
+    """
+
     snapshot_id: str
+    """Thread placement against which the operation was accepted.
+
+    It records the author's exact Snapshot boundary for conflict validation.
+    """
+
     sequence: int
+    """Zero-based append order within `thread_id`.
+
+    The value is contiguous and acts as the discussion revision exposed to clients.
+    """
+
     kind: Literal[
         "thread-created",
         "comment-created",
@@ -779,15 +1285,61 @@ class ReviewActionRecord:
         "thread-reopened",
         "thread-deleted",
     ]
+    """Operation variant governing the nullable Comment fields.
+
+    Creation and replies carry a new Comment and body. Edits and Comment
+    deletion also carry an expected revision. Resolve and reopen may carry a
+    newly authored Comment; Thread deletion carries no Comment fields.
+    """
+
     profile_id: int
+    """Durable Profile attributed as the operation's author.
+
+    Current Profile display data is joined separately and may change later.
+    """
+
     comment_id: Optional[str]
+    """Created or changed Comment id when `kind` addresses one.
+
+    Lifecycle-only variants leave it null and therefore create no hidden Comment.
+    """
+
     expected_revision: Optional[int]
+    """Comment revision required by edit and deletion operations.
+
+    It prevents a stale actor from changing a newer Comment revision.
+    """
+
     body: Optional[str]
+    """Non-empty authored Comment body when `kind` carries one.
+
+    Its presence is governed by the operation variant, not inferred from Comment identity.
+    """
+
     created_at: str
+    """Authored-action timestamp in the public serialized form.
+
+    Reads preserve the accepted value as event history rather than producing a fresh time.
+    """
+
     status_after: Literal["open", "resolved", "deleted"]
+    """Authoritative Thread lifecycle state after this operation.
+
+    Boundary reads take this value from the latest included action.
+    """
+
     attention_after: Literal["author", "reviewer", "both", "none"]
+    """Authoritative attention state after this operation.
+
+    It expresses who needs action after the event, independently of lifecycle state.
+    """
+
     activity_id: Optional[int] = None
-    """Global Room order after persistence; `None` only before insertion."""
+    """Global Room order after persistence; `None` only before insertion.
+
+    Input records omit it. Records reconstructed by later reads carry the assigned
+    cursor used by activity feeds.
+    """
 
     def __post_init__(self) -> None:
         """Reject any action whose fields disagree with the operation it names.
@@ -803,6 +1355,14 @@ class ReviewActionRecord:
         its fields do not describe. It raises rather than asserting for the
         same reason the placement record does: `-O` strips `assert`, and this
         is the only guard the invariant has.
+
+        # Failures
+
+        - Raises `AssertionError` when `profile_id` is not positive.
+        - Raises `AssertionError` when Comment identity, expected revision, or
+          body presence disagrees with `kind`. Creation requires a nonempty
+          Comment body, edit and Comment deletion require a revision, lifecycle
+          Comments require both id and body, and terminal deletion carries none.
         """
         assert self.profile_id > 0, (
             "review actions require a relational Profile"
@@ -852,45 +1412,102 @@ class ReviewActionRecord:
 class ReviewThreadsRecord:
     """Bulk persistence result for all Threads visible in one Snapshot.
 
-    `threads` contains exactly one selected placement per discussion. `origins`
-    contains the unique origin placements for those discussions, while actions,
-    Profiles contain every fact needed to fold their live state.
+    `RoomStore` returns this value to one bounded review read. The review layer
+    combines each selected placement with its origin, authored actions, and
+    Profile attribution to build public Thread views.
+
+    `total_threads` is measured before page bounds. This record contains raw
+    relational facts, not materialized discussion state or excerpts.
     """
 
     threads: tuple[ReviewThreadRecord, ...]
+    """Selected-Snapshot placements in requested page order.
+
+    Each entry represents one logical Thread exactly once for the page boundary.
+    """
+
     origins: tuple[ReviewThreadRecord, ...]
+    """One origin placement corresponding positionally to every `threads` row.
+
+    Equal lengths and indexes let materialization combine current landing with immutable origin.
+    """
+
     actions: tuple[ReviewActionRecord, ...]
+    """Pivot-bounded actions for the selected Threads, in Thread sequence order.
+
+    No action newer than the inclusive activity boundary may appear here.
+    """
+
     profiles: tuple[UserProfileRecord, ...]
+    """Every Profile referenced by `actions`, with no active-user meaning.
+
+    The collection supports attribution joins and must not be treated as selectable Profiles.
+    """
+
     total_threads: int
-    """Number of placements before page bounds are applied."""
+    """Number of placements before page bounds are applied.
+
+    Consumers use it for pagination independently of the current page length.
+    """
 
 
 class _ReviewThreadInsertValues(TypedDict):
-    """Column values written for one persisted Thread placement."""
+    """Name the exact columns used to insert one Thread placement.
+
+    `RoomStore._review_thread_values` converts a validated
+    `ReviewThreadRecord` to this private shape immediately before persistence.
+
+    It exists for typed SQL construction only. Callers outside `RoomStore` must
+    use the record type and cannot depend on this dictionary.
+    """
 
     thread_id: str
-    """Stable discussion id shared by every placement of the Thread."""
+    """Stable discussion id shared by every placement of the Thread.
+
+    It is the join key connecting this private row to actions and origin placement.
+    """
 
     snapshot_id: str
-    """Snapshot in which this placement was derived."""
+    """Snapshot in which this placement was derived.
+
+    Every optional coordinate in the row refers exclusively to this capture.
+    """
 
     snapshot_file_id: str | None
-    """Placed File id, absent only when no File carries the Thread."""
+    """Placed File id, absent only when no File carries the Thread.
+
+    Unreadable and absent placements use null rather than a synthetic File identity.
+    """
 
     target_kind: Literal["range", "bay-start", "file-start"] | None
-    """Stored placement shape, absent only for an unlocated Thread."""
+    """Stored placement shape, absent only for an unlocated Thread.
+
+    It governs which bay and range columns must be present in the remaining row.
+    """
 
     bay_key: str | None
-    """Placed bay key when the placement reaches a bay."""
+    """Placed bay key when the placement reaches a bay.
+
+    File-start and unlocated shapes leave it null rather than inventing a composed bay.
+    """
 
     side: Literal["left", "right"] | None
-    """Placed side when the placement reaches a captured File."""
+    """Placed side when the placement reaches a captured File.
+
+    It is required for File-start as well as bay and range placement.
+    """
 
     start_line: int | None
-    """Inclusive range start for a range placement."""
+    """Inclusive range start for a range placement.
+
+    Other target kinds leave it null, preserving the distinction from line one.
+    """
 
     end_line: int | None
-    """Inclusive range end for a range placement."""
+    """Inclusive range end for a range placement.
+
+    It is present with the start and cannot precede it.
+    """
 
     outdated_reason: (
         Literal[
@@ -902,26 +1519,51 @@ class _ReviewThreadInsertValues(TypedDict):
         ]
         | None
     )
-    """Why the origin no longer lands exactly, when it does not."""
+    """Why the origin no longer lands exactly, when it does not.
+
+    Exact placements leave it null; degraded materialization maps the stored reason explicitly.
+    """
 
     private_locator: bytes | None
-    """Private origin coordinates retained only for a current range."""
+    """Private origin coordinates retained only for a current range.
+
+    They are engine input for future reattachment and never part of the public target.
+    """
 
 
 class _ReviewActionInsertValues(TypedDict):
-    """Column values written for one authored review action."""
+    """Name the exact columns used to insert one authored review action.
+
+    `RoomStore._review_action_values` converts a validated `ReviewActionRecord`
+    to this private shape, adding `activity_id` when persistence assigns it.
+
+    It is not a public command or read model and must not escape `RoomStore`.
+    """
 
     operation_id: str
-    """Idempotency id of the authored operation."""
+    """Fresh unique identity of the authored operation.
+
+    The insert boundary rejects every reuse; this column does not provide an
+    idempotent retry protocol.
+    """
 
     thread_id: str
-    """Discussion to which the action belongs."""
+    """Discussion to which the action belongs.
+
+    It must already have a placement in the action's Snapshot.
+    """
 
     snapshot_id: str
-    """Snapshot against which the action was authored."""
+    """Snapshot against which the action was authored.
+
+    The write validates this exact placement rather than silently moving to a newer capture.
+    """
 
     sequence: int
-    """Zero-based action order within the Thread."""
+    """Zero-based action order within the Thread.
+
+    It must follow the prior accepted sequence without gaps or duplication.
+    """
 
     kind: Literal[
         "thread-created",
@@ -932,37 +1574,70 @@ class _ReviewActionInsertValues(TypedDict):
         "thread-reopened",
         "thread-deleted",
     ]
-    """Authored operation variant controlling the nullable fields."""
+    """Authored operation variant controlling the nullable fields.
+
+    Storage validation derives each required Comment fact from this discriminator.
+    """
 
     profile_id: int
-    """Relational Profile that authored the action."""
+    """Relational Profile that authored the action.
+
+    It supplies durable attribution while usernames remain mutable display data.
+    """
 
     comment_id: str | None
-    """Comment affected or created by a Comment-carrying action."""
+    """Comment affected or created by a Comment-carrying action.
+
+    Bare lifecycle actions keep it null and therefore do not alter discussion text.
+    """
 
     expected_revision: int | None
-    """Revision an edit or deletion requires before it may apply."""
+    """Revision an edit or deletion requires before it may apply.
+
+    It is absent for creation and lifecycle operations that do not address a Comment revision.
+    """
 
     body: str | None
-    """Authored Comment text when this action carries one."""
+    """Authored Comment text when this action carries one.
+
+    The operation kind decides presence; persistence rejects empty text rather than omitting it.
+    """
 
     created_at: str
-    """Persisted UTC timestamp supplied for the authored action."""
+    """Persisted UTC timestamp supplied for the authored action.
+
+    It becomes immutable event history and is returned unchanged by later reads.
+    """
 
     status_after: Literal["open", "resolved", "deleted"]
-    """Thread lifecycle immediately after applying the action."""
+    """Thread lifecycle immediately after applying the action.
+
+    It lets bounded reads reconstruct state without replaying transition semantics.
+    """
 
     attention_after: Literal["author", "reviewer", "both", "none"]
-    """Roles whose attention is required after applying the action."""
+    """Roles whose attention is required after applying the action.
+
+    The value is authoritative result state, not an instruction inferred by readers.
+    """
 
     activity_id: NotRequired[int]
-    """Room-wide order, omitted until persistence assigns it."""
+    """Database-wide order used as a Room activity cursor.
+
+    Insert input omits it; selected rows include the persistence-assigned durable order.
+    """
 
 
 class RoomStore:
     """Provide the complete relational interface for Room persistence.
 
-    Each operation opens a short-lived SQLAlchemy session. The store publishes
+    # Usage
+    Room and RoomLord construct one store from the application engine. They pass
+    `RoomIdentity` for Room-scoped reads, publish complete Snapshot records, and
+    append review actions through the named operations.
+
+    # Boundaries
+    Each operation opens a short-lived SQLAlchemy session. The store writes
     complete relational state transactionally but never touches captured files,
     applies correspondence rules, folds discussion actions, interprets private
     source coordinates, or performs rendering.
@@ -980,7 +1655,11 @@ class RoomStore:
     def _review_thread_values(
         record: ReviewThreadRecord,
     ) -> _ReviewThreadInsertValues:
-        """Translate one immutable Thread placement into insert values."""
+        """Translate one immutable Thread placement into insert values.
+
+        The mapping preserves nullable target-shape invariants and excludes no
+        public field that participates in later placement materialization.
+        """
         return {
             "thread_id": record.thread_id,
             "snapshot_id": record.snapshot_id,
@@ -998,7 +1677,11 @@ class RoomStore:
     def _review_action_values(
         record: ReviewActionRecord,
     ) -> _ReviewActionInsertValues:
-        """Translate one immutable authored action into insert values."""
+        """Translate one immutable authored action into insert values.
+
+        The caller supplies an already validated record; this conversion retains
+        its discriminator-controlled nulls for the atomic insert.
+        """
         values: _ReviewActionInsertValues = {
             "operation_id": record.operation_id,
             "thread_id": record.thread_id,
@@ -1019,7 +1702,11 @@ class RoomStore:
 
     @staticmethod
     def _next_review_activity_id(session: Session) -> int:
-        """Return the next durable authored-action order in this database."""
+        """Return the next durable authored-action order in this database.
+
+        The caller holds the write transaction so concurrent actions cannot
+        observe or allocate the same Room activity cursor.
+        """
         latest: int | None = session.execute(
             select(func.max(ReviewAction.activity_id))
         ).scalar_one()
@@ -1030,7 +1717,21 @@ class RoomStore:
         placement: ReviewThreadPlacement,
         is_origin: bool,
     ) -> ReviewThreadRecord:
-        """Validate one selected database row as a Thread placement record."""
+        """Validate one selected database row as a Thread placement record.
+
+        # Parameters
+
+        - `placement`: ORM row loaded for one immutable Thread/Snapshot pair.
+        - `is_origin`: Whether that pair is the Thread's unique origin.
+
+        # Failures
+
+        - Raises `AssertionError` when persisted target kind, side, or outdated
+          reason is outside the review model's declared values.
+        - `ReviewThreadRecord` raises `AssertionError` when those discriminators
+          are individually known but their nullable fields do not form one valid
+          placement shape.
+        """
         target_kind_value = placement.target_kind
         match target_kind_value:
             case "range" | "bay-start" | "file-start" | None:
@@ -1078,7 +1779,19 @@ class RoomStore:
 
     @staticmethod
     def _action_record(action: ReviewAction) -> ReviewActionRecord:
-        """Validate one selected database row as an authored action record."""
+        """Validate one selected database row as an authored action record.
+
+        Persisted discriminator and nullable fields are checked together before
+        any caller receives the immutable record.
+
+        # Failures
+
+        - Raises `AssertionError` when persisted action kind, lifecycle outcome,
+          or attention outcome is outside the declared review values.
+        - `ReviewActionRecord` raises `AssertionError` when known discriminator
+          values disagree with Profile id, Comment identity, expected revision,
+          or body presence.
+        """
         kind_value = action.kind
         match kind_value:
             case (
@@ -1135,7 +1848,19 @@ class RoomStore:
         right_path: str | None,
         right_hash: bytes | None,
     ) -> SnapshotFileRecord:
-        """Validate one joined File/side row into the shared record shape."""
+        """Validate one joined File/side row into the shared record shape.
+
+        # Parameters
+
+        - `file`: Snapshot File row holding pair-wide capture facts.
+        - `left_path`: Repository path from its optional left-side row.
+        - `left_hash`: Captured-content digest from the same left-side row.
+        - `right_path`: Repository path from its optional right-side row.
+        - `right_hash`: Captured-content digest from the same right-side row.
+
+        Each side's path and digest must have equal presence, and the File must
+        retain at least one side.
+        """
         assert (left_path is None) == (left_hash is None), (
             "persisted left File path and hash must have equal presence"
         )
@@ -1171,6 +1896,18 @@ class RoomStore:
 
         Review writes use this boundary to reject a missing browser author
         before attempting an action whose foreign key could not be satisfied.
+
+        # Usage
+
+        Validate an action's author with this focused lookup before loading or
+        appending Thread actions. Treat `None` as a rejected author.
+
+        # Returns
+
+        - A current Profile record when `profile_id` names a persisted author.
+        - `None`: No Profile has that id. The caller must reject the review
+          write rather than inventing an author.
+
         """
         with Session(self.engine) as session:
             row = session.execute(
@@ -1189,6 +1926,20 @@ class RoomStore:
         Snapshot ids are globally unique. The lookup intentionally requires no
         Mark, Tab, or correspondence input because follow-up operations already
         carry the immutable key returned by manifest.
+
+        # Usage
+
+        Use this for Snapshot-keyed follow-up operations that no longer carry
+        the original Tab selection. `None` means the key names no published
+        Snapshot.
+
+        # Returns
+
+        - The Mark, Tab, and correspondence key that together identify the
+          Snapshot's Room.
+        - `None`: No published Snapshot has this key. A follow-up operation
+          must report the unknown Snapshot instead of selecting another Room.
+
         """
         with Session(self.engine) as session:
             row = session.execute(
@@ -1213,6 +1964,22 @@ class RoomStore:
 
         Equality is limited by the complete Room identity and captured-content
         digest. Absence means the caller may publish a new Snapshot.
+
+        # Parameters
+
+        - `identity`: Exact Room correspondence within which equality applies.
+        - `content_hash`: Capture-domain digest of the complete observed state.
+
+        # Usage
+
+        After capture computes its complete content hash, use this lookup to
+        reuse an equal immutable Snapshot before allocating publication paths.
+
+        # Returns
+
+        - The existing Snapshot id with the same content digest in `identity`.
+        - `None`: That Room has no equal published Snapshot, so the caller may
+          continue with publication of the newly captured state.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -1241,6 +2008,23 @@ class RoomStore:
         Missing or cross-Room keys return `None`. This operation does not load
         File membership or contents, so callers needing only labels and totals
         do not scan the Snapshot's File relation.
+
+        # Parameters
+
+        - `identity`: Room that must contain the Snapshot.
+        - `snapshot_id`: Globally unique Snapshot key to read.
+
+        # Usage
+
+        Use this when labels, Tab facts, or aggregate counts are sufficient. A
+        caller that needs File membership should load `snapshot` instead.
+
+        # Returns
+
+        - The Snapshot's labels and optional aggregate line counts when the key
+          belongs to `identity`.
+        - `None`: The key is missing or belongs to another Room. The caller
+          must not expose metadata from a different correspondence.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -1287,6 +2071,29 @@ class RoomStore:
         metadata content. Every review placement must address this Snapshot and
         may reference only one of its Files. The one transaction makes the
         complete Snapshot universe visible at once.
+
+        # Parameters
+
+        - `identity`: Existing or new Room correspondence receiving the
+          Snapshot.
+        - `snapshot`: Complete immutable Snapshot record and all File sides.
+        - `lazy_reasons`: File-id keyed explicit lazy reasons and their optional
+          complete source metadata.
+        - `review_threads`: Missing immutable placements derived for this new
+          Snapshot before publication.
+
+        # Usage
+
+        Finish capture, validate every File record, and derive any missing review
+        placements before calling. The caller must hold the Room publication
+        lock until this transaction and the corresponding filesystem move have
+        completed.
+
+        # Failures
+
+        - Asserts when Snapshot metadata, File sides, lazy reasons, or review
+          placements disagree with `identity` or `snapshot`.
+        - Database constraint failures roll back the complete publication.
         """
         assert identity.tab in {
             "head",
@@ -1521,6 +2328,24 @@ class RoomStore:
 
         The result includes every captured File and side. Missing or cross-Room
         keys return `None`; no substitute Snapshot is selected.
+
+        # Parameters
+
+        - `identity`: Room that limits both the Snapshot and File read.
+        - `snapshot_id`: Exact published Snapshot to hydrate.
+
+        # Usage
+
+        Use this when a caller needs the complete immutable File set. Pass the
+        Room identity already selected by `RoomLord`; do not infer it from the
+        returned data.
+
+        # Returns
+
+        - The complete immutable Snapshot record, including all File records
+          and their present sides, when it belongs to `identity`.
+        - `None`: The key is missing or belongs to another Room. No substitute
+          Snapshot or empty File set is returned.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -1592,6 +2417,24 @@ class RoomStore:
 
         Missing, cross-Room, and reason-less Snapshots produce no rows. Callers
         that require Snapshot existence validate it through `snapshot` first.
+
+        # Parameters
+
+        - `identity`: Room that limits the lazy-reason read.
+        - `snapshot_id`: Exact Snapshot whose File policies are requested.
+
+        # Usage
+
+        Load the Snapshot first when an empty mapping must be distinguished from
+        an unknown key. The result contains only explicit overrides.
+
+        # Returns
+
+        - Each key is a File id belonging to the addressed Snapshot.
+        - Each value is that File's persisted explicit lazy reason. Files
+          without a reason are absent.
+        - An empty mapping may also mean the Snapshot is unknown, so callers
+          needing that distinction first use `snapshot`.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -1631,6 +2474,27 @@ class RoomStore:
 
         `(False, None)` means the Snapshot is not visible in this Room.
         `(True, None)` means it is visible but has no matching File.
+
+        # Parameters
+
+        - `identity`: Room that must contain the addressed Snapshot.
+        - `snapshot_id`: Exact Snapshot to search.
+        - `left_path`: Exact left repository path, or `None` for an absent side.
+        - `right_path`: Exact right repository path, or `None` for an absent
+          side.
+
+        # Usage
+
+        Preserve both result values: an unknown Snapshot and a missing File are
+        different failures. Supply the exact nullable path pair emitted by the
+        manifest.
+
+        # Returns
+
+        - First, whether the Snapshot belongs to `identity`.
+        - Second, the matching File and its lazy reason, or `None` when no File
+          has the exact nullable path pair. `(False, None)` means the Snapshot
+          itself is unavailable; `(True, None)` means only the File is absent.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -1711,6 +2575,25 @@ class RoomStore:
         One read serves every requested id; ids naming no File of that
         visible Snapshot are simply absent from the result, and the caller
         decides which failure an absence is.
+
+        # Parameters
+
+        - `identity`: Room that must contain the addressed Snapshot.
+        - `snapshot_id`: Exact Snapshot from which Files may be returned.
+        - `file_ids`: Snapshot File ids to load as one set; duplicates do not
+          duplicate results.
+
+        # Usage
+
+        Batch origin or placement hydration through this method, then compare
+        result keys with the ids the higher-level invariant requires.
+
+        # Returns
+
+        - Each key is an input File id found in the visible Snapshot; missing and
+          duplicate input ids create no entry.
+        - Each value is that exact File record with its retained nullable side
+          records. An empty mapping means no requested id was found.
         """
         if file_ids == ():
             return {}
@@ -1764,6 +2647,26 @@ class RoomStore:
         `(False, {})` means the Snapshot is not visible in this Room. Nullable
         sides make a tuple IN unusable, so the pairs become one OR of exact
         per-pair conditions inside a single query and transaction.
+
+        # Parameters
+
+        - `identity`: Room that must contain the addressed Snapshot.
+        - `snapshot_id`: Exact Snapshot to search.
+        - `pairs`: Exact nullable left/right repository-path pairs to load.
+
+        # Usage
+
+        Use this when review placement starts with public File pairs rather than
+        internal File ids. Preserve the returned Snapshot-exists flag separately
+        from the mapping.
+
+        # Returns
+
+        - First, whether the Snapshot belongs to `identity`.
+        - Second, a mapping from each found path pair to its unique File record.
+          Each key's first item is the nullable left path and its second is the
+          nullable right path. Requested pairs with no File are absent, and the
+          mapping is empty when the first returned item is false.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -1877,6 +2780,37 @@ class RoomStore:
         data. Every requested origin must exist; missing rows fail the read.
         Room visibility of the Snapshot is the caller's responsibility, as
         with `review_threads`.
+
+        # Parameters
+
+        - `selected_snapshot_id`: Snapshot holding all selected placements.
+        - `origin_refs`: Exact origin Snapshot/File pairs needed to reconstruct
+          original context.
+        - `located_file_ids`: Selected-placement File ids in the selected
+          Snapshot.
+        - `absent_origin_refs`: Origin references whose supposedly absent File
+          pair must be checked against the selected Snapshot.
+
+        # Usage
+
+        Call once after selecting a page of Thread records. Build all three
+        collections from those records so the read hydrates exactly the Files
+        needed for placement and excerpt construction.
+
+        # Returns
+
+        - First, origin Files whose mapping key contains the origin Snapshot id
+          first and origin File id second. Every requested origin is present.
+        - Second, selected-placement Files keyed by File id. Only requested ids
+          found in `selected_snapshot_id` appear.
+        - Third, File ids in the selected Snapshot whose path pairs conflict
+          with `absent_origin_refs`. A valid file-missing placement yields an
+          empty tuple here.
+
+        # Failures
+
+        - Asserts if any requested origin File is missing or a supposedly absent
+          File pair exists in the selected Snapshot.
         """
 
         file_query = (
@@ -2006,6 +2940,37 @@ class RoomStore:
         supplied Room.
         Otherwise returns the selected placements, origins, actions, Profiles,
         total matching Thread count, and concrete inclusive pivot.
+
+        # Parameters
+
+        - `identity`: Room containing the selected Snapshot and discussions.
+        - `snapshot_id`: Exact code universe whose placements are returned.
+        - `offset`: Zero-based number of ordered matching Threads to skip.
+        - `limit`: Maximum Threads to hydrate, or `None` for no SQL limit.
+        - `state`: `all` for every lifecycle state or `open` for open Threads.
+        - `attention`: Optional actionable role filter for open agent inboxes.
+        - `through_activity_id`: Inclusive discussion pivot, or `None` to choose
+          the current Room boundary in this read transaction.
+
+        # Usage
+
+        Use the concrete returned pivot for every later page of the same read so
+        pagination cannot mix Thread states. Pass `None` only for the first page
+        when selecting the current boundary.
+
+        # Returns
+
+        - First, the selected placements, origins, ordered actions, authors, and
+          count before pagination in one `ReviewThreadsRecord`.
+        - Second, the concrete inclusive activity pivot used for every row in
+          that record; later pages must repeat it.
+        - `None`: The Snapshot is missing or belongs to another Room. The
+          caller must reject the page instead of treating it as an empty one.
+
+        # Failures
+
+        - Asserts for a negative activity pivot or persisted Threads whose
+          origin, actions, or author rows violate review invariants.
         """
         assert through_activity_id is None or through_activity_id >= 0, (
             "review activity pivot must be nonnegative"
@@ -2086,7 +3051,18 @@ class RoomStore:
             def filtered[*T](
                 query: Select[tuple[*T]],
             ) -> Select[tuple[*T]]:
-                """Select from placements joined to their latest actions."""
+                """Select from placements joined to their latest actions.
+
+                The relation supplies one boundary state per Thread while
+                retaining placement columns needed by the outer page query.
+
+                # Returns
+
+                - Selected columns and their order remain exactly those of the
+                  supplied `query`.
+                - The returned selection adds the common placement and
+                  latest-action joins plus the page's state and attention filters.
+                """
                 return (
                     query.select_from(ReviewThreadPlacement)
                     .join(
@@ -2204,6 +3180,27 @@ class RoomStore:
         record means that Snapshot contains no such Thread. A present result
         contains exactly its selected placement, unique origin, complete action
         sequence, and referenced Profile authors.
+
+        # Parameters
+
+        - `identity`: Room that must contain the Snapshot and Thread origin.
+        - `snapshot_id`: Exact Snapshot placement to bind.
+        - `thread_id`: Stable discussion identity to load.
+
+        # Usage
+
+        Use this for one discussion page or write preparation. Distinguish
+        `None` from an empty `ReviewThreadsRecord`: the former means the Snapshot
+        is outside the Room, while the latter means the Thread is absent.
+
+        # Returns
+
+        - A record containing exactly one selected placement, its origin,
+          ordered actions, and authors when the Thread is present.
+        - An empty `ReviewThreadsRecord` when the Snapshot is valid but the
+          Thread has no selected placement there.
+        - `None`: The Snapshot is missing or outside `identity`. Callers must
+          not collapse this into the empty-record case.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -2297,6 +3294,25 @@ class RoomStore:
         This write-validation read deliberately excludes Snapshots, Files, and
         placement rendering. `None` means the exact Thread/Snapshot pair does
         not exist.
+
+        # Parameters
+
+        - `snapshot_id`: Snapshot in which the Thread must have a placement.
+        - `thread_id`: Discussion whose complete ordered actions are required.
+
+        # Usage
+
+        Use this immediately before validating one Thread write. It avoids File
+        hydration while still returning the complete action history and current
+        author records needed by the review model.
+
+        # Returns
+
+        - First, the Thread's complete action tuple in sequence order.
+        - Second, current Profile records for every author referenced by those
+          actions. Profile tuple order is not action order.
+        - `None`: The Thread has no placement in `snapshot_id`. The caller must
+          reject the proposed write before applying review state transitions.
         """
         with Session(self.engine) as session:
             placed = session.execute(
@@ -2335,8 +3351,20 @@ class RoomStore:
     ) -> tuple[UserProfileRecord, ...]:
         """Load the existing Profiles among `profile_ids` in one set query.
 
-        Missing ids are simply absent from the result; the caller owns the
-        rejection contract for authors that do not exist.
+        Missing ids are absent from the result. The caller decides whether an
+        absent author is an error.
+
+        # Usage
+
+        Use one call for all Profile ids referenced by a review operation, then
+        compare the result keys with the ids that operation requires.
+
+        # Returns
+
+        - Each item is the current record for one distinct existing input id;
+          missing ids are omitted and duplicate ids do not duplicate records.
+        - Tuple order is not tied to input order. Callers match records by their
+          stable Profile ids, and an empty tuple means no input id exists.
         """
         if profile_ids == ():
             return ()
@@ -2361,9 +3389,27 @@ class RoomStore:
         The batch-validation counterpart of `review_actions`: one placement
         check, one ordered action read, and one Profile read cover every
         addressed Thread. A Thread without a placement in `snapshot_id` is
-        absent from the returned mapping; the caller owns that rejection.
+        absent from the returned mapping; the caller decides whether to reject it.
         Every present Thread has at least one action, and every acting
         Profile is present in the returned Profiles.
+
+        # Parameters
+
+        - `snapshot_id`: Snapshot in which every returned Thread is placed.
+        - `thread_ids`: Discussions to validate and hydrate as one set.
+
+        # Usage
+
+        Use this to validate an atomic batch without issuing one action-history
+        query per Thread. Compare the returned mapping with the requested ids;
+        absent keys identify Threads not placed in the Snapshot.
+
+        # Returns
+
+        - First, a mapping from every placed requested Thread id to its complete
+          action tuple in sequence order. Unplaced ids are absent.
+        - Second, current Profile records for every author referenced by those
+          actions. Profile tuple order is not an input-order guarantee.
         """
         if thread_ids == ():
             return {}, ()
@@ -2416,7 +3462,25 @@ class RoomStore:
         identity: RoomIdentity,
         target_snapshot_id: str,
     ) -> tuple[ReviewThreadRecord, ...]:
-        """Return Room Thread origins without a target-Snapshot placement."""
+        """Return Room Thread origins without a target-Snapshot placement.
+
+        # Parameters
+
+        - `identity`: Room whose logical Threads are considered.
+        - `target_snapshot_id`: New Snapshot for which derivation is pending.
+
+        # Usage
+
+        Snapshot publication calls this only for a genuinely new Snapshot, then
+        derives and inserts one immutable placement for each returned origin.
+
+        # Returns
+
+        - Each item is one immutable Room Thread origin whose Thread has no
+          placement in `target_snapshot_id`; each Thread appears once.
+        - Tuple order has no caller-visible meaning. An empty tuple means no
+          placement derivation remains for this Snapshot.
+        """
         mark_clause = (
             Room.mark_id.is_(None)
             if identity.mark_id is None
@@ -2461,6 +3525,16 @@ class RoomStore:
         The caller holds the shared Room lock. Existing equal records make the
         operation idempotent; an existing different record is an invariant
         violation because placements are immutable.
+
+        # Usage
+
+        Hold the shared Room lock and pass the complete set derived for one
+        target Snapshot. Repeating the same records is safe.
+
+        # Failures
+
+        - Asserts when input repeats a Thread/Snapshot pair or an existing pair
+          has different immutable placement data.
         """
         if rows == ():
             return
@@ -2511,7 +3585,25 @@ class RoomStore:
         rows: tuple[ReviewThreadRecord, ...],
         first_action: ReviewActionRecord,
     ) -> None:
-        """Atomically create one discussion in its origin Snapshot."""
+        """Atomically create one discussion in its origin Snapshot.
+
+        # Parameters
+
+        - `rows`: Immutable placements for the new Thread, including exactly
+          one origin.
+        - `first_action`: Sequence-zero Thread creation and first Comment.
+
+        # Usage
+
+        Review code validates the target and constructs the origin placement and
+        sequence-zero action before calling under the shared Room lock.
+
+        # Failures
+
+        - Asserts unless `rows` contains one origin for the same Thread as the
+          sequence-zero `thread-created` action.
+        - A database failure rolls back both placement and action rows.
+        """
         assert rows != (), "Thread creation requires at least its origin row"
         assert sum(1 for row in rows if row.is_origin) == 1, (
             "Thread creation requires exactly one origin row"
@@ -2553,6 +3645,23 @@ class RoomStore:
         order. Placement rows belong only to Threads created by this batch;
         actions may address those new Threads or existing Snapshot-bound
         Threads.
+
+        # Parameters
+
+        - `thread_rows`: Placements for Threads created by this batch.
+        - `actions`: Non-empty prevalidated actions in authored order.
+
+        # Usage
+
+        Validate the complete ordered batch and allocate any new Thread
+        placements before calling under the shared Room lock. Use this single
+        transaction rather than appending actions individually.
+
+        # Failures
+
+        - Asserts for an empty action batch, duplicate placement keys, or actions
+          that already carry a persistence-assigned activity id.
+        - Any constraint failure rolls back the entire batch.
         """
         assert actions != (), "review batch must contain at least one action"
         pairs = [(row.thread_id, row.snapshot_id) for row in thread_rows]
@@ -2600,6 +3709,11 @@ class RoomStore:
 
         This is the focused pivot read for callers that need only the
         activity boundary, without hydrating any Thread.
+
+        # Usage
+
+        Record this value with a Snapshot capture or continuation response when
+        the caller will later ask for actions strictly after that boundary.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -2630,6 +3744,13 @@ class RoomStore:
         Threads whose first action lies after the pivot do not exist yet at
         that pivot; their latest-action subquery finds nothing, so the join
         excludes them.
+
+        # Parameters
+
+        - `session`: Existing read transaction shared with the surrounding
+          continuation query.
+        - `identity`: Room whose logical Threads are counted.
+        - `through_activity_id`: Inclusive action boundary defining state.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -2688,6 +3809,32 @@ class RoomStore:
         activity id, or `activity_id` when the page is empty. Every returned
         action's Profile is present in the returned Profiles; a missing
         Profile row fails the read.
+
+        # Parameters
+
+        - `identity`: Room whose later authored actions are read.
+        - `activity_id`: Exclusive lower activity boundary retained by the
+          agent from its prior response.
+        - `limit`: Positive maximum action count for this page.
+
+        # Usage
+
+        Pass the last activity id retained by the agent. Continue with the final
+        id from each returned page until `has_more` is false; the returned open
+        count describes state at that page's inclusive end.
+
+        # Returns
+
+        - First, at most `limit` later actions ordered by activity id.
+        - Second, whether another later action exists beyond this page.
+        - Third, the count of open logical Threads at the page's inclusive end
+          boundary, not necessarily at the newest database action.
+        - Fourth, current Profile records for every author in the action page.
+
+        # Failures
+
+        - Asserts for a negative boundary, nonpositive limit, or a persisted
+          action whose author Profile is missing.
         """
         assert activity_id >= 0, "review activity boundary must be nonnegative"
         assert limit > 0, "review activity limit must be positive"
@@ -2752,7 +3899,25 @@ class RoomStore:
     def review_attention_counts(
         self, identity: RoomIdentity, through_activity_id: int
     ) -> dict[Literal["author", "reviewer", "both"], int]:
-        """Count open logical Threads by actionable attention at one pivot."""
+        """Count open logical Threads by actionable attention at one pivot.
+
+        # Parameters
+
+        - `identity`: Room whose current logical discussions are counted.
+        - `through_activity_id`: Inclusive boundary fixing each Thread outcome.
+
+        # Usage
+
+        Use the same inclusive pivot as the Thread page being summarized. The
+        result contains a count for each supported attention value.
+
+        # Returns
+
+        - The keys are exactly `author`, `reviewer`, and `both`; no other
+          persisted attention value appears.
+        - Each value counts open Threads whose latest action at the inclusive
+          pivot assigns that attention. Absent categories remain present as zero.
+        """
         mark_clause = (
             Room.mark_id.is_(None)
             if identity.mark_id is None
@@ -2816,7 +3981,27 @@ class RoomStore:
     def review_thread_for_comment(
         self, snapshot_id: str, comment_id: str
     ) -> Optional[str]:
-        """Return the placed Thread containing one created Comment."""
+        """Return the placed Thread containing one created Comment.
+
+        # Parameters
+
+        - `snapshot_id`: Snapshot in which the containing Thread must be placed.
+        - `comment_id`: Stable Comment identity created by one review action.
+
+        # Usage
+
+        Use this only after a route receives a Comment id without its Thread id.
+        Bind the returned id through `Room.get_thread` before applying a write.
+
+        # Returns
+
+        - The stable Thread id whose placement in `snapshot_id` contains the
+          Comment creation action.
+        - `None`: No placed discussion in that Snapshot contains `comment_id`.
+          The caller must report the Comment as unknown instead of searching a
+          different Snapshot.
+
+        """
         with Session(self.engine) as session:
             return session.execute(
                 select(ReviewAction.thread_id)
@@ -2832,7 +4017,30 @@ class RoomStore:
             ).scalar_one_or_none()
 
     def append_review_action(self, record: ReviewActionRecord) -> None:
-        """Append one already-validated action to its Snapshot-bound Thread."""
+        """Append one already-validated action to its Snapshot-bound Thread.
+
+        The method opens and commits its own short-lived transaction. The database
+        enforces identity, placement, sequence, and column constraints around the
+        record's already-validated operation shape. Success returns `None`, while
+        constraint or persistence failures propagate.
+
+        # Parameters
+
+        - `record`: Fresh action with no assigned `activity_id`; persistence assigns
+          the next database-wide cursor to the inserted row.
+
+        # Usage
+
+        Review code must validate the author, expected revision, lifecycle, and
+        operation shape first. Call under the shared Room lock so sequence and
+        activity allocation stay ordered with other writes.
+
+        # Failures
+
+        - Asserts when the caller supplies an assigned `activity_id`.
+        - Database constraints reject a missing placement, duplicate sequence or
+          operation id, invalid author, or inconsistent operation fields.
+        """
         assert record.activity_id is None
         with Session(self.engine) as session, session.begin():
             session.execute(

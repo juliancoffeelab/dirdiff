@@ -1,46 +1,19 @@
-"""Package-internal contracts for the composed-diff formats subsystem.
+"""Shared contracts and operations for File composition.
 
-Every `/api/file-diff` response is one *composed diff*: File-level metadata plus
-an ordered list of frames, each holding an ordered list of bays. A frame is
-presentational grouping (a notebook cell's card and heading are one frame; an
-ordinary text file is one frame with no heading). A bay is one renderable
-unit with its own identity, navigable and commentable on its own.
+## Public interface
 
-This module owns the enduring contracts every sibling depends on:
+This module defines the contexts, pre-render bays, warnings, and serialized
+payload types used by every format builder. Its functions classify whole-bay
+change, decode project text, describe media, and turn text or image bays into
+their wire content.
 
-- `BayContext` and `ComposeContext`, the two inputs composition reads;
-- `Bay`, the pre-render bay a format builder yields, before any diff engine has
-  touched it. It splits on what the bay is made of, because that is the
-  distinction its consumers act on: a `TextBay` carries two decoded text sides,
-  an `ImageBay` carries two sides of exact bytes;
-- `text_kind_payload` and `image_kind_payload`, the two shared renderers that
-  turn those into the varying half of a bay's wire form — the first through the
-  selected engine and the display-enrichment pipeline, the second by reducing
-  bytes to a `MediaRef`;
-- `media_facts`, the three things that can honestly be said about a side of
-  bytes — its media type, its size, its digest — written one per line. An image
-  File's facts bay and a blob File's only bay both hold that text, which is two
-  callers in sibling modules and is why it lives here;
-- the serialized payload shapes (`BayPayload`, `FramePayload`,
-  `ComposedFilePayload`) that survive to the wire.
+## Purpose and boundaries
 
-Sibling modules import these from `base.py`, never from the package facade. This
-module owns no format-specific decision: which bays a file composes into is
-`composer.py`'s path classification and the per-format builders it calls. It
-owns no request state, no Room vocabulary, and no HTTP concern.
-
-It also owns no hunk numbering. Enrichment marks which rows begin a changed run,
-bay by bay, and `change` says what happened to a bay. Turning those
-facts into one navigable sequence is a decision about how a reviewer steps
-through a File, so the frontend makes it.
-
-Bytes never reach the wire. An `ImageBay` holds its payload while composing, so
-the media endpoint can serve it from the same enumeration; by the time it is
-serialized it carries only the `MediaRef` describing that payload.
-
-Purity is the required contract. The same two byte sides and the same
-context always produce the same frames, bay keys, and order. Nothing here
-reads a clock, a database, a Room, or a file outside the bytes it is given.
+Format builders need one vocabulary before `Composer` can group and serialize
+their results. Keeping that vocabulary here lets engine-free consumers inspect
+bay identity and content without importing the format that produced it. This
+module does not select a format or load a File. Exact media bytes may exist in a
+pre-render `ImageBay`, but never in a serialized payload.
 """
 
 from __future__ import annotations
@@ -97,44 +70,66 @@ __all__ = [
 
 
 class ChangeStatus(TypedDict):
-    """A bay outcome that is fully told by its kind: the bay was added,
-    removed, changed in place, or left alone. Moves are not plain — they
-    carry coordinates and live in `MovedChangeStatus`."""
+    """Describe a bay that did not move between document positions.
+
+    A moved bay uses `MovedChangeStatus` because it needs both headings. This
+    value does not describe row-level changes.
+    """
 
     kind: Literal["added", "removed", "changed", "unchanged"]
+    """Whole-bay outcome decided before rendering.
+
+    `added` and `removed` are one-sided, `changed` retains the bay's position
+    with different content, and `unchanged` reports no semantic change.
+    """
 
 
 class MovedChangeStatus(TypedDict):
-    """The bay changed position between the two documents.
+    """Describe one bay that changed document position.
 
-    The two fields are the names the bay wore on each side: `from_heading` in
-    the old document, `to_heading` in the new one. They are the same names
-    the frames are headed by, so a reader can find both ends on screen —
-    positions are not among them, because nothing displays a position. A side
-    the builder cannot name carries `None` there, which is what a notebook's
-    prose cells are: they have no prompt, so a moved one can say only that it
-    moved. Whether the content was also edited is what the rows show, not
-    what this shape encodes.
+    Format builders attach this variant when they can establish movement, and
+    the HUD uses its headings to identify the old and new frame context.
+
+    Either heading is `None` when that side has no useful name. The value does
+    not encode numeric positions or whether the bay's content also changed;
+    rendered rows carry the content difference.
     """
 
     kind: Literal["moved"]
+    """Stable discriminator selecting the movement variant on the wire.
+
+    It says nothing about content equality; rendered text rows carry any edit
+    that happened while the bay moved.
+    """
+
     from_heading: str | None
+    """Old frame heading shown as the movement origin.
+
+    `None` means the format has no useful old-side heading, not that the old bay
+    was absent. Added bays use a different change variant.
+    """
+
     to_heading: str | None
+    """New frame heading shown as the movement destination.
+
+    `None` is an unnamed destination rather than a removed bay. Builders provide
+    both headings from their document structure, never from row alignment.
+    """
 
 
 BayChange = ChangeStatus | MovedChangeStatus
 """What happened to one bay, decided by the builder that composed it.
 
-This is semantic, not visual and not navigational. Only a format builder can
-answer it: a notebook cell that moved and a cell whose output changed beyond its
-rendered text produce identical rows, and nothing downstream can tell them apart
-from those rows. The frontend renders this — a tint, a status — and never
-infers it.
+- `ChangeStatus` describes added, removed, changed, or unchanged content at the
+  same document position.
+- `MovedChangeStatus` carries the old and new headings of a moved bay; its rows
+  may still show edits.
 
-A `moved` status means the bay changed position and carries the name it wore
-at each end; its rows may still show an edit. `unchanged` means nothing
-happened to the bay, which is also what tells hunk numbering that it needs no
-navigation stop of its own.
+Format builders assign this semantic fact before rendering because rows cannot
+recover it. A moved cell and a cell whose non-rendered output changed can
+produce the same rows, so the HUD must present this value rather than infer it.
+`unchanged` also tells hunk numbering that the bay needs no navigation stop of
+its own. This is not a row status or navigation coordinate.
 """
 
 
@@ -174,7 +169,13 @@ written about a picture on the bytes that replaced it.
 
 
 IMAGE_METADATA_BAY_KEY = "image-metadata"
-"""Bay key for dimensions and EXIF parsed from an image File's bytes."""
+"""Public coordinate for the optional image dimensions and EXIF text bay.
+
+The key distinguishes parsed metadata from the picture and byte-facts bays, so
+review targets survive changes inside that representation without landing on a
+different kind of content. Builders omit the bay when neither side yields
+metadata; they never reuse this key for opaque blob facts.
+"""
 
 
 BLOB_BAY_KEY = "blob"
@@ -195,18 +196,29 @@ def whole_file_change[Content](
 ) -> BayChange:
     """Decide what happened to a File that composes into a single bay.
 
-    Such a File has no positions — one bay is the whole of it — so its change is
+    Such a File has no internal positions, so one bay is the whole of it and its change is
     read from the two sides themselves: one side absent is an addition or a
     removal, two equal sides are `unchanged`, and anything else is `changed`. A
     whole-File bay is never `moved`, because a move is a position within a
     document and this bay has no document to move within.
 
-    `Content` is whatever the calling builder already validated — decoded text
-    for a flatfile, the stated facts for a facts bay, exact bytes for an image
-    File's picture — and is compared
-    with `==`, so equal content on both sides is `unchanged` in either case.
+    `Content` is whatever the calling builder already validated, such as decoded
+    text for a flatfile, stated facts for a facts bay, or exact image bytes. It is
+    compared with `==`, so equal content on both sides is `unchanged`.
     Absent means the File was not captured on that side; a captured empty side
-    is content, not absence, and callers must not conflate the two.
+    is content, not absence, and callers must not conflate the two. At least one
+    side must be present; `(None, None)` is outside this function's contract.
+
+    # Parameters
+
+    - `left`: Old-side content, or `None` when that side was not captured.
+    - `right`: New-side content under the same convention.
+
+    # Usage
+
+    Format builders call this after establishing the content that represents
+    each side of a single-bay File. Use `BayChange` directly for formats with
+    internal positions, where movement can be meaningful.
     """
     if left is None:
         return ChangeStatus(kind="added")
@@ -231,9 +243,32 @@ class BayContext:
     """
 
     left_path: str | None
+    """Old File path used for classification and later as a syntax hint.
+
+    `None` means that side is absent. Builders may narrow a present path for
+    internal text, such as a notebook cell's language-specific source.
+    """
+
     right_path: str | None
+    """New File path under the same classification and hint contract.
+
+    A rename may provide two different paths; composition preserves both rather
+    than choosing one canonical File path.
+    """
+
     left_label: str
+    """Reviewer-facing old-side heading attached to composed text bays.
+
+    It names the comparison side, not the File path or the bay itself. Engines
+    never author or change it.
+    """
+
     right_label: str
+    """Reviewer-facing new-side heading under the same contract as `left_label`.
+
+    Full composition also re-emits it on the File envelope so headers and bay
+    grids cannot disagree.
+    """
 
 
 @dataclass(frozen=True)
@@ -251,7 +286,26 @@ class ComposeContext:
     """
 
     bays: BayContext
+    """Exact classification and heading inputs passed to `Composer.bays`.
+
+    `compose()` does not duplicate or rewrite these facts before bay building,
+    keeping rendered and non-rendering consumers on one classification path.
+    """
+
     renderer: DiffEngineProtocol
+    """Selected engine used by full composition for every text bay in order.
+
+    `Composer.compose` invokes `render_diff(old=bay.left, new=bay.right)` exactly
+    once as it visits each yielded `TextBay`; image bays never invoke it. Each
+    argument is the builder's decoded `DiffSide`, including explicit absence and
+    its parser-only path hint. The returned rows go immediately through display
+    enrichment with those same texts and hints, while summary and warning data
+    enter the text-bay payload.
+
+    The engine may return a declared degraded warning with honest rows. Callers
+    must let invalid results and raised engine failures propagate; composition
+    neither retries the call nor selects a different renderer.
+    """
 
     @classmethod
     def build(
@@ -269,6 +323,19 @@ class ComposeContext:
         side labels, and the renderer. It exists so a handler does not assemble
         a context field by field, and so composition never imports the Room
         vocabulary to reach the two facts it needs.
+
+        # Parameters
+
+        - `left_path`: Old File path, or `None` for an absent side.
+        - `right_path`: New File path, or `None` for an absent side.
+        - `left_label`: Heading for old-side text bays.
+        - `right_label`: Heading for new-side text bays.
+        - `renderer`: Selected engine used only by full composition.
+
+        # Usage
+
+        HTTP rendering constructs this after loading a captured File pair and
+        selecting an engine. Pass the result unchanged to `Composer.compose`.
         """
         return cls(
             bays=BayContext(
@@ -301,13 +368,15 @@ class TextBay:
     needs no name, which is every frame of a flatfile."""
 
     bay_key: str
-    """This bay's public coordinate, unique within the File and durable
-    across Snapshots. Review targets and line pins store it, so it must identify
-    the same bay in a later capture or a Thread anchored here goes
-    unplaceable."""
+    """This bay's public coordinate, unique within the File.
+
+    Review targets and line pins retain it. A builder should preserve the key
+    across Snapshots while it still identifies the same logical bay; otherwise
+    review placement reports the old bay as lost.
+    """
 
     label: str
-    """Names the whole bay where it is shown by name, which is its collapsed
+    """Names the whole bay where it is shown by name, which is its closed
     placeholder and the content column of the inline grid. Distinct from the two
     side headings below."""
 
@@ -325,8 +394,13 @@ class TextBay:
     from bay order."""
 
     default_expanded: bool
-    """Whether a collapsible bay starts open. Ignored when `collapsible` is
-    false, which is always shown."""
+    """Builder-selected initial visibility for a bay with `collapsible=true`.
+
+    The HUD consults it only when `collapsible` is true and may later retain the
+    reviewer's explicit choice. A bay with `collapsible=false` remains shown
+    regardless of this value, so builders must not use it to hide required frame
+    content.
+    """
 
     change: BayChange
     """What happened to this bay, semantically. Only the builder can answer:
@@ -340,25 +414,37 @@ class TextBay:
     label by design."""
 
     right_label: str
-    """Heading for the right column of the rendered grid."""
+    """Human-facing heading for the new-side grid column.
+
+    The composition context supplies it alongside `left_label`; engines never
+    infer or rewrite either heading from file paths or source contents.
+    """
 
     left: DiffSide
     """The left side's decoded text, or a side whose `exists` is false. A
     one-sided File and a cell present on only one side are the same shape."""
 
     right: DiffSide
-    """The right side's decoded text, under the same contract as `left`."""
+    """Decoded new-side engine input, including explicit absence.
+
+    It belongs to the same File or cell as `left`. Builders preserve one-sided
+    existence here instead of replacing a missing side with invented text.
+    """
 
     warnings: tuple[BayWarning, ...] = ()
-    """Non-fatal format damage affecting this bay's representation."""
+    """Visible degradation specific to this text bay's representation.
+
+    Composition forwards warnings in order beside this bay. They do not turn a
+    successfully represented bay into an engine failure or a File-wide warning.
+    """
 
 
 @dataclass(frozen=True)
 class MediaSide:
     """One captured side of a File's bytes: the bytes and their media type.
 
-    The bytes are the ones capture retained, unchanged — no transcoding,
-    re-encoding, or thumbnailing takes place anywhere in composition, because
+    The bytes are exactly what capture retained. No transcoding, re-encoding,
+    or thumbnailing takes place anywhere in composition because
     the media endpoint must serve exactly what the Snapshot holds. The media
     type is what the frontend needs to decide how to display it and what the
     endpoint writes as its `Content-Type`.
@@ -400,27 +486,50 @@ class ImageBay:
     bay stating what its bytes are."""
 
     heading: str | None
-    """The frame's heading, or `None` for a frame that needs no name — which is
-    every frame a whole-File image composes."""
+    """Shared frame heading displayed above this image and its related bays.
+
+    Whole-File images use `None` because their frame needs no separate name.
+    Bays group together only when both `frame_key` and this heading agree.
+    """
 
     bay_key: str
-    """This bay's public coordinate, unique within the File and durable across
-    Snapshots, under `TextBay.bay_key`'s contract."""
+    """Public File-local coordinate of the image widget.
+
+    The image builder keeps this key across Snapshots while the File remains an image. It is
+    distinct from its facts and metadata bay keys. Review placement uses that
+    distinction to report a File classification change rather than land on
+    unrelated text.
+    """
 
     label: str
-    """Names the whole bay where it is shown by name, which for an image bay is
-    its widget's header."""
+    """Presentation name shown in the image widget's bay header.
+
+    It names this bay rather than either captured side or its frame. Builders
+    supply it directly; the HUD must not derive a replacement from media type.
+    """
 
     detail: str | None
-    """The builder's sentence explaining a change the widget does not show, or
-    `None` when the widget tells the whole story."""
+    """Builder-authored explanation of an image change not visible in the widget.
+
+    `None` means the two rendered pictures and `change` state tell the complete
+    story. Callers present a value as supporting text and do not parse it to
+    infer change identity.
+    """
 
     collapsible: bool
-    """Whether the reviewer may hide this bay's body."""
+    """Whether the HUD may replace this image body with closed chrome.
+
+    Builders set false when the picture is the frame's required body. The field
+    grants presentation control only; it never removes the bay or its hunk stop.
+    """
 
     default_expanded: bool
-    """Whether a collapsible bay starts open. Ignored when `collapsible` is
-    false."""
+    """Initial open state consulted only when `collapsible` is true.
+
+    An image bay with `collapsible=false` is always shown regardless of this
+    value. The
+    frontend may later retain an explicit reviewer choice outside the payload.
+    """
 
     change: BayChange
     """What happened to this bay, semantically. An image bay produces no rows at
@@ -432,21 +541,31 @@ class ImageBay:
     on the left. `None` is how an added File is expressed."""
 
     right: MediaSide | None
-    """The right side's captured bytes, under the same contract as `left`."""
+    """Exact new-side captured bytes, or `None` when that side is absent.
+
+    The value is paired with `left` in one File frame and reaches media serving
+    unchanged. `None` must render as an absent side, not an empty byte stream.
+    """
 
     warnings: tuple[BayWarning, ...] = ()
-    """Non-fatal format damage affecting this bay's representation."""
+    """Visible degradation specific to this image bay.
+
+    Builders attach damage at the smallest bay whose picture representation is
+    affected. The warnings do not describe separate facts or fail composition.
+    """
 
 
 Bay = TextBay | ImageBay
 """One bay a format builder yields, before rendering and before serialization.
 
-There is no base class and no `kind` field inside one type: the type *is* the
-distinction, so a consumer that must act differently on a picture writes two
-branches the type checker enforces, and one that must not act differently
-writes none. `compose()` renders a text bay through the engine and reduces an
-image bay to references, the media endpoint serves only the second, and review
-reconstructs an excerpt from either.
+- `TextBay` carries decoded sides for engine rendering.
+- `ImageBay` carries exact media bytes for reference conversion and serving.
+
+Consumers branch on the concrete type only when content requires different
+handling. There is no base class or redundant `kind` field, and neither variant
+is a serialized payload. `compose()` renders `TextBay` and reduces `ImageBay`
+to references; the media endpoint serves only `ImageBay`, while review can
+reconstruct excerpts from either.
 """
 
 
@@ -459,7 +578,18 @@ class BayWarning(TypedDict):
     """
 
     type: str
+    """Stable machine-readable discriminator shared with the frontend.
+
+    Format and engine producers choose from their documented warning vocabulary;
+    consumers must not derive behavior by parsing `message`.
+    """
+
     message: str
+    """Complete reviewer-facing explanation of the degraded bay result.
+
+    It must identify what could not be represented and what the reviewer sees
+    instead. It is not an exception traceback or a substitute status code.
+    """
 
 
 class MediaRef(TypedDict):
@@ -468,15 +598,19 @@ class MediaRef(TypedDict):
     This is the whole of what the frontend learns about a captured picture
     without asking for it: enough for the widget to know the side exists and to
     request it. The bytes themselves come from `/api/file-media`, addressed by
-    Snapshot, side, and the File's path pair — never from here.
+    Snapshot, side, and the File's path pair. They never come from this value.
 
     The same three facts, written one per line by `media_facts`, are what the
     reviewer reads as rows in the facts bay beside the picture.
     """
 
     media_type: str
-    """The IANA media type the builder concluded, which the media endpoint
-    writes as its `Content-Type` for this side."""
+    """IANA media type concluded for this exact captured side.
+
+    The media endpoint writes it as `Content-Type`, while the HUD may use it to
+    choose presentation. It describes builder classification and is paired with
+    the digest and byte size; consumers must not sniff a different type later.
+    """
 
     byte_size: int
     """The exact captured size in bytes. Shown to the reviewer, and the one
@@ -501,13 +635,24 @@ class TextKindPayload(TypedDict):
     """
 
     kind: Literal["text"]
-    """The widget that renders this bay: the existing text diff grid."""
+    """Discriminator selecting the HUD text-diff grid.
+
+    It also narrows the remaining fields to rendered rows, folds, and text-side
+    headings; it never identifies the File format that produced the bay.
+    """
 
     left_label: str
-    """Heading for the grid's left column, distinct from `label`."""
+    """Old-side grid heading copied from the composition context.
+
+    It is distinct from the bay `label`, which names the content as a whole.
+    """
 
     right_label: str
-    """Heading for the grid's right column."""
+    """New-side grid heading paired with `left_label`.
+
+    The renderer cannot change it because engines compare content without
+    reviewer-facing side names.
+    """
 
     rows: list[DiffRow]
     """The rendered rows, in document order. A row whose `hunk_index` is not
@@ -519,8 +664,12 @@ class TextKindPayload(TypedDict):
     which the frontend enforces by throwing."""
 
     stats: DiffSummary
-    """This bay's own line counts, shown in the header of a collapsible
-    bay so a reviewer can judge whether opening it is worthwhile."""
+    """Engine counts for this text bay's complete `rows` sequence.
+
+    The HUD shows them in bay chrome, and Composer adds them once to
+    the File summary. Image bays contribute no line counts, so callers must not
+    infer File totals from this value alone.
+    """
 
 
 class ImageKindPayload(TypedDict):
@@ -532,7 +681,11 @@ class ImageKindPayload(TypedDict):
     """
 
     kind: Literal["image"]
-    """The widget that renders this bay: the image widget."""
+    """Discriminator selecting the HUD image widget.
+
+    This variant carries media references only. Dimensions and byte facts are
+    separate text bays rather than hidden fields on the image widget.
+    """
 
     left: MediaRef | None
     """The left side's captured image, or `None` when the File was not captured
@@ -540,21 +693,24 @@ class ImageKindPayload(TypedDict):
     rather than as an empty frame."""
 
     right: MediaRef | None
-    """The right side's captured image, under the same contract as `left`."""
+    """New-side media address, or `None` when the File has no right side.
+
+    The reference identifies captured bytes served by the media endpoint. The
+    HUD must show absence for `None` and must not substitute the left reference.
+    """
 
 
 BayKindPayload = TextKindPayload | ImageKindPayload
 """The content of one serialized bay, discriminated by `kind`.
 
-Two arms, because there are two things a reviewer can look at: lines, and a
-picture. `MediaRef` belongs to `ImageKindPayload` alone — it names the bytes the
-widget must fetch, and no other kind fetches bytes. A blob File's facts and an
-image File's facts are lines, so they are `text` and need no arm of their own.
+- `TextKindPayload` carries decorated rows, folds, and bay statistics.
+- `ImageKindPayload` carries media references for the image widget.
 
-Bytes never reach here: an image bay is reduced to its `MediaRef` sides before
-serialization. TypeScript declares the same union independently, as it does for
-everything else crossing this boundary; neither declaration is generated from
-the other.
+Blob and image facts are text and need no separate variant. Bytes never reach
+this union; image composition reduces them to `MediaRef` first, and no text
+variant may contain a media reference. The frontend declares the same wire
+union independently. Adding a kind requires a matching frontend variant but
+does not change the bay envelope.
 """
 
 
@@ -563,30 +719,45 @@ class BayPayload(TypedDict):
 
     The fields every bay carries whatever it holds, plus `kind_data`, the single
     field that varies. The discriminator therefore sits one level down:
-    placement, identity, collapse, and status read this record directly and
+    placement, identity, expansion, and status read this record directly and
     never learn the kind, and only the frontend's widget dispatch descends into
     `kind_data` and switches on its `kind`. Adding a kind adds one arm to
     `BayKindPayload` and touches nothing here.
     """
 
     bay_key: str
-    """This bay's public coordinate, unique in the File and durable across
-    Snapshots. Review targets and line pins are stored against it."""
+    """This bay's public coordinate, unique in the File.
+
+    Review targets and line pins retain it. Builders keep it stable while it
+    still identifies the same logical bay; a changed key makes the old bay
+    unavailable to later placement.
+    """
 
     label: str
-    """Names the whole bay where it is shown by name: its collapsed
-    placeholder, and the content column of the inline grid."""
+    """Builder-provided presentation name for this serialized bay.
+
+    The HUD uses it in closed chrome and inline-grid content labels. It is not a
+    coordinate, side heading, or substitute for `bay_key` when retaining state.
+    """
 
     detail: str | None
-    """A sentence from the builder explaining a change the rows do not show, or
-    `None` when the rows tell the whole story."""
+    """Optional builder explanation for semantic change absent from bay content.
+
+    The value survives serialization verbatim and supplements `change`; `None`
+    means no extra explanation is required. Consumers must not derive behavior
+    by parsing this presentation text.
+    """
 
     collapsible: bool
     """Whether the reviewer may hide this bay's body. False means the bay
     is the frame's body and is always shown."""
 
     default_expanded: bool
-    """Whether a collapsible bay starts open."""
+    """Initial open state for a bay the payload permits reviewers to close.
+
+    The value is ignored when `collapsible` is false and never records a later
+    reviewer choice; that state remains in the mounted ChangeSet.
+    """
 
     change: BayChange
     """What happened to this bay. Only the format builder can answer it, and
@@ -594,11 +765,15 @@ class BayPayload(TypedDict):
     needs somewhere for the reviewer to land."""
 
     warnings: list[BayWarning]
-    """Non-fatal engine or format degradation affecting this bay."""
+    """Ordered visible damage notices scoped to this serialized bay.
+
+    Engine warnings and format warnings meet here after successful composition.
+    Consumers display them without converting the bay into a failed File.
+    """
 
     kind_data: BayKindPayload
     """What this bay holds, and the only field that varies by kind. It is
-    backend-owned like every other wire field: the frontend chooses a widget
+    backend-authored like every other wire field: the frontend chooses a widget
     from it and never authors or rewrites it."""
 
 
@@ -607,12 +782,16 @@ class FramePayload(TypedDict):
 
     A frame carries no annotations of its own. Everything a reviewer needs to
     know about a change belongs to the bay that changed, because a bay can
-    be navigated to, collapsed, and commented on, and a frame cannot.
+    be navigated to, closed, and commented on, and a frame cannot.
     """
 
     frame_key: str
-    """Identifies the frame within its File. Bays sharing this key and
-    heading were grouped into one frame."""
+    """Public File-local identity shared by all bays in this frame.
+
+    Composer groups only contiguous bays whose key and heading both match. The
+    builder decides whether a logical frame can retain this key across
+    Snapshots. The key is not a bay coordinate by itself.
+    """
 
     heading: str | None
     """Rendered above the frame's bays, or `None` for a frame that needs no
@@ -632,12 +811,19 @@ class ComposedSummary(DiffSummary):
     """
 
     left_exists: bool
-    """Whether the File was captured on the left side. False means the File was
-    added."""
+    """Whether capture supplied any old-side bytes for the composed File.
+
+    `False` with `right_exists=True` identifies an added File. An empty captured
+    File is still present, so consumers must not derive this value from text rows
+    or aggregate counts.
+    """
 
     right_exists: bool
-    """Whether the File was captured on the right side. False means the File was
-    removed."""
+    """Whether capture supplied any new-side bytes for the composed File.
+
+    `False` with `left_exists=True` identifies a removed File. Presence remains
+    independent of empty content and of whether a File composes text or images.
+    """
 
 
 class ComposedFilePayload(TypedDict):
@@ -653,20 +839,36 @@ class ComposedFilePayload(TypedDict):
     from the request context, not derived."""
 
     right_label: str
-    """Names the right side, such as `worktree`."""
+    """Human-facing new-side comparison label supplied by the request context.
+
+    Composition re-emits it unchanged beside `left_label`; it is not derived
+    from `right_path` and remains meaningful for a removed File.
+    """
 
     left_path: str | None
     """The File's path on the left side, or `None` when it was added. Together
     with `right_path` it is the File pair review targets are stored against."""
 
     right_path: str | None
-    """The File's path on the right side, or `None` when it was removed."""
+    """Canonical new-side path, or `None` for a File absent on that side.
+
+    Together with `left_path` it is the durable File pair used by review and
+    line-pin identity. At least one side path must be present.
+    """
 
     summary: ComposedSummary
-    """Line counts aggregated across every bay, plus which sides exist."""
+    """File-level line totals and side-existence facts derived during composition.
+
+    Counts aggregate rendered text bays without inventing line statistics for
+    image content. Side existence comes from captured inputs, not bay contents.
+    """
 
     default_expanded: bool
-    """Whether the File's body starts open in the ChangeSet."""
+    """Backend-selected initial FileCard expansion when no explicit choice exists.
+
+    The payload does not retain later reviewer expansion. Lazy and explicit
+    ChangeSet policy may temporarily take precedence before FullFile rendering.
+    """
 
     frames: list[FramePayload]
     """The File's frames in document order. Always at least one: a File with no
@@ -676,27 +878,59 @@ class ComposedFilePayload(TypedDict):
 
 @dataclass(frozen=True)
 class TextRejection:
-    """Why exact captured bytes cannot be represented as project text."""
+    """Explain why captured bytes fail the project's text contract.
+
+    `try_decode_text` returns this value to a format builder instead of raising.
+    The builder preserves the bytes as blob facts and turns `detail` into a
+    visible bay warning.
+
+    This is a classification result, not a recoverable decoded string or an
+    engine failure.
+    """
 
     reason: Literal["nul-byte", "invalid-utf8"]
-    """Stable discriminator for the rejected text contract."""
+    """Machine-readable boundary failure chosen by `try_decode_text`.
+
+    Builders may branch on the two exhaustive causes without parsing `detail`;
+    the value is not a media type or a recoverable decoder mode.
+    """
 
     detail: str
-    """Human-readable location or explanation of the invalid bytes."""
+    """Reviewer-facing explanation of where or why decoding was rejected.
+
+    Builders may place it in a bay warning. Callers must not inspect its prose
+    to recover bytes or classify the stable `reason`.
+    """
 
 
 def try_decode_text(data: bytes) -> str | TextRejection:
     """Decode exact file contents as text or return the precise rejection.
 
     This is the single definition of what this project calls text: no NUL byte,
-    and valid UTF-8 with an optional BOM. It lives here because classification
-    is the only thing that asks the question — `bays()` calls it as its text
-    step, where "these bytes are not text" is an answer that hands the File to
-    the blob terminal rather than a failure, and the decoded value it returns is
-    the text the flatfile builder renders, so a File is decoded once.
+    and valid UTF-8 with an optional BOM. `Composer.bays` reaches it through the
+    flatfile builder. A rejection hands the File to the blob builder; accepted
+    text is the value the engine later receives.
 
-    Nothing here raises. Composition turns a rejection into blob facts and a
-    visible warning rather than hiding the failed contract.
+    Invalid text returns `TextRejection` rather than raising a decoding error.
+    Composition turns that result into blob facts and a visible warning.
+
+    # Usage
+
+    Pass exact captured bytes before constructing a `DiffSide`. Preserve a
+    `TextRejection` for the builder to report; do not substitute decoded text.
+
+    # Returns
+
+    - `str`: The complete decoded contents after removing an optional UTF-8
+      byte-order mark.
+    - `TextRejection`: The exact NUL-byte or invalid-UTF-8 boundary failure;
+      callers must represent the File as byte facts instead of using text.
+
+    # Failures
+
+    A NUL byte returns `TextRejection(reason="nul-byte")`. Invalid UTF-8 returns
+    `TextRejection(reason="invalid-utf8")`; neither condition raises
+    `UnicodeDecodeError`.
     """
     nul_offset = data.find(b"\x00")
     if nul_offset >= 0:
@@ -716,11 +950,15 @@ def try_decode_text(data: bytes) -> str | TextRejection:
 def media_ref(side: MediaSide) -> MediaRef:
     """Describe one captured media side without carrying its bytes.
 
-    This is the single place a media side's digest is computed, so the digest
-    the frontend receives, the digest the media endpoint's content is
-    identified by, and the digest review reconstructs its context from are the
-    same string produced the same way. SHA-256 in lowercase hex, matching how
-    the rest of the project spells a content hash.
+    This is the single place a media side's digest is computed, so the frontend
+    and review context reconstruction receive the same lowercase SHA-256 value.
+    The media endpoint is addressed by Snapshot, File pair, bay, and side. The
+    digest describes the returned bytes but is not an endpoint parameter.
+
+    # Usage
+
+    Use this when exact media bytes must become a serializable description.
+    Keep `MediaSide` when a caller still needs to serve or inspect the bytes.
     """
     return {
         "media_type": side.media_type,
@@ -744,14 +982,24 @@ def media_facts(side: MediaSide | None) -> str | None:
     """State what is known about one side of bytes, one fact per line.
 
     The three facts are the media type composition concluded, the exact captured
-    size, and the digest of the captured bytes — in the spirit of what
-    `git diff` prints for a binary file, and everything that can honestly be
-    said about content nothing here reads. They are text, so the bay holding
-    them is an ordinary `text` bay and the reviewer gets a real diff of them:
-    the size row changed, the digest row changed, the media type row did not.
+    size, and the digest of the captured bytes. They are text, so the bay holding
+    them is an ordinary `text` bay and the reviewer gets a line diff of those
+    facts.
 
     `None` is a side the File was not captured on, which is how an added or
     removed File is expressed, matching `DiffSide`'s absent side.
+
+    # Usage
+
+    Image and blob builders pass each captured side here, then render the
+    returned text through the ordinary text-bay pipeline.
+
+    # Returns
+
+    - `str`: Three newline-separated media facts for a captured side, in type,
+      size, and SHA-256 order.
+    - `None`: The File has no captured side here. Callers must preserve the
+      absence as a missing `DiffSide`, not display empty media facts.
     """
     if side is None:
         return None
@@ -770,6 +1018,11 @@ def image_kind_payload(bay: ImageBay) -> ImageKindPayload:
     `MediaRef` describing it, and an absent side stays `None`. This is the point
     at which the payload stops being able to leak captured content, which is why
     it is the only path from an `ImageBay` to a response.
+
+    # Usage
+
+    `Composer.compose` calls this for an `ImageBay`. Media-serving code keeps
+    the original bay because this result deliberately contains no bytes.
     """
     return {
         "kind": "image",
@@ -785,15 +1038,38 @@ def text_kind_payload(
     """Render one `TextBay`'s content into its serialized wire form.
 
     This is the one shared text-bay renderer, so ordinary text and every
-    per-format text bay — a notebook cell's source, an image File's facts, a
-    blob File's only bay — reach the engine and the display-enrichment pipeline
-    through exactly one path. It calls the selected engine, then
-    `enrich_rows_for_display`, so rows, parts, fold hints, and hunk boundaries
-    keep exactly the file-meat contracts. The engine stays text-only and never
-    learns that bays or formats exist.
+    per-format text bay reach the engine and display-enrichment pipeline through
+    exactly one path. Per-format bays include notebook cell source, image File
+    facts, and a blob File's only bay. The function calls the selected engine,
+    then `enrich_rows_for_display`, so every text bay uses the same ordered rows,
+    decorated parts, half-open fold hints, and bay-local hunk boundaries. The
+    engine stays text-only and never learns that bays or formats exist.
 
     Row `hunk_index` values are bay-local and stay that way. Numbering the
-    File's hunks into one sequence is navigation, and the frontend owns it.
+    File's hunks into one sequence is navigation, and the frontend assigns it.
+
+    # Parameters
+
+    - `bay`: Decoded text bay whose identity and sides must be preserved.
+    - `renderer`: Selected engine for comparing the bay's two text sides.
+
+    # Usage
+
+    `Composer.compose` calls this once for each yielded `TextBay`, then appends
+    any returned engine warning to that bay's format warnings.
+
+    # Returns
+
+    - `First`: The bay's labels, enriched rows, fold hints, and engine summary in
+      response form.
+    - `Second`: The renderer's reportable limitation for this bay.
+    - `None`: The second item is absent when rendering completed without a
+      reportable limitation, so the caller adds no warning to the bay.
+
+    # Failures
+
+    Propagates engine failures and display-enrichment invariant errors. The
+    function does not select another renderer or return a partial payload.
     """
     rendered = renderer.render_diff(old=bay.left, new=bay.right)
     left_text = "" if bay.left.text is None else bay.left.text

@@ -1,8 +1,8 @@
-"""Display-enrichment behavior tests.
+"""Check display enrichment at the neutral-row boundary.
 
-These tests exercise `dirdiff.rendering` directly, without invoking a diff
-engine or assembling an HTTP response. They verify focused syntax, decoration,
-and engine-row boundary contracts.
+The tests call `dirdiff.rendering` directly to verify syntax classes, decoration
+weaving, and rejection of invalid engine tokens. Diff-engine behavior and HTTP
+serialization remain outside this module.
 """
 
 from pathlib import Path
@@ -23,7 +23,12 @@ __all__: list[str] = []
 
 
 def test_preset_highlights_use_declared_syntax_classes() -> None:
-    """Require every syntax class emitted for a preset to be declared."""
+    """Check real preset captures against the complete public CSS vocabulary.
+
+    Every configured text preset that receives highlighting contributes all
+    emitted classes. The assertion prevents a bundled query from producing a
+    syntactically valid but undeclared class the HUD cannot style.
+    """
     declared_classes = set(get_args(SyntaxClass.__value__))
     preset_root = Path(__file__).parents[1] / "presets"
     preset_files = sorted(
@@ -77,7 +82,13 @@ def test_decorated_parts_reject_invalid_inline_tokens(
     text: str,
     tokens: list[InlineToken],
 ) -> None:
-    """Reject engine tokens that cannot describe the supplied row text."""
+    """Reject engine tokens that cannot describe the supplied row text.
+
+    # Parameters
+
+    - `text`: Exact row text the generated invalid token sequence claims to cover.
+    - `tokens`: Malformed partition with wrong text, emptiness, or whitespace fact.
+    """
     with pytest.raises(AssertionError):
         weave_decorated_parts(text, tokens, [])
 
@@ -102,6 +113,11 @@ def test_decorated_parts_reject_invalid_inline_tokens(
 def test_decorated_parts_reject_invalid_syntax_spans(
     syntax: list[SyntaxSpan],
 ) -> None:
-    """Reject syntax spans that do not form valid ordered source ranges."""
+    """Require decoration weaving to reject malformed syntax geometry.
+
+    The parameter cases cover empty, reversed, overlapping, and out-of-bounds
+    line-local spans. None may be clipped, reordered, or silently omitted to
+    make a payload appear valid.
+    """
     with pytest.raises(AssertionError):
         weave_decorated_parts("abc", [], syntax)

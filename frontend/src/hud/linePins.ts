@@ -1,12 +1,13 @@
 /**
- * Defines URL-backed exact-line identity and restoration for one ChangeSet snapshot.
+ * Maintains the URL-backed exact-line pin for one mounted ChangeSet snapshot.
  *
- * The module exports complete line-pin contracts and the `linePins()` factory.
- * Each factory call uses the current Navigation and Toast providers, retains
- * only cancellation for its active restoration, and returns operations for URL
- * parsing, direct URL toggling, and admitted-file restoration. It must not render
- * a component, observe browser history, fetch or admit files, paint rows, select
- * hunks, inspect query state, or create another authoritative pin identity.
+ * `linePins()` parses and writes the single `pin` hash field, paints only the
+ * currently connected matching row, and restores an admitted target through
+ * Navigation. A new toggle or snapshot disposal aborts the prior restoration.
+ * Invalid identity remains invalid and is never repaired or replaced.
+ *
+ * The file lane decides when a target File is fetched and admitted. This module
+ * does not observe history, select hunks, or retain a second pin identity.
  */
 import { z } from "zod";
 
@@ -15,31 +16,40 @@ import { useToasts } from "../comp/Toasts";
 import { assert, expect } from "../utils";
 import { useNavigation } from "./navigation";
 
+/**
+ * Keeps malformed or missing-pin notices visible long enough to read without
+ * turning URL restoration damage into a persistent Toast.
+ */
 const LINE_PIN_NOTICE_DURATION_MS = 2_000;
 
+/**
+ * Validates the complete JSON value stored in the URL's single `pin` field.
+ *
+ * The shared review schemas keep File-pair and bay identity identical across
+ * line pins and Threads. The side-specific path requirement is checked after
+ * parsing because the File-pair schema requires only one side to exist.
+ */
 const LinePinTargetSchema = z.strictObject({
+  /** Exact old/new path pair shared with Snapshot review targets. */
   file: ReviewFilePairSchema,
+  /** Public composed bay key containing the pinned line. */
   bay: ReviewTextBaySchema,
+  /**
+   * Captured File side whose numbered line is pinned.
+   * `parseUrl` rejects the value unless the matching path in `file` is present.
+   */
   side: z.enum(["left", "right"]),
+  /** Positive backend line number stored as canonical decimal text. */
   line: z.string().regex(/^[1-9]\d*$/u),
 });
 
 /**
  * Represents one complete URL line-pin identity.
  *
- * `file` is the review File pair — the same two-sided identity review
- * threads address — so a renamed File keeps one pin identity instead of a
- * side-dependent path. `bay` is the composed bay the pin was taken in — the
- * same universal coordinate the backend and review targets use, so a flatfile
- * carries `FLATFILE_BAY_KEY` rather than an absent field. `side` identifies
- * the old or new side, and the pair's path on that side is always present.
- * `line` is one positive backend line number serialized as canonical decimal
- * text. The type never represents DOM, loading, decoration, hunk identity, or
- * a partially parsed target.
- *
- * The shape is inferred from the schema that validates it, so the URL field and
- * the review pair and bay identities it embeds are accepted under exactly the
- * rules the API layer applies to those identities everywhere else.
+ * The identity uses the same File pair and bay schemas as review Threads, so a
+ * renamed File keeps one pin identity and flat files carry their conventional
+ * bay key. The selected side's path must be present. This type never represents
+ * DOM, loading, decoration, hunk identity, or a partially parsed target.
  */
 export type LinePinTarget = z.infer<typeof LinePinTargetSchema>;
 
@@ -52,9 +62,20 @@ export type LinePinTarget = z.infer<typeof LinePinTargetSchema>;
  * identity.
  */
 export type ParsedLinePin =
-  | { state: "none" }
-  | { state: "invalid" }
-  | { state: "valid"; target: LinePinTarget };
+  | {
+      /** No `pin` field is present in the current hash. */
+      state: "none";
+    }
+  | {
+      /** The hash has duplicate fields, invalid JSON, or an invalid target. */
+      state: "invalid";
+    }
+  | {
+      /** The hash contains exactly one complete target accepted by the schema. */
+      state: "valid";
+      /** Exact semantic coordinate decoded from the current URL. */
+      target: LinePinTarget;
+    };
 
 /**
  * Describes the exact result of one direct URL toggle.
@@ -75,9 +96,18 @@ export type LinePinToggleResult = "pinned" | "unpinned";
  * action. Exceptions remain exceptions and are never converted into this union.
  */
 export type LinePinRestoration =
-  | { state: "complete" }
-  | { state: "missing" }
-  | { state: "stopped" };
+  | {
+      /** Navigation centered the exact prepared row. */
+      state: "complete";
+    }
+  | {
+      /** The admitted file lacked the coordinate; the still-current pin was removed. */
+      state: "missing";
+    }
+  | {
+      /** Replacement or disposal ended restoration without URL or scroll work. */
+      state: "stopped";
+    };
 
 /**
  * Describes the result of preparing one semantic line inside a mounted FullFile.
@@ -88,9 +118,20 @@ export type LinePinRestoration =
  * contradictions throw and must not be represented as `missing`.
  */
 export type PreparedLine =
-  | { state: "ready"; row: HTMLElement }
-  | { state: "missing" }
-  | { state: "stopped" };
+  | {
+      /** File and bay preparation completed and found one connected row. */
+      state: "ready";
+      /** Complete rendered row Navigation may measure before its final scroll. */
+      row: HTMLElement;
+    }
+  | {
+      /** The complete admitted file has no row at the supplied coordinate. */
+      state: "missing";
+    }
+  | {
+      /** Cancellation or FileCard disposal prevented a trustworthy result. */
+      state: "stopped";
+    };
 
 /**
  * Exposes the complete per-snapshot line-pin interface.
@@ -101,8 +142,49 @@ export type PreparedLine =
  * lifetimes or used as a general URL, loading, or decoration service.
  */
 export type LinePins = {
+  /**
+   * Parses the current URL at call time.
+   *
+   * It distinguishes absence from invalid user-controlled identity and never
+   * repairs, removes, or retains the result. Callers decide how to present an
+   * invalid field and must not treat it as no pin.
+   *
+   * Malformed JSON, invalid fields, duplicate `pin` fields, and a target whose
+   * selected side has no path all return `invalid`; none of them throw or alter
+   * the hash.
+   */
   parseUrl(): ParsedLinePin;
+  /**
+   * Toggles one exact semantic target in the current URL.
+   *
+   * `target` replaces any other pin, or removes the field when it matches the
+   * current valid pin. The call first aborts active restoration, preserves the
+   * path, query, and unrelated hash fields, then synchronously returns whether
+   * the supplied target is now pinned. It does not navigate or repaint rows;
+   * the activating bay applies its own decoration after this returns.
+   *
+   * @param target Complete semantic coordinate to install or remove.
+   *
+   * # Failures
+   *
+   * A browser history write failure propagates after the active restoration has
+   * already been stopped.
+   */
   toggleUrlState(target: LinePinTarget): LinePinToggleResult;
+  /**
+   * Restores one admitted file's exact line through Navigation.
+   *
+   * `target` must still be the URL's current valid pin. `fileIndex` is its
+   * unique manifest index, and `changeSetAbortSignal` ends work when the owning
+   * snapshot is disposed. A newer restoration replaces the older one. The
+   * Promise settles only after navigation completes or stops; a missing row is
+   * announced and the pin is removed only if the same target is still current.
+   * Callers must await the result before allowing later lane work to proceed.
+   *
+   * @param target Exact URL target that must remain current during restoration.
+   * @param fileIndex Unique manifest index already loaded and admitted by the lane.
+   * @param changeSetAbortSignal Lifetime of the snapshot that supplied the file.
+   */
   restore(
     target: LinePinTarget,
     fileIndex: number,
@@ -126,6 +208,9 @@ export function linePins(): LinePins {
 
   /**
    * Compares two complete semantic targets without consulting rendered DOM.
+   *
+   * @param left Existing parsed or retained semantic coordinate.
+   * @param right Candidate coordinate being compared with `left`.
    */
   function targetsEqual(left: LinePinTarget, right: LinePinTarget): boolean {
     return (
@@ -139,6 +224,11 @@ export function linePins(): LinePins {
 
   /**
    * Parses the current hash without accepting missing, extra, or repaired fields.
+   *
+   * The helper reads all `pin` fields at call time. It returns `none` for genuine
+   * absence, `invalid` for duplicate fields or any decoding and schema failure,
+   * and `valid` only when the selected File side has a path. It has no URL, Toast,
+   * navigation, or retained-state side effects.
    */
   function parseUrl(): ParsedLinePin {
     const encodedPins = new URLSearchParams(
@@ -179,6 +269,18 @@ export function linePins(): LinePins {
 
   /**
    * Cancels restoration and replaces only the URL's exact line-pin field.
+   *
+   * Cancellation happens first, even when the following browser history write
+   * fails. The rewrite removes every prior `pin` field, preserves other hash
+   * fields in their existing order and spelling, and appends the encoded target
+   * unless the current valid pin matches it. `replaceState` does not navigate or
+   * dispatch a history event.
+   *
+   * @param target Complete semantic coordinate to install or remove.
+   *
+   * # Failures
+   *
+   * Browser history write failures propagate after cancellation.
    */
   function toggleUrlState(target: LinePinTarget): LinePinToggleResult {
     activeRestoration?.abort();
@@ -220,6 +322,10 @@ export function linePins(): LinePins {
    * Replacement aborts any older restoration. The operation verifies current
    * URL identity before Navigation and before handling a missing coordinate.
    * Unexpected failures reject to the caller's ChangeSet boundary.
+   *
+   * @param target Exact URL target that must remain current during restoration.
+   * @param fileIndex Unique manifest index already loaded and admitted by the lane.
+   * @param changeSetAbortSignal Lifetime of the snapshot that supplied the file.
    */
   async function restore(
     target: LinePinTarget,
@@ -236,11 +342,20 @@ export function linePins(): LinePins {
 
     /**
      * Ends this restoration when its owning ChangeSetSnapshot is disposed.
+     *
+     * The callback copies the snapshot signal's abort reason into this operation's
+     * replaceable controller. It runs directly for an already-aborted snapshot or
+     * once from the temporary listener below; the operation's `finally` block
+     * removes that listener.
      */
     function abortFromChangeSet(): void {
       abortController.abort(changeSetAbortSignal.reason);
     }
 
+    // The listener bridges snapshot disposal into the replaceable per-restore
+    // controller. It lives only for this Promise and the `finally` block always
+    // removes it, even when Navigation rejects. `once` also releases it as soon
+    // as snapshot cancellation fires.
     if (changeSetAbortSignal.aborted) {
       abortFromChangeSet();
     } else {

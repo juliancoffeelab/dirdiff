@@ -29,7 +29,22 @@ import { TabStrip, Tabs, type TabId } from "../src/hud/Tabs";
 // Repo-gated ChangeSet mounting fails, Preset may reach its valid selected
 // boundary without rendering file content.
 vi.mock("../src/hud/changeSet/ChangeSet", () => ({
-  ChangeSet: (props: { params: { tab: string } }) => {
+  ChangeSet: (props: {
+    /**
+     * Complete selection passed to the mocked ChangeSet boundary by a Tab.
+     *
+     * The mock inspects only its discriminant because file rendering is outside
+     * this suite; every repository-backed value must fail immediately.
+     */
+    params: {
+      /**
+       * Tab workflow that constructed this selected parameter entity.
+       *
+       * Only `preset` is permitted to cross this mock in repository-less tests.
+       */
+      tab: string;
+    };
+  }) => {
     if (props.params.tab !== "preset") {
       throw new Error("A repository-gated Tab mounted ChangeSet.");
     }

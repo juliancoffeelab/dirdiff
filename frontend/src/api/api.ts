@@ -1,21 +1,35 @@
 /**
- * Defines the complete typed boundary between the browser UI and Python API.
+ * Defines the typed HTTP boundary between the HUD and Python backend.
  *
- * The module exports backend value types and the single `api` facade containing
- * canonical TanStack query and mutation definitions. It privately contains runtime
- * response validation, HTTP request construction, timeout handling, query keys,
- * and request functions. It must not contain UI state, component behavior, query
- * observers, Toast presentation, or ChangeSet file-fetch sequencing.
+ * Callers use `api` definitions with TanStack Query and consume only values that
+ * the matching runtime schema validated. This module constructs HTTP entities,
+ * combines cancellation with transport deadlines, and verifies repeated review
+ * and pagination identities before publishing those responses.
+ *
+ * It defines backend data and transport policy, not query-observer lifetimes or
+ * presentation. File sequencing belongs to the ChangeSet file lane, and failures
+ * remain errors for the nearest query or UI boundary to present.
  */
 import { mutationOptions, queryOptions } from "@tanstack/solid-query";
 import { z } from "zod";
 import { assert } from "../utils";
 
+/**
+ * Defines the closed set of engine names accepted by frontend API definitions.
+ *
+ * `DiffEngine` is inferred from this validator so query keys, URL state, and
+ * file parameters cannot acquire an engine name the backend does not expose.
+ */
 const DiffEngineSchema = z.enum([
+  /** Dirdiff's syntax-aware text renderer. */
   "dirdiff",
+  /** Git's line-oriented diff renderer. */
   "git",
+  /** Difftastic's syntax-aware external renderer. */
   "difftastic",
+  /** GumTree's syntax-tree renderer. */
   "gumtree",
+  /** Dirdiff's document-wide token renderer. */
   "tokendiff",
 ]);
 
@@ -35,10 +49,10 @@ export type DiffEngine = z.infer<typeof DiffEngineSchema>;
  * transport timeout, and concurrent requests degrade the backend outright
  * (difftastic measured 2.4x slower total load at three in flight), so the
  * file lane never prefetches them. Only engines measured to tolerate
- * concurrent renders are named light (dirdiff 23% and git 14% faster total
- * load with prefetch — git spawns per file too, so heaviness is decided by
- * measurement, not process boundary); an engine added later is heavy until
- * measured otherwise.
+ * concurrent renders are named light. Prefetch made dirdiff 23% faster and git
+ * 14% faster over the total load. Git also spawns per file, so measurement,
+ * not the process boundary, decides heaviness. A new engine remains heavy
+ * until measured otherwise.
  */
 export function isHeavyEngine(engine: DiffEngine): boolean {
   return !(engine === "dirdiff" || engine === "git");
@@ -65,23 +79,46 @@ export type PresetType = string;
  */
 export type ProjectId = number;
 
+/**
+ * Validates one repository record returned by the marked-repositories endpoint.
+ *
+ * Strict object validation rejects backend shape drift before repository data
+ * reaches selection controls. The inferred `RepoMark` is the validated result.
+ */
 const RepoMarkSchema = z.strictObject({
+  /** Positive backend identity used for selection, removal, and repo-backed query keys. */
   id: z.number().int().positive(),
+  /**
+   * Filesystem path registered with the backend and displayed by the HUD.
+   *
+   * Frontend code treats this as an opaque label and must not use it to access
+   * the local filesystem; repository operations identify the mark by `id`.
+   */
   path: z.string(),
+  /** Backend-derived repository caption shown by selection controls. */
   name: z.string(),
+  /** Backend timestamp describing when this path was marked, not its VCS state. */
   marked_at: z.string(),
 });
 
 /**
  * Describes one repository available to repository-backed Tabs.
  *
- * All fields come from the repositories query. UI state stores only `id` and
- * derives the remaining display data from this backend value.
+ * UI state stores only the record's identity and derives display data from the
+ * current repositories query.
  */
 export type RepoMark = z.infer<typeof RepoMarkSchema>;
 
+/**
+ * Validates the identity returned by profile login, registration, and rename.
+ *
+ * It accepts only a positive database identity and non-empty name, keeping
+ * preferences and other profile state outside the identity record.
+ */
 const UserProfileSchema = z.strictObject({
+  /** Positive database identity used for authorship and preference addressing. */
   id: z.number().int().positive(),
+  /** Non-empty backend-confirmed name shown as the review author. */
   username: z.string().min(1),
 });
 
@@ -93,8 +130,17 @@ const UserProfileSchema = z.strictObject({
  */
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
+/**
+ * Validates the complete preferences record returned for one Profile.
+ *
+ * The positive Profile identity keeps the record tied to its query key, while
+ * strict validation rejects undeclared preference fields until the interface is
+ * intentionally extended.
+ */
 const PreferencesSchema = z.strictObject({
+  /** Profile identity repeated by the response for the addressed preferences entity. */
   user_profile_id: z.number().int().positive(),
+  /** Whether every valid backend fold hint should begin folded. */
   aggressive_folds: z.boolean(),
 });
 
@@ -106,17 +152,40 @@ const PreferencesSchema = z.strictObject({
  */
 export type Preferences = z.infer<typeof PreferencesSchema>;
 
+/**
+ * Validates the local arm of a structured branch selection.
+ *
+ * The literal discriminant keeps a remote field impossible in this arm; callers
+ * must provide the selected branch text explicitly.
+ */
 const LocalBranchSelectionSchema = z.strictObject({
+  /** Discriminant forbidding a remote name in this selection arm. */
   source: z.literal("local"),
+  /** Local branch text; the schema also admits empty text used by unfinished controls. */
   branch: z.string(),
 });
 
+/**
+ * Validates the remote arm of a structured branch selection.
+ *
+ * Both remote and branch remain required because neither may be inferred from
+ * repository defaults after the user has made a selection.
+ */
 const RemoteBranchSelectionSchema = z.strictObject({
+  /** Discriminant requiring both remote and branch fields in this arm. */
   source: z.literal("remote"),
+  /** Configured remote name selected by the caller; defaults must be applied before use. */
   remote: z.string(),
+  /** Branch text relative to `remote`; the schema admits empty unfinished input. */
   branch: z.string(),
 });
 
+/**
+ * Validates either complete branch-selection arm by its source discriminant.
+ *
+ * The union is shared by repository metadata responses and Branch Review
+ * parameters, so the same shape crosses both directions of the API boundary.
+ */
 const BranchSelectionSchema = z.discriminatedUnion("source", [
   LocalBranchSelectionSchema,
   RemoteBranchSelectionSchema,
@@ -125,20 +194,43 @@ const BranchSelectionSchema = z.discriminatedUnion("source", [
 /**
  * Identifies one structured local or remote branch selection.
  *
- * Remote selections require both the remote and branch. Local selections do
- * not admit a meaningless remote field. Free-form refs use strings instead.
+ * The discriminated shape keeps local and remote selections distinct. Free-form
+ * refs use strings instead of this structured contract.
  */
 export type BranchSelection = z.infer<typeof BranchSelectionSchema>;
 
+/**
+ * Validates one remote-branch suggestion in both structured and Git-ref forms.
+ *
+ * Refs controls use the Git spelling while Branch Review uses the structured
+ * pair. Keeping both backend-authored forms prevents the UI from parsing refs.
+ */
 const RemoteBranchRefSchema = z.strictObject({
+  /** Remote and branch pair consumed by Branch Review without parsing Git syntax. */
   structured: z.strictObject({
+    /** Configured remote name associated with this backend suggestion. */
     remote: z.string(),
+    /** Branch component associated with `remote`. */
     branch: z.string(),
   }),
+  /** Complete Git ref spelling consumed by the free-form Refs Tab. */
   gitref: z.string(),
 });
 
-const BuiltinRefSchema = z.enum(["HEAD", "index", "worktree"]);
+/**
+ * Validates the built-in Git sides for which the HUD has fixed descriptions.
+ *
+ * Arbitrary refs remain strings in other categories; extending this enum also
+ * requires the consuming controls to provide matching presentation.
+ */
+const BuiltinRefSchema = z.enum([
+  /** Commit currently checked out by the repository. */
+  "HEAD",
+  /** Git staging area between the checked-out commit and worktree. */
+  "index",
+  /** Current files in the repository working directory. */
+  "worktree",
+]);
 
 /**
  * Identifies one built-in Git ref supported by repository autocomplete.
@@ -149,23 +241,39 @@ const BuiltinRefSchema = z.enum(["HEAD", "index", "worktree"]);
  */
 export type BuiltinRef = z.infer<typeof BuiltinRefSchema>;
 
+/**
+ * Validates the complete categorized autocomplete data for one repository.
+ *
+ * Arrays retain backend order, and remote branches preserve their paired forms.
+ * The validator does not select or filter a ref for any Tab.
+ */
 const RefChoicesSchema = z.strictObject({
+  /** Backend-supported fixed refs presented with exhaustive HUD descriptions. */
   builtins: z.array(BuiltinRefSchema),
+  /** Local branch names in backend order. */
   local_branches: z.array(z.string()),
+  /** Configured remote names in backend order. */
   remotes: z.array(z.string()),
+  /** Remote branch suggestions carrying both Git and structured spellings. */
   remote_branches: z.array(RemoteBranchRefSchema),
 });
 
 /**
  * Describes all ref autocomplete categories for one repository snapshot.
  *
- * Built-ins and local branches are direct refs. Remote branches retain both a
- * free-form gitref and their structured remote/branch identity for the distinct
- * Refs and Branch Review workflows.
+ * Consumers use this backend-authored categorization for autocomplete without
+ * copying it into selection state or parsing remote ref spellings.
  */
 export type RefChoices = z.infer<typeof RefChoicesSchema>;
 
+/**
+ * Validates the repository-ref endpoint envelope.
+ *
+ * The explicit envelope leaves room for endpoint-level metadata without making
+ * `RefChoices` itself responsible for repository response structure.
+ */
 const RepoRefsSchema = z.strictObject({
+  /** Complete categorized choices for the addressed repository. */
   ref_choices: RefChoicesSchema,
 });
 
@@ -177,19 +285,37 @@ const RepoRefsSchema = z.strictObject({
  */
 export type RepoRefs = z.infer<typeof RepoRefsSchema>;
 
+/**
+ * Validates both successful defaults and the backend's explicit heuristic failure.
+ *
+ * This is the wire response only. The query function rejects the failure arm so
+ * consumers receive `RepoDefaults` rather than a partially useful union.
+ */
 const RepoDefaultsResponseSchema = z.strictObject({
+  /** Backend base choice or its explicit heuristic-failure sentinel. */
   default_base_selection: z.union([
     BranchSelectionSchema,
     z.strictObject({
+      /** Discriminant preventing a heuristic failure from resembling a selection. */
       kind: z.literal("error"),
+      /** Stable failure code converted into `RepositoryDefaultsHeuristicError`. */
       error: z.literal("heuristic_fail"),
     }),
   ]),
+  /** Complete review-side choice available even when base inference failed. */
   preferred_review_selection: BranchSelectionSchema,
 });
 
+/**
+ * Validates the successful branch-review defaults exposed to HUD consumers.
+ *
+ * Both selections are required and complete. Heuristic failure is handled
+ * before this schema's inferred type reaches a component.
+ */
 const RepoDefaultsSchema = z.strictObject({
+  /** Complete base-side selection accepted after heuristic validation. */
   default_base_selection: BranchSelectionSchema,
+  /** Complete review-side selection paired with the same repository response. */
   preferred_review_selection: BranchSelectionSchema,
 });
 
@@ -197,28 +323,46 @@ const RepoDefaultsSchema = z.strictObject({
  * Contains the two complete branch-review defaults for one repository.
  *
  * The query rejects a backend heuristic failure instead of representing it as
- * defaults data. Successful values remain realtime inputs for untouched controls
- * and must not overwrite user-edited autocomplete input.
+ * defaults data. Successful values seed untouched controls but must not overwrite
+ * user-edited input.
  */
 export type RepoDefaults = z.infer<typeof RepoDefaultsSchema>;
 
+/**
+ * Validates the value returned after saving a repository's main branch.
+ *
+ * The response carries the backend's positive repository identity and accepted
+ * structured selection. The current caller uses success to refresh defaults.
+ */
 const RepoMainBranchSchema = z.strictObject({
+  /** Repository identity echoed by the successful save response. */
   project_id: z.number().int().positive(),
+  /** Complete backend-accepted main-branch selection. */
   selection: BranchSelectionSchema,
 });
 
 /**
- * Confirms the repository main-branch selection stored by the backend.
+ * Reports the repository main-branch selection stored by the backend.
  *
- * Callers may rely on the returned project and complete selection after the
- * mutation succeeds. The value is not a local optimistic placeholder.
+ * The value is not a local optimistic placeholder. Current callers use mutation
+ * success to invalidate defaults rather than deriving cache identity from it.
  */
 export type RepoMainBranch = z.infer<typeof RepoMainBranchSchema>;
 
+/**
+ * Validates the authoritative result of preparing one Pull Request URL.
+ *
+ * Every string must be present because the resulting repository identity, URL,
+ * and two commits jointly form the selected Pull Request Tab value.
+ */
 const PreparedPullRequestSchema = z.strictObject({
+  /** Repository prepared or registered for the resulting Pull Request Tab. */
   project_id: z.number().int().positive(),
+  /** Backend-authoritative URL used as the Pull Request correspondence identity. */
   pull_request_url: z.string().min(1),
+  /** Prepared base commit passed to manifest capture as the left side. */
   left_commit: z.string().min(1),
+  /** Prepared review commit passed to manifest capture as the right side. */
   right_commit: z.string().min(1),
 });
 
@@ -226,41 +370,63 @@ const PreparedPullRequestSchema = z.strictObject({
  * Contains the authoritative repository, Room identity, and commits prepared
  * from one Pull Request URL.
  *
- * The URL participates only in Pull Request correspondence. The commits
- * participate only in manifest capture. Callers must preserve the complete value
- * and must not convert it into Branch Review selections.
+ * Callers preserve the complete backend result when reconstructing a Pull Request
+ * Tab and must not reinterpret it as a Branch Review selection.
  */
 export type PreparedPullRequest = z.infer<typeof PreparedPullRequestSchema>;
 
+/**
+ * Validates one selectable group inside a preset catalog.
+ *
+ * Both backend identity and display name must be non-empty. Manifest content is
+ * loaded only after the group identity enters `PresetDiffParams`.
+ */
 const PresetGroupSchema = z.strictObject({
+  /** Non-empty backend identity sent as `preset_subset` after selection. */
   id: z.string().min(1),
+  /** User-visible group caption that never enters manifest parameters. */
   display_name: z.string().min(1),
 });
 
 /**
  * Describes one selectable preset within a catalog.
  *
- * `id` is sent as `preset_subset`; `display_name` is presentation data. The
- * group contains no manifest or rendered-file content.
+ * The group contains selection identity and presentation only, never manifest or
+ * rendered-file content.
  */
 export type PresetGroup = z.infer<typeof PresetGroupSchema>;
 
+/**
+ * Validates one preset catalog and its ordered selectable groups.
+ *
+ * The default identity and group list remain separate backend fields. This schema
+ * validates each shape but does not cross-check that the identity names a group.
+ */
 const PresetCatalogSchema = z.strictObject({
+  /** Catalog identity sent as the preset `project_id`. */
   id: z.string().min(1),
+  /** User-visible catalog caption shown by the kind selector. */
   name: z.string().min(1),
+  /** Backend-declared group identity used when controls have no restored subset. */
   default_preset: z.string().min(1),
+  /** Selectable groups in backend display order. */
   groups: z.array(PresetGroupSchema),
 });
 
 /**
  * Describes one preset catalog: how to select it, its caption, its groups.
  *
- * `id` is sent as `project_id`; `name` is the caption the picker draws and
- * selects nothing. The catalog is directory metadata only. Consumers must
- * request a ChangeSet separately after the user selects one group.
+ * The catalog is directory metadata only. Controls use its declared default when
+ * no subset is restored and send the chosen group identity in DiffParams.
  */
 export type PresetCatalog = z.infer<typeof PresetCatalogSchema>;
 
+/**
+ * Validates the ordered catalog listing returned by the preset endpoint.
+ *
+ * The array admits any number of backend-provided catalogs and preserves their
+ * order for the picker; the frontend declares no substitute catalog.
+ */
 const PresetCatalogsSchema = z.array(PresetCatalogSchema);
 
 /**
@@ -280,6 +446,12 @@ export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
  * parameter shape because their project identity is a PresetType.
  */
 type RepoBackedDiffParams = {
+  /**
+   * Exact positive repository identity used by every repository-backed Tab.
+   *
+   * Callers obtain it from validated repository data or restored canonical URL
+   * state. Preset projects use their separate string identity type.
+   */
   project_id: ProjectId;
 };
 
@@ -291,9 +463,30 @@ type RepoBackedDiffParams = {
  * inferred by the transport layer.
  */
 export type HeadDiffParams = RepoBackedDiffParams & {
+  /**
+   * Discriminant selecting the fixed current-worktree workflow.
+   *
+   * It is sent unchanged to manifest and must not be used for another ref pair.
+   */
   tab: "head";
+  /**
+   * Fixed captured left side for Head review.
+   *
+   * The HUD does not expose a control that may replace this value.
+   */
   left: "HEAD";
+  /**
+   * Fixed live right side for Head review.
+   *
+   * It includes indexed and unstaged worktree content according to backend rules.
+   */
   right: "worktree";
+  /**
+   * Required inclusion of untracked files in Head review.
+   *
+   * This literal distinguishes the workflow from ref comparisons, where the
+   * option does not exist.
+   */
   show_untracked: true;
 };
 
@@ -304,8 +497,25 @@ export type HeadDiffParams = RepoBackedDiffParams & {
  * input or autocomplete suggestions.
  */
 export type RefsDiffParams = RepoBackedDiffParams & {
+  /**
+   * Discriminant selecting free-form ref comparison.
+   *
+   * It tells the backend to interpret the two sides as exact Git ref strings.
+   */
   tab: "refs";
+  /**
+   * User-accepted Git ref for the old side.
+   *
+   * It may come from autocomplete or free-form input and is never reconstructed
+   * from the right side or repository defaults.
+   */
   left: string;
+  /**
+   * User-accepted Git ref for the new side.
+   *
+   * It may come from autocomplete or free-form input and remains independent of
+   * the old-side choice.
+   */
   right: string;
 };
 
@@ -316,8 +526,25 @@ export type RefsDiffParams = RepoBackedDiffParams & {
  * reconstruct missing remotes or substitute repository defaults.
  */
 export type BranchReviewDiffParams = RepoBackedDiffParams & {
+  /**
+   * Discriminant selecting structured Branch Review semantics.
+   *
+   * Free-form ref comparison must use the Refs variant instead.
+   */
   tab: "branch-review";
+  /**
+   * Complete local or remote branch selected as the merge base side.
+   *
+   * The value is accepted control state, not a live default that may later
+   * replace user input.
+   */
   base_selection: BranchSelection;
+  /**
+   * Complete local or remote branch selected as the review side.
+   *
+   * Its source arm remains explicit so the backend applies branch-review rules
+   * without parsing display text.
+   */
   review_selection: BranchSelection;
 };
 
@@ -328,9 +555,30 @@ export type BranchReviewDiffParams = RepoBackedDiffParams & {
  * inputs and must never be represented as Branch Review selections.
  */
 export type PullRequestDiffParams = RepoBackedDiffParams & {
+  /**
+   * Discriminant selecting a prepared Pull Request correspondence.
+   *
+   * The value must come from successful Pull Request preparation.
+   */
   tab: "pull-request";
+  /**
+   * Exact URL whose forge identity establishes the Room correspondence.
+   *
+   * Callers preserve the prepared value rather than normalizing it again.
+   */
   pull_request_url: string;
+  /**
+   * Prepared base commit passed to snapshot capture.
+   *
+   * It is not a Branch Review selection and must remain paired with the prepared
+   * URL and right commit.
+   */
   left_commit: string;
+  /**
+   * Prepared review commit passed to snapshot capture.
+   *
+   * It is authoritative preparation output, not a ref control value.
+   */
   right_commit: string;
 };
 
@@ -341,8 +589,23 @@ export type PullRequestDiffParams = RepoBackedDiffParams & {
  * catalog group. Repository selection is deliberately absent.
  */
 export type PresetDiffParams = {
+  /**
+   * Catalog identity used as the preset backend project.
+   *
+   * It must match a validated catalog ID and never a numeric repository identity.
+   */
   project_id: PresetType;
+  /**
+   * Discriminant selecting preset capture.
+   *
+   * This variant carries no repository or Git-ref inputs.
+   */
   tab: "preset";
+  /**
+   * Exact group identity selected inside the catalog.
+   *
+   * The backend uses it to locate fixture sides; the display name is not sent.
+   */
   preset_subset: string;
 };
 
@@ -359,18 +622,35 @@ export type DiffParams =
   | PullRequestDiffParams
   | PresetDiffParams;
 
+/**
+ * Validates backend aggregate statistics for one immutable manifest.
+ *
+ * The refinement enforces paired line-count availability so the HUD never sees
+ * one side of an aggregate whose other side is unknown.
+ */
 const ManifestSummarySchema = z
   .strictObject({
+    /** Total manifest File leaves, equal to added, removed, and updated totals. */
     changed_files: z.number().int(),
+    /** File pairs present only on the right, including applicable untracked Files. */
     added_files: z.number().int(),
+    /** File pairs present only on the left. */
     removed_files: z.number().int(),
+    /** File relationships present on both sides, including renames and copies. */
     updated_files: z.number().int(),
+    /** Backend-wide added-line count, or null together with `removed_lines`. */
     added_lines: z.number().int().nullable(),
+    /** Backend-wide removed-line count, or null together with `added_lines`. */
     removed_lines: z.number().int().nullable(),
+    /** Backend-reported entries omitted from the manifest tree, not delayed Files. */
     skipped_files: z.number().int(),
+    /** Notebook cells with any change, or null when no cell summary exists. */
     changed_cells: z.number().int().nullable(),
+    /** Notebook cells present only on the right, or null when unavailable. */
     added_cells: z.number().int().nullable(),
+    /** Notebook cells present only on the left, or null when unavailable. */
     removed_cells: z.number().int().nullable(),
+    /** Paired notebook cells whose content changed, or null when unavailable. */
     modified_cells: z.number().int().nullable(),
   })
   .superRefine((summary, context) => {
@@ -385,20 +665,39 @@ const ManifestSummarySchema = z
 /**
  * Contains immutable aggregate statistics for one manifest snapshot.
  *
- * Notebook cell totals are always present but may be null. The summary must not
- * be progressively reconstructed from individual file responses.
+ * The summary comes from manifest capture and must not be progressively
+ * reconstructed from individual File responses.
  */
 export type ManifestSummary = z.infer<typeof ManifestSummarySchema>;
 
+/**
+ * Validates the tracked-file arm and its exact Git change classification.
+ *
+ * The literal discriminant keeps these statuses unavailable to untracked files.
+ */
 const GitFileKindSchema = z.strictObject({
+  /** Discriminant selecting tracked Git classification. */
   type: z.literal("git"),
+  /** Exact Git relationship; side presence remains in the containing File pair. */
   status: z.enum(["modified", "added", "deleted", "renamed", "copied"]),
 });
 
+/**
+ * Validates the untracked-file arm without inventing a Git status.
+ *
+ * Strict validation rejects status-like fields that blur the two variants.
+ */
 const UntrackedFileKindSchema = z.strictObject({
+  /** Discriminant for worktree content absent from Git's tracked set. */
   type: z.literal("untracked"),
 });
 
+/**
+ * Validates backend file classification by its tracked/untracked discriminant.
+ *
+ * Manifest, lazy-info, and file responses share this union so a File's kind has
+ * one meaning throughout progressive loading.
+ */
 const FileKindSchema = z.discriminatedUnion("type", [
   GitFileKindSchema,
   UntrackedFileKindSchema,
@@ -407,16 +706,27 @@ const FileKindSchema = z.discriminatedUnion("type", [
 /**
  * Identifies how Git classifies one manifest or rendered-file entry.
  *
- * Git entries require their exact status; untracked entries carry no invented
- * status. This type is backend metadata rather than file presentation state.
+ * The discriminant keeps Git status unavailable for untracked content. This is
+ * backend provenance, not File presentation state.
  */
 export type FileKind = z.infer<typeof FileKindSchema>;
 
+/**
+ * Validates the complete backend vocabulary for intentionally delayed files.
+ *
+ * Query failures stay outside this enum. A new reason requires an explicit HUD
+ * interpretation instead of arriving as arbitrary prose.
+ */
 const LazyReasonSchema = z.enum([
+  /** Content size makes automatic rendering too expensive. */
   "too_big",
+  /** Generated content is usually better reviewed through its source. */
   "generated",
+  /** The deletion is shown before loading the removed content. */
   "deleted",
+  /** Untracked content is shown before loading its full diff. */
   "untracked",
+  /** A rename without content changes is shown before loading its content. */
   "pure_renamed",
 ]);
 
@@ -428,6 +738,12 @@ const LazyReasonSchema = z.enum([
  */
 export type LazyReason = z.infer<typeof LazyReasonSchema>;
 
+/**
+ * Validates one present side of a captured File identity.
+ *
+ * Nullability belongs to the enclosing pair. A present path is never empty or
+ * repaired from the opposite side.
+ */
 const FilePathSchema = z.string().min(1);
 
 /**
@@ -437,9 +753,26 @@ const FilePathSchema = z.string().min(1);
  * each present path as non-empty. The callback adds one schema issue for a
  * completely absent identity and must not infer one side from the other or
  * alter the decoded response.
+ *
+ * @param paths Validated nullable sides whose joint presence is checked.
+ * @param context Zod refinement context that receives the identity diagnostic.
  */
 function validateFilePaths(
-  paths: { left_path: string | null; right_path: string | null },
+  paths: {
+    /**
+     * Captured old-side path, or `null` when the File exists only on the right.
+     *
+     * The refinement treats it jointly with `right_path` and never synthesizes
+     * a missing side.
+     */
+    left_path: string | null;
+    /**
+     * Captured new-side path, or `null` when the File exists only on the left.
+     *
+     * At least this path or `left_path` must be present for a valid identity.
+     */
+    right_path: string | null;
+  },
   context: z.RefinementCtx,
 ): void {
   if (paths.left_path === null && paths.right_path === null) {
@@ -450,11 +783,20 @@ function validateFilePaths(
   }
 }
 
+/**
+ * Validates one thin manifest File handle and its paired path invariant.
+ *
+ * Rendered content and local expansion state cannot enter this backend entity.
+ */
 const ManifestEntrySchema = z
   .strictObject({
+    /** Tracked or untracked provenance shared with later File responses. */
     file_kind: FileKindSchema,
+    /** Non-empty old-side path, or null when the File exists only on the right. */
     left_path: FilePathSchema.nullable(),
+    /** Non-empty new-side path, or null when the File exists only on the left. */
     right_path: FilePathSchema.nullable(),
+    /** Backend deferral reason, or null for ordinary automatic loading. */
     lazy: LazyReasonSchema.nullable(),
   })
   .superRefine(validateFilePaths);
@@ -462,9 +804,9 @@ const ManifestEntrySchema = z
 /**
  * Provides the complete thin handle for one manifest file.
  *
- * At least one path is present and every present path is non-empty. Paths, kind
- * and lazy reason are sufficient for later file endpoints. The handle deliberately
- * contains no rendered rows, file summary, or copied state.
+ * At least one path is present and every present path is non-empty. The thin
+ * handle is sufficient for later File endpoints and contains no rendered rows or
+ * local presentation state.
  */
 export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;
 
@@ -475,8 +817,25 @@ export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;
  * for later requests. A file node cannot contain child nodes.
  */
 export type ManifestFile = {
+  /**
+   * Discriminant selecting a file leaf during recursive tree traversal.
+   *
+   * FileTree and manifest flattening rely on this arm having no child array.
+   */
   type: "file";
+  /**
+   * Backend-authored label for this leaf inside its containing directory.
+   *
+   * It is presentation data and never replaces the path pair in `entry` as File
+   * identity.
+   */
   name: string;
+  /**
+   * Exact thin backend handle used to load this File later.
+   *
+   * Callers pass it through to the file lane and never attach response or
+   * expansion state to it.
+   */
   entry: ManifestEntry;
 };
 
@@ -484,12 +843,35 @@ export type ManifestFile = {
  * Represents one directory in the recursive manifest tree.
  *
  * `path` is the stable expansion key and `entries` preserve manifest order. A
- * directory carries no file request handle.
+ * directory carries no file-load handle.
  */
 export type ManifestDirectory = {
+  /**
+   * Discriminant selecting an interior directory node.
+   *
+   * This arm contains child nodes and never a file-load handle.
+   */
   type: "directory";
+  /**
+   * Backend-authored segment displayed for this directory row.
+   *
+   * It is not the stable expansion identity when identical names occur at
+   * different depths.
+   */
   name: string;
+  /**
+   * Stable manifest path used as the directory expansion key.
+   *
+   * It identifies this exact node across derivations from the same immutable
+   * snapshot.
+   */
   path: string;
+  /**
+   * Ordered child files and directories contained directly by this node.
+   *
+   * Traversal preserves backend order when producing FileTree rows and the flat
+   * File lane.
+   */
   entries: ManifestNode[];
 };
 
@@ -501,28 +883,53 @@ export type ManifestDirectory = {
  */
 export type ManifestNode = ManifestFile | ManifestDirectory;
 
+/**
+ * Recursively validates ordered manifest file and directory nodes.
+ *
+ * `z.lazy` exists for the directory recursion. The explicit type annotation
+ * keeps the runtime validator aligned with the public union.
+ */
 const ManifestNodeSchema: z.ZodType<ManifestNode> = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.strictObject({
+      /** Discriminant selecting a manifest leaf with no child collection. */
       type: z.literal("file"),
+      /** Backend-authored leaf caption used only for tree presentation. */
       name: z.string(),
+      /** Exact thin File handle passed to lazy-info and File operations. */
       entry: ManifestEntrySchema,
     }),
     z.strictObject({
+      /** Discriminant selecting an interior manifest node. */
       type: z.literal("directory"),
+      /** Backend-authored segment displayed for this directory row. */
       name: z.string(),
+      /** Stable manifest path used as the directory expansion key. */
       path: z.string(),
+      /** Direct child nodes in backend order. */
       entries: z.array(ManifestNodeSchema),
     }),
   ]),
 );
 
+/**
+ * Validates the complete manifest response that establishes one Snapshot.
+ *
+ * The opaque identity addresses every later file and review read; the ordered
+ * tree remains thin and immutable for that lifetime.
+ */
 const ManifestSchema = z.strictObject({
+  /** Opaque Snapshot identity addressing every later File and review operation. */
   snapshot_id: z.string().regex(/^[0-9a-f]{32}$/),
+  /** Backend-authored ChangeSet title used for active snapshot presentation. */
   display_name: z.string(),
+  /** User-visible caption for the captured old side. */
   left_label: z.string(),
+  /** User-visible caption for the captured new side. */
   right_label: z.string(),
+  /** Immutable manifest-wide counts available before Files render. */
   summary: ManifestSummarySchema,
+  /** Thin recursive File hierarchy in backend order. */
   tree: z.array(ManifestNodeSchema),
 });
 
@@ -530,20 +937,34 @@ const ManifestSchema = z.strictObject({
  * Describes one ordered immutable ChangeSet snapshot returned by the manifest
  * endpoint.
  *
- * The snapshot ID isolates all subsequent file queries. The tree remains thin and
- * must not be mutated with progressive file results.
+ * The Snapshot identity isolates all subsequent reads. The tree remains thin and
+ * must not be mutated with progressive File results.
  */
 export type Manifest = z.infer<typeof ManifestSchema>;
 
+/**
+ * Validates lightweight presentation data for one intentionally delayed File.
+ *
+ * It repeats the path-pair invariant because lazy-info is an independent
+ * backend response and callers must not repair it from manifest data.
+ */
 const LazyInfoFileSchema = z
   .strictObject({
+    /** Tracked or untracked provenance repeated independently of the manifest. */
     file_kind: FileKindSchema,
+    /** Non-empty old-side path, or null when absent from capture. */
     left_path: FilePathSchema.nullable(),
+    /** Non-empty new-side path, or null when absent from capture. */
     right_path: FilePathSchema.nullable(),
+    /** Complete File caption shown before rendered content exists. */
     display_name: z.string(),
+    /** Changed-line total when cheaply available, otherwise null. */
     changed_lines: z.number().int().nullable(),
+    /** Added-line total when cheaply available, otherwise null. */
     added_lines: z.number().int().nullable(),
+    /** Removed-line total when cheaply available, otherwise null. */
     removed_lines: z.number().int().nullable(),
+    /** Backend deferral reason; null is allowed by transport but not invented by callers. */
     lazy: LazyReasonSchema.nullable(),
   })
   .superRefine(validateFilePaths);
@@ -551,13 +972,19 @@ const LazyInfoFileSchema = z
 /**
  * Contains the complete lightweight presentation data for one delayed file.
  *
- * Every field comes from `/api/lazy-info`. At least one path is present and each
- * present path is non-empty; callers must not fill missing values from the
- * manifest or a failed file request.
+ * At least one path is present and each present path is non-empty. Callers must
+ * preserve unavailable counts and never fill missing values from another response.
  */
 export type LazyInfoFile = z.infer<typeof LazyInfoFileSchema>;
 
+/**
+ * Validates the lazy-info endpoint envelope and every delayed File record.
+ *
+ * The response may contain any number of files, but each identity and nullable
+ * count is checked before the lane consumes it.
+ */
 const LazyInfoSchema = z.strictObject({
+  /** Complete delayed-File records returned for the addressed Snapshot. */
   files: z.array(LazyInfoFileSchema),
 });
 
@@ -569,13 +996,26 @@ const LazyInfoSchema = z.strictObject({
  */
 export type LazyInfo = z.infer<typeof LazyInfoSchema>;
 
+/**
+ * Validates complete header statistics for one rendered text File.
+ *
+ * These are concrete engine results for this response, not nullable manifest
+ * aggregates or progressively accumulated client counters.
+ */
 const TextFileSummarySchema = z.strictObject({
+  /** Non-equal aligned rows across all rendered text bays in this File. */
   changed_lines: z.number().int(),
+  /** Changed rows with both source sides present. */
   modified_lines: z.number().int(),
+  /** Rendered rows containing only a right source line. */
   added_lines: z.number().int(),
+  /** Rendered rows containing only a left source line. */
   removed_lines: z.number().int(),
+  /** Rows classified as moved by the selected engine, excluding token movement. */
   moved_lines: z.number().int(),
+  /** Whether capture retained a left side, including a present empty File. */
   left_exists: z.boolean(),
+  /** Whether capture retained a right side, including a present empty File. */
   right_exists: z.boolean(),
 });
 
@@ -587,11 +1027,22 @@ const TextFileSummarySchema = z.strictObject({
  */
 export type TextFileSummary = z.infer<typeof TextFileSummarySchema>;
 
+/**
+ * Validates the renderer's closed classification for one aligned row.
+ *
+ * The HUD maps these values directly and never derives status from line-number
+ * presence or text equality.
+ */
 const RowStatusSchema = z.enum([
+  /** Both aligned source lines have equal content. */
   "equal",
+  /** Both source lines are present and their content differs. */
   "replace",
+  /** Only the new-side source line is present. */
   "insert",
+  /** Only the old-side source line is present. */
   "delete",
+  /** The renderer matched content that changed position. */
   "move",
 ]);
 
@@ -603,46 +1054,84 @@ const RowStatusSchema = z.enum([
  */
 export type RowStatus = z.infer<typeof RowStatusSchema>;
 
+/**
+ * Validates one lossless display slice produced by rendering enrichment.
+ *
+ * Text, syntax, diff, and whitespace facts arrive together so the browser need
+ * not intersect separate token ranges.
+ */
 const DecoratedPartSchema = z.strictObject({
+  /** Exact lossless source slice rendered in sequence with its siblings. */
   text: z.string(),
+  /** Backend syntax classes applied to this complete slice. */
   syntax_classes: z.array(z.string()),
+  /** Token-level diff classification, distinct from the containing row status. */
   diff_status: z.enum(["unchanged", "replace", "insert", "delete", "move"]),
+  /** Whether every character in `text` is whitespace. */
   is_whitespace: z.boolean(),
+  /** Whether this whitespace slice precedes the side's first non-whitespace text. */
   is_leading_whitespace: z.boolean(),
 });
 
 /**
  * Describes one backend-produced text slice with complete display decoration.
  *
- * Ordered parts reconstruct one row side exactly. Consumers render their text,
- * syntax classes, diff status, and whitespace metadata directly rather than
- * intersecting another token or offset representation.
+ * Ordered parts reconstruct one row side exactly. Consumers render the supplied
+ * decoration rather than intersecting another token or offset representation.
  */
 export type DecoratedPart = z.infer<typeof DecoratedPartSchema>;
 
+/**
+ * Validates one complete aligned text row and its optional hunk stop.
+ *
+ * Nullable side values represent genuine one-sided rows. The browser consumes
+ * this alignment without constructing substitute counterparts.
+ */
 const DiffRowSchema = z.strictObject({
+  /** Backend alignment classification for the complete row. */
   status: RowStatusSchema,
+  /** Positive old-side line number, or null when that side is absent. */
   left_no: z.number().int().positive().nullable(),
+  /** Positive new-side line number, or null when that side is absent. */
   right_no: z.number().int().positive().nullable(),
+  /** Exact old-side text, or null together with an absent old-side line. */
   left_text: z.string().nullable(),
+  /** Exact new-side text, or null together with an absent new-side line. */
   right_text: z.string().nullable(),
+  /** Ordered lossless decoration for the present old side; absent sides use no parts. */
   left_parts: z.array(DecoratedPartSchema),
+  /** Ordered lossless decoration for the present new side; absent sides use no parts. */
   right_parts: z.array(DecoratedPartSchema),
+  /** Bay-local hunk index on its first row, otherwise null. */
   hunk_index: z.number().int().nonnegative().nullable(),
 });
 
 /**
  * Contains one complete backend-aligned row for text or notebook source.
  *
- * Nullable side fields represent genuinely absent lines; present line numbers
- * are positive backend coordinates. `hunk_index` is the backend-provided
- * navigation identity and must not be reconstructed from rows.
+ * Nullable side values represent genuinely absent lines. Alignment and hunk
+ * identity come from the renderer and must not be reconstructed in the browser.
  */
 export type DiffRow = z.infer<typeof DiffRowSchema>;
 
+/**
+ * Validates one backend hint for a foldable unchanged source span.
+ *
+ * Hints preserve source coordinates and policy only; current folded state stays
+ * with the mounted text grid.
+ */
 const FoldHintSchema = z.strictObject({
+  /** Zero-based inclusive row index where this candidate range begins. */
   start_row: z.number().int(),
+  /** Zero-based exclusive row index immediately after the candidate range. */
   end_row: z.number().int(),
+  /**
+   * Structural category used by the frontend's initial folding policy.
+   *
+   * Function-like and class-like values name declarations, container names a
+   * structural body, section names a document section, and top-level groups
+   * unchanged root items. It is not parser-node identity or current folded state.
+   */
   kind: z.enum([
     "function_like",
     "class_like",
@@ -650,6 +1139,7 @@ const FoldHintSchema = z.strictObject({
     "section",
     "top_level",
   ]),
+  /** Backend-authored description shown on the folded range. */
   label: z.string(),
 });
 
@@ -661,8 +1151,16 @@ const FoldHintSchema = z.strictObject({
  */
 export type FoldHint = z.infer<typeof FoldHintSchema>;
 
+/**
+ * Validates one warning attached to the smallest degraded bay result.
+ *
+ * The type is stable classification and the message is display prose; consumers
+ * must not parse prose to recover a warning kind.
+ */
 const BayWarningSchema = z.strictObject({
+  /** Stable non-empty warning category used without parsing display prose. */
   type: z.string().min(1),
+  /** Concrete user-visible explanation of the bay's degraded but usable output. */
   message: z.string(),
 });
 
@@ -674,83 +1172,142 @@ const BayWarningSchema = z.strictObject({
  */
 export type BayWarning = z.infer<typeof BayWarningSchema>;
 
+/**
+ * Validates changed-line counts for a bay whose content has line semantics.
+ *
+ * Image bays omit stats rather than sending zeros that imply an engine inspected
+ * lines and found no changes.
+ */
 const BayStatsSchema = z.strictObject({
+  /** Non-equal aligned rows in this text bay only. */
   changed_lines: z.number().int(),
+  /** Changed bay rows with both source sides present. */
   modified_lines: z.number().int(),
+  /** Bay rows containing only a right source line. */
   added_lines: z.number().int(),
+  /** Bay rows containing only a left source line. */
   removed_lines: z.number().int(),
+  /** Rows this bay's engine classified as moved, excluding token movement. */
   moved_lines: z.number().int(),
 });
 
 /**
  * Contains one bay's engine line counts before file-level aggregation.
  *
- * These belong to the bay and its collapsed placeholder. Side existence is a
- * File fact and lives on the composed-diff `summary`, not here.
+ * These belong to the bay. When it has a disclosure header, the header may show
+ * them even while its body is closed. Side existence is a File fact and lives
+ * on the composed-diff `summary`, not here.
  */
 export type BayStats = z.infer<typeof BayStatsSchema>;
 
+/**
+ * Validates an ordinary composition-level change classification.
+ *
+ * Movement uses its separate object arm because it carries old and new heading
+ * context in addition to a status kind.
+ */
 const ChangeStatusSchema = z.strictObject({
+  /** Whole-bay semantic outcome for a bay that did not move between frames. */
   kind: z.enum(["added", "removed", "changed", "unchanged"]),
 });
 
+/**
+ * Validates a moved composition unit and its optional source headings.
+ *
+ * The format builder supplies this metadata; presentation never infers movement
+ * by comparing rendered content.
+ */
 const MovedChangeStatusSchema = z.strictObject({
+  /** Discriminant selecting a bay whose logical frame position changed. */
   kind: z.literal("moved"),
+  /** Old frame heading, or null when the left position had no useful name. */
   from_heading: z.string().nullable(),
+  /** New frame heading, or null when the right position has no useful name. */
   to_heading: z.string().nullable(),
 });
 
+/**
+ * Validates the text arm of a composed bay's content.
+ *
+ * It carries rendered rows, fold hints, and its own statistics together so the
+ * browser never needs to run or approximate an engine.
+ */
 const TextKindPayloadSchema = z.strictObject({
+  /** Discriminant selecting the row-based text widget. */
   kind: z.literal("text"),
+  /** Format-authored caption for this bay's old-side column. */
   left_label: z.string(),
+  /** Format-authored caption for this bay's new-side column. */
   right_label: z.string(),
+  /** Complete aligned rows in renderer source order. */
   rows: z.array(DiffRowSchema),
+  /** Valid candidate ranges whose indexes address `rows`. */
   fold_hints: z.array(FoldHintSchema),
+  /** Engine line totals for this bay before File aggregation. */
   stats: BayStatsSchema,
 });
 
 /**
  * Contains what a `text` bay holds: rows decorated by the shared renderer.
  *
- * `left_label`/`right_label` are the two side headings inside the grid,
- * distinct from the bay's own `label`. Rows, fold hints, stats, and the engine
- * warning live here rather than on the bay because they exist only where an
- * engine ran, so a holder of an image bay cannot reach for them.
+ * This arm contains only line-oriented renderer output. The enclosing bay keeps
+ * identity, change classification, warnings, and disclosure policy.
  */
 export type TextKindPayload = z.infer<typeof TextKindPayloadSchema>;
 
+/**
+ * Validates captured image-side facts used to construct media presentation.
+ *
+ * The reference describes bytes but neither contains nor fetches them. The
+ * media endpoint remains the only byte source.
+ */
 const MediaRefSchema = z.strictObject({
+  /** Non-empty captured media type used for presentation, not content negotiation. */
   media_type: z.string().min(1),
+  /** Exact non-negative captured byte count. */
   byte_size: z.number().int().nonnegative(),
+  /** Non-empty backend digest identifying the captured bytes. */
   digest: z.string().min(1),
 });
 
 /**
  * Describes one captured media side without carrying its bytes.
  *
- * This is everything an image bay says about captured content: enough for a
- * widget to know the side exists and to request it. The bytes come from
- * `/api/file-media`, addressed by Snapshot, side, and File pair — never inline
- * in the payload. The same three facts also reach the reviewer as rows, in the
- * `text` bay stating them.
+ * The record proves that a captured side exists without carrying its bytes.
+ * Media content comes from `/api/file-media`, addressed by Snapshot, side, and
+ * File pair, never inline in this payload.
  */
 export type MediaRef = z.infer<typeof MediaRefSchema>;
 
+/**
+ * Validates the image arm with one explicit nullable reference per side.
+ *
+ * Null means that captured side does not exist; it never triggers a substitute
+ * URL or byte source in the widget.
+ */
 const ImageKindPayloadSchema = z.strictObject({
+  /** Discriminant selecting the browser image widget. */
   kind: z.literal("image"),
+  /** Captured old-side media facts, or null when that side is absent. */
   left: MediaRefSchema.nullable(),
+  /** Captured new-side media facts, or null when that side is absent. */
   right: MediaRefSchema.nullable(),
 });
 
 /**
  * Contains what an `image` bay holds: two optional references to pictures.
  *
- * A `null` side is a File that was added or removed, and must read as absent
- * rather than as an empty picture frame. The bay carries no dimensions: the
- * widget asks the endpoint for the bytes and lets the browser decode them.
+ * A null side is absent rather than an empty picture. The widget obtains bytes
+ * from the media endpoint and lets the browser decode their dimensions.
  */
 export type ImageKindPayload = z.infer<typeof ImageKindPayloadSchema>;
 
+/**
+ * Validates a bay's content arm by its renderer-independent kind.
+ *
+ * Consumers narrow this discriminant at the widget dispatch point while keeping
+ * the enclosing bay identity unchanged.
+ */
 const BayKindPayloadSchema = z.discriminatedUnion("kind", [
   TextKindPayloadSchema,
   ImageKindPayloadSchema,
@@ -760,37 +1317,47 @@ const BayKindPayloadSchema = z.discriminatedUnion("kind", [
  * Contains one bay's content, dispatched to a widget by its `kind`.
  *
  * Two variants, because there are two things a reviewer can look at: lines, and
- * a picture. Named facts about bytes — a blob File's only bay, an image File's
- * facts bay — are lines, so they arrive as `text` and need no variant. A new
- * kind is a variant here plus a matching widget; nothing about frames, hunk
+ * a picture. Named facts about bytes, such as a blob File's only bay and an
+ * image File's facts bay, are lines. They arrive as `text` and need no variant.
+ * A new kind is a variant here plus a matching widget; nothing about frames, hunk
  * numbering, or the composed-diff envelope changes to admit it.
  */
 export type BayKindPayload = z.infer<typeof BayKindPayloadSchema>;
 
+/**
+ * Validates one complete composed bay envelope and its narrowed content.
+ *
+ * Identity, labels, change facts, warnings, and content stay attached as one
+ * navigable unit throughout frontend rendering.
+ */
 const BayPayloadSchema = z.strictObject({
+  /** Non-empty File-local coordinate shared with line pins and review targets. */
   bay_key: z.string().min(1),
+  /** User-visible bay caption used by optional chrome and inline text layout. */
   label: z.string(),
+  /** Additional user-visible context, or null when the bay has none. */
   detail: z.string().nullable(),
+  /** Whether the bay may expose a disclosure control for its body. */
   collapsible: z.boolean(),
+  /** Initial body visibility, meaningful only under the bay disclosure policy. */
   default_expanded: z.boolean(),
+  /** Format-authored whole-bay change, including optional movement context. */
   change: z.discriminatedUnion("kind", [
     ChangeStatusSchema,
     MovedChangeStatusSchema,
   ]),
+  /** Non-fatal damage attached to this bay in backend order. */
   warnings: z.array(BayWarningSchema),
+  /** Validated content arm dispatched to exactly one matching widget. */
   kind_data: BayKindPayloadSchema,
 });
 
 /**
  * Represents one bay of a composed diff: its identity, plus what it holds.
  *
- * `bay_key` is the sub-file coordinate shared with line pins and review
- * targets. `label` names the whole bay where it is shown by name, which is its
- * collapsed placeholder and the content column of the inline grid.
- *
- * The discriminator sits one level down, in `kind_data`. Bay chrome, collapse
- * state, navigation, and tinting read this record and never learn the kind;
- * only the frame walk's widget dispatch descends into `kind_data`.
+ * Bay chrome, visibility, navigation, and tinting consume the envelope without
+ * interpreting its content arm. The frame walk narrows content once at widget
+ * dispatch.
  */
 export type BayPayload = z.infer<typeof BayPayloadSchema>;
 
@@ -799,42 +1366,68 @@ export type BayPayload = z.infer<typeof BayPayloadSchema>;
  *
  * Only the builder can answer this. A notebook cell that moved and one whose
  * output changed beyond its rendered text both produce rows identical on both
- * sides, so the frontend renders this value — a tint and a status — and never
+ * sides, so the frontend renders this value as a tint and status and never
  * infers it. A `moved` variant carries the name the bay wore in the old and
  * the new document, `null` on a side the builder cannot name; every other
  * outcome is fully told by its `kind`.
  */
 export type BayChange = BayPayload["change"];
 
+/**
+ * Validates one ordered logical frame and the non-empty bays it contains.
+ *
+ * The optional heading is backend-authored format context. A bay-less frame is
+ * rejected because it has no reviewable content or change state.
+ */
 const FrameSchema = z.strictObject({
+  /** Non-empty backend identity for this logical part of the File. */
   frame_key: z.string().min(1),
+  /** Backend-authored frame caption, or null for a heading-less frame. */
   heading: z.string().nullable(),
-  // A frame is what its body bay says it is: its tint and its status are both
-  // read from `bays[0]`. Composition appends a frame only once a bay exists, so
-  // a bay-less frame is a backend bug, and rejecting it here fails the File into
-  // its LazyFile error state instead of rendering a silent, untinted heading the
-  // reviewer scrolls past as untouched.
+  /**
+   * Non-empty ordered bays that define the frame's visible status and content.
+   *
+   * Composition creates a frame only after its first bay exists. Rejecting an
+   * empty array exposes backend damage instead of rendering an untinted heading
+   * with no reviewable content.
+   */
   bays: z.array(BayPayloadSchema).min(1),
 });
 
 /**
  * Contains one presentational frame: an optional heading over ordered bays.
  *
- * A frame carries no annotations of its own. Everything a reviewer acts on
- * belongs to a bay, which can be navigated to, collapsed, and commented on.
+ * A frame carries no annotations of its own. Navigation and review targets
+ * belong to its bays. A bay with `collapsible=true` also lets the reviewer open
+ * or close its body; other bays remain shown.
  */
 export type Frame = z.infer<typeof FrameSchema>;
 
+/**
+ * Validates the complete multi-frame representation returned for one File.
+ *
+ * The response keeps format composition and per-bay renderer results together;
+ * the client must not split them into competing stores.
+ */
 const ComposedDiffSchema = z
   .strictObject({
+    /** Complete File caption used by the card header and activity presentation. */
     display_name: z.string(),
+    /** User-visible caption for the captured old File side. */
     left_label: z.string(),
+    /** User-visible caption for the captured new File side. */
     right_label: z.string(),
+    /** File-wide text-line totals and captured-side existence. */
     summary: TextFileSummarySchema,
+    /** Tracked or untracked provenance repeated with the rendered response. */
     file_kind: FileKindSchema,
+    /** Non-empty old-side path, or null when absent from capture. */
     left_path: FilePathSchema.nullable(),
+    /** Non-empty new-side path, or null when absent from capture. */
     right_path: FilePathSchema.nullable(),
+    /** Backend policy for initial File expansion before an explicit client choice. */
     default_expanded: z.boolean(),
+    /** Ordered logical frames containing all renderable bays. */
     frames: z.array(FrameSchema),
   })
   .superRefine(validateFilePaths);
@@ -842,19 +1435,34 @@ const ComposedDiffSchema = z
 /**
  * Contains the single renderable response shape returned by `/api/file-diff`.
  *
- * Every file is one composed diff: File-level metadata plus an ordered list of
- * frames, each holding an ordered list of bays. There is no `render_kind`; a
- * plain text file is one heading-less frame holding one `text` bay keyed
- * `flatfile`.
- * At least one path is present and each present path is non-empty.
+ * At least one normalized path is present. A plain text File is represented by
+ * one heading-less frame containing the conventional flat-file text bay; callers
+ * do not branch on a separate render kind.
  */
 export type FileDiff = z.infer<typeof ComposedDiffSchema>;
 
+/**
+ * Validates the opaque hexadecimal identity shared by review entities and Snapshots.
+ *
+ * Consumers compare and transmit the full value but never parse its bytes or
+ * infer which entity kind it identifies from the spelling.
+ */
 export const ReviewIdSchema = z.string().regex(/^[0-9a-f]{32}$/u);
 
-/** Identifies one review entity, operation, or retained Snapshot. */
+/**
+ * Identifies one review entity, operation, or retained Snapshot opaquely.
+ *
+ * The spelling does not encode the entity kind. Callers keep IDs in their typed
+ * field context and compare or transmit the full value without parsing it.
+ */
 export type ReviewId = z.infer<typeof ReviewIdSchema>;
 
+/**
+ * Validates one normalized repository-relative path used in review coordinates.
+ *
+ * Absolute paths, empty segments, and dot traversal are rejected before a path
+ * can enter persisted review addressing or media URLs.
+ */
 const ReviewFilePathSchema = z
   .string()
   .min(1)
@@ -869,9 +1477,17 @@ const ReviewFilePathSchema = z
     { message: "Review File paths must be normalized relative names." },
   );
 
+/**
+ * Validates the complete nullable path pair identifying one captured File.
+ *
+ * At least one normalized side must exist. The pair remains intact for renames,
+ * where neither path alone is a stable identity.
+ */
 export const ReviewFilePairSchema = z
   .strictObject({
+    /** Normalized old-side path, or null when the captured File lacks that side. */
     left_path: ReviewFilePathSchema.nullable(),
+    /** Normalized new-side path, or null when the captured File lacks that side. */
     right_path: ReviewFilePathSchema.nullable(),
   })
   .superRefine((pair, context) => {
@@ -883,12 +1499,25 @@ export const ReviewFilePairSchema = z
     }
   });
 
-/** Identifies one File through the complete nullable manifest pair. */
+/**
+ * Identifies one captured File through its complete nullable path pair.
+ *
+ * At least one side exists. Both remain present for a rename, so consumers keep
+ * the pair intact across review, media, line-pin, and navigation coordinates.
+ */
 export type ReviewFilePair = z.infer<typeof ReviewFilePairSchema>;
 
+/**
+ * Validates one non-empty one-based inclusive review line range.
+ *
+ * The refinement rejects reversed endpoints before a target can be persisted or
+ * used for marker and excerpt calculations.
+ */
 export const ReviewLineRangeSchema = z
   .strictObject({
+    /** Positive one-based first line included in the review range. */
     start_line: z.number().int().positive(),
+    /** Positive one-based final line, never before `start_line`. */
     end_line: z.number().int().positive(),
   })
   .superRefine((range, context) => {
@@ -900,13 +1529,18 @@ export const ReviewLineRangeSchema = z
     }
   });
 
-/** Identifies one one-based inclusive review line range. */
+/**
+ * Identifies a non-empty one-based inclusive review line range.
+ *
+ * The validated end never precedes the start. Callers use the same coordinates
+ * for marker selection, persisted targets, and origin excerpts.
+ */
 export type ReviewLineRange = z.infer<typeof ReviewLineRangeSchema>;
 
 /**
  * Names the bay a flatfile composes into.
  *
- * A flatfile is a File no format claims — it has no internal structure, so
+ * A flatfile is a File no format claims. It has no internal structure, so
  * composition gives it exactly one bay with this key. Callers compare
  * against it instead of testing for a format.
  */
@@ -952,6 +1586,10 @@ export const BLOB_BAY_KEY = "blob";
  * neither identifies it alone. The result is a plain URL for `src` or `href`:
  * the bytes are the browser's to fetch, decode, and cache, and no validated
  * transport wraps a picture.
+ *
+ * @param snapshotId Opaque Snapshot that captured the requested bytes.
+ * @param file Complete nullable File pair used by all sub-file coordinates.
+ * @param side Captured side whose original bytes the browser should fetch.
  */
 export function fileMediaUrl(
   snapshotId: string,
@@ -969,7 +1607,14 @@ export function fileMediaUrl(
   return `/api/file-media?${search.toString()}`;
 }
 
+/**
+ * Validates one non-empty public bay key used by review coordinates.
+ *
+ * The validator treats keys as opaque composition output and never recognizes a
+ * format or widget from their text.
+ */
 export const ReviewTextBaySchema = z.strictObject({
+  /** Non-empty File-local key passed through without format or widget inference. */
   bay_key: z.string().min(1),
 });
 
@@ -982,12 +1627,23 @@ export const ReviewTextBaySchema = z.strictObject({
  */
 export type ReviewTextBay = z.infer<typeof ReviewTextBaySchema>;
 
+/**
+ * Validates one text review target and the existence of its selected File side.
+ *
+ * The target keeps File, bay, side, and inclusive range together. The refinement
+ * rejects coordinates aimed at a nullable side absent from the pair.
+ */
 const TextReviewTargetSchema = z
   .strictObject({
+    /** Discriminant selecting the line-oriented review target contract. */
     kind: z.literal("text"),
+    /** Complete captured File pair that remains intact across renames. */
     file: ReviewFilePairSchema,
+    /** Opaque composed bay containing the selected line range. */
     bay: ReviewTextBaySchema,
+    /** Captured side whose path must be present in `file`. */
     side: z.enum(["left", "right"]),
+    /** Non-empty inclusive backend line range on the selected side. */
     range: ReviewLineRangeSchema,
   })
   .superRefine((target, context) => {
@@ -1001,28 +1657,66 @@ const TextReviewTargetSchema = z
       });
     }
   });
+/**
+ * Public runtime validator for review targets accepted by browser write commands.
+ *
+ * It currently exposes the text-target contract directly; adding another target
+ * kind requires an explicit public union rather than permissive parsing.
+ */
 export const ReviewTargetSchema = TextReviewTargetSchema;
 
-/** Identifies one rendered text range. */
+/**
+ * Identifies one exact rendered text range accepted for Thread creation.
+ *
+ * Callers construct this complete coordinate from a mounted line host and must
+ * not assemble a partial or side-absent target.
+ */
 export type ReviewTarget = z.infer<typeof ReviewTargetSchema>;
 
+/**
+ * Validates immutable display attribution returned with one review Comment.
+ *
+ * The record binds a positive Profile identity to the name captured for display;
+ * it does not contain preferences or authentication state.
+ */
 const ReviewAuthorSchema = z.strictObject({
+  /** Positive Profile identity used for authorship checks. */
   profile_id: z.number().int().positive(),
+  /** Non-empty author name captured for immutable Comment presentation. */
   display_name: z.string().min(1),
 });
 
-/** Returns one ordinary Profile attribution. */
+/**
+ * Describes immutable Profile attribution returned with a review Comment.
+ *
+ * The positive identity supports authorship checks while the captured display
+ * name is presentation. It does not represent current login or preferences.
+ */
 export type ReviewAuthor = z.infer<typeof ReviewAuthorSchema>;
 
+/**
+ * Validates one current Comment or retained deletion tombstone.
+ *
+ * The refinement keeps deletion and body absence equivalent, while sequence and
+ * revision remain nonnegative server-authored ordering values.
+ */
 const ReviewCommentSchema = z
   .strictObject({
+    /** Opaque identity retained even after the Comment becomes a tombstone. */
     comment_id: ReviewIdSchema,
+    /** Zero-based contiguous position inside the containing Thread. */
     sequence: z.number().int().nonnegative(),
+    /** Immutable Profile attribution returned with this Comment. */
     author: ReviewAuthorSchema,
+    /** Server revision required by later edit and delete actions. */
     revision: z.number().int().nonnegative(),
+    /** Complete current text, or null exactly when `deleted` is true. */
     body: z.string().nullable(),
+    /** Whether the record is a retained deletion tombstone with no body. */
     deleted: z.boolean(),
+    /** Offset-aware creation timestamp supplied by the backend. */
     created_at: z.string().datetime({ offset: true }),
+    /** Offset-aware timestamp of the latest accepted Comment revision. */
     updated_at: z.string().datetime({ offset: true }),
   })
   .superRefine((comment, context) => {
@@ -1034,43 +1728,86 @@ const ReviewCommentSchema = z
     }
   });
 
-/** Returns one current Comment or retained deletion tombstone. */
+/**
+ * Describes one current Comment or its retained deletion tombstone.
+ *
+ * Tombstones retain identity and attribution. Callers use the server ordering and
+ * revision directly rather than sorting or manufacturing optimistic revisions.
+ */
 export type ReviewComment = z.infer<typeof ReviewCommentSchema>;
 
+/**
+ * Validates every current-Snapshot placement outcome for a persisted Thread.
+ *
+ * Each arm carries only data newly determined by derivation; immutable File,
+ * side, and usually bay identity remain on the origin.
+ */
 const ThreadPlacementSchema = z.discriminatedUnion("kind", [
   z.strictObject({
+    /** Discriminant for an unchanged region whose current range remains valid. */
     kind: z.literal("region-kept"),
+    /** Current inclusive range corresponding to the immutable origin. */
     range: ReviewLineRangeSchema,
   }),
   z.strictObject({
+    /** Discriminant for a region still found at current lines but changed in content. */
     kind: z.literal("region-changed"),
+    /** Current inclusive range at which the changed origin was reattached. */
     range: ReviewLineRangeSchema,
   }),
-  z.strictObject({ kind: z.literal("region-lost") }),
-  z.strictObject({ kind: z.literal("bay-lost"), bay: ReviewTextBaySchema }),
-  z.strictObject({ kind: z.literal("side-lost") }),
-  z.strictObject({ kind: z.literal("file-absent") }),
-  z.strictObject({ kind: z.literal("file-unreadable") }),
-  z.strictObject({ kind: z.literal("whole-file") }),
+  z.strictObject({
+    /** Origin bay remains, but no current region matches the stored excerpt. */
+    kind: z.literal("region-lost"),
+  }),
+  z.strictObject({
+    /** Origin bay disappeared; `bay` is the current whole-bay landing selected by derivation. */
+    kind: z.literal("bay-lost"),
+    /** Opaque current bay used for navigation instead of the lost origin bay. */
+    bay: ReviewTextBaySchema,
+  }),
+  z.strictObject({
+    /** Origin side no longer exists in the current File pair. */
+    kind: z.literal("side-lost"),
+  }),
+  z.strictObject({
+    /** Origin File is absent from the current Snapshot. */
+    kind: z.literal("file-absent"),
+  }),
+  z.strictObject({
+    /** Current File exists but could not produce reviewable content. */
+    kind: z.literal("file-unreadable"),
+  }),
+  z.strictObject({
+    /** File-level historical Thread remains valid without a text range. */
+    kind: z.literal("whole-file"),
+  }),
 ]);
 
 /**
  * Identifies where one Thread sits in a Snapshot, and what became of it.
  *
- * Each variant names one derivation outcome and states only what the origin
- * does not: the File pair and side are the origin's in every variant, and the
- * bay is the origin's in all but `bay-lost`. `region-kept` and `whole-file`
- * report nothing wrong; the six others are the complete outdated vocabulary,
- * one name per state.
+ * Each variant states only facts newly determined in the current Snapshot.
+ * Immutable File, side, and usually bay identity remain on the origin.
  */
 export type ThreadPlacement = z.infer<typeof ThreadPlacementSchema>;
 
+/**
+ * Validates one non-empty origin excerpt and its selected subrange.
+ *
+ * The refinement proves both selected endpoints lie inside the stored line array
+ * so presentation can index it without repair or clipping.
+ */
 const ReviewExcerptSchema = z
   .strictObject({
+    /** Captured side from which every stored excerpt line came. */
     side: z.enum(["left", "right"]),
+    /** Positive one-based line number corresponding to `lines[0]`. */
     start_line: z.number().int().positive(),
+    /** First selected origin line, constrained inside the stored excerpt. */
     selected_start_line: z.number().int().positive(),
+    /** Last selected origin line, no earlier than `selected_start_line`. */
     selected_end_line: z.number().int().positive(),
+    /** Non-empty immutable source lines retained from the origin Snapshot. */
     lines: z.array(z.string()).min(1),
   })
   .superRefine((excerpt, context) => {
@@ -1087,17 +1824,43 @@ const ReviewExcerptSchema = z
     }
   });
 
-/** Returns one bounded selected-side excerpt from the origin Snapshot. */
+/**
+ * Describes a bounded selected-side excerpt retained from the origin Snapshot.
+ *
+ * The selected inclusive range lies inside the non-empty stored lines. Current
+ * placement may move independently, but this historical context never changes.
+ */
 export type ReviewExcerpt = z.infer<typeof ReviewExcerptSchema>;
 
+/**
+ * Validates an immutable text target together with its captured origin excerpt.
+ *
+ * This is persistence history, not the Thread's placement in the current Snapshot.
+ */
 const TextReviewOriginSchema = TextReviewTargetSchema.extend({
+  /** Immutable selected-side context captured when the Thread was created. */
   excerpt: ReviewExcerptSchema,
 });
+/**
+ * Validates the retained File-start origin used by File-level historical Threads.
+ *
+ * It has no bay, range, or excerpt because its coordinate is the captured File
+ * header rather than rendered text.
+ */
 const FileStartReviewOriginSchema = z.strictObject({
+  /** Discriminant for a historical Thread attached to the File header. */
   kind: z.literal("file-start"),
+  /** Complete captured File identity retained across later Snapshots. */
   file: ReviewFilePairSchema,
+  /** Captured side with which the File-level Thread was associated. */
   side: z.enum(["left", "right"]),
 });
+/**
+ * Validates either immutable Thread-origin form by its target kind.
+ *
+ * Consumers narrow this history separately from current placement and never
+ * merge the two into one mutable coordinate.
+ */
 const ReviewOriginSchema = z.discriminatedUnion("kind", [
   TextReviewOriginSchema,
   FileStartReviewOriginSchema,
@@ -1106,22 +1869,42 @@ const ReviewOriginSchema = z.discriminatedUnion("kind", [
 /**
  * Identifies the immutable creation target of one Thread.
  *
- * This is the only place a response states a Thread's File pair, bay, and
- * side; a placement repeats none of them. A text origin carries the excerpt
- * cut from its own Snapshot, and a retained historical File-level origin has
- * no excerpt field at all.
+ * This immutable history remains separate from current placement. Text origins
+ * retain their selected excerpt; File-level historical origins have no text
+ * coordinate.
  */
 export type ReviewOrigin = z.infer<typeof ReviewOriginSchema>;
 
+/**
+ * Validates one complete Thread, its origin, current placement, and Comments.
+ *
+ * Comment refinement enforces contiguous sequence order and unique identities so
+ * discussion rendering never needs to sort or deduplicate backend data.
+ */
 const ReviewThreadSchema = z.strictObject({
+  /** Opaque Thread identity used by all discussion and lifecycle actions. */
   thread_id: ReviewIdSchema,
+  /** Snapshot whose canonical query contains this current Thread representation. */
   snapshot_id: ReviewIdSchema,
+  /** Offset-aware timestamp of Thread creation. */
   created_at: z.string().datetime({ offset: true }),
+  /**
+   * Current lifecycle state: open accepts ordinary actions, resolved records
+   * completed work, and deleted remains as a retained tombstone.
+   */
   state: z.enum(["open", "resolved", "deleted"]),
+  /**
+   * Roles currently expected to act: author, reviewer, both, or neither.
+   * Callers use the backend value directly instead of deriving it from Comments.
+   */
   attention: z.enum(["author", "reviewer", "both", "none"]),
+  /** Server discussion revision required by state-changing actions. */
   discussion_revision: z.number().int().nonnegative(),
+  /** Immutable creation coordinate and historical excerpt. */
   origin_target: ReviewOriginSchema,
+  /** Current-Snapshot derivation outcome interpreted relative to `origin_target`. */
   placement: ThreadPlacementSchema,
+  /** Non-empty contiguous Comment history with identities unique in this Thread. */
   comments: z
     .array(ReviewCommentSchema)
     .min(1)
@@ -1147,7 +1930,12 @@ const ReviewThreadSchema = z.strictObject({
     }),
 });
 
-/** Returns one runtime-validated discussion through an exact Snapshot. */
+/**
+ * Describes one complete runtime-validated discussion in an exact Snapshot.
+ *
+ * The Thread keeps immutable origin separate from current placement. Callers use
+ * its validated Comment order and server revisions directly.
+ */
 export type ReviewThread = z.infer<typeof ReviewThreadSchema>;
 
 /**
@@ -1163,11 +1951,37 @@ export function threadOutdated(thread: ReviewThread): boolean {
   return kind !== "region-kept" && kind !== "whole-file";
 }
 
-/** Addresses the exact captured code one Thread navigates to. */
+/**
+ * Addresses the exact current code landing available for one Thread.
+ *
+ * It combines immutable File and side origin with the bay and line chosen by
+ * current placement. Threads without a code landing produce no value of this type.
+ */
 export type ThreadCodePoint = {
+  /**
+   * Complete captured File pair containing the navigable code.
+   *
+   * It comes from immutable Thread origin and remains a pair across renames.
+   */
   file: ReviewFilePair;
+  /**
+   * Public bay identity that currently contains the navigation landing.
+   *
+   * A `bay-lost` placement may supply this instead of the origin bay; callers
+   * treat it as opaque.
+   */
   bay: ReviewTextBay;
+  /**
+   * Captured side on which navigation should locate the code line.
+   *
+   * It always comes from Thread origin and is present in the File pair.
+   */
   side: "left" | "right";
+  /**
+   * One-based line at which navigation should land inside the bay.
+   *
+   * Region placements use their current start; whole-bay landings use line one.
+   */
   line: number;
 };
 
@@ -1180,6 +1994,12 @@ export type ThreadCodePoint = {
  * where it does not. `null` means the placement names no bay at all, so
  * History is that Thread's only home. ChangeSet navigation and History's view
  * control both need this assembly, which is why it is stated once.
+ *
+ * # Returns
+ *
+ * - `ThreadCodePoint`: The complete current code coordinate.
+ * - `null`: The File-level origin names no bay. Callers must keep that Thread
+ *   in History and omit code navigation.
  */
 export function threadCodePoint(thread: ReviewThread): ThreadCodePoint | null {
   const origin = thread.origin_target;
@@ -1215,26 +2035,56 @@ export function threadCodePoint(thread: ReviewThread): ThreadCodePoint | null {
   }
 }
 
+/**
+ * Validates the authoritative Thread fragment returned by one accepted write.
+ *
+ * The nullable Comment distinguishes state-only actions from Comment writes,
+ * while revision and attention always describe the post-write Thread.
+ */
 const ReviewThreadUpdateSchema = z.strictObject({
+  /** Thread identity repeated by the accepted action response. */
   thread_id: ReviewIdSchema,
+  /** Snapshot identity repeated for publication into the addressed query. */
   snapshot_id: ReviewIdSchema,
+  /** Authoritative post-write open, resolved, or retained-deleted lifecycle state. */
   state: z.enum(["open", "resolved", "deleted"]),
+  /** Authoritative post-write author, reviewer, both-role, or no-role attention. */
   attention: z.enum(["author", "reviewer", "both", "none"]),
+  /** Authoritative post-write discussion revision. */
   discussion_revision: z.number().int().nonnegative(),
+  /** Added or changed Comment, or null for a Thread-only lifecycle action. */
   comment: ReviewCommentSchema.nullable(),
 });
 
-/** Returns the revision, state, and Comment changed by one accepted action. */
+/**
+ * Describes the authoritative Thread fragment returned by one accepted action.
+ *
+ * Callers verify the repeated identities and merge this authoritative fragment
+ * into the addressed canonical Thread only.
+ */
 export type ReviewThreadUpdate = z.infer<typeof ReviewThreadUpdateSchema>;
 
+/**
+ * Validates one bounded page of Threads under a fixed Snapshot activity boundary.
+ *
+ * Refinement rejects cross-Snapshot Threads and duplicate Thread or Comment IDs,
+ * so page assembly can append without repairing backend identity.
+ */
 const ReviewThreadPageSchema = z
   .strictObject({
+    /** Snapshot identity shared by every Thread in this transport page. */
     snapshot_id: ReviewIdSchema,
+    /** Fixed activity boundary established by page one and repeated thereafter. */
     through_activity_id: z.number().int().nonnegative(),
+    /** Validated page slice in canonical backend order. */
     threads: z.array(ReviewThreadSchema),
+    /** Positive page number requested and repeated by the backend. */
     page: z.number().int().positive(),
+    /** Positive transport page size repeated for response verification. */
     limit: z.number().int().positive(),
+    /** Total Threads expected across all pages at the activity boundary. */
     total_threads: z.number().int().nonnegative(),
+    /** Whether the caller must fetch the next consecutive page. */
     has_more: z.boolean(),
   })
   .superRefine((page, context) => {
@@ -1269,77 +2119,199 @@ const ReviewThreadPageSchema = z
     });
   });
 
-/** Returns one explicitly bounded transport page for an exact Snapshot. */
+/**
+ * Describes one explicitly bounded transport page for an exact Snapshot.
+ *
+ * The first page establishes the activity boundary. Pagination code validates and
+ * appends every later page before exposing the complete canonical Thread set.
+ */
 type ReviewThreadPage = z.infer<typeof ReviewThreadPageSchema>;
 
+/**
+ * Validates review input as non-empty text containing at least one non-space.
+ *
+ * It preserves accepted whitespace verbatim and rejects only bodies that cannot
+ * produce visible Comment content.
+ */
 const ReviewBodySchema = z
   .string()
   .min(1)
   .refine((body) => body.trim().length > 0, {
     message: "Review bodies cannot contain only whitespace.",
   });
+/**
+ * Validates authorship, exact target, and first body for Thread creation.
+ *
+ * All three values are required because the backend creates the Thread and its
+ * first Comment atomically.
+ */
 const CreateReviewThreadRequestSchema = z.strictObject({
+  /** Existing Profile attributed as author of the first Comment. */
   profile_id: z.number().int().positive(),
+  /** Complete valid code coordinate for the new Thread. */
   target: ReviewTargetSchema,
+  /** Nonblank first Comment text preserved verbatim after validation. */
   body: ReviewBodySchema,
 });
+/**
+ * Validates one authored reply and its attention effect.
+ *
+ * Attention is an explicit action choice, not a default inferred from body or
+ * current Thread state.
+ */
 const AddReviewCommentRequestSchema = z.strictObject({
+  /** Existing Profile attributed as author of this reply. */
   profile_id: z.number().int().positive(),
+  /** Nonblank reply text preserved verbatim after validation. */
   body: ReviewBodySchema,
+  /**
+   * Explicit attention effect applied with the reply: alert raises both-role
+   * attention, while inert preserves the current attention state.
+   */
   attention: z.enum(["inert", "alert"]),
 });
+/**
+ * Validates the Profile and complete replacement body for a Comment edit.
+ *
+ * Comment and Thread identities remain URL parameters, so the JSON body cannot
+ * disagree with the addressed entities.
+ */
 const EditReviewCommentRequestSchema = z.strictObject({
+  /** Existing Profile required to match Comment authorship. */
   profile_id: z.number().int().positive(),
+  /** Complete nonblank replacement text, never a patch. */
   body: ReviewBodySchema,
 });
+/**
+ * Validates authorship for a review action whose other identity is in the URL.
+ *
+ * The body contains only the acting Profile, keeping deletion and state-action
+ * semantics in their explicit endpoint and path.
+ */
 const ReviewProfileActionRequestSchema = z.strictObject({
+  /** Existing Profile attributed to the endpoint's explicit lifecycle action. */
   profile_id: z.number().int().positive(),
 });
 
-/** Creates one Thread and its first Comment. */
+/**
+ * Carries validated authorship, code target, and first body for Thread creation.
+ *
+ * Snapshot identity is added separately by private transport so one command body
+ * cannot conflict with the addressed Snapshot.
+ */
 export type CreateReviewThreadRequest = z.infer<
   typeof CreateReviewThreadRequestSchema
 >;
-/** Appends one Comment to an existing Thread. */
+/**
+ * Carries validated authorship, reply body, and attention effect for one Comment.
+ *
+ * Snapshot and Thread identities are transport inputs; this value contains no
+ * default action or local draft state.
+ */
 export type AddReviewCommentRequest = z.infer<
   typeof AddReviewCommentRequestSchema
 >;
-/** Replaces one authored Comment body. */
+/**
+ * Carries validated Profile attribution and complete replacement Comment text.
+ *
+ * The endpoint separately addresses the Comment, so this value cannot name a
+ * different entity or encode a partial patch.
+ */
 export type EditReviewCommentRequest = z.infer<
   typeof EditReviewCommentRequestSchema
 >;
-/** Attributes one Comment or Thread action to an existing Profile. */
+/**
+ * Attributes one Comment or Thread action to an existing Profile.
+ *
+ * Action meaning and entity identity remain in the explicit endpoint and path;
+ * this body cannot invent another transition field.
+ */
 export type ReviewProfileActionRequest = z.infer<
   typeof ReviewProfileActionRequestSchema
 >;
 
+/**
+ * Validates dirdiff's ordinary JSON error envelope.
+ *
+ * Transport handling uses its complete error text when no structured review
+ * domain failure applies.
+ */
 const ErrorResponseSchema = z.strictObject({
+  /** Complete backend error text used when no structured domain failure applies. */
   error: z.string(),
 });
 
+/**
+ * Validates the stable codes emitted by browser review domain failures.
+ *
+ * Callers may branch on these values. Human-readable response messages remain
+ * presentation text and must not create additional classifications.
+ */
 const ReviewErrorCodeSchema = z.enum([
+  /** The acting Profile identity does not exist. */
   "profile_not_found",
+  /** The addressed Thread identity does not exist. */
   "thread_not_found",
+  /** The addressed Comment identity does not exist. */
   "comment_not_found",
+  /** Authored input or its captured target is invalid. */
   "invalid_target",
+  /** The supplied discussion revision is stale. */
   "revision_conflict",
+  /** The action cannot follow the Thread's current state. */
   "state_conflict",
+  /** The acting Profile may not perform the action. */
   "forbidden",
 ]);
+/**
+ * Validates one structured review failure body.
+ *
+ * It pairs a stable code with non-empty display text before transport handling
+ * constructs `ReviewRequestError`.
+ */
 const ReviewErrorResponseSchema = z.strictObject({
+  /** Stable review failure classification used for caller behavior. */
   code: ReviewErrorCodeSchema,
+  /** Non-empty user-visible explanation kept separate from classification. */
   message: z.string().min(1),
 });
 
-/** Classifies one stable browser review domain failure. */
+/**
+ * Classifies one stable browser review domain failure.
+ *
+ * Consumers branch on the code for behavior and present the separately validated
+ * message as prose. Unknown codes fail response validation.
+ */
 export type ReviewErrorCode = z.infer<typeof ReviewErrorCodeSchema>;
 
+/**
+ * Validates FastAPI's plain HTTP exception envelope.
+ *
+ * It is checked after dirdiff-specific error shapes and contributes only its
+ * detail text to the visible transport failure.
+ */
 const HttpExceptionResponseSchema = z.strictObject({
+  /** FastAPI exception detail used as ordinary transport failure text. */
   detail: z.string(),
 });
 
+/**
+ * Transport deadline for ordinary reads and lightweight mutations.
+ *
+ * This bounds one HTTP attempt only; TanStack retries are disabled separately.
+ */
 const REQUEST_TIMEOUT_MS = 8_000;
+/**
+ * Longer initial file-render deadline reserved for measured heavy engines.
+ *
+ * Explicit user retry may select the unbounded policy instead of this timer.
+ */
 const SLOW_DIFF_TIMEOUT_MS = 20_000;
+/**
+ * Transport deadline for forge preparation, including remote network and Git work.
+ *
+ * The value applies to the preparation attempt and never to later Snapshot reads.
+ */
 const PULL_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
@@ -1363,9 +2335,31 @@ export type FileDiffTimeout = "bounded" | "unbounded";
  * arguments.
  */
 type HttpRequest = {
+  /**
+   * Complete URL or Request-compatible address passed directly to `fetch`.
+   *
+   * Callers construct all path and search parameters before entering transport.
+   */
   input: string;
+  /**
+   * Complete fetch initialization, including method, headers, and body.
+   *
+   * Transport adds only the combined AbortSignal and never invents HTTP options.
+   */
   init: RequestInit;
+  /**
+   * Caller cancellation source, or `null` for mutations without one.
+   *
+   * A present AbortSignal is forwarded with its exact reason and detached after
+   * the attempt settles.
+   */
   abortSignal: AbortSignal | null;
+  /**
+   * Positive finite transport deadline in milliseconds, or `null` for no timer.
+   *
+   * Null is explicit policy for irreversible writes and user-requested unbounded
+   * file retry; it is not a missing default.
+   */
   timeoutMs: number | null;
 };
 
@@ -1377,8 +2371,25 @@ type HttpRequest = {
  * while `timedOut()` distinguishes the owned timer from caller cancellation.
  */
 type MultiAbortSignal = {
+  /**
+   * Combined browser AbortSignal passed to the associated `fetch` attempt.
+   *
+   * It aborts for either caller cancellation or this instance's optional timer.
+   */
   abortSignal: AbortSignal;
+  /**
+   * Releases the caller listener and transport timer retained by this instance.
+   *
+   * The request boundary calls it exactly once after settlement. It does not
+   * abort work or change timeout classification, and repeated use is unnecessary.
+   */
   dispose(): void;
+  /**
+   * Reports whether this instance's timer, rather than the caller, caused abort.
+   *
+   * Transport reads it only while classifying a failed settled attempt. It does
+   * not wait, mutate cancellation, or inspect arbitrary abort reasons.
+   */
   timedOut(): boolean;
 };
 
@@ -1397,6 +2408,12 @@ type RequestErrorReason = "timeout" | "other";
  * The class must not convert intentional AbortErrors into request failures.
  */
 class RequestError extends Error {
+  /**
+   * Stable Toast-lifetime classification attached to this transport failure.
+   *
+   * Presentation may expire `timeout` errors; `other` remains until dismissal.
+   * No other reason value is represented.
+   */
   readonly error_reason: RequestErrorReason;
 
   /**
@@ -1404,6 +2421,10 @@ class RequestError extends Error {
    *
    * `cause` is null when no underlying exception exists and otherwise preserves
    * the original thrown value. Callers must provide every argument explicitly.
+   *
+   * @param errorReason Stable timeout or ordinary failure classification.
+   * @param message Complete user-visible transport failure text.
+   * @param cause Original thrown value, or `null` when no exception caused it.
    */
   constructor(
     errorReason: RequestErrorReason,
@@ -1423,9 +2444,23 @@ class RequestError extends Error {
  * text. Consumers must branch on `code` rather than interpreting prose.
  */
 export class ReviewRequestError extends RequestError {
+  /**
+   * Stable browser review domain classification validated from the response.
+   *
+   * Consumers branch on this code and use inherited message text only for
+   * presentation.
+   */
   readonly code: ReviewErrorCode;
 
-  /** Constructs one failure from the complete structured review error body. */
+  /**
+   * Constructs one failure from the complete structured review error body.
+   *
+   * The failure always has ordinary persistent Toast lifetime because review
+   * codes describe domain rejection, not transport timeout.
+   *
+   * @param code Validated stable domain classification.
+   * @param message Non-empty display text returned with that classification.
+   */
   constructor(code: ReviewErrorCode, message: string) {
     super("other", message, null);
     this.name = "ReviewRequestError";
@@ -1440,6 +2475,9 @@ export class ReviewRequestError extends RequestError {
  * numeric timeout must be positive and creates one owned timer; null creates no
  * timer. The returned MultiAbortSignal forwards cancellation and removes its
  * caller AbortSignal listener and timer.
+ *
+ * @param callerAbortSignal Caller cancellation to forward, or explicit `null`.
+ * @param timeoutMs Positive finite deadline in milliseconds, or explicit `null`.
  */
 function createMultiAbortSignal(
   callerAbortSignal: AbortSignal | null,
@@ -1516,7 +2554,8 @@ function createMultiAbortSignal(
  * Converts one non-successful HTTP response into a complete RequestError.
  *
  * The response body is consumed exactly once. Known JSON error envelopes expose
- * their message; unknown or plain-text bodies remain dramatically visible.
+ * their message; unknown or plain-text bodies become `RequestError.message`
+ * unchanged.
  */
 async function throwResponseError(response: Response): Promise<never> {
   const bodyText = await response.text();
@@ -1603,6 +2642,9 @@ async function requestResponse(request: HttpRequest): Promise<Response> {
  * Callers provide an explicit request and the authoritative Zod schema. Invalid
  * success data throws its validation error; unsuccessful responses throw their
  * complete backend or HTTP error without substituting defaults.
+ *
+ * @param request Complete HTTP execution and cancellation policy.
+ * @param schema Runtime validator authoritative for the successful JSON body.
  */
 async function requestJson<T>(
   request: HttpRequest,
@@ -1638,6 +2680,9 @@ function requestRepos(abortSignal: AbortSignal): Promise<RepoMark[]> {
  *
  * Callers provide a real backend project ID and the query AbortSignal.
  * Selection, autocomplete filtering, and cache freshness remain UI concerns.
+ *
+ * @param projectId Repository whose complete ref choices are requested.
+ * @param abortSignal Query cancellation that bounds this read attempt.
  */
 function requestRepoRefs(
   projectId: ProjectId,
@@ -1664,6 +2709,13 @@ function requestRepoRefs(
  * title without mislabeling transport or schema failures.
  */
 class RepositoryDefaultsHeuristicError extends Error {
+  /**
+   * Constructs the stable domain failure for an uninferable base branch.
+   *
+   * The response schema has already proved this exact failure arm. The instance
+   * carries no repository or transport data and selects only query failure
+   * handling and its specific Toast title.
+   */
   constructor() {
     super("The backend could not infer a base branch for this repository.");
     this.name = "RepositoryDefaultsHeuristicError";
@@ -1675,6 +2727,9 @@ class RepositoryDefaultsHeuristicError extends Error {
  *
  * The project must already exist and the caller supplies cancellation. The result
  * is validated as a complete entity and is not merged with local input state.
+ *
+ * @param projectId Repository whose branch-review defaults are requested.
+ * @param abortSignal Query cancellation that bounds this read attempt.
  */
 async function requestRepoDefaults(
   projectId: ProjectId,
@@ -1733,7 +2788,19 @@ async function requestRemoveRepo(projectId: ProjectId): Promise<void> {
  * selection. The validated backend entity is returned without updating caches.
  */
 function requestSaveMainBranch(input: {
+  /**
+   * Exact repository whose stored main branch will change.
+   *
+   * It comes from validated repository selection and is repeated in the URL, not
+   * in the JSON body.
+   */
   projectId: ProjectId;
+  /**
+   * Complete local or remote branch selection to persist.
+   *
+   * The backend receives the discriminated object unchanged; the command does
+   * not derive a remote or substitute a default.
+   */
   selection: BranchSelection;
 }): Promise<RepoMainBranch> {
   return requestJson(
@@ -1792,7 +2859,12 @@ function requestRegisterProfile(username: string): Promise<UserProfile> {
   );
 }
 
-/** Selects the one existing profile with an exact username. */
+/**
+ * Selects the one existing Profile with an exact submitted username.
+ *
+ * Login never creates a missing Profile or changes the supplied text. The caller
+ * persists selection only after the validated identity returns.
+ */
 function requestLoginProfile(username: string): Promise<UserProfile> {
   return requestJson(
     {
@@ -1813,7 +2885,18 @@ function requestLoginProfile(username: string): Promise<UserProfile> {
  * local-storage updates.
  */
 function requestRenameProfile(input: {
+  /**
+   * Positive backend identity of the Profile being renamed.
+   *
+   * It selects the URL resource and never comes from the submitted new name.
+   */
   profileId: number;
+  /**
+   * Complete replacement display name accepted by the caller's input boundary.
+   *
+   * Backend validation remains authoritative; this function does not trim or
+   * repair it before submission.
+   */
   username: string;
 }): Promise<UserProfile> {
   return requestJson(
@@ -1836,6 +2919,9 @@ function requestRenameProfile(input: {
  *
  * A concrete profile ID and cancellation AbortSignal are required. This function
  * does not supply defaults when the backend response is absent or malformed.
+ *
+ * @param profileId Exact selected Profile whose preferences are read.
+ * @param abortSignal Query cancellation that bounds this read attempt.
  */
 function requestPreferences(
   profileId: number,
@@ -1859,7 +2945,18 @@ function requestPreferences(
  * validated backend result is returned without mutating UI state.
  */
 function requestSavePreferences(input: {
+  /**
+   * Exact Profile whose persisted preferences will change.
+   *
+   * It addresses the URL resource and must match the caller's selected Profile.
+   */
   profileId: number;
+  /**
+   * Complete accepted value for the aggressive-folding preference.
+   *
+   * The boolean is sent directly and the validated response remains authoritative
+   * for cache and presentation updates.
+   */
   aggressiveFolds: boolean;
 }): Promise<Preferences> {
   return requestJson(
@@ -1958,6 +3055,9 @@ function snapshotSearchParams(snapshotId: string): URLSearchParams {
  *
  * TanStack Query supplies cancellation and receives a validated thin manifest. This
  * function does not start file requests or enrich manifest handles.
+ *
+ * @param params Complete selected Tab value serialized without reconstruction.
+ * @param abortSignal TanStack cancellation that bounds this manifest attempt.
  */
 function requestManifest(
   params: DiffParams,
@@ -1980,6 +3080,9 @@ function requestManifest(
  *
  * The snapshot ID and query AbortSignal are required. The result describes lazy
  * presentation only and does not trigger explicit file loading.
+ *
+ * @param snapshotId Opaque manifest Snapshot whose delayed files are described.
+ * @param abortSignal TanStack cancellation that bounds this lazy-info attempt.
  */
 function requestLazyInfo(
   snapshotId: string,
@@ -2003,6 +3106,12 @@ function requestLazyInfo(
  * Callers provide the rendering engine, opaque `snapshot_id`, exact manifest
  * entry, cancellation, and a bounded-or-unbounded timeout policy. The timeout
  * policy affects execution only and must not alter query identity.
+ *
+ * @param engine Backend renderer selected for this file attempt.
+ * @param snapshotId Opaque Snapshot established by the containing manifest.
+ * @param entry Exact thin manifest handle for the File being rendered.
+ * @param abortSignal TanStack cancellation that bounds this file attempt.
+ * @param timeout Explicit bounded initial load or unbounded user-retry policy.
  */
 function requestFileDiff(
   engine: DiffEngine,
@@ -2036,12 +3145,30 @@ function requestFileDiff(
   );
 }
 
-/** Reads every bounded transport page into one complete Snapshot Thread set. */
+/**
+ * Reads every bounded transport page into one complete Snapshot Thread set.
+ *
+ * The first page fixes the append-only activity boundary used by every later
+ * page. The function rejects identity drift, duplicates, or an incomplete final
+ * count instead of returning a repaired collection.
+ *
+ * @param snapshotId Exact Snapshot whose canonical Thread set is read.
+ * @param abortSignal TanStack cancellation shared by every page in this read.
+ */
 async function requestReviewThreads(
   snapshotId: ReviewId,
   abortSignal: AbortSignal,
 ): Promise<ReviewThread[]> {
-  /** Read and validate one transport page within this complete Snapshot read. */
+  /**
+   * Reads and validates one transport page within this complete Snapshot read.
+   *
+   * `pageNumber` is the exact positive page requested. `throughActivityId` is
+   * `null` only for the first page; later calls pass the boundary returned by
+   * that first response. The helper shares the outer Snapshot and AbortSignal.
+   *
+   * @param pageNumber Positive transport page to request and verify.
+   * @param throughActivityId Fixed first-page activity boundary, or `null` initially.
+   */
   async function page(
     pageNumber: number,
     throughActivityId: number | null,
@@ -2101,14 +3228,53 @@ async function requestReviewThreads(
   }
 }
 
+/**
+ * Carries one complete Thread-creation command into the private mutation function.
+ *
+ * Snapshot addressing stays outside the validated JSON body until transport
+ * assembles the endpoint payload, preventing a body from naming another Snapshot.
+ */
 type CreateReviewThreadInput = {
+  /**
+   * Exact Snapshot in which the new Thread and first Comment are created.
+   *
+   * The response must repeat this identity or the mutation rejects it.
+   */
   snapshotId: ReviewId;
+  /**
+   * Validated authorship, target, and first Comment body.
+   *
+   * Transport parses it again at the HTTP boundary before combining it with the
+   * Snapshot identity.
+   */
   body: CreateReviewThreadRequest;
 };
 
-/** Requires one mutation response to match the exact addressed Thread pair. */
+/**
+ * Requires one mutation response to match the exact addressed Thread pair.
+ *
+ * A mismatch throws at the transport boundary so canonical query data cannot be
+ * updated with a response for another Snapshot or Thread.
+ *
+ * @param thread Response fragment carrying backend Snapshot and Thread identities.
+ * @param snapshotId Exact Snapshot addressed by the mutation.
+ * @param threadId Exact Thread addressed by the mutation.
+ */
 function assertReviewThreadIdentity(
-  thread: { snapshot_id: ReviewId; thread_id: ReviewId },
+  thread: {
+    /**
+     * Snapshot identity repeated by the backend response.
+     *
+     * It must equal the command's addressed Snapshot before callers publish data.
+     */
+    snapshot_id: ReviewId;
+    /**
+     * Thread identity repeated by the backend response.
+     *
+     * It must equal the command's addressed Thread before callers publish data.
+     */
+    thread_id: ReviewId;
+  },
   snapshotId: ReviewId,
   threadId: ReviewId,
 ): void {
@@ -2118,7 +3284,12 @@ function assertReviewThreadIdentity(
   );
 }
 
-/** Creates one Snapshot-bound Thread and its first Comment. */
+/**
+ * Creates one Snapshot-bound Thread and its first Comment atomically.
+ *
+ * The irreversible write has no transport timeout. Its validated response must
+ * repeat the addressed Snapshot before the caller publishes it to canonical data.
+ */
 async function requestCreateReviewThread(
   input: CreateReviewThreadInput,
 ): Promise<ReviewThread> {
@@ -2148,13 +3319,40 @@ async function requestCreateReviewThread(
   return thread;
 }
 
+/**
+ * Carries one complete reply command into the private mutation function.
+ *
+ * Snapshot and Thread addressing remain transport fields, while the body holds
+ * authorship, visible text, and the explicit attention action.
+ */
 type AddReviewCommentInput = {
+  /**
+   * Exact Snapshot containing the Thread receiving the reply.
+   *
+   * The accepted response must repeat it before publication.
+   */
   snapshotId: ReviewId;
+  /**
+   * Exact Thread to which the new Comment is appended.
+   *
+   * It remains paired with `snapshotId`; a Thread ID alone is not an API address.
+   */
   threadId: ReviewId;
+  /**
+   * Validated Profile, reply body, and attention effect.
+   *
+   * Transport combines it with the addressed identities without defaulting any
+   * action field.
+   */
   body: AddReviewCommentRequest;
 };
 
-/** Appends one Comment through an exact Snapshot-bound Thread. */
+/**
+ * Appends one Comment through an exact Snapshot-bound Thread.
+ *
+ * Transport waits without a timeout for the authoritative update, then verifies
+ * both response identities before returning post-write state to the caller.
+ */
 async function requestAddReviewComment(
   input: AddReviewCommentInput,
 ): Promise<ReviewThreadUpdate> {
@@ -2182,14 +3380,46 @@ async function requestAddReviewComment(
   return thread;
 }
 
+/**
+ * Carries one complete Comment-edit command into the private mutation function.
+ *
+ * The command keeps the containing Thread identity for response verification even
+ * though the endpoint directly addresses the Comment.
+ */
 type EditReviewCommentInput = {
+  /**
+   * Exact Snapshot containing the authored Comment.
+   *
+   * It participates in both the request body and response identity assertion.
+   */
   snapshotId: ReviewId;
+  /**
+   * Exact containing Thread expected in the update response.
+   *
+   * It prevents a valid Comment response from being published under another
+   * canonical Thread.
+   */
   threadId: ReviewId;
+  /**
+   * Exact authored Comment whose body is replaced.
+   *
+   * The ID addresses the endpoint action and is never inferred from Thread order.
+   */
   commentId: ReviewId;
+  /**
+   * Validated Profile attribution and complete replacement text.
+   *
+   * Editing replaces the body; this command carries no patch or local revision.
+   */
   body: EditReviewCommentRequest;
 };
 
-/** Edits one authored Comment through an exact Snapshot-bound Thread. */
+/**
+ * Replaces one authored Comment body through its exact Snapshot-bound Thread.
+ *
+ * The response must identify the containing Thread even though the endpoint acts
+ * on a Comment, preventing publication into another canonical discussion.
+ */
 async function requestEditReviewComment(
   input: EditReviewCommentInput,
 ): Promise<ReviewThreadUpdate> {
@@ -2217,14 +3447,45 @@ async function requestEditReviewComment(
   return thread;
 }
 
+/**
+ * Carries one exact Comment tombstone action into private transport.
+ *
+ * Snapshot and Thread identities verify the returned update; the body supplies
+ * only the acting Profile because deletion semantics belong to the endpoint.
+ */
 type ReviewCommentActionInput = {
+  /**
+   * Exact Snapshot containing the Comment.
+   *
+   * It is sent and then checked against the accepted update.
+   */
   snapshotId: ReviewId;
+  /**
+   * Exact containing Thread expected in the accepted update.
+   *
+   * The Thread remains part of canonical query placement after its Comment changes.
+   */
   threadId: ReviewId;
+  /**
+   * Exact Comment to retain as a deletion tombstone.
+   *
+   * Transport sends it directly and never selects a Comment by sequence.
+   */
   commentId: ReviewId;
+  /**
+   * Validated Profile attribution for the destructive action.
+   *
+   * No deletion flag is needed because the endpoint itself names the action.
+   */
   body: ReviewProfileActionRequest;
 };
 
-/** Tombstones one current Comment through an exact Snapshot-bound Thread. */
+/**
+ * Tombstones one current Comment through an exact Snapshot-bound Thread.
+ *
+ * The write preserves Comment identity on the backend. Transport verifies the
+ * returned Thread pair and never converts deletion into local array removal.
+ */
 async function requestDeleteReviewComment(
   input: ReviewCommentActionInput,
 ): Promise<ReviewThreadUpdate> {
@@ -2252,13 +3513,42 @@ async function requestDeleteReviewComment(
   return thread;
 }
 
+/**
+ * Carries one exact Thread lifecycle action into private transport.
+ *
+ * The action verb remains a separate required function parameter so the command
+ * body cannot smuggle an unsupported or contradictory transition.
+ */
 type ReviewThreadActionInput = {
+  /**
+   * Exact Snapshot containing the Thread whose lifecycle changes.
+   *
+   * It participates in request addressing and response verification.
+   */
   snapshotId: ReviewId;
+  /**
+   * Exact Thread receiving the explicit resolve, reopen, or delete action.
+   *
+   * The accepted update must repeat it before publication.
+   */
   threadId: ReviewId;
+  /**
+   * Validated Profile attribution for the lifecycle action.
+   *
+   * Transition meaning comes only from the separate `action` argument.
+   */
   body: ReviewProfileActionRequest;
 };
 
-/** Applies one explicit lifecycle action to an exact Snapshot-bound Thread. */
+/**
+ * Applies one explicit lifecycle action to an exact Snapshot-bound Thread.
+ *
+ * The irreversible write has no transport timeout and returns only after the
+ * authoritative response is validated against the addressed identities.
+ *
+ * @param action Supported lifecycle transition selecting the exact endpoint.
+ * @param input Snapshot-bound Thread identity and acting Profile attribution.
+ */
 async function requestChangeReviewThreadState(
   action: "resolve" | "reopen" | "delete",
   input: ReviewThreadActionInput,
@@ -2287,6 +3577,13 @@ async function requestChangeReviewThreadState(
   return thread;
 }
 
+/**
+ * Shared lifetime policy for immutable Snapshot-addressed query definitions.
+ *
+ * Snapshot data never becomes stale, and unused results leave the cache
+ * immediately because a replacement Snapshot has a different identity. Each
+ * definition still supplies its own key, function, and failure title.
+ */
 const snapshotQuery = {
   staleTime: Infinity,
   gcTime: 0,
@@ -2365,7 +3662,13 @@ export const api = {
   },
 
   review: {
-    /** Defines the complete canonical Thread set for an exact Snapshot. */
+    /**
+     * Defines the complete canonical Thread-set query for an exact Snapshot.
+     *
+     * `snapshotId` is the whole query identity. Observation reads every bounded
+     * page under one activity boundary before exposing data, and creating this
+     * definition alone starts no network work.
+     */
     snapshot(snapshotId: ReviewId) {
       return queryOptions({
         queryKey: ["review", snapshotId] as const,
@@ -2377,7 +3680,13 @@ export const api = {
     },
 
     thread: {
-      /** Defines Thread creation with its first Comment. */
+      /**
+       * Defines the mutation that creates one Thread and its first Comment.
+       *
+       * The caller supplies `CreateReviewThreadInput` at execution time and must
+       * publish canonical query data after success. Creating the definition performs
+       * no write.
+       */
       create() {
         return mutationOptions({
           mutationKey: ["review", "thread", "create"] as const,
@@ -2385,7 +3694,12 @@ export const api = {
           meta: { errorTitle: "Failed to create review Thread" },
         });
       },
-      /** Defines one explicit Thread lifecycle transition. */
+      /**
+       * Defines one explicit resolve, reopen, or delete Thread mutation.
+       *
+       * `action` fixes both mutation identity and endpoint before execution. The
+       * later input supplies only the addressed Thread and acting Profile.
+       */
       changeState(action: "resolve" | "reopen" | "delete") {
         return mutationOptions({
           mutationKey: ["review", "thread", action] as const,
@@ -2397,7 +3711,12 @@ export const api = {
     },
 
     comment: {
-      /** Defines appending one Comment. */
+      /**
+       * Defines the mutation that appends one Comment to an exact Thread.
+       *
+       * The execution input includes Snapshot, Thread, authorship, body, and
+       * attention action. Callers publish the validated update after success.
+       */
       add() {
         return mutationOptions({
           mutationKey: ["review", "comment", "add"] as const,
@@ -2405,7 +3724,12 @@ export const api = {
           meta: { errorTitle: "Failed to add review Comment" },
         });
       },
-      /** Defines editing one authored Comment. */
+      /**
+       * Defines the mutation that replaces one authored Comment body.
+       *
+       * It performs no optimistic write itself. The caller executes it with exact
+       * identities and publishes only the validated authoritative update.
+       */
       edit() {
         return mutationOptions({
           mutationKey: ["review", "comment", "edit"] as const,
@@ -2413,7 +3737,12 @@ export const api = {
           meta: { errorTitle: "Failed to edit review Comment" },
         });
       },
-      /** Defines tombstoning one authored Comment. */
+      /**
+       * Defines the mutation that tombstones one authored Comment.
+       *
+       * The caller supplies the exact Snapshot-bound Comment and acting Profile;
+       * successful data retains the Comment identity as a backend tombstone.
+       */
       delete() {
         return mutationOptions({
           mutationKey: ["review", "comment", "delete"] as const,

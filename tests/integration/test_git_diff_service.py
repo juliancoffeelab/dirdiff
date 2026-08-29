@@ -21,6 +21,11 @@ __all__: list[str] = []
 def test_build_repo_manifest_lists_changed_tracked_files(
     tmp_path: Path,
 ) -> None:
+    """Default worktree manifests include tracked changes and Git totals only.
+
+    An unrelated untracked File remains absent unless explicitly requested,
+    while the changed tracked File retains its path pair and modification count.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -82,6 +87,11 @@ def test_build_repo_manifest_lists_changed_tracked_files(
 def test_build_repo_manifest_can_include_untracked_files_as_lazy(
     tmp_path: Path,
 ) -> None:
+    """Explicit untracked discovery adds one-sided deferred File entries.
+
+    The added File is classified as untracked and lazy without suppressing its
+    manifest membership or turning it into a tracked Git addition.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -142,6 +152,11 @@ def test_build_repo_manifest_can_include_untracked_files_as_lazy(
 def test_build_repo_manifest_returns_explicit_tree_with_root_files_last(
     tmp_path: Path,
 ) -> None:
+    """Manifest hierarchy is explicit and orders directory branches before Files.
+
+    Nested changed paths retain recursive directory identity, while a changed
+    root File follows those directory nodes in the returned tree.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -239,7 +254,11 @@ def test_build_repo_manifest_returns_explicit_tree_with_root_files_last(
 def test_build_repo_manifest_compacts_single_directory_chains(
     tmp_path: Path,
 ) -> None:
-    """Manifest tree collapses directory segments with only one child dir."""
+    """Manifest tree collapses directory segments with only one child directory.
+
+    The assertion protects the public tree shape while keeping File leaves and
+    branching directories distinct.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -300,6 +319,11 @@ def test_build_repo_manifest_compacts_single_directory_chains(
 def test_untracked_lazy_file_can_be_loaded_from_worktree(
     tmp_path: Path,
 ) -> None:
+    """A deferred untracked File still composes from its present worktree side.
+
+    Explicit loading supplies no left bytes and the complete right text becomes
+    an inserted row, proving the lazy policy does not replace content.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -344,6 +368,11 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(
 
 
 def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
+    """Branch Review compares the review tip against its merge base.
+
+    Changes made only on the base branch after divergence must not enter the
+    review diff, while feature-branch changes remain visible.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -474,6 +503,11 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
 def test_git_diff_service_uses_git_style_delete_insert_rows(
     tmp_path: Path,
 ) -> None:
+    """Selecting the Git engine changes modified alignment to delete and insert.
+
+    The same captured sides retain ordinary textual alignment under the native
+    engine, and swapping them reverses the Git-style replacement contents.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -590,6 +624,11 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(
 def test_build_repo_manifest_summarizes_changed_files(
     tmp_path: Path,
 ) -> None:
+    """Repository summary counts every changed File represented in the tree.
+
+    Two independent tracked modifications must yield two leaf entries and a
+    matching changed-File total, without rendering either File.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -653,6 +692,11 @@ def test_build_repo_manifest_summarizes_changed_files(
 
 
 def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
+    """Known generated lockfiles receive the generated lazy policy.
+
+    The File remains a tracked modification in manifest counts and identity;
+    only its initial loading policy changes.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -709,6 +753,11 @@ def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
 def test_build_repo_manifest_marks_large_changed_files_lazy(
     tmp_path: Path,
 ) -> None:
+    """Files beyond the eager-size threshold remain counted but load on demand.
+
+    Git's aggregate line totals still describe the large modification even
+    though the manifest marks its content `too_big`.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -768,6 +817,11 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
 
 
 def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
+    """Deleted Files are deferred while retaining their exact absent-side shape.
+
+    The manifest exposes the tracked deletion with only a left path and keeps it
+    in changed-File totals.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -822,6 +876,11 @@ def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
 
 
 def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
+    """A byte-identical rename is deferred as identity-only review information.
+
+    Both repository paths and tracked rename status remain present, so loading
+    can still be requested explicitly.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,

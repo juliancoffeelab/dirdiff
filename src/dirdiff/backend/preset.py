@@ -1,15 +1,18 @@
-"""Preset-backed implementation of `WorkspaceBackendProtocol`.
+"""Read preset fixture catalogs through the backend contract.
 
-`PresetBackend` treats test preset directories as read-only backend data.  It lets
-the same manifest and rendering paths exercise fixture pairs without requiring
-a Git repository.  It should stay limited to preset discovery, path listing,
-and file loading for those fixtures.
+## Public interface
 
-The directory layout is `<presets root>/<catalog>/<group>/<fixture>/`. One
-`PresetBackend` reads one catalog: its root is the catalog directory, and the
-groups it lists are that directory's children. `preset_catalogs()` is the level
-above — it reads the presets root and says which catalogs exist, which is the
-only place that set is stated. Nothing here enumerates catalog names.
+`preset_catalogs` lists the catalogs available below one presets root.
+`PresetCatalogDir` carries each catalog's id, label, and directory.
+`PresetBackend` lists one selected catalog's fixture groups and exposes their
+old/new files through `WorkspaceBackendProtocol`.
+
+## Purpose and boundaries
+
+Presets exercise the normal manifest, format, and rendering paths without a Git
+repository. This module interprets only the directory layout and fixture-level
+metadata. It does not choose a catalog, render fixture contents, or keep a
+catalog list between calls.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TypeIs, override
+from typing import Never, TypeIs, override
 
 from dirdiff.backend.base import (
     BranchSelection,
@@ -43,6 +46,12 @@ _LAZY_REASONS: tuple[LazyReason, ...] = (
     "untracked",
     "pure_renamed",
 )
+"""Complete lazy-reason vocabulary accepted from fixture `preset.toml` files.
+
+Membership in this tuple is the runtime validation that lets
+`_is_lazy_reason` narrow untyped TOML values to `LazyReason`. Keep it aligned
+with that public literal type.
+"""
 
 
 def _is_lazy_reason(value: object) -> TypeIs[LazyReason]:
@@ -56,23 +65,36 @@ def _is_lazy_reason(value: object) -> TypeIs[LazyReason]:
 
 @dataclass(frozen=True)
 class PresetCatalogDir:
-    """One preset catalog: its id, the name it shows, and the directory it is.
+    """Describe one preset catalog discovered below the presets root.
 
-    `catalog_id` is the directory's name. It is what a URL carries as
-    `preset_type`, what the manifest receives as `project_id`, and what a
-    Mark-less preset Room persists, so renaming the directory renames the
-    catalog everywhere at once and nothing declares the id a second time.
-    `name` is presentation text read from `preset.toml`; nothing selects by it.
-    `root` is the absolute catalog directory one `PresetBackend` reads.
+    Catalog discovery returns these records to the picker and manifest
+    boundary. A caller constructs `PresetBackend` with `root` to inspect the
+    catalog's groups and fixtures.
 
     This is directory metadata. It holds no group listing, no fixture, and no
-    rendered content — a caller that wants those constructs a `PresetBackend`
-    on `root`.
+    rendered content.
     """
 
     catalog_id: str
+    """Directory name that identifies this catalog across UI and Room state.
+
+    Callers use the exact value to select `root`; the presentation name is not a
+    substitute identity.
+    """
+
     name: str
+    """Non-empty picker label read from the catalog-level `preset.toml`.
+
+    It is presentation metadata and may change without renaming the catalog id.
+    """
+
     root: Path
+    """Catalog directory path used to construct `PresetBackend`.
+
+    Discovery preserves the `presets_root` spelling supplied by its caller;
+    `PresetBackend` resolves the path when constructed. The record does not
+    promise the directory remains available after the catalog scan.
+    """
 
 
 def preset_catalogs(presets_root: Path) -> tuple[PresetCatalogDir, ...]:
@@ -86,12 +108,28 @@ def preset_catalogs(presets_root: Path) -> tuple[PresetCatalogDir, ...]:
     catalogs, which is the true answer when dirdiff runs outside this
     repository.
 
-    Callers rescan per request. Adding a catalog is creating a directory with
-    that one file in it, and nothing has to be restarted or edited to see it.
+    # Usage
 
-    A fixture directory also holds a `preset.toml`, with a `lazy_reason` key
+    The server calls this on each catalog-listing operation, then constructs a
+    `PresetBackend` from the selected record's `root`. Adding a valid catalog
+    therefore requires no server restart.
+
+    A fixture directory may also hold a `preset.toml`, with a `lazy_reason` key
     and no `name`. The two live at different depths and are read by different
     callers; `PresetBackend.lazy_reason_metadata` reads the other one.
+
+    # Returns
+
+    - Each item contains one immediate directory's `catalog_id`, configured
+      display name, and root path suitable for constructing `PresetBackend`.
+    - Items are ordered by `catalog_id`. An empty tuple means the presets root
+      is absent or contains no catalog directories; fixtures are never expanded.
+
+    # Failures
+
+    A missing presets root returns an empty tuple. Missing, malformed, or
+    wrongly shaped catalog metadata raises `DirdiffError`, `TOMLDecodeError`, or
+    a filesystem decoding error; invalid catalogs are not skipped.
     """
     if not presets_root.is_dir():
         return ()
@@ -121,10 +159,35 @@ def preset_catalogs(presets_root: Path) -> tuple[PresetCatalogDir, ...]:
 
 
 class PresetBackend(WorkspaceBackendProtocol):
-    """Read diff fixtures from a preset catalog through the backend interface."""
+    """Expose one preset catalog through `WorkspaceBackendProtocol`.
+
+    # Usage
+
+    Construct one backend from the `root` returned by `preset_catalogs`. Use a
+    group id as the left side and `new` as the right side, then follow the same
+    `repo_diff` and loading flow used for other workspace backends.
+
+    The backend reads one catalog and does not enumerate its siblings. Presets
+    have no repository refs or aggregate line counts.
+    """
 
     def __init__(self, presets_root: Path, *, cwd: Path | None = None) -> None:
-        """Bind this backend to one preset root and caller working directory."""
+        """Bind this backend to one preset catalog and command directory.
+
+        # Parameters
+
+        - `presets_root`: Catalog directory containing fixture groups.
+        - `cwd`: Stable command directory, defaulting to the process directory.
+
+        # Usage
+
+        Pass `PresetCatalogDir.root` for the catalog selected by the caller.
+
+        # Failures
+
+        Construction normalizes both paths but does not read the catalog.
+        Filesystem resolution failures propagate.
+        """
         self.presets_root = presets_root.expanduser().resolve()
         self._repo_root = self.presets_root
         selected_cwd = cwd if cwd is not None else Path.cwd()
@@ -133,17 +196,46 @@ class PresetBackend(WorkspaceBackendProtocol):
     @property
     @override
     def repo_root(self) -> Path | None:
-        """Expose the preset catalog root as the backend root."""
+        """Return the stored absolute preset catalog root without filesystem work.
+
+        Preset backends always have a root even when the directory later becomes
+        unavailable. Catalog reads report that state through their own contract.
+
+        # Usage
+
+        Read this when Snapshot storage must stay outside fixture input. Access
+        performs no filesystem work and has no expected failure.
+
+        # Returns
+
+        - The absolute catalog root retained at construction. This concrete
+          backend always has one.
+        - `None`: Never returned by `PresetBackend`; the shared protocol allows
+          it only for a backend not bound to a repository-like root.
+        """
         return self._repo_root
 
     @property
     @override
     def cwd(self) -> Path:
-        """Expose the caller working directory for renderers."""
+        """Return the stored absolute command directory without filesystem work.
+
+        It is fixed at construction and does not change when fixture paths are
+        read from the preset catalog.
+
+        # Usage
+
+        External renderers may reuse this command directory. Access performs no
+        filesystem work and has no expected failure.
+        """
         return self._cwd
 
     def _preset_group_dirs(self) -> list[Path]:
-        """List preset groups that may contain fixture pairs."""
+        """List immediate catalog directories in stable path order.
+
+        A missing catalog produces an empty list. Files and deeper descendants
+        are not group candidates.
+        """
         if not self.presets_root.exists():
             return []
         return sorted(
@@ -162,6 +254,16 @@ class PresetBackend(WorkspaceBackendProtocol):
         express. Callers reuse the returned pairs instead of re-globbing per
         fixture, which measured 84 directory traversals for a single preset
         repo_diff.
+
+        # Returns
+
+        - In each tuple, the first item is the fixture directory that gives the
+          pair its identity and ordering key.
+        - The second item is its sole `old.*` File, or `None` for an addition.
+        - The third item is its sole `new.*` File, or `None` for a deletion.
+          At least one File path is present.
+        - The list follows fixture-directory order and omits directories with
+          no sides or more than one candidate on either side.
         """
         group_dir = self.presets_root / group_name
         if not group_dir.is_dir():
@@ -186,7 +288,11 @@ class PresetBackend(WorkspaceBackendProtocol):
         return pairs
 
     def _list_preset_names(self) -> list[str]:
-        """List groups that contain at least one usable fixture pair."""
+        """Return ids for groups that contain at least one usable fixture.
+
+        Group order follows the sorted catalog directory listing. Invalid or
+        empty fixture directories do not make a group selectable.
+        """
         return [
             group_dir.name
             for group_dir in self._preset_group_dirs()
@@ -194,7 +300,18 @@ class PresetBackend(WorkspaceBackendProtocol):
         ]
 
     def list_preset_groups(self) -> list[PresetGroup]:
-        """Build catalog entries for the preset picker."""
+        """Build picker records for groups containing usable fixtures.
+
+        # Usage
+
+        The preset catalog endpoint publishes these records. Callers must send
+        the returned `id`, not `display_name`, when selecting a group.
+
+        # Failures
+
+        A missing catalog returns an empty list. Filesystem iteration failures
+        propagate; invalid or empty fixture directories do not become groups.
+        """
         return [
             {
                 "id": group_dir.name,
@@ -205,7 +322,18 @@ class PresetBackend(WorkspaceBackendProtocol):
         ]
 
     def default_preset_name(self) -> str:
-        """Choose the first available preset group for initial UI state."""
+        """Choose the first selectable group in stable catalog order.
+
+        # Usage
+
+        The catalog endpoint uses this as its initial group id, and blank side
+        normalization delegates here.
+
+        # Failures
+
+        An empty or unavailable catalog raises `DirdiffError` rather than
+        returning a group that cannot produce a diff.
+        """
         names = self._list_preset_names()
         if names == []:
             raise DirdiffError(f"No presets found in {self.presets_root}.")
@@ -234,7 +362,11 @@ class PresetBackend(WorkspaceBackendProtocol):
         return normalized
 
     def _preset_group_name(self, preset_name: str) -> str:
-        """Validate and normalize a user-selected preset group name."""
+        """Return a safe top-level group id that contains usable fixtures.
+
+        Blank input selects the default. Invalid path shapes, missing groups, and
+        groups without fixture pairs raise `DirdiffError`.
+        """
         normalized = self._preset_group_shape(preset_name)
         if self._fixture_pairs_for_group(normalized) == []:
             raise DirdiffError(f"Preset group has no fixtures: {normalized}")
@@ -247,6 +379,12 @@ class PresetBackend(WorkspaceBackendProtocol):
         deleted File. Both absent is not a fixture at all, and two files on one
         side name no single old or new version, so both are rejected here under
         the same rule the group listing skips them by.
+
+        # Returns
+
+        - First, the old File path, or `None` when the fixture is an addition.
+        - Second, the new File path, or `None` when the fixture is a deletion.
+          At least one item is always present.
         """
         old_files = sorted(preset_dir.glob("old.*"))
         new_files = sorted(preset_dir.glob("new.*"))
@@ -273,9 +411,27 @@ class PresetBackend(WorkspaceBackendProtocol):
         catalog. Absence of `preset.toml` returns `None`; malformed metadata is
         rejected through the same backend error contract as path listing.
 
+        # Usage
+
+        `repo_diff` calls this with the present side path while building each
+        `RepoDiffPath`. A caller that receives a value must retain both the
+        narrowed reason and the exact metadata text.
+
         This is the fixture-level `preset.toml`, which states a `lazy_reason`.
         The catalog directory above holds one too, stating a `name`, and
         `preset_catalogs()` is what reads that one.
+
+        # Returns
+
+        - First, the validated lazy reason read from the fixture metadata.
+        - Second, the complete metadata file text retained with that reason.
+        - `None`: The fixture has no metadata file and therefore no
+          preset-specific lazy policy.
+
+        # Failures
+
+        Absence returns `None`. Invalid paths, unreadable metadata, malformed
+        TOML, extra keys, and unsupported reasons raise rather than being ignored.
         """
         normalized_path = self.normalize_repo_path(repository_path)
         preset_dir = self.presets_root / PurePosixPath(normalized_path).parent
@@ -295,7 +451,18 @@ class PresetBackend(WorkspaceBackendProtocol):
 
     @override
     def normalize_side(self, raw_side: str) -> SideName:
-        """Normalize preset side names where the left side is the group name."""
+        """Normalize the built-in right side or one selectable left-side group.
+
+        # Usage
+
+        Normalize the selected group and literal `new` before calling
+        `repo_diff` on this same instance.
+
+        # Failures
+
+        Unknown, path-shaped, or empty groups with no default raise
+        `DirdiffError`. The built-in `new` side passes through unchanged.
+        """
         side = raw_side.strip()
         if side == "new":
             return side
@@ -305,9 +472,19 @@ class PresetBackend(WorkspaceBackendProtocol):
     def discover_default_path(self) -> str:
         """Pick the first fixture's path for single-file startup mode.
 
+        # Usage
+
+        Single-File startup calls this when no fixture path was supplied, then
+        passes the result back through `normalize_repo_path`.
+
         The old side when the fixture has one, and the new side otherwise: a
         fixture describing an addition has no old file to open, and startup
         must still name a File that exists.
+
+        # Failures
+
+        An unavailable or empty catalog raises `DirdiffError`; filesystem
+        iteration failures propagate.
         """
         preset_group = self.default_preset_name()
         preset_dir, old_path, new_path = self._fixture_pairs_for_group(
@@ -325,8 +502,23 @@ class PresetBackend(WorkspaceBackendProtocol):
         *,
         base_selection: BranchSelection,
         review_selection: BranchSelection,
-    ) -> tuple[str, str, str, str]:
-        """Reject branch-review resolution for preset-backed fixtures."""
+    ) -> Never:
+        """Reject branch-review resolution for preset-backed fixtures.
+
+        # Parameters
+
+        - `base_selection`: Unused branch base supplied through the shared protocol.
+        - `review_selection`: Unused review branch supplied through the protocol.
+
+        # Usage
+
+        Do not call this method on `PresetBackend`. Callers must select a Git
+        backend before offering Branch Review or resolving its branch sides.
+
+        # Failures
+
+        Presets have no repository refs, so this always raises `DirdiffError`.
+        """
         raise DirdiffError("Preset backend does not support branch review.")
 
     @override
@@ -344,6 +536,24 @@ class PresetBackend(WorkspaceBackendProtocol):
         deletion. The change type is read from which files exist rather than
         declared anywhere, so a fixture directory is the whole statement of
         what the comparison does to that File.
+
+        # Parameters
+
+        - `left`: Normalized preset group whose `old.*` sides are compared.
+        - `right`: Must be the normalized built-in preset side `new`.
+        - `show_untracked`: Must be false because presets have no VCS status.
+
+        # Usage
+
+        Pass a normalized group as `left` and `new` as `right`. Snapshot capture
+        loads the present path of every returned fixture pair.
+
+        # Failures
+
+        Invalid groups, fixture shapes, or metadata raise `DirdiffError` or a
+        parsing/filesystem exception. A right side other than `new` raises
+        `DirdiffError`; `show_untracked=True` violates an assertion. Aggregate
+        line totals are always absent.
         """
         # Shape validation only: the fixture listing below is the single
         # directory scan, and it doubles as the emptiness check the full
@@ -400,7 +610,19 @@ class PresetBackend(WorkspaceBackendProtocol):
 
     @override
     def normalize_repo_path(self, raw_path: str) -> str:
-        """Validate the <group>/<fixture>/<file> path shape used by presets."""
+        """Validate a catalog-relative `<group>/<fixture>/<file>` path.
+
+        # Usage
+
+        Pass catalog paths returned by `repo_diff` before direct fixture loading.
+
+        # Failures
+
+        Blank, absolute, parent-prefixed, directory-shaped, wrongly deep, and
+        unknown fixture-directory paths raise `DirdiffError`. This shape check
+        does not prove the final filename exists; `load_version` checks it
+        against the fixture pair.
+        """
         if raw_path.strip() == "":
             raise DirdiffError("Preset path is required.")
         if raw_path.endswith("/"):
@@ -427,6 +649,21 @@ class PresetBackend(WorkspaceBackendProtocol):
 
         A fixture listed by the preset catalog but absent at load time raises
         `DirdiffError`; absence is represented by an absent manifest side.
+
+        # Parameters
+
+        - `path`: Normalized fixture path that already names the exact side file.
+        - `side`: Shared-protocol side name; the path, not this value, selects bytes.
+
+        # Usage
+
+        Load a present path returned by this backend. The `side` argument carries
+        the shared interface but does not select a different fixture file.
+
+        # Failures
+
+        Invalid or missing fixture paths and unreadable bytes raise
+        `DirdiffError`; malformed fixture shape is also rejected.
         """
         normalized_path = self.normalize_repo_path(path)
         # Resolve the manifest path to its on-disk fixture: a direct file when
@@ -459,7 +696,25 @@ class PresetBackend(WorkspaceBackendProtocol):
     def load_versions(
         self, requests: tuple[tuple[str, SideName], ...]
     ) -> tuple[bytes | DirdiffError, ...]:
-        """Load fixture sides in order while retaining individual failures."""
+        """Load fixture sides in order while retaining individual failures.
+
+        # Usage
+
+        Snapshot capture supplies present `(path, side)` pairs and consumes the
+        result by position.
+
+        # Returns
+
+        - One result position per `(path, side)` input, preserving input order.
+        - A `bytes` item is the fixture's exact File content at that position.
+        - A `DirdiffError` item describes only that fixture-side failure;
+          successful sibling results remain available.
+
+        # Failures
+
+        Each `DirdiffError` occupies the result position of its own input.
+        Unexpected parsing and filesystem exceptions abort the complete batch.
+        """
         results: list[bytes | DirdiffError] = []
         for path, side in requests:
             try:

@@ -19,6 +19,11 @@ __all__: list[str] = []
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
+    """Git rename detection preserves both paths as one File identity.
+
+    A worktree move with unchanged bytes must not degrade into independent
+    deletion and addition entries.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -68,6 +73,11 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
 
 
 def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
+    """Remote Branch Review selections retain their configured remote names.
+
+    Resolution uses the explicitly selected remote ref and rejects the bare
+    branch spelling, preventing an ambiguous local or remote choice.
+    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -224,6 +234,11 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
 def test_ref_choices_use_configured_remote_names_with_slashes(
     tmp_path: Path,
 ) -> None:
+    """Ref discovery separates a slash-containing remote from its branch name.
+
+    The structured choice retains `team/origin` as one configured remote rather
+    than assuming the first path component is always the remote.
+    """
     subprocess.run(
         ["git", "init", "-b", "main"],
         cwd=tmp_path,
@@ -297,6 +312,11 @@ def test_ref_choices_use_configured_remote_names_with_slashes(
 
 
 def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
+    """NUL-delimited rename counts attach to the new repository path.
+
+    Git emits old and new names after one numeric record. The parser must consume
+    both while counting additions and removals once.
+    """
     repository = GitBackend(tmp_path)
 
     counts = repository._parse_numstat_output(
@@ -309,7 +329,11 @@ def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
 def test_batch_loads_literal_paths_without_argv_pathspecs(
     tmp_path: Path,
 ) -> None:
-    """Load exact tree/index names, arbitrary bytes, and per-File misses."""
+    """Load exact tree/index names, arbitrary bytes, and per-File misses.
+
+    Repository reads must preserve byte content and path identity while containing
+    an absent File to that individual lookup.
+    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )

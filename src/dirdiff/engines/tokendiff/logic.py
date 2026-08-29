@@ -1,55 +1,18 @@
-"""Dirdiff token-first text engine.
+"""Token-first comparison of already-loaded text.
 
-`TokenDiffEngine` diffs two already-loaded text documents as one stream of
-fine-grained atoms — identifier parts, numbers, punctuation characters,
-whitespace runs, and newlines — instead of diffing lines first. The engine
-exists because line-first diffing cannot see content that moves across line
-boundaries: comment reflow, docstring rewrapping, and line joins or splits all
-churn a line-first diff, while a token-first diff matches the moved words and
-reports exactly the whitespace and words that actually moved.
+## Public interface
 
-The public interface is `TokenDiffEngine` implementing `DiffEngineProtocol`.
-The module owns tokenization, the token edit script, line pairing, and
-row/token emission. It does not load files, attach syntax highlighting, build
-fold hints, or assemble HTTP payloads — those belong to the backend loader,
-the rendering layer, and the server (see `dirdiff.engines.base`).
+`TokenDiffEngine` tokenizes complete documents, matches content across line
+boundaries, then arranges the result into neutral engine rows. It preserves all
+source text and reports an explicit warning when a region exceeds the bounded
+matching limit.
 
-Pipeline
---------
-1. Tokenization: each document becomes a total sequence of atoms whose
-   concatenation reproduces the document exactly. Identifiers split at
-   snake_case and CamelCase boundaries during tokenization; whole
-   identifiers are the matching unit, and the parts surface only when two
-   replaced identifiers are re-diffed against each other.
-2. Edit script: line runs equal after left-strip anchor the comparison —
-   such lines differ at most in leading whitespace and pair one to one —
-   and every other region is diffed once as a whole token stream, newlines
-   included, which is where cross-line matches happen. Whitespace atoms
-   never drive matching:
-   they pair positionally between matched neighbors, and a changed
-   whitespace pair is trimmed to its differing middle, so an indentation
-   change highlights exactly the added or removed characters.
-3. Rows: each side's scripted atoms split back into lines at newline atoms;
-   left and right lines pair through a monotone maximum-weight assignment
-   over shared matched content. A match whose endpoints land on rows that
-   did not pair with each other is demoted to a delete/insert pair of
-   identical text, so a one-sided row is always entirely its own status and
-   row status stays a pure function of row tokens.
+## Purpose and boundaries
 
-Guarantees
-----------
-* Totality: concatenating each side's row texts (with newlines) reproduces
-  that side's document exactly; whitespace is always diffed, never ignored.
-* Source order: every source line appears exactly once per side, in order.
-* Consistency: per paired row, the concatenated unchanged token text is
-  identical on both sides, and row status derives from token statuses.
-* Honesty: a region too large to match within `_REGION_ATOM_LIMIT` renders
-  as plain one-sided rows with an explicit engine warning instead of
-  silently degrading.
-
-The only row-invisible change is a line-terminator-only difference (for
-example a removed final newline): the row model is line-based, so it carries
-no rendered token and no summary count, matching the other engines.
+Token-first matching lets unchanged content survive movement across line
+boundaries before rows are paired. Oversized regions become explicit one-sided
+rows rather than an unbounded comparison. The module receives loaded text and
+produces neutral engine output; `dirdiff.rendering` adds display metadata.
 """
 
 from __future__ import annotations
@@ -84,12 +47,42 @@ _ATOM_PATTERN = re.compile(
     r"|[^\W\d_]+"
     r"|[^\w\s]"
 )
-"""Total atom alternation, tried in order at every position.
+r"""Split source text into the ordered atoms consumed by `_tokenize`.
 
-Newline, same-line whitespace run, digit run, underscore run, CamelCase
-acronym, capitalized or lower-case ASCII word part, non-ASCII word run, then
-one punctuation character. Every character of any string matches exactly one
-alternative, which `_tokenize` asserts.
+The alternatives recognize newlines, other whitespace runs, digits,
+underscores, acronym and ASCII word parts, remaining Unicode word runs, and
+single punctuation characters. Their order is significant: the acronym branch
+splits `HTTPServer` into `HTTP` and `Server`, while the underscore and digit
+branches split `value_2` into three atoms.
+
+Every alternative consumes at least one character. Together they cover the
+complete input, so joining all matches must reproduce the original text.
+
+# Examples
+
+>>> before = "retry_count = parseHTTPServer(userID, 42)\n"
+>>> after = "retry_count = parseHTTPServer(userID, 43)\n"
+>>> _ATOM_PATTERN.findall(before)  # doctest: +NORMALIZE_WHITESPACE
+['retry', '_', 'count', ' ', '=', ' ', 'parse', 'HTTP', 'Server', '(',
+ 'user', 'ID', ',', ' ', '42', ')', '\n']
+>>> _ATOM_PATTERN.findall(after)  # doctest: +NORMALIZE_WHITESPACE
+['retry', '_', 'count', ' ', '=', ' ', 'parse', 'HTTP', 'Server', '(',
+ 'user', 'ID', ',', ' ', '43', ')', '\n']
+
+# Lossless join invariant
+
+>>> source = "userID = 42\n"
+>>> atoms = _ATOM_PATTERN.findall(source)
+>>> "".join(atoms) == source
+True
+
+# Warning
+
+ASCII word branches run before the remaining Unicode word branch. Identifiers
+that mix ASCII and non-ASCII letters may therefore split asymmetrically:
+
+>>> _ATOM_PATTERN.findall("café = Δvalue\n")
+['caf', 'é', ' ', '=', ' ', 'Δvalue', '\n']
 """
 
 _REGION_ATOM_LIMIT = 4_000_000
@@ -109,24 +102,47 @@ separators and whitespace never count and never demote.
 """
 
 type _TokenPiece = tuple[str, InlineTokenStatus]
-"""One exact line slice paired with its final inline-diff status."""
+"""Pair one exact source slice with its final inline status.
+
+Row construction produces these private pairs, then converts them to
+`InlineToken` values. The text remains in source order and may be empty only
+where the surrounding helper explicitly permits it.
+
+This alias does not identify a lexical atom, row, or cross-side match.
+"""
 
 
 @dataclass
 class _Op:
     """One edit-script step consuming exact text from one or both sides.
 
-    `left` and `right` are exact consecutive slices of their documents;
-    `None` means the step consumes nothing on that side, and at least one
-    side is always present and non-empty. A step whose present sides are
-    equal is a match; `demoted` marks a match that later renders as a
-    delete/insert pair of the same text instead. Steps never invent or
-    reorder text, so the script replays either document from the other.
+    At least one side contributes a non-empty consecutive source slice. Equal
+    two-sided slices usually represent a match, though a later ambiguity pass
+    may make the same text render as deletion beside insertion. Steps never
+    invent or reorder text, so the script replays either document from the
+    other.
     """
 
     left: str | None
+    """Next consecutive old-side slice, or `None` for a pure insertion.
+
+    Across the ordered script, every present left slice concatenates to the
+    original left text exactly; an empty string is never used for absence.
+    """
+
     right: str | None
+    """Next consecutive new-side slice, or `None` for a pure deletion.
+
+    Present right slices replay the original right text in order and are never
+    normalized to match the paired left spelling.
+    """
+
     demoted: bool = False
+    """Whether a text-equal pair is deliberately presented as changed.
+
+    The ambiguity pass sets this only for short word matches inside a rewrite.
+    It changes visible token status, never the slices or replay invariant.
+    """
 
 
 def _tokenize(text: str) -> list[str]:
@@ -136,6 +152,10 @@ def _tokenize(text: str) -> list[str]:
     CamelCase boundaries here, whitespace runs never contain a newline, and
     a newline is always its own atom. The atoms concatenate back to `text`
     exactly.
+
+    # Failures
+
+    Asserts if `_ATOM_PATTERN` ever stops consuming the complete input.
     """
     atoms = _ATOM_PATTERN.findall(text)
     assert sum(map(len, atoms)) == len(text), "atom pattern skipped characters"
@@ -160,7 +180,7 @@ def _split_lines(text: str) -> list[str]:
 def _region_ops(left_atoms: list[str], right_atoms: list[str]) -> list[_Op]:
     """Diff one changed region's atom streams into edit-script steps.
 
-    Maximal runs of word atoms — identifiers with their part boundaries —
+    Maximal runs of word atoms, including identifiers with their part boundaries,
     match as single units, so a fragment of one identifier never matches
     inside a different identifier. Punctuation matches per character, and
     whitespace atoms (newlines included) are junk to the matcher, pairing
@@ -168,14 +188,34 @@ def _region_ops(left_atoms: list[str], right_atoms: list[str]) -> list[_Op]:
     positionally: a replaced identifier pair re-diffs at part level to
     expose exactly the renamed segments, a whitespace pair trims to its
     changed middle, and the unpairable surplus stays one-sided.
+
+    # Parameters
+
+    - `left_atoms`: Complete atom sequence for the old changed region.
+    - `right_atoms`: Complete atom sequence for the new changed region.
     """
 
     def word_like(atom: str) -> bool:
-        """Report whether the atom belongs to an identifier-like run."""
+        """Return whether an atom joins an identifier-like replacement unit.
+
+        Letters, digits, and underscores open or extend a run. Whitespace and
+        punctuation remain separate elements so pairing cannot hide separators.
+        """
         return not atom.isspace() and (atom[0].isalnum() or atom[0] == "_")
 
     def to_elements(atoms: list[str]) -> list[list[str]]:
-        """Group adjacent word atoms into identifier-run elements."""
+        """Partition atoms into identifier runs and standalone separators.
+
+        Every atom appears once and flattening the result restores the input
+        order. The later matcher can then re-diff a renamed identifier internally
+        without pairing unrelated punctuation as part of that identifier.
+
+        # Usage
+
+        `_region_ops` applies this to both changed regions immediately before
+        element-level sequence matching. Keep the returned groups intact until
+        paired replacements are refined.
+        """
         elements: list[list[str]] = []
         chunk_open = False
         for atom in atoms:
@@ -194,7 +234,22 @@ def _region_ops(left_atoms: list[str], right_atoms: list[str]) -> list[_Op]:
         left_element: list[str],
         right_element: list[str],
     ) -> list[_Op]:
-        """Pair two elements: match, part re-diff, trim, or replacement."""
+        """Build edit steps for one positionally paired element pair.
+
+        Identical elements match. Whitespace keeps its shared edges, identifier
+        runs re-diff by stable parts, and other unequal elements become one
+        replacement step.
+
+        # Parameters
+
+        - `left_element`: Consecutive old atoms grouped as one matcher element.
+        - `right_element`: Consecutive new atoms paired with it.
+
+        # Usage
+
+        `_region_ops` calls this only for elements paired by position inside a
+        replacement block. One-sided surplus elements bypass it.
+        """
         left_text = "".join(left_element)
         right_text = "".join(right_element)
         if left_text == right_text:
@@ -320,19 +375,24 @@ def _region_ops(left_atoms: list[str], right_atoms: list[str]) -> list[_Op]:
 def _demote_isolated_matches(ops: list[_Op]) -> None:
     """Demote tiny word matches stranded inside changed surroundings.
 
-    A global token match can leave an isolated short word — `is`, `to`, a
-    stray identifier part — matched between two otherwise rewritten
+    A global token match can leave an isolated short word such as `is`, `to`,
+    or a stray identifier part matched between two otherwise rewritten
     stretches, and rendering such specks as unchanged turns a rewrite into
     confetti. Any maximal run of steps free of content changes whose matched
     word text is at most `_MAX_DEMOTED_MATCH_TEXT` characters, bounded on
     both sides by content-changing steps, has those word matches demoted.
-    Matched separators — commas, parens, braces, dots, colons — and matched
-    whitespace are structural context and always keep their match. Demotion
+    Matched separators such as commas, parens, braces, dots, and colons always
+    keep their match. Matched whitespace does too. Demotion
     never alters step texts, so replay is unaffected.
     """
 
     def content_changed(op: _Op) -> bool:
-        """Report whether the step changes non-whitespace text."""
+        """Return whether one script step changes visible non-whitespace content.
+
+        An ordinary equal match is unchanged. One-sided, unequal, or demoted
+        text counts only when a present slice contains non-whitespace, which
+        keeps indentation and separators from bounding ambiguity demotion.
+        """
         if op.left is not None and op.left == op.right and not op.demoted:
             return False
         present = [text for text in (op.left, op.right) if text is not None]
@@ -384,6 +444,20 @@ def _pair_lines(
     content length between those lines; absent pairs must not pair. The
     result lists chosen pairs strictly ascending on both sides, the order
     row emission interleaves around.
+
+    # Parameters
+
+    - `weights`: Matched-content lengths for candidate zero-based line pairs.
+    - `left_count`: Number of old lines in the changed region.
+    - `right_count`: Number of new lines in the changed region.
+
+    # Returns
+
+    - `First in each pair`: The zero-based old-line index.
+    - `Second in each pair`: The zero-based new-line index selected with it by
+      maximum total shared text; omitted indexes remain one-sided.
+    - `Order`: Both indexes increase strictly, so later row emission never
+      crosses either source's line order.
     """
     if weights == {}:
         return []
@@ -453,6 +527,17 @@ def _anchored_line_row(
     Anchored pairs differ at most in leading whitespace, so the row is
     always `equal`; when the lines differ, the only changed tokens are the
     trimmed middle of the leading run, and byte-equal lines carry no tokens.
+
+    # Parameters
+
+    - `left_line`: Old line known to equal `right_line` after left trimming.
+    - `right_line`: New anchored line.
+    - `left_no`: One-based old line number.
+    - `right_no`: One-based new line number.
+
+    # Failures
+
+    Asserts when the pair does not share the required left-trimmed anchor.
     """
     if left_line == right_line:
         return {
@@ -485,7 +570,18 @@ def _anchored_line_row(
     def lead_pieces(
         middle: str, one_sided: Literal["delete", "insert"]
     ) -> list[_TokenPiece]:
-        """Assemble one side's pieces around its trimmed leading middle."""
+        """Assemble one side's pieces around its changed indentation middle.
+
+        # Parameters
+
+        - `middle`: Side-specific changed portion of the leading whitespace.
+        - `one_sided`: Status used when only this side has a middle portion.
+
+        # Usage
+
+        `_anchored_line_row` calls this once per side after computing the shared
+        indentation prefix and suffix. The closure supplies those shared parts.
+        """
         pieces: list[_TokenPiece] = []
         if prefix > 0:
             pieces.append((left_lead[:prefix], "unchanged"))
@@ -522,8 +618,25 @@ def _region_rows(
     `left_region` and `right_region` are the region's exact text including
     each line's terminating newline (only a document-final line may lack
     one), and `left_no`/`right_no` are the one-based numbers of the region's
-    first lines. Returns the region's rows plus True when the region
-    exceeded `_REGION_ATOM_LIMIT` and rendered as plain one-sided rows.
+    first lines.
+
+    # Parameters
+
+    - `left_region`: Exact old changed run, including its line terminators.
+    - `right_region`: Exact new changed run under the same convention.
+    - `left_no`: One-based number of the first old line in the run.
+    - `right_no`: One-based number of the first new line in the run.
+
+    # Returns
+
+    - `First`: The complete rows for this changed region.
+    - `Second`: Whether the region exceeded `_REGION_ATOM_LIMIT`. A true value
+      means the rows are plain one-sided output; false means token alignment
+      produced them.
+
+    # Failures
+
+    Asserts if row construction fails to consume both region texts exactly.
     """
     left_atoms = _tokenize(left_region)
     right_atoms = _tokenize(right_region)
@@ -634,7 +747,26 @@ def _region_rows(
     right_cursor = 0
 
     def append_one_sided(line: int, side: Literal["left", "right"]) -> None:
-        """Emit one unpaired region line as a fully one-sided row."""
+        """Emit one unpaired region line as a fully one-sided row.
+
+        The helper advances the cursor for the emitted side and asserts that
+        line pairing did not leave any shared token on an unpaired row.
+
+        # Parameters
+
+        - `line`: Zero-based line index within the changed region.
+        - `side`: Side whose cursor and pieces the row consumes.
+
+        # Usage
+
+        `_region_rows` calls this for gaps before, between, and after paired
+        lines. Calls must advance each side in increasing line order.
+
+        # Failures
+
+        Raises `AssertionError` when an unpaired line still contains a token
+        classified as shared with the other side.
+        """
         nonlocal left_cursor, right_cursor
         if side == "left":
             pieces = left_line_pieces[line]
@@ -716,8 +848,20 @@ def _build_token_rows(
     Line runs equal after left-strip anchor the walk and pair one to one,
     runs present on one side render as plain one-sided rows, and every
     other run is a changed region rendered through the token pipeline. The
-    returned warning reports the first region over `_REGION_ATOM_LIMIT`,
-    or None.
+    first over-limit region determines the warning.
+
+    # Parameters
+
+    - `left_text`: Complete old document.
+    - `right_text`: Complete new document.
+
+    # Returns
+
+    - `First`: The complete rows in source order.
+    - `Second`: A warning identifying the first changed region that
+      exceeded `_REGION_ATOM_LIMIT`.
+    - `None`: The second item is absent when every changed region used token
+      alignment, so the caller need not attach an engine warning.
     """
     left_lines = _split_lines(left_text)
     right_lines = _split_lines(right_text)
@@ -776,8 +920,8 @@ def _build_token_rows(
                 )
                 right_no += 1
         else:
-            # Each line owns its terminating newline; only the document's
-            # final line can lack one.
+            # A terminating newline is part of its preceding line; only the
+            # document's final line can lack one.
             left_region = "\n".join(left_lines[i1:i2])
             if i2 < len(left_lines) or left_text.endswith("\n"):
                 left_region += "\n"
@@ -831,7 +975,15 @@ def _token_summary(rows: list[DiffEngineRow]) -> DiffSummary:
 
 @final
 class TokenDiffEngine(DiffEngineProtocol):
-    """Token-first renderer for already-loaded text sides."""
+    """Compare supplied text as complete token streams before pairing rows.
+
+    Matching may cross line boundaries and preserves whitespace exactly. A
+    region beyond the bounded matching limit becomes explicit one-sided rows
+    with an engine warning. Missing text is an empty document.
+
+    The engine carries no workspace or HTTP state and adds no display
+    enrichment.
+    """
 
     @override
     def render_diff(
@@ -846,6 +998,16 @@ class TokenDiffEngine(DiffEngineProtocol):
         is called; an absent side diffs as the empty document. Display
         enrichment such as syntax highlighting and folding is applied later
         by server-side payload assembly.
+
+        # Parameters
+
+        - `old`: Already-loaded old text side.
+        - `new`: Already-loaded new text side.
+
+        # Usage
+
+        Obtain this renderer through `dirdiff.engines.engine` and normally let
+        `dirdiff.formats.Composer` call it for a text bay.
         """
         rows, warning = _build_token_rows(old.text or "", new.text or "")
         result: DiffEngineResult = {

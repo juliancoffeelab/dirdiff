@@ -1,9 +1,17 @@
 """Display enrichment for already-rendered diff rows.
 
-This module does not choose an engine and does not own native text comparison.
-It receives already-computed neutral rows, then attaches display-only details:
-backend-woven syntax/diff parts, fold hints, backend-owned hunk identities, and
-default expansion.
+## Public interface
+
+`weave_decorated_parts` combines inline diff and syntax decoration.
+`highlight_lines_for_path` returns syntax spans for supported source names.
+`enrich_rows_for_display` applies those spans, fold hints, and bay-local hunk
+indexes to neutral engine rows.
+
+## Purpose and boundaries
+
+Engines decide alignment, token status, and summary counts. This module keeps
+those decisions intact while producing the display fields the HUD consumes. It
+does not select an engine or recalculate the logical diff.
 """
 
 from __future__ import annotations
@@ -116,64 +124,103 @@ type SyntaxClass = Literal[
 """
 Syntax-highlighting class emitted by the bundled Tree-sitter queries.
 
-When adding a syntax class, ensure it is handled in CSS if necessary.
+Tree-sitter captures are validated into this type, stored on `SyntaxSpan`, and
+sent to the HUD on decorated parts. The names intentionally match the CSS class
+vocabulary.
+
+This value carries syntax only. It does not describe diff status, source
+language, or a Tree-sitter node. A new value requires corresponding HUD styling
+when it should be visible.
 """
 
 
 def _is_syntax_class(value: str) -> TypeIs[SyntaxClass]:
-    """Check that a Tree-sitter capture class belongs to `SyntaxClass`."""
+    """Narrow a generated capture prefix to the declared CSS vocabulary.
+
+    Capture expansion calls this before constructing `SyntaxSpan` values. A
+    false result leaves the generated string untrusted; the caller asserts it
+    as a query/configuration defect rather than emitting an unstyled class.
+    """
     return value in get_args(SyntaxClass.__value__)
 
 
 class SyntaxSpan(TypedDict):
-    """Highlighted token span for one rendered line."""
+    """Apply syntax classes to one half-open character span of a rendered line.
+
+    `highlight_lines_for_path` returns these spans by line; decoration weaving
+    intersects them with engine tokens to produce `DecoratedPart` values.
+
+    Offsets are local to one line. Spans must be ordered, non-overlapping, and
+    non-empty; they never become review coordinates.
+    """
 
     start: int
-    """
-    Start offset within the rendered line text.
+    """Inclusive zero-based character offset in the enclosing rendered line.
+
+    It must be nonnegative and strictly less than `end`. Spans returned for one
+    line are ordered by this value and never overlap a preceding span.
     """
 
     end: int
-    """
-    End offset within the rendered line text.
+    """Exclusive zero-based character offset in the same rendered line.
+
+    It must not exceed the line length and must be greater than `start`.
+    Decoration weaving consumes the half-open pair directly because highlighting
+    has already converted Tree-sitter's byte columns to character offsets.
     """
 
     classes: list[SyntaxClass]
-    """
-    Syntax classes consumed by the frontend renderer.
+    """Nonempty ordered CSS class hierarchy active over this whole span.
+
+    Class prefixes run from general to specific, such as `ts-variable` before
+    its member form. Weaving copies the list to every resulting decorated slice.
     """
 
 
 class DecoratedPart(TypedDict):
     """One contiguous text slice carrying diff and syntax decoration.
 
-    Parts preserve source order and partition one complete rendered line.
-    Adjacent parts differ in at least one decoration field.
+    `weave_decorated_parts` partitions one complete row side into these values;
+    the HUD renders them in order without intersecting ranges itself.
+
+    Parts preserve every source character. Adjacent parts differ in syntax,
+    diff status, or whitespace role. They do not carry offsets or line identity.
     """
 
     text: str
-    """
-    Exact source text represented by this part.
+    """Nonempty contiguous source slice represented by this decorated part.
+
+    Concatenating all parts for a present row side reproduces its complete text
+    exactly. Adjacent parts with identical metadata are merged before return.
     """
 
     syntax_classes: list[SyntaxClass]
-    """
-    Syntax classes active across the complete text slice.
+    """Ordered syntax classes active across every character of `text`.
+
+    An empty list means no configured capture covers the slice. Consumers apply
+    these classes directly and must not infer additional syntax from neighbors.
     """
 
     diff_status: InlineTokenStatus
-    """
-    Token-level diff status active across the complete text slice.
+    """Engine token status active across every character of `text`.
+
+    Text outside explicit engine tokens receives `unchanged`. The HUD combines
+    this value with syntax classes rather than recalculating token intersections.
     """
 
     is_whitespace: bool
-    """
-    Whether the source inline token consists only of whitespace.
+    """Whether the originating inline token was entirely whitespace.
+
+    For slices outside engine tokens it is derived from `text`. The value may
+    remain true on one fragment after syntax boundaries split a whitespace token.
     """
 
     is_leading_whitespace: bool
-    """
-    Whether this slice belongs to the first whitespace inline token.
+    """Whether this slice belongs to a whitespace token at text offset zero.
+
+    The originating engine token must be both first and entirely whitespace.
+    Every syntax-split fragment of that token retains true; whitespace after any
+    earlier token is false, allowing the HUD to distinguish indentation.
     """
 
 
@@ -189,6 +236,23 @@ def weave_decorated_parts(
     Syntax spans must be ordered, non-overlapping, non-empty character ranges
     within the same text. The result preserves every character and carries both
     decorations without retaining offsets for the frontend to intersect again.
+
+    # Parameters
+
+    - `text`: Complete row-side text the result must reproduce.
+    - `tokens`: Ordered inline diff partition, or empty for no diff decoration.
+    - `syntax`: Ordered non-overlapping syntax spans over the same text.
+
+    # Usage
+
+    `enrich_rows_for_display` calls this once per present row side after syntax
+    lookup. Direct callers must pass tokens and spans for the same exact `text`.
+
+    # Failures
+
+    Raises `AssertionError` when tokens do not reproduce `text`, whitespace
+    metadata disagrees with token content, or syntax spans are empty,
+    overlapping, unordered, or outside the text.
     """
     token_intervals: list[tuple[int, int, InlineToken]] = []
     token_cursor = 0
@@ -340,44 +404,65 @@ def weave_decorated_parts(
 class DiffRow(TypedDict):
     """One row in the rendered text diff grid.
 
-    This is the display/API row shape after engine rows have been enriched with
-    decorated parts and backend-owned hunk identity. Frontend fold rows are
-    derived separately from `FoldHint` ranges and never enter this shape.
+    Display enrichment converts each neutral engine row to this shape; format
+    payloads send it to the HUD in source order.
+
+    It contains decorated text and bay-local hunk identity. Frontend fold rows
+    are derived from `FoldHint` and never enter this shape.
     """
 
     status: Literal["equal", "replace", "insert", "delete", "move"]
-    """
-    Display status of the real aligned engine row.
+    """Engine-supplied relationship of the aligned source sides.
+
+    Enrichment preserves it unchanged. `insert` lacks a left line, `delete`
+    lacks a right line, and equal, replace, and move rows carry both coordinates.
     """
 
     left_no: int | None
-    """
-    One-based old/left line number, when this row has a left side.
+    """One-based old-side source coordinate preserved from the engine row.
+
+    It is `None` for right-only insertion and present for every other status.
+    Syntax lookup subtracts one from a present value; rendered row position is
+    not a substitute for this coordinate.
     """
 
     right_no: int | None
-    """
-    One-based new/right line number, when this row has a right side.
+    """One-based new-side source coordinate preserved from the engine row.
+
+    It is `None` for left-only deletion and present for every other status.
+    Syntax and fold discovery use this source identity independently of row order.
     """
 
     left_text: str | None
-    """
-    Rendered old/left line text.
+    """Old-side line text preserved from the neutral engine row.
+
+    Enrichment-produced insert rows carry `""` with `left_no=None`; a present
+    empty source line uses the same string but has a line number. `None` remains
+    a permitted serialized absence, so consumers must use `left_no` to decide
+    whether the side exists rather than testing text truthiness.
     """
 
     right_text: str | None
-    """
-    Rendered new/right line text.
+    """New-side line text preserved from the neutral engine row.
+
+    Enrichment-produced delete rows carry `""` with `right_no=None`; a present
+    empty source line uses the same string but has a line number. `None` remains
+    a permitted serialized absence, so consumers must use `right_no` for side
+    presence instead of interpreting empty text.
     """
 
     left_parts: list[DecoratedPart]
-    """
-    Complete decorated text partition for the old/left side.
+    """Lossless ordered decoration partition of the old-side row text.
+
+    Concatenated part text equals `left_text` for a represented source line.
+    The list is empty when that side has no text or the represented line is empty.
     """
 
     right_parts: list[DecoratedPart]
-    """
-    Complete decorated text partition for the new/right side.
+    """Lossless ordered decoration partition of the new-side row text.
+
+    Concatenated part text equals `right_text` for a represented source line.
+    The list is empty when that side has no text or the represented line is empty.
     """
 
     hunk_index: int | None
@@ -394,59 +479,91 @@ class DiffRow(TypedDict):
 class EnrichedRows(TypedDict):
     """Display-ready result for one text bay's neutral engine rows.
 
-    `rows` contains the complete decorated row sequence and `hunk_count` counts
-    its bay-local changed runs. `fold_hints` is omitted when structural parsing
-    found no foldable ranges. This contract does not carry engine summary or
-    warning data, which remain alongside it in the format layer.
+    `enrich_rows_for_display` returns this value to text-bay composition.
+
+    Engine summary and warnings remain alongside this value in the format
+    layer. This type does not describe a complete bay.
     """
 
     hunk_count: int
-    """Number of bay-local changed runs represented by `rows`."""
+    """Number of changed runs whose first rows carry a hunk index.
+
+    The value is derived from this bay's enriched rows, not from File-wide
+    numbering. Composition forwards it as the text bay's navigation total.
+    """
 
     rows: list[DiffRow]
-    """Display rows in the engine's original order."""
+    """Decorated display rows in the engine's original alignment order.
+
+    Syntax and hunk identity are already woven into these rows. Callers may
+    serialize them but must not reorder them or renumber their bay-local hunks.
+    """
 
     fold_hints: NotRequired[list[FoldHint]]
-    """Optional structural source ranges the frontend may fold."""
+    """Validated foldable regions over `rows`, omitted when none are known.
+
+    Hints are presentation metadata discovered from the right-side syntax.
+    They never remove rows or change the engine's alignment and hunk count.
+    """
 
 
 @dataclass(frozen=True)
 class _SyntaxLanguageSpec:
-    """Tree-sitter language/query metadata used by display highlighting."""
+    """Configure syntax highlighting for one source-file family.
+
+    Module initialization defines these private values. Path selection chooses
+    one by exact filename or suffix, then highlighting loads its language and
+    query resources.
+
+    It is configuration, not a loaded parser or cache, and never crosses the
+    rendering module boundary.
+    """
 
     module_name: str
-    """
-    Python module that exposes the tree-sitter language factory.
+    """Importable package containing the configured Tree-sitter language factory.
+
+    It also supplies `query_path` unless `query_package` overrides that resource
+    lookup. Import failure makes highlighting unavailable for the selected File.
     """
 
     query_path: str
-    """
-    Package-resource path to the highlight query.
+    """Package-relative highlight query loaded for this grammar.
+
+    The path is resolved in `query_package` when present, otherwise in
+    `module_name`; inherited sibling query names resolve beside this resource.
     """
 
     suffixes: tuple[str, ...]
-    """
-    File suffixes that select this syntax highlighter.
+    """Lowercase path endings that select this spec after filename matching.
+
+    Selection scans specs in declaration order, so entries must avoid ambiguous
+    suffixes whose first match would load the wrong grammar or query.
     """
 
     filenames: tuple[str, ...] = ()
-    """
-    Exact lower-case basenames that select this syntax highlighter.
+    """Exact case-folded basenames that select this spec before suffixes.
+
+    The empty tuple declares no basename exception. A configured basename may
+    select a grammar even when the path has no recognized suffix.
     """
 
     language_attr: str = "language"
-    """
-    Attribute name for the language factory inside `module_name`.
+    """Factory attribute read from `module_name` to construct the language.
+
+    Most grammar packages expose `language`; variants such as OCaml override it.
+    A missing attribute is treated as unavailable highlighting, not guessed.
     """
 
     query_package: str | None = None
-    """
-    Optional package to read `query_path` from instead of `module_name`.
+    """Package containing the highlight resource when separate from the grammar.
+
+    `None` resolves `query_path` in `module_name`. This changes resource lookup
+    only; language construction always uses `module_name` and `language_attr`.
     """
 
 
 _SpanPriority = tuple[int, int, int]
-"""Precomputed collapse ordering for one syntax interval.
+"""Precomputed coalescing priority for one syntax interval.
 
 The triple (span length, negated class count, negated capture order) selects
 the shortest, most specific, latest capture; it is fixed when the interval is
@@ -456,21 +573,34 @@ created so overlap resolution compares plain tuples at C speed.
 
 @dataclass(frozen=True)
 class _SyntaxSpan:
-    """Collapsed syntax span before conversion to the API dictionary shape."""
+    """Retain one resolved syntax interval before line-local conversion.
+
+    Highlight overlap resolution creates these private values, then converts
+    them to `SyntaxSpan` after assigning the interval to a rendered line.
+
+    Offsets are line-local character positions after Tree-sitter byte columns
+    have been converted. The value never crosses the rendering module boundary.
+    """
 
     start: int
-    """
-    Start offset within the rendered line text.
+    """Inclusive character offset of this resolved slice in one display line.
+
+    Interval merging creates values in increasing order and `_append_syntax_span`
+    rejects empty ranges before storing them.
     """
 
     end: int
-    """
-    End offset within the rendered line text.
+    """Exclusive character offset of this resolved slice in the same line.
+
+    It is greater than `start` and no greater than the line length. Equal-class
+    neighbors merge when the previous end equals the next start.
     """
 
     classes: tuple[SyntaxClass, ...]
-    """
-    Syntax classes for this span.
+    """Nonempty class hierarchy selected for the entire resolved interval.
+
+    Overlap coalescing chooses this tuple by interval priority; public conversion
+    copies it to a list without changing order.
     """
 
 
@@ -566,6 +696,12 @@ _LANGUAGE_SPECS: tuple[_SyntaxLanguageSpec, ...] = (
         suffixes=(".yaml", ".yml"),
     ),
 )
+"""Closed mapping from source names to syntax grammars and highlight queries.
+
+`highlight_lines_for_path` scans this order after exact filename checks inside
+each spec. Entries configure parser and query loading only; unsupported paths
+remain undecorated rather than borrowing another language.
+"""
 
 
 def highlight_lines_for_path(
@@ -578,10 +714,40 @@ def highlight_lines_for_path(
     comparison.  The renderer uses the path hint only to choose a tree-sitter
     language and query; unsupported languages, missing parsers, and missing
     query files all produce `None`; callers then leave that side undecorated.
+
+    # Parameters
+
+    - `path`: Source path hint used only to choose a configured grammar.
+    - `text`: Complete source text parsed and partitioned into display lines.
+
+    # Usage
+
+    Pass the engine side's path hint and complete source text before mapping
+    spans onto rows. `None` means no supported highlighter was available; it is
+    not a rendering failure.
+
+    # Returns
+
+    - `list[list[SyntaxSpan]]`: One syntax-span list per display line, including
+      empty lists for lines with no captured syntax.
+    - `None`: The path is absent or unsupported, or its configured grammar or
+      query cannot load. The caller must leave this side undecorated.
     """
 
     def _syntax_spec_for_path(path: str) -> _SyntaxLanguageSpec | None:
-        """Return the configured syntax language matching one path."""
+        """Choose one immutable grammar/query spec from a source path hint.
+
+        Exact basenames win before suffixes. Unsupported paths return `None`,
+        which tells the public highlighting boundary to leave the side
+        undecorated rather than guessing a language.
+
+        # Returns
+
+        - `_SyntaxLanguageSpec`: The first exact-filename or suffix match from
+          `_LANGUAGE_SPECS`.
+        - `None`: No configured grammar claims the path. The caller must leave
+          syntax highlighting unavailable for this side.
+        """
         normalized = path.casefold()
         basename = normalized.rsplit("/", 1)[-1]
         for spec in _LANGUAGE_SPECS:
@@ -607,6 +773,26 @@ def _load_syntax_language_query(
     query_path: str,
     query_package: str | None,
 ) -> tuple[Language, Query]:
+    """Load and cache one grammar with its resolved highlight query.
+
+    Cache keys describe the complete parser/query choice, so repeated Files of
+    one language reuse immutable Tree-sitter setup. Import, attribute, resource,
+    and query errors propagate to `_highlight_lines_with_spec`, the boundary
+    that turns unsupported highlighting into no decoration.
+
+    # Parameters
+
+    - `module_name`: Python package exporting the grammar factory.
+    - `language_attr`: Factory attribute inside that package.
+    - `query_path`: Package-relative highlight query path.
+    - `query_package`: Optional package containing the query instead of the
+      grammar package.
+
+    # Returns
+
+    - `First`: The constructed Tree-sitter grammar.
+    - `Second`: The highlight query compiled against that same grammar.
+    """
     module = importlib.import_module(module_name)
     language_factory = getattr(module, language_attr)
     language = Language(language_factory())
@@ -619,8 +805,24 @@ def _load_syntax_language_query(
 
 @cache
 def _load_syntax_query_text(package_name: str, query_path: str) -> str:
+    """Load a highlight query after expanding declared sibling inheritance.
+
+    Inherited query names come from Tree-sitter's `; inherits:` comments. They
+    are loaded before the current file so its captures retain final precedence.
+
+    # Parameters
+
+    - `package_name`: Package containing the query resources.
+    - `query_path`: Package-relative path of the current query.
+    """
+
     def _inherited_query_names(query_text: str) -> list[str]:
-        """Parse inherited tree-sitter query names from query comments."""
+        """Extract ordered sibling query names from `; inherits:` comments.
+
+        Empty names are discarded and multiple comments append in file order.
+        The caller loads these resources before the current query so its
+        captures retain final precedence.
+        """
         inherited_names: list[str] = []
         for line in query_text.splitlines():
             match = re.match(r"\s*;\s*inherits:\s*(.+)$", line)
@@ -634,7 +836,13 @@ def _load_syntax_query_text(package_name: str, query_path: str) -> str:
         return inherited_names
 
     def _sibling_query_path(query_path: str, query_name: str) -> str:
-        """Address an inherited query beside the current query file."""
+        """Address an inherited query beside the current query file.
+
+        # Parameters
+
+        - `query_path`: Current package-relative query path.
+        - `query_name`: Bare inherited query name from its comment.
+        """
         parent = query_path.rsplit("/", 1)[0]
         return f"{parent}/{query_name}.scm"
 
@@ -654,10 +862,47 @@ def _highlight_lines_with_spec(
     spec: _SyntaxLanguageSpec,
     text: str,
 ) -> list[list[SyntaxSpan]] | None:
+    """Parse text with one syntax spec and return line-local highlight spans.
+
+    Known setup failures mean highlighting is unavailable and return `None`.
+    Successful parsing preserves line count even when the query captures
+    nothing. Overlapping captures coalesce deterministically before conversion
+    to public spans.
+
+    # Parameters
+
+    - `spec`: Grammar, query, and filename-independent language configuration.
+    - `text`: Complete source text to parse.
+
+    # Returns
+
+    - `list[list[SyntaxSpan]]`: Captures converted to character-based spans for
+      each display line, with overlapping classes merged deterministically.
+    - `None`: Import, grammar, resource, or query setup failed. The caller must
+      render the side without syntax decoration.
+    """
+
     def _classes_for_capture(
         capture_name: str,
     ) -> tuple[SyntaxClass, ...]:
-        """Expand one tree-sitter capture into validated prefix classes."""
+        """Return every declared CSS prefix of one dotted capture name.
+
+        For `variable.member`, the result contains `ts-variable` followed by
+        `ts-variable-member`. An undeclared prefix is a bundled-query contract
+        failure and is asserted before a public syntax span can contain it.
+
+        # Returns
+
+        - `Members`: Declared CSS classes for every nonempty prefix of the dotted
+          capture name.
+        - `Order`: Classes run from the broadest prefix through the complete
+          capture, matching the frontend's cascade order.
+
+        # Failures
+
+        Asserts when a bundled query emits a syntax class outside
+        `SyntaxClass`.
+        """
         parts = [part for part in capture_name.split(".") if part]
         classes: list[SyntaxClass] = []
         for index in range(1, len(parts) + 1):
@@ -697,7 +942,16 @@ def _highlight_lines_with_spec(
     text_is_ascii = text.isascii()
 
     def _character_column(line_index: int, byte_column: int) -> int:
-        """Convert one line-local byte column to its character column."""
+        """Convert one line-local byte column to its character column.
+
+        ASCII lines use the byte column directly. A multibyte line builds and
+        caches its boundary table once for every capture on that line.
+
+        # Parameters
+
+        - `line_index`: Zero-based display line addressed by Tree-sitter.
+        - `byte_column`: UTF-8 byte offset within that line.
+        """
         line_text = line_texts[line_index]
         if text_is_ascii or line_text.isascii():
             return min(byte_column, len(line_text))
@@ -744,7 +998,7 @@ def _highlight_lines_with_spec(
                 )
                 if local_start >= local_end:
                     continue
-                # The collapse priority (shortest span, most classes, latest
+                # The coalescing priority (shortest span, most classes, latest
                 # capture) is a pure function of the interval: fixing it here
                 # lets every later comparison run through one C-level key.
                 line_intervals[line_index].append(
@@ -777,6 +1031,16 @@ def _collapse_line_intervals(
     line_text: str,
     intervals: list[tuple[int, int, tuple[SyntaxClass, ...], _SpanPriority]],
 ) -> list[_SyntaxSpan]:
+    """Resolve overlapping syntax intervals into one ordered line partition.
+
+    At each boundary the shortest, most specific, latest capture wins. Adjacent
+    winning intervals with the same classes merge before public conversion.
+
+    # Parameters
+
+    - `line_text`: Complete display line defining the terminal boundary.
+    - `intervals`: Captured character intervals and precomputed priorities.
+    """
     if intervals == []:
         return []
 
@@ -817,6 +1081,15 @@ def _append_syntax_span(
     end: int,
     classes: tuple[SyntaxClass, ...],
 ) -> None:
+    """Append one non-empty resolved syntax slice, merging equal neighbors.
+
+    # Parameters
+
+    - `spans`: Ordered output list to extend.
+    - `start`: Inclusive character offset in the display line.
+    - `end`: Exclusive character offset in that line.
+    - `classes`: Complete syntax-class tuple selected for the slice.
+    """
     if start >= end:
         return
     if spans != [] and spans[-1].end == start and spans[-1].classes == classes:
@@ -840,6 +1113,25 @@ def enrich_rows_for_display(
     weaving inline diff tokens with syntax spans, and attaching optional
     syntax-aware fold hints. It does not decide changed/added/removed/moved line
     counts; engines calculate summaries before calling it.
+
+    # Parameters
+
+    - `rows`: Complete neutral engine rows to enrich without reordering.
+    - `left_text`: Complete old text used for syntax span lookup.
+    - `right_text`: Complete new text used for syntax and fold discovery.
+    - `left_path_hint`: Optional old path selecting a syntax grammar.
+    - `right_path_hint`: Optional new path selecting syntax and fold grammars.
+
+    # Usage
+
+    Call once after an engine has produced complete neutral rows for one text
+    bay. Preserve the returned row order and bay-local hunk indexes.
+
+    # Failures
+
+    Raises `AssertionError` when an engine row's inline tokens cannot reproduce
+    its text or syntax decoration violates the span contract. Unsupported
+    syntax and fold grammars are omitted instead of raised.
     """
     left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
     right_syntax_lines = highlight_lines_for_path(

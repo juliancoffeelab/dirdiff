@@ -1,9 +1,8 @@
-"""Fold-hint behavior tests for rendered diff payloads.
+"""Check fold-hint policy with focused rendered diffs.
 
-These focused tests build loaded diffs and assert the fold hints attached by
-display enrichment.  They cover policy cases that are easier to read inline
-than as golden fixtures, while leaving parser corpus coverage to
-`test_fold_golden`.
+Inline cases cover unchanged containers, changed ancestors, nested candidates,
+whitespace changes, and supported-language boundary rules. The golden module
+covers the broader parser/query corpus.
 """
 
 from helpers import build_loaded_diff
@@ -12,6 +11,10 @@ __all__: list[str] = []
 
 
 def test_fold_hints_include_unchanged_top_level_function_body() -> None:
+    """Hide an unchanged top-level function while leaving its signature visible.
+
+    Body-style folding maps the syntax region to exact rendered rows.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -41,6 +44,10 @@ def test_fold_hints_include_unchanged_top_level_function_body() -> None:
 
 
 def test_changed_top_level_function_does_not_fold_descendants() -> None:
+    """Reject the outer function fold when its rendered context changes.
+
+    Unchanged statements inside are not independent structural regions.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -65,6 +72,10 @@ def test_changed_top_level_function_does_not_fold_descendants() -> None:
 
 
 def test_deleted_top_level_function_splits_surrounding_unchanged_runs() -> None:
+    """Split grouped top-level folds at a deleted declaration.
+
+    A changed row is a hard boundary; no hint may hide across it.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -149,6 +160,10 @@ def test_deleted_top_level_function_splits_surrounding_unchanged_runs() -> None:
 
 
 def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
+    """Fold an unchanged top-level dictionary beneath its visible opener.
+
+    The container rule covers only mapped right-side body rows.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -178,6 +193,10 @@ def test_fold_hints_include_unchanged_top_level_dict_body() -> None:
 
 
 def test_unchanged_top_level_class_folds_class_and_methods() -> None:
+    """Expose both class and direct method folds for an unchanged class.
+
+    The hierarchy supports broad reading and finer method expansion.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -233,6 +252,10 @@ def test_unchanged_top_level_class_folds_class_and_methods() -> None:
 
 
 def test_changed_class_still_folds_only_unchanged_methods() -> None:
+    """Reject a changed class fold while retaining unchanged method folds.
+
+    Methods remain useful independent regions when sibling class content changes.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -268,6 +291,10 @@ def test_changed_class_still_folds_only_unchanged_methods() -> None:
 
 
 def test_changed_function_still_folds_unchanged_nested_functions() -> None:
+    """Descend through a changed function to unchanged nested declarations.
+
+    The changed outer context stays open while complete nested functions fold.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -309,6 +336,10 @@ def test_changed_function_still_folds_unchanged_nested_functions() -> None:
 
 
 def test_whitespace_only_changes_block_folding() -> None:
+    """Treat changed whitespace tokens as real changes for fold eligibility.
+
+    Equal row status alone must not hide altered indentation.
+    """
     diff = build_loaded_diff(
         display_name="demo.py",
         left_label="left",
@@ -325,6 +356,10 @@ def test_whitespace_only_changes_block_folding() -> None:
 
 
 def test_javascript_classes_fold_class_and_methods() -> None:
+    """Apply JavaScript class and method query rules to rendered rows.
+
+    This checks the grammar-specific pattern order and body-start policy.
+    """
     diff = build_loaded_diff(
         display_name="demo.js",
         left_label="left",
@@ -364,6 +399,10 @@ def test_javascript_classes_fold_class_and_methods() -> None:
 
 
 def test_css_unchanged_top_level_rule_folds_declarations() -> None:
+    """Fold an unchanged CSS rule body while keeping its selector visible.
+
+    CSS containers use the mapped-row and minimum-size gates.
+    """
     diff = build_loaded_diff(
         display_name="demo.css",
         left_label="left",
@@ -409,6 +448,10 @@ def test_css_unchanged_top_level_rule_folds_declarations() -> None:
 
 
 def test_changed_css_media_rule_still_folds_unchanged_nested_rule() -> None:
+    """Descend through a changed media rule to an unchanged nested rule.
+
+    The child may fold, but the changed outer context must remain visible.
+    """
     diff = build_loaded_diff(
         display_name="demo.css",
         left_label="left",
@@ -449,6 +492,10 @@ def test_changed_css_media_rule_still_folds_unchanged_nested_rule() -> None:
 
 
 def test_changed_css_middle_rule_still_folds_unchanged_siblings() -> None:
+    """Keep unchanged CSS siblings foldable around a changed middle rule.
+
+    Independent candidates survive a change to one sibling.
+    """
     diff = build_loaded_diff(
         display_name="demo.css",
         left_label="left",
@@ -530,6 +577,10 @@ def test_changed_css_middle_rule_still_folds_unchanged_siblings() -> None:
 
 
 def test_rust_impl_blocks_fold_impl_and_methods() -> None:
+    """Expose Rust implementation and method folds from one parsed hierarchy.
+
+    Both levels retain their specific categories instead of generic containers.
+    """
     diff = build_loaded_diff(
         display_name="demo.rs",
         left_label="left",
@@ -581,6 +632,11 @@ def test_rust_impl_blocks_fold_impl_and_methods() -> None:
 def test_json_unchanged_top_level_property_folds_with_nested_container() -> (
     None
 ):
+    """Group unchanged JSON properties and retain a nested container fold.
+
+    Document unwrapping and exact-range deduplication must preserve both useful
+    levels without duplicate hints.
+    """
     diff = build_loaded_diff(
         display_name="demo.json",
         left_label="left",
@@ -610,6 +666,10 @@ def test_json_unchanged_top_level_property_folds_with_nested_container() -> (
 
 
 def test_yaml_unchanged_nested_top_level_container_folds() -> None:
+    """Fold a YAML container whose captured first line belongs to its body.
+
+    YAML's node-start rule must retain the correct rendered interval.
+    """
     diff = build_loaded_diff(
         display_name="demo.yaml",
         left_label="left",
@@ -633,6 +693,10 @@ def test_yaml_unchanged_nested_top_level_container_folds() -> None:
 
 
 def test_toml_unchanged_top_level_table_folds() -> None:
+    """Fold an unchanged TOML table beneath its visible header.
+
+    Exact filename and suffix policy must select the TOML query consistently.
+    """
     diff = build_loaded_diff(
         display_name="demo.toml",
         left_label="left",
@@ -656,6 +720,10 @@ def test_toml_unchanged_top_level_table_folds() -> None:
 
 
 def test_markdown_unchanged_heading_section_folds_under_heading() -> None:
+    """Fold an unchanged Markdown section beneath its visible heading.
+
+    Its extent ends at the next peer or ancestor heading.
+    """
     diff = build_loaded_diff(
         display_name="demo.md",
         left_label="left",
@@ -681,6 +749,10 @@ def test_markdown_unchanged_heading_section_folds_under_heading() -> None:
 def test_markdown_changed_parent_section_allows_unchanged_child_heading_fold() -> (
     None
 ):
+    """Descend through a changed section to an unchanged child section.
+
+    Heading hierarchy keeps the child foldable while the parent remains open.
+    """
     diff = build_loaded_diff(
         display_name="demo.md",
         left_label="left",
@@ -706,6 +778,10 @@ def test_markdown_changed_parent_section_allows_unchanged_child_heading_fold() -
 def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> (
     None
 ):
+    """Keep a prior unchanged section fold when a later sibling is added.
+
+    The earlier extent stops before the new heading and its changed rows.
+    """
     diff = build_loaded_diff(
         display_name="demo.md",
         left_label="left",
@@ -731,6 +807,10 @@ def test_markdown_added_later_sibling_section_keeps_prior_section_folded() -> (
 def test_markdown_inserted_blank_before_added_section_blocks_prior_fold() -> (
     None
 ):
+    """Block a section fold when its trailing separator row was inserted.
+
+    The changed blank belongs to rendered context and cannot be trimmed away.
+    """
     diff = build_loaded_diff(
         display_name="demo.md",
         left_label="left",
@@ -750,6 +830,10 @@ def test_markdown_inserted_blank_before_added_section_blocks_prior_fold() -> (
 def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folded() -> (
     None
 ):
+    """Keep every earlier unchanged section independently foldable.
+
+    Adding a final sibling must not merge or invalidate prior peer ranges.
+    """
     diff = build_loaded_diff(
         display_name="demo.md",
         left_label="left",
@@ -773,6 +857,10 @@ def test_markdown_added_sibling_section_keeps_all_prior_unchanged_sections_folde
 
 
 def test_markdown_non_heading_content_does_not_fold() -> None:
+    """Emit no section hint for Markdown without a heading hierarchy.
+
+    Plain prose is context, not a named foldable region.
+    """
     diff = build_loaded_diff(
         display_name="demo.md",
         left_label="left",
