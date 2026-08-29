@@ -212,6 +212,13 @@ The review model is described in [`reviews.md`](reviews.md).
 
 Defines FastAPI routes and request-level rendering orchestration.
 
+The package facade preserves the application factory, runtime configuration,
+response contract, and branch-selection imports used by the CLI and tests.
+`base.py` contains startup and route-metadata contracts shared inside the
+package. `magic.py` records class-local route declarations and binds them during
+application construction. `app.py` defines the HTTP models, handlers, and
+factories.
+
 It validates HTTP inputs and outputs, constructs the concrete workspace backend,
 calls `RoomLord` for manifests and follow-up Snapshot lookup, asks
 `dirdiff.engines` for the renderer a request names, and builds one composed diff

@@ -1,14 +1,11 @@
-"""Construct the FastAPI application and define its HTTP entities.
+"""Define dirdiff HTTP entities and construct the FastAPI application.
 
 ## Public interface
 
-`create_app` wires the stores, Room service, and preset root into an application.
-`uvicorn_entrypoint` builds those dependencies from `RuntimeConfig` supplied by
-the CLI. The exported branch-selection conversions keep stored defaults and HTTP
-parameters on the same validated representation.
-
-The request and response models in this module are the exact JSON contracts used
-by the HUD and agent review endpoints.
+`create_app` binds concrete stores and one Room service to a fresh application.
+`uvicorn_entrypoint` constructs those dependencies from the startup contract in
+`dirdiff.server.base`. The response models and branch-selection conversions in
+this module are the JSON contracts used by the HUD and agent endpoints.
 
 ## Purpose and boundaries
 
@@ -17,26 +14,21 @@ translate domain values into HTTP responses. Typed review failures retain their
 stable status and error entity; unexpected failures stop at the application
 handler, which logs the traceback before returning the generic response.
 
-This module does not implement database transactions, Thread placement,
-workspace backends, diff algorithms, or format composition. It calls the module
-responsible for each operation and keeps HTTP concerns at this boundary.
+This module does not implement persistence, Thread placement, workspace
+backends, diff algorithms, format composition, or class-route collection.
 """
 
 import json
 import logging
 import os
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from types import FunctionType, UnionType
 from typing import (
     Annotated,
     Literal,
     Optional,
     Self,
-    TypedDict,
 )
 from uuid import UUID, uuid4
 
@@ -135,6 +127,22 @@ from dirdiff.room_lord import (
     Room,
     RoomLord,
 )
+from dirdiff.server.base import (
+    RUNTIME_CONFIG_ENV,
+    Responses,
+    RuntimeConfig,
+)
+from dirdiff.server.magic import ClassRoutes
+
+__all__ = [
+    "ComposedDiffResponse",
+    "branch_selection_request_to_selection",
+    "create_app",
+    "repo_main_branch_record_to_selection",
+    "selected_branch_selections",
+    "uvicorn_entrypoint",
+]
+
 
 LOGGER = logging.getLogger(__name__)
 """Module logger for unexpected HTTP failures and rejected persistence damage.
@@ -158,103 +166,6 @@ _AGENT_ROUTE_PATHS = frozenset(
 The validation and HTTP exception handlers compare Starlette's matched route
 template, not the concrete URL, so parameterized Thread paths remain covered.
 """
-
-RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
-"""Process boundary carrying one serialized `RuntimeConfig` to uvicorn.
-
-The CLI writes it before uvicorn imports the app factory. `uvicorn_entrypoint`
-consumes and removes it; ordinary HTTP code never treats it as live settings.
-"""
-
-__all__ = [
-    "RUNTIME_CONFIG_ENV",
-    "RuntimeConfig",
-    "branch_selection_request_to_selection",
-    "create_app",
-    "repo_main_branch_record_to_selection",
-    "selected_branch_selections",
-    "uvicorn_entrypoint",
-]
-
-
-@dataclass(frozen=True)
-class RuntimeConfig:
-    """Server startup configuration passed across the uvicorn factory boundary.
-
-    The CLI creates this value before starting uvicorn.  `run_uvicorn`
-    serializes it into `RUNTIME_CONFIG_ENV` because uvicorn imports the app
-    factory in a fresh module-loading path, especially when reload is enabled.
-    This type is declared beside `uvicorn_entrypoint`, the only consumer of the
-    serialized payload.
-    """
-
-    db_path: str
-    """
-    SQLite database path used for repo marks, preferences, and user profile data.
-
-    The CLI resolves this to an absolute-ish string before launching uvicorn so
-    reload workers do not need to know how command-line defaults were chosen.
-    """
-
-    store_path: str
-    """
-    Directory containing immutable Snapshot files.
-
-    The CLI defaults this to a `store` directory beside `db_path`, while an
-    explicit `--store-path` supplies a separate location. Persistent databases
-    use a database-adjacent `.room.lock` file so every store root shares one
-    publication lock.
-    """
-
-    tab: Literal["head", "refs", "branch-review"] = "head"
-    """
-    Initial Tab encoded into the browser URL.
-
-    This is startup navigation state, not a server-wide restriction; the API can
-    still serve other Tabs after the frontend is running.
-    """
-
-    left: str = "HEAD"
-    """
-    Left backend side placed in the initial Refs Tab URL.
-
-    The CLI passes the string through as startup navigation state. The manifest
-    route later normalizes and validates it through the selected backend.
-    """
-
-    right: str = "worktree"
-    """
-    Right backend side placed in the initial Refs Tab URL.
-
-    It forms an ordered pair with `left` only when `tab` is `refs`. Other startup
-    Tabs do not treat the default as implicit manifest input.
-    """
-
-    base_selection: BranchSelection | None = None
-    """
-    Base branch selection for the Branch Review startup Tab.
-
-    The CLI writes this structured value into the first browser URL; API
-    handlers parse the same local/remote shape from query params afterward.
-    """
-
-    review_selection: BranchSelection | None = None
-    """
-    Review branch selection for the Branch Review startup Tab.
-
-    This is startup navigation state only.  Diff requests still carry their own
-    explicit branch-review selections.
-    """
-
-    presets_root: str | None = None
-    """
-    Directory holding preset catalogs, or `None` for `tests/presets` under the
-    working directory.
-
-    Its immediate subdirectories are the catalogs the Preset Tab offers, one
-    per directory. It is not a catalog itself.
-    """
-
 
 TabParam = Literal[
     "head",
@@ -2700,23 +2611,7 @@ class _ReviewHttpException(Exception):
         )
 
 
-class _ResponseMetadata(TypedDict):
-    """Describe one additional response in FastAPI route metadata.
-
-    Route declarations use this shape to associate an HTTP status with the
-    Pydantic model advertised for that response. It is not a runtime body and
-    contains no status or response data.
-    """
-
-    model: type[BaseModel]
-    """Pydantic model FastAPI advertises for the associated HTTP status."""
-
-
-type _Responses = Mapping[HTTPStatus, _ResponseMetadata]
-"""Additional response metadata accepted by dirdiff route decorators."""
-
-
-_REVIEW_ERROR_RESPONSES: _Responses = {
+_REVIEW_ERROR_RESPONSES: Responses = {
     HTTPStatus.BAD_REQUEST: {"model": ReviewErrorResponse},
     HTTPStatus.NOT_FOUND: {"model": ReviewErrorResponse},
     HTTPStatus.FORBIDDEN: {"model": ReviewErrorResponse},
@@ -4469,361 +4364,6 @@ def _branch_selection_from_query(
     }
 
 
-type _ResponseModel = type[BaseModel] | UnionType
-"""One response-model form used by this server's route declarations.
-
-Routes use Pydantic model classes or one union of model classes. The collector
-accepts no other explicit model syntax.
-"""
-
-
-@dataclass(frozen=True)
-class _HttpRouteDeclaration:
-    """Retain one HTTP route declaration until application construction.
-
-    Each instance contains only the FastAPI options used by this module. The
-    endpoint remains the original class-body function until `_ClassRoutes`
-    validates and binds it to one `_Server`.
-    """
-
-    method: Literal["GET", "POST", "PATCH", "DELETE"]
-    """HTTP method passed unchanged to FastAPI registration."""
-
-    path: str
-    """Absolute application path declared beside the endpoint method."""
-
-    endpoint: FunctionType
-    """Original function returned unchanged by the route decorator."""
-
-    response_model: _ResponseModel | None
-    """Explicit response model, or `None` to let FastAPI infer it."""
-
-    status_code: int | None
-    """Declared success status, or `None` for FastAPI's ordinary default."""
-
-    responses: _Responses | None
-    """Additional OpenAPI response metadata supplied by the declaration."""
-
-    summary: str | None
-    """Optional OpenAPI summary declared beside the endpoint."""
-
-    response_class: type[Response]
-    """Concrete response class registered for the route."""
-
-
-@dataclass(frozen=True)
-class _ExceptionHandlerDeclaration:
-    """Retain one exception-handler declaration until app construction.
-
-    The exception class and original `_Server` function are the complete
-    declaration. FastAPI receives the bound method only after validation.
-    """
-
-    exception_class: type[Exception]
-    """Exception type whose failures FastAPI sends to this handler."""
-
-    endpoint: FunctionType
-    """Original class-body function returned unchanged by the decorator."""
-
-
-type _ClassRouteDeclaration = (
-    _HttpRouteDeclaration | _ExceptionHandlerDeclaration
-)
-"""One source-ordered declaration retained by `_ClassRoutes`."""
-
-
-class _ClassRoutes:
-    """Collect and bind the small FastAPI decorator set used by `_Server`.
-
-    Decorators record declarations and return their exact input functions.
-    `register` first validates the complete declaration set, then binds each
-    function to one concrete `_Server` and gives it to FastAPI in source order.
-
-    The collector stores no application, server, database, or other runtime
-    interface. It does not dispatch HTTP entities after construction.
-    """
-
-    def __init__(self) -> None:
-        """Create an empty import-time declaration collector."""
-        self._declarations: list[_ClassRouteDeclaration] = []
-
-    def get[Endpoint](
-        self,
-        path: str,
-        *,
-        response_model: _ResponseModel | None = None,
-        status_code: int | None = None,
-        responses: _Responses | None = None,
-        summary: str | None = None,
-        response_class: type[Response] = JSONResponse,
-    ) -> Callable[[Endpoint], Endpoint]:
-        """Record one GET declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated `_Server` function.
-        - Applying it records the declaration and returns that exact function.
-        """
-        return self._http_route(
-            "GET",
-            path,
-            response_model=response_model,
-            status_code=status_code,
-            responses=responses,
-            summary=summary,
-            response_class=response_class,
-        )
-
-    def post[Endpoint](
-        self,
-        path: str,
-        *,
-        response_model: _ResponseModel | None = None,
-        status_code: int | None = None,
-        responses: _Responses | None = None,
-        summary: str | None = None,
-        response_class: type[Response] = JSONResponse,
-    ) -> Callable[[Endpoint], Endpoint]:
-        """Record one POST declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated `_Server` function.
-        - Applying it records the declaration and returns that exact function.
-        """
-        return self._http_route(
-            "POST",
-            path,
-            response_model=response_model,
-            status_code=status_code,
-            responses=responses,
-            summary=summary,
-            response_class=response_class,
-        )
-
-    def patch[Endpoint](
-        self,
-        path: str,
-        *,
-        response_model: _ResponseModel | None = None,
-        status_code: int | None = None,
-        responses: _Responses | None = None,
-        summary: str | None = None,
-        response_class: type[Response] = JSONResponse,
-    ) -> Callable[[Endpoint], Endpoint]:
-        """Record one PATCH declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated `_Server` function.
-        - Applying it records the declaration and returns that exact function.
-        """
-        return self._http_route(
-            "PATCH",
-            path,
-            response_model=response_model,
-            status_code=status_code,
-            responses=responses,
-            summary=summary,
-            response_class=response_class,
-        )
-
-    def delete[Endpoint](
-        self,
-        path: str,
-        *,
-        response_model: _ResponseModel | None = None,
-        status_code: int | None = None,
-        responses: _Responses | None = None,
-        summary: str | None = None,
-        response_class: type[Response] = JSONResponse,
-    ) -> Callable[[Endpoint], Endpoint]:
-        """Record one DELETE declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated `_Server` function.
-        - Applying it records the declaration and returns that exact function.
-        """
-        return self._http_route(
-            "DELETE",
-            path,
-            response_model=response_model,
-            status_code=status_code,
-            responses=responses,
-            summary=summary,
-            response_class=response_class,
-        )
-
-    def _http_route[Endpoint](
-        self,
-        method: Literal["GET", "POST", "PATCH", "DELETE"],
-        path: str,
-        *,
-        response_model: _ResponseModel | None,
-        status_code: int | None,
-        responses: _Responses | None,
-        summary: str | None,
-        response_class: type[Response],
-    ) -> Callable[[Endpoint], Endpoint]:
-        """Build a decorator that records one typed HTTP declaration.
-
-        # Parameters
-
-        - `method`: HTTP method FastAPI registers for the endpoint.
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated `_Server` function.
-        - Applying it records the declaration and returns that exact function.
-        """
-
-        def record(endpoint: Endpoint) -> Endpoint:
-            """Append the declaration and return the original function."""
-            assert isinstance(endpoint, FunctionType)
-            self._declarations.append(
-                _HttpRouteDeclaration(
-                    method=method,
-                    path=path,
-                    endpoint=endpoint,
-                    response_model=response_model,
-                    status_code=status_code,
-                    responses=responses,
-                    summary=summary,
-                    response_class=response_class,
-                )
-            )
-            return endpoint
-
-        return record
-
-    def exception_handler[Endpoint](
-        self,
-        exception_class: type[Exception],
-    ) -> Callable[[Endpoint], Endpoint]:
-        """Record one exception handler and preserve its endpoint function.
-
-        # Parameters
-
-        - `exception_class`: Failure type FastAPI sends to the bound handler.
-
-        # Returns
-
-        - A decorator accepting one undecorated `_Server` function.
-        - Applying it records the declaration and returns that exact function.
-        """
-
-        def record(endpoint: Endpoint) -> Endpoint:
-            """Append the declaration and return the original function."""
-            assert isinstance(endpoint, FunctionType)
-            self._declarations.append(
-                _ExceptionHandlerDeclaration(exception_class, endpoint)
-            )
-            return endpoint
-
-        return record
-
-    def register(self, app: FastAPI, server: _Server) -> None:
-        """Validate and bind every declaration onto one fresh application.
-
-        The concrete class must still expose every original function under its
-        declared name, and no function may have more than one declaration. All
-        validation precedes registration so invalid input cannot leave a
-        partially configured application.
-
-        # Parameters
-
-        - `app`: Fresh FastAPI application receiving the declarations.
-        - `server`: Concrete instance whose original methods are bound.
-        """
-        assert type(server) is _Server
-        declared_endpoints: set[FunctionType] = set()
-        for declaration in self._declarations:
-            endpoint = declaration.endpoint
-            assert endpoint not in declared_endpoints, (
-                f"duplicate route declaration for {endpoint.__name__}"
-            )
-            assert type(server).__dict__.get(endpoint.__name__) is endpoint, (
-                f"declared endpoint {endpoint.__name__} was replaced"
-            )
-            declared_endpoints.add(endpoint)
-
-        for declaration in self._declarations:
-            original = declaration.endpoint
-            bound_endpoint = original.__get__(server, type(server))
-            if isinstance(declaration, _ExceptionHandlerDeclaration):
-                app.add_exception_handler(
-                    declaration.exception_class,
-                    bound_endpoint,
-                )
-                continue
-            # FastAPI rejects valid Mapping response metadata in its annotation:
-            # https://github.com/fastapi/fastapi/discussions/16259
-            if declaration.response_model is None:
-                app.add_api_route(
-                    declaration.path,
-                    bound_endpoint,
-                    methods=[declaration.method],
-                    status_code=declaration.status_code,
-                    responses=declaration.responses,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-                    summary=declaration.summary,
-                    response_class=declaration.response_class,
-                )
-            else:
-                app.add_api_route(
-                    declaration.path,
-                    bound_endpoint,
-                    methods=[declaration.method],
-                    response_model=declaration.response_model,
-                    status_code=declaration.status_code,
-                    responses=declaration.responses,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-                    summary=declaration.summary,
-                    response_class=declaration.response_class,
-                )
-
-
 class _Server:
     """Bind application-lifetime interfaces to dirdiff HTTP handlers.
 
@@ -4832,7 +4372,7 @@ class _Server:
     route registration validates and binds them during create_app.
     """
 
-    routes = _ClassRoutes()
+    routes = ClassRoutes()
     """Import-time declarations shared without retaining runtime state."""
 
     def __init__(
