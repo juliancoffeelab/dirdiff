@@ -57,15 +57,10 @@ or the frontend. Outdated state is highly unlikely, and is a likely a bug.
 
 - Read `spec/frontend_index.md` or `spec/backend_index.md` and the relevant
   subsystem document before changing that subsystem.
-- The highest-priority frontend navigation invariant is that `selectHunk()` has
-  exactly four *direct* callers: `nextHunk()`, `prevHunk()`, `scrollFollow()`,
-  and `writeInitialHunkSelection()`.
-- No helper, wrapper, dispatcher, renderer, FileTree operation, line-pin
-  operation, or shared calculation may call `selectHunk()` or introduce
-  another hunk-selection path.
-- Initial hunk selection belongs to the mounted snapshot: `ChangeSetSnapshot`
-  calls `writeInitialHunkSelection()` once after its FileCards mount. FileTree
-  and line-pin navigation scroll without selecting.
+- Do not add another `selectHunk()` caller. A deterministic lint enforces its
+  five direct callers.
+- Initial hunk selection belongs to the mounted snapshot. FileTree name
+  navigation selects hunks; line-pin navigation does not.
 - Preserve other documented ownership, lifetime, ordering, and DOM invariants.
   If the code and documentation disagree, investigate the disagreement instead
   of silently forcing either side to match.

@@ -547,8 +547,9 @@ accessor, expansion values, and callbacks that may change only tree
 visibility or file expansion. `calculateDirectoryExpansion` derives directory
 reachability and `fileExpanded` resolves one file's expansion policy; both
 are shared with `ChangeSetSnapshot`, which owns the expansion state itself.
-The tree may scroll only its own groups container and never changes hunk
-selection, loads files, or moves the main page.
+The tree may scroll only its own groups container and never calls selection,
+loads files, or moves the main page directly. Name activation sends File
+Navigation, which selects and centers the destination's exact first target.
 
 Private presentation components:
 
@@ -1040,6 +1041,10 @@ that must locate navigated DOM afterwards query inside the same root the
 navigation itself used, in every view.
 
 The module reads hunk identities and FileCard operations from the mounted ChangeSet DOM. `storedHunkTarget` resolves one FileCard's stored selected identity to its current hunk target by the declared kind; navigation and the hunk display observer in `changeSet/Shell.tsx` both resolve through it.
+
+Its scoped lint requires exactly five direct callers of the module-local
+`selectHunk`: initialization, Next, Previous, scroll-follow, and file
+navigation. FileTree components never call selection themselves.
 
 Its direct consumers are:
 

@@ -605,8 +605,8 @@ prevent.
 
 Bays therefore participate in Next and Previous hunk navigation like any other
 target. They introduce no new selection path: `selectHunk()` keeps exactly the
-four direct callers named in [`navigation.md`](navigation.md), and no bay
-widget calls it.
+five lint-enforced direct callers named in [`navigation.md`](navigation.md),
+and no bay widget calls it.
 
 ## Worked shapes
 
@@ -900,8 +900,8 @@ proposed, the vendoring question is decided before the kind is, not after.
   A format that cannot be enumerated without rendering rows is a reason to stop
   and reconsider, not to widen what validation may call.
 - Backend row order is authoritative.
-- `selectHunk()` keeps exactly four direct callers. No builder, frame renderer,
-  or bay widget introduces a hunk-selection path.
+- `selectHunk()` keeps exactly five lint-enforced direct callers. No builder,
+  frame renderer, or bay widget introduces a hunk-selection path.
 - Hunk indexes are bay-local. Composition numbers each bay's own stops from zero
   and stops there; the frontend walks bays in document order to build the File's
   navigable sequence. There is no file-wide numbering on either side.

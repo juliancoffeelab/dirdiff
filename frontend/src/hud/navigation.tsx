@@ -3,13 +3,14 @@
  *
  * Renderers write stable hunk coordinates directly into their DOM. Navigation
  * resolves those attributes only during an explicit command or recognized user
- * scroll and retains no parallel selection registry. File and exact-line movement
- * scroll without selecting.
+ * scroll and retains no parallel selection registry. File movement selects its
+ * exact destination, while exact-line movement scrolls without selecting.
  *
- * `selectHunk()` has exactly four direct callers: `nextHunk()`, `prevHunk()`,
- * `scrollFollow()`, and the snapshot initialization operation
- * `writeInitialHunkSelection()`. This module does not calculate display counters,
- * change FileTree expansion, parse line pins, or fetch Files.
+ * `selectHunk()` has exactly five lint-enforced direct callers: `nextHunk()`,
+ * `prevHunk()`, `scrollFollow()`, `navigateToFile()`, and the snapshot
+ * initialization operation `writeInitialHunkSelection()`. This module does not
+ * calculate display counters, change FileTree expansion, parse line pins, or
+ * fetch Files.
  */
 import {
   createContext,
@@ -106,9 +107,9 @@ export type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
 /**
  * Describes every explicit operation supported by one Navigation instance.
  *
- * Relative operations use current selected DOM identity. File navigation scrolls
- * to one manifest file's first current DOM target without selecting. Line
- * navigation requires one manifest index and one complete `LinePinTarget`.
+ * Relative operations use current selected DOM identity. File navigation selects
+ * and scrolls to one manifest file's first current DOM target. Line navigation
+ * requires one manifest index and one complete `LinePinTarget`.
  * The target contains the File pair, composed bay key, side, and backend line.
  * The caller also supplies the AbortSignal lifetime. Line navigation never
  * selects a hunk. Top scrolls the page.
@@ -123,7 +124,7 @@ export type NavigationCommand =
       kind: "previous-hunk";
     }
   | {
-      /** Scroll to a FileCard's first current target without selecting it. */
+      /** Select and scroll to a FileCard's first current target. */
       kind: "file";
       /** Manifest position supplied by FileTree or another snapshot consumer. */
       fileIndex: number;
@@ -318,11 +319,12 @@ export function useNavigation(): Navigation {
 /**
  * Selects one concrete hunk target by mutating only authoritative DOM.
  *
- * Exactly four callers exist, each calling directly: `nextHunk`, `prevHunk`,
- * and `scrollFollow` change an existing selection, and
- * `writeInitialHunkSelection` is the explicit initialization exception for a
- * freshly mounted snapshot. Existing FileCard identity and visible decoration
- * are removed before the target fields are copied onto its stable FileCard.
+ * Exactly five lint-enforced callers exist, each calling directly:
+ * `nextHunk`, `prevHunk`, `scrollFollow`, and `navigateToFile` change an
+ * existing selection, and `writeInitialHunkSelection` is the explicit
+ * initialization exception for a freshly mounted snapshot. Existing FileCard
+ * identity and visible decoration are removed before the target fields are
+ * copied onto its stable FileCard.
  *
  * @param root Mounted ChangeSet root containing both old and new selection DOM.
  * @param target Exact hunk target within `root` that becomes authoritative.
@@ -974,7 +976,7 @@ export function NavigationProvider(
   }
 
   /**
-   * Scrolls to one manifest file's exact first current DOM target.
+   * Selects and scrolls to one manifest file's exact first current DOM target.
    *
    * The immutable file index must resolve to one stable FileCard. Every
    * representation exposes a first target. A transient Husk target violates the
@@ -986,8 +988,8 @@ export function NavigationProvider(
    * hypothetical viewport are recalculated after every layout change, and the
    * final centering re-runs until nearby chunk rendering stops moving the
    * destination. A local set bounds the operation to one enrichment per bay.
-   * The operation never selects its destination, expands, collapses, fetches,
-   * calculates counters, or updates the FileTree.
+   * The operation selects its final resolved destination exactly once. It never
+   * expands, collapses, fetches, calculates counters, or updates the FileTree.
    */
   async function navigateToFile(fileIndex: number): Promise<void> {
     assert(
@@ -1148,6 +1150,7 @@ export function NavigationProvider(
     }
 
     target = firstTarget();
+    selectHunk(root, target);
     await settleCenteredScroll(target);
     if (!alive) {
       return;
@@ -1388,7 +1391,7 @@ export function NavigationProvider(
   /**
    * Selects and scrolls to the next participating hunk in current DOM order.
    *
-   * This is one of exactly four operations permitted to call `selectHunk`.
+   * This is one of exactly five operations permitted to call `selectHunk`.
    */
   async function nextHunk(): Promise<void> {
     const root = props.root();
@@ -1403,7 +1406,7 @@ export function NavigationProvider(
   /**
    * Selects and scrolls to the previous participating hunk in current DOM order.
    *
-   * This is one of exactly four operations permitted to call `selectHunk`.
+   * This is one of exactly five operations permitted to call `selectHunk`.
    */
   async function prevHunk(): Promise<void> {
     const root = props.root();

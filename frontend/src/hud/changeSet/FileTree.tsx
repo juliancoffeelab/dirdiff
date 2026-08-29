@@ -208,11 +208,10 @@ type FileTreeProps = {
  * Renders the manifest tree, current shared expansion, and private highlighted-row scroll.
  *
  * Directory squares bulk-update descendant file expansion and FullFile squares
- * update one file. Name buttons invoke the enclosing scroll-only FileTree
+ * update one file. Name buttons invoke the enclosing selecting FileTree
  * Navigation operation. The component may calculate current FileCard render
- * modes and scroll its own
- * `.file-tree-groups`, but it never changes hunk selection, loads files, expands
- * a row for visibility, or moves the main page.
+ * modes and scroll its own `.file-tree-groups`, but it never calls selection
+ * directly, loads files, expands a row for visibility, or moves the main page.
  */
 export function FileTree(props: FileTreeProps): JSX.Element {
   const navigation = useNavigation();
@@ -236,11 +235,11 @@ export function FileTree(props: FileTreeProps): JSX.Element {
   };
 
   /**
-   * Sends one manifest file to the enclosing scroll-only Navigation operation.
+   * Sends one manifest file to the enclosing selecting Navigation operation.
    *
    * File and directory name buttons share this path. Rejection becomes the
-   * ordinary dramatic Toast while Navigation remains the only code that moves
-   * the main page; this function never selects, expands, collapses, or fetches.
+   * ordinary dramatic Toast while Navigation remains the only code that selects
+   * and moves the main page; this function never expands, collapses, or fetches.
    */
   function navigateToFile(file: ManifestFile): void {
     void navigation
@@ -293,8 +292,8 @@ export function FileTree(props: FileTreeProps): JSX.Element {
    * Renders one reactive directory row and its currently expanded descendants.
    *
    * The square is the sole expansion button and invokes the shared ChangeSet
-   * bulk file action. The separate name button navigates to the directory's
-   * first manifest file without selecting, loading, or changing expansion, and
+   * bulk file action. The separate name button selects and navigates to the
+   * directory's first manifest file without loading or changing expansion, and
    * remains disabled while that first file is a Husk because a Husk (and most
    * importantly adjacent Husks) does not have stable layout.
    */
@@ -388,7 +387,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
    *
    * The row exposes selected-file highlighting and current statistics. A
    * FullFile square invokes the shared file-expansion action; Husk and Lazy
-   * markers remain inert. The separate name button invokes scroll-only file
+   * markers remain inert. The separate name button invokes selecting file
    * navigation and remains disabled while this file is a Husk because a Husk
    * (and most importantly adjacent Husks) does not have stable layout. An
    * expanded FullFile in virtual DOM render mode must display `V` instead of the

@@ -52,17 +52,17 @@ out of that match because collapse and expansion interconvert real and skip
 targets at the same coordinates. Any other combination of kind, bay, and
 index is a contract violation and throws. The exported `storedHunkTarget`
 implements this resolution once, for navigation and the hunk display alike.
-Initial selection and the three selection operations
+Initial selection and the four selection operations
 also decorate the matching current target with `data-selected`, `aria-current`,
 and the selected visual class.
 
 The FileCard attribute survives representation replacement. Target decoration
 does not: when Husk, Full, rich, virtual, or collapsed DOM replaces the selected
 target, no renderer copies the decoration to the replacement. Decoration
-returns only when `nextHunk()`, `prevHunk()`, or `scrollFollow()` actually calls
-`selectHunk()` for a destination. Returning an off-screen selection to the
-viewport does not redecorate it because that action deliberately does not select
-again.
+returns only when `nextHunk()`, `prevHunk()`, `scrollFollow()`, or
+`navigateToFile()` actually calls `selectHunk()` for a destination. Returning
+an off-screen selection to the viewport does not redecorate it because that
+action deliberately does not select again.
 
 A participating target is any hunk target without `.skip`. Skipped targets
 retain coordinates and may retain selection, but Next, Previous, FileTree
@@ -91,16 +91,18 @@ It verifies the target's coordinate, removes the previous selected
 decoration, writes the selected bay and hunk index to the destination
 `FileCard`, and decorates that exact target.
 
-It has exactly four direct callers:
+It has exactly five direct callers, enforced by the scoped frontend lint:
 
 1. `nextHunk()`;
 2. `prevHunk()`;
 3. `scrollFollow()`;
-4. `writeInitialHunkSelection()`, the one initialization exception for a
+4. `navigateToFile()`;
+5. `writeInitialHunkSelection()`, the one initialization exception for a
    freshly mounted snapshot.
 
-No renderer, FileTree operation, line pin, helper, wrapper, or shared
-calculation calls it.
+No renderer, FileTree component, line pin, helper, wrapper, or shared
+calculation calls it. The lint resolves the module-local binding and rejects
+missing, duplicated, indirect, nested, or additional callers.
 
 ## Next and Previous
 
@@ -245,15 +247,15 @@ short interval the name is enabled. File navigation rejects the temporary Husk
 target of an expanded nonzero-hunk FullFile; a zero-hunk or collapsed FullFile
 already has its stable zero or skip target and remains navigable.
 
-File navigation scrolls to the destination’s first target in its current
-representation. It does not select, fetch, or change expansion.
+File navigation selects and scrolls to the destination’s first target in its
+current representation. It does not fetch or change expansion.
 
 Before the one final centered scroll, Navigation computes the destination’s
 hypothetical viewport. Any mounted virtual bay whose rich-entry zone
 intersects that viewport is enriched at most once during the operation.
 Navigation recalculates geometry after each resulting layout change, resolves
-the exact destination coordinates again, then performs one scroll and a
-temporary destination flash.
+the exact destination coordinates again, then selects it, performs one scroll,
+and applies a temporary destination flash.
 
 A Lazy destination scrolls to its plank or collapsed skip target. A zero-hunk,
 real, or collapsed FullFile uses its exact first target; for an expanded rich
@@ -454,13 +456,14 @@ behavior, and never selects a hunk. Unlocated Threads have no go-to action.
 - A changed bay that contributes no changed row carries its single stop at
   index zero on its own always-mounted chrome, so no change is unreachable
   by traversal merely because its bay has no rows.
-- `selectHunk()` has exactly four direct callers: `nextHunk()`, `prevHunk()`,
-  `scrollFollow()`, and the initialization-only `writeInitialHunkSelection()`.
-- Initial selection belongs to the mounted snapshot; FileTree and line pins
-  never select.
+- The scoped frontend lint requires exactly five direct `selectHunk()` callers:
+  `nextHunk()`, `prevHunk()`, `scrollFollow()`, `navigateToFile()`, and the
+  initialization-only `writeInitialHunkSelection()`.
+- Initial selection belongs to the mounted snapshot; FileTree name navigation
+  selects only through `navigateToFile()`, while line pins never select.
 - Skipped targets preserve coordinates but are excluded from traversal.
-- FileTree navigation scrolls only and never loads, selects, or changes
-  expansion.
+- FileTree navigation selects its exact first target and scrolls without loading
+  or changing expansion.
 - Scroll-follow selects only rich participating real hunks and never scrolls.
 - Programmatic file and line navigation center their destination after layout
   preparation and re-center until nearby chunk rendering stops moving it. An
