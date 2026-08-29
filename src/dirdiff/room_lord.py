@@ -2342,8 +2342,8 @@ class _SnapshotStore:
                     lazy_reasons[file_id] = lazy_reason, metadata_content
 
             # TODO: Unify this lock protocol with `_room_write_lock` in
-            # review.py so Snapshot publication and all review writes use one
-            # shared context manager.
+            # `dirdiff.review.base` so Snapshot publication and all review
+            # writes use one shared context manager.
             with self._thread_lock, self._lock_path.open("a+b") as lock_file:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
                 try:

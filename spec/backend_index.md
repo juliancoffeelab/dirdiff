@@ -208,6 +208,16 @@ placement, and the placement vocabulary is limited to `region-kept`,
 `file-unreadable`, and `whole-file`.
 The review model is described in [`reviews.md`](reviews.md).
 
+The package facade exports the review commands, views, bound `Thread`, and
+external-agent batch instruments used by `Room` and the HTTP boundaries.
+`base.py` contains their shared contracts and Room write invariants;
+`thread.py` contains ordinary Thread reads and single-Thread writes;
+`placement.py` contains origin construction, source-context reconstruction, and
+later-Snapshot placement derivation; and `external_agent.py` contains the
+role-directed commands and atomic multi-Thread batch used only by external
+agents. Snapshot publication, SQL, and HTTP serialization remain outside the
+package.
+
 ## `dirdiff.server`
 
 Defines FastAPI routes and request-level rendering orchestration.
