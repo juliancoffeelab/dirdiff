@@ -25,11 +25,12 @@ responsible for each operation and keeps HTTP concerns at this boundary.
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
+from types import FunctionType, UnionType
 from typing import (
     Annotated,
     Literal,
@@ -2677,7 +2678,7 @@ class ReviewErrorResponse(ApiModel):
 class _ReviewHttpException(Exception):
     """Carry a mapped review-domain failure to the FastAPI handler.
 
-    Route wrappers construct this private exception from `ReviewError`; the
+    Route methods construct this private exception from `ReviewError`; the
     handler reads its HTTP status and already-validated response model.
 
     It never crosses the HTTP boundary and must not wrap unexpected exceptions.
@@ -2699,31 +2700,23 @@ class _ReviewHttpException(Exception):
         )
 
 
-class _ReviewErrorResponseMetadata(TypedDict):
-    """Describe one review error response for FastAPI route metadata.
+class _ResponseMetadata(TypedDict):
+    """Describe one additional response in FastAPI route metadata.
 
-    `_REVIEW_ERROR_RESPONSES` uses this private shape to associate each mapped
-    HTTP status with `ReviewErrorResponse` in generated API metadata.
-
-    It is not the runtime error body and contains no status or message.
+    Route declarations use this shape to associate an HTTP status with the
+    Pydantic model advertised for that response. It is not a runtime body and
+    contains no status or response data.
     """
 
-    model: type[ReviewErrorResponse]
-    """Response type FastAPI advertises for the associated HTTP status.
-
-    Every mapping entry uses `ReviewErrorResponse`, matching the handler's
-    validated JSON body. The field stores a type, not a response instance.
-    """
+    model: type[BaseModel]
+    """Pydantic model FastAPI advertises for the associated HTTP status."""
 
 
-# This is compatible with FastAPI, but their typings are a bit wrong
-# So each usage uses targeted ignore.
-#
-# C'est la vie.
-_REVIEW_ERROR_RESPONSES: Mapping[
-    HTTPStatus,
-    _ReviewErrorResponseMetadata,
-] = {
+type _Responses = Mapping[HTTPStatus, _ResponseMetadata]
+"""Additional response metadata accepted by dirdiff route decorators."""
+
+
+_REVIEW_ERROR_RESPONSES: _Responses = {
     HTTPStatus.BAD_REQUEST: {"model": ReviewErrorResponse},
     HTTPStatus.NOT_FOUND: {"model": ReviewErrorResponse},
     HTTPStatus.FORBIDDEN: {"model": ReviewErrorResponse},
@@ -4476,52 +4469,401 @@ def _branch_selection_from_query(
     }
 
 
-def create_app(
-    db: RepoMarkStore,
-    user_profile_store: UserProfileStore | None = None,
-    preferences_store: PreferencesStore | None = None,
-    *,
-    room_lord: RoomLord,
-    presets_root: str | None = None,
-) -> FastAPI:
-    """Create the dirdiff FastAPI app and wire request orchestration.
+type _ResponseModel = type[BaseModel] | UnionType
+"""One response-model form used by this server's route declarations.
 
-    The app layer performs HTTP validation, database-backed repo-mark access, concrete
-    backend construction, notebook detection, and response-model validation.
-    The caller provides the `RoomLord` that selects prepared Rooms for manifest
-    and recovers them by Snapshot key for follow-up operations. Storage and
-    capture remain behind that interface. The server delegates already-loaded
-    text rendering to the selected diff engine.
+Routes use Pydantic model classes or one union of model classes. The collector
+accepts no other explicit model syntax.
+"""
 
-    # Parameters
 
-    - `db`: Repository registry and source of the shared SQLAlchemy engine.
-    - `user_profile_store`: Profile persistence, or `None` to bind one to the
-      registry engine.
-    - `preferences_store`: Preference persistence, or `None` to bind one to the
-      registry engine.
-    - `room_lord`: Application boundary for Room selection and Snapshot lookup.
-    - `presets_root`: Optional catalog root; omission uses the project's test
-      presets directory at request time.
+@dataclass(frozen=True)
+class _HttpRouteDeclaration:
+    """Retain one HTTP route declaration until application construction.
 
-    # Usage
-
-    Construct the stores and `RoomLord` once for one database and Snapshot root,
-    then keep the returned application for the server lifetime. Tests may omit
-    Profile and preference stores to derive both from the registry engine.
-
-    # Failures
-
-    - Construction propagates dependency and route-registration failures. HTTP
-      operation failures are handled by the installed application handlers.
+    Each instance contains only the FastAPI options used by this module. The
+    endpoint remains the original class-body function until `_ClassRoutes`
+    validates and binds it to one `_Server`.
     """
-    if user_profile_store is None:
-        user_profile_store = UserProfileStore(db.engine)
-    if preferences_store is None:
-        preferences_store = PreferencesStore(db.engine)
-    app = FastAPI()
 
-    def review_http_exception(error: ReviewError) -> _ReviewHttpException:
+    method: Literal["GET", "POST", "PATCH", "DELETE"]
+    """HTTP method passed unchanged to FastAPI registration."""
+
+    path: str
+    """Absolute application path declared beside the endpoint method."""
+
+    endpoint: FunctionType
+    """Original function returned unchanged by the route decorator."""
+
+    response_model: _ResponseModel | None
+    """Explicit response model, or `None` to let FastAPI infer it."""
+
+    status_code: int | None
+    """Declared success status, or `None` for FastAPI's ordinary default."""
+
+    responses: _Responses | None
+    """Additional OpenAPI response metadata supplied by the declaration."""
+
+    summary: str | None
+    """Optional OpenAPI summary declared beside the endpoint."""
+
+    response_class: type[Response]
+    """Concrete response class registered for the route."""
+
+
+@dataclass(frozen=True)
+class _ExceptionHandlerDeclaration:
+    """Retain one exception-handler declaration until app construction.
+
+    The exception class and original `_Server` function are the complete
+    declaration. FastAPI receives the bound method only after validation.
+    """
+
+    exception_class: type[Exception]
+    """Exception type whose failures FastAPI sends to this handler."""
+
+    endpoint: FunctionType
+    """Original class-body function returned unchanged by the decorator."""
+
+
+type _ClassRouteDeclaration = (
+    _HttpRouteDeclaration | _ExceptionHandlerDeclaration
+)
+"""One source-ordered declaration retained by `_ClassRoutes`."""
+
+
+class _ClassRoutes:
+    """Collect and bind the small FastAPI decorator set used by `_Server`.
+
+    Decorators record declarations and return their exact input functions.
+    `register` first validates the complete declaration set, then binds each
+    function to one concrete `_Server` and gives it to FastAPI in source order.
+
+    The collector stores no application, server, database, or other runtime
+    interface. It does not dispatch HTTP entities after construction.
+    """
+
+    def __init__(self) -> None:
+        """Create an empty import-time declaration collector."""
+        self._declarations: list[_ClassRouteDeclaration] = []
+
+    def get[Endpoint](
+        self,
+        path: str,
+        *,
+        response_model: _ResponseModel | None = None,
+        status_code: int | None = None,
+        responses: _Responses | None = None,
+        summary: str | None = None,
+        response_class: type[Response] = JSONResponse,
+    ) -> Callable[[Endpoint], Endpoint]:
+        """Record one GET declaration and preserve its endpoint function.
+
+        # Parameters
+
+        - `path`: Absolute FastAPI route path.
+        - `response_model`: Explicit model, or `None` for FastAPI inference.
+        - `status_code`: Explicit success status, or the ordinary default.
+        - `responses`: Additional response models for generated API metadata.
+        - `summary`: Optional summary for generated API metadata.
+        - `response_class`: Response class FastAPI uses for this route.
+
+        # Returns
+
+        - A decorator accepting one undecorated `_Server` function.
+        - Applying it records the declaration and returns that exact function.
+        """
+        return self._http_route(
+            "GET",
+            path,
+            response_model=response_model,
+            status_code=status_code,
+            responses=responses,
+            summary=summary,
+            response_class=response_class,
+        )
+
+    def post[Endpoint](
+        self,
+        path: str,
+        *,
+        response_model: _ResponseModel | None = None,
+        status_code: int | None = None,
+        responses: _Responses | None = None,
+        summary: str | None = None,
+        response_class: type[Response] = JSONResponse,
+    ) -> Callable[[Endpoint], Endpoint]:
+        """Record one POST declaration and preserve its endpoint function.
+
+        # Parameters
+
+        - `path`: Absolute FastAPI route path.
+        - `response_model`: Explicit model, or `None` for FastAPI inference.
+        - `status_code`: Explicit success status, or the ordinary default.
+        - `responses`: Additional response models for generated API metadata.
+        - `summary`: Optional summary for generated API metadata.
+        - `response_class`: Response class FastAPI uses for this route.
+
+        # Returns
+
+        - A decorator accepting one undecorated `_Server` function.
+        - Applying it records the declaration and returns that exact function.
+        """
+        return self._http_route(
+            "POST",
+            path,
+            response_model=response_model,
+            status_code=status_code,
+            responses=responses,
+            summary=summary,
+            response_class=response_class,
+        )
+
+    def patch[Endpoint](
+        self,
+        path: str,
+        *,
+        response_model: _ResponseModel | None = None,
+        status_code: int | None = None,
+        responses: _Responses | None = None,
+        summary: str | None = None,
+        response_class: type[Response] = JSONResponse,
+    ) -> Callable[[Endpoint], Endpoint]:
+        """Record one PATCH declaration and preserve its endpoint function.
+
+        # Parameters
+
+        - `path`: Absolute FastAPI route path.
+        - `response_model`: Explicit model, or `None` for FastAPI inference.
+        - `status_code`: Explicit success status, or the ordinary default.
+        - `responses`: Additional response models for generated API metadata.
+        - `summary`: Optional summary for generated API metadata.
+        - `response_class`: Response class FastAPI uses for this route.
+
+        # Returns
+
+        - A decorator accepting one undecorated `_Server` function.
+        - Applying it records the declaration and returns that exact function.
+        """
+        return self._http_route(
+            "PATCH",
+            path,
+            response_model=response_model,
+            status_code=status_code,
+            responses=responses,
+            summary=summary,
+            response_class=response_class,
+        )
+
+    def delete[Endpoint](
+        self,
+        path: str,
+        *,
+        response_model: _ResponseModel | None = None,
+        status_code: int | None = None,
+        responses: _Responses | None = None,
+        summary: str | None = None,
+        response_class: type[Response] = JSONResponse,
+    ) -> Callable[[Endpoint], Endpoint]:
+        """Record one DELETE declaration and preserve its endpoint function.
+
+        # Parameters
+
+        - `path`: Absolute FastAPI route path.
+        - `response_model`: Explicit model, or `None` for FastAPI inference.
+        - `status_code`: Explicit success status, or the ordinary default.
+        - `responses`: Additional response models for generated API metadata.
+        - `summary`: Optional summary for generated API metadata.
+        - `response_class`: Response class FastAPI uses for this route.
+
+        # Returns
+
+        - A decorator accepting one undecorated `_Server` function.
+        - Applying it records the declaration and returns that exact function.
+        """
+        return self._http_route(
+            "DELETE",
+            path,
+            response_model=response_model,
+            status_code=status_code,
+            responses=responses,
+            summary=summary,
+            response_class=response_class,
+        )
+
+    def _http_route[Endpoint](
+        self,
+        method: Literal["GET", "POST", "PATCH", "DELETE"],
+        path: str,
+        *,
+        response_model: _ResponseModel | None,
+        status_code: int | None,
+        responses: _Responses | None,
+        summary: str | None,
+        response_class: type[Response],
+    ) -> Callable[[Endpoint], Endpoint]:
+        """Build a decorator that records one typed HTTP declaration.
+
+        # Parameters
+
+        - `method`: HTTP method FastAPI registers for the endpoint.
+        - `path`: Absolute FastAPI route path.
+        - `response_model`: Explicit model, or `None` for FastAPI inference.
+        - `status_code`: Explicit success status, or the ordinary default.
+        - `responses`: Additional response models for generated API metadata.
+        - `summary`: Optional summary for generated API metadata.
+        - `response_class`: Response class FastAPI uses for this route.
+
+        # Returns
+
+        - A decorator accepting one undecorated `_Server` function.
+        - Applying it records the declaration and returns that exact function.
+        """
+
+        def record(endpoint: Endpoint) -> Endpoint:
+            """Append the declaration and return the original function."""
+            assert isinstance(endpoint, FunctionType)
+            self._declarations.append(
+                _HttpRouteDeclaration(
+                    method=method,
+                    path=path,
+                    endpoint=endpoint,
+                    response_model=response_model,
+                    status_code=status_code,
+                    responses=responses,
+                    summary=summary,
+                    response_class=response_class,
+                )
+            )
+            return endpoint
+
+        return record
+
+    def exception_handler[Endpoint](
+        self,
+        exception_class: type[Exception],
+    ) -> Callable[[Endpoint], Endpoint]:
+        """Record one exception handler and preserve its endpoint function.
+
+        # Parameters
+
+        - `exception_class`: Failure type FastAPI sends to the bound handler.
+
+        # Returns
+
+        - A decorator accepting one undecorated `_Server` function.
+        - Applying it records the declaration and returns that exact function.
+        """
+
+        def record(endpoint: Endpoint) -> Endpoint:
+            """Append the declaration and return the original function."""
+            assert isinstance(endpoint, FunctionType)
+            self._declarations.append(
+                _ExceptionHandlerDeclaration(exception_class, endpoint)
+            )
+            return endpoint
+
+        return record
+
+    def register(self, app: FastAPI, server: _Server) -> None:
+        """Validate and bind every declaration onto one fresh application.
+
+        The concrete class must still expose every original function under its
+        declared name, and no function may have more than one declaration. All
+        validation precedes registration so invalid input cannot leave a
+        partially configured application.
+
+        # Parameters
+
+        - `app`: Fresh FastAPI application receiving the declarations.
+        - `server`: Concrete instance whose original methods are bound.
+        """
+        assert type(server) is _Server
+        declared_endpoints: set[FunctionType] = set()
+        for declaration in self._declarations:
+            endpoint = declaration.endpoint
+            assert endpoint not in declared_endpoints, (
+                f"duplicate route declaration for {endpoint.__name__}"
+            )
+            assert type(server).__dict__.get(endpoint.__name__) is endpoint, (
+                f"declared endpoint {endpoint.__name__} was replaced"
+            )
+            declared_endpoints.add(endpoint)
+
+        for declaration in self._declarations:
+            original = declaration.endpoint
+            bound_endpoint = original.__get__(server, type(server))
+            if isinstance(declaration, _ExceptionHandlerDeclaration):
+                app.add_exception_handler(
+                    declaration.exception_class,
+                    bound_endpoint,
+                )
+                continue
+            # FastAPI rejects valid Mapping response metadata in its annotation:
+            # https://github.com/fastapi/fastapi/discussions/16259
+            if declaration.response_model is None:
+                app.add_api_route(
+                    declaration.path,
+                    bound_endpoint,
+                    methods=[declaration.method],
+                    status_code=declaration.status_code,
+                    responses=declaration.responses,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                    summary=declaration.summary,
+                    response_class=declaration.response_class,
+                )
+            else:
+                app.add_api_route(
+                    declaration.path,
+                    bound_endpoint,
+                    methods=[declaration.method],
+                    response_model=declaration.response_model,
+                    status_code=declaration.status_code,
+                    responses=declaration.responses,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                    summary=declaration.summary,
+                    response_class=declaration.response_class,
+                )
+
+
+class _Server:
+    """Bind application-lifetime interfaces to dirdiff HTTP handlers.
+
+    One instance retains the stores, Room service, and preset root used by one
+    FastAPI application. Its decorated methods are ordinary functions until
+    route registration validates and binds them during create_app.
+    """
+
+    routes = _ClassRoutes()
+    """Import-time declarations shared without retaining runtime state."""
+
+    def __init__(
+        self,
+        db: RepoMarkStore,
+        user_profile_store: UserProfileStore,
+        preferences_store: PreferencesStore,
+        *,
+        room_lord: RoomLord,
+        presets_root: str | None,
+    ) -> None:
+        """Retain the interfaces required by HTTP orchestration.
+
+        The caller supplies concrete stores and one Room service for the full
+        application lifetime. Construction performs no route registration.
+
+        # Parameters
+
+        - `db`: Repository registry used by repository-facing routes.
+        - `user_profile_store`: Profile persistence used by review routes.
+        - `preferences_store`: Preference persistence used by HUD routes.
+        - `room_lord`: Room selection and Snapshot lookup interface.
+        - `presets_root`: Optional root scanned for preset catalogs.
+        """
+        self.db = db
+        self.user_profile_store = user_profile_store
+        self.preferences_store = preferences_store
+        self.room_lord = room_lord
+        self.presets_root = presets_root
+
+    def review_http_exception(self, error: ReviewError) -> _ReviewHttpException:
         """Map one typed domain failure to the browser review HTTP contract.
 
         Missing entities become 404, denied authorship becomes 403, stale state
@@ -4557,8 +4899,9 @@ def create_app(
             status = HTTPStatus.BAD_REQUEST
         return _ReviewHttpException(status, error)
 
-    @app.exception_handler(_ReviewHttpException)
-    async def serve_review_error(  # pyright: ignore[reportUnusedFunction]
+    @routes.exception_handler(_ReviewHttpException)
+    async def serve_review_error(
+        self,
         request: Request,
         error: _ReviewHttpException,
     ) -> JSONResponse:
@@ -4580,8 +4923,9 @@ def create_app(
             content=error.response.model_dump(mode="json"),
         )
 
-    @app.exception_handler(Exception)
-    async def serve_unexpected_error(  # pyright: ignore[reportUnusedFunction]
+    @routes.exception_handler(Exception)
+    async def serve_unexpected_error(
+        self,
         request: Request,
         error: Exception,
     ) -> JSONResponse:
@@ -4611,7 +4955,7 @@ def create_app(
             content={"detail": "Internal server error."},
         )
 
-    def preset_catalog_dirs() -> tuple[PresetCatalogDir, ...]:
+    def preset_catalog_dirs(self) -> tuple[PresetCatalogDir, ...]:
         """List the preset catalogs this server offers right now.
 
         The presets root is rescanned per request rather than captured at
@@ -4632,13 +4976,13 @@ def create_app(
           has no catalog directories.
         """
         root = (
-            Path(presets_root)
-            if presets_root is not None
+            Path(self.presets_root)
+            if self.presets_root is not None
             else Path.cwd() / "tests" / "presets"
         )
         return preset_catalogs(root)
 
-    def preset_backend_for_catalog(catalog_id: str) -> PresetBackend:
+    def preset_backend_for_catalog(self, catalog_id: str) -> PresetBackend:
         """Construct the backend reading one named preset catalog.
 
         This is the only place a catalog id is checked against the catalogs
@@ -4656,12 +5000,13 @@ def create_app(
 
         - Raises `DirdiffError` when no current preset catalog has the exact id.
         """
-        for catalog in preset_catalog_dirs():
+        for catalog in self.preset_catalog_dirs():
             if catalog.catalog_id == catalog_id:
                 return PresetBackend(catalog.root)
         raise DirdiffError(f"Unknown preset catalog: {catalog_id}")
 
     def preset_catalog_response(
+        self,
         catalog: PresetCatalogDir,
     ) -> PresetCatalogResponse:
         """Serialize one preset catalog for the presets endpoint.
@@ -4686,6 +5031,7 @@ def create_app(
         )
 
     def manifest_capture_selection(
+        self,
         *,
         project_id: str,
         tab: TabParam,
@@ -4805,6 +5151,7 @@ def create_app(
         )
 
     def capture_snapshot(
+        self,
         *,
         project_id: str,
         selection: CaptureSelection,
@@ -4845,16 +5192,16 @@ def create_app(
         parsed_project_id: int | None = None
         if isinstance(selection, PresetCaptureSelection):
             preset_name = selection.subset
-            backend: WorkspaceBackendProtocol = preset_backend_for_catalog(
+            backend: WorkspaceBackendProtocol = self.preset_backend_for_catalog(
                 selection.catalog
             )
         else:
             parsed_project_id = marked_project_id(project_id)
-            mark = db.get(parsed_project_id)
+            mark = self.db.get(parsed_project_id)
             if mark is None:
                 raise DirdiffError(f"Invalid project_id: {parsed_project_id}")
             backend = GitBackend.discover(repo_root=Path(mark.path))
-        room, snapshot_id = room_lord.corresponding_room(
+        room, snapshot_id = self.room_lord.corresponding_room(
             mark_id=parsed_project_id,
             backend=backend,
             selection=selection,
@@ -4862,6 +5209,7 @@ def create_app(
         return room, snapshot_id, preset_name
 
     def render_loaded_snapshot_file(
+        self,
         *,
         room: Room,
         snapshot_id: UUID,
@@ -4939,7 +5287,7 @@ def create_app(
             }
         )
 
-    def snapshot_room(snapshot_id: UUID) -> Room:
+    def snapshot_room(self, snapshot_id: UUID) -> Room:
         """Return the Room containing one exact agent-selected Snapshot.
 
         Agent routes call this boundary before any placement or action read. It
@@ -4959,13 +5307,15 @@ def create_app(
         - Raises `DirdiffError` when the Snapshot is unknown.
         """
         try:
-            return room_lord.find_room(snapshot_id)
+            return self.room_lord.find_room(snapshot_id)
         except DirdiffError:
             raise DirdiffError(
                 f"Unknown snapshot id: {snapshot_id.hex}"
             ) from None
 
-    def agent_failure(status: HTTPStatus, detail: str) -> PlainTextResponse:
+    def agent_failure(
+        self, status: HTTPStatus, detail: str
+    ) -> PlainTextResponse:
         """Return one concrete diagnostic for a rejected agent operation.
 
         # Parameters
@@ -4981,7 +5331,9 @@ def create_app(
         """
         return PlainTextResponse(detail, status_code=status)
 
-    def agent_preview(body: str | None, deleted: bool) -> AgentCommentPreview:
+    def agent_preview(
+        self, body: str | None, deleted: bool
+    ) -> AgentCommentPreview:
         """Bound one Comment body to the shared 256-character preview rule.
 
         # Parameters
@@ -5008,7 +5360,7 @@ def create_app(
         )
 
     def placed_file_pair(
-        origin: ReviewOriginView, placement: ThreadPlacementView
+        self, origin: ReviewOriginView, placement: ThreadPlacementView
     ) -> tuple[str | None, str | None] | None:
         """Return the File pair a placement rests on, or `None` for no File.
 
@@ -5044,6 +5396,7 @@ def create_app(
         return pair["left_path"], pair["right_path"]
 
     def captured_files_for_placements(
+        self,
         room: Room,
         snapshot_id: UUID,
         views: list[ThreadDiscussionView] | list[ThreadSummaryView],
@@ -5076,12 +5429,15 @@ def create_app(
         """
         pairs: list[tuple[str | None, str | None]] = []
         for view in views:
-            pair = placed_file_pair(view["origin_target"], view["placement"])
+            pair = self.placed_file_pair(
+                view["origin_target"], view["placement"]
+            )
             if pair is not None:
                 pairs.append(pair)
         return room.captured_files_for_pairs(snapshot_id, tuple(pairs))
 
     def agent_placement(
+        self,
         captured_files: dict[
             tuple[str | None, str | None], tuple[Path | None, Path | None]
         ],
@@ -5120,7 +5476,7 @@ def create_app(
         - Raises `AssertionError` when a readable placement lacks a validated
           File or selected captured side.
         """
-        pair = placed_file_pair(origin, placement)
+        pair = self.placed_file_pair(origin, placement)
         if pair is None:
             return None, None
         left_file, right_file = captured_files[pair]
@@ -5149,6 +5505,7 @@ def create_app(
         return str(selected_file), bay
 
     def agent_outdated_reason(
+        self,
         placement: ThreadPlacementView,
     ) -> AgentOutdatedReason | None:
         """Translate one placement into the agent boundary's outdated name.
@@ -5190,6 +5547,7 @@ def create_app(
         raise AssertionError(f"unknown placement kind {placement['kind']!r}")
 
     def agent_thread(
+        self,
         captured_files: dict[
             tuple[str | None, str | None], tuple[Path | None, Path | None]
         ],
@@ -5210,7 +5568,7 @@ def create_app(
 
         """
         origin = view["origin_target"]
-        file_path, bay = agent_placement(
+        file_path, bay = self.agent_placement(
             captured_files, origin, view["placement"]
         )
         # The excerpt travels inside the text origin it is cut from; a
@@ -5242,11 +5600,12 @@ def create_app(
                 if excerpt is not None
                 else None
             ),
-            outdated_reason=agent_outdated_reason(view["placement"]),
+            outdated_reason=self.agent_outdated_reason(view["placement"]),
             comments=comments,
         )
 
     def agent_page[AgentPageItem](
+        self,
         items: list[AgentPageItem],
         page: int,
         limit: int,
@@ -5290,9 +5649,9 @@ def create_app(
             through_activity_id=through_activity_id,
         )
 
-    @app.exception_handler(RequestValidationError)
-    async def validation_failure(  # pyright: ignore[reportUnusedFunction]
-        request: Request, exc: RequestValidationError
+    @routes.exception_handler(RequestValidationError)
+    async def validation_failure(
+        self, request: Request, exc: RequestValidationError
     ) -> Response:
         """Return validation detail at the agent API boundary.
 
@@ -5320,12 +5679,12 @@ def create_app(
             )
             if len(errors) > len(bounded):
                 detail += f"; {len(errors) - len(bounded)} more errors"
-            return agent_failure(HTTPStatus.UNPROCESSABLE_ENTITY, detail)
+            return self.agent_failure(HTTPStatus.UNPROCESSABLE_ENTITY, detail)
         return await request_validation_exception_handler(request, exc)
 
-    @app.exception_handler(StarletteHTTPException)
-    async def http_failure(  # pyright: ignore[reportUnusedFunction]
-        request: Request, exc: StarletteHTTPException
+    @routes.exception_handler(StarletteHTTPException)
+    async def http_failure(
+        self, request: Request, exc: StarletteHTTPException
     ) -> Response:
         """Return framework failure detail at the agent API boundary.
 
@@ -5344,11 +5703,13 @@ def create_app(
         """
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
-            return agent_failure(HTTPStatus(exc.status_code), str(exc.detail))
+            return self.agent_failure(
+                HTTPStatus(exc.status_code), str(exc.detail)
+            )
         return await http_exception_handler(request, exc)
 
-    @app.get("/", response_class=HTMLResponse)
-    def serve_frontend_missing() -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+    @routes.get("/", response_class=HTMLResponse)
+    def serve_frontend_missing(self) -> HTMLResponse:
         """Explain that the development API has no bundled HUD to serve.
 
         The local startup flow expects Vite to serve the browser UI separately.
@@ -5410,13 +5771,14 @@ def create_app(
             status_code=503,
         )
 
-    @app.get(
+    @routes.get(
         "/api/review/threads",
         response_model=ReviewThreadPage,
-        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        responses=_REVIEW_ERROR_RESPONSES,
         summary="Read one page of review Threads",
     )
-    def serve_review(  # pyright: ignore[reportUnusedFunction]
+    def serve_review(
+        self,
         snapshot_id: UUID = Query(description="Exact retained Snapshot id."),
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=100),
@@ -5442,7 +5804,7 @@ def create_app(
           application error handler.
         """
         try:
-            room = room_lord.find_room(snapshot_id)
+            room = self.room_lord.find_room(snapshot_id)
             if page == 1:
                 if through_activity_id is not None:
                     raise ReviewError(
@@ -5474,13 +5836,13 @@ def create_app(
                 has_more=page * limit < total,
             )
         except ReviewError as exc:
-            raise review_http_exception(exc) from exc
+            raise self.review_http_exception(exc) from exc
         except DirdiffError as exc:
-            raise review_http_exception(
+            raise self.review_http_exception(
                 ReviewError("invalid_target", str(exc))
             ) from exc
 
-    def review_target(request: NewCodeCommentRequest) -> TextTarget:
+    def review_target(self, request: NewCodeCommentRequest) -> TextTarget:
         """Translate one validated browser code target to Thread input.
 
         Pydantic has already checked path, bay, side, and ordered line fields;
@@ -5510,13 +5872,14 @@ def create_app(
             ),
         )
 
-    @app.post(
+    @routes.post(
         "/api/review/post_comment",
         response_model=ReviewThreadResponse | ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        responses=_REVIEW_ERROR_RESPONSES,
         summary="Post one review Comment",
     )
-    def post_review_comment(  # pyright: ignore[reportUnusedFunction]
+    def post_review_comment(
+        self,
         request: PostCommentRequest,
     ) -> ReviewThreadResponse | ReviewThreadUpdateResponse:
         """Start one Thread or append one Comment to an existing Thread.
@@ -5546,7 +5909,7 @@ def create_app(
         """
         try:
             snapshot_id = UUID(hex=request.snapshot_id)
-            room = room_lord.find_room(snapshot_id)
+            room = self.room_lord.find_room(snapshot_id)
             if isinstance(request, NewCodeCommentRequest):
                 thread = room.create_thread(
                     snapshot_id,
@@ -5555,7 +5918,7 @@ def create_app(
                         uuid4(),
                         uuid4(),
                         ProfileAuthor(request.profile_id),
-                        review_target(request),
+                        self.review_target(request),
                         request.body,
                     ),
                 )
@@ -5573,19 +5936,20 @@ def create_app(
             )
             return ReviewThreadUpdateResponse.model_validate(update)
         except ReviewError as exc:
-            raise review_http_exception(exc) from exc
+            raise self.review_http_exception(exc) from exc
         except DirdiffError as exc:
-            raise review_http_exception(
+            raise self.review_http_exception(
                 ReviewError("invalid_target", str(exc))
             ) from exc
 
-    @app.post(
+    @routes.post(
         "/api/review/edit_comment",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        responses=_REVIEW_ERROR_RESPONSES,
         summary="Edit one review Comment",
     )
-    def edit_review_comment(  # pyright: ignore[reportUnusedFunction]
+    def edit_review_comment(
+        self,
         request: EditReviewCommentRequest,
     ) -> ReviewThreadUpdateResponse:
         """Edit one authored Comment using the backend's current revision.
@@ -5607,7 +5971,7 @@ def create_app(
         """
         try:
             snapshot_id = UUID(hex=request.snapshot_id)
-            room = room_lord.find_room(snapshot_id)
+            room = self.room_lord.find_room(snapshot_id)
             comment_id = UUID(hex=request.comment_id)
             return ReviewThreadUpdateResponse.model_validate(
                 room.thread_for_comment(snapshot_id, comment_id).edit_comment(
@@ -5620,19 +5984,20 @@ def create_app(
                 )
             )
         except ReviewError as exc:
-            raise review_http_exception(exc) from exc
+            raise self.review_http_exception(exc) from exc
         except DirdiffError as exc:
-            raise review_http_exception(
+            raise self.review_http_exception(
                 ReviewError("invalid_target", str(exc))
             ) from exc
 
-    @app.post(
+    @routes.post(
         "/api/review/delete_comment",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        responses=_REVIEW_ERROR_RESPONSES,
         summary="Delete one review Comment",
     )
-    def delete_review_comment(  # pyright: ignore[reportUnusedFunction]
+    def delete_review_comment(
+        self,
         request: DeleteReviewCommentRequest,
     ) -> ReviewThreadUpdateResponse:
         """Tombstone one Comment and retain its acting Profile in the action log.
@@ -5654,7 +6019,7 @@ def create_app(
         """
         try:
             snapshot_id = UUID(hex=request.snapshot_id)
-            room = room_lord.find_room(snapshot_id)
+            room = self.room_lord.find_room(snapshot_id)
             comment_id = UUID(hex=request.comment_id)
             return ReviewThreadUpdateResponse.model_validate(
                 room.thread_for_comment(snapshot_id, comment_id).delete_comment(
@@ -5663,13 +6028,14 @@ def create_app(
                 )
             )
         except ReviewError as exc:
-            raise review_http_exception(exc) from exc
+            raise self.review_http_exception(exc) from exc
         except DirdiffError as exc:
-            raise review_http_exception(
+            raise self.review_http_exception(
                 ReviewError("invalid_target", str(exc))
             ) from exc
 
     def change_review_thread_state(
+        self,
         *,
         request: ChangeReviewThreadStateRequest | DeleteReviewThreadRequest,
         action: Literal["resolve", "reopen", "delete"],
@@ -5691,7 +6057,7 @@ def create_app(
         try:
             snapshot_id = UUID(hex=request.snapshot_id)
             thread_id = UUID(hex=request.thread_id)
-            room = room_lord.find_room(snapshot_id)
+            room = self.room_lord.find_room(snapshot_id)
             thread = room.get_thread(snapshot_id, thread_id)
             # Only resolve and reopen requests can carry an explanation
             # Comment; deletion has no body field and never creates one.
@@ -5714,19 +6080,20 @@ def create_app(
                 updated = thread.delete(command)
             return ReviewThreadUpdateResponse.model_validate(updated)
         except ReviewError as exc:
-            raise review_http_exception(exc) from exc
+            raise self.review_http_exception(exc) from exc
         except DirdiffError as exc:
-            raise review_http_exception(
+            raise self.review_http_exception(
                 ReviewError("invalid_target", str(exc))
             ) from exc
 
-    @app.post(
+    @routes.post(
         "/api/review/resolve_thread",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        responses=_REVIEW_ERROR_RESPONSES,
         summary="Resolve one review Thread",
     )
-    def resolve_review_thread(  # pyright: ignore[reportUnusedFunction]
+    def resolve_review_thread(
+        self,
         request: ChangeReviewThreadStateRequest,
     ) -> ReviewThreadUpdateResponse:
         """Resolve an open Thread at its exact current revision.
@@ -5744,18 +6111,19 @@ def create_app(
         - Returns the typed review error produced by the shared lifecycle
           boundary when resolution cannot apply.
         """
-        return change_review_thread_state(
+        return self.change_review_thread_state(
             request=request,
             action="resolve",
         )
 
-    @app.post(
+    @routes.post(
         "/api/review/reopen_thread",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        responses=_REVIEW_ERROR_RESPONSES,
         summary="Reopen one review Thread",
     )
-    def reopen_review_thread(  # pyright: ignore[reportUnusedFunction]
+    def reopen_review_thread(
+        self,
         request: ChangeReviewThreadStateRequest,
     ) -> ReviewThreadUpdateResponse:
         """Reopen a resolved Thread at its exact current revision.
@@ -5773,18 +6141,19 @@ def create_app(
         - Returns the typed review error produced by the shared lifecycle
           boundary when reopening cannot apply.
         """
-        return change_review_thread_state(
+        return self.change_review_thread_state(
             request=request,
             action="reopen",
         )
 
-    @app.post(
+    @routes.post(
         "/api/review/delete_thread",
         response_model=ReviewThreadUpdateResponse,
-        responses=_REVIEW_ERROR_RESPONSES,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        responses=_REVIEW_ERROR_RESPONSES,
         summary="Delete one review Thread",
     )
-    def delete_review_thread(  # pyright: ignore[reportUnusedFunction]
+    def delete_review_thread(
+        self,
         request: DeleteReviewThreadRequest,
     ) -> ReviewThreadUpdateResponse:
         """Record terminal Thread deletion at its exact current revision.
@@ -5802,16 +6171,17 @@ def create_app(
         - Returns the typed review error produced by the shared lifecycle
           boundary when terminal deletion cannot apply.
         """
-        return change_review_thread_state(
+        return self.change_review_thread_state(
             request=request,
             action="delete",
         )
 
-    @app.post(
+    @routes.post(
         "/api/agent/join_review",
         response_model=NewAgentReviewResponse,
     )
-    def join_agent_review(  # pyright: ignore[reportUnusedFunction]
+    def join_agent_review(
+        self,
         request: NewAgentReviewRequest,
     ) -> NewAgentReviewResponse | PlainTextResponse:
         """Register one disposable Profile and capture its explicit Tab.
@@ -5842,14 +6212,14 @@ def create_app(
           failure. Profile creation happens only after capture succeeds.
         """
         try:
-            if user_profile_store.agent_exists(request.agent_uuid):
+            if self.user_profile_store.agent_exists(request.agent_uuid):
                 raise DirdiffError("Agent UUID already exists.")
             tab = request.tab
             if isinstance(tab, AgentPullRequestTab):
                 prepared = prepare_pull_request(
-                    url=tab.url, repo_marks=db.list()
+                    url=tab.url, repo_marks=self.db.list()
                 )
-                room, snapshot_id, _ = capture_snapshot(
+                room, snapshot_id, _ = self.capture_snapshot(
                     project_id=str(prepared.project_id),
                     selection=PullRequestCaptureSelection(
                         url=prepared.pull_request_url,
@@ -5859,7 +6229,9 @@ def create_app(
                 )
             else:
                 matches = [
-                    mark for mark in db.list() if mark.path == tab.repo_path
+                    mark
+                    for mark in self.db.list()
+                    if mark.path == tab.repo_path
                 ]
                 if len(matches) != 1:
                     raise DirdiffError("Tab path does not identify one Mark.")
@@ -5906,12 +6278,12 @@ def create_app(
                         base=branch(tab.base),
                         review=branch(tab.review),
                     )
-                room, snapshot_id, _ = capture_snapshot(
+                room, snapshot_id, _ = self.capture_snapshot(
                     project_id=project_id,
                     selection=selection,
                 )
             try:
-                profile = user_profile_store.create_agent(
+                profile = self.user_profile_store.create_agent(
                     request.name, request.agent_uuid
                 )
             except ValueError as exc:
@@ -5928,13 +6300,14 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent new-review request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
+            return self.agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
-    @app.get(
+    @routes.get(
         "/api/agent/thread_summary",
         response_model=AgentPage[AgentThreadSummary],
     )
-    def agent_thread_summary(  # pyright: ignore[reportUnusedFunction]
+    def agent_thread_summary(
+        self,
         snapshot_id: UUID,
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=100),
@@ -5960,7 +6333,7 @@ def create_app(
           pagination is rejected by FastAPI before the handler runs.
         """
         try:
-            room = snapshot_room(snapshot_id)
+            room = self.snapshot_room(snapshot_id)
             page_threads, total, _concrete_activity_id = room.threads(
                 snapshot_id,
                 page=page,
@@ -5969,7 +6342,7 @@ def create_app(
                 through_activity_id=None,
             )
             views = [thread.summary() for thread in page_threads]
-            captured_files = captured_files_for_placements(
+            captured_files = self.captured_files_for_placements(
                 room, snapshot_id, views
             )
             summaries = []
@@ -5977,7 +6350,7 @@ def create_app(
                 assert view["state"] == "open"
                 attention = view["attention"]
                 assert attention != "none"
-                file_path, bay = agent_placement(
+                file_path, bay = self.agent_placement(
                     captured_files, view["origin_target"], view["placement"]
                 )
                 first = view["first_comment"]
@@ -5989,22 +6362,23 @@ def create_app(
                         attention=attention,
                         file=file_path,
                         bay=bay,
-                        first_comment=agent_preview(
+                        first_comment=self.agent_preview(
                             first["body"], first["deleted"]
                         ),
-                        latest_comment=agent_preview(
+                        latest_comment=self.agent_preview(
                             latest["body"], latest["deleted"]
                         ),
                         comment_count=view["comment_count"],
                     )
                 )
-            return agent_page(summaries, page, limit, total)
+            return self.agent_page(summaries, page, limit, total)
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Thread-summary request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
+            return self.agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
-    @app.get("/api/agent/threads", response_model=AgentPage[AgentThread])
-    def agent_threads(  # pyright: ignore[reportUnusedFunction]
+    @routes.get("/api/agent/threads", response_model=AgentPage[AgentThread])
+    def agent_threads(
+        self,
         snapshot_id: UUID,
         for_role: Literal["author", "reviewer"] | None = Query(
             default=None, alias="for"
@@ -6038,7 +6412,7 @@ def create_app(
           pagination or attention values are rejected by FastAPI.
         """
         try:
-            room = snapshot_room(snapshot_id)
+            room = self.snapshot_room(snapshot_id)
             page_threads, total, concrete_activity_id = room.threads(
                 snapshot_id,
                 page=page,
@@ -6048,17 +6422,22 @@ def create_app(
                 through_activity_id=through_activity_id,
             )
             views = [thread.discussion() for thread in page_threads]
-            captured_files = captured_files_for_placements(
+            captured_files = self.captured_files_for_placements(
                 room, snapshot_id, views
             )
-            threads = [agent_thread(captured_files, view) for view in views]
-            return agent_page(threads, page, limit, total, concrete_activity_id)
+            threads = [
+                self.agent_thread(captured_files, view) for view in views
+            ]
+            return self.agent_page(
+                threads, page, limit, total, concrete_activity_id
+            )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Threads request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
+            return self.agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
-    @app.get("/api/agent/thread/{thread_id}", response_model=AgentThreadPage)
-    def agent_thread_by_id(  # pyright: ignore[reportUnusedFunction]
+    @routes.get("/api/agent/thread/{thread_id}", response_model=AgentThreadPage)
+    def agent_thread_by_id(
+        self,
         thread_id: UUID,
         snapshot_id: UUID,
         page: int = Query(default=1, ge=1),
@@ -6086,10 +6465,10 @@ def create_app(
           unknown. Invalid UUID or pagination input is rejected by FastAPI.
         """
         try:
-            room = snapshot_room(snapshot_id)
+            room = self.snapshot_room(snapshot_id)
             view = room.get_thread(snapshot_id, thread_id).discussion()
-            thread = agent_thread(
-                captured_files_for_placements(room, snapshot_id, [view]),
+            thread = self.agent_thread(
+                self.captured_files_for_placements(room, snapshot_id, [view]),
                 view,
             )
             total = len(thread.comments)
@@ -6104,13 +6483,14 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent Thread request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
+            return self.agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
-    @app.post(
+    @routes.post(
         "/api/agent/continue_review",
         response_model=ContinueAgentReviewResponse,
     )
-    def continue_agent_review(  # pyright: ignore[reportUnusedFunction]
+    def continue_agent_review(
+        self,
         request: ContinueAgentReviewRequest,
     ) -> ContinueAgentReviewResponse | PlainTextResponse:
         """Recapture one Tab and return bounded File and Thread changes.
@@ -6143,16 +6523,16 @@ def create_app(
         """
         try:
             previous_id = UUID(hex=request.snapshot_id)
-            room = room_lord.find_room(previous_id)
+            room = self.room_lord.find_room(previous_id)
             context = room.capture_context()
-            mark = db.get(context["mark_id"])
+            mark = self.db.get(context["mark_id"])
             if mark is None:
                 raise DirdiffError("Snapshot Mark no longer exists.")
             backend = GitBackend.discover(repo_root=Path(mark.path))
             if context["tab"] == "pull-request":
                 assert context["pull_request_url"] is not None
                 prepared = prepare_pull_request(
-                    url=context["pull_request_url"], repo_marks=db.list()
+                    url=context["pull_request_url"], repo_marks=self.db.list()
                 )
                 if prepared.project_id != mark.id:
                     raise DirdiffError("Pull Request Mark changed.")
@@ -6191,7 +6571,7 @@ def create_app(
                             created_at=created_at,
                             kind="comment_created",
                             comment_id=action.comment_id,
-                            comment=agent_preview(action.body, False),
+                            comment=self.agent_preview(action.body, False),
                         )
                     case "comment-edited":
                         assert action.comment_id is not None
@@ -6202,7 +6582,7 @@ def create_app(
                             created_at=created_at,
                             kind="comment_edited",
                             comment_id=action.comment_id,
-                            comment=agent_preview(action.body, False),
+                            comment=self.agent_preview(action.body, False),
                         )
                     case "comment-deleted":
                         assert action.comment_id is not None
@@ -6213,7 +6593,7 @@ def create_app(
                             created_at=created_at,
                             kind="comment_deleted",
                             comment_id=action.comment_id,
-                            comment=agent_preview(None, True),
+                            comment=self.agent_preview(None, True),
                         )
                     case "thread-resolved":
                         change = AgentStateThreadChange(
@@ -6260,10 +6640,11 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent continue-review request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
+            return self.agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
-    @app.post("/api/agent/actions", response_model=AgentActionsResponse)
-    def apply_agent_actions(  # pyright: ignore[reportUnusedFunction]
+    @routes.post("/api/agent/actions", response_model=AgentActionsResponse)
+    def apply_agent_actions(
+        self,
         request: AgentActionsRequest,
     ) -> AgentActionsResponse | PlainTextResponse:
         """Validate and atomically apply one ordered agent-authored batch.
@@ -6294,8 +6675,8 @@ def create_app(
         """
         try:
             snapshot_id = UUID(hex=request.snapshot_id)
-            room = snapshot_room(snapshot_id)
-            if user_profile_store.get(request.profile_id) is None:
+            room = self.snapshot_room(snapshot_id)
+            if self.user_profile_store.get(request.profile_id) is None:
                 raise DirdiffError("Unknown Profile.")
             # One set-based id-addressed read identifies every distinct
             # creation path in the batch; nothing scans or stat-checks the
@@ -6401,10 +6782,11 @@ def create_app(
             )
         except (DirdiffError, ReviewError) as exc:
             LOGGER.exception("Agent actions request failed")
-            return agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
+            return self.agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
-    @app.get("/api/repo-defaults")
-    def serve_repo_defaults(  # pyright: ignore[reportUnusedFunction]
+    @routes.get("/api/repo-defaults")
+    def serve_repo_defaults(
+        self,
         project_id: int = Query(
             description="Marked project id. Required for repo-backed defaults.",
         ),
@@ -6425,7 +6807,7 @@ def create_app(
         - Raises `HTTPException` with status 400 when the Mark is absent or the
           repository backend cannot provide coherent ref metadata.
         """
-        mark = db.get(project_id)
+        mark = self.db.get(project_id)
         if mark is None:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -6435,7 +6817,7 @@ def create_app(
         # One metadata snapshot feeds both derivations so base and review
         # defaults cannot come from different repository states.
         metadata = backend.read_ref_metadata()
-        saved_main_branch = db.get_main_branch(project_id)
+        saved_main_branch = self.db.get_main_branch(project_id)
         default_base_selection = (
             repo_main_branch_record_to_selection(saved_main_branch)
             if saved_main_branch is not None
@@ -6450,8 +6832,9 @@ def create_app(
             }
         )
 
-    @app.get("/api/repo-refs")
-    def serve_repo_refs(  # pyright: ignore[reportUnusedFunction]
+    @routes.get("/api/repo-refs")
+    def serve_repo_refs(
+        self,
         project_id: int = Query(
             description="Marked project id. Required for repo-backed refs.",
         ),
@@ -6471,7 +6854,7 @@ def create_app(
         - Raises `HTTPException` with status 400 when the Mark is absent or the
           repository backend cannot read its refs.
         """
-        mark = db.get(project_id)
+        mark = self.db.get(project_id)
         if mark is None:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -6482,7 +6865,7 @@ def create_app(
             {"ref_choices": ref_choices(backend.read_ref_metadata())}
         )
 
-    @app.post(
+    @routes.post(
         "/api/repos/{project_id}/main-branch",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -6490,7 +6873,8 @@ def create_app(
         },
         summary="Save the repository main branch selection",
     )
-    def save_repo_main_branch(  # pyright: ignore[reportUnusedFunction]
+    def save_repo_main_branch(
+        self,
         project_id: int,
         request: RepoMainBranchRequest,
     ) -> RepoMainBranchResponse:
@@ -6510,7 +6894,7 @@ def create_app(
         """
         # Future auth belongs here: setting shared repository main remote/branch
         # should be admin-only once dirdiff has real users/permissions.
-        mark = db.get(project_id)
+        mark = self.db.get(project_id)
         if mark is None:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -6521,7 +6905,7 @@ def create_app(
             remote = (
                 selection["remote"] if selection["source"] == "remote" else None
             )
-            record = db.set_main_branch(
+            record = self.db.set_main_branch(
                 project_id,
                 source=selection["source"],
                 remote=remote,
@@ -6537,7 +6921,7 @@ def create_app(
             {"project_id": record.project_id, "selection": selection}
         )
 
-    @app.get(
+    @routes.get(
         "/api/presets",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -6545,7 +6929,7 @@ def create_app(
         },
         summary="Load grouped preset metadata",
     )
-    def serve_presets() -> list[PresetCatalogResponse]:  # pyright: ignore[reportUnusedFunction]
+    def serve_presets(self) -> list[PresetCatalogResponse]:
         """List current preset catalogs and their selectable groups.
 
         The root is rescanned for every call, so hot-added catalogs appear
@@ -6559,8 +6943,8 @@ def create_app(
         """
         try:
             return [
-                preset_catalog_response(catalog)
-                for catalog in preset_catalog_dirs()
+                self.preset_catalog_response(catalog)
+                for catalog in self.preset_catalog_dirs()
             ]
         except DirdiffError as exc:
             raise HTTPException(
@@ -6574,8 +6958,8 @@ def create_app(
                 detail="Internal server error.",
             ) from exc
 
-    @app.get("/api/repos")
-    def serve_repos() -> list[RepoMarkResponse]:  # pyright: ignore[reportUnusedFunction]
+    @routes.get("/api/repos")
+    def serve_repos(self) -> list[RepoMarkResponse]:
         """List active repository marks in registry presentation order.
 
         Deactivated marks remain in persistence for Room identity but do not
@@ -6587,10 +6971,10 @@ def create_app(
         """
         return [
             RepoMarkResponse.model_validate(mark, from_attributes=True)
-            for mark in db.list()
+            for mark in self.db.list()
         ]
 
-    @app.delete(
+    @routes.delete(
         "/api/repos/{project_id}",
         status_code=HTTPStatus.NO_CONTENT,
         responses={
@@ -6599,7 +6983,7 @@ def create_app(
         },
         summary="Remove a marked repository",
     )
-    def delete_repo_mark(project_id: int) -> None:  # pyright: ignore[reportUnusedFunction]
+    def delete_repo_mark(self, project_id: int) -> None:
         """Deactivate one repository mark without deleting retained review data.
 
         `project_id` must identify an active Mark. A successful response has no
@@ -6611,7 +6995,7 @@ def create_app(
           404 when no active Mark is changed.
         """
         try:
-            if not db.delete(project_id):
+            if not self.db.delete(project_id):
                 raise HTTPException(
                     status_code=HTTPStatus.NOT_FOUND,
                     detail=f"No marked project with id: {project_id}",
@@ -6625,7 +7009,7 @@ def create_app(
                 detail="Internal server error.",
             ) from exc
 
-    @app.post(
+    @routes.post(
         "/api/pull-request/prepare",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -6633,7 +7017,8 @@ def create_app(
         },
         summary="Prepare immutable repository state for a Pull Request Tab",
     )
-    def prepare_pull_request_endpoint(  # pyright: ignore[reportUnusedFunction]
+    def prepare_pull_request_endpoint(
+        self,
         request: PullRequestPrepareRequest,
     ) -> PullRequestPrepareResponse:
         """Prepare canonical Pull Request commits before manifest capture.
@@ -6651,7 +7036,7 @@ def create_app(
             return pull_request_prepare_response(
                 prepare_pull_request(
                     url=request.url,
-                    repo_marks=db.list(),
+                    repo_marks=self.db.list(),
                 )
             )
         except DirdiffError as exc:
@@ -6666,14 +7051,15 @@ def create_app(
                 detail="Internal server error.",
             ) from exc
 
-    @app.post(
+    @routes.post(
         "/api/user-profile",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
         },
         summary="Create persisted user profile data",
     )
-    def create_user_profile(  # pyright: ignore[reportUnusedFunction]
+    def create_user_profile(
+        self,
         request: UserProfileUpdateRequest,
     ) -> UserProfileResponse:
         """Create one durable Profile selected later by its exact username.
@@ -6689,7 +7075,7 @@ def create_app(
         """
         try:
             return UserProfileResponse.model_validate(
-                user_profile_store.create(request.username),
+                self.user_profile_store.create(request.username),
                 from_attributes=True,
             )
         except ValueError as exc:
@@ -6698,7 +7084,7 @@ def create_app(
                 detail=str(exc),
             ) from exc
 
-    @app.get(
+    @routes.get(
         "/api/user-profile",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -6706,7 +7092,7 @@ def create_app(
         },
         summary="Select persisted user profile data by exact username",
     )
-    def get_user_profile(username: str) -> UserProfileResponse:  # pyright: ignore[reportUnusedFunction]
+    def get_user_profile(self, username: str) -> UserProfileResponse:
         """Return the one existing Profile selected by its exact username.
 
         Username validation failures are client errors and exact absence is 404.
@@ -6723,7 +7109,7 @@ def create_app(
           status 404 when no exact Profile exists.
         """
         try:
-            profile = user_profile_store.get_by_username(username)
+            profile = self.user_profile_store.get_by_username(username)
         except ValueError as exc:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -6739,7 +7125,7 @@ def create_app(
             from_attributes=True,
         )
 
-    @app.patch(
+    @routes.patch(
         "/api/user-profile/{profile_id}",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -6747,7 +7133,8 @@ def create_app(
         },
         summary="Update persisted user profile data",
     )
-    def update_user_profile(  # pyright: ignore[reportUnusedFunction]
+    def update_user_profile(
+        self,
         profile_id: int,
         request: UserProfileUpdateRequest,
     ) -> UserProfileResponse:
@@ -6764,7 +7151,7 @@ def create_app(
           and status 404 for a missing Profile.
         """
         try:
-            profile = user_profile_store.update_username(
+            profile = self.user_profile_store.update_username(
                 profile_id, request.username
             )
         except ValueError as exc:
@@ -6782,14 +7169,14 @@ def create_app(
             from_attributes=True,
         )
 
-    @app.get(
+    @routes.get(
         "/api/user-profile/{profile_id}/preferences",
         responses={
             HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
         },
         summary="Load persisted user preferences",
     )
-    def serve_preferences(profile_id: int) -> PreferencesResponse:  # pyright: ignore[reportUnusedFunction]
+    def serve_preferences(self, profile_id: int) -> PreferencesResponse:
         """Return one Profile's complete preferences, creating defaults if absent.
 
         `profile_id` must identify an existing Profile. Default creation is the
@@ -6801,25 +7188,26 @@ def create_app(
         - Raises `HTTPException` with status 404 when `profile_id` does not name
           an existing Profile. Persistence failures propagate.
         """
-        profile = user_profile_store.get(profile_id)
+        profile = self.user_profile_store.get(profile_id)
         if profile is None:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=f"User profile not found: {profile_id}.",
             )
         return PreferencesResponse.model_validate(
-            preferences_store.get_or_create(profile_id),
+            self.preferences_store.get_or_create(profile_id),
             from_attributes=True,
         )
 
-    @app.patch(
+    @routes.patch(
         "/api/user-profile/{profile_id}/preferences",
         responses={
             HTTPStatus.NOT_FOUND: {"model": ErrorResponse},
         },
         summary="Update persisted user preferences",
     )
-    def update_preferences(  # pyright: ignore[reportUnusedFunction]
+    def update_preferences(
+        self,
         profile_id: int,
         request: PreferencesUpdateRequest,
     ) -> PreferencesResponse:
@@ -6835,20 +7223,20 @@ def create_app(
         - Raises `HTTPException` with status 404 when `profile_id` does not name
           an existing Profile. Persistence failures propagate.
         """
-        profile = user_profile_store.get(profile_id)
+        profile = self.user_profile_store.get(profile_id)
         if profile is None:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=f"User profile not found: {profile_id}.",
             )
         return PreferencesResponse.model_validate(
-            preferences_store.set_aggressive_folds(
+            self.preferences_store.set_aggressive_folds(
                 profile_id, request.aggressive_folds
             ),
             from_attributes=True,
         )
 
-    @app.get(
+    @routes.get(
         "/api/manifest",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -6856,7 +7244,8 @@ def create_app(
         },
         summary="Show the repository state selected by a Tab",
     )
-    def serve_manifest(  # pyright: ignore[reportUnusedFunction]
+    def serve_manifest(
+        self,
         project_id: str = Query(
             description="Manifest project id: marked project id for repo-backed Tabs, preset catalog id for Preset.",
         ),
@@ -6921,9 +7310,9 @@ def create_app(
         - Logs unexpected capture or persistence failures and raises status 500.
         """
         try:
-            room, snapshot_id, preset_name = capture_snapshot(
+            room, snapshot_id, preset_name = self.capture_snapshot(
                 project_id=project_id,
-                selection=manifest_capture_selection(
+                selection=self.manifest_capture_selection(
                     project_id=project_id,
                     tab=tab,
                     branch_selections=branch_selections,
@@ -6998,7 +7387,7 @@ def create_app(
 
         return RepoManifestResponse.model_validate(payload)
 
-    @app.get(
+    @routes.get(
         "/api/lazy-info",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -7006,7 +7395,8 @@ def create_app(
         },
         summary="Load repository lazy file metadata",
     )
-    def serve_lazy_info(  # pyright: ignore[reportUnusedFunction]
+    def serve_lazy_info(
+        self,
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
@@ -7030,7 +7420,7 @@ def create_app(
                 raise DirdiffError(
                     f"Unknown snapshot id: {snapshot_id}"
                 ) from exc
-            room = room_lord.find_room(snapshot_key)
+            room = self.room_lord.find_room(snapshot_key)
             snapshot_meta = room.meta(snapshot_key)
             lazy_paths = tuple(
                 sorted(
@@ -7083,7 +7473,7 @@ def create_app(
 
         return LazyInfoResponse.model_validate(payload)
 
-    @app.get(
+    @routes.get(
         "/api/file-diff",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -7091,7 +7481,8 @@ def create_app(
         },
         summary="Load a single file diff",
     )
-    def serve_file_diff(  # pyright: ignore[reportUnusedFunction]
+    def serve_file_diff(
+        self,
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
@@ -7136,7 +7527,7 @@ def create_app(
                 pair = FilePair(left_path, right_path)
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
-            room = room_lord.find_room(snapshot_key)
+            room = self.room_lord.find_room(snapshot_key)
             left = Path(pair.left_path) if pair.left_path is not None else None
             right = (
                 Path(pair.right_path) if pair.right_path is not None else None
@@ -7144,7 +7535,7 @@ def create_app(
             left_file, right_file, file_meta = room.get(
                 snapshot_key, left, right
             )
-            payload = render_loaded_snapshot_file(
+            payload = self.render_loaded_snapshot_file(
                 room=room,
                 snapshot_id=snapshot_key,
                 engine_name=engine,
@@ -7167,7 +7558,7 @@ def create_app(
 
         return payload
 
-    @app.get(
+    @routes.get(
         "/api/file-media",
         responses={
             HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
@@ -7176,7 +7567,8 @@ def create_app(
         summary="Serve one captured media side",
         response_class=Response,
     )
-    def serve_file_media(  # pyright: ignore[reportUnusedFunction]
+    def serve_file_media(
+        self,
         snapshot_id: str = Query(
             description="Opaque Snapshot id returned by /api/manifest.",
         ),
@@ -7235,7 +7627,7 @@ def create_app(
                 pair = FilePair(left_path, right_path)
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
-            room = room_lord.find_room(snapshot_key)
+            room = self.room_lord.find_room(snapshot_key)
             left_file, right_file, file_meta = room.get(
                 snapshot_key,
                 Path(pair.left_path) if pair.left_path is not None else None,
@@ -7284,6 +7676,60 @@ def create_app(
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
 
+
+def create_app(
+    db: RepoMarkStore,
+    user_profile_store: UserProfileStore | None = None,
+    preferences_store: PreferencesStore | None = None,
+    *,
+    room_lord: RoomLord,
+    presets_root: str | None = None,
+) -> FastAPI:
+    """Create the dirdiff FastAPI app and wire request orchestration.
+
+    The app layer performs HTTP validation, database-backed repo-mark access, concrete
+    backend construction, notebook detection, and response-model validation.
+    The caller provides the `RoomLord` that selects prepared Rooms for manifest
+    and recovers them by Snapshot key for follow-up operations. Storage and
+    capture remain behind that interface. The server delegates already-loaded
+    text rendering to the selected diff engine.
+
+    # Parameters
+
+    - `db`: Repository registry and source of the shared SQLAlchemy engine.
+    - `user_profile_store`: Profile persistence, or `None` to bind one to the
+      registry engine.
+    - `preferences_store`: Preference persistence, or `None` to bind one to the
+      registry engine.
+    - `room_lord`: Application boundary for Room selection and Snapshot lookup.
+    - `presets_root`: Optional catalog root; omission uses the project's test
+      presets directory at request time.
+
+    # Usage
+
+    Construct the stores and `RoomLord` once for one database and Snapshot root,
+    then keep the returned application for the server lifetime. Tests may omit
+    Profile and preference stores to derive both from the registry engine.
+
+    # Failures
+
+    - Construction propagates dependency and route-registration failures. HTTP
+      operation failures are handled by the installed application handlers.
+    """
+    if user_profile_store is None:
+        user_profile_store = UserProfileStore(db.engine)
+    if preferences_store is None:
+        preferences_store = PreferencesStore(db.engine)
+
+    server = _Server(
+        db,
+        user_profile_store,
+        preferences_store,
+        room_lord=room_lord,
+        presets_root=presets_root,
+    )
+    app = FastAPI()
+    _Server.routes.register(app, server)
     return app
 
 
