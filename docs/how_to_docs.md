@@ -200,8 +200,9 @@ class Room:
         self._thread_lock = thread_lock
 ```
 
-It's the documentation for `Room` class in `room_lord` module.
-It's the public API for callers such as routes in server.py.
+It's the documentation for `Room` class in `room_lord` module, which, at the
+time of writing, is the public API for callers such as route handlers in server
+package.
 I can't call it *bad*  per se, because while it does checks all the marks, but
 let's rewrite it to make more sense and highlight important accents.
 

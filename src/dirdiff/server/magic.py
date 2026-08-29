@@ -9,10 +9,25 @@ interface. FastAPI and Starlette handle every HTTP entity after registration.
 
 ---
 Hi, human here.
-The goal of this module is to keep the hot-reloading entrypoint of uvicorn
-without clamping it all into one closure.
-So this class here is doing all the dark magic stuff with hot patching
-FastAPI app to invert dependency and structure our code the way we want.
+The goal of this module is to combine the following:
+- Nice app.get() decorators so that handler and the route stays together,
+unlike in some other frameworks
+- One entrypoint for uvicorn hot-reloading
+- Dependency Injection of our services and stores
+- Potentially even make it public for doc generators
+
+Before we solved this with one gigantic create_app() function that did
+all of that, but, well, I don't need to tell you that this scales badly.
+Instead we have this `ClassRoutes` class that does it in two steps:
+- First you record everything using that class that proxies all the FastAPI
+decorators (well, all we need, at least).
+- Then you call `ClassRoutes.register()` to actually bind all of it to FastAPI
+app.
+
+Et voila, now you have all that in a nice class-based syntax, which
+lets you declare your dependencies and capabilities and manipulate them in
+whatever way you want.
+Very demure, I would say.
 """
 
 from collections.abc import Callable
@@ -45,7 +60,7 @@ class _HttpRouteDeclaration:
 
     Each instance contains only the FastAPI options used by this module. The
     endpoint remains the original class-body function until `ClassRoutes`
-    validates and binds it to one `_Server`.
+    validates and binds it to one route-group instance.
     """
 
     method: Literal["GET", "POST", "PATCH", "DELETE"]
@@ -77,7 +92,7 @@ class _HttpRouteDeclaration:
 class _ExceptionHandlerDeclaration:
     """Retain one exception-handler declaration until app construction.
 
-    The exception class and original `_Server` function are the complete
+    The exception class and original route-group function are the complete
     declaration. FastAPI receives the bound method only after validation.
     """
 
@@ -95,11 +110,12 @@ type _ClassRouteDeclaration = (
 
 
 class ClassRoutes:
-    """Collect and bind the small FastAPI decorator set used by `_Server`.
+    """Collect and bind the FastAPI decorator set used by one route group.
 
     Decorators record declarations and return their exact input functions.
     `register` first validates the complete declaration set, then binds each
-    function to one concrete `_Server` and gives it to FastAPI in source order.
+    function to one concrete route-group instance and gives it to FastAPI in
+    source order.
 
     The collector stores no application, server, database, or other runtime
     interface. It does not dispatch HTTP entities after construction.
@@ -132,7 +148,7 @@ class ClassRoutes:
 
         # Returns
 
-        - A decorator accepting one undecorated `_Server` function.
+        - A decorator accepting one undecorated route-group function.
         - Applying it records the declaration and returns that exact function.
         """
         return self._http_route(
@@ -168,7 +184,7 @@ class ClassRoutes:
 
         # Returns
 
-        - A decorator accepting one undecorated `_Server` function.
+        - A decorator accepting one undecorated route-group function.
         - Applying it records the declaration and returns that exact function.
         """
         return self._http_route(
@@ -204,7 +220,7 @@ class ClassRoutes:
 
         # Returns
 
-        - A decorator accepting one undecorated `_Server` function.
+        - A decorator accepting one undecorated route-group function.
         - Applying it records the declaration and returns that exact function.
         """
         return self._http_route(
@@ -240,7 +256,7 @@ class ClassRoutes:
 
         # Returns
 
-        - A decorator accepting one undecorated `_Server` function.
+        - A decorator accepting one undecorated route-group function.
         - Applying it records the declaration and returns that exact function.
         """
         return self._http_route(
@@ -278,7 +294,7 @@ class ClassRoutes:
 
         # Returns
 
-        - A decorator accepting one undecorated `_Server` function.
+        - A decorator accepting one undecorated route-group function.
         - Applying it records the declaration and returns that exact function.
         """
 
@@ -313,7 +329,7 @@ class ClassRoutes:
 
         # Returns
 
-        - A decorator accepting one undecorated `_Server` function.
+        - A decorator accepting one undecorated route-group function.
         - Applying it records the declaration and returns that exact function.
         """
 

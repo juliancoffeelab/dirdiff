@@ -214,10 +214,15 @@ Defines FastAPI routes and request-level rendering orchestration.
 
 The package facade preserves the application factory, runtime configuration,
 response contract, and branch-selection imports used by the CLI and tests.
-`base.py` contains startup and route-metadata contracts shared inside the
-package. `magic.py` records class-local route declarations and binds them during
-application construction. `app.py` defines the HTTP models, handlers, and
-factories.
+`base.py` contains startup, shared HTTP, route-metadata, and Snapshot-capture
+contracts used by multiple route groups. `magic.py` records class-local route
+declarations and binds them during application construction.
+`external_agent.py` defines the external-agent HTTP contract and routes;
+`review.py` defines browser review routes; `repos.py` defines repository
+registry and ref-selection routes; and `diff.py` defines preset, manifest,
+lazy File, diff, and media routes. `app.py` keeps Profile and preference
+routes, the application-wide error boundary, application composition, and the
+uvicorn factory.
 
 It validates HTTP inputs and outputs, constructs the concrete workspace backend,
 calls `RoomLord` for manifests and follow-up Snapshot lookup, asks

@@ -866,7 +866,7 @@ A new package `dirdiff.formats`, following the project's package rules:
   `blob.py` for its only bay, which is two callers in sibling modules and
   therefore belongs there rather than in either of them.
 - `__init__.py` is a facade of re-exports only.
-- `server.py` calls the facade and never a submodule.
+- `dirdiff.server.diff` calls the facade and never a submodule.
 
 `dirdiff.notebooks` dissolves into `dirdiff.formats.notebook`. The server's
 `build_text_file_payload` and `build_notebook_file_payload_if_applicable`
@@ -1137,13 +1137,13 @@ should read as HTTP work and nothing else.
 For `/api/file-diff` that is: recover the Room, load the two captured byte
 sides, build one `ComposeContext`, call `compose()`, and return what it gives
 back. Attaching the display name and file kind stays until the TODO in
-`server.py` is resolved, so the target is minimal rather than empty.
+`dirdiff.server.diff` is resolved, so the target is minimal rather than empty.
 
 `render_loaded_snapshot_file` now reads as that: it checks the capture error,
 loads the two byte sides, builds one `ComposeContext`, calls `compose()`, and
 attaches the display name and file kind. Decoding, engine selection, and payload
 assembly moved into composition. The two attached fields stay until the TODO in
-`server.py` is resolved, so the handler is minimal rather than empty.
+`dirdiff.server.diff` is resolved, so the handler is minimal rather than empty.
 
 The same standard applies to the route this design added. `/api/file-media`
 resolves a Snapshot, calls `bays()`, and writes one side's bytes with the media
