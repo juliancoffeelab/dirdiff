@@ -12,8 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-__all__: list[str] = []
-
 
 def test_cli_cram_transcripts() -> None:
     """Run the Mark CLI transcript with the current environment's executables.

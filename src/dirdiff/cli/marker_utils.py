@@ -45,9 +45,7 @@ helpers invoked directly. Blank values are treated as absent.
 __all__ = [
     "DB_PATH_ENV",
     "DEFAULT_DB_PATH",
-    "absolute_repo_path",
     "db_path_or_default",
-    "duplicate_repo_path_error",
     "mark_repo",
     "print_marked_repos",
     "remove_marked_repo",

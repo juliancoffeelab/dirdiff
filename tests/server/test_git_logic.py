@@ -10,8 +10,6 @@ separate from repository loading, HTTP serialization, and syntax enrichment.
 from dirdiff.engines import DiffSide
 from dirdiff.engines.git import GitDiffEngine
 
-__all__: list[str] = []
-
 
 def test_git_engine_keeps_equal_source_outside_patch_hunks() -> None:
     """Sparse unified-patch context expands back to every source line.

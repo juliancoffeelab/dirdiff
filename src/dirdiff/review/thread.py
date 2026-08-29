@@ -48,24 +48,24 @@ from dirdiff.review.base import (
     ThreadPlacementView,
     ThreadSummaryView,
     ThreadUpdateView,
-    _nonblank,
-    _now,
-    _room_write_lock,
-    _validate_author,
+    action_timestamp,
+    room_write_lock,
+    validate_author,
+    validate_comment_body,
 )
 from dirdiff.review.placement import (
-    _BayStartPlacement,
-    _build_original_excerpt,
-    _file_pair,
-    _FileMissingPlacement,
-    _FileStartPlacement,
-    _FileUnreadablePlacement,
-    _origin_target_dict,
-    _Placement,
-    _placement_of,
-    _plan_thread_creation,
-    _RangePlacement,
-    _ReviewReadCache,
+    BayStartPlacement,
+    FileMissingPlacement,
+    FileStartPlacement,
+    FileUnreadablePlacement,
+    Placement,
+    RangePlacement,
+    ReviewReadCache,
+    build_original_excerpt,
+    file_pair,
+    origin_target_view,
+    placement_from_record,
+    plan_thread_creation,
 )
 
 __all__ = [
@@ -336,9 +336,9 @@ def append_review_action(
     - Raises `AssertionError` for an impossible internal operation shape or
       persisted history.
     """
-    with _room_write_lock(thread_lock, lock_path):
+    with room_write_lock(thread_lock, lock_path):
         profile_id = author.profile_id
-        profile = _validate_author(database, author)
+        profile = validate_author(database, author)
         persisted = database.review_actions(snapshot_id.hex, thread_id.hex)
         if persisted is None:
             raise ReviewError(
@@ -356,7 +356,7 @@ def append_review_action(
 
         if kind == "comment-created":
             assert comment_id is not None and body is not None
-            _nonblank(body)
+            validate_comment_body(body)
             accepted_revision = None
         elif kind in {"comment-edited", "comment-deleted"}:
             assert comment_id is not None
@@ -377,7 +377,7 @@ def append_review_action(
             accepted_revision = comment["revision"]
             if kind == "comment-edited":
                 assert body is not None
-                _nonblank(body)
+                validate_comment_body(body)
         else:
             accepted_revision = None
             if kind == "thread-resolved" and state != "open":
@@ -399,7 +399,7 @@ def append_review_action(
             comment_id=comment_id.hex if comment_id is not None else None,
             expected_revision=accepted_revision,
             body=body,
-            created_at=_now(),
+            created_at=action_timestamp(),
             status_after=(
                 "resolved"
                 if kind == "thread-resolved"
@@ -447,7 +447,7 @@ class _ThreadFiles:
     located variants require a record whose pair equals `origin_file`.
     """
 
-    cache: _ReviewReadCache
+    cache: ReviewReadCache
     """Composition cache shared by handles hydrated in the same read operation.
 
     It avoids decoding a File twice while building views and is discarded with
@@ -511,12 +511,12 @@ class Thread:
         # The store returns the flat row shape; every read on this handle wants
         # the proven one, so both are converted once here rather than at each
         # interpreting read.
-        self._placement = _placement_of(placement)
-        origin_placement = _placement_of(origin)
+        self._placement = placement_from_record(placement)
+        origin_placement = placement_from_record(origin)
         assert isinstance(
-            origin_placement, (_RangePlacement, _FileStartPlacement)
+            origin_placement, (RangePlacement, FileStartPlacement)
         ), "a discussion origin is a stored range or File-start row"
-        self._origin: _RangePlacement | _FileStartPlacement = origin_placement
+        self._origin: RangePlacement | FileStartPlacement = origin_placement
         self._action_records = actions
         self._profiles = profiles
         # Mutated once by `_located_files` when constructed deferred; every
@@ -525,7 +525,7 @@ class Thread:
 
     def _records(
         self,
-    ) -> tuple[_Placement, _RangePlacement | _FileStartPlacement]:
+    ) -> tuple[Placement, RangePlacement | FileStartPlacement]:
         """Return the proven selected placement and unique immutable origin.
 
         Both values were validated from flat persistence rows during handle
@@ -572,9 +572,9 @@ class Thread:
             # An unreadable File is present and deliberately unreferenced, so
             # it asks for neither: proving its absence would fail, and loading
             # it would offer bytes no read may use.
-            if isinstance(placement, _FileMissingPlacement):
+            if isinstance(placement, FileMissingPlacement):
                 absent_refs = (origin_ref,)
-            elif not isinstance(placement, _FileUnreadablePlacement):
+            elif not isinstance(placement, FileUnreadablePlacement):
                 selected_ids = (placement.snapshot_file_id,)
             origin_files, selected_files, conflicts = (
                 self._database.review_thread_files(
@@ -591,7 +591,7 @@ class Thread:
             if selected_ids != ():
                 assert not isinstance(
                     placement,
-                    _FileMissingPlacement | _FileUnreadablePlacement,
+                    FileMissingPlacement | FileUnreadablePlacement,
                 )
                 selected_file = selected_files.get(placement.snapshot_file_id)
                 assert selected_file is not None, (
@@ -600,7 +600,7 @@ class Thread:
             self._files = _ThreadFiles(
                 origin_file=origin_files[origin_ref],
                 selected_file=selected_file,
-                cache=_ReviewReadCache(),
+                cache=ReviewReadCache(),
             )
         return self._files
 
@@ -621,9 +621,9 @@ class Thread:
         """
         placement, origin = self._records()
         files = self._located_files()
-        if isinstance(placement, _FileUnreadablePlacement):
+        if isinstance(placement, FileUnreadablePlacement):
             return {"kind": "file-unreadable"}
-        if isinstance(placement, _FileMissingPlacement):
+        if isinstance(placement, FileMissingPlacement):
             assert files.selected_file is None, (
                 "file_missing placement has an exact Snapshot File"
             )
@@ -638,17 +638,17 @@ class Thread:
         # The File pair travels once, on the origin. A placement that named
         # another File would be read under the origin's paths with nothing
         # left to contradict it, so the equality is proven here instead.
-        assert _file_pair(target_file) == _file_pair(files.origin_file), (
+        assert file_pair(target_file) == file_pair(files.origin_file), (
             "placement references the wrong Snapshot File pair"
         )
         assert placement.side == origin.side, (
             "placement selects the side the origin did not"
         )
         match placement:
-            case _RangePlacement():
+            case RangePlacement():
                 # A matched region stays inside the bay it was written in, so
                 # the bay the wire omits here is exactly the origin's.
-                assert isinstance(origin, _RangePlacement), (
+                assert isinstance(origin, RangePlacement), (
                     "a File-level origin never matches a region"
                 )
                 assert placement.bay_key == origin.bay_key, (
@@ -665,11 +665,11 @@ class Thread:
                         "end_line": placement.end_line,
                     },
                 }
-            case _BayStartPlacement():
+            case BayStartPlacement():
                 if placement.outdated_reason == "region_not_found":
                     # Only the region inside the bay was lost, so this landing
                     # also sits in the origin's own bay.
-                    assert isinstance(origin, _RangePlacement), (
+                    assert isinstance(origin, RangePlacement), (
                         "a File-level origin never loses a region"
                     )
                     assert placement.bay_key == origin.bay_key, (
@@ -680,9 +680,9 @@ class Thread:
                     "kind": "bay-lost",
                     "bay": {"bay_key": placement.bay_key},
                 }
-            case _FileStartPlacement():
+            case FileStartPlacement():
                 if placement.outdated_reason is None:
-                    assert isinstance(origin, _FileStartPlacement), (
+                    assert isinstance(origin, FileStartPlacement), (
                         "a text origin never rests on its File unchanged"
                     )
                     return {"kind": "whole-file"}
@@ -711,13 +711,13 @@ class Thread:
         actions = self._actions()
         state, attention, comments = fold_actions(actions, self._profiles)
         files = self._located_files()
-        origin_target = _origin_target_dict(origin, files.origin_file)
-        if isinstance(origin, _RangePlacement):
+        origin_target = origin_target_view(origin, files.origin_file)
+        if isinstance(origin, RangePlacement):
             # Only a discussion read builds an excerpt, and it belongs to the
             # origin it is cut from. The summary path reads no captured text,
             # so the key is attached here rather than by the shared builder.
             assert origin_target["kind"] == "text"
-            origin_target["excerpt"] = _build_original_excerpt(
+            origin_target["excerpt"] = build_original_excerpt(
                 origin, files.origin_file, files.cache
             )
         return ThreadDiscussionView(
@@ -760,7 +760,7 @@ class Thread:
             thread_id=self.thread_id.hex,
             state=state,
             attention=attention,
-            origin_target=_origin_target_dict(origin, files.origin_file),
+            origin_target=origin_target_view(origin, files.origin_file),
             placement=self._placement_view(),
             first_comment=comments[0],
             latest_comment=comments[-1],
@@ -1182,7 +1182,7 @@ def _bind_threads(
         absent_origin_refs,
     )
     assert conflicts == (), "file_missing placement has an exact Snapshot File"
-    cache = _ReviewReadCache()
+    cache = ReviewReadCache()
     threads: list[Thread] = []
     for origin in data.origins:
         placement = placements[origin.thread_id]
@@ -1320,8 +1320,8 @@ def create_thread(
       internal review invariant.
     """
 
-    with _room_write_lock(thread_lock, lock_path):
-        profile = _validate_author(database, command.author)
+    with room_write_lock(thread_lock, lock_path):
+        profile = validate_author(database, command.author)
         # One focused File read replaces hydrating the whole Snapshot: the
         # creation needs exactly its target File and Snapshot visibility.
         snapshot_exists, loaded_target = database.snapshot_file(
@@ -1332,9 +1332,9 @@ def create_thread(
         )
         if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        cache = _ReviewReadCache()
-        created_at = _now()
-        rows, first_action = _plan_thread_creation(
+        cache = ReviewReadCache()
+        created_at = action_timestamp()
+        rows, first_action = plan_thread_creation(
             command=command,
             created_at=created_at,
             snapshot_id=snapshot_id.hex,

@@ -15,17 +15,14 @@ their callers.
 
 from dirdiff.db.base import (
     TableBase,
-    bootstrap_tables,
     open_ephemeral_engine,
     open_sqlite_engine,
 )
 from dirdiff.db.preferences import (
-    PreferencesRecord,
     PreferencesStore,
 )
 from dirdiff.db.repo_registry import (
     RepoMainBranchRecord,
-    RepoMarkRecord,
     RepoMarkStore,
 )
 from dirdiff.db.room import (
@@ -34,7 +31,6 @@ from dirdiff.db.room import (
     ReviewThreadsRecord,
     RoomIdentity,
     RoomStore,
-    SnapshotFileLoadRecord,
     SnapshotFileRecord,
     SnapshotFileSideRecord,
     SnapshotMetaRecord,
@@ -46,17 +42,14 @@ from dirdiff.db.user_profile import (
 )
 
 __all__ = [
-    "PreferencesRecord",
     "PreferencesStore",
     "RepoMainBranchRecord",
-    "RepoMarkRecord",
     "RepoMarkStore",
     "ReviewActionRecord",
     "ReviewThreadRecord",
     "ReviewThreadsRecord",
     "RoomIdentity",
     "RoomStore",
-    "SnapshotFileLoadRecord",
     "SnapshotFileRecord",
     "SnapshotFileSideRecord",
     "SnapshotMetaRecord",
@@ -64,7 +57,6 @@ __all__ = [
     "TableBase",
     "UserProfileRecord",
     "UserProfileStore",
-    "bootstrap_tables",
     "open_ephemeral_engine",
     "open_sqlite_engine",
 ]

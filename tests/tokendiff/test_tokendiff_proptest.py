@@ -38,8 +38,6 @@ The property helpers use the value only to choose `left` or `right` fields from
 an operation. It never represents a diff status or an absent source.
 """
 
-__all__: list[str] = []
-
 
 def _preset_cases() -> list[ParameterSet]:
     """Collect readable old/new preset pairs with stable pytest identities.

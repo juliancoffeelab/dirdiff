@@ -7,8 +7,6 @@ covers the broader parser/query corpus.
 
 from helpers import build_loaded_diff
 
-__all__: list[str] = []
-
 
 def test_fold_hints_include_unchanged_top_level_function_body() -> None:
     """Hide an unchanged top-level function while leaving its signature visible.

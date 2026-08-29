@@ -73,14 +73,11 @@ mapping. An unsupported backend change type is a contract violation and raises
 """
 
 __all__ = [
-    "GENERATED_FILES",
-    "GIT_FILE_STATUS_BY_CHANGE_TYPE",
     "RepoManifest",
     "build_lazy_info_for_paths",
     "build_repo_manifest_for_backend",
     "build_repo_manifest_for_paths",
     "file_kind_for_change_type",
-    "file_kind_for_repo_entry",
 ]
 
 

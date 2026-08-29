@@ -42,8 +42,6 @@ Fuzz assertions use it to select line numbers, texts, and inline tokens from
 one result. It does not encode mutation direction or row status.
 """
 
-__all__: list[str] = []
-
 
 def _preset_sources() -> list[ParameterSet]:
     """Collect each readable preset side as an independent mutation seed.

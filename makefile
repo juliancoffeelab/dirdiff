@@ -29,7 +29,7 @@ flake-cst:
 	uv --no-cache run flake8 --jobs 1 --select CST001 src tests lints
 
 flake-hlp:
-	uv --no-cache run flake8 --jobs 1 --select HLP002,HLP003 src tests lints
+	uv --no-cache run flake8 --jobs 1 --select HLP002,HLP003,HLP004,HLP005,HLP006 src tests lints
 
 flake-ddd:
 	uv --no-cache run flake8 --jobs 1 --select DDD src tests lints

@@ -19,8 +19,6 @@ from dirdiff.rendering import (
     weave_decorated_parts,
 )
 
-__all__: list[str] = []
-
 
 def test_preset_highlights_use_declared_syntax_classes() -> None:
     """Check real preset captures against the complete public CSS vocabulary.

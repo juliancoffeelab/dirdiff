@@ -2,8 +2,8 @@
 
 Import the common input, row, warning, and result contracts from
 `dirdiff.engines`. `engine()` selects the implementation named by an
-`EngineKind`; concrete engine classes are also available when the caller has
-already made that choice.
+`EngineKind`; concrete classes used directly elsewhere in the repository are
+also part of this facade.
 
 ## Purpose and boundaries
 
@@ -68,12 +68,10 @@ __all__ = [
     "DiffEngineRow",
     "DiffSide",
     "DiffSummary",
-    "DifftasticDiffEngine",
     "DirdiffError",
     "EngineKind",
     "EngineWarning",
     "GitDiffEngine",
-    "GumTreeDiffEngine",
     "InlineToken",
     "InlineTokenStatus",
     "TextDiffEngine",

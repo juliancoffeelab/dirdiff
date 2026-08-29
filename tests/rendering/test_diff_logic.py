@@ -8,8 +8,6 @@ interaction.
 
 from helpers import build_loaded_diff
 
-__all__: list[str] = []
-
 
 def test_counts_whitespace_only_changes_as_modified() -> None:
     """Count changed indentation even when the row remains visually equal.

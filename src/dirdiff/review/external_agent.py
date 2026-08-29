@@ -38,13 +38,13 @@ from dirdiff.review.base import (
     CreateThread,
     FilePair,
     ReviewError,
-    _nonblank,
-    _now,
-    _room_write_lock,
+    action_timestamp,
+    room_write_lock,
+    validate_comment_body,
 )
 from dirdiff.review.placement import (
-    _plan_thread_creation,
-    _ReviewReadCache,
+    ReviewReadCache,
+    plan_thread_creation,
 )
 from dirdiff.review.thread import fold_actions
 
@@ -277,7 +277,7 @@ def apply_review_batch(
     """
     if batch == ():
         raise ReviewError("invalid_target", "Review batch cannot be empty.")
-    with _room_write_lock(thread_lock, lock_path):
+    with room_write_lock(thread_lock, lock_path):
         # One set-based File read replaces hydrating the whole Snapshot:
         # only the batch's distinct creation targets are loaded, in a single
         # query and transaction that also answers Snapshot visibility.
@@ -304,7 +304,7 @@ def apply_review_batch(
             for pair in creation_pairs
             if (pair.left_path, pair.right_path) in found_by_pair
         }
-        cache = _ReviewReadCache()
+        cache = ReviewReadCache()
         placements: list[ReviewThreadRecord] = []
         records: list[ReviewActionRecord] = []
         results: list[ReviewBatchResult] = []
@@ -348,9 +348,9 @@ def apply_review_batch(
 
         for action in batch:
             if isinstance(action, CreateThread):
-                rows, first_action = _plan_thread_creation(
+                rows, first_action = plan_thread_creation(
                     command=action,
-                    created_at=_now(),
+                    created_at=action_timestamp(),
                     snapshot_id=snapshot_id.hex,
                     target_file=selected_files_by_pair.get(action.target.file),
                     cache=cache,
@@ -392,7 +392,7 @@ def apply_review_batch(
                 raise ReviewError("state_conflict", "Thread is deleted.")
             if isinstance(action, ReplyToThread):
                 reply = action.command
-                _nonblank(reply.body)
+                validate_comment_body(reply.body)
                 allowed_attention = {
                     "author-response": {"author", "both"},
                     "reviewer-return": {"reviewer", "both"},
@@ -422,7 +422,7 @@ def apply_review_batch(
                     comment_id=reply.comment_id.hex,
                     expected_revision=None,
                     body=reply.body,
-                    created_at=_now(),
+                    created_at=action_timestamp(),
                     status_after=state,
                     attention_after=next_attention,
                 )
@@ -440,7 +440,7 @@ def apply_review_batch(
                         "state_conflict",
                         "reviewer-resolve requires an open reviewer-attention Thread.",
                     )
-                _nonblank(resolve.body)
+                validate_comment_body(resolve.body)
                 record = ReviewActionRecord(
                     operation_id=resolve.operation_id.hex,
                     thread_id=thread_key,
@@ -451,7 +451,7 @@ def apply_review_batch(
                     comment_id=resolve.comment_id.hex,
                     expected_revision=None,
                     body=resolve.body,
-                    created_at=_now(),
+                    created_at=action_timestamp(),
                     status_after="resolved",
                     attention_after="none",
                 )
@@ -475,7 +475,7 @@ def apply_review_batch(
                     comment_id=None,
                     expected_revision=None,
                     body=None,
-                    created_at=_now(),
+                    created_at=action_timestamp(),
                     status_after="deleted",
                     attention_after="none",
                 )

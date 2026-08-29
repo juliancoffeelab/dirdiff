@@ -36,8 +36,6 @@ from dirdiff.formats import (
     TextBay,
 )
 
-__all__: list[str] = []
-
 
 def test_image_pair_composes_picture_metadata_and_facts_bays() -> None:
     """A `.png` pair composes picture, parsed metadata, and byte facts.

@@ -4,8 +4,8 @@
 
 `open_sqlite_engine` opens a persistent database and brings its schema to the
 current declared form. `open_ephemeral_engine` provides the same schema in an
-in-memory database. `bootstrap_tables` performs that schema work for callers
-that already have an engine.
+in-memory database. Their internal `bootstrap_tables` operation performs that
+schema work on an already-constructed engine.
 
 `TableBase` is the common SQLAlchemy metadata root. The exported
 `UserProfileRecord` is the Profile identity shared by Profile and review

@@ -79,7 +79,7 @@ from dirdiff.server.base import (
 )
 from dirdiff.server.magic import ClassRoutes
 
-__all__ = ["ComposedDiffResponse", "DiffRoutes", "selected_branch_selections"]
+__all__ = ["ComposedDiffResponse", "DiffRoutes"]
 
 LOGGER = logging.getLogger(__name__)
 """Record unexpected failures at this HTTP boundary."""

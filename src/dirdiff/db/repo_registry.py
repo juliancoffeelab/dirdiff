@@ -41,7 +41,6 @@ from dirdiff.db.base import TableBase
 
 __all__ = [
     "RepoMainBranchRecord",
-    "RepoMarkRecord",
     "RepoMarkStore",
 ]
 

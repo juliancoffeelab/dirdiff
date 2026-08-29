@@ -34,8 +34,6 @@ Approving their incidental failure output would hide that they do not satisfy
 the source-pair contract.
 """
 
-__all__: list[str] = []
-
 
 class FoldGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
     """Bind each eligible source preset to its checked-in enriched fold hints.

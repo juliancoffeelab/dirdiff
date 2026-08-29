@@ -39,9 +39,7 @@ from dirdiff.rendering.fold import (
 )
 
 __all__ = [
-    "DecoratedPart",
     "DiffRow",
-    "EnrichedRows",
     "SyntaxClass",
     "SyntaxSpan",
     "enrich_rows_for_display",

@@ -38,18 +38,22 @@ __all__ = [
     "FilePair",
     "LineRange",
     "ProfileAuthor",
+    "ReviewCommentView",
     "ReviewError",
     "ReviewErrorCode",
+    "ReviewExcerptView",
+    "ReviewFilePairView",
     "ReviewOriginView",
-    "ReviewTarget",
+    "ReviewProfileView",
     "TextTarget",
     "ThreadDiscussionView",
     "ThreadPlacementView",
     "ThreadSummaryView",
-    "_nonblank",
-    "_now",
-    "_room_write_lock",
-    "_validate_author",
+    "ThreadUpdateView",
+    "action_timestamp",
+    "room_write_lock",
+    "validate_author",
+    "validate_comment_body",
 ]
 
 ReviewErrorCode = Literal[
@@ -1145,7 +1149,7 @@ class ThreadUpdateView(TypedDict):
     """
 
 
-def _now() -> str:
+def action_timestamp() -> str:
     """Return the current UTC time serialized once for an immutable action.
 
     Callers invoke this at the point an action is planned. They reuse the
@@ -1155,7 +1159,7 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _nonblank(body: str) -> None:
+def validate_comment_body(body: str) -> None:
     """Validate that authored Comment text contains a non-whitespace character.
 
     The body itself is not trimmed or rewritten. Invalid input raises the typed
@@ -1170,7 +1174,7 @@ def _nonblank(body: str) -> None:
         raise ReviewError("invalid_target", "Comment body cannot be blank.")
 
 
-def _validate_author(
+def validate_author(
     database: RoomStore, author: ProfileAuthor
 ) -> UserProfileRecord:
     """Return the exact durable Profile or reject the write.
@@ -1194,7 +1198,7 @@ def _validate_author(
 
 
 @contextmanager
-def _room_write_lock(thread_lock: Lock, lock_path: Path) -> Iterator[None]:
+def room_write_lock(thread_lock: Lock, lock_path: Path) -> Iterator[None]:
     """Hold the process and file locks shared with Snapshot publication.
 
     # Parameters

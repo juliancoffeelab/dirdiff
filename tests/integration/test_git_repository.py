@@ -15,8 +15,6 @@ from helpers import TextDiffService
 from dirdiff.backend import GitBackend
 from dirdiff.engines import DirdiffError
 
-__all__: list[str] = []
-
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     """Git rename detection preserves both paths as one File identity.

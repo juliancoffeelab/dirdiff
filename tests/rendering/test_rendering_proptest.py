@@ -26,8 +26,6 @@ from dirdiff.rendering import (
     weave_decorated_parts,
 )
 
-__all__: list[str] = []
-
 
 @given(
     data=st.data(),

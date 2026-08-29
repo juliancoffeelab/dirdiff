@@ -30,6 +30,7 @@ from dirdiff.engines.base import (
 
 __all__ = [
     "TextDiffEngine",
+    "text_diff_summary",
 ]
 
 INLINE_TOKEN_PATTERN = re.compile(r"\w+|\s+|[^\w\s]+", flags=re.UNICODE)

@@ -14,13 +14,11 @@ from dirdiff.engines.gumtree import (
     GumTreeJson,
 )
 from dirdiff.engines.gumtree.logic import (
-    _line_segments,
-    _range_from_tree,
+    line_segments,
+    range_from_tree,
 )
 from dirdiff.formats import ComposeContext, ComposedFilePayload, Composer
 from dirdiff.rendering import DiffRow
-
-__all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
 """GumTree behavior fixture catalog for structural range-mapping tests.
@@ -198,9 +196,9 @@ def _expected_for_tree(
     tree range and its side-specific status.
     """
     text = _source_text(side)
-    source_range = _range_from_tree(tree)
+    source_range = range_from_tree(tree)
     expected: list[ExpectedTokenStatus] = []
-    for segment in _line_segments(text):
+    for segment in line_segments(text):
         if source_range.end <= segment.start:
             break
         if source_range.start >= segment.segment_end:

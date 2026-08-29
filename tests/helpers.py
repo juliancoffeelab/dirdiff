@@ -47,10 +47,8 @@ from dirdiff.rendering import (
 from dirdiff.util import JsonValue
 
 __all__ = [
-    "GitDiffService",
     "GoldenJsonSnapshotExtension",
     "TextDiffService",
-    "WorkspaceDiffServiceAdapter",
     "build_loaded_diff",
 ]
 

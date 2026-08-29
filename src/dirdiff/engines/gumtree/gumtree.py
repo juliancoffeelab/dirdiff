@@ -40,12 +40,7 @@ directory, matching adjacent local GumTree checkouts.
 """
 
 __all__ = [
-    "GUMTREE_BIN_ENV",
-    "GUMTREE_RELATIVE_BIN",
-    "GumTreeInvalidJsonError",
     "GumTreeJson",
-    "GumTreeJsonAction",
-    "GumTreeJsonMatch",
     "gumtree_executable_for_cwd",
     "run_gumtree_json",
 ]

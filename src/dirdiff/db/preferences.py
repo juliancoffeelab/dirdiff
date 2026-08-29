@@ -32,7 +32,6 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from dirdiff.db.base import TableBase
 
 __all__ = [
-    "PreferencesRecord",
     "PreferencesStore",
 ]
 

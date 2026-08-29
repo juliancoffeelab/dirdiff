@@ -15,7 +15,7 @@ from syrupy.assertion import SnapshotAssertion
 
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import (
-    _difftastic_rows_from_json,
+    difftastic_rows_from_json,
 )
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
@@ -38,8 +38,6 @@ BROKEN_PRESET_GROUPS: set[str] = {
 Their cases still participate in broad property checks where exact approved
 rows are not the contract.
 """
-
-__all__: list[str] = []
 
 
 class DifftasticGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
@@ -108,7 +106,7 @@ def test_difftastic_preset_rows_match_golden(
         left_path_hint=old_path.name,
         right_path_hint=new_path.name,
     )
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         diff_json,
         left_text=old_text,
         right_text=new_text,

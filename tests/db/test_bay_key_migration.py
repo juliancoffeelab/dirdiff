@@ -26,8 +26,6 @@ from sqlalchemy.exc import IntegrityError
 
 from alembic import command
 
-__all__ = ["test_bay_key_migration_moves_stored_placements"]
-
 
 def test_bay_key_migration_moves_stored_placements(tmp_path: Path) -> None:
     """Upgrade re-keys and splits in place; downgrade refuses, then restores.

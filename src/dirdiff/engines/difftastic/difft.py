@@ -42,16 +42,8 @@ unchanged gaps omitted. The subprocess receives this value through `--context`.
 """
 
 __all__ = [
-    "DFT_CONTEXT_LINES",
-    "DFT_GRAPH_LIMIT",
-    "DifftasticAlignedPairJson",
     "DifftasticJson",
-    "DifftasticJsonChange",
-    "DifftasticJsonChunkEntry",
-    "DifftasticJsonFileStatus",
     "DifftasticJsonSide",
-    "DifftasticJsonSideName",
-    "DifftasticTunings",
     "run_difftastic_json",
 ]
 

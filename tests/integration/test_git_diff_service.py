@@ -15,8 +15,6 @@ from dirdiff.backend import GitBackend
 from dirdiff.engines import GitDiffEngine, TextDiffEngine
 from dirdiff.formats import ComposeContext, Composer
 
-__all__: list[str] = []
-
 
 def test_build_repo_manifest_lists_changed_tracked_files(
     tmp_path: Path,

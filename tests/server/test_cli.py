@@ -26,8 +26,6 @@ from dirdiff.formats import ComposeContext, Composer
 from dirdiff.room_lord import RoomLord
 from dirdiff.server import ComposedDiffResponse, create_app
 
-__all__: list[str] = []
-
 
 def repo_mark_store() -> RepoMarkStore:
     """Return an ephemeral registry containing one active absolute-path Mark.

@@ -63,7 +63,6 @@ __all__ = [
     "ReviewThreadsRecord",
     "RoomIdentity",
     "RoomStore",
-    "SnapshotFileLoadRecord",
     "SnapshotFileRecord",
     "SnapshotFileSideRecord",
     "SnapshotMetaRecord",

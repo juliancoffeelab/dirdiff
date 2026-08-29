@@ -30,14 +30,6 @@ from dirdiff.db import (
     RoomStore,
 )
 
-__all__ = [
-    "test_invalid_action_is_refused",
-    "test_invalid_placement_is_refused",
-    "test_persisted_action_enums_are_validated_on_read",
-    "test_valid_actions_construct",
-    "test_valid_placements_construct",
-]
-
 _RANGE = {
     "thread_id": "a" * 32,
     "snapshot_id": "b" * 32,

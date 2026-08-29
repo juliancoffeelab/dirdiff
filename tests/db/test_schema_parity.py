@@ -20,8 +20,6 @@ from sqlalchemy import create_engine
 from alembic import command
 from dirdiff.db import TableBase
 
-__all__ = ["test_migrated_schema_matches_declared_model"]
-
 _CLAUSE_BOUNDARY = re.compile(
     r",\s*(?=CONSTRAINT |PRIMARY KEY|FOREIGN KEY|UNIQUE |CHECK "
     r"|[a-z_]+ (?:VARCHAR|INTEGER|BOOLEAN|BLOB|DATETIME))"

@@ -32,7 +32,11 @@ from dirdiff.engines import DirdiffError
 
 __all__ = [
     "PreparedPullRequest",
+    "parse_github_pull_request_url",
+    "parse_gitlab_merge_request_url",
     "prepare_pull_request",
+    "repo_key",
+    "repo_key_from_git_url",
 ]
 
 GITHUB_PULL_REQUEST_RE = re.compile(
@@ -209,7 +213,7 @@ class _GitLabMergeRequest:
     host: str
     """URL authority used for both API access and repository identity.
 
-    Normalized remote matching lowercases it later through `_repo_key`.
+    Normalized remote matching lowercases it later through `repo_key`.
     """
 
     project_path: str
@@ -441,7 +445,7 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
     become `DirdiffError`. Malformed JSON and response values of an unexpected
     container type propagate their parsing or type exception.
     """
-    parsed = _parse_github_pull_request_url(url)
+    parsed = parse_github_pull_request_url(url)
     owner, repo, number = parsed
     request = urllib.request.Request(
         f"https://api.github.com/repos/{owner}/{repo}/pulls/{number}",
@@ -485,11 +489,11 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
         repo=repo,
         number=number,
         base_branch=base_branch,
-        base_repo_key=_repo_key_from_git_url(base_repo_url),
+        base_repo_key=repo_key_from_git_url(base_repo_url),
     )
 
 
-def _parse_github_pull_request_url(url: str) -> tuple[str, str, int]:
+def parse_github_pull_request_url(url: str) -> tuple[str, str, int]:
     """Parse a GitHub Pull Request URL into its API identity.
 
     Owner and repository components are percent-decoded, and a terminal `.git`
@@ -523,7 +527,7 @@ def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
     become `DirdiffError`. Malformed JSON and response values of an unexpected
     container type propagate their parsing or type exception.
     """
-    parsed = _parse_gitlab_merge_request_url(url)
+    parsed = parse_gitlab_merge_request_url(url)
     scheme, host, project_path, iid = parsed
     encoded_project_path = urllib.parse.quote(project_path, safe="")
     request = urllib.request.Request(
@@ -562,11 +566,11 @@ def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
         project_path=project_path,
         iid=iid,
         target_branch=target_branch,
-        target_repo_key=_repo_key(host=host, path=project_path),
+        target_repo_key=repo_key(host=host, path=project_path),
     )
 
 
-def _parse_gitlab_merge_request_url(url: str) -> tuple[str, str, str, int]:
+def parse_gitlab_merge_request_url(url: str) -> tuple[str, str, str, int]:
     """Parse a GitLab Merge Request URL into API and repository identity parts.
 
     Percent-encoded project names are decoded and a terminal `.git` is removed.
@@ -611,7 +615,7 @@ def _matching_remote(*, repo_path: Path, remote_repo_key: str) -> str | None:
     """
     for remote, remote_url in _remote_urls(repo_path).items():
         try:
-            repo_key = _repo_key_from_git_url(remote_url)
+            repo_key = repo_key_from_git_url(remote_url)
         except DirdiffError:
             continue
         if repo_key == remote_repo_key:
@@ -720,26 +724,26 @@ def _run_git_text(
     )
 
 
-def _repo_key_from_git_url(url: str) -> str:
+def repo_key_from_git_url(url: str) -> str:
     """Return a repository identity used to match forge and local remotes.
 
     GitHub preparation passes this function its `base.repo.html_url`. Both
     GitHub and GitLab preparation pass it each URL reported by the marked
     repository's Git configuration. GitLab constructs the forge-side key from
-    its parsed host and project path through `_repo_key`. Different URL
+    its parsed host and project path through `repo_key`. Different URL
     spellings for the same host and repository produce the same key.
 
     # Example
 
     >>> github_base_url = "https://github.com/openai/codex"
     >>> configured_remote_url = "git@github.com:openai/codex.git"
-    >>> _repo_key_from_git_url(github_base_url)
+    >>> repo_key_from_git_url(github_base_url)
     'github.com/openai/codex'
-    >>> _repo_key_from_git_url(configured_remote_url)
+    >>> repo_key_from_git_url(configured_remote_url)
     'github.com/openai/codex'
     >>> (
-    ...     _repo_key_from_git_url(github_base_url)
-    ...     == _repo_key_from_git_url(configured_remote_url)
+    ...     repo_key_from_git_url(github_base_url)
+    ...     == repo_key_from_git_url(configured_remote_url)
     ... )
     True
 
@@ -758,17 +762,17 @@ def _repo_key_from_git_url(url: str) -> str:
         host, separator, path = without_user.partition(":")
         if separator == "":
             raise DirdiffError(f"Unsupported Git remote URL: {url}")
-        return _repo_key(host=host, path=path)
+        return repo_key(host=host, path=path)
 
     parsed = urllib.parse.urlparse(stripped)
     if parsed.scheme in {"http", "https", "ssh", "git"}:
         host = parsed.hostname or ""
         path = parsed.path
-        return _repo_key(host=host, path=path)
+        return repo_key(host=host, path=path)
     raise DirdiffError(f"Unsupported Git remote URL: {url}")
 
 
-def _repo_key(*, host: str, path: str) -> str:
+def repo_key(*, host: str, path: str) -> str:
     """Normalize a forge host and repository path for remote matching.
 
     # Parameters

@@ -56,8 +56,6 @@ Keeping one checked value prevents fixture-local command drift; the Makefile is
 for manual inspection and snapshot generation, not part of diff behavior.
 """
 
-__all__: list[str] = []
-
 
 def _preset_dirs() -> list[Path]:
     """Return two-sided fixture cases in stable catalog/group/case order.

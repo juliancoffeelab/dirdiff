@@ -1,8 +1,8 @@
 """Expose repository registry and ref-selection HTTP routes.
 
 RepoRoutes keeps Mark, default-branch, ref-choice, and Pull Request preparation
-models beside their handlers. The public conversion functions preserve the
-package-facade contracts used outside this module.
+models beside their handlers. Its conversion functions keep wire-to-domain
+normalization beside the handlers that use it.
 
 Instances retain one RepoMarkStore. This module does not capture Snapshots,
 render diffs, persist Profiles, or construct the FastAPI application.
@@ -37,8 +37,6 @@ from dirdiff.server.magic import ClassRoutes
 
 __all__ = [
     "RepoRoutes",
-    "branch_selection_request_to_selection",
-    "repo_main_branch_record_to_selection",
 ]
 
 LOGGER = logging.getLogger(__name__)

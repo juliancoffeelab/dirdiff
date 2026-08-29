@@ -39,7 +39,6 @@ __all__ = [
     "RUNTIME_CONFIG_ENV",
     "ApiModel",
     "ErrorResponse",
-    "ResponseMetadata",
     "Responses",
     "ReviewExcerptResponse",
     "RuntimeConfig",

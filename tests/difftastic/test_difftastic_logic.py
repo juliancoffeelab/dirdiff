@@ -12,8 +12,8 @@ from pathlib import Path
 from dirdiff.engines import DiffEngineRow, DiffSide, InlineToken
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import (
-    _difftastic_engine_warning,
-    _difftastic_rows_from_json,
+    difftastic_engine_warning,
+    difftastic_rows_from_json,
 )
 from dirdiff.rendering import enrich_rows_for_display
 
@@ -23,8 +23,6 @@ PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 Helpers address cases relative to this root and require one old/new source pair,
 keeping fixture identity visible in assertion failures.
 """
-
-__all__: list[str] = []
 
 
 def _preset_rows(preset_name: str) -> list[DiffEngineRow]:
@@ -56,7 +54,7 @@ def _preset_rows(preset_name: str) -> list[DiffEngineRow]:
         left_path_hint=old_path.name,
         right_path_hint=new_path.name,
     )
-    return _difftastic_rows_from_json(
+    return difftastic_rows_from_json(
         diff_json,
         left_text=old_text,
         right_text=new_text,
@@ -94,7 +92,7 @@ def _text_rows(
         left_path_hint=f"old.{extension}",
         right_path_hint=f"new.{extension}",
     )
-    return _difftastic_rows_from_json(
+    return difftastic_rows_from_json(
         diff_json,
         left_text=left_text,
         right_text=right_text,
@@ -236,13 +234,13 @@ def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
     The warning discriminator is part of the engine result contract; a normal
     parser label must not produce a degraded-mode warning.
     """
-    assert _difftastic_engine_warning(
+    assert difftastic_engine_warning(
         {"language": "Text (exceeded DFT_GRAPH_LIMIT)"}
     ) == {
         "type": "difftastic_graph_limit",
         "message": "Difftastic exceeded DFT_GRAPH_LIMIT and fell back to text diff.",
     }
-    assert _difftastic_engine_warning({"language": "TypeScript"}) is None
+    assert difftastic_engine_warning({"language": "TypeScript"}) is None
 
 
 def test_difftastic_summary_counts_makefile_target_suffix_insert() -> None:
@@ -422,7 +420,7 @@ def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
     The test fixes the boundary between external structural facts and original
     source text: alignment chooses rows, while changed ranges choose tokens.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [1, 1], [None, 2], [None, 3], [None, 4]],
             "chunks": [
@@ -529,7 +527,7 @@ def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -
     Shared closing syntax may move across lines, but row building may not invent a
     paired suffix outside the external alignment.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -588,7 +586,7 @@ def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> (
     The source replay invariant wins over visually pairing a shared closing
     fragment that Difftastic placed on separate rows.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -651,7 +649,7 @@ def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> 
     Row building must not rebuild shared delimiters into a synthetic pair after
     structural wrapping changes their line placement.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -699,7 +697,7 @@ def test_difftastic_rows_do_not_reconstruct_clojure_map_tail_after_wrap_removal(
     The regression rejects local tail reconstruction that would detach a
     delimiter from its source line or consume it twice.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -748,7 +746,7 @@ def test_difftastic_rows_do_not_reconstruct_rust_range_tail_after_wrap() -> (
     A repeated range delimiter is not permission to override Difftastic's line
     alignment or create context that the source rows do not support.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -807,7 +805,7 @@ def test_difftastic_rows_do_not_reconstruct_rust_range_inclusive_tail_after_wrap
     This variant fixes the same replay boundary for `..=` tokens, whose shared
     punctuation previously invited an incorrect paired tail.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -866,7 +864,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
     Row building may decorate the exact source slices but must not repair the
     external alignment around repeated application operators.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -928,7 +926,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() 
     Nested repeated operators make textual pairing tempting; the rows must
     still replay each side exactly in Difftastic order.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -990,7 +988,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> (
     Shared operator text cannot be pulled into a synthetic context row when its
     line placement differs between the documents.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -1053,7 +1051,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() 
     The test covers two neighboring operators so row building cannot accidentally
     reuse one source fragment while trying to align the other.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
             "chunks": [
@@ -1114,7 +1112,7 @@ def test_difftastic_does_not_pair_bare_brace_residual_fragment() -> None:
     Punctuation identity alone is insufficient evidence to reconstruct a row;
     doing so would contradict the structural alignment and source order.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [[0, 0], [1, None], [2, 1]],
             "chunks": [
@@ -1165,7 +1163,7 @@ def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> 
     This catches reconstruction that consumes a right-side source line twice,
     breaking both navigation coordinates and replay.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [
                 [0, 0],
@@ -1307,7 +1305,7 @@ def test_difftastic_rows_keep_collapsed_condition_suffix_unchanged() -> None:
     Only the condition change should receive changed tokens; stable trailing
     syntax must remain unchanged even when its row pairing shifts.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [
                 [0, 0],
@@ -1452,7 +1450,7 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
     Similar source text appears in two syntax roles. Row building must honor
     Difftastic's ranges instead of pairing by textual coincidence.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [
                 [0, 0],
@@ -1806,7 +1804,7 @@ def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
     The real fixture mixes paired context and one-sided structural spans; each
     row status must agree with its rendered tokens.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [
                 [0, 0],
@@ -1977,7 +1975,7 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
     Similar assignments and punctuation surround the edit, exercising the
     distinction between unchanged context, replacement, and insertion.
     """
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         {
             "aligned_lines": [
                 [0, 0],

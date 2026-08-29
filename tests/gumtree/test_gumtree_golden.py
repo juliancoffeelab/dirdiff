@@ -15,8 +15,6 @@ from syrupy.assertion import SnapshotAssertion
 from dirdiff.engines.gumtree import GumTreeDiffEngine
 from dirdiff.engines.gumtree.logic import build_gumtree_rows_from_json
 
-__all__: list[str] = []
-
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
 """GumTree source-pair catalog used by exact row snapshots.
 

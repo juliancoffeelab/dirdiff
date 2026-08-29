@@ -2,10 +2,10 @@
 
 ## Public interface
 
-`build_difftastic_ast` runs the external comparison and returns structural rows
-plus any recognized degraded-mode warning. `DifftasticDiffEngine` implements
-the common engine protocol, including one-sided Files and textual rows when a
-known Difftastic limit produces no structural rows.
+`DifftasticDiffEngine` implements the common engine protocol, including
+one-sided Files and textual rows when a known Difftastic limit produces no
+structural rows. Its local AST builder returns validated structural rows plus
+any recognized degraded-mode warning.
 
 ## Purpose and boundaries
 
@@ -58,9 +58,9 @@ represent Difftastic syntax nodes.
 """
 
 __all__ = [
-    "DifftasticAst",
     "DifftasticDiffEngine",
-    "build_difftastic_ast",
+    "difftastic_engine_warning",
+    "difftastic_rows_from_json",
 ]
 
 
@@ -122,7 +122,7 @@ class _Span:
     """
 
 
-def _difftastic_engine_warning(
+def difftastic_engine_warning(
     diff_json: DifftasticJson,
     *,
     left_text: str | None = None,
@@ -468,7 +468,7 @@ def _row_status(
     return "replace"
 
 
-def _difftastic_rows_from_json(
+def difftastic_rows_from_json(
     diff_json: DifftasticJson,
     *,
     left_text: str,
@@ -621,14 +621,14 @@ def build_difftastic_ast(
         left_path_hint=left_path_hint,
         right_path_hint=right_path_hint,
     )
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         diff_json,
         left_text=left_text,
         right_text=right_text,
     )
     return DifftasticAst(
         rows=rows,
-        engine_warning=_difftastic_engine_warning(
+        engine_warning=difftastic_engine_warning(
             diff_json,
             left_text=left_text,
             right_text=right_text,

@@ -1,8 +1,8 @@
 """Expose persistent review discussions and external-agent instruments.
 
-The facade preserves the complete public interface formerly defined by
-`dirdiff.review`. Shared contracts, bound Thread behavior, Snapshot placement,
-and external-agent batches live in separate sibling modules. SQL, Snapshot
+The facade publishes the review contracts and operations used outside this
+package. Shared contracts, bound Thread behavior, Snapshot placement, and
+external-agent batches live in separate sibling modules. SQL, Snapshot
 publication, and HTTP serialization remain outside this package.
 """
 
@@ -18,7 +18,6 @@ from dirdiff.review.base import (
     ReviewError,
     ReviewErrorCode,
     ReviewOriginView,
-    ReviewTarget,
     TextTarget,
     ThreadDiscussionView,
     ThreadPlacementView,
@@ -57,7 +56,6 @@ __all__ = [
     "ReviewError",
     "ReviewErrorCode",
     "ReviewOriginView",
-    "ReviewTarget",
     "TextTarget",
     "Thread",
     "ThreadDiscussionView",

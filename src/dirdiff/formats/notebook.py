@@ -39,10 +39,7 @@ from dirdiff.formats.blob import blob_bays
 from dirdiff.util import JsonValue
 
 __all__ = [
-    "NotebookDocument",
-    "RejectedNotebookPart",
     "notebook_bays",
-    "try_load_notebook_document",
 ]
 
 

@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from dirdiff.backend import pull_request
 
-__all__: list[str] = []
-
 
 def test_github_pull_request_url_parses_repo_and_number() -> None:
     """GitHub PR URLs preserve owner, repository name, and PR number.
@@ -19,7 +17,7 @@ def test_github_pull_request_url_parses_repo_and_number() -> None:
     Parsing must return the correspondence facts without retaining unrelated URL syntax.
     """
 
-    parsed = pull_request._parse_github_pull_request_url(
+    parsed = pull_request.parse_github_pull_request_url(
         "https://github.com/Wilfred/difftastic/pull/1007"
     )
 
@@ -33,9 +31,9 @@ def test_github_remote_key_matches_git_remote_url() -> None:
     marked repository during preparation.
     """
 
-    assert pull_request._repo_key_from_git_url(
+    assert pull_request.repo_key_from_git_url(
         "https://github.com/Wilfred/difftastic"
-    ) == pull_request._repo_key_from_git_url(
+    ) == pull_request.repo_key_from_git_url(
         "git@github.com:Wilfred/difftastic.git"
     )
 
@@ -46,7 +44,7 @@ def test_gitlab_merge_request_url_parses_nested_project_path() -> None:
     Nested namespaces remain part of repository identity rather than being flattened.
     """
 
-    parsed = pull_request._parse_gitlab_merge_request_url(
+    parsed = pull_request.parse_gitlab_merge_request_url(
         "https://gitlab.example.com/group/subgroup/project/-/merge_requests/17"
     )
 
@@ -65,9 +63,9 @@ def test_gitlab_remote_key_matches_git_remote_url() -> None:
     matching the forge project.
     """
 
-    assert pull_request._repo_key(
+    assert pull_request.repo_key(
         host="gitlab.example.com",
         path="group/subgroup/project",
-    ) == pull_request._repo_key_from_git_url(
+    ) == pull_request.repo_key_from_git_url(
         "git@gitlab.example.com:group/subgroup/project.git"
     )

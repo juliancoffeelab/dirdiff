@@ -28,8 +28,6 @@ from dirdiff.room_lord import RoomLord
 from dirdiff.server import create_app
 from dirdiff.util import JsonValue
 
-__all__: list[str] = []
-
 
 def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
     """Create a real API client and active Mark for one disposable repository.

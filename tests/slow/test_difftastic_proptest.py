@@ -23,7 +23,7 @@ from tree_sitter import Language, Node, Parser
 from dirdiff.backend import GitBackend
 from dirdiff.engines import DiffEngineRow, DiffSide, DirdiffError
 from dirdiff.engines.difftastic import DifftasticDiffEngine
-from dirdiff.engines.difftastic.logic import _difftastic_rows_from_json
+from dirdiff.engines.difftastic.logic import difftastic_rows_from_json
 from dirdiff.formats import TextRejection, try_decode_text
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
@@ -44,9 +44,6 @@ Side = Literal["left", "right"]
 The value selects coordinated row and token fields only. It does not describe
 which side changed or whether a row is paired.
 """
-
-
-__all__: list[str] = []
 
 
 def _preset_cases() -> list[ParameterSet]:
@@ -192,7 +189,7 @@ def _difftastic_rows_for_preset(
         left_path_hint=old_path.name,
         right_path_hint=new_path.name,
     )
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         diff_json,
         left_text=old_text,
         right_text=new_text,
@@ -411,7 +408,7 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
         left_path_hint=old_path.name,
         right_path_hint=new_path.name,
     )
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         diff_json,
         left_text=old_text,
         right_text=new_text,
@@ -582,7 +579,7 @@ def test_difftastic_preset_line_alignment_matches_difftastic(
         left_path_hint=old_path.name,
         right_path_hint=new_path.name,
     )
-    rows = _difftastic_rows_from_json(
+    rows = difftastic_rows_from_json(
         diff_json,
         left_text=old_text,
         right_text=new_text,

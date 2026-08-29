@@ -35,7 +35,6 @@ from dirdiff.engines.git.logic import (
 
 __all__ = [
     "GitDiffEngine",
-    "run_git_no_index_diff",
 ]
 
 

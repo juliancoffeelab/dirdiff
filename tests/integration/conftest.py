@@ -19,5 +19,3 @@ stable absolute value is inserted once so `tests.helpers` remains importable.
 """
 if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
-
-__all__: list[str] = []

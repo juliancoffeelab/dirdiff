@@ -42,6 +42,8 @@ from dirdiff.engines.gumtree.gumtree import (
 __all__ = [
     "GumTreeDiffEngine",
     "build_gumtree_rows_from_json",
+    "line_segments",
+    "range_from_tree",
 ]
 
 type _Side = Literal["left", "right"]
@@ -85,7 +87,7 @@ class _SourceRange:
 class _LineSegment:
     """One displayed source line plus its absolute source offsets.
 
-    `_line_segments` constructs these in source order. Token mapping uses
+    `line_segments` constructs these in source order. Token mapping uses
     the absolute offsets to intersect GumTree ranges with the displayed line.
 
     `content_end` excludes the line break; `segment_end` includes it when
@@ -201,8 +203,8 @@ def build_gumtree_rows_from_json(
     """
 
     left_ranges, right_ranges = _classified_ranges(diff_json)
-    left_lines = _line_segments(left_text)
-    right_lines = _line_segments(right_text)
+    left_lines = line_segments(left_text)
+    right_lines = line_segments(right_text)
     rows: list[DiffEngineRow] = []
 
     for left_segment, right_segment in zip_longest(left_lines, right_lines):
@@ -338,11 +340,11 @@ _TREE_RANGE_RE = re.compile(r"\[(?P<start>\d+),(?P<end>\d+)\]\s*$")
 """Extract GumTree's terminal half-open source range from a tree description.
 
 Node labels may contain other punctuation, so the expression only accepts the
-final bracketed integer pair. `_range_from_tree` validates its ordering.
+final bracketed integer pair. `range_from_tree` validates its ordering.
 """
 
 
-def _range_from_tree(tree: str) -> _SourceRange:
+def range_from_tree(tree: str) -> _SourceRange:
     """Parse and validate GumTree's terminal absolute source range.
 
     Only the final bracketed integer pair counts; punctuation inside a node
@@ -368,7 +370,7 @@ def _range_from_tree(tree: str) -> _SourceRange:
     return source_range
 
 
-def _line_segments(text: str) -> list[_LineSegment]:
+def line_segments(text: str) -> list[_LineSegment]:
     """Partition source into ordered display lines and total document offsets.
 
     Terminators contribute to `segment_end` but are absent from `text` and
@@ -493,7 +495,7 @@ def _append_range(
     - `ordinal`: Source action order used to break equal-range ties.
     """
 
-    source_range = _range_from_tree(tree)
+    source_range = range_from_tree(tree)
     if source_range.start == source_range.end:
         return
     ranges.append(
@@ -638,7 +640,7 @@ def _whole_side_rows(*, text: str, side: _Side) -> list[DiffEngineRow]:
     """
 
     rows: list[DiffEngineRow] = []
-    for segment in _line_segments(text):
+    for segment in line_segments(text):
         row_status: Literal["delete", "insert"] = (
             "delete" if side == "left" else "insert"
         )
