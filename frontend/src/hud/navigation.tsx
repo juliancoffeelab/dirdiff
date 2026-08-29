@@ -1328,10 +1328,7 @@ export function NavigationProvider(
       }
       if (alive) {
         const enrichedLocation = selectedLocation(root);
-        enrichedLocation.target.scrollIntoView({
-          block: "center",
-          behavior: "instant",
-        });
+        await settleCenteredScroll(enrichedLocation.target);
       }
       return null;
     }
@@ -1400,7 +1397,7 @@ export function NavigationProvider(
       return;
     }
     selectHunk(root, target);
-    target.scrollIntoView({ block: "center", behavior: "instant" });
+    await settleCenteredScroll(target);
   }
 
   /**
@@ -1415,7 +1412,7 @@ export function NavigationProvider(
       return;
     }
     selectHunk(root, target);
-    target.scrollIntoView({ block: "center", behavior: "instant" });
+    await settleCenteredScroll(target);
   }
 
   const navigation: Navigation = {
