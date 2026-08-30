@@ -349,7 +349,18 @@ export function createThreadDiscussion(
       reviewIdVariable(mutation.state.variables, "commentId"),
   }));
   const pendingThreadStates = useMutationState(() => ({
-    filters: { mutationKey: ["review", "thread"], status: "pending" },
+    filters: {
+      mutationKey: ["review", "thread"],
+      status: "pending",
+      // Creation has no Thread identity until the backend returns it. These
+      // controls observe only lifecycle writes against existing Threads.
+      predicate: (mutation) => {
+        const action = mutation.options.mutationKey?.[2];
+        return (
+          action === "resolve" || action === "reopen" || action === "delete"
+        );
+      },
+    },
     select: (mutation) => ({
       action: mutation.options.mutationKey?.[2],
       threadId: reviewIdVariable(mutation.state.variables, "threadId"),
