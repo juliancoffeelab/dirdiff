@@ -24,8 +24,12 @@ available, read [references/commands.md](references/commands.md) and use its
 2. For your own work, reuse the Profile id, Snapshot id/path, and activity
    boundary retained from the current task's earlier round. Start with
    `continue_review` to recapture that session.
-   Call `/api/agent/join_review` only when no retained session exists, then
-   retain its returned values for every later round.
+   When no retained session exists and the human supplied an onboarding URL,
+   load it, use its `dirdiff_url` and `tab` unchanged for
+   `/api/agent/join_review`, then retain the join response for every later
+   round. Without a link, ask what patch or Tab to work on and build that exact
+   `AgentReviewTab` using the command reference. Use the running backend address
+   available from the project, or ask for it when it cannot be found.
    This obviously doesn't apply to reviewers who work using their own
    procedures.
 3. Read the unfiltered active Thread context before implementing so existing
@@ -35,9 +39,6 @@ available, read [references/commands.md](references/commands.md) and use its
 5. Implement the requested patch and perform verification proportionate to the
    change.
 6. Capture the completed candidate through `/api/agent/continue_review`.
-
-If a required API address, Room, or Tab context cannot be discovered from the
-current project, ask for that missing input. Do not invent one.
 
 ## Captured Snapshot appendix
 

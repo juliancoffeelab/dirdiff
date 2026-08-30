@@ -465,6 +465,99 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   }
 
   /**
+   * Builds the absolute agent-onboarding URL for the complete active Tab.
+   *
+   * The browser URL is the authoritative selected-Tab representation. This
+   * operation translates only its supported complete fields to the agent route;
+   * incomplete workflows and Preset return `null`, which disables the menu action.
+   * It stores no duplicate Tab state and performs no HTTP or clipboard operation.
+   *
+   * # Returns
+   *
+   * - Absolute onboarding endpoint for one complete supported Tab.
+   * - `null` when the current Tab is Preset, has no selected repository, or has
+   *   not yet published every field required by its selected comparison.
+   */
+  function agentOnboardUrl(): string | null {
+    const search = new URLSearchParams(window.location.search);
+    const tab = initialTab(search);
+    const repoId = selectedRepoId();
+    if (tab === "preset" || repoId === null) {
+      return null;
+    }
+
+    // One table distinguishes fields proving a complete HUD selection from the
+    // smaller set the onboarding endpoint consumes.
+    const fields = {
+      head: { required: [], copied: [] },
+      refs: { required: ["left", "right"], copied: ["left", "right"] },
+      "branch-review": {
+        required: [
+          "base_source",
+          "base_branch",
+          "review_source",
+          "review_branch",
+        ],
+        copied: [
+          "base_source",
+          "base_remote",
+          "base_branch",
+          "review_source",
+          "review_remote",
+          "review_branch",
+        ],
+      },
+      "pull-request": {
+        required: ["pull_request_url", "left_commit", "right_commit"],
+        copied: ["pull_request_url"],
+      },
+    }[tab];
+    if (
+      fields.required.some((name) => {
+        const value = search.get(name);
+        return value === null || value.trim().length === 0;
+      })
+    ) {
+      return null;
+    }
+
+    if (
+      tab === "branch-review" &&
+      (["base", "review"] as const).some((prefix) => {
+        const source = search.get(`${prefix}_source`);
+        const remote = search.get(`${prefix}_remote`);
+        return (
+          (source !== "local" && source !== "remote") ||
+          (source === "local"
+            ? remote !== null
+            : remote === null || remote.trim().length === 0)
+        );
+      })
+    ) {
+      return null;
+    }
+
+    const onboardOrigin = import.meta.env.DEV
+      ? expect(
+          import.meta.env.VITE_DIRDIFF_BACKEND_ORIGIN,
+          "Development agent onboarding requires the paired backend origin.",
+        )
+      : window.location.origin;
+    const onboard = new URL("/api/agent/onboard", onboardOrigin);
+    onboard.searchParams.set("tab", tab);
+    if (tab !== "pull-request") {
+      onboard.searchParams.set("project_id", String(repoId));
+    }
+    for (const name of fields.copied) {
+      const value = search.get(name);
+      if (value !== null) {
+        onboard.searchParams.set(name, value);
+      }
+    }
+    return onboard.href;
+  }
+
+  /**
    * Selects one eternal Tab and records only its active identity.
    *
    * The selected Tab immediately reports its retained selection, replacing fields
@@ -644,6 +737,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   return (
     <main class="app-shell">
       <AppHeader
+        agentOnboardUrl={agentOnboardUrl}
         selectedProfile={props.selectedProfile}
         selectedRepoId={selectedRepoId()}
         engine={workspace.engine}

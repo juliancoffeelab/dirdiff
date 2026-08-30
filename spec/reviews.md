@@ -494,6 +494,7 @@ The agent API is a filesystem-oriented boundary over the same Rooms,
 Snapshots, Threads, Comments, and Profiles as the browser:
 
 ```text
+GET  /api/agent/onboard?tab=...
 POST /api/agent/join_review
 GET  /api/agent/thread_summary?snapshot_id=...&page=...&limit=...
 GET  /api/agent/threads?snapshot_id=...&for=author|reviewer&page=...&limit=...&through_activity_id=...
@@ -501,6 +502,16 @@ GET  /api/agent/thread/{thread_id}?snapshot_id=...&page=...&limit=...
 POST /api/agent/continue_review
 POST /api/agent/actions
 ```
+
+Agent onboarding is a read-only pre-session operation. The Profile menu copies
+an absolute onboarding URL only when the browser URL describes one complete
+Head, Refs, Branch Review, or Pull Request Tab; Preset and incomplete Tabs keep
+that action disabled. Repository-backed URLs carry the active Mark id, which the
+route translates to the exact registered repository path used by join review.
+The response contains the running server origin as `dirdiff_url`, the complete
+join-review `tab`, and absolute paths to the installed `review-patch`,
+`round-review`, and `babysit-patch` `SKILL.md` files. Onboarding creates no
+Profile, Room, Snapshot, or review activity.
 
 Join review accepts an agent UUID, display name, and an explicit HEAD, refs,
 Branch Review, or Pull Request Tab. Repository-backed Tabs name the exact

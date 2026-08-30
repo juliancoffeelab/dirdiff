@@ -28,7 +28,7 @@ import {
 import { CircleUserRound } from "lucide-solid";
 import { z } from "zod";
 import { api, type Preferences, type UserProfile } from "../api/api";
-import { ErrorPopover } from "../comp/Toasts";
+import { ErrorPopover, useToasts } from "../comp/Toasts";
 import { assert, expect } from "../utils";
 
 /**
@@ -72,6 +72,18 @@ export type StoredProfile = z.infer<typeof StoredProfileSchema>;
  * username input.
  */
 type ProfileProps = {
+  /**
+   * Returns the absolute onboarding URL for the current complete supported Tab.
+   *
+   * `null` disables the copy action for Preset and incomplete workflows. Profile
+   * reads the accessor only for presentation and explicit clipboard activation.
+   *
+   * # Returns
+   *
+   * - Absolute onboarding endpoint copied by explicit activation.
+   * - `null` when the action must remain disabled for the current Tab.
+   */
+  agentOnboardUrl: () => string | null;
   /**
    * Confirmed Profile identity controlled by App, or genuine absence.
    *
@@ -318,6 +330,7 @@ export function loadStoredProfile(): StoredProfile | null {
  * backend responses.
  */
 export function Profile(props: ProfileProps): JSX.Element {
+  const toast = useToasts();
   /**
    * Replaces the browser's selected-profile record with one validated identity.
    *
@@ -586,6 +599,39 @@ export function Profile(props: ProfileProps): JSX.Element {
               <span>Profile</span>
             </div>
           </div>
+          <div class="profile-popover-divider" />
+          <button
+            type="button"
+            class="profile-popover-option profile-popover-option-agent"
+            role="menuitem"
+            disabled={props.agentOnboardUrl() === null}
+            title={
+              props.agentOnboardUrl() === null
+                ? "Load a supported Tab to copy its agent onboard link."
+                : "Copy agent onboard link"
+            }
+            onClick={() => {
+              const onboardUrl = expect(
+                props.agentOnboardUrl(),
+                "Agent onboarding requires a complete supported Tab.",
+              );
+              void navigator.clipboard
+                .writeText(onboardUrl)
+                .then(() => {
+                  toast.showTransient(
+                    "Agent onboard link copied",
+                    "Paste the link into the agent conversation.",
+                    2_000,
+                  );
+                  setUi({ view: "closed" });
+                })
+                .catch((error: unknown) =>
+                  toast.showError("Could not copy agent onboard link", error),
+                );
+            }}
+          >
+            Copy agent onboard link
+          </button>
           <div class="profile-popover-divider" />
           <Show
             when={

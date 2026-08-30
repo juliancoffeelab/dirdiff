@@ -278,7 +278,10 @@ Agent review routes register an ordinary Profile with its agent UUID, capture a
 logical Tab into the same Snapshot identity, expose captured changed Files on
 disk, page open Threads, recapture the persisted Tab with File and authored
 Thread deltas, role-filtered attention inboxes, and one atomic batch of the
-role-specific review instruments.
+role-specific review instruments. The pre-session onboarding route translates a
+complete supported HUD Tab to the join-review shape and returns the running
+server origin with exact installed agent-skill entry paths; it creates no review
+state.
 The agent-visible Snapshot filesystem contract is documented in
 [`reviews.md`](reviews.md) and mirrored by both project-local agent skills;
 changes to capture layout must update those operational references together.

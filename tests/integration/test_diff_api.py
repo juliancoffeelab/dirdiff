@@ -61,6 +61,9 @@ def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
             create_app(
                 repo_marks,
                 user_profile,
+                agent_skills_root=Path(__file__).parents[2]
+                / ".agents"
+                / "skills",
                 room_lord=room_lord,
             )
         ),
@@ -346,6 +349,7 @@ def test_historical_file_review_migration_never_reads_captured_text(
         create_app(
             RepoMarkStore(current_engine),
             UserProfileStore(current_engine),
+            agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(current_engine), tmp_path / "store"),
         )
     )
@@ -842,6 +846,7 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
         create_app(
             repo_marks,
             user_profile,
+            agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )
@@ -937,6 +942,7 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
         create_app(
             repo_marks,
             user_profile,
+            agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )
@@ -977,6 +983,7 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
         create_app(
             RepoMarkStore(engine),
             UserProfileStore(engine),
+            agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )
@@ -1029,6 +1036,7 @@ def test_preset_manifest_validates_required_preset_fields(
         create_app(
             repo_marks,
             user_profile,
+            agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )

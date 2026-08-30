@@ -219,10 +219,28 @@ h1 {
   text-align: left;
 }
 
-.profile-popover-option:hover,
-.profile-popover-option:focus-visible {
+.profile-popover-option:hover:not(:disabled),
+.profile-popover-option:focus-visible:not(:disabled) {
   background: #f4f1ea;
   outline: 0;
+}
+
+.profile-popover-option-agent {
+  background: #eaf7f6;
+}
+
+.profile-popover-option-agent:hover:not(:disabled),
+.profile-popover-option-agent:focus-visible:not(:disabled) {
+  background: #dff1f1;
+}
+
+.profile-popover-option:disabled {
+  color: #aaa59b;
+  cursor: not-allowed;
+}
+
+.profile-popover-option-agent:disabled {
+  background: #f4f2ef;
 }
 
 .profile-form {

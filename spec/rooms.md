@@ -312,6 +312,12 @@ the supplied Snapshot and passes the new captured state through the same
 publication path. Neither operation introduces another Room identity or
 persistent review-handle entity.
 
+Before joining, `GET /api/agent/onboard` translates one complete supported HUD
+Tab URL into the existing join-review Tab shape. It also returns the running
+server origin and exact absolute paths to the three installed agent workflow
+skills. It reads the active Mark registry for repository-backed Tabs but does
+not capture, register, or persist anything.
+
 An agent retains the Profile id, latest Snapshot id/path, and activity boundary
 returned by these operations for later rounds in the same task. Later rounds
 start with continue review; they do not register another Profile through join

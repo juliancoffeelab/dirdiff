@@ -260,6 +260,7 @@ def start(
     config = RuntimeConfig(
         db_path=str(resolved_db_path),
         migration_config_path=str(marker_utils.migration_config_path(mode)),
+        agent_skills_path=str(marker_utils.agent_skills_path(mode)),
         store_path=str(
             resolved_store_path or resolved_db_path.parent / "store"
         ),
@@ -322,6 +323,7 @@ def refs(
         migration_config_path=str(
             marker_utils.migration_config_path(options.mode)
         ),
+        agent_skills_path=str(marker_utils.agent_skills_path(options.mode)),
         store_path=str(options.store_path or options.db_path.parent / "store"),
         tab="refs",
         left=left,
@@ -385,6 +387,7 @@ def branch(
         migration_config_path=str(
             marker_utils.migration_config_path(options.mode)
         ),
+        agent_skills_path=str(marker_utils.agent_skills_path(options.mode)),
         store_path=str(options.store_path or options.db_path.parent / "store"),
         tab="branch-review",
         base_selection={"source": "local", "branch": base_branch},

@@ -98,7 +98,9 @@ module replacement begins. CSS updates use Vite's normal stylesheet
 replacement.
 
 `vite.config.ts` requires the backend proxy origin only for the development
-server. Production builds require `DIRDIFF_FRONTEND_OUT_DIR` from the wheel
+server. The editable HUD also uses that value when copying an onboarding link,
+so the link addresses the backend rather than the Vite proxy. Production builds
+use their own origin and require `DIRDIFF_FRONTEND_OUT_DIR` from the wheel
 hook and emit same-origin `/api` calls. The generated HUD is temporary wheel
 input rather than frontend source. The packaging contract is documented in
 [`release.md`](release.md).
@@ -360,6 +362,12 @@ Private components:
 onSelected(profile)
 onForgotten()
 ```
+
+It also receives `agentOnboardUrl()`. The accessor reads the canonical browser
+URL at activation time and returns an absolute onboarding endpoint only for a
+complete Head, Refs, Branch Review, or Pull Request selection. The Profile menu
+copies that URL and reports clipboard success or failure through Toasts. Preset
+and incomplete Tabs keep the visible action disabled.
 
 It uses the `api.profile` facade for exact-name login, registration, rename,
 preferences loading, and preferences saving. With no selected Profile, login is
@@ -1108,7 +1116,8 @@ type LinePins = {
 |---|---|---|
 | `main.tsx` | `App.tsx` | `App` |
 | `main.tsx` | `review/drafts.tsx` | application-lifetime persisted draft boundary |
-| `App.tsx` | `AppHeader.tsx` | workspace values and explicit selection callbacks |
+| `App.tsx` | `AppHeader.tsx` | workspace values, agent-onboarding URL accessor, and explicit selection callbacks |
+| `AppHeader.tsx` | `Profile.tsx` | selected identity, onboarding URL accessor, and Profile commands |
 | `App.tsx` | `Tabs.tsx` | shared workspace values and workflow callbacks |
 | `Tabs.tsx` | `changeSet/ChangeSet.tsx` | complete selected `DiffParams`, separate engine, and shared display state |
 | `changeSet/ChangeSet.tsx` | `changeSet/Shell.tsx` | mounted frame, UI-operation callbacks, and the HunkDisplay accessor |

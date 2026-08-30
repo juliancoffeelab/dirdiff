@@ -85,6 +85,15 @@ class RuntimeConfig:
     path and must not discover or substitute migration resources itself.
     """
 
+    agent_skills_path: str
+    """
+    Directory containing the external-agent workflow skills.
+
+    Editable launches use the canonical project-local directory; release uses
+    the installed wheel resource. Application construction validates the exact
+    required skill entry files before serving onboarding links.
+    """
+
     store_path: str
     """
     Directory containing immutable Snapshot files.

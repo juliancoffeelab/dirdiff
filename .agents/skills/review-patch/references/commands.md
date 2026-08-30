@@ -2,15 +2,15 @@
 
 ## Session variables
 
-`DD_URL` comes from the running dirdiff backend. Set it before using this sheet;
-do not assume a port. The repository path is derived from the current worktree,
-which must already be marked in dirdiff. The UUID and Profile name are generated
-for this disposable reviewer session.
+For a new session with a human-supplied onboarding URL, load it, set `DD_URL`
+from `dirdiff_url`, and set `DD_TAB` to its complete `tab` JSON unchanged.
+Without a link, ask what patch or Tab to review, set `DD_URL` to the running
+backend address identified by the project or human, and build `DD_TAB` from the
+confirmed selection below. The UUID and Profile name are disposable.
 
 ```sh
-: "${DD_URL:?Set DD_URL to the base URL printed by the running dirdiff backend}"
+: "${DD_URL:?Set DD_URL from onboarding or the identified running backend}"
 
-DD_REPO_PATH="$(git rev-parse --show-toplevel)"
 DD_AGENT_UUID="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
 DD_AGENT_NAME="AI reviewer ${DD_AGENT_UUID:0:8}"
 DD_PAGE=1
@@ -22,46 +22,26 @@ page size; `20` is that endpoint's specified maximum, not a server address or
 project-specific value. Requesting a larger `limit` returns
 `HTTP 422 Unprocessable Content`; do not raise it to cut down round trips.
 
-## Join the HEAD/worktree review
+## Select a Tab without an onboarding link
 
-This Tab compares `HEAD` with the current worktree, including untracked Files.
-Use a different `AgentReviewTab` object when the requested Tab is refs, branch
-review, or pull request:
+Set `DD_TAB` to exactly one shape matching the human-confirmed review. Every
+repository path is the absolute path of an active dirdiff Mark.
 
 ```json
-{"kind": "refs", "repo_path": "...", "left": "main", "right": "HEAD"}
-{"kind": "branch-review", "repo_path": "...",
- "base": {"remote": null, "name": "main"},
- "review": {"remote": null, "name": "feature/topic"}}
-{"kind": "pull-request", "url": "https://github.com/owner/repo/pull/123"}
+{"kind": "head", "repo_path": "/absolute/path/to/marked/repository"}
+{"kind": "refs", "repo_path": "/absolute/path/to/marked/repository", "left": "main", "right": "HEAD"}
+{"kind": "branch-review", "repo_path": "/absolute/path/to/marked/repository", "base": {"remote": null, "name": "main"}, "review": {"remote": null, "name": "feature/topic"}}
+{"kind": "pull-request", "url": "https://github.com/owner/repository/pull/123"}
 ```
 
-`remote` is `null` for a local branch, or the remote name such as `"origin"`.
-A pull-request Tab takes no `repo_path`. For example, a Branch Review Tab:
+For Branch Review, `remote` is `null` for a local branch or the exact remote
+name for a remote branch. The human's answer selects the shape and values; none
+of the examples is a default.
+
+## Join the selected review
 
 ```sh
-DD_TAB="$(
-  jq -n \
-    --arg repo_path "$DD_REPO_PATH" \
-    --arg base "main" \
-    --arg review "feature/topic" \
-    '{
-      kind: "branch-review",
-      repo_path: $repo_path,
-      base: {remote: null, name: $base},
-      review: {remote: null, name: $review}
-    }'
-)"
-```
-
-The default HEAD/worktree Tab:
-
-```sh
-DD_TAB="$(
-  jq -n \
-    --arg repo_path "$DD_REPO_PATH" \
-    '{kind: "head", repo_path: $repo_path}'
-)"
+: "${DD_TAB:?Set DD_TAB from onboarding or the confirmed manual selection}"
 
 DD_JOIN_RESPONSE="$(
   jq -n \

@@ -30,8 +30,18 @@ Read [references/snapshot_structure.md](references/snapshot_structure.md)
 before inspecting captured Files. Its opaque File-pair layout, read-only rule,
 and exact-side-path contract are part of this workflow.
 
-Join through `/api/agent/join_review`. Retain the returned Profile, Snapshot,
-Snapshot path, and activity boundary. Treat the Snapshot path as read-only.
+Establish the review input through one of two explicit paths:
+
+- When the human supplies an onboarding URL, load it, read this skill from the
+  matching absolute `skill_paths` entry, set `DD_URL` from `dirdiff_url`, and
+  pass the returned `tab` unchanged to `/api/agent/join_review`.
+- Without an onboarding URL, ask what patch or Tab to review. Build the exact
+  `AgentReviewTab` described by the answer using the command reference. Use the
+  running backend address available from the project, or ask for it when it
+  cannot be found.
+
+Retain the returned Profile, Snapshot, Snapshot path, and activity boundary.
+Treat the Snapshot path as read-only.
 Read the unfiltered active Thread context before inspecting code so existing
 findings are understood and not duplicated.
 

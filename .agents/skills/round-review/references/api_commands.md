@@ -28,16 +28,16 @@ multi-frame traceback that hides the response body.
 ## Session variables
 
 ```sh
-: "${DD_URL:?Set DD_URL to the base URL printed by the running dirdiff backend}"
+: "${DD_URL:?Set DD_URL from onboarding or the identified running backend}"
 export DD_URL
-export DD_REPO_PATH="$(git rev-parse --show-toplevel)"
 export DD_AGENT_UUID="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
 export DD_AGENT_NAME="AI author ${DD_AGENT_UUID%${DD_AGENT_UUID#????????}}"
 ```
 
-`DD_URL` is the address the running dirdiff backend printed. The default backend
-port is 5052; 5173 is the Vite frontend and is not an API address. The repository
-must already be marked.
+With a human-supplied onboarding URL, load it and use its `dirdiff_url` and
+complete `tab` unchanged. Without a link, ask what patch or Tab to review and
+use the running backend address identified by the project or human. A retained
+session keeps its existing values.
 
 ## Resume a retained connection
 
@@ -50,6 +50,23 @@ Use the join command below only when the task has no retained session.
 
 ## Join a review
 
+Set `DD_TAB` from the onboarding response or to one object matching the human's
+confirmed selection:
+
+```json
+{"kind": "head", "repo_path": "/absolute/path/to/marked/repository"}
+{"kind": "refs", "repo_path": "/absolute/path/to/marked/repository", "left": "main", "right": "HEAD"}
+{"kind": "branch-review", "repo_path": "/absolute/path/to/marked/repository", "base": {"remote": null, "name": "main"}, "review": {"remote": null, "name": "feature/topic"}}
+{"kind": "pull-request", "url": "https://github.com/owner/repository/pull/123"}
+```
+
+Repository paths identify active Marks. Branch Review uses `null` for a local
+branch remote or its exact remote name. None of these values is a default.
+
+```sh
+export DD_TAB='compact-tab-json-from-onboarding-or-confirmed-selection'
+```
+
 ```sh
 python3 - <<'PY'
 import json
@@ -59,7 +76,7 @@ import urllib.request
 payload = {
     "agent_uuid": os.environ["DD_AGENT_UUID"],
     "name": os.environ["DD_AGENT_NAME"],
-    "tab": {"kind": "head", "repo_path": os.environ["DD_REPO_PATH"]},
+    "tab": json.loads(os.environ["DD_TAB"]),
 }
 request = urllib.request.Request(
     f'{os.environ["DD_URL"]}/api/agent/join_review',
@@ -70,26 +87,6 @@ request = urllib.request.Request(
 with urllib.request.urlopen(request) as response:
     print(json.dumps(json.load(response), indent=2))
 PY
-```
-
-`{"kind": "head", ...}` compares `HEAD` with the current worktree, which is what
-a review of uncommitted work wants. The other Tab kinds:
-
-```python
-# Refs: two explicit sides of one marked repository.
-{"kind": "refs", "repo_path": REPO_PATH, "left": "main", "right": "HEAD"}
-
-# Branch review: one symbolic base and review branch pair.
-# remote is None for a local branch, or the remote name such as "origin".
-{
-    "kind": "branch-review",
-    "repo_path": REPO_PATH,
-    "base": {"remote": None, "name": "main"},
-    "review": {"remote": None, "name": "feature/topic"},
-}
-
-# Pull request: one supported Pull Request URL; takes no repo_path.
-{"kind": "pull-request", "url": "https://github.com/owner/repo/pull/123"}
 ```
 
 Export what it returns:

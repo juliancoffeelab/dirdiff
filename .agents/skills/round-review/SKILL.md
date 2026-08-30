@@ -28,13 +28,15 @@ call still succeeds. Nothing flags that corruption.
 Reuse the `DD_PROFILE_ID`, `DD_SNAPSHOT_ID`, `DD_SNAPSHOT_PATH`, and
 `DD_LAST_ACTIVITY_ID` this task already retained, and start with
 `continue_review`. Call `/api/agent/join_review` only when the task has no
-retained session, then retain what it returns for every later round.
+retained session. For a new session with a human-supplied onboarding URL, load
+it, set `DD_URL` from `dirdiff_url`, pass its `tab` unchanged to join review,
+and retain what join returns for every later round. Without a link, ask what
+patch or Tab the human wants reviewed and build that exact `AgentReviewTab`
+using the command reference. Use the running backend address available from the
+project, or ask for it when it cannot be found.
 
 `continue_review` commonly returns a different `snapshot_id` than the one you
 last quoted. That is expected drift, not an error.
-
-If the API address, Room, or Tab cannot be discovered from the project, ask.
-Do not invent one.
 
 ## The round
 

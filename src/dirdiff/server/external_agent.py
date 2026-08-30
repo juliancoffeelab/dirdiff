@@ -5,9 +5,10 @@ conversion, plain-text failure contract, and /api/agent/* handlers together.
 It translates between external agent entities and the existing Room review
 operations.
 
-Instances retain only the repository, Profile, Room, and preset interfaces
-needed by those handlers. This module does not implement an integrated agent,
-own review state, render the HUD, or construct the FastAPI application.
+Instances retain only constructor-injected application interfaces and immutable
+resource configuration needed by those handlers. This module does not implement
+an integrated agent, own review state, render the HUD, or construct the FastAPI
+application.
 """
 
 import logging
@@ -89,6 +90,7 @@ LOGGER = logging.getLogger(__name__)
 
 _AGENT_ROUTE_PATHS = frozenset(
     {
+        "/api/agent/onboard",
         "/api/agent/join_review",
         "/api/agent/thread_summary",
         "/api/agent/threads",
@@ -267,6 +269,38 @@ AgentReviewTab = Annotated[
 Join and continuation persist this logical context. Preset Tabs are not part of
 the current agent boundary.
 """
+
+
+class AgentOnboardResponse(ApiModel):
+    """Return everything needed to enter one supported agent workflow.
+
+    The copied onboarding URL selects the running dirdiff server and one complete
+    HUD Tab. This response translates that selection to the existing join-review
+    shape and publishes the exact installed instruction files for the three agent
+    roles. It creates no Profile, Room, Snapshot, or review activity.
+    """
+
+    dirdiff_url: str = Field(min_length=1)
+    """Absolute origin of the dirdiff server that returned this response.
+
+    Agent command references use this value as `DD_URL`. It contains no endpoint
+    path, Tab parameters, credentials, or browser-only state.
+    """
+
+    tab: AgentReviewTab
+    """Complete join-review Tab reconstructed from the copied HUD selection.
+
+    Repository-backed variants contain the marked repository's exact path rather
+    than its browser-only numeric id. The value can be copied unchanged into a
+    `join_review` body.
+    """
+
+    skill_paths: list[str] = Field(min_length=3, max_length=3)
+    """Absolute paths to the review, round, and babysit skill entry files.
+
+    The order is `review-patch`, `round-review`, then `babysit-patch`. Every path
+    names a validated regular `SKILL.md` in this running installation.
+    """
 
 
 class NewAgentReviewRequest(ApiModel):
@@ -1408,8 +1442,9 @@ class ExternalAgentRoutes:
     """Bind external-agent handlers to their application interfaces.
 
     One instance retains the repository registry, Profile store, Room service,
-    and preset root used by external agent HTTP entities. Its declarations
-    include the agent-specific framework failure handlers.
+    preset root, and validated installed skill paths used by external agent HTTP
+    entities. Its declarations include the agent-specific framework failure
+    handlers.
     """
 
     routes = ClassRoutes()
@@ -1420,6 +1455,7 @@ class ExternalAgentRoutes:
         db: RepoMarkStore,
         user_profile_store: UserProfileStore,
         *,
+        agent_skills_root: Path,
         room_lord: RoomLord,
         presets_root: str | None,
     ) -> None:
@@ -1429,11 +1465,26 @@ class ExternalAgentRoutes:
 
         - `db`: Repository registry used to open and continue agent reviews.
         - `user_profile_store`: Profile and agent binding persistence.
+        - `agent_skills_root`: Directory containing the three installed agent
+          workflow skills exposed by onboarding.
         - `room_lord`: Room selection and Snapshot lookup interface.
         - `presets_root`: Optional preset catalog root used by review opening.
+
+        # Failures
+
+        - Raises when the skill root or any required `SKILL.md` is missing.
         """
+        resolved_skills_root = agent_skills_root.resolve(strict=True)
+        skill_paths = tuple(
+            (resolved_skills_root / name / "SKILL.md").resolve(strict=True)
+            for name in ("review-patch", "round-review", "babysit-patch")
+        )
+        assert all(path.is_file() for path in skill_paths), (
+            "agent skill entry must be a regular file"
+        )
         self.db = db
         self.user_profile_store = user_profile_store
+        self.agent_skill_paths = tuple(str(path) for path in skill_paths)
         self.room_lord = room_lord
         self.presets_root = presets_root
 
@@ -1799,6 +1850,156 @@ class ExternalAgentRoutes:
             has_more=page * limit < total,
             through_activity_id=through_activity_id,
         )
+
+    @routes.get(
+        "/api/agent/onboard",
+        response_model=AgentOnboardResponse,
+    )
+    def onboard_agent(
+        self,
+        request: Request,
+        tab: Literal["head", "refs", "branch-review", "pull-request"],
+        project_id: int | None = Query(default=None, ge=1),
+        left: str | None = Query(default=None, min_length=1),
+        right: str | None = Query(default=None, min_length=1),
+        base_source: Literal["local", "remote"] | None = None,
+        base_remote: str | None = Query(default=None, min_length=1),
+        base_branch: str | None = Query(default=None, min_length=1),
+        review_source: Literal["local", "remote"] | None = None,
+        review_remote: str | None = Query(default=None, min_length=1),
+        review_branch: str | None = Query(default=None, min_length=1),
+        pull_request_url: str | None = Query(default=None, min_length=1),
+    ) -> AgentOnboardResponse | PlainTextResponse:
+        """Describe one copied supported Tab and its installed agent skills.
+
+        The HUD constructs this URL only from a complete selected Head, Refs,
+        Branch Review, or Pull Request Tab. Repository ids are translated through
+        the active Mark registry; the response returns the existing join-review
+        Tab vocabulary, the server origin, and exact installed skill entry paths.
+
+        # Parameters
+
+        - `request`: Incoming HTTP entity whose origin becomes `dirdiff_url`.
+        - `tab`: Supported selected HUD Tab discriminating every other parameter.
+        - `project_id`: Active Mark identity required by repository-backed Tabs.
+        - `left`: Exact old side required only by Refs.
+        - `right`: Exact new side required only by Refs.
+        - `base_source`: Local or remote namespace required by Branch Review.
+        - `base_remote`: Remote name required only for a remote base branch.
+        - `base_branch`: Exact symbolic base branch required by Branch Review.
+        - `review_source`: Local or remote namespace required by Branch Review.
+        - `review_remote`: Remote name required only for a remote review branch.
+        - `review_branch`: Exact symbolic review branch required by Branch Review.
+        - `pull_request_url`: Complete Pull Request URL required only by that Tab.
+
+        # Returns
+
+        - `AgentOnboardResponse` for one exact supported parameter variant.
+        - `PlainTextResponse` with the agent error contract when parameters do not
+          describe that variant or the selected Mark is inactive.
+
+        # Failures
+
+        FastAPI rejects malformed scalar values. The handler rejects missing,
+        repeated, extraneous, or cross-variant parameters and inactive Marks.
+        """
+        values: dict[str, str | int] = {
+            name: value
+            for name, value in (
+                ("project_id", project_id),
+                ("left", left),
+                ("right", right),
+                ("base_source", base_source),
+                ("base_remote", base_remote),
+                ("base_branch", base_branch),
+                ("review_source", review_source),
+                ("review_remote", review_remote),
+                ("review_branch", review_branch),
+                ("pull_request_url", pull_request_url),
+            )
+            if value is not None
+        }
+
+        def require_parameters(required: set[str]) -> None:
+            """Reject parameters outside one exact discriminated Tab variant."""
+
+            supplied_query = request.query_params.multi_items()
+            supplied_names = {name for name, _value in supplied_query}
+            expected_names = {"tab", *required}
+            if (
+                set(values) != required
+                or supplied_names != expected_names
+                or len(supplied_query) != len(expected_names)
+            ):
+                required_text = ", ".join(sorted(expected_names))
+                raise DirdiffError(
+                    f"{tab} onboarding requires exactly: {required_text}."
+                )
+
+        try:
+            onboard_tab: AgentReviewTab
+            if tab == "pull-request":
+                require_parameters({"pull_request_url"})
+                assert pull_request_url is not None
+                onboard_tab = AgentPullRequestTab(
+                    kind="pull-request", url=pull_request_url
+                )
+            else:
+                if tab == "head":
+                    require_parameters({"project_id"})
+                elif tab == "refs":
+                    require_parameters({"project_id", "left", "right"})
+                else:
+                    required = {
+                        "project_id",
+                        "base_source",
+                        "base_branch",
+                        "review_source",
+                        "review_branch",
+                    }
+                    if base_source == "remote":
+                        required.add("base_remote")
+                    if review_source == "remote":
+                        required.add("review_remote")
+                    require_parameters(required)
+
+                assert project_id is not None
+                mark = self.db.get(project_id)
+                if mark is None:
+                    raise DirdiffError(
+                        f"Unknown active repository Mark: {project_id}."
+                    )
+                repo_path = str(mark.path)
+                if tab == "head":
+                    onboard_tab = AgentHeadTab(kind="head", repo_path=repo_path)
+                elif tab == "refs":
+                    assert left is not None and right is not None
+                    onboard_tab = AgentRefsTab(
+                        kind="refs",
+                        repo_path=repo_path,
+                        left=left,
+                        right=right,
+                    )
+                else:
+                    assert base_source is not None
+                    assert base_branch is not None
+                    assert review_source is not None
+                    assert review_branch is not None
+                    onboard_tab = AgentBranchReviewTab(
+                        kind="branch-review",
+                        repo_path=repo_path,
+                        base=AgentBranch(remote=base_remote, name=base_branch),
+                        review=AgentBranch(
+                            remote=review_remote, name=review_branch
+                        ),
+                    )
+            return AgentOnboardResponse(
+                dirdiff_url=str(request.base_url).rstrip("/"),
+                tab=onboard_tab,
+                skill_paths=list(self.agent_skill_paths),
+            )
+        except DirdiffError as exc:
+            return self.agent_failure(HTTPStatus.BAD_REQUEST, str(exc))
 
     @routes.exception_handler(RequestValidationError)
     async def validation_failure(

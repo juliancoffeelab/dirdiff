@@ -47,6 +47,10 @@ DEVELOPMENT_MIGRATION_CONFIG_PATH = (
     Path(__file__).resolve().parents[3] / "alembic.ini"
 )
 """Canonical Alembic configuration in an editable source checkout."""
+DEVELOPMENT_AGENT_SKILLS_PATH = (
+    Path(__file__).resolve().parents[3] / ".agents" / "skills"
+)
+"""Canonical external-agent skills in an editable source checkout."""
 
 DB_PATH_ENV = "DIRDIFF_DB_PATH"
 """Environment variable accepted as the CLI registry-path override.
@@ -59,6 +63,7 @@ helpers invoked directly. Blank values are treated as absent.
 __all__ = [
     "DB_PATH_ENV",
     "InstallationMode",
+    "agent_skills_path",
     "db_path_or_default",
     "default_db_path",
     "mark_repo",
@@ -66,6 +71,23 @@ __all__ = [
     "print_marked_repos",
     "remove_marked_repo",
 ]
+
+
+def agent_skills_path(mode: InstallationMode) -> Path:
+    """Return the fixed external-agent skill root for an installation mode.
+
+    Development exposes the canonical project-local skills so edits take effect
+    immediately. Release exposes the immutable copies bundled in the installed
+    package. Application construction validates every required entry file.
+
+    # Parameters
+
+    - `mode`: Validated installation mode selecting source or wheel resources.
+    """
+
+    if mode == "development":
+        return DEVELOPMENT_AGENT_SKILLS_PATH
+    return Path(str(distribution("dirdiff").locate_file("dirdiff/skills")))
 
 
 def migration_config_path(mode: InstallationMode) -> Path:

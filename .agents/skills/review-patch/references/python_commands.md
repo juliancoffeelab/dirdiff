@@ -20,7 +20,7 @@ diagnostic in the body that the bare traceback never shows.
 ## Contents
 
 - [Session variables](#session-variables)
-- [Join the HEAD/worktree review](#join-the-headworktree-review)
+- [Join the selected review](#join-the-selected-review)
 - [Enumerate the captured Snapshot](#enumerate-the-captured-snapshot)
 - [Read active or reviewer Threads](#read-active-or-reviewer-threads)
 - [Create a finding](#create-a-finding)
@@ -30,17 +30,29 @@ diagnostic in the body that the bare traceback never shows.
 ## Session variables
 
 ```sh
-: "${DD_URL:?Set DD_URL to the base URL printed by the running dirdiff backend}"
+: "${DD_URL:?Set DD_URL from onboarding or the identified running backend}"
 export DD_URL
-export DD_REPO_PATH="$(git rev-parse --show-toplevel)"
+export DD_TAB='compact-tab-json-from-onboarding-or-confirmed-selection'
 export DD_AGENT_UUID="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
 export DD_AGENT_NAME="AI reviewer ${DD_AGENT_UUID%${DD_AGENT_UUID#????????}}"
 ```
 
-`DD_URL` must be the address printed by the running dirdiff backend. The
-repository must already be marked.
+With a human-supplied onboarding URL, load it and use its `dirdiff_url` and
+complete `tab` unchanged. Without a link, ask what patch or Tab to review, use
+the running backend address identified by the project or human, and set
+`DD_TAB` to one matching object:
 
-## Join the HEAD/worktree review
+```json
+{"kind": "head", "repo_path": "/absolute/path/to/marked/repository"}
+{"kind": "refs", "repo_path": "/absolute/path/to/marked/repository", "left": "main", "right": "HEAD"}
+{"kind": "branch-review", "repo_path": "/absolute/path/to/marked/repository", "base": {"remote": null, "name": "main"}, "review": {"remote": null, "name": "feature/topic"}}
+{"kind": "pull-request", "url": "https://github.com/owner/repository/pull/123"}
+```
+
+The human's answer selects every value. Repository paths identify active Marks;
+Branch Review uses `null` for a local branch remote or its exact remote name.
+
+## Join the selected review
 
 ```sh
 python - <<'PY'
@@ -51,7 +63,7 @@ import urllib.request
 payload = {
     "agent_uuid": os.environ["DD_AGENT_UUID"],
     "name": os.environ["DD_AGENT_NAME"],
-    "tab": {"kind": "head", "repo_path": os.environ["DD_REPO_PATH"]},
+    "tab": json.loads(os.environ["DD_TAB"]),
 }
 request = urllib.request.Request(
     f'{os.environ["DD_URL"]}/api/agent/join_review',
@@ -62,26 +74,6 @@ request = urllib.request.Request(
 with urllib.request.urlopen(request) as response:
     print(json.dumps(json.load(response), indent=2))
 PY
-```
-
-The `tab` object selects the Tab kind. `{"kind": "head", ...}` above compares
-`HEAD` with the current worktree. The other kinds accepted by `join_review`:
-
-```python
-# Refs: two explicit sides of one marked repository.
-{"kind": "refs", "repo_path": REPO_PATH, "left": "main", "right": "HEAD"}
-
-# Branch review: one symbolic base and review branch pair.
-# remote is None for a local branch, or the remote name such as "origin".
-{
-    "kind": "branch-review",
-    "repo_path": REPO_PATH,
-    "base": {"remote": None, "name": "main"},
-    "review": {"remote": None, "name": "feature/topic"},
-}
-
-# Pull request: one supported Pull Request URL; takes no repo_path.
-{"kind": "pull-request", "url": "https://github.com/owner/repo/pull/123"}
 ```
 
 Export the returned values before later commands:

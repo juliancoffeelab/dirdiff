@@ -389,6 +389,7 @@ def create_app(
     user_profile_store: UserProfileStore | None = None,
     preferences_store: PreferencesStore | None = None,
     *,
+    agent_skills_root: Path,
     room_lord: RoomLord,
     presets_root: str | None = None,
 ) -> FastAPI:
@@ -406,6 +407,8 @@ def create_app(
       registry engine.
     - `preferences_store`: Preference persistence, or `None` to bind one to the
       registry engine.
+    - `agent_skills_root`: Exact installed instruction root exposed by agent
+      onboarding.
     - `room_lord`: Application boundary for Room selection and Snapshot lookup.
     - `presets_root`: Optional catalog root; omission uses the project's test
       presets directory at request time.
@@ -434,6 +437,7 @@ def create_app(
     external_agent_routes = ExternalAgentRoutes(
         db,
         user_profile_store,
+        agent_skills_root=agent_skills_root,
         room_lord=room_lord,
         presets_root=presets_root,
     )
@@ -489,6 +493,7 @@ def _create_runtime_app() -> FastAPI:
         repo_store,
         user_profile_store,
         preferences_store,
+        agent_skills_root=Path(config.agent_skills_path),
         room_lord=room_lord,
         presets_root=config.presets_root,
     )

@@ -50,8 +50,9 @@ directory. Dirdiff does not copy or search state between modes.
 The wheel target's custom Hatch hook runs only for a standard wheel. It creates
 fresh temporary output, runs `bun install --frozen-lockfile`, and runs the
 frontend `build` script. Vite receives that temporary output path through
-`DIRDIFF_FRONTEND_OUT_DIR`; it needs `VITE_DIRDIFF_BACKEND_ORIGIN` only while
-serving development.
+`DIRDIFF_FRONTEND_OUT_DIR`; while serving development it requires
+`VITE_DIRDIFF_BACKEND_ORIGIN` for both API proxying and copied agent-onboarding
+links. The release HUD uses its own origin for those links.
 
 The hook requires a regular `index.html` and an `assets` directory, includes the
 complete output at `dirdiff/frontend`, and deletes the temporary directory after
@@ -60,9 +61,9 @@ Hatch consumes it. It does not read `frontend/dist`, write generated files into
 frontend work.
 
 The source distribution contains the build hook, frontend source and config,
-`package.json`, and `bun.lock`. It excludes `node_modules` and compiled HUD
-output. A wheel built from an extracted source distribution uses only those
-files.
+`package.json`, `bun.lock`, and the three agent workflow skill directories. It
+excludes `node_modules` and compiled HUD output. A wheel built from an extracted
+source distribution uses only those files.
 
 The wheel also maps the root Alembic configuration and migration history into
 `dirdiff/db`. Development bootstrap uses the canonical files in the editable
@@ -70,6 +71,14 @@ checkout so migration edits take effect immediately. Release bootstrap uses the
 fixed installed resource, so an installed command never needs the original
 checkout to create or upgrade its schema. The validated installation mode
 selects this path before any persistent database is opened.
+
+The wheel maps the complete `review-patch`, `round-review`, and `babysit-patch`
+skill directories into `dirdiff/skills`. Editable startup exposes their
+canonical `.agents/skills` directories instead. Runtime configuration carries
+the selected root into application construction, which requires all three
+`SKILL.md` entry files before the onboarding route can be served. The route
+returns their resolved absolute paths; it does not extract, copy, or search for
+skills at request time.
 
 `tree-sitter-clojure` is a public HTTPS direct dependency pinned to immutable
 commit `86e2fe6dcdc973e4ca0e9e87dbbce0c34ad44f86`. That revision marks its native

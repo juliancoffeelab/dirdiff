@@ -68,6 +68,9 @@ packages = ["src/dirdiff"]
 [tool.hatch.build.targets.wheel.force-include]
 "alembic.ini" = "dirdiff/db/alembic.ini"
 "alembic" = "dirdiff/db/alembic"
+".agents/skills/review-patch" = "dirdiff/skills/review-patch"
+".agents/skills/round-review" = "dirdiff/skills/round-review"
+".agents/skills/babysit-patch" = "dirdiff/skills/babysit-patch"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 

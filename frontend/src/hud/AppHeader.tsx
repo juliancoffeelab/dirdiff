@@ -60,6 +60,18 @@ const viewLabels: Record<DiffViewMode, string> = {
  */
 type AppHeaderProps = {
   /**
+   * Returns the absolute onboarding URL for a complete supported active Tab.
+   *
+   * `null` means the current Tab is Preset or has no complete selected value.
+   * AppHeader forwards the accessor without reading or retaining its result.
+   *
+   * # Returns
+   *
+   * - Absolute onboarding endpoint for the complete active supported Tab.
+   * - `null` for Preset or an active workflow without a complete selection.
+   */
+  agentOnboardUrl: () => string | null;
+  /**
    * Confirmed Profile shown and used by the Profile control, or genuine absence.
    *
    * AppHeader forwards it without storing identity or preferences.
@@ -345,6 +357,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
           <div class="app-brand">
             <h1>dirdiff</h1>
             <Profile
+              agentOnboardUrl={props.agentOnboardUrl}
               selected={props.selectedProfile}
               metadataTarget={metadataTarget()}
               onSelected={props.onProfileSelected}
