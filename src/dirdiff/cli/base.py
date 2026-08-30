@@ -74,6 +74,89 @@ def configure_logging() -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 
 
+def _installation_mode() -> InstallationMode:
+    """Classify this installation from its standard direct-URL metadata.
+
+    An editable directory installation is development; wheel, archive, VCS,
+    non-editable directory, and index installations are release. Malformed
+    installed metadata raises instead of selecting a mode.
+    """
+
+    try:
+        installed_distribution = distribution("dirdiff")
+    except PackageNotFoundError as exc:
+        raise RuntimeError("dirdiff distribution metadata is missing") from exc
+    direct_url_text = installed_distribution.read_text("direct_url.json")
+    mode: InstallationMode = "release"
+    if direct_url_text is not None:
+        direct_url: JsonValue = json.loads(direct_url_text)
+        if not isinstance(direct_url, dict):
+            raise RuntimeError("dirdiff direct_url.json must contain an object")
+        url = direct_url.get("url")
+        if not isinstance(url, str) or url == "":
+            raise RuntimeError("dirdiff direct_url.json has no valid URL")
+        subdirectory = direct_url.get("subdirectory")
+        if subdirectory is not None and not isinstance(subdirectory, str):
+            raise RuntimeError(
+                "dirdiff direct_url.json has an invalid subdirectory"
+            )
+        info_keys = [
+            key
+            for key in ("archive_info", "dir_info", "vcs_info")
+            if key in direct_url
+        ]
+        if len(info_keys) != 1:
+            raise RuntimeError(
+                "dirdiff direct_url.json must contain one installation type"
+            )
+        info_key = info_keys[0]
+        info = direct_url[info_key]
+        if not isinstance(info, dict):
+            raise RuntimeError(
+                f"dirdiff direct_url.json {info_key} must contain an object"
+            )
+        if info_key == "dir_info":
+            editable = info.get("editable")
+            if editable is not None and not isinstance(editable, bool):
+                raise RuntimeError(
+                    "dirdiff direct_url.json editable flag must be boolean"
+                )
+            if editable is True:
+                mode = "development"
+        elif info_key == "vcs_info":
+            for field in ("vcs", "commit_id"):
+                value = info.get(field)
+                if not isinstance(value, str) or value == "":
+                    raise RuntimeError(
+                        f"dirdiff direct_url.json has no valid {field}"
+                    )
+            requested_revision = info.get("requested_revision")
+            if requested_revision is not None and not isinstance(
+                requested_revision, str
+            ):
+                raise RuntimeError(
+                    "dirdiff direct_url.json has an invalid requested revision"
+                )
+        else:
+            hashes = info.get("hashes")
+            if hashes is not None and (
+                not isinstance(hashes, dict)
+                or not all(
+                    isinstance(name, str) and isinstance(value, str)
+                    for name, value in hashes.items()
+                )
+            ):
+                raise RuntimeError(
+                    "dirdiff direct_url.json has invalid archive hashes"
+                )
+            archive_hash = info.get("hash")
+            if archive_hash is not None and not isinstance(archive_hash, str):
+                raise RuntimeError(
+                    "dirdiff direct_url.json has an invalid archive hash"
+                )
+    return mode
+
+
 @cli_app.callback(invoke_without_command=True)
 def start(
     ctx: typer.Context,
@@ -154,80 +237,8 @@ def start(
     command.
     """
 
-    # Standard direct-URL metadata is the sole development/release selector.
-    # Read it once here so every command and launch decision uses one result.
-    try:
-        installed_distribution = distribution("dirdiff")
-    except PackageNotFoundError as exc:
-        raise RuntimeError("dirdiff distribution metadata is missing") from exc
-    direct_url_text = installed_distribution.read_text("direct_url.json")
-    mode: InstallationMode = "release"
-    if direct_url_text is not None:
-        direct_url: JsonValue = json.loads(direct_url_text)
-        if not isinstance(direct_url, dict):
-            raise RuntimeError("dirdiff direct_url.json must contain an object")
-        url = direct_url.get("url")
-        if not isinstance(url, str) or url == "":
-            raise RuntimeError("dirdiff direct_url.json has no valid URL")
-        subdirectory = direct_url.get("subdirectory")
-        if subdirectory is not None and not isinstance(subdirectory, str):
-            raise RuntimeError(
-                "dirdiff direct_url.json has an invalid subdirectory"
-            )
-        info_keys = [
-            key
-            for key in ("archive_info", "dir_info", "vcs_info")
-            if key in direct_url
-        ]
-        if len(info_keys) != 1:
-            raise RuntimeError(
-                "dirdiff direct_url.json must contain one installation type"
-            )
-        info_key = info_keys[0]
-        info = direct_url[info_key]
-        if not isinstance(info, dict):
-            raise RuntimeError(
-                f"dirdiff direct_url.json {info_key} must contain an object"
-            )
-        if info_key == "dir_info":
-            editable = info.get("editable")
-            if editable is not None and not isinstance(editable, bool):
-                raise RuntimeError(
-                    "dirdiff direct_url.json editable flag must be boolean"
-                )
-            if editable is True:
-                mode = "development"
-        elif info_key == "vcs_info":
-            for field in ("vcs", "commit_id"):
-                value = info.get(field)
-                if not isinstance(value, str) or value == "":
-                    raise RuntimeError(
-                        f"dirdiff direct_url.json has no valid {field}"
-                    )
-            requested_revision = info.get("requested_revision")
-            if requested_revision is not None and not isinstance(
-                requested_revision, str
-            ):
-                raise RuntimeError(
-                    "dirdiff direct_url.json has an invalid requested revision"
-                )
-        else:
-            hashes = info.get("hashes")
-            if hashes is not None and (
-                not isinstance(hashes, dict)
-                or not all(
-                    isinstance(name, str) and isinstance(value, str)
-                    for name, value in hashes.items()
-                )
-            ):
-                raise RuntimeError(
-                    "dirdiff direct_url.json has invalid archive hashes"
-                )
-            archive_hash = info.get("hash")
-            if archive_hash is not None and not isinstance(archive_hash, str):
-                raise RuntimeError(
-                    "dirdiff direct_url.json has an invalid archive hash"
-                )
+    # Read the selector once so every command and launch decision agrees.
+    mode = _installation_mode()
 
     resolved_db_path = marker_utils.db_path_or_default(db_path, mode)
     resolved_store_path = (

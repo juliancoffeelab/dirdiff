@@ -1,9 +1,8 @@
-"""Construct the FastAPI application and compose its two launch topologies.
+"""Construct the FastAPI application and expose its process entrypoints.
 
 create_app composes the package route groups with concrete application-lifetime
-stores and one Room service. The uvicorn factories construct those dependencies
-from the serialized startup contract, then add either the development diagnostic
-or the installed release HUD.
+stores and one Room service. The uvicorn entrypoints construct those dependencies
+from the serialized startup contract and add the selected frontend response.
 
 The local route group handles Profile and preference HTTP entities and the
 unexpected-failure boundary. This module does not define repository, review,
