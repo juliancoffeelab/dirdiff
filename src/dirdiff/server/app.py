@@ -1,25 +1,29 @@
-"""Construct the FastAPI application and expose its process entrypoint.
+"""Construct the FastAPI application and compose its two launch topologies.
 
 create_app composes the package route groups with concrete application-lifetime
-stores and one Room service. uvicorn_entrypoint constructs those dependencies
-from the serialized startup contract.
+stores and one Room service. The uvicorn factories construct those dependencies
+from the serialized startup contract, then add either the development diagnostic
+or the installed release HUD.
 
-The local route group handles the missing-frontend response, Profile and
-preference HTTP entities, and the unexpected-failure boundary. This module does
-not define repository, review, external-agent, capture, or rendering behavior.
+The local route group handles Profile and preference HTTP entities and the
+unexpected-failure boundary. This module does not define repository, review,
+external-agent, capture, or rendering behavior.
 """
 
 import json
 import logging
 import os
 from http import HTTPStatus
+from importlib.resources import files
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
+    FileResponse,
     HTMLResponse,
     JSONResponse,
 )
+from fastapi.staticfiles import StaticFiles
 
 from dirdiff.db import (
     PreferencesStore,
@@ -43,7 +47,11 @@ from dirdiff.server.magic import ClassRoutes
 from dirdiff.server.repos import RepoRoutes
 from dirdiff.server.review import ReviewRoutes
 
-__all__ = ["create_app", "uvicorn_entrypoint"]
+__all__ = [
+    "create_app",
+    "development_uvicorn_entrypoint",
+    "release_uvicorn_entrypoint",
+]
 
 LOGGER = logging.getLogger(__name__)
 """Record unexpected failures at the application HTTP boundary."""
@@ -189,69 +197,6 @@ class _ApplicationRoutes:
         return JSONResponse(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             content={"detail": "Internal server error."},
-        )
-
-    @routes.get("/", response_class=HTMLResponse)
-    def serve_frontend_missing(self) -> HTMLResponse:
-        """Explain that the development API has no bundled HUD to serve.
-
-        The local startup flow expects Vite to serve the browser UI separately.
-        This fixed unavailable response points a human to that process and does
-        not probe, start, or substitute for it.
-
-        # Usage
-
-        The root development route returns this fixed response when no bundled
-        frontend is installed.
-        """
-        return HTMLResponse(
-            """
-            <!doctype html>
-            <html lang="en">
-              <head>
-                <meta charset="utf-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1" />
-                <title>dirdiff frontend unavailable</title>
-                <style>
-                  body {
-                    margin: 0;
-                    background: #fbfaf7;
-                    color: #24231f;
-                    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                  }
-                  main {
-                    max-width: 640px;
-                    margin: 72px auto;
-                    padding: 0 24px;
-                  }
-                  h1 {
-                    margin: 0 0 12px;
-                    font-size: 28px;
-                  }
-                  p {
-                    color: #625f58;
-                    line-height: 1.45;
-                  }
-                  code {
-                    color: #24231f;
-                    font-weight: 700;
-                  }
-                </style>
-              </head>
-              <body>
-                <main>
-                  <h1>Oops, the Vite frontend is not running.</h1>
-                  <p>
-                    dirdiff's API server is up, but the browser UI is served by
-                    Vite during local runs. Start dirdiff without
-                    <code>--no-frontend-dev</code>, or check the terminal for why
-                    Vite refused to start.
-                  </p>
-                </main>
-              </body>
-            </html>
-            """,
-            status_code=503,
         )
 
     @routes.post(
@@ -509,19 +454,19 @@ def create_app(
     return app
 
 
-def uvicorn_entrypoint() -> FastAPI:
-    """Construct the production app from the CLI's serialized runtime config.
+def _create_runtime_app() -> FastAPI:
+    """Construct one API application from serialized CLI configuration.
 
-    The factory opens one SQLite engine, builds the registry and Room
-    persistence interfaces over it, and supplies the configured store root to
-    `RoomLord`. The CLI must provide the environment payload and at least one
-    active Mark before uvicorn imports this function.
+    The development and release uvicorn factories share this application-lifetime
+    operation. It reads the process handoff once, opens one SQLite engine, builds
+    the stores and Room service, and returns an app with API and documentation
+    routes but no frontend route.
 
     # Usage
 
-    Configure uvicorn with this factory after the CLI writes
-    `RUNTIME_CONFIG_ENV`. Application code should call `create_app` directly
-    when dependencies are already available.
+    The two uvicorn factories call this after the CLI writes
+    `RUNTIME_CONFIG_ENV`. Application code with constructed dependencies should
+    call `create_app` directly.
 
     # Failures
 
@@ -532,7 +477,9 @@ def uvicorn_entrypoint() -> FastAPI:
     payload = os.environ.get(RUNTIME_CONFIG_ENV)
     assert payload is not None, "dirdiff runtime config missing"
     config = RuntimeConfig(**json.loads(payload))
-    engine = open_sqlite_engine(Path(config.db_path))
+    engine = open_sqlite_engine(
+        Path(config.db_path), Path(config.migration_config_path)
+    )
     repo_store = RepoMarkStore(engine)
     room_lord = RoomLord(RoomStore(engine), Path(config.store_path))
     user_profile_store = UserProfileStore(engine)
@@ -546,3 +493,98 @@ def uvicorn_entrypoint() -> FastAPI:
         room_lord=room_lord,
         presets_root=config.presets_root,
     )
+
+
+def development_uvicorn_entrypoint() -> FastAPI:
+    """Compose the reloadable API with its missing-Vite diagnostic page.
+
+    Editable CLI startup uses this factory whether Vite starts successfully or
+    the user selects backend-only development. Vite serves the real HUD on its
+    own port; the backend root only explains that fixed development contract.
+    """
+
+    app = _create_runtime_app()
+
+    @app.get("/", response_class=HTMLResponse)
+    def serve_frontend_missing() -> HTMLResponse:
+        """Explain that the development API has no bundled HUD to serve."""
+
+        return HTMLResponse(
+            """
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>dirdiff frontend unavailable</title>
+                <style>
+                  body {
+                    margin: 0;
+                    background: #fbfaf7;
+                    color: #24231f;
+                    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                  }
+                  main {
+                    max-width: 640px;
+                    margin: 72px auto;
+                    padding: 0 24px;
+                  }
+                  h1 {
+                    margin: 0 0 12px;
+                    font-size: 28px;
+                  }
+                  p {
+                    color: #625f58;
+                    line-height: 1.45;
+                  }
+                  code {
+                    color: #24231f;
+                    font-weight: 700;
+                  }
+                </style>
+              </head>
+              <body>
+                <main>
+                  <h1>Oops, the Vite frontend is not running.</h1>
+                  <p>
+                    dirdiff's API server is up, but the browser UI is served by
+                    Vite during local runs. Start dirdiff without
+                    <code>--no-frontend-dev</code>, or check the terminal for why
+                    Vite refused to start.
+                  </p>
+                </main>
+              </body>
+            </html>
+            """,
+            status_code=503,
+        )
+
+    return app
+
+
+def release_uvicorn_entrypoint() -> FastAPI:
+    """Compose the API with the HUD installed inside the dirdiff package.
+
+    Standard installations use this factory without Vite or reload. Construction
+    refuses a malformed wheel before uvicorn accepts traffic. The root returns
+    the compiled entry page, `/assets` returns Vite output, and all other browser
+    paths keep FastAPI's normal 404 response.
+    """
+
+    app = _create_runtime_app()
+    frontend_path = Path(str(files("dirdiff").joinpath("frontend")))
+    index_path = frontend_path / "index.html"
+    assets_path = frontend_path / "assets"
+    assert index_path.is_file(), f"bundled HUD entry is missing: {index_path}"
+    assert assets_path.is_dir(), (
+        f"bundled HUD assets are missing: {assets_path}"
+    )
+
+    @app.get("/")
+    def serve_release_frontend() -> FileResponse:
+        """Return the installed HUD entry page for every root query string."""
+
+        return FileResponse(index_path)
+
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+    return app

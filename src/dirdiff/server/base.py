@@ -50,8 +50,8 @@ __all__ = [
 RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
 """Process boundary carrying one serialized `RuntimeConfig` to uvicorn.
 
-The CLI writes it before uvicorn imports the app factory. `uvicorn_entrypoint`
-reads it once during construction; ordinary HTTP code never treats it as live
+The CLI writes it before uvicorn imports the selected app factory. The shared
+runtime constructor reads it once; ordinary HTTP code never treats it as live
 settings.
 """
 
@@ -64,8 +64,8 @@ class RuntimeConfig:
     serializes it into `RUNTIME_CONFIG_ENV` because uvicorn imports the app
     factory in a fresh module-loading path, especially when reload is enabled.
     This shared contract lets the CLI construct startup values without importing
-    the HTTP handlers. `uvicorn_entrypoint` is the only consumer of the serialized
-    payload.
+    the HTTP handlers. The shared runtime constructor is the only consumer of
+    the serialized payload.
     """
 
     db_path: str
@@ -74,6 +74,15 @@ class RuntimeConfig:
 
     The CLI resolves this to an absolute-ish string before launching uvicorn so
     reload workers do not need to know how command-line defaults were chosen.
+    """
+
+    migration_config_path: str
+    """
+    Alembic configuration selected for the installation mode.
+
+    Editable launches use the canonical checkout file; release launches use the
+    distribution resource bundled in the wheel. The server consumes this exact
+    path and must not discover or substitute migration resources itself.
     """
 
     store_path: str

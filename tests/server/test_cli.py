@@ -12,7 +12,9 @@ API.
 
 from __future__ import annotations
 
+import json
 import socket
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -20,11 +22,22 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from dirdiff.cli.server_launch import choose_port_pair, require_bindable_port
-from dirdiff.db import RepoMarkStore, RoomStore, open_ephemeral_engine
+from dirdiff.db import (
+    RepoMarkStore,
+    RoomStore,
+    open_ephemeral_engine,
+    open_sqlite_engine,
+)
 from dirdiff.engines import engine
 from dirdiff.formats import ComposeContext, Composer
 from dirdiff.room_lord import RoomLord
-from dirdiff.server import ComposedDiffResponse, create_app
+from dirdiff.server import (
+    RUNTIME_CONFIG_ENV,
+    ComposedDiffResponse,
+    RuntimeConfig,
+    create_app,
+    development_uvicorn_entrypoint,
+)
 
 
 def repo_mark_store() -> RepoMarkStore:
@@ -95,19 +108,38 @@ def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
     )
 
 
-def test_root_explains_vite_frontend_is_required(tmp_path: Path) -> None:
+def test_root_explains_vite_frontend_is_required(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The headless API root reports a missing development HUD as unavailable.
 
     Its HTML points to the Vite launch mode instead of pretending that the API
     process contains a generated frontend bundle.
+
+    # Parameters
+
+    - `tmp_path`: Disposable database and Snapshot root for the factory.
+    - `monkeypatch`: Process environment isolation for serialized runtime config.
     """
-    store = repo_mark_store()
-    client = TestClient(
-        create_app(
-            store,
-            room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
-        )
+    database_path = tmp_path / "dirdiff.sqlite"
+    migration_config_path = Path(__file__).parents[2] / "alembic.ini"
+    store = RepoMarkStore(
+        open_sqlite_engine(database_path, migration_config_path)
     )
+    store.new_mark(path=Path("/tmp"), name="repo")
+    monkeypatch.setenv(
+        RUNTIME_CONFIG_ENV,
+        json.dumps(
+            asdict(
+                RuntimeConfig(
+                    db_path=str(database_path),
+                    migration_config_path=str(migration_config_path),
+                    store_path=str(tmp_path / "store"),
+                )
+            )
+        ),
+    )
+    client = TestClient(development_uvicorn_entrypoint())
 
     response = client.get("/")
 

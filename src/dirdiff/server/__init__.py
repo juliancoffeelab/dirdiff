@@ -10,7 +10,11 @@ not implement persistence, workspace loading, diff engines, format composition,
 or review placement.
 """
 
-from dirdiff.server.app import create_app, uvicorn_entrypoint
+from dirdiff.server.app import (
+    create_app,
+    development_uvicorn_entrypoint,
+    release_uvicorn_entrypoint,
+)
 from dirdiff.server.base import RUNTIME_CONFIG_ENV, RuntimeConfig
 from dirdiff.server.diff import ComposedDiffResponse
 
@@ -19,5 +23,6 @@ __all__ = [
     "ComposedDiffResponse",
     "RuntimeConfig",
     "create_app",
-    "uvicorn_entrypoint",
+    "development_uvicorn_entrypoint",
+    "release_uvicorn_entrypoint",
 ]

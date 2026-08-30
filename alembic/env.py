@@ -33,11 +33,11 @@ provided_db_path = context.get_x_argument(as_dictionary=True).get("db_path")
 attribute_db_path = config.attributes.get("db_path")
 match attribute_db_path, provided_db_path:
     case Path() as attribute_path, _:
-        db_path = db_path_or_default(attribute_path)
+        db_path = db_path_or_default(attribute_path, "development")
     case None, str() as provided_path:
-        db_path = db_path_or_default(Path(provided_path))
+        db_path = db_path_or_default(Path(provided_path), "development")
     case None, None:
-        db_path = db_path_or_default(None)
+        db_path = db_path_or_default(None, "development")
     case r:
         raise AssertionError(f"unreachable path configuration: {r}")
 

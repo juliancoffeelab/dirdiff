@@ -1,11 +1,17 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
   const backendOrigin = process.env.VITE_DIRDIFF_BACKEND_ORIGIN;
-  if (!backendOrigin) {
+  if (command === "serve" && !backendOrigin) {
     throw new Error(
       "VITE_DIRDIFF_BACKEND_ORIGIN is required. Start Vite through `dirdiff` so the frontend is paired with its backend.",
+    );
+  }
+  const outputPath = process.env.DIRDIFF_FRONTEND_OUT_DIR;
+  if (command === "build" && !outputPath) {
+    throw new Error(
+      "DIRDIFF_FRONTEND_OUT_DIR is required for a production frontend build.",
     );
   }
 
@@ -32,7 +38,7 @@ export default defineConfig(() => {
       solid(),
     ],
     build: {
-      outDir: "../src/dirdiff/frontend",
+      outDir: outputPath,
       emptyOutDir: true,
     },
     server: {

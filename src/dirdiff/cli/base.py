@@ -18,17 +18,20 @@ workspace loading, diff rendering, or frontend behavior.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from dirdiff.server import RuntimeConfig
+from dirdiff.util import JsonValue
 
 from . import marker_utils, server_launch
-from .marker_utils import DB_PATH_ENV
+from .marker_utils import DB_PATH_ENV, InstallationMode
 
 __all__ = ["main"]
 
@@ -151,7 +154,82 @@ def start(
     command.
     """
 
-    resolved_db_path = marker_utils.db_path_or_default(db_path)
+    # Standard direct-URL metadata is the sole development/release selector.
+    # Read it once here so every command and launch decision uses one result.
+    try:
+        installed_distribution = distribution("dirdiff")
+    except PackageNotFoundError as exc:
+        raise RuntimeError("dirdiff distribution metadata is missing") from exc
+    direct_url_text = installed_distribution.read_text("direct_url.json")
+    mode: InstallationMode = "release"
+    if direct_url_text is not None:
+        direct_url: JsonValue = json.loads(direct_url_text)
+        if not isinstance(direct_url, dict):
+            raise RuntimeError("dirdiff direct_url.json must contain an object")
+        url = direct_url.get("url")
+        if not isinstance(url, str) or url == "":
+            raise RuntimeError("dirdiff direct_url.json has no valid URL")
+        subdirectory = direct_url.get("subdirectory")
+        if subdirectory is not None and not isinstance(subdirectory, str):
+            raise RuntimeError(
+                "dirdiff direct_url.json has an invalid subdirectory"
+            )
+        info_keys = [
+            key
+            for key in ("archive_info", "dir_info", "vcs_info")
+            if key in direct_url
+        ]
+        if len(info_keys) != 1:
+            raise RuntimeError(
+                "dirdiff direct_url.json must contain one installation type"
+            )
+        info_key = info_keys[0]
+        info = direct_url[info_key]
+        if not isinstance(info, dict):
+            raise RuntimeError(
+                f"dirdiff direct_url.json {info_key} must contain an object"
+            )
+        if info_key == "dir_info":
+            editable = info.get("editable")
+            if editable is not None and not isinstance(editable, bool):
+                raise RuntimeError(
+                    "dirdiff direct_url.json editable flag must be boolean"
+                )
+            if editable is True:
+                mode = "development"
+        elif info_key == "vcs_info":
+            for field in ("vcs", "commit_id"):
+                value = info.get(field)
+                if not isinstance(value, str) or value == "":
+                    raise RuntimeError(
+                        f"dirdiff direct_url.json has no valid {field}"
+                    )
+            requested_revision = info.get("requested_revision")
+            if requested_revision is not None and not isinstance(
+                requested_revision, str
+            ):
+                raise RuntimeError(
+                    "dirdiff direct_url.json has an invalid requested revision"
+                )
+        else:
+            hashes = info.get("hashes")
+            if hashes is not None and (
+                not isinstance(hashes, dict)
+                or not all(
+                    isinstance(name, str) and isinstance(value, str)
+                    for name, value in hashes.items()
+                )
+            ):
+                raise RuntimeError(
+                    "dirdiff direct_url.json has invalid archive hashes"
+                )
+            archive_hash = info.get("hash")
+            if archive_hash is not None and not isinstance(archive_hash, str):
+                raise RuntimeError(
+                    "dirdiff direct_url.json has an invalid archive hash"
+                )
+
+    resolved_db_path = marker_utils.db_path_or_default(db_path, mode)
     resolved_store_path = (
         store_path.expanduser() if store_path is not None else None
     )
@@ -163,12 +241,14 @@ def start(
         frontend_port=frontend_port,
         headless=headless,
         no_frontend_dev=no_frontend_dev,
+        mode=mode,
     )
     if ctx.invoked_subcommand is not None:
         return
     configure_logging()
     config = RuntimeConfig(
         db_path=str(resolved_db_path),
+        migration_config_path=str(marker_utils.migration_config_path(mode)),
         store_path=str(
             resolved_store_path or resolved_db_path.parent / "store"
         ),
@@ -180,6 +260,7 @@ def start(
         frontend_port=frontend_port,
         headless=headless,
         no_frontend_dev=no_frontend_dev,
+        mode=mode,
     )
 
 
@@ -227,6 +308,9 @@ def refs(
     assert isinstance(options, server_launch.AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
+        migration_config_path=str(
+            marker_utils.migration_config_path(options.mode)
+        ),
         store_path=str(options.store_path or options.db_path.parent / "store"),
         tab="refs",
         left=left,
@@ -239,6 +323,7 @@ def refs(
         frontend_port=options.frontend_port,
         headless=options.headless,
         no_frontend_dev=options.no_frontend_dev,
+        mode=options.mode,
     )
 
 
@@ -286,6 +371,9 @@ def branch(
     assert isinstance(options, server_launch.AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
+        migration_config_path=str(
+            marker_utils.migration_config_path(options.mode)
+        ),
         store_path=str(options.store_path or options.db_path.parent / "store"),
         tab="branch-review",
         base_selection={"source": "local", "branch": base_branch},
@@ -298,11 +386,13 @@ def branch(
         frontend_port=options.frontend_port,
         headless=options.headless,
         no_frontend_dev=options.no_frontend_dev,
+        mode=options.mode,
     )
 
 
 @cli_app.command()
 def mark(
+    ctx: typer.Context,
     path: Annotated[
         Path,
         typer.Option("--path", help="Repository path."),
@@ -342,6 +432,7 @@ def mark(
 
     # Parameters
 
+    - `ctx`: Typer context containing the validated installation mode.
     - `path`: Repository path used when creating a mark.
     - `name`: Display name, or `None` to derive it from the path.
     - `db_path`: Registry database path, or the configured default.
@@ -362,15 +453,26 @@ def mark(
     """
 
     configure_logging()
+    options = ctx.obj
+    assert isinstance(options, server_launch.AppOptions), "app options missing"
     if list_marks and remove_id is not None:
         raise typer.BadParameter("--list and --remove cannot be combined.")
     if list_marks:
-        marker_utils.print_marked_repos(db_path=db_path)
+        marker_utils.print_marked_repos(db_path=db_path, mode=options.mode)
         return
     if remove_id is not None:
-        marker_utils.remove_marked_repo(project_id=remove_id, db_path=db_path)
+        marker_utils.remove_marked_repo(
+            project_id=remove_id,
+            db_path=db_path,
+            mode=options.mode,
+        )
         return
-    marker_utils.mark_repo(repo_path=path, name=name, db_path=db_path)
+    marker_utils.mark_repo(
+        repo_path=path,
+        name=name,
+        db_path=db_path,
+        mode=options.mode,
+    )
 
 
 def main() -> None:

@@ -97,6 +97,12 @@ The Vite server turns JavaScript module changes into a full page reload before
 module replacement begins. CSS updates use Vite's normal stylesheet
 replacement.
 
+`vite.config.ts` requires the backend proxy origin only for the development
+server. Production builds require `DIRDIFF_FRONTEND_OUT_DIR` from the wheel
+hook and emit same-origin `/api` calls. The generated HUD is temporary wheel
+input rather than frontend source. The packaging contract is documented in
+[`release.md`](release.md).
+
 ### `styles.css`
 
 Defines the complete visual presentation of the frontend.

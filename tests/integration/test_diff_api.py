@@ -46,7 +46,8 @@ def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
     # Persistent dirdiff state is not valid worktree input. Keep this API
     # fixture outside the reviewed repository, as production configuration must.
     engine = open_sqlite_engine(
-        repo_path.parent / f".{repo_path.name}-dirdiff-test.sqlite"
+        repo_path.parent / f".{repo_path.name}-dirdiff-test.sqlite",
+        Path(__file__).parents[2] / "alembic.ini",
     )
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
@@ -832,7 +833,9 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
 
     Its endpoint must not require or expose a repository registration identity.
     """
-    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    engine = open_sqlite_engine(
+        tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
+    )
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
     client = TestClient(
@@ -925,7 +928,9 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
 
     Catalog selection changes fixture discovery only, never repository registry state.
     """
-    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    engine = open_sqlite_engine(
+        tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
+    )
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
     client = TestClient(
@@ -965,7 +970,9 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
 
     Explicit fixture metadata must drive the same manifest contract as size-based deferral.
     """
-    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    engine = open_sqlite_engine(
+        tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
+    )
     client = TestClient(
         create_app(
             RepoMarkStore(engine),
@@ -1013,7 +1020,9 @@ def test_preset_manifest_validates_required_preset_fields(
 
     Removing repository dependencies must not weaken catalog or fixture identity checks.
     """
-    engine = open_sqlite_engine(tmp_path / "dirdiff.sqlite")
+    engine = open_sqlite_engine(
+        tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
+    )
     repo_marks = RepoMarkStore(engine)
     user_profile = UserProfileStore(engine)
     client = TestClient(

@@ -186,7 +186,11 @@ def enable_sqlite_foreign_keys(
     cursor.close()
 
 
-def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
+def bootstrap_tables(
+    engine: Engine,
+    *,
+    migrate: Optional[tuple[Path, Path]] = None,
+) -> None:
     """Bring a database to the complete schema declared by dirdiff.
 
     Persistent databases follow the Alembic history and skip the upgrade when
@@ -197,8 +201,8 @@ def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
 
     - `engine`: Engine connected to the database whose schema must be ready
       when this call returns.
-    - `migrate`: Persistent SQLite path governed by Alembic, or `None` for a
-      new ephemeral database.
+    - `migrate`: Persistent SQLite path and its exact Alembic configuration, or
+      `None` for a new ephemeral database.
 
     # Usage
 
@@ -212,10 +216,13 @@ def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
       must not use the engine when bootstrapping does not complete.
     """
 
-    db_path = migrate
-    if db_path is not None:
-        project_root = Path(__file__).parents[3]
-        config = Config(project_root / "alembic.ini")
+    if migrate is not None:
+        db_path, migration_config_path = migrate
+        assert migration_config_path.is_file(), (
+            "database migration configuration is missing: "
+            f"{migration_config_path}"
+        )
+        config = Config(migration_config_path)
         config.attributes["db_path"] = db_path
         # A database already at head skips the full Alembic environment run,
         # which otherwise costs startup latency on every launch. A fresh or
@@ -230,7 +237,7 @@ def bootstrap_tables(engine: Engine, *, migrate: Optional[Path] = None) -> None:
         TableBase.metadata.create_all(engine)
 
 
-def open_sqlite_engine(db_path: Path) -> Engine:
+def open_sqlite_engine(db_path: Path, migration_config_path: Path) -> Engine:
     """Open and bootstrap the persistent dirdiff SQLite database.
 
     The path is expanded, its parent directories are created, SQLite connection
@@ -240,6 +247,8 @@ def open_sqlite_engine(db_path: Path) -> Engine:
     # Parameters
 
     - `db_path`: User-expandable database path; it need not already exist.
+    - `migration_config_path`: Existing Alembic configuration paired with its
+      migration history for this installation.
 
     # Usage
 
@@ -257,7 +266,10 @@ def open_sqlite_engine(db_path: Path) -> Engine:
     expanded_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{expanded_path}")
     event.listen(engine, "connect", enable_sqlite_foreign_keys)
-    bootstrap_tables(engine, migrate=expanded_path)
+    bootstrap_tables(
+        engine,
+        migrate=(expanded_path, migration_config_path),
+    )
     return engine
 
 

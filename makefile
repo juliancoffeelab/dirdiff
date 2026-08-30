@@ -103,5 +103,13 @@ format:
 	.venv/bin/ruff format
 	bun run --cwd frontend format
 
+dev:
+	uv run dirdiff
+
+install:
+	uv tool install .
+
 reinstall:
-	uv tool install -e . --reinstall
+	uv tool install . --reinstall
+
+.PHONY: dev install reinstall

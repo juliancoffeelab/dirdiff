@@ -28,7 +28,11 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 
 from dirdiff.backend import BranchSelection
-from dirdiff.cli.marker_utils import DEFAULT_DB_PATH
+from dirdiff.cli.marker_utils import (
+    InstallationMode,
+    default_db_path,
+    migration_config_path,
+)
 from dirdiff.db import RepoMarkStore, open_sqlite_engine
 from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
 
@@ -78,8 +82,8 @@ class AppOptions:
     """CLI options shared between the root callback and subcommands.
 
     The root callback constructs this value and stores it on `ctx.obj`; `refs`
-    and `branch` read it when building `RuntimeConfig`. The `mark` command has
-    its own options and does not consume this record.
+    and `branch` read it when building `RuntimeConfig`. The `mark` command reads
+    its installation mode so its implicit state stays isolated.
 
     It contains parsed CLI configuration only. The value owns no process,
     database connection, server state, or browser lifetime.
@@ -131,7 +135,15 @@ class AppOptions:
     no_frontend_dev: bool
     """Whether startup omits Vite and selects the backend URL directly.
 
-    Uvicorn still runs with reload enabled in this mode.
+    Uvicorn still runs with reload enabled in this mode. Release startup rejects
+    this option because its bundled HUD is always present.
+    """
+
+    mode: InstallationMode
+    """Topology selected once from standardized distribution metadata.
+
+    The value determines the server factory, reload behavior, frontend process,
+    and implicit persistence root. It is not inferred again by this module.
     """
 
 
@@ -380,18 +392,24 @@ def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
     )
 
 
-def require_marked_repos(db_path: Path) -> None:
+def require_marked_repos(db_path: Path, *, mode: InstallationMode) -> None:
     """Require at least one marked repository before launching the app.
 
     The browser UI needs a repo catalog immediately.  Failing here gives the
     user the exact `dirdiff mark` command instead of starting a mostly-empty
     server that would fail later through API calls.
 
+    # Parameters
+
+    - `db_path`: Exact registry path the server will open.
+    - `mode`: Validated installation mode used to identify an implicit path.
+
     # Usage
 
     `run_app` calls this before selecting ports or starting child processes.
-    Pass the same database path stored in `RuntimeConfig` so the preflight and
-    the server read one repository registry.
+    Pass the same database path stored in `RuntimeConfig` and its validated
+    installation mode so the preflight and server read one repository registry
+    and the implicit-path diagnostic stays accurate.
 
     # Failures
 
@@ -399,11 +417,11 @@ def require_marked_repos(db_path: Path) -> None:
     open and query errors propagate unchanged.
     """
 
-    engine = open_sqlite_engine(db_path)
+    engine = open_sqlite_engine(db_path, migration_config_path(mode))
     marks = RepoMarkStore(engine).list()
     if len(marks) > 0:
         return
-    if db_path == DEFAULT_DB_PATH:
+    if db_path == default_db_path(mode):
         raise SystemExit("No marked repos. Run: dirdiff mark /path/to/repo")
     raise SystemExit(
         f"No marked repos. Run: dirdiff mark /path/to/repo --db-path {db_path}"
@@ -548,18 +566,21 @@ def start_frontend(
     return frontend_process, frontend_url
 
 
-def run_uvicorn(*, config: RuntimeConfig, port: int) -> None:
+def run_uvicorn(
+    *, config: RuntimeConfig, port: int, mode: InstallationMode
+) -> None:
     """Run the FastAPI app through uvicorn's factory entrypoint.
 
     The config is serialized through `RUNTIME_CONFIG_ENV` because uvicorn
-    imports `dirdiff.server:uvicorn_entrypoint` independently of the Typer
-    command invocation.  Keeping that handoff here avoids global mutable server
-    state while preserving reload support.
+    imports the selected `dirdiff.server` factory independently of the Typer
+    command invocation. Keeping that handoff here avoids global mutable server
+    state while preserving development reload support.
 
     # Parameters
 
     - `config`: Complete runtime config serialized for the factory process.
     - `port`: Selected backend loopback port uvicorn must bind.
+    - `mode`: Validated topology selecting the factory and reload behavior.
 
     The call blocks until uvicorn exits and leaves the serialized config in the
     process environment for reload children.
@@ -581,14 +602,19 @@ def run_uvicorn(*, config: RuntimeConfig, port: int) -> None:
     import uvicorn  # noqa: PLC0415
 
     os.environ[RUNTIME_CONFIG_ENV] = json.dumps(asdict(config))
+    development = mode == "development"
     uvicorn.run(
-        "dirdiff.server:uvicorn_entrypoint",
+        (
+            "dirdiff.server:development_uvicorn_entrypoint"
+            if development
+            else "dirdiff.server:release_uvicorn_entrypoint"
+        ),
         host="127.0.0.1",
         port=port,
         factory=True,
-        reload=True,
-        reload_dirs=[str(BACKEND_RELOAD_DIR)],
-        reload_includes=["*.py"],
+        reload=development,
+        reload_dirs=[str(BACKEND_RELOAD_DIR)] if development else None,
+        reload_includes=["*.py"] if development else None,
     )
 
 
@@ -599,6 +625,7 @@ def run_app(
     frontend_port: int,
     headless: bool,
     no_frontend_dev: bool,
+    mode: InstallationMode,
 ) -> None:
     """Launch one complete local dirdiff app session.
 
@@ -614,9 +641,11 @@ def run_app(
     - `frontend_port`: Requested Vite loopback port.
     - `headless`: Whether to skip scheduling browser opening.
     - `no_frontend_dev`: Whether to omit Vite and use the backend URL.
+    - `mode`: Validated installation topology controlling the launch sequence.
 
-    At least one repository mark is required. If a Vite child starts, this
-    function terminates it when uvicorn returns or raises.
+    At least one repository mark is required. Development starts Vite unless
+    disabled and terminates that child when uvicorn returns or raises. Release
+    starts only uvicorn and rejects development-only frontend options.
 
     # Usage
 
@@ -631,9 +660,27 @@ def run_app(
     terminated in the `finally` block.
     """
 
+    if mode == "release":
+        if no_frontend_dev:
+            raise SystemExit(
+                "--no-frontend-dev is unavailable in a release installation."
+            )
+        if frontend_port != DEFAULT_FRONTEND_PORT:
+            raise SystemExit(
+                "--frontend-port is unavailable in a release installation."
+            )
+        require_marked_repos(Path(config.db_path), mode=mode)
+        require_bindable_port(port, label="Server")
+        url = build_url(port, config)
+        print(f"dirdiff: {url}", file=sys.stderr)
+        if not headless:
+            open_browser(url)
+        run_uvicorn(config=config, port=port, mode=mode)
+        return
+
     use_frontend_dev = not no_frontend_dev
 
-    require_marked_repos(Path(config.db_path))
+    require_marked_repos(Path(config.db_path), mode=mode)
     backend_port, frontend_port = choose_runtime_ports(
         backend_port=port,
         frontend_port=frontend_port,
@@ -653,7 +700,7 @@ def run_app(
     if not headless:
         open_browser(url)
     try:
-        run_uvicorn(config=config, port=backend_port)
+        run_uvicorn(config=config, port=backend_port, mode=mode)
     finally:
         if frontend_process is not None:
             frontend_process.terminate()

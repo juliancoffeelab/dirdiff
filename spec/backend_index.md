@@ -184,6 +184,11 @@ immutable records, and transactions through `RoomStore`.
 
 Its public interface is exported from `dirdiff.db`.
 
+Persistent engine bootstrap requires an explicit Alembic configuration path.
+Development passes the canonical checkout file; release passes the migration
+resource installed under `dirdiff/db`. Wheel configuration maps the canonical
+root migration files into that release resource.
+
 ## `dirdiff.room_lord`
 
 Exposes `RoomLord` and `Room`. `RoomLord.corresponding_room` applies a Tab's law
@@ -253,9 +258,13 @@ declarations and binds them during application construction.
 `external_agent.py` defines the external-agent HTTP contract and routes;
 `review.py` defines browser review routes; `repos.py` defines repository
 registry and ref-selection routes; and `diff.py` defines preset, manifest,
-lazy File, diff, and media routes. `app.py` keeps Profile and preference
-routes, the application-wide error boundary, application composition, and the
-uvicorn factory.
+lazy File, diff, and media routes. `app.py` keeps Profile and preference routes,
+the application-wide error boundary, frontend-independent application
+composition, and the development and release uvicorn factories. Both factories
+share one runtime-construction operation. Development adds the missing-Vite
+diagnostic. Release requires and serves the installed HUD entry and asset
+directory. The complete installation and launch contract is documented in
+[`release.md`](release.md).
 
 It validates HTTP inputs and outputs, constructs the concrete workspace backend,
 calls `RoomLord` for manifests and follow-up Snapshot lookup, asks
@@ -301,5 +310,9 @@ sole HTTP boundary for Pull Request preparation.
 
 Defines terminal commands and process startup.
 
-It parses CLI options, builds runtime configuration, starts the server, opens
-the browser, and exposes repository-mark commands.
+It parses CLI options, reads standardized installation metadata once, selects
+mode-specific implicit persistent paths, builds runtime configuration, starts
+the selected server topology, opens the browser, and exposes repository-mark
+commands. Editable installations run Vite and reloadable uvicorn; standard
+installations run the bundled HUD and API through one non-reloading uvicorn
+process. See [`release.md`](release.md).
